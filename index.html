@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>Folder Upload</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 10px;
+        }
+        #selectedPath {
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Select Folder to Upload</h1>
+    <button id="selectFolder">Choose Folder</button>
+    <div id="selectedPath"></div>
+
+    <script>
+        const { ipcRenderer } = require('electron');
+
+        document.getElementById('selectFolder').addEventListener('click', async () => {
+            const folderPath = await ipcRenderer.invoke('select-folder');
+            if (folderPath) {
+                document.getElementById('selectedPath').textContent = `Selected folder: ${folderPath}`;
+                await ipcRenderer.invoke('upload-files', folderPath);
+            }
+        });
+    </script>
+</body>
+</html>
