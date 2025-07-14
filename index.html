@@ -39,19 +39,27 @@
 
     <script>
         const { ipcRenderer } = require('electron');
-
-        document.getElementById('selectFolder').addEventListener('click', async () => {
+        // jQuery wants to override these, so rename require and remove the rest
+        window.nodeRequire = require;
+        delete window.require;
+        delete window.exports;
+        delete window.module;
+    </script>
+    <!-- TODO: Package jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <script>
+        $('#selectFolder').on('click', async () => {
             const folderPath = await ipcRenderer.invoke('select-folder');
             if (folderPath) {
-                document.getElementById('selectedPath').textContent = `Selected folder: ${folderPath}`;
+                $('#selectedPath').text(`Selected folder: ${folderPath}`);
                 await ipcRenderer.invoke('upload-files', folderPath);
             }
         });
 
-        document.getElementById('searchButton').addEventListener('click', async () => {
-            const searchTerm = document.getElementById('searchInput').value;
+        $('#searchButton').on('click', async () => {
+            const searchTerm = $('#searchInput').val();
             const results = await ipcRenderer.invoke('search-files', searchTerm);
-            document.getElementById('searchResults').textContent = `Search results: ${JSON.stringify(results)}`;
+            $('#searchResults').text(`Search results: ${JSON.stringify(results)}`);
         });
     </script>
 </body>
