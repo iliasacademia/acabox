@@ -7,7 +7,7 @@ const axios = require('axios');
 const  { HttpCookieAgent, HttpsCookieAgent } = require('http-cookie-agent/http');
 const axiosCookieJarSupport = require('axios-cookiejar-support').wrapper;
 const tough = require('tough-cookie');
-const { login, uploadFile } = require('./uploader.js');
+const { login, uploadFile, searchFiles } = require('./uploader.js');
 
 let mainWindow;
 
@@ -65,4 +65,10 @@ ipcMain.handle('upload-files', async (event, folderPath) => {
     // Do this synchronously so as not to overwhelm the server and the user’s network
     await uploadFile(filePath);
   }
+});
+
+ipcMain.handle('search-files', async (event, searchTerm) => {
+  // await login(); // Assume we’re logged in for now
+  const results = await searchFiles(searchTerm);
+  return results;
 });

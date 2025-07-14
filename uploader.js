@@ -14,8 +14,10 @@ const BASE_URL = 'https://www.devdemia.com/';
 // const BASE_URL = 'https://api.scholarific.com/';
 //const BASE_URL = 'https://requestmirror.dev/api/v1/test-endpoint';
 // disable for production
-const SUBDOMAIN_SUFFIX = '?subdomain_param=api';
-// const SUBDOMAIN_SUFFIX = '';
+const QUERY = { subdomain_param: 'api' }
+const SUBDOMAIN_SUFFIX = `?${new URLSearchParams(QUERY).toString()}`;
+// const QUERY = {};
+// const SUBDOMAIN_SUFFIX = ''; // TODO: rewrite the above to handle the empty case
 
 let apiClient;
 
@@ -120,9 +122,22 @@ const uploadFile = async (filePath) => {
     return response.data;
   }
 
+const searchFiles = async (searchTerm) => {
+  if (!apiClient) {
+    await login();
+  }
+  const client = await APIclient();
+  const response = await client.get(`v0/private_papers/search`, {
+    params: { search: searchTerm, ...QUERY },
+    // headers: {'x-csrf-token': await getCsrfToken()}
+  });
+  return response.data;
+}
+
 module.exports = {
     APIclient,
     getCsrfToken,
     login,
-    uploadFile
+    uploadFile,
+    searchFiles
 }

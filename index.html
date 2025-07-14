@@ -29,6 +29,13 @@
     <h1>Select Folder to Upload</h1>
     <button id="selectFolder">Choose Folder</button>
     <div id="selectedPath"></div>
+    <h1>Uploaded Files</h1>
+    <div id="uploadedFiles"></div>
+    <hr>
+    <h1>Title Search</h1>
+    <input type="text" id="searchInput" placeholder="Search by title">
+    <button id="searchButton">Search</button>
+    <div id="searchResults"></div>
 
     <script>
         const { ipcRenderer } = require('electron');
@@ -39,6 +46,12 @@
                 document.getElementById('selectedPath').textContent = `Selected folder: ${folderPath}`;
                 await ipcRenderer.invoke('upload-files', folderPath);
             }
+        });
+
+        document.getElementById('searchButton').addEventListener('click', async () => {
+            const searchTerm = document.getElementById('searchInput').value;
+            const results = await ipcRenderer.invoke('search-files', searchTerm);
+            document.getElementById('searchResults').textContent = `Search results: ${JSON.stringify(results)}`;
         });
     </script>
 </body>
