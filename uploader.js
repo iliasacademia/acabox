@@ -42,7 +42,10 @@ const APIclient = async () => {
       withCredentials: false,
       // jar: cookieJar,
       httpsAgent: new HttpsCookieAgent(agentArgs),
-      httpAgent: new HttpCookieAgent(agentArgs)
+      httpAgent: new HttpCookieAgent(agentArgs),
+      headers: {
+        Accept: 'application/json',
+      }
     });
     return apiClient;
   }
@@ -116,10 +119,15 @@ const uploadFile = async (filePath) => {
     formData.append('title', title);
     formData.append('file', fs.createReadStream(filePath));
     const response = await client.post(`v0/private_papers${SUBDOMAIN_SUFFIX}`, formData, {
-      headers: {'x-csrf-token': csrfToken, ...formData.getHeaders() }
+      headers: {'x-csrf-token': csrfToken, ...formData.getHeaders() },
+      validateStatus: (status) => {
+        // Allow everything so we can give the user feedback on the error
+        return true;
+        // return status >= 200 && status < 500;
+      }
     });
     // console.log(response);
-    return response.data;
+    return response;
   }
 
 const searchFiles = async (searchTerm) => {
