@@ -9,14 +9,6 @@ $(document).ready(() => {
     }
   });
 
-  $('#searchButton').on('click', async () => {
-    const searchTerm = $('#searchInput').val();
-    const results = await ipcRenderer.invoke('search-files', searchTerm);
-    const sr = $('#searchResults');
-    sr.text(`Search results: ${JSON.stringify(results)}`);
-    sr.show();
-  });
-
   ipcRenderer.on('file-uploaded', (evt, result) => {
     console.log(result);
     // TODO: extract this to a function
@@ -33,5 +25,14 @@ $(document).ready(() => {
 
     $('#uploadedFilesBody').append(`<tr><td class="title">${result.paper.title}</td><td class="file">${result.paper.file_file_name}</td><td class="result">${status}</td></tr>`);
     $('#uploadedFiles').show();
+  });
+
+  $('#searchButton').on('click', async () => {
+    const searchTerm = $('#searchInput').val();
+    const results = await ipcRenderer.invoke('search-files', searchTerm);
+    results.private_papers.forEach(result => {
+      $('#searchResultsBody').append(`<tr><td class="id">${result.id}</td><td class="title">${result.title}</td><td class="file">${result.file_name}</td></tr>`);
+    });
+    $('#searchResults').show();
   });
 });

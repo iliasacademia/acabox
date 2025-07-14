@@ -135,7 +135,7 @@ const searchFiles = async (searchTerm) => {
     await login();
   }
   const client = await APIclient();
-  const response = await client.get(`v0/private_papers/search`, {
+  const response = await client.get(`v0/private_papers/`, {
     params: { search: searchTerm, ...QUERY },
     // headers: {'x-csrf-token': await getCsrfToken()}
   });
