@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Folder Upload</title>
     <style>
+        /* TODO: Move this to an SCSS file */
         body {
             display: flex;
             flex-direction: column;
@@ -24,8 +25,21 @@
             margin-top: 20px;
         }
 
+        table {
+            border-collapse: collapse;
+        }
+        table, th, td {
+            border: 1px solid black;
+            vertical-align: top;
+            text-align: left;
+        }
+
         #uploadedFiles {
             display: none;
+        }
+
+        #uploadedFiles td.result {
+            text-align: right;
         }
 
         #searchResults {
@@ -42,9 +56,9 @@
         <table>
             <thead>
                 <tr>
-                    <th>Title</th>
-                    <th>File</th>
-                    <th>Result</th>
+                    <th class="title">Title</th>
+                    <th class="file">File</th>
+                    <th class="result">Result</th>
                 </tr>
             </thead>
             <tbody id="uploadedFilesBody">
@@ -71,7 +85,7 @@
     </div>
 
     <script>
-        const { ipcRenderer } = require('electron');
+        // const { ipcRenderer } = require('electron');
         // jQuery wants to override these, so rename require and remove the rest
         window.nodeRequire = require;
         delete window.require;
@@ -80,22 +94,5 @@
     </script>
     <!-- TODO: Package jQuery -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script>
-        $('#selectFolder').on('click', async () => {
-            const folderPath = await ipcRenderer.invoke('select-folder');
-            if (folderPath) {
-                $('#selectedPath').text(`Selected folder: ${folderPath}`);
-                await ipcRenderer.invoke('upload-files', folderPath);
-            }
-        });
-
-        $('#searchButton').on('click', async () => {
-            const searchTerm = $('#searchInput').val();
-            const results = await ipcRenderer.invoke('search-files', searchTerm);
-            const sr = $('#searchResults');
-            sr.text(`Search results: ${JSON.stringify(results)}`);
-            sr.show();
-        });
-    </script>
-</body>
+    <script src="./renderer.js"></script></body>
 </html>

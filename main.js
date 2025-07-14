@@ -22,8 +22,9 @@ const createWindow = async () => {
     width: 800,
     height: 600,
     webPreferences: {
+      // preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false // TODO: This is a security risk, but it was added by Cursor without my knowledge for jQuery to work.
     }
   });
 
@@ -64,7 +65,8 @@ ipcMain.handle('upload-files', async (event, folderPath) => {
     const filePath = path.join(folderPath, file);
     console.log(`Uploading ${filePath}`);
     // Do this synchronously so as not to overwhelm the server and the user’s network
-    await uploadFile(filePath);
+    const result = await uploadFile(filePath);
+    mainWindow.webContents.send('file-uploaded', {status: result.status, paper: result.data.private_paper});
   }
 });
 
