@@ -23,19 +23,52 @@
         #selectedPath {
             margin-top: 20px;
         }
+
+        #uploadedFiles {
+            display: none;
+        }
+
+        #searchResults {
+            display: none;
+        }
     </style>
 </head>
 <body>
     <h1>Select Folder to Upload</h1>
     <button id="selectFolder">Choose Folder</button>
     <div id="selectedPath"></div>
-    <h1>Uploaded Files</h1>
-    <div id="uploadedFiles"></div>
+    <div id="uploadedFiles">
+        <h1>Uploaded Files</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>File</th>
+                    <th>Result</th>
+                </tr>
+            </thead>
+            <tbody id="uploadedFilesBody">
+            </tbody>
+        </table>
+    </div>
     <hr>
     <h1>Title Search</h1>
     <input type="text" id="searchInput" placeholder="Search by title">
     <button id="searchButton">Search</button>
-    <div id="searchResults"></div>
+    <div id="searchResults">
+        <h1>Results</h1>
+        <table>
+            <thead>
+                <tr>
+                    <th>id</th>
+                    <th>Title</th>
+                    <th>File</th>
+                </tr>
+            </thead>
+            <tbody id="searchResultsBody">
+            </tbody>
+        </table>
+    </div>
 
     <script>
         const { ipcRenderer } = require('electron');
@@ -59,7 +92,9 @@
         $('#searchButton').on('click', async () => {
             const searchTerm = $('#searchInput').val();
             const results = await ipcRenderer.invoke('search-files', searchTerm);
-            $('#searchResults').text(`Search results: ${JSON.stringify(results)}`);
+            const sr = $('#searchResults');
+            sr.text(`Search results: ${JSON.stringify(results)}`);
+            sr.show();
         });
     </script>
 </body>
