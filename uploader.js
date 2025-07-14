@@ -95,15 +95,15 @@ const getTitle = async (filePath) => {
 // Some PDFs have newlines and multiple spaces in the title, as well as control characters.
 const normalizeTitle = async (filePath) => {
   let title = await getTitle(filePath) || filePath;
+  // normalize newlines, paragraph-, & line-endings into spaces
+  title = title.replace(/\n/g, ' ');
+  title = title.replace(/\p{Zl}/gu, ' ');
+  title = title.replace(/\p{Zp}/gu, ' ');
+
   // strip control characters, but not surrogates or formats
   title = title.replace(/\p{Cc}/gu, '');
   title = title.replace(/\p{Co}/gu, '');
   title = title.replace(/\p{Cn}/gu, '');
-
-  // normalize newlines, paragraph-, & line-endings into spaces
-  title = title.replace(/\n\r/g, ' ');
-  title = title.replace(/\p{Zl}/gu, ' ');
-  title = title.replace(/\p{Zp}/gu, ' ');
 
   // normalize whitespace
   title = title.replace(/\p{Zs}+/gu, ' ');
