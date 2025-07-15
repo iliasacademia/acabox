@@ -58,7 +58,7 @@ ipcMain.handle('select-folder', async () => {
 });
 
 ipcMain.handle('upload-files', async (event, folderPath) => {
-  const files = fs.readdirSync(folderPath);
+  const files = fs.readdirSync(folderPath, {recursive: true});
   const formData = new FormData();
 
 
