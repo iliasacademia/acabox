@@ -10,16 +10,7 @@ const fs = require('fs');
 const { PDFDocument } = require('pdf-lib');
 const { readFile } = require('fs/promises');
 
-// devdemia’s SSL certificate is only for the base domain, and Node SSL libraries don’t honor rejectUnauthorized with a name mismatch (!!)
-// const BASE_URL = 'https://api.devdemia.com/';
-const BASE_URL = 'https://www.devdemia.com/';
-// const BASE_URL = 'https://api.scholarific.com/';
-//const BASE_URL = 'https://requestmirror.dev/api/v1/test-endpoint';
-// disable for production
-const QUERY = { subdomain_param: 'api' }
-const SUBDOMAIN_SUFFIX = `?${new URLSearchParams(QUERY).toString()}`;
-// const QUERY = {};
-// const SUBDOMAIN_SUFFIX = ''; // TODO: rewrite the above to handle the empty case
+const BASE_URL = process.env.ACADEMIA_API_URL || 'https://api.academia.edu/';
 
 let apiClient;
 
@@ -28,14 +19,11 @@ const APIclient = async () => {
         return apiClient;
     }
     axiosCookieJarSupport(axios);
-    // DANGEROUS: disable TLS verification for devdemia.com (Name mismatch is not covered by rejectUnauthorized)
-    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-
     const cookieJar = new CookieJar(new FileCookieStore('./cookies.json')); // TODO: move to electronApp.getPath('userData')
     const agentArgs = {
       cookies: {jar: cookieJar},
-      rejectUnauthorized: false, // just for dev, we need to DtRT for production
-    //  keepAlive: true
+      rejectUnauthorized: !BASE_URL.includes('devdemia'),
+      // keepAlive: true
     }
     apiClient = axios.create({
       baseURL: BASE_URL,
@@ -66,7 +54,7 @@ const getCsrfToken = async () => {
         forcedJSONParsing: false,
         // clarifyTimeoutError: false
     }
-    const csrfResponse = await client.post(`csrf_meta${SUBDOMAIN_SUFFIX}`, {}, {headers, transitional,  maxRedirects: 0, transformResponse: x => x });
+    const csrfResponse = await client.post('csrf_meta', {}, {headers, transitional,  maxRedirects: 0, transformResponse: x => x });
     // console.log(csrfResponse);
     return csrfResponse.data;
   }
@@ -74,8 +62,6 @@ const getCsrfToken = async () => {
 const checkLogin = async () => {
   const client = await APIclient();
   const response = await client.get(`v0/user`, {
-    params: QUERY,
-    // headers: {'x-csrf-token': await getCsrfToken()}
     validateStatus: (status) => {
       if ((status >= 200 && status < 300) || status === 401) {
         return true;
@@ -92,7 +78,7 @@ const login = async (email, password) => {
     formData.append('login_email', email);
     formData.append('password', password);
     formData.append('remember_me', 'true');
-    const response = await client.post(`v0/login${SUBDOMAIN_SUFFIX}`, formData, {
+    const response = await client.post('v0/login', formData, {
       headers: {'x-csrf-token': await getCsrfToken(), ...formData.getHeaders() }
     }).catch(error => {
         const fs = require('node:fs');
@@ -134,7 +120,7 @@ const uploadFile = async (filePath) => {
     const csrfToken = await getCsrfToken();
     formData.append('title', title);
     formData.append('file', fs.createReadStream(filePath));
-    const response = await client.post(`v0/private_papers${SUBDOMAIN_SUFFIX}`, formData, {
+    const response = await client.post('v0/private_papers', formData, {
       headers: {'x-csrf-token': csrfToken, ...formData.getHeaders() },
       validateStatus: (status) => {
         // Allow everything so we can give the user feedback on the error
@@ -149,7 +135,7 @@ const uploadFile = async (filePath) => {
 const searchFiles = async (searchTerm) => {
   const client = await APIclient();
   const response = await client.get(`v0/private_papers/`, {
-    params: { search: searchTerm, ...QUERY },
+    params: { search: searchTerm },
     // headers: {'x-csrf-token': await getCsrfToken()}
   });
   return response.data;

@@ -11,12 +11,6 @@ const { login, uploadFile, searchFiles, checkLogin } = require('./uploader.js');
 
 let mainWindow;
 
-const devIP = '10.40.2.129';
-// app.commandLine.appendSwitch('host-rules', `MAP *.devemia.com ${devIP},MAP devemia.com ${devIP}`);
-// TODO: DO NOT DO THIS IN PRODUCTION
-app.commandLine.appendSwitch('ignore-certificate-errors');
-
-
 const createWindow = async () => {
   mainWindow = new BrowserWindow({
     width: 800,
