@@ -67,7 +67,7 @@ ipcMain.handle('upload-files', async (event, folderPath) => {
     const filePath = path.join(folderPath, file);
     console.log(`Uploading ${filePath}`);
     // Do this synchronously so as not to overwhelm the server and the user’s network
-    const result = await uploadFile(filePath);
+    const result = await uploadFile(filePath, folderPath);
     mainWindow.webContents.send('file-uploaded', {status: result.status, paper: result.data.private_paper});
   }
 });

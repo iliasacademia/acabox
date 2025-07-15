@@ -99,8 +99,8 @@ const getTitle = async (filePath) => {
 }
 
 // Some PDFs have newlines and multiple spaces in the title, as well as control characters.
-const normalizeTitle = async (filePath) => {
-  let title = await getTitle(filePath) || filePath;
+const normalizeTitle = async (filePath, basePath) => {
+  let title = await getTitle(filePath) || filePath.replace(basePath, '');
   // normalize newlines, paragraph-, & line-endings into spaces
   title = title.replace(/\n/g, ' ');
   title = title.replace(/\p{Zl}/gu, ' ');
@@ -117,10 +117,10 @@ const normalizeTitle = async (filePath) => {
   return title.trim();
 }
 
-const uploadFile = async (filePath) => {
+const uploadFile = async (filePath, basePath) => {
     const client = await APIclient();
     const formData = new FormData();
-    const title = await normalizeTitle(filePath);
+    const title = await normalizeTitle(filePath, basePath);
     const csrfToken = await getCsrfToken();
     formData.append('title', title);
     formData.append('file', fs.createReadStream(filePath));
