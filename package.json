@@ -18,6 +18,7 @@
     "form-data": "^4.0.3",
     "http-cookie-agent": "^7.0.1",
     "pdf-lib": "^1.17.1",
-    "tough-cookie": "^5.1.2"
+    "tough-cookie": "^5.1.2",
+    "tough-cookie-file-store": "^3.2.1"
   }
 }

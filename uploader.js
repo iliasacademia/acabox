@@ -3,7 +3,9 @@ const https = require("https");
 const axios = require('axios');
 const  { HttpCookieAgent, HttpsCookieAgent } = require('http-cookie-agent/http');
 const axiosCookieJarSupport = require('axios-cookiejar-support').wrapper;
-const tough = require('tough-cookie');
+const {CookieJar} = require('tough-cookie');
+const FileCookieStore = require('tough-cookie-file-store').default;
+
 const fs = require('fs');
 const { PDFDocument } = require('pdf-lib');
 const { readFile } = require('fs/promises');
@@ -29,7 +31,7 @@ const APIclient = async () => {
     // DANGEROUS: disable TLS verification for devdemia.com (Name mismatch is not covered by rejectUnauthorized)
     process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 
-    const cookieJar = new tough.CookieJar();
+    const cookieJar = new CookieJar(new FileCookieStore('./cookies.json')); // TODO: move to electronApp.getPath('userData')
     const agentArgs = {
       cookies: {jar: cookieJar},
       rejectUnauthorized: false, // just for dev, we need to DtRT for production
@@ -81,7 +83,7 @@ const checkLogin = async () => {
       return false;
     }
   });
-  return response.status === 401;
+  return response.status !== 401;
 }
 
 const login = async (email, password) => {
