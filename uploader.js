@@ -7,8 +7,12 @@ const {CookieJar} = require('tough-cookie');
 const FileCookieStore = require('tough-cookie-file-store').default;
 
 const fs = require('fs');
+const path = require('path');
 const { PDFDocument } = require('pdf-lib');
 const { readFile } = require('fs/promises');
+
+// TODO: This file should be refactored into a class, so that things like the cookie path can be passed to the constructor. But for now this kludge works.
+const { app } = require('electron');
 
 const BASE_URL = process.env.ACADEMIA_API_URL || 'https://api.academia.edu/';
 
@@ -19,7 +23,7 @@ const APIclient = async () => {
         return apiClient;
     }
     axiosCookieJarSupport(axios);
-    const cookieJar = new CookieJar(new FileCookieStore('./cookies.json')); // TODO: move to electronApp.getPath('userData')
+    const cookieJar = new CookieJar(new FileCookieStore(path.join(app.getPath('userData'), 'backendCookies.json')));
     const agentArgs = {
       cookies: {jar: cookieJar},
       rejectUnauthorized: !BASE_URL.includes('devdemia'),
