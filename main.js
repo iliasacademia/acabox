@@ -16,9 +16,9 @@ const createWindow = async () => {
     width: 800,
     height: 600,
     webPreferences: {
-      // preload: path.join(__dirname, 'preload.js'),
-      nodeIntegration: true,
-      contextIsolation: false // TODO: This is a security risk, but it was added by Cursor without my knowledge for jQuery to work.
+      preload: path.join(__dirname, 'preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true
     }
   });
 

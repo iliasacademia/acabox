@@ -117,15 +117,6 @@
             <div id="loginError" style="display: none;"></div>
         </div>
     </div>
-
-    <script>
-        // const { ipcRenderer } = require('electron');
-        // jQuery wants to override these, so rename require and remove the rest
-        window.nodeRequire = require;
-        delete window.require;
-        delete window.exports;
-        delete window.module;
-    </script>
     <!-- TODO: Package jQuery -->
     <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
     <script src="./renderer.js"></script></body>
