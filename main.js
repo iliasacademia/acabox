@@ -7,7 +7,7 @@ const axios = require('axios');
 const  { HttpCookieAgent, HttpsCookieAgent } = require('http-cookie-agent/http');
 const axiosCookieJarSupport = require('axios-cookiejar-support').wrapper;
 const tough = require('tough-cookie');
-const { login, uploadFile, searchFiles } = require('./uploader.js');
+const { login, uploadFile, searchFiles, checkLogin } = require('./uploader.js');
 
 let mainWindow;
 
@@ -46,6 +46,16 @@ app.on('activate', () => {
   }
 });
 
+ipcMain.handle('check-login', async () => {
+  const result = await checkLogin();
+  return result;
+});
+
+ipcMain.handle('login', async (_event, email, password) => {
+  const result = await login(email, password);
+  return {success: result.status >= 200 && result.status < 300, data: result.data};
+});
+
 ipcMain.handle('select-folder', async () => {
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
@@ -54,8 +64,6 @@ ipcMain.handle('select-folder', async () => {
 });
 
 ipcMain.handle('upload-files', async (event, folderPath) => {
-  // TODO: Parallelize
-  await login();
   const files = fs.readdirSync(folderPath);
   const formData = new FormData();
 
@@ -71,7 +79,6 @@ ipcMain.handle('upload-files', async (event, folderPath) => {
 });
 
 ipcMain.handle('search-files', async (event, searchTerm) => {
-  // await login(); // Assume we’re logged in for now
   const results = await searchFiles(searchTerm);
   return results;
 });

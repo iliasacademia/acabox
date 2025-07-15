@@ -22,7 +22,6 @@ const SUBDOMAIN_SUFFIX = `?${new URLSearchParams(QUERY).toString()}`;
 let apiClient;
 
 const APIclient = async () => {
-
   if (apiClient) {
         return apiClient;
     }
@@ -70,11 +69,26 @@ const getCsrfToken = async () => {
     return csrfResponse.data;
   }
 
-const login = async () => {
+const checkLogin = async () => {
+  const client = await APIclient();
+  const response = await client.get(`v0/user`, {
+    params: QUERY,
+    // headers: {'x-csrf-token': await getCsrfToken()}
+    validateStatus: (status) => {
+      if ((status >= 200 && status < 300) || status === 401) {
+        return true;
+      }
+      return false;
+    }
+  });
+  return response.status === 401;
+}
+
+const login = async (email, password) => {
     const client = await APIclient();
     const formData = new FormData();
-    formData.append('login_email', process.env.UPLOAD_USERNAME);
-    formData.append('password', process.env.UPLOAD_PASSWORD);
+    formData.append('login_email', email);
+    formData.append('password', password);
     formData.append('remember_me', 'true');
     const response = await client.post(`v0/login${SUBDOMAIN_SUFFIX}`, formData, {
       headers: {'x-csrf-token': await getCsrfToken(), ...formData.getHeaders() }
@@ -83,7 +97,7 @@ const login = async () => {
         fs.writeFileSync('/tmp/wtf.html', error.response.data);
         console.log(error);
     });
-    return response.data;
+    return response;
   }
 
 const getTitle = async (filePath) => {
@@ -131,9 +145,6 @@ const uploadFile = async (filePath) => {
   }
 
 const searchFiles = async (searchTerm) => {
-  if (!apiClient) {
-    await login();
-  }
   const client = await APIclient();
   const response = await client.get(`v0/private_papers/`, {
     params: { search: searchTerm, ...QUERY },
@@ -143,8 +154,9 @@ const searchFiles = async (searchTerm) => {
 }
 
 module.exports = {
-    APIclient,
-    getCsrfToken,
+    // APIclient,
+    // getCsrfToken,
+    checkLogin,
     login,
     uploadFile,
     searchFiles

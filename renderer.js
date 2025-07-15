@@ -35,4 +35,24 @@ $(document).ready(() => {
     });
     $('#searchResults').show();
   });
+
+  $('#loginButton').on('click', async () => {
+    const email = $('#loginEmail').val();
+    const password = $('#loginPassword').val();
+    const result = await ipcRenderer.invoke('login', email, password);
+    if (result.success) {
+      $('#loginModal').hide();
+    } else {
+      $('#loginError').text(result.data.message).show();
+    }
+  });
+
+  const showConditionalLogin = async () => {
+    const isLoggedIn = await ipcRenderer.invoke('check-login');
+    if (!isLoggedIn) {
+      $('#loginModal').show();
+    }
+  }
+
+  showConditionalLogin();
 });
