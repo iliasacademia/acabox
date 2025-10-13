@@ -14,7 +14,10 @@ const { readFile } = require('fs/promises');
 // TODO: This file should be refactored into a class, so that things like the cookie path can be passed to the constructor. But for now this kludge works.
 const { app } = require('electron');
 
-const BASE_URL = process.env.ACADEMIA_API_URL || 'https://api.academia.edu/';
+// In development mode, default to devdemia API
+const isDev = !app.isPackaged;
+const DEFAULT_URL = isDev ? 'https://api.devdemia.com/' : 'https://api.academia.edu/';
+const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 
 let apiClient;
 
