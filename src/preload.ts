@@ -1,11 +1,11 @@
-const { contextBridge, ipcRenderer } = require('electron');
+import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
   // IPC handlers
-  invoke: (channel, ...args) => {
-    const validChannels = ['check-login', 'login', 'select-folder', 'upload-files', 'search-files'];
+  invoke: (channel: string, ...args: any[]) => {
+    const validChannels = ['check-login', 'login', 'logout', 'select-folder', 'upload-files', 'search-files'];
     if (validChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);
     }
@@ -13,7 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Event listeners
-  on: (channel, callback) => {
+  on: (channel: string, callback: (event: IpcRendererEvent, ...args: any[]) => void) => {
     const validChannels = ['file-uploaded'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, callback);
@@ -21,10 +21,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   // Remove event listeners
-  removeAllListeners: (channel) => {
+  removeAllListeners: (channel: string) => {
     const validChannels = ['file-uploaded'];
     if (validChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }
-  }
+  },
 });

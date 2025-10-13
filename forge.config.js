@@ -26,6 +26,25 @@ module.exports = {
   ],
   plugins: [
     {
+      name: '@electron-forge/plugin-webpack',
+      config: {
+        mainConfig: './webpack.main.config.js',
+        renderer: {
+          config: './webpack.renderer.config.js',
+          entryPoints: [
+            {
+              html: './src/index.html',
+              js: './src/renderer/index.tsx',
+              name: 'main_window',
+              preload: {
+                js: './src/preload.ts',
+              },
+            },
+          ],
+        },
+      },
+    },
+    {
       name: '@electron-forge/plugin-auto-unpack-natives',
       config: {},
     },
