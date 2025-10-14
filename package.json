@@ -25,6 +25,7 @@
     "@types/node": "^24.7.2",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
+    "copy-webpack-plugin": "^13.0.1",
     "css-loader": "^7.1.2",
     "electron": "^37.2.0",
     "electron-reload": "^2.0.0-alpha.1",
@@ -42,6 +43,8 @@
     "pdf-lib": "^1.17.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "tesseract.js": "^6.0.1",
+    "tesseract.js-core": "^6.0.0",
     "tough-cookie": "^5.1.2",
     "tough-cookie-file-store": "^3.2.1"
   }

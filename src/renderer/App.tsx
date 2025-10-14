@@ -2,9 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import LoginModal from './components/LoginModal';
 import UploadSection from './components/UploadSection';
 import SearchSection from './components/SearchSection';
+import ScreenReader from './components/ScreenReader';
 import './App.css';
 
-type Page = 'uploader' | 'notifications';
+type Page = 'uploader' | 'notifications' | 'screenReader';
 
 interface DesktopNotification {
   created_at: number;
@@ -127,6 +128,12 @@ const App: React.FC = () => {
           >
             Notifications
           </button>
+          <button
+            className={`menuItem ${currentPage === 'screenReader' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('screenReader')}
+          >
+            Screen Reader
+          </button>
         </nav>
         <button id="logoutButton" onClick={handleLogout}>
           Logout
@@ -154,6 +161,7 @@ const App: React.FC = () => {
             </button>
           </>
         )}
+        {currentPage === 'screenReader' && <ScreenReader />}
       </div>
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
     </div>

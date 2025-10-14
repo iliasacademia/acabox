@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Screen Reader Overlay</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      overflow: hidden;
+      background: transparent;
+      pointer-events: none;
+      /* Red border for development debugging */
+      border: 5px solid red;
+      width: 100vw;
+      height: 100vh;
+    }
+
+    .highlight {
+      position: absolute;
+      background-color: rgba(255, 255, 0, 0.3);
+      border: 2px solid rgba(255, 200, 0, 0.8);
+      pointer-events: none;
+      z-index: 9999;
+    }
+  </style>
+</head>
+<body>
+  <div id="highlights-container"></div>
+  <script>
+    const { ipcRenderer } = require('electron');
+
+    // Listen for highlight data from main process
+    ipcRenderer.on('update-highlights', (event, matches) => {
+      const container = document.getElementById('highlights-container');
+
+      // Clear existing highlights
+      container.innerHTML = '';
+
+      // Create new highlights
+      if (matches && matches.length > 0) {
+        matches.forEach((match) => {
+          const highlight = document.createElement('div');
+          highlight.className = 'highlight';
+          highlight.style.left = `${match.bbox.x0}px`;
+          highlight.style.top = `${match.bbox.y0}px`;
+          highlight.style.width = `${match.bbox.x1 - match.bbox.x0}px`;
+          highlight.style.height = `${match.bbox.y1 - match.bbox.y0}px`;
+          container.appendChild(highlight);
+        });
+      }
+    });
+  </script>
+</body>
+</html>
