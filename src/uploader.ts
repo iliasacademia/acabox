@@ -67,6 +67,19 @@ export const checkLogin = async (): Promise<boolean> => {
   return response.status !== 401;
 };
 
+export const getCurrentUser = async (): Promise<{ id: number } | null> => {
+  const client = await APIclient();
+  const response = await client.get('v0/user', {
+    validateStatus: (status) => {
+      return (status >= 200 && status < 300) || status === 401;
+    },
+  });
+  if (response.status === 401) {
+    return null;
+  }
+  return response.data;
+};
+
 export const login = async (email: string, password: string) => {
   const client = await APIclient();
   const formData = new FormData();
@@ -151,4 +164,37 @@ export const logout = async () => {
   apiClient = null;
 
   return { success: true };
+};
+
+// Desktop Notifications API
+export interface DesktopNotification {
+  created_at: number;
+  title: string;
+  description: string;
+  shown_at: number | null;
+}
+
+export interface GetNotificationsResponse {
+  notifications: DesktopNotification[];
+}
+
+export const getNotifications = async (): Promise<GetNotificationsResponse> => {
+  const client = await APIclient();
+  const response = await client.get('/v0/desktop_notifications/get_notifications');
+  return response.data;
+};
+
+export const updateNotification = async (userId: number, createdAt: number): Promise<void> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+  await client.patch(
+    '/v0/desktop_notifications/update_notification',
+    {
+      user_id: userId,
+      created_at: createdAt,
+    },
+    {
+      headers: { 'x-csrf-token': csrfToken },
+    }
+  );
 };

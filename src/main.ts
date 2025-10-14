@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { login, logout, uploadFile, searchFiles, checkLogin } from './uploader';
+import { login, logout, uploadFile, searchFiles, checkLogin, getNotifications, updateNotification, getCurrentUser } from './uploader';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -89,4 +89,34 @@ ipcMain.handle('upload-files', async (_event, folderPath: string) => {
 ipcMain.handle('search-files', async (_event, searchTerm: string) => {
   const results = await searchFiles(searchTerm);
   return results;
+});
+
+ipcMain.handle('get-notifications', async () => {
+  try {
+    const result = await getNotifications();
+    return result;
+  } catch (error: any) {
+    console.error('Failed to get notifications:', error);
+    return { notifications: [] };
+  }
+});
+
+ipcMain.handle('update-notification', async (_event, userId: number, createdAt: number) => {
+  try {
+    await updateNotification(userId, createdAt);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to update notification:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-current-user', async () => {
+  try {
+    const user = await getCurrentUser();
+    return user;
+  } catch (error: any) {
+    console.error('Failed to get current user:', error);
+    return null;
+  }
 });
