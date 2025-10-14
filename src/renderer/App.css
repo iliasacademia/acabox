@@ -54,13 +54,40 @@ button {
   border-right: 1px solid #ddd;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  align-items: stretch;
+}
+
+.sidebarNav {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.menuItem {
+  padding: 10px 15px;
+  margin: 0;
+  background-color: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.menuItem:hover {
+  background-color: #e0e0e0;
+}
+
+.menuItem.active {
+  background-color: #007bff;
+  color: white;
 }
 
 #logoutButton {
   padding: 8px 16px;
   margin: 0;
+  margin-top: auto;
 }
 
 table {
