@@ -13,6 +13,7 @@ module.exports = {
   },
   externals: {
     'tesseract.js': 'commonjs2 tesseract.js',
+    '@cherrystudio/mac-system-ocr': 'commonjs2 @cherrystudio/mac-system-ocr',
   },
   plugins: require('./webpack.plugins'),
 };

@@ -11,6 +11,10 @@ module.exports = [
         from: 'src/overlay.html',
         to: 'overlay.html',
       },
+      {
+        from: 'src/applescripts',
+        to: 'applescripts',
+      },
     ],
   }),
 ];

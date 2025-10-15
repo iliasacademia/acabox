@@ -6,6 +6,7 @@
   "scripts": {
     "start": "electron-forge start",
     "typecheck": "tsc --noEmit",
+    "lint:applescript": "find src/applescripts -name '*.applescript' -exec osacompile -o /dev/null {} \\;",
     "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
     "make": "electron-forge make"
@@ -35,6 +36,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@cherrystudio/mac-system-ocr": "^0.2.7",
     "axios": "^1.10.0",
     "axios-cookiejar-support": "^6.0.3",
     "chokidar": "^4.0.3",
@@ -45,7 +47,6 @@
     "pdf-lib": "^1.17.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tesseract.js": "^6.0.1",
     "tesseract.js-core": "^6.0.0",
     "tough-cookie": "^5.1.2",
     "tough-cookie-file-store": "^3.2.1"
