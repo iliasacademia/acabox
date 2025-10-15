@@ -198,3 +198,268 @@ export const updateNotification = async (userId: number, createdAt: number): Pro
     }
   );
 };
+
+// Sync Folder API
+export interface SyncFolder {
+  folder_name: string;
+  path: string;
+  user_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SyncedFile {
+  key: string;
+  file_name: string;
+  relative_path: string;
+  size: number;
+  last_modified: string;
+}
+
+export const downloadFileFromS3 = async (folderName: string, fileKey: string, relativePath: string): Promise<Buffer> => {
+  const client = await APIclient();
+  const response = await client.get(
+    '/v0/sync_agent/download',
+    {
+      params: {
+        folder_name: folderName,
+        file_key: fileKey,
+      },
+      responseType: 'arraybuffer',
+    }
+  );
+  return Buffer.from(response.data);
+};
+
+// New Sync Agent API
+
+export interface SyncAgentFolder {
+  folder_name: string;
+  folder_path: string;
+  created_at: string;
+  updated_at: string;
+  files: Array<{
+    file_name: string;
+    relative_path: string;
+    size: number;
+    last_modified: string;
+    key: string;
+  }>;
+}
+
+export interface GetLatestResponse {
+  folders: SyncAgentFolder[];
+  total_folders: number;
+  total_files: number;
+}
+
+export const getLatestFiles = async (): Promise<GetLatestResponse> => {
+  const client = await APIclient();
+  const response = await client.get('/v0/sync_agent/get_latest');
+  return response.data;
+};
+
+export const syncFile = async (
+  actionType: 'add' | 'update' | 'remove',
+  folderName: string,
+  relativePath: string,
+  filePath?: string
+): Promise<any> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+
+  if (actionType === 'remove') {
+    const response = await client.post(
+      '/v0/sync_agent/sync',
+      {
+        action_type: actionType,
+        folder_name: folderName,
+        relative_path: relativePath,
+      },
+      {
+        headers: { 'x-csrf-token': csrfToken },
+        validateStatus: () => true,
+      }
+    );
+    return response;
+  } else {
+    // For add/update, we need to send the file
+    if (!filePath) {
+      throw new Error('filePath is required for add/update operations');
+    }
+
+    const formData = new FormData();
+    formData.append('action_type', actionType);
+    formData.append('folder_name', folderName);
+    formData.append('relative_path', relativePath);
+    formData.append('file', fs.createReadStream(filePath));
+
+    const response = await client.post(
+      '/v0/sync_agent/sync',
+      formData,
+      {
+        headers: {
+          'x-csrf-token': csrfToken,
+          ...formData.getHeaders(),
+        },
+        validateStatus: () => true,
+      }
+    );
+    return response;
+  }
+};
+
+export const addSyncAgentFolder = async (folderPath: string): Promise<any> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+  const folderName = path.basename(folderPath);
+
+  const response = await client.post(
+    '/v0/sync_agent/add_folder',
+    {
+      path: folderPath,
+      folder_name: folderName,
+    },
+    {
+      headers: {
+        'x-csrf-token': csrfToken,
+        'Content-Type': 'application/json',
+      },
+      validateStatus: () => true,
+    }
+  );
+
+  return response;
+};
+
+export const removeSyncAgentFolder = async (folderName: string): Promise<void> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+  await client.delete('/v0/sync_agent/remove_folder', {
+    headers: { 'x-csrf-token': csrfToken },
+    data: { folder_name: folderName },
+  });
+};
+
+// New Sync Agent API (aligned with STATUS.md plan)
+
+/**
+ * Get complete sync status for user (startup endpoint)
+ */
+export const getStatus = async (): Promise<any> => {
+  const client = await APIclient();
+  console.log('[API] Calling GET /v0/sync_agent/status');
+  const response = await client.get('/v0/sync_agent/status');
+  console.log('[API] Response status:', response.status);
+  console.log('[API] Response data:', JSON.stringify(response.data, null, 2));
+  return response.data;
+};
+
+/**
+ * Add new folder to sync
+ */
+export const addFolder = async (folderName: string, folderPath: string): Promise<any> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+
+  const response = await client.post(
+    '/v0/sync_agent/folders',
+    {
+      folder_name: folderName,
+      path: folderPath,
+    },
+    {
+      headers: {
+        'x-csrf-token': csrfToken,
+        'Content-Type': 'application/json',
+      },
+      validateStatus: () => true,
+    }
+  );
+
+  return response;
+};
+
+/**
+ * Remove folder from sync
+ */
+export const removeFolder = async (folderName: string): Promise<void> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+  await client.delete(`/v0/sync_agent/folders/${folderName}`, {
+    headers: { 'x-csrf-token': csrfToken },
+  });
+};
+
+/**
+ * Upload or update a file with checksum support
+ */
+export const createFile = async (
+  folderName: string,
+  relativePath: string,
+  filePath: string,
+  checksum: string,
+  mtime: string
+): Promise<any> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+
+  const formData = new FormData();
+  formData.append('folder_name', folderName);
+  formData.append('relative_path', relativePath);
+  formData.append('checksum', checksum);
+  formData.append('mtime', mtime);
+  formData.append('file', fs.createReadStream(filePath));
+
+  const response = await client.post(
+    '/v0/sync_agent/files',
+    formData,
+    {
+      headers: {
+        'x-csrf-token': csrfToken,
+        ...formData.getHeaders(),
+      },
+      validateStatus: () => true,
+    }
+  );
+  return response;
+};
+
+/**
+ * Delete a file from sync
+ */
+export const deleteFile = async (
+  folderName: string,
+  relativePath: string
+): Promise<any> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+
+  const response = await client.delete(
+    '/v0/sync_agent/files',
+    {
+      headers: { 'x-csrf-token': csrfToken },
+      data: {
+        folder_name: folderName,
+        relative_path: relativePath,
+      },
+      validateStatus: () => true,
+    }
+  );
+  return response;
+};
+
+/**
+ * List files in a folder
+ */
+export const listFiles = async (folderName: string): Promise<any> => {
+  const client = await APIclient();
+  console.log('[API] Calling GET /v0/sync_agent/files?folder_name=' + folderName);
+  const response = await client.get('/v0/sync_agent/files', {
+    params: { folder_name: folderName },
+    validateStatus: () => true,
+  });
+  console.log('[API] Response status:', response.status);
+  console.log('[API] Response data:', JSON.stringify(response.data, null, 2));
+  return response.data;
+};

@@ -1,8 +1,9 @@
 import { app, BrowserWindow, ipcMain, dialog, desktopCapturer, screen } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { login, logout, uploadFile, searchFiles, checkLogin, getNotifications, updateNotification, getCurrentUser } from './uploader';
+import { login, logout, uploadFile, searchFiles, checkLogin, getNotifications, updateNotification, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
 import Tesseract from 'tesseract.js';
+import { syncService } from './syncService';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -26,6 +27,15 @@ const createWindow = async (): Promise<void> => {
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
   }
+
+  // Initialize sync service with main window
+  syncService.setMainWindow(mainWindow);
+
+  // Wait for window to be ready, then initialize
+  mainWindow.webContents.once('did-finish-load', async () => {
+    console.log('[MAIN] Window loaded, initializing sync service...');
+    await syncService.initialize();
+  });
 };
 
 app.whenReady().then(createWindow);
@@ -154,13 +164,16 @@ async function initTesseractWorker() {
   return tesseractWorker;
 }
 
-// Cleanup worker on app quit
+// Cleanup on app quit
 app.on('before-quit', async () => {
   if (tesseractWorker) {
     console.log('Terminating Tesseract worker...');
     await tesseractWorker.terminate();
     tesseractWorker = null;
   }
+
+  // Stop all sync watchers
+  await syncService.stopAll();
 });
 
 // Screen Reader IPC handlers
@@ -339,3 +352,123 @@ function createOverlayWindow() {
     overlayWindow = null;
   });
 }
+
+// Sync Folder IPC handlers
+ipcMain.handle('get-sync-folders', async () => {
+  try {
+    console.log('[GET-SYNC-FOLDERS] Fetching status from backend...');
+    const statusData = await getStatus();
+    console.log('[GET-SYNC-FOLDERS] Response from backend:', JSON.stringify(statusData, null, 2));
+
+    // Combine backend data with local sync service status
+    const foldersWithStatus = statusData.folders.map((folder: any) => {
+      const localStatus = syncService.getFolderStatus(folder.folder_name);
+      return {
+        id: folder.folder_name,
+        path: folder.folder_path,
+        status: localStatus?.status || folder.status,
+        fileCount: folder.file_count,
+        lastSync: folder.last_sync,
+      };
+    });
+
+    return { success: true, folders: foldersWithStatus };
+  } catch (error: any) {
+    console.error('[GET-SYNC-FOLDERS] Backend offline or error:', error);
+
+    // Return local folders with offline status
+    const localFolders = syncService.getAllFolders().map((folder) => ({
+      id: folder.folder_name,
+      path: folder.path,
+      status: 'error' as const,
+      fileCount: folder.fileCount,
+      lastSync: folder.lastSync,
+      errorMessage: 'Backend offline',
+    }));
+
+    return {
+      success: true,
+      folders: localFolders,
+      offline: true
+    };
+  }
+});
+
+ipcMain.handle('add-sync-folder', async (_event, folderPath: string) => {
+  try {
+    const folderName = path.basename(folderPath);
+    const response = await addFolder(folderName, folderPath);
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`Failed to add folder: ${response.status}`);
+    }
+
+    const folder = response.data.folder;
+
+    // Start watching (will handle recursive subfolders automatically)
+    await syncService.startWatching(folder.folder_name, folderPath);
+
+    return {
+      success: true,
+      folder: {
+        id: folder.folder_name,
+        path: folderPath,
+        status: 'idle',
+        fileCount: 0,
+        lastSync: null,
+      },
+    };
+  } catch (error: any) {
+    console.error('Failed to add sync folder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('remove-sync-folder', async (_event, folderId: string) => {
+  try {
+    await syncService.stopWatching(folderId);
+    await removeFolder(folderId);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to remove sync folder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('sync-folder-now', async (_event, folderId: string) => {
+  try {
+    await syncService.syncNow(folderId);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to sync folder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
+  try {
+    console.log('[GET-FOLDER-FILES] Fetching files for folder:', folderId);
+    const filesData = await listFiles(folderId);
+    console.log('[GET-FOLDER-FILES] Received data from backend:', JSON.stringify(filesData, null, 2));
+
+    if (!filesData || !filesData.files) {
+      console.error('[GET-FOLDER-FILES] Invalid response structure:', filesData);
+      return { success: false, error: 'Invalid response from backend', files: [] };
+    }
+
+    console.log('[GET-FOLDER-FILES] Found', filesData.files.length, 'files');
+
+    const formattedFiles = filesData.files.map((file: any) => ({
+      path: file.relative_path,
+      fileName: file.file_name || file.relative_path.split('/').pop(),
+      status: 'success', // Files from S3 are successfully synced
+      timestamp: file.last_modified || file.mtime,
+      size: file.size,
+    }));
+    console.log('[GET-FOLDER-FILES] Returning', formattedFiles.length, 'formatted files');
+    return { success: true, files: formattedFiles };
+  } catch (error: any) {
+    console.error('[GET-FOLDER-FILES] Failed to get folder files:', error);
+    return { success: false, error: error.message, files: [] };
+  }
+});
