@@ -11,7 +11,6 @@ const ScreenReader: React.FC = () => {
   const [wordContent, setWordContent] = useState<string>('');
   const [lastReadTime, setLastReadTime] = useState<string | null>(null);
   const [windowBounds, setWindowBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
-  const [accessibilityTestResult, setAccessibilityTestResult] = useState<string>('');
   const [wordApiTestResult, setWordApiTestResult] = useState<string>('');
   const [availableSources, setAvailableSources] = useState<Source[]>([]);
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
@@ -168,25 +167,6 @@ const ScreenReader: React.FC = () => {
     } catch (error) {
       console.error('Error capturing screenshot:', error);
       setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  };
-
-  const testAccessibility = async () => {
-    try {
-      console.log('Testing Accessibility API with Word...');
-      const result = await window.electronAPI.invoke('test-accessibility');
-
-      if (result.success) {
-        console.log('Accessibility test succeeded!');
-        console.log(result.result);
-        setAccessibilityTestResult(result.result);
-      } else {
-        console.error('Accessibility test failed:', result.error);
-        setAccessibilityTestResult(`Error: ${result.error}`);
-      }
-    } catch (error) {
-      console.error('Error testing accessibility:', error);
-      setAccessibilityTestResult(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 

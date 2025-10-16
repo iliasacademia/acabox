@@ -152,29 +152,6 @@ ipcMain.handle('get-current-user', async () => {
   }
 });
 
-// Test Accessibility API with Word
-ipcMain.handle('test-accessibility', async () => {
-  try {
-    const scriptPath = resolveAppleScriptPath('test-accessibility.applescript');
-    const result = execSync(`osascript "${scriptPath}"`, {
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim();
-
-    console.log('Accessibility API test result:');
-    console.log(result);
-
-    return { success: true, result };
-  } catch (error: any) {
-    console.error('Accessibility test failed:', error);
-    return {
-      success: false,
-      error: error.message,
-      result: ''
-    };
-  }
-});
-
 // Cleanup on app quit
 app.on('before-quit', async () => {
   // Stop all sync watchers
