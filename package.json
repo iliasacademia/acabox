@@ -6,8 +6,11 @@
   "scripts": {
     "start": "electron-forge start",
     "typecheck": "tsc --noEmit",
+    "lint:applescript": "find src/applescripts -name '*.applescript' -exec osacompile -o /dev/null {} \\;",
     "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
+    "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - {} \\;",
+    "package:sign": "npm run package && npm run codesign",
     "make": "electron-forge make"
   },
   "author": "Academia.edu",
@@ -22,6 +25,7 @@
     "@electron-forge/plugin-fuses": "^7.8.1",
     "@electron-forge/plugin-webpack": "^7.10.2",
     "@electron/fuses": "^1.8.0",
+    "@electron/osx-sign": "^2.2.0",
     "@types/node": "^24.7.2",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
@@ -45,7 +49,6 @@
     "pdf-lib": "^1.17.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tesseract.js": "^6.0.1",
     "tesseract.js-core": "^6.0.0",
     "tough-cookie": "^5.1.2",
     "tough-cookie-file-store": "^3.2.1"

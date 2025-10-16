@@ -1,93 +1,90 @@
 import React, { useState, useRef, useEffect } from 'react';
 
+interface Source {
+  id: string;
+  name: string;
+}
+
 const ScreenReader: React.FC = () => {
   const [isEnabled, setIsEnabled] = useState(false);
   const [status, setStatus] = useState('Disabled');
-  const [capturedImage, setCapturedImage] = useState<string | null>(null);
-  const [lastCaptureTime, setLastCaptureTime] = useState<string | null>(null);
+  const [wordContent, setWordContent] = useState<string>('');
+  const [lastReadTime, setLastReadTime] = useState<string | null>(null);
+  const [windowBounds, setWindowBounds] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const [wordApiTestResult, setWordApiTestResult] = useState<string>('');
+  const [availableSources, setAvailableSources] = useState<Source[]>([]);
+  const [selectedSource, setSelectedSource] = useState<Source | null>(null);
+  const [capturedScreenshot, setCapturedScreenshot] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const screenshotCanvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const changeDetectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const visibilityCheckRef = useRef<NodeJS.Timeout | null>(null);
+  const lastWindowBoundsRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null);
+  const lastScrollPositionRef = useRef<number | null>(null);
+  const isWordFrontmostRef = useRef<boolean>(false);
 
   useEffect(() => {
     return () => {
       // Cleanup on unmount
-      stopScreenCapture();
+      stopWordReader();
     };
   }, []);
 
   const toggleScreenReader = async () => {
     if (isEnabled) {
-      stopScreenCapture();
+      stopWordReader();
     } else {
-      await startScreenCapture();
+      await startWordReader();
     }
   };
 
-  const startScreenCapture = async () => {
+  const startWordReader = async () => {
     try {
-      setStatus('Requesting screen access...');
+      setStatus('Fetching available sources...');
+      setIsEnabled(true);
 
-      // Get available sources using desktopCapturer
-      const sources = await window.electronAPI.invoke('get-screen-sources');
-
-      if (!sources || sources.length === 0) {
-        setStatus('No screen sources available');
+      // Get all available screen and window sources
+      const rawSources = await window.electronAPI.invoke('get-all-sources');
+      if (!rawSources || rawSources.length === 0) {
+        setStatus('No sources available');
+        setIsEnabled(false);
         return;
       }
 
-      // Use the first screen source (primary display)
-      const primarySource = sources[0];
+      // Map to simplified Source interface
+      const sources: Source[] = rawSources.map((source: any) => ({
+        id: source.id,
+        name: source.name,
+      }));
 
-      // Get media stream
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          // @ts-ignore - Electron specific constraint
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: primarySource.id,
-            minWidth: 1280,
-            maxWidth: 1920,
-            minHeight: 720,
-            maxHeight: 1080,
-          },
-        },
-      });
-
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-
-      setIsEnabled(true);
-      setStatus('Screen reader enabled - Scanning for "Academia"...');
-
-      // Wait for video to be ready before first capture
-      setTimeout(() => {
-        captureAndProcess();
-      }, 1000);
-
-      // Start capturing frames every minute (60000ms)
-      intervalRef.current = setInterval(() => {
-        captureAndProcess();
-      }, 60000);
+      setAvailableSources(sources);
+      setStatus(`Found ${sources.length} available sources. Please select one.`);
     } catch (error) {
-      console.error('Error starting screen capture:', error);
+      console.error('Error starting Word reader:', error);
       setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setIsEnabled(false);
     }
   };
 
-  const stopScreenCapture = () => {
-    // Stop the interval
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
+  const stopWordReader = () => {
+    // Stop the change detection interval
+    if (changeDetectionIntervalRef.current) {
+      clearInterval(changeDetectionIntervalRef.current);
+      changeDetectionIntervalRef.current = null;
     }
+
+    // Stop the visibility check interval
+    if (visibilityCheckRef.current) {
+      clearInterval(visibilityCheckRef.current);
+      visibilityCheckRef.current = null;
+    }
+
+    // Clear last known state
+    lastWindowBoundsRef.current = null;
+    lastScrollPositionRef.current = null;
+    isWordFrontmostRef.current = false;
 
     // Stop the media stream
     if (streamRef.current) {
@@ -105,12 +102,169 @@ const ScreenReader: React.FC = () => {
 
     setIsEnabled(false);
     setStatus('Disabled');
-    setCapturedImage(null);
-    setLastCaptureTime(null);
+    setWordContent('');
+    setLastReadTime(null);
+    setWindowBounds(null);
+    setAvailableSources([]);
+    setSelectedSource(null);
+    setCapturedScreenshot(null);
   };
 
-  const captureAndProcess = async () => {
+  const handleSourceSelection = async (source: Source) => {
+    try {
+      setSelectedSource(source);
+      setStatus(`Capturing screenshot of "${source.name}"...`);
+
+      // Get media stream for the selected source
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: {
+          // @ts-ignore - Electron specific constraint
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: source.id,
+            minWidth: 1280,
+            maxWidth: 1920,
+            minHeight: 720,
+            maxHeight: 1080,
+          },
+        },
+      });
+
+      streamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+
+        // Wait for video to be ready
+        await new Promise((resolve) => setTimeout(resolve, 500));
+
+        // Capture screenshot
+        if (screenshotCanvasRef.current && videoRef.current) {
+          const video = videoRef.current;
+          const canvas = screenshotCanvasRef.current;
+          const context = canvas.getContext('2d');
+
+          if (context && video.videoWidth && video.videoHeight) {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const screenshotData = canvas.toDataURL('image/png');
+            setCapturedScreenshot(screenshotData);
+            setStatus(`Screenshot captured of "${source.name}"`);
+          }
+        }
+
+        // Stop the stream after capturing
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        if (videoRef.current) {
+          videoRef.current.srcObject = null;
+        }
+      }
+    } catch (error) {
+      console.error('Error capturing screenshot:', error);
+      setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const testWordApi = async () => {
+    try {
+      console.log('Testing Word API...');
+      const result = await window.electronAPI.invoke('test-word-api');
+
+      if (result.success) {
+        console.log('Word API test succeeded!');
+        console.log(result.result);
+        setWordApiTestResult(result.result);
+      } else {
+        console.error('Word API test failed:', result.error);
+        setWordApiTestResult(`Error: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error testing Word API:', error);
+      setWordApiTestResult(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const checkForChanges = async () => {
+    try {
+      // Check if Word is frontmost
+      const frontmostCheck = await window.electronAPI.invoke('check-word-frontmost');
+      if (!frontmostCheck.success || !frontmostCheck.isFrontmost) {
+        // Word not frontmost, don't check for changes
+        return;
+      }
+
+      const currentBounds = frontmostCheck.windowBounds;
+      if (!currentBounds) return;
+
+      // Check if window bounds changed
+      let windowChanged = false;
+      const isFirstCheck = !lastWindowBoundsRef.current;
+
+      if (isFirstCheck) {
+        windowChanged = true; // First time
+        lastWindowBoundsRef.current = currentBounds;
+      } else {
+        const prev = lastWindowBoundsRef.current;
+        if (prev) {
+          windowChanged =
+            prev.x !== currentBounds.x ||
+            prev.y !== currentBounds.y ||
+            prev.width !== currentBounds.width ||
+            prev.height !== currentBounds.height;
+
+          if (windowChanged) {
+            lastWindowBoundsRef.current = currentBounds;
+          }
+        }
+      }
+
+      // Check if scroll position changed
+      let scrollChanged = false;
+      const scrollResult = await window.electronAPI.invoke('get-word-scroll-position');
+      if (scrollResult.success) {
+        const currentScroll = scrollResult.scrollPosition;
+        if (lastScrollPositionRef.current === null) {
+          scrollChanged = isFirstCheck; // Only trigger on first check if window also changed
+          lastScrollPositionRef.current = currentScroll;
+        } else {
+          // Consider it changed if scroll position differs by more than 10 characters
+          scrollChanged = Math.abs(currentScroll - lastScrollPositionRef.current) > 10;
+          if (scrollChanged) {
+            lastScrollPositionRef.current = currentScroll;
+          }
+        }
+      }
+
+      // If either changed, trigger a scan
+      if (windowChanged || scrollChanged) {
+        console.log('Change detected:', { windowChanged, scrollChanged });
+        await captureAndProcessWord();
+      }
+    } catch (error) {
+      console.error('Error checking for changes:', error);
+    }
+  };
+
+  const captureAndProcessWord = async () => {
     if (!videoRef.current || !canvasRef.current) return;
+
+    // Check if Word is frontmost before capturing
+    const frontmostCheck = await window.electronAPI.invoke('check-word-frontmost');
+    if (!frontmostCheck.success || !frontmostCheck.isFrontmost) {
+      setStatus('Waiting for Microsoft Word to be the active window...');
+      return;
+    }
+
+    // Update window bounds from the frontmost check
+    const updatedBounds = frontmostCheck.windowBounds;
+    if (!updatedBounds) return;
+
+    setWindowBounds(updatedBounds);
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -124,34 +278,78 @@ const ScreenReader: React.FC = () => {
       return;
     }
 
-    // Set canvas size to match video
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Update content if Word is now frontmost
+    if (!wordContent) {
+      try {
+        const contentResult = await window.electronAPI.invoke('get-word-content');
+        if (contentResult.success && contentResult.content) {
+          setWordContent(contentResult.content);
+        }
+      } catch (err) {
+        console.log('Could not get Word content yet');
+      }
+    }
 
-    // Draw current video frame to canvas
-    context.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-    // Get image data as base64
-    const imageData = canvas.toDataURL('image/png');
-
-    // Update the captured image in UI
-    setCapturedImage(imageData);
-    setLastCaptureTime(new Date().toLocaleTimeString());
+    setLastReadTime(new Date().toLocaleTimeString());
+    setStatus('Word reader enabled - Drawing underlines...');
 
     try {
-      // Send to main process for OCR with video dimensions
-      const result = await window.electronAPI.invoke('process-screen-ocr', imageData, {
-        width: video.videoWidth,
-        height: video.videoHeight,
+      // Calculate scale factors to map window bounds to video coordinates
+      const primaryDisplay = await window.electronAPI.invoke('get-screen-sources');
+      const scaleX = video.videoWidth / window.screen.width;
+      const scaleY = video.videoHeight / window.screen.height;
+
+      // Calculate Word window position in video coordinates
+      const wordWindowInVideo = {
+        x: updatedBounds.x * scaleX,
+        y: updatedBounds.y * scaleY,
+        width: updatedBounds.width * scaleX,
+        height: updatedBounds.height * scaleY,
+      };
+
+      console.log('Window bounds (screen):', updatedBounds);
+      console.log('Window bounds (video):', wordWindowInVideo);
+      console.log('Scale factors:', { scaleX, scaleY });
+
+      // Set canvas size to match Word window only
+      canvas.width = wordWindowInVideo.width;
+      canvas.height = wordWindowInVideo.height;
+
+      // Draw only the Word window portion from the video
+      context.drawImage(
+        video,
+        wordWindowInVideo.x, wordWindowInVideo.y, wordWindowInVideo.width, wordWindowInVideo.height,
+        0, 0, canvas.width, canvas.height
+      );
+
+      // Get image data as base64 (now only contains Word window)
+      const imageData = canvas.toDataURL('image/png');
+
+      console.log('Sending cropped Word window image to OCR');
+      console.log('Cropped canvas size:', { width: canvas.width, height: canvas.height });
+
+      // Send to main process for OCR with Word window bounds and cropped dimensions
+      const result = await window.electronAPI.invoke('process-word-window', imageData, updatedBounds, {
+        width: canvas.width,
+        height: canvas.height,
       });
 
+      console.log('OCR result:', result);
+
+      // Count total occurrences in full document
+      const searchTerm = 'academia';
+      const totalMatches = (wordContent.toLowerCase().match(new RegExp(searchTerm, 'g')) || []).length;
+
       if (result.matches && result.matches.length > 0) {
-        setStatus(`Found ${result.matches.length} occurrence(s) of "Academia"`);
+        console.log('Found matches:', result.matches);
+        setStatus(`Found ${result.matches.length} visible of ${totalMatches} total occurrence(s) of "Academia"`);
       } else {
-        setStatus('Scanning... (no matches)');
+        console.log('No matches found in visible area');
+        setStatus(`Scanning... (0 visible of ${totalMatches} total matches)`);
       }
     } catch (error) {
-      console.error('Error processing OCR:', error);
+      console.error('Error processing Word window:', error);
+      setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -159,7 +357,7 @@ const ScreenReader: React.FC = () => {
     <div style={{ padding: '20px' }}>
       <h1>Screen Reader</h1>
       <p>
-        This feature captures your screen and highlights the word "Academia" when detected.
+        Select a screen or window to capture and display.
       </p>
 
       <div style={{ marginTop: '20px' }}>
@@ -183,26 +381,59 @@ const ScreenReader: React.FC = () => {
         <strong>Status:</strong> {status}
       </div>
 
-      {lastCaptureTime && (
-        <div style={{ marginTop: '10px' }}>
-          <strong>Last capture:</strong> {lastCaptureTime}
+      {/* Available sources list */}
+      {isEnabled && availableSources.length > 0 && (
+        <div style={{ marginTop: '20px' }}>
+          <h2>Available Sources</h2>
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            marginTop: '10px'
+          }}>
+            {availableSources.map((source) => (
+              <div
+                key={source.id}
+                onClick={() => handleSourceSelection(source)}
+                style={{
+                  border: selectedSource?.id === source.id ? '3px solid #007bff' : '1px solid #ddd',
+                  borderRadius: '8px',
+                  padding: '15px',
+                  cursor: 'pointer',
+                  backgroundColor: selectedSource?.id === source.id ? '#e7f3ff' : 'white',
+                  transition: 'all 0.2s',
+                }}
+              >
+                <div style={{ fontSize: '16px', fontWeight: 'bold' }}>
+                  {source.name}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Display captured image */}
-      {capturedImage && (
-        <div style={{ marginTop: '20px' }}>
-          <h3>Captured Screen</h3>
-          <img
-            src={capturedImage}
-            alt="Captured screen"
-            style={{
-              maxWidth: '100%',
-              border: '2px solid #ccc',
-              borderRadius: '5px',
-              marginTop: '10px',
-            }}
-          />
+      {/* Captured screenshot display */}
+      {capturedScreenshot && (
+        <div style={{ marginTop: '30px' }}>
+          <h2>Captured Screenshot</h2>
+          <div style={{
+            marginTop: '10px',
+            border: '1px solid #ddd',
+            borderRadius: '8px',
+            padding: '10px',
+            backgroundColor: '#f9f9f9'
+          }}>
+            <img
+              src={capturedScreenshot}
+              alt="Captured screenshot"
+              style={{
+                width: '100%',
+                height: 'auto',
+                borderRadius: '4px',
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -210,6 +441,7 @@ const ScreenReader: React.FC = () => {
       <div style={{ display: 'none' }}>
         <video ref={videoRef} />
         <canvas ref={canvasRef} />
+        <canvas ref={screenshotCanvasRef} />
       </div>
     </div>
   );

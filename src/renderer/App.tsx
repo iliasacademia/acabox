@@ -4,9 +4,10 @@ import UploadSection from './components/UploadSection';
 import SearchSection from './components/SearchSection';
 import ScreenReader from './components/ScreenReader';
 import SyncSection from './components/SyncSection';
+import WordReader from './components/WordReader';
 import './App.css';
 
-type Page = 'uploader' | 'notifications' | 'screenReader' | 'sync';
+type Page = 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader';
 
 interface DesktopNotification {
   created_at: number;
@@ -141,6 +142,12 @@ const App: React.FC = () => {
           >
             Sync Agent
           </button>
+          <button
+            className={`menuItem ${currentPage === 'wordReader' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('wordReader')}
+          >
+            Word Reader
+          </button>
         </nav>
         <button id="logoutButton" onClick={handleLogout}>
           Logout
@@ -170,6 +177,7 @@ const App: React.FC = () => {
         )}
         {currentPage === 'screenReader' && <ScreenReader />}
         {currentPage === 'sync' && <SyncSection />}
+        {currentPage === 'wordReader' && <WordReader />}
       </div>
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
     </div>

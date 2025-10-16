@@ -5,7 +5,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   // IPC handlers
   invoke: (channel: string, ...args: any[]) => {
-    const validChannels = ['check-login', 'login', 'logout', 'select-folder', 'upload-files', 'search-files', 'get-notifications', 'update-notification', 'get-current-user', 'get-screen-sources', 'process-screen-ocr', 'close-overlay', 'get-sync-folders', 'add-sync-folder', 'remove-sync-folder', 'sync-folder-now', 'get-folder-files'];
+    const validChannels = ['check-login', 'login', 'logout', 'select-folder', 'upload-files', 'search-files', 'get-notifications', 'update-notification', 'get-current-user', 'get-screen-sources', 'get-all-sources', 'close-overlay', 'get-word-content', 'test-word-api', 'check-word-frontmost', 'update-overlay-visibility', 'get-word-scroll-position', 'get-word-text', 'process-screen-ocr', 'close-overlay', 'get-sync-folders', 'add-sync-folder', 'remove-sync-folder', 'sync-folder-now', 'get-folder-files', 'process-word-window'];
     if (validChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);
     }

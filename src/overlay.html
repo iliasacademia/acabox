@@ -14,18 +14,15 @@
       overflow: hidden;
       background: transparent;
       pointer-events: none;
-      /* Red border for development debugging */
-      border: 5px solid red;
       width: 100vw;
       height: 100vh;
     }
 
-    .highlight {
+    .underline {
       position: absolute;
-      background-color: rgba(255, 255, 0, 0.3);
-      border: 2px solid rgba(255, 200, 0, 0.8);
       pointer-events: none;
       z-index: 9999;
+      overflow: visible;
     }
   </style>
 </head>
@@ -34,24 +31,63 @@
   <script>
     const { ipcRenderer } = require('electron');
 
+    console.log('Overlay window loaded and ready');
+
+    // Function to create wavy underline path
+    function createWavyPath(width, amplitude = 2, frequency = 4) {
+      let path = '';
+      const step = frequency;
+      for (let x = 0; x < width; x += step) {
+        const y = amplitude * Math.sin((x / step) * Math.PI);
+        if (x === 0) {
+          path += `M ${x},${y}`;
+        } else {
+          path += ` Q ${x - step/2},${y > 0 ? amplitude * 2 : -amplitude * 2} ${x},${y}`;
+        }
+      }
+      return path;
+    }
+
     // Listen for highlight data from main process
     ipcRenderer.on('update-highlights', (event, matches) => {
+      console.log('Received update-highlights event with', matches.length, 'matches');
       const container = document.getElementById('highlights-container');
 
-      // Clear existing highlights
+      // Clear existing underlines
       container.innerHTML = '';
 
-      // Create new highlights
+      // Create new underlines
       if (matches && matches.length > 0) {
-        matches.forEach((match) => {
-          const highlight = document.createElement('div');
-          highlight.className = 'highlight';
-          highlight.style.left = `${match.bbox.x0}px`;
-          highlight.style.top = `${match.bbox.y0}px`;
-          highlight.style.width = `${match.bbox.x1 - match.bbox.x0}px`;
-          highlight.style.height = `${match.bbox.y1 - match.bbox.y0}px`;
-          container.appendChild(highlight);
+        console.log('Creating underlines:', JSON.stringify(matches, null, 2));
+        matches.forEach((match, index) => {
+          const width = match.bbox.x1 - match.bbox.x0;
+          const height = match.bbox.y1 - match.bbox.y0;
+
+          // Create SVG for wavy underline
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          svg.setAttribute('class', 'underline');
+          svg.style.left = `${match.bbox.x0}px`;
+          svg.style.top = `${match.bbox.y1 - 2}px`; // Position below text
+          svg.style.width = `${width}px`;
+          svg.style.height = '6px';
+          svg.setAttribute('viewBox', `0 -3 ${width} 6`);
+
+          // Create wavy path
+          const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+          path.setAttribute('d', createWavyPath(width));
+          path.setAttribute('stroke', '#FF0000'); // Red color
+          path.setAttribute('stroke-width', '2');
+          path.setAttribute('fill', 'none');
+          path.setAttribute('stroke-linecap', 'round');
+
+          svg.appendChild(path);
+          container.appendChild(svg);
+
+          console.log(`Underline ${index + 1}: left=${match.bbox.x0}, top=${match.bbox.y1 - 2}, width=${width}`);
         });
+        console.log('Total underlines in DOM:', container.children.length);
+      } else {
+        console.log('No matches to underline');
       }
     });
   </script>

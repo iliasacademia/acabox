@@ -1,16 +1,34 @@
 import { app, BrowserWindow, ipcMain, dialog, desktopCapturer, screen } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import { execSync } from 'child_process';
 import { login, logout, uploadFile, searchFiles, checkLogin, getNotifications, updateNotification, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
-import Tesseract from 'tesseract.js';
 import { syncService } from './syncService';
+
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
+// Helper function to resolve paths for AppleScript files
+function resolveAppleScriptPath(scriptName: string): string {
+  // In development, use the webpack output path
+  const devPath = path.join(__dirname, 'applescripts', scriptName);
+
+  // In production, use the extraResource path (Contents/Resources/applescripts/)
+  const prodPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'applescripts', scriptName)
+    : devPath;
+
+  console.log('resolveAppleScriptPath - app.isPackaged:', app.isPackaged);
+  console.log('resolveAppleScriptPath - devPath:', devPath);
+  console.log('resolveAppleScriptPath - prodPath:', prodPath);
+  console.log('resolveAppleScriptPath - exists:', fs.existsSync(app.isPackaged ? prodPath : devPath));
+
+  return app.isPackaged ? prodPath : devPath;
+}
+
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
-let tesseractWorker: Tesseract.Worker | null = null;
 
 const createWindow = async (): Promise<void> => {
   mainWindow = new BrowserWindow({
@@ -134,47 +152,193 @@ ipcMain.handle('get-current-user', async () => {
   }
 });
 
-// Initialize Tesseract worker
-async function initTesseractWorker() {
-  if (tesseractWorker) return tesseractWorker;
-
-  const appPath = app.getAppPath();
-  let nodeModulesPath: string;
-  if (appPath.includes('.webpack')) {
-    nodeModulesPath = path.join(appPath, '../../node_modules');
-  } else if (appPath.includes('app.asar')) {
-    nodeModulesPath = path.join(path.dirname(appPath), 'node_modules');
-  } else {
-    nodeModulesPath = path.join(appPath, 'node_modules');
-  }
-
-  const workerPath = path.join(nodeModulesPath, 'tesseract.js/src/worker-script/node/index.js');
-  const langPath = 'https://tessdata.projectnaptha.com/4.0.0';
-
-  console.log('Initializing Tesseract worker...');
-  console.log('Worker path:', workerPath);
-  console.log('Worker exists:', fs.existsSync(workerPath));
-
-  tesseractWorker = await Tesseract.createWorker('eng', undefined, {
-    workerPath: workerPath,
-    langPath: langPath,
-  });
-
-  console.log('Tesseract worker initialized');
-  return tesseractWorker;
-}
-
 // Cleanup on app quit
 app.on('before-quit', async () => {
-  if (tesseractWorker) {
-    console.log('Terminating Tesseract worker...');
-    await tesseractWorker.terminate();
-    tesseractWorker = null;
-  }
-
   // Stop all sync watchers
   await syncService.stopAll();
 });
+
+// Test Microsoft Word's AppleScript object model
+ipcMain.handle('test-word-api', async () => {
+  try {
+    const scriptPath = resolveAppleScriptPath('test-word-api.applescript');
+    const result = execSync(`osascript "${scriptPath}"`, {
+      encoding: 'utf8',
+      timeout: 10000,
+    }).trim();
+
+    console.log('Word API test result:');
+    console.log(result);
+
+    return { success: true, result };
+  } catch (error: any) {
+    console.error('Word API test failed:', error);
+    return {
+      success: false,
+      error: error.message,
+      result: ''
+    };
+  }
+});
+
+// Check if Microsoft Word window is frontmost
+ipcMain.handle('check-word-frontmost', async () => {
+  try {
+    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
+    const result = execSync(`osascript "${scriptPath}"`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+
+    console.log('Word frontmost check result:', result);
+    const parts = result.split(',');
+    const isFrontmost = parts[0] === 'true';
+
+    if (isFrontmost && parts.length >= 5) {
+      const x = parseInt(parts[1]);
+      const y = parseInt(parts[2]);
+      const width = parseInt(parts[3]);
+      const height = parseInt(parts[4]);
+      const title = parts.slice(5).join(','); // In case title contains commas
+
+      return {
+        success: true,
+        isFrontmost: true,
+        windowBounds: { x, y, width, height },
+        title
+      };
+    } else {
+      return {
+        success: true,
+        isFrontmost: false,
+        reason: parts.slice(5).join(',')
+      };
+    }
+  } catch (error: any) {
+    console.error('Failed to check Word frontmost:', error);
+    return {
+      success: false,
+      isFrontmost: false,
+      error: error.message
+    };
+  }
+});
+
+// Get content from Microsoft Word document and find "Academia" with positions
+ipcMain.handle('get-word-content', async () => {
+  try {
+    // First, check if Word is frontmost
+    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
+    const frontmostResult = execSync(`osascript "${scriptPath}"`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+
+    console.log('Word frontmost check:', frontmostResult);
+    const parts = frontmostResult.split(',');
+    const isFrontmost = parts[0] === 'true';
+
+    if (!isFrontmost) {
+      return {
+        success: false,
+        error: 'Microsoft Word is not the frontmost window',
+        content: '',
+        windowBounds: null,
+        isFrontmost: false
+      };
+    }
+
+    // Get window bounds from the frontmost check result
+    const x = parseInt(parts[1]);
+    const y = parseInt(parts[2]);
+    const width = parseInt(parts[3]);
+    const height = parseInt(parts[4]);
+    const windowBounds = { x, y, width, height };
+    console.log('Word window bounds:', windowBounds);
+
+    // Now get the content
+    const contentScript = `
+      tell application "Microsoft Word"
+        if it is running then
+          if (count of documents) > 0 then
+            set docContent to content of text object of active document
+            return docContent
+          else
+            error "No documents are open"
+          end if
+        else
+          error "Microsoft Word is not running"
+        end if
+      end tell
+    `;
+
+    const content = execSync(`osascript -e '${contentScript.replace(/'/g, "'\\''")}'`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+
+    return { success: true, content, windowBounds, isFrontmost: true };
+  } catch (error: any) {
+    console.error('Failed to get Word content:', error);
+    return {
+      success: false,
+      error: error.message,
+      content: '',
+      windowBounds: null,
+      isFrontmost: false
+    };
+  }
+});
+
+// Capture Word window and process with OCR to find and highlight text
+ipcMain.handle('process-word-window', async (_event, imageData: string, windowBounds: { x: number; y: number; width: number; height: number }, videoDimensions: { width: number; height: number }) => {
+  try {
+    // Validate image data
+    if (!imageData || !imageData.includes('base64')) {
+      throw new Error('Invalid image data provided');
+    }
+
+    // Remove data URL prefix
+    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    console.log('Processing Word window, buffer size:', buffer.length, 'bytes');
+    console.log('Window bounds:', windowBounds);
+    console.log('Video dimensions:', videoDimensions);
+
+    // OCR functionality removed - mac-system-ocr package no longer used
+    const matches: Array<{
+      text: string;
+      bbox: { x0: number; y0: number; x1: number; y1: number };
+    }> = [];
+
+    console.log('OCR disabled - no matches returned');
+
+    // Update overlay window with matches
+    if (matches.length > 0) {
+      if (!overlayWindow) {
+        console.log('Creating overlay window...');
+        createOverlayWindow();
+        // Wait a bit for the window to be ready
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      if (overlayWindow) {
+        console.log('Sending highlights to overlay...');
+        overlayWindow.webContents.send('update-highlights', matches);
+      }
+    } else if (overlayWindow) {
+      console.log('No matches, clearing highlights');
+      overlayWindow.webContents.send('update-highlights', []);
+    }
+
+    return { matches };
+  } catch (error: any) {
+    console.error('Word window OCR error:', error);
+    return { matches: [], error: error.message };
+  }
+});
+
+// Vision Framework doesn't require initialization or cleanup
 
 // Screen Reader IPC handlers
 ipcMain.handle('get-screen-sources', async () => {
@@ -186,6 +350,20 @@ ipcMain.handle('get-screen-sources', async () => {
     return sources;
   } catch (error: any) {
     console.error('Failed to get screen sources:', error);
+    return [];
+  }
+});
+
+// Get all available screen and window sources
+ipcMain.handle('get-all-sources', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 300, height: 200 },
+    });
+    return sources;
+  } catch (error: any) {
+    console.error('Failed to get all sources:', error);
     return [];
   }
 });
@@ -214,81 +392,13 @@ ipcMain.handle('process-screen-ocr', async (_event, imageData: string, videoDime
 
     console.log('Image buffer size:', buffer.length, 'bytes');
 
-    // Initialize worker if not already initialized
-    const worker = await initTesseractWorker();
-
-    // Use worker.recognize instead of Tesseract.recognize
-    const result = await worker.recognize(buffer, {}, {
-      blocks: true,
-    });
-    console.log('Tesseract result:', result);
-
-    const data = result.data;
-    console.log('Tesseract recognized text:', data.text);
-
-    // Get display dimensions
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const displayWidth = primaryDisplay.bounds.width;
-    const displayHeight = primaryDisplay.bounds.height;
-    const workAreaTop = primaryDisplay.workArea.y;
-
-    // The video might be scaled down - calculate scale factors
-    const scaleX = displayWidth / videoDimensions.width;
-    const scaleY = displayHeight / videoDimensions.height;
-
-    console.log('Display:', displayWidth, 'x', displayHeight);
-    console.log('Work area top (menu bar height):', workAreaTop);
-    console.log('Video:', videoDimensions);
-    console.log('Scale factors:', scaleX, scaleY);
-
-    // Find all occurrences of "Academia" (case insensitive)
+    // OCR functionality removed - mac-system-ocr package no longer used
     const matches: Array<{
       text: string;
       bbox: { x0: number; y0: number; x1: number; y1: number };
     }> = [];
 
-    // Navigate through the hierarchical structure: Page -> blocks -> paragraphs -> lines -> words
-    if (data.blocks && Array.isArray(data.blocks)) {
-      console.log('Number of blocks:', data.blocks.length);
-      for (const block of data.blocks) {
-        if (block.paragraphs && Array.isArray(block.paragraphs)) {
-          for (const paragraph of block.paragraphs) {
-            if (paragraph.lines && Array.isArray(paragraph.lines)) {
-              for (const line of paragraph.lines) {
-                if (line.words && Array.isArray(line.words)) {
-                  for (const word of line.words) {
-                    if (word.text && word.text.toLowerCase().includes('academia')) {
-                      console.log('Found "Academia":', word.text, 'at', word.bbox);
-                      // Scale coordinates and subtract menu bar since overlay starts below it
-                      const scaledY0 = word.bbox.y0 * scaleY - workAreaTop;
-                      const scaledY1 = word.bbox.y1 * scaleY - workAreaTop;
-
-                      matches.push({
-                        text: word.text,
-                        bbox: {
-                          x0: word.bbox.x0 * scaleX,
-                          y0: scaledY0,
-                          x1: word.bbox.x1 * scaleX,
-                          y1: scaledY1,
-                        },
-                      });
-                      console.log('Scaled bbox:', {
-                        x0: word.bbox.x0 * scaleX,
-                        y0: scaledY0,
-                        x1: word.bbox.x1 * scaleX,
-                        y1: scaledY1,
-                      });
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-
-    console.log('Total matches found:', matches.length);
+    console.log('OCR disabled - no matches returned');
 
     // Update overlay window if it exists
     if (matches.length > 0) {
@@ -346,6 +456,11 @@ function createOverlayWindow() {
 
   overlayWindow.setIgnoreMouseEvents(true);
   overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  // Use 'floating' level instead of 'screen-saver' - this makes it appear above normal
+  // windows but below some system windows and full-screen apps
+  overlayWindow.setAlwaysOnTop(true, 'floating');
+
   overlayWindow.loadFile(path.join(__dirname, 'overlay.html'));
 
   overlayWindow.on('closed', () => {
@@ -470,5 +585,155 @@ ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
   } catch (error: any) {
     console.error('[GET-FOLDER-FILES] Failed to get folder files:', error);
     return { success: false, error: error.message, files: [] };
+  }
+});
+
+// Show overlay only when Word is frontmost
+ipcMain.handle('update-overlay-visibility', async () => {
+  try {
+    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
+    const result = execSync(`osascript "${scriptPath}"`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+
+    const parts = result.split(',');
+    const isFrontmost = parts[0] === 'true';
+
+    if (overlayWindow) {
+      if (isFrontmost) {
+        overlayWindow.showInactive(); // Show without taking focus
+      } else {
+        overlayWindow.hide();
+      }
+    }
+
+    return { success: true, isFrontmost };
+  } catch (error: any) {
+    console.error('Failed to update overlay visibility:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get Word document scroll position
+ipcMain.handle('get-word-scroll-position', async () => {
+  try {
+    const scriptPath = resolveAppleScriptPath('get-word-scroll-position.applescript');
+    const result = execSync(`osascript "${scriptPath}"`, {
+      encoding: 'utf8',
+      timeout: 2000,
+    }).trim();
+
+    const scrollPosition = parseInt(result) || 0;
+    return { success: true, scrollPosition };
+  } catch (error: any) {
+    console.error('Failed to get Word scroll position:', error);
+    return { success: false, scrollPosition: 0 };
+  }
+});
+
+// Get all text content from Microsoft Word document
+ipcMain.handle('get-word-text', async () => {
+  try {
+    const scriptPath = resolveAppleScriptPath('get-word-text.applescript');
+    console.log('Executing AppleScript at:', scriptPath);
+    console.log('File exists:', fs.existsSync(scriptPath));
+
+    if (!fs.existsSync(scriptPath)) {
+      return {
+        success: false,
+        error: `AppleScript file not found at: ${scriptPath}`,
+        content: '',
+        isFrontmost: false,
+        isRunning: false
+      };
+    }
+
+    const result = execSync(`osascript "${scriptPath}"`, {
+      encoding: 'utf8',
+      timeout: 5000,
+    }).trim();
+
+    console.log('Raw AppleScript result:', result);
+    console.log('Result length:', result.length);
+
+    // Parse the result: format is "status,isFrontmost,content"
+    const firstComma = result.indexOf(',');
+    const secondComma = result.indexOf(',', firstComma + 1);
+
+    console.log('First comma at:', firstComma, 'Second comma at:', secondComma);
+
+    if (firstComma === -1 || secondComma === -1) {
+      console.error('Invalid format - missing commas');
+      return {
+        success: false,
+        error: 'Invalid response format',
+        content: '',
+        isFrontmost: false,
+        isRunning: false,
+        rawResult: result
+      };
+    }
+
+    const status = result.substring(0, firstComma);
+    const isFrontmost = result.substring(firstComma + 1, secondComma) === 'true';
+    const content = result.substring(secondComma + 1);
+
+    console.log('Parsed - status:', status, 'isFrontmost:', isFrontmost, 'content length:', content.length);
+
+    if (status === 'error') {
+      console.log('Status is error, content:', content);
+      return {
+        success: false,
+        error: content,
+        content: '',
+        isFrontmost: false,
+        isRunning: content.includes('not running') ? false : true,
+        rawResult: result
+      };
+    }
+
+    return {
+      success: true,
+      content: content,
+      isFrontmost: isFrontmost,
+      isRunning: true
+    };
+  } catch (error: any) {
+    console.error('Failed to get Word text - exception caught:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stderr:', error.stderr);
+    console.error('Error stdout:', error.stdout);
+
+    // Check for automation permission errors
+    let errorMessage = error.message || 'Unknown error';
+    if (error.stderr) {
+      errorMessage = error.stderr;
+    }
+
+    // Collect all available error information
+    const rawResult = [
+      error.stdout ? `stdout: ${error.stdout}` : '',
+      error.stderr ? `stderr: ${error.stderr}` : '',
+      error.message ? `message: ${error.message}` : ''
+    ].filter(Boolean).join('\n');
+
+    // Detect common permission-related errors
+    const isPermissionError =
+      errorMessage.includes('not authorized') ||
+      errorMessage.includes('not allowed') ||
+      errorMessage.includes('-1743') ||
+      errorMessage.includes('Apple Event') ||
+      errorMessage.includes('permission');
+
+    return {
+      success: false,
+      error: errorMessage,
+      content: '',
+      isFrontmost: false,
+      isRunning: false,
+      isPermissionError: isPermissionError,
+      rawResult: rawResult
+    };
   }
 });
