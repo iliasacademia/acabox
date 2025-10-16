@@ -3,12 +3,29 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { login, logout, uploadFile, searchFiles, checkLogin, getNotifications, updateNotification, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
-import Tesseract from 'tesseract.js';
-import MacOCR from '@cherrystudio/mac-system-ocr';
 import { syncService } from './syncService';
+
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+// Helper function to resolve paths for AppleScript files
+function resolveAppleScriptPath(scriptName: string): string {
+  // In development, use the webpack output path
+  const devPath = path.join(__dirname, 'applescripts', scriptName);
+
+  // In production, use the extraResource path (Contents/Resources/applescripts/)
+  const prodPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'applescripts', scriptName)
+    : devPath;
+
+  console.log('resolveAppleScriptPath - app.isPackaged:', app.isPackaged);
+  console.log('resolveAppleScriptPath - devPath:', devPath);
+  console.log('resolveAppleScriptPath - prodPath:', prodPath);
+  console.log('resolveAppleScriptPath - exists:', fs.existsSync(app.isPackaged ? prodPath : devPath));
+
+  return app.isPackaged ? prodPath : devPath;
+}
 
 let mainWindow: BrowserWindow | null = null;
 let overlayWindow: BrowserWindow | null = null;
@@ -138,7 +155,7 @@ ipcMain.handle('get-current-user', async () => {
 // Test Accessibility API with Word
 ipcMain.handle('test-accessibility', async () => {
   try {
-    const scriptPath = path.join(__dirname, 'applescripts/test-accessibility.applescript');
+    const scriptPath = resolveAppleScriptPath('test-accessibility.applescript');
     const result = execSync(`osascript "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 5000,
@@ -167,7 +184,7 @@ app.on('before-quit', async () => {
 // Test Microsoft Word's AppleScript object model
 ipcMain.handle('test-word-api', async () => {
   try {
-    const scriptPath = path.join(__dirname, 'applescripts/test-word-api.applescript');
+    const scriptPath = resolveAppleScriptPath('test-word-api.applescript');
     const result = execSync(`osascript "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 10000,
@@ -190,7 +207,7 @@ ipcMain.handle('test-word-api', async () => {
 // Check if Microsoft Word window is frontmost
 ipcMain.handle('check-word-frontmost', async () => {
   try {
-    const scriptPath = path.join(__dirname, 'applescripts/check-word-frontmost.applescript');
+    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
     const result = execSync(`osascript "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 5000,
@@ -234,7 +251,7 @@ ipcMain.handle('check-word-frontmost', async () => {
 ipcMain.handle('get-word-content', async () => {
   try {
     // First, check if Word is frontmost
-    const scriptPath = path.join(__dirname, 'applescripts/check-word-frontmost.applescript');
+    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
     const frontmostResult = execSync(`osascript "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 5000,
@@ -312,70 +329,13 @@ ipcMain.handle('process-word-window', async (_event, imageData: string, windowBo
     console.log('Window bounds:', windowBounds);
     console.log('Video dimensions:', videoDimensions);
 
-    // Use Apple Vision Framework for OCR
-    const startTime = Date.now();
-    const result = await MacOCR.recognizeFromBuffer(buffer, {
-      recognitionLevel: MacOCR.RECOGNITION_LEVEL_ACCURATE,
-      minConfidence: 0.3,
-    });
-    const ocrTime = Date.now() - startTime;
-    console.log(`Vision Framework OCR completed in ${ocrTime}ms`);
-
-    // Vision Framework returns normalized coordinates (0-1)
-    // We need to convert them to screen coordinates
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const workAreaTop = primaryDisplay.workArea.y; // Menu bar height
-
-    console.log('Cropped image dimensions:', videoDimensions);
-    console.log('Actual Word window:', windowBounds);
-    console.log('Menu bar height:', workAreaTop);
-
-    // Find all occurrences of "Academia" (case insensitive)
+    // OCR functionality removed - mac-system-ocr package no longer used
     const matches: Array<{
       text: string;
       bbox: { x0: number; y0: number; x1: number; y1: number };
     }> = [];
 
-    // Process Vision Framework results
-    // Result has observations array with normalized coords (0-1, bottom-left origin)
-    if (result && result.observations) {
-      for (const obs of result.observations) {
-        if (obs.text && obs.text.toLowerCase().includes('academia')) {
-          console.log('Found "Academia":', obs.text, 'at normalized coords', { x: obs.x, y: obs.y, width: obs.width, height: obs.height });
-
-          // Vision Framework returns normalized coordinates (0-1) with origin at bottom-left
-          // Convert to pixel coordinates within the cropped Word window
-          const x0 = obs.x * videoDimensions.width;
-          const y0 = (1 - obs.y - obs.height) * videoDimensions.height; // Flip Y axis to top-left
-          const x1 = x0 + (obs.width * videoDimensions.width);
-          const y1 = y0 + (obs.height * videoDimensions.height);
-
-          // Add Word window offset to get screen coordinates, adjusting for menu bar
-          const screenX0 = x0 + windowBounds.x;
-          const screenY0 = y0 + windowBounds.y - workAreaTop;
-          const screenX1 = x1 + windowBounds.x;
-          const screenY1 = y1 + windowBounds.y - workAreaTop;
-
-          console.log('Screen coords:', { x0: screenX0, y0: screenY0, x1: screenX1, y1: screenY1 });
-
-          // Store screen coordinates
-          matches.push({
-            text: obs.text,
-            bbox: {
-              x0: screenX0,
-              y0: screenY0,
-              x1: screenX1,
-              y1: screenY1,
-            },
-          });
-        }
-      }
-    }
-
-    console.log('Total matches found:', matches.length);
-    if (matches.length > 0) {
-      console.log('Match details:', JSON.stringify(matches, null, 2));
-    }
+    console.log('OCR disabled - no matches returned');
 
     // Update overlay window with matches
     if (matches.length > 0) {
@@ -455,69 +415,13 @@ ipcMain.handle('process-screen-ocr', async (_event, imageData: string, videoDime
 
     console.log('Image buffer size:', buffer.length, 'bytes');
 
-    // Use Apple Vision Framework for OCR
-    const startTime = Date.now();
-    const result = await MacOCR.recognizeFromBuffer(buffer, {
-      recognitionLevel: MacOCR.RECOGNITION_LEVEL_ACCURATE,
-      minConfidence: 0.3,
-    });
-    const ocrTime = Date.now() - startTime;
-    console.log(`Vision Framework OCR completed in ${ocrTime}ms`);
-
-    // Get display dimensions
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const displayWidth = primaryDisplay.bounds.width;
-    const displayHeight = primaryDisplay.bounds.height;
-    const workAreaTop = primaryDisplay.workArea.y;
-
-    console.log('Display:', displayWidth, 'x', displayHeight);
-    console.log('Work area top (menu bar height):', workAreaTop);
-    console.log('Video:', videoDimensions);
-
-    // Find all occurrences of "Academia" (case insensitive)
+    // OCR functionality removed - mac-system-ocr package no longer used
     const matches: Array<{
       text: string;
       bbox: { x0: number; y0: number; x1: number; y1: number };
     }> = [];
 
-    // Process Vision Framework results
-    if (result && result.observations) {
-      console.log('Number of recognized text items:', result.observations.length);
-      for (const obs of result.observations) {
-        if (obs.text && obs.text.toLowerCase().includes('academia')) {
-          console.log('Found "Academia":', obs.text, 'at normalized coords', { x: obs.x, y: obs.y, width: obs.width, height: obs.height });
-
-          // Vision Framework returns normalized coordinates (0-1) with origin at bottom-left
-          // Convert to pixel coordinates
-          const x0 = obs.x * displayWidth;
-          const y0 = (1 - obs.y - obs.height) * displayHeight; // Flip Y axis to top-left
-          const x1 = x0 + (obs.width * displayWidth);
-          const y1 = y0 + (obs.height * displayHeight);
-
-          // Subtract menu bar since overlay starts below it
-          const screenY0 = y0 - workAreaTop;
-          const screenY1 = y1 - workAreaTop;
-
-          matches.push({
-            text: obs.text,
-            bbox: {
-              x0: x0,
-              y0: screenY0,
-              x1: x1,
-              y1: screenY1,
-            },
-          });
-          console.log('Screen bbox:', {
-            x0: x0,
-            y0: screenY0,
-            x1: x1,
-            y1: screenY1,
-          });
-        }
-      }
-    }
-
-    console.log('Total matches found:', matches.length);
+    console.log('OCR disabled - no matches returned');
 
     // Update overlay window if it exists
     if (matches.length > 0) {
@@ -710,7 +614,7 @@ ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
 // Show overlay only when Word is frontmost
 ipcMain.handle('update-overlay-visibility', async () => {
   try {
-    const scriptPath = path.join(__dirname, 'applescripts/check-word-frontmost.applescript');
+    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
     const result = execSync(`osascript "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 5000,
@@ -737,7 +641,7 @@ ipcMain.handle('update-overlay-visibility', async () => {
 // Get Word document scroll position
 ipcMain.handle('get-word-scroll-position', async () => {
   try {
-    const scriptPath = path.join(__dirname, 'applescripts/get-word-scroll-position.applescript');
+    const scriptPath = resolveAppleScriptPath('get-word-scroll-position.applescript');
     const result = execSync(`osascript "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 2000,
@@ -754,23 +658,43 @@ ipcMain.handle('get-word-scroll-position', async () => {
 // Get all text content from Microsoft Word document
 ipcMain.handle('get-word-text', async () => {
   try {
-    const scriptPath = path.join(__dirname, 'applescripts/get-word-text.applescript');
+    const scriptPath = resolveAppleScriptPath('get-word-text.applescript');
+    console.log('Executing AppleScript at:', scriptPath);
+    console.log('File exists:', fs.existsSync(scriptPath));
+
+    if (!fs.existsSync(scriptPath)) {
+      return {
+        success: false,
+        error: `AppleScript file not found at: ${scriptPath}`,
+        content: '',
+        isFrontmost: false,
+        isRunning: false
+      };
+    }
+
     const result = execSync(`osascript "${scriptPath}"`, {
       encoding: 'utf8',
       timeout: 5000,
     }).trim();
 
+    console.log('Raw AppleScript result:', result);
+    console.log('Result length:', result.length);
+
     // Parse the result: format is "status,isFrontmost,content"
     const firstComma = result.indexOf(',');
     const secondComma = result.indexOf(',', firstComma + 1);
 
+    console.log('First comma at:', firstComma, 'Second comma at:', secondComma);
+
     if (firstComma === -1 || secondComma === -1) {
+      console.error('Invalid format - missing commas');
       return {
         success: false,
         error: 'Invalid response format',
         content: '',
         isFrontmost: false,
-        isRunning: false
+        isRunning: false,
+        rawResult: result
       };
     }
 
@@ -778,13 +702,17 @@ ipcMain.handle('get-word-text', async () => {
     const isFrontmost = result.substring(firstComma + 1, secondComma) === 'true';
     const content = result.substring(secondComma + 1);
 
+    console.log('Parsed - status:', status, 'isFrontmost:', isFrontmost, 'content length:', content.length);
+
     if (status === 'error') {
+      console.log('Status is error, content:', content);
       return {
         success: false,
         error: content,
         content: '',
         isFrontmost: false,
-        isRunning: content.includes('not running') ? false : true
+        isRunning: content.includes('not running') ? false : true,
+        rawResult: result
       };
     }
 
@@ -795,13 +723,40 @@ ipcMain.handle('get-word-text', async () => {
       isRunning: true
     };
   } catch (error: any) {
-    console.error('Failed to get Word text:', error);
+    console.error('Failed to get Word text - exception caught:', error);
+    console.error('Error message:', error.message);
+    console.error('Error stderr:', error.stderr);
+    console.error('Error stdout:', error.stdout);
+
+    // Check for automation permission errors
+    let errorMessage = error.message || 'Unknown error';
+    if (error.stderr) {
+      errorMessage = error.stderr;
+    }
+
+    // Collect all available error information
+    const rawResult = [
+      error.stdout ? `stdout: ${error.stdout}` : '',
+      error.stderr ? `stderr: ${error.stderr}` : '',
+      error.message ? `message: ${error.message}` : ''
+    ].filter(Boolean).join('\n');
+
+    // Detect common permission-related errors
+    const isPermissionError =
+      errorMessage.includes('not authorized') ||
+      errorMessage.includes('not allowed') ||
+      errorMessage.includes('-1743') ||
+      errorMessage.includes('Apple Event') ||
+      errorMessage.includes('permission');
+
     return {
       success: false,
-      error: error.message,
+      error: errorMessage,
       content: '',
       isFrontmost: false,
-      isRunning: false
+      isRunning: false,
+      isPermissionError: isPermissionError,
+      rawResult: rawResult
     };
   }
 });

@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 const WordReader: React.FC = () => {
   const [isEnabled, setIsEnabled] = useState(false);
   const [status, setStatus] = useState('Disabled');
+  const [error, setError] = useState<string | null>(null);
   const [textContent, setTextContent] = useState<string>('');
   const [lastReadTime, setLastReadTime] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -24,11 +25,73 @@ const WordReader: React.FC = () => {
 
   const startWordReader = async () => {
     try {
-      setStatus('Connecting to Microsoft Word...');
-      setIsEnabled(true);
+      setStatus('Requesting permission to access Microsoft Word...');
+      setError(null);
 
-      // Initial fetch
-      await fetchWordText();
+      // Try to access Word first to trigger permission request
+      const testResult = await window.electronAPI.invoke('get-word-text');
+
+      if (!testResult.success) {
+        // Check for automation permission errors (AppleScript control)
+        if (testResult.isPermissionError || (testResult.error && (
+          testResult.error.toLowerCase().includes('not authorized') ||
+          testResult.error.toLowerCase().includes('not allowed') ||
+          testResult.error.includes('-1743') ||
+          testResult.error.toLowerCase().includes('apple event')
+        ))) {
+          const errorMsg = 'Automation permission required.\n\nPlease grant permission:\n1. Open System Settings (System Preferences on older macOS)\n2. Go to Privacy & Security > Automation\n3. Enable "Microsoft Word" under this app\n4. Restart this app and try again';
+          setError(errorMsg);
+          setStatus('Permission required');
+          setIsEnabled(false);
+          return;
+        }
+
+        // Check for accessibility permission errors
+        if (testResult.error && (
+          testResult.error.includes('accessibility') ||
+          testResult.error.includes('is not allowed assistive access')
+        )) {
+          const errorMsg = 'Accessibility permission required. Please go to System Preferences > Privacy & Security > Accessibility and enable this app.';
+          setError(errorMsg);
+          setStatus('Permission required');
+          setIsEnabled(false);
+          return;
+        }
+
+        // Check if Word is not running
+        if (!testResult.isRunning) {
+          setError(testResult.error);
+          setStatus('Word not running');
+          setIsEnabled(false);
+          return;
+        }
+
+        // Check if no documents are open
+        if (testResult.error && testResult.error.includes('No documents are open')) {
+          const errorMsg = 'No Word documents are open. Please open a document in Microsoft Word and try again.';
+          setError(errorMsg);
+          setStatus('No documents open');
+          setIsEnabled(false);
+          return;
+        }
+
+        // Other errors - show the actual error message with raw result
+        let errorMsg = `Failed to connect: ${testResult.error || 'Could not connect to Microsoft Word'}`;
+        if (testResult.rawResult) {
+          errorMsg += `\n\nRaw AppleScript output:\n${testResult.rawResult}`;
+        }
+        setError(errorMsg);
+        setStatus('Connection failed');
+        setIsEnabled(false);
+        console.error('Full test result:', testResult);
+        return;
+      }
+
+      // Successfully connected
+      setIsEnabled(true);
+      setTextContent(testResult.content);
+      setLastReadTime(new Date().toLocaleTimeString());
+      setStatus('Word reader enabled - Reading from active Word document');
 
       // Start polling every 5 seconds
       pollingIntervalRef.current = setInterval(() => {
@@ -37,7 +100,9 @@ const WordReader: React.FC = () => {
 
     } catch (error) {
       console.error('Error starting Word reader:', error);
-      setStatus(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMsg = `Exception: ${error instanceof Error ? error.message : JSON.stringify(error)}`;
+      setError(errorMsg);
+      setStatus('Error');
       setIsEnabled(false);
     }
   };
@@ -51,6 +116,7 @@ const WordReader: React.FC = () => {
 
     setIsEnabled(false);
     setStatus('Disabled');
+    setError(null);
     setTextContent('');
     setLastReadTime(null);
   };
@@ -62,7 +128,7 @@ const WordReader: React.FC = () => {
       if (!result.success) {
         // Check if Word is not running
         if (!result.isRunning) {
-          setStatus('Microsoft Word is not running');
+          setStatus(result.error);
           stopWordReader();
           return;
         }
@@ -138,6 +204,59 @@ const WordReader: React.FC = () => {
       <div style={{ marginTop: '20px' }}>
         <strong>Status:</strong> {status}
       </div>
+
+      {error && (
+        <div
+          style={{
+            marginTop: '15px',
+            padding: '15px',
+            backgroundColor: '#f8d7da',
+            border: '1px solid #f5c2c7',
+            borderRadius: '5px',
+            color: '#842029',
+          }}
+        >
+          <strong>Error:</strong>
+          <pre style={{
+            whiteSpace: 'pre-wrap',
+            wordWrap: 'break-word',
+            fontFamily: 'monospace',
+            fontSize: '13px',
+            margin: '10px 0 0 0',
+            padding: '10px',
+            backgroundColor: 'rgba(0,0,0,0.05)',
+            borderRadius: '4px',
+            maxHeight: '300px',
+            overflowY: 'auto'
+          }}>
+            {error}
+          </pre>
+          {(error.includes('System Settings') || error.includes('System Preferences') || error.includes('permission required')) && (
+            <div style={{ marginTop: '10px' }}>
+              <button
+                onClick={() => {
+                  if (error.toLowerCase().includes('automation') || error.toLowerCase().includes('apple event')) {
+                    window.open('x-apple.systempreferences:com.apple.preference.security?Privacy_Automation');
+                  } else if (error.toLowerCase().includes('accessibility')) {
+                    window.open('x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility');
+                  }
+                }}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '14px',
+                  backgroundColor: '#842029',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                }}
+              >
+                Open System Settings
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {lastReadTime && (
         <div style={{ marginTop: '10px' }}>

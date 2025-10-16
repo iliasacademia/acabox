@@ -6,6 +6,13 @@ module.exports = {
     asar: {
       unpack: '**/node_modules/tesseract.js/**/*',
     },
+    extraResource: [
+      'src/applescripts'
+    ],
+    extendInfo: {
+      NSAppleEventsUsageDescription: 'This app needs to send Apple Events to Microsoft Word to read document content.',
+      NSAppleScriptEnabled: true,
+    },
   },
   rebuildConfig: {},
   makers: [

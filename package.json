@@ -9,6 +9,8 @@
     "lint:applescript": "find src/applescripts -name '*.applescript' -exec osacompile -o /dev/null {} \\;",
     "test": "echo \"Error: no test specified\" && exit 1",
     "package": "electron-forge package",
+    "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - {} \\;",
+    "package:sign": "npm run package && npm run codesign",
     "make": "electron-forge make"
   },
   "author": "Academia.edu",
@@ -23,6 +25,7 @@
     "@electron-forge/plugin-fuses": "^7.8.1",
     "@electron-forge/plugin-webpack": "^7.10.2",
     "@electron/fuses": "^1.8.0",
+    "@electron/osx-sign": "^2.2.0",
     "@types/node": "^24.7.2",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
@@ -36,7 +39,6 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@cherrystudio/mac-system-ocr": "^0.2.7",
     "axios": "^1.10.0",
     "axios-cookiejar-support": "^6.0.3",
     "chokidar": "^4.0.3",
