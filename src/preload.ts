@@ -5,7 +5,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   // IPC handlers
   invoke: (channel: string, ...args: any[]) => {
-    const validChannels = ['check-login', 'login', 'logout', 'select-folder', 'upload-files', 'search-files', 'get-notifications', 'update-notification', 'get-current-user', 'get-screen-sources', 'get-all-sources', 'close-overlay', 'get-word-content', 'test-word-api', 'check-word-frontmost', 'update-overlay-visibility', 'get-word-scroll-position', 'get-word-text', 'process-screen-ocr', 'close-overlay', 'get-sync-folders', 'add-sync-folder', 'remove-sync-folder', 'sync-folder-now', 'get-folder-files', 'process-word-window'];
+    const validChannels = ['check-login', 'login', 'logout', 'select-folder', 'upload-files', 'search-files', 'get-notifications', 'update-notification', 'get-current-user', 'get-screen-sources', 'get-all-sources', 'get-word-content', 'test-word-api', 'check-word-frontmost', 'get-word-scroll-position', 'get-word-text', 'process-screen-ocr', 'get-sync-folders', 'add-sync-folder', 'remove-sync-folder', 'sync-folder-now', 'get-folder-files', 'process-word-window', 'start-selection-tracking', 'stop-selection-tracking', 'selection-button-clicked'];
     if (validChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);
     }
@@ -14,15 +14,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Event listeners
   on: (channel: string, callback: (event: IpcRendererEvent, ...args: any[]) => void) => {
-    const validChannels = ['file-uploaded', 'file-synced', 'folder-sync-status', 'initial-sync-status', 'initial-sync-progress'];
+    const validChannels = ['file-uploaded', 'file-synced', 'folder-sync-status', 'initial-sync-status', 'initial-sync-progress', 'selection-updated', 'button-action'];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, callback);
     }
   },
 
-  // Remove event listeners
+  // Remove specific event listener
+  removeListener: (channel: string, callback: (event: IpcRendererEvent, ...args: any[]) => void) => {
+    const validChannels = ['file-uploaded', 'file-synced', 'folder-sync-status', 'initial-sync-status', 'initial-sync-progress', 'selection-updated', 'button-action'];
+    if (validChannels.includes(channel)) {
+      ipcRenderer.removeListener(channel, callback);
+    }
+  },
+
+  // Remove all event listeners
   removeAllListeners: (channel: string) => {
-    const validChannels = ['file-uploaded', 'file-synced', 'folder-sync-status', 'initial-sync-status', 'initial-sync-progress'];
+    const validChannels = ['file-uploaded', 'file-synced', 'folder-sync-status', 'initial-sync-status', 'initial-sync-progress', 'selection-updated', 'button-action'];
     if (validChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }

@@ -1,0 +1,13 @@
+{
+  "name": "word-accessibility-bridge",
+  "version": "1.0.0",
+  "description": "Native macOS Accessibility API bridge for Microsoft Word",
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "keywords": ["accessibility", "macos", "word", "native"],
+  "author": "Academia.edu",
+  "license": "UNLICENSED"
+}
