@@ -1,10 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 
+interface WordDocument {
+  name: string;
+  content: string;
+}
+
 const WordReader: React.FC = () => {
   const [isEnabled, setIsEnabled] = useState(false);
   const [status, setStatus] = useState('Disabled');
   const [error, setError] = useState<string | null>(null);
-  const [textContent, setTextContent] = useState<string>('');
+  const [documents, setDocuments] = useState<WordDocument[]>([]);
   const [lastReadTime, setLastReadTime] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -89,9 +94,10 @@ const WordReader: React.FC = () => {
 
       // Successfully connected
       setIsEnabled(true);
-      setTextContent(testResult.content);
+      setDocuments(testResult.documents || []);
       setLastReadTime(new Date().toLocaleTimeString());
-      setStatus('Word reader enabled - Reading from active Word document');
+      const docCount = testResult.documents?.length || 0;
+      setStatus(`Word reader enabled - Reading from ${docCount} Word document${docCount !== 1 ? 's' : ''}`);
 
       // Start polling every 5 seconds
       pollingIntervalRef.current = setInterval(() => {
@@ -117,7 +123,7 @@ const WordReader: React.FC = () => {
     setIsEnabled(false);
     setStatus('Disabled');
     setError(null);
-    setTextContent('');
+    setDocuments([]);
     setLastReadTime(null);
   };
 
@@ -145,13 +151,14 @@ const WordReader: React.FC = () => {
       }
 
       // Successfully got content
-      setTextContent(result.content);
+      setDocuments(result.documents || []);
       setLastReadTime(new Date().toLocaleTimeString());
 
+      const docCount = result.documents?.length || 0;
       if (result.isFrontmost) {
-        setStatus('Word reader enabled - Reading from active Word document');
+        setStatus(`Word reader enabled - Reading from ${docCount} Word document${docCount !== 1 ? 's' : ''}`);
       } else {
-        setStatus('Word reader enabled - Word is in background');
+        setStatus(`Word reader enabled - Word is in background (${docCount} document${docCount !== 1 ? 's' : ''})`);
       }
 
     } catch (error) {
@@ -264,27 +271,39 @@ const WordReader: React.FC = () => {
         </div>
       )}
 
-      {textContent && (
+      {documents.length > 0 && (
         <div style={{ marginTop: '20px' }}>
-          <h2>Document Content:</h2>
-          <div
-            style={{
-              marginTop: '10px',
-              padding: '15px',
-              backgroundColor: '#f8f9fa',
-              border: '1px solid #dee2e6',
-              borderRadius: '5px',
-              fontFamily: 'system-ui, -apple-system, sans-serif',
-              maxHeight: '500px',
-              overflowY: 'auto',
-            }}
-          >
-            {textContent.split(/\r\n|\r|\n/).map((line, index) => (
-              <p key={index} style={{ margin: '0 0 1em 0' }}>
-                {line || '\u00A0'}
-              </p>
-            ))}
-          </div>
+          <h2>Document{documents.length > 1 ? 's' : ''} Content:</h2>
+          {documents.map((doc, docIndex) => (
+            <div key={docIndex} style={{ marginTop: '20px' }}>
+              <h3 style={{
+                fontSize: '18px',
+                fontWeight: 'bold',
+                marginBottom: '10px',
+                color: '#495057'
+              }}>
+                {doc.name}
+              </h3>
+              <div
+                style={{
+                  marginTop: '10px',
+                  padding: '15px',
+                  backgroundColor: '#f8f9fa',
+                  border: '1px solid #dee2e6',
+                  borderRadius: '5px',
+                  fontFamily: 'system-ui, -apple-system, sans-serif',
+                  maxHeight: '400px',
+                  overflowY: 'auto',
+                }}
+              >
+                {doc.content.split(/\r\n|\r|\n/).map((line, index) => (
+                  <p key={index} style={{ margin: '0 0 1em 0' }}>
+                    {line || '\u00A0'}
+                  </p>
+                ))}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

@@ -11,8 +11,17 @@ module.exports = {
       crypto: false,
     },
   },
-  externals: {
-    'tesseract.js': 'commonjs2 tesseract.js',
-  },
+  externals: [
+    {
+      'tesseract.js': 'commonjs2 tesseract.js',
+    },
+    // Mark all .node files as external (native modules)
+    function ({ request }, callback) {
+      if (/\.node$/.test(request)) {
+        return callback(null, 'commonjs2 ' + request);
+      }
+      callback();
+    },
+  ],
   plugins: require('./webpack.plugins'),
 };

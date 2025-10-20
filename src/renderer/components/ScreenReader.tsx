@@ -97,9 +97,6 @@ const ScreenReader: React.FC = () => {
       videoRef.current.srcObject = null;
     }
 
-    // Close overlay window
-    window.electronAPI.invoke('close-overlay');
-
     setIsEnabled(false);
     setStatus('Disabled');
     setWordContent('');

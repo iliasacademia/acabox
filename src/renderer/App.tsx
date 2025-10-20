@@ -5,9 +5,10 @@ import SearchSection from './components/SearchSection';
 import ScreenReader from './components/ScreenReader';
 import SyncSection from './components/SyncSection';
 import WordReader from './components/WordReader';
+import SelectionTracker from './components/SelectionTracker';
 import './App.css';
 
-type Page = 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader';
+type Page = 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker';
 
 interface DesktopNotification {
   created_at: number;
@@ -26,6 +27,27 @@ const App: React.FC = () => {
 
   useEffect(() => {
     checkLoginStatus();
+
+    // Listen for button actions from the native popup
+    const handleButtonAction = (_event: any, data: { action: string; text: string }) => {
+      console.log('[App] Button action received:', data.action);
+
+      if (data.action === 'copy') {
+        // Show success notification
+        new Notification('Copied Successfully', {
+          body: 'Text has been copied to clipboard',
+        });
+      } else if (data.action === 'lookup') {
+        // Switch to Selection Tracker page to show the lookup
+        setCurrentPage('selectionTracker');
+      }
+    };
+
+    window.electronAPI.on('button-action', handleButtonAction);
+
+    return () => {
+      window.electronAPI.removeListener('button-action', handleButtonAction);
+    };
   }, []);
 
   useEffect(() => {
@@ -148,6 +170,12 @@ const App: React.FC = () => {
           >
             Word Reader
           </button>
+          <button
+            className={`menuItem ${currentPage === 'selectionTracker' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('selectionTracker')}
+          >
+            Selection Tracker
+          </button>
         </nav>
         <button id="logoutButton" onClick={handleLogout}>
           Logout
@@ -178,6 +206,7 @@ const App: React.FC = () => {
         {currentPage === 'screenReader' && <ScreenReader />}
         {currentPage === 'sync' && <SyncSection />}
         {currentPage === 'wordReader' && <WordReader />}
+        {currentPage === 'selectionTracker' && <SelectionTracker />}
       </div>
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
     </div>

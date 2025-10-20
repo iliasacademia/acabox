@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { login, logout, uploadFile, searchFiles, checkLogin, getNotifications, updateNotification, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
 import { syncService } from './syncService';
+import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -28,7 +29,6 @@ function resolveAppleScriptPath(scriptName: string): string {
 }
 
 let mainWindow: BrowserWindow | null = null;
-let overlayWindow: BrowserWindow | null = null;
 
 const createWindow = async (): Promise<void> => {
   mainWindow = new BrowserWindow({
@@ -68,6 +68,39 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow();
   }
+});
+
+// Helper function for cleanup before exit
+function cleanupAndExit() {
+  console.log('[APP] Cleaning up native resources...');
+
+  if (isSelectionTrackingActive) {
+    try {
+      wordAccessibility.stopObserving();
+      isSelectionTrackingActive = false;
+      console.log('[APP] Selection tracking stopped successfully');
+    } catch (error) {
+      console.error('[APP] Error stopping observer:', error);
+    }
+  }
+
+  process.exit(0);
+}
+
+// Handle terminal signals for proper cleanup
+process.on('SIGINT', () => {
+  console.log('[APP] Received SIGINT (Ctrl+C) - cleaning up...');
+  cleanupAndExit();
+});
+
+process.on('SIGTERM', () => {
+  console.log('[APP] Received SIGTERM - cleaning up...');
+  cleanupAndExit();
+});
+
+process.on('SIGHUP', () => {
+  console.log('[APP] Received SIGHUP (terminal closed) - cleaning up...');
+  cleanupAndExit();
 });
 
 ipcMain.handle('check-login', async () => {
@@ -154,8 +187,24 @@ ipcMain.handle('get-current-user', async () => {
 
 // Cleanup on app quit
 app.on('before-quit', async () => {
+  console.log('[APP] Application quitting - cleaning up resources...');
+
+  // Stop selection tracking first (synchronous cleanup of native resources)
+  if (isSelectionTrackingActive) {
+    console.log('[APP] Stopping selection tracking...');
+    try {
+      wordAccessibility.stopObserving();
+      isSelectionTrackingActive = false;
+      console.log('[APP] Selection tracking stopped successfully');
+    } catch (error) {
+      console.error('[APP] Error stopping selection tracking:', error);
+    }
+  }
+
   // Stop all sync watchers
+  console.log('[APP] Stopping sync watchers...');
   await syncService.stopAll();
+  console.log('[APP] Cleanup complete');
 });
 
 // Test Microsoft Word's AppleScript object model
@@ -314,23 +363,6 @@ ipcMain.handle('process-word-window', async (_event, imageData: string, windowBo
 
     console.log('OCR disabled - no matches returned');
 
-    // Update overlay window with matches
-    if (matches.length > 0) {
-      if (!overlayWindow) {
-        console.log('Creating overlay window...');
-        createOverlayWindow();
-        // Wait a bit for the window to be ready
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-      if (overlayWindow) {
-        console.log('Sending highlights to overlay...');
-        overlayWindow.webContents.send('update-highlights', matches);
-      }
-    } else if (overlayWindow) {
-      console.log('No matches, clearing highlights');
-      overlayWindow.webContents.send('update-highlights', []);
-    }
-
     return { matches };
   } catch (error: any) {
     console.error('Word window OCR error:', error);
@@ -400,73 +432,12 @@ ipcMain.handle('process-screen-ocr', async (_event, imageData: string, videoDime
 
     console.log('OCR disabled - no matches returned');
 
-    // Update overlay window if it exists
-    if (matches.length > 0) {
-      if (!overlayWindow) {
-        createOverlayWindow();
-      }
-      if (overlayWindow) {
-        overlayWindow.webContents.send('update-highlights', matches);
-      }
-    } else if (overlayWindow) {
-      // Clear highlights if no matches
-      overlayWindow.webContents.send('update-highlights', []);
-    }
-
     return { matches };
   } catch (error: any) {
     console.error('OCR processing error:', error);
     return { matches: [], error: error.message };
   }
 });
-
-ipcMain.handle('close-overlay', async () => {
-  if (overlayWindow) {
-    overlayWindow.close();
-    overlayWindow = null;
-  }
-  return { success: true };
-});
-
-// Create overlay window
-function createOverlayWindow() {
-  if (overlayWindow) return;
-
-  const primaryDisplay = screen.getPrimaryDisplay();
-  const { width, height } = primaryDisplay.bounds;
-
-  overlayWindow = new BrowserWindow({
-    x: 0,
-    y: 0,
-    width,
-    height,
-    frame: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    movable: false,
-    focusable: false,
-    hasShadow: false,
-    webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
-  });
-
-  overlayWindow.setIgnoreMouseEvents(true);
-  overlayWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
-
-  // Use 'floating' level instead of 'screen-saver' - this makes it appear above normal
-  // windows but below some system windows and full-screen apps
-  overlayWindow.setAlwaysOnTop(true, 'floating');
-
-  overlayWindow.loadFile(path.join(__dirname, 'overlay.html'));
-
-  overlayWindow.on('closed', () => {
-    overlayWindow = null;
-  });
-}
 
 // Sync Folder IPC handlers
 ipcMain.handle('get-sync-folders', async () => {
@@ -588,33 +559,6 @@ ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
   }
 });
 
-// Show overlay only when Word is frontmost
-ipcMain.handle('update-overlay-visibility', async () => {
-  try {
-    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
-    const result = execSync(`osascript "${scriptPath}"`, {
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim();
-
-    const parts = result.split(',');
-    const isFrontmost = parts[0] === 'true';
-
-    if (overlayWindow) {
-      if (isFrontmost) {
-        overlayWindow.showInactive(); // Show without taking focus
-      } else {
-        overlayWindow.hide();
-      }
-    }
-
-    return { success: true, isFrontmost };
-  } catch (error: any) {
-    console.error('Failed to update overlay visibility:', error);
-    return { success: false, error: error.message };
-  }
-});
-
 // Get Word document scroll position
 ipcMain.handle('get-word-scroll-position', async () => {
   try {
@@ -657,7 +601,7 @@ ipcMain.handle('get-word-text', async () => {
     console.log('Raw AppleScript result:', result);
     console.log('Result length:', result.length);
 
-    // Parse the result: format is "status,isFrontmost,content"
+    // Parse the result: format is "status,isFrontmost,documents"
     const firstComma = result.indexOf(',');
     const secondComma = result.indexOf(',', firstComma + 1);
 
@@ -669,6 +613,7 @@ ipcMain.handle('get-word-text', async () => {
         success: false,
         error: 'Invalid response format',
         content: '',
+        documents: [],
         isFrontmost: false,
         isRunning: false,
         rawResult: result
@@ -677,25 +622,52 @@ ipcMain.handle('get-word-text', async () => {
 
     const status = result.substring(0, firstComma);
     const isFrontmost = result.substring(firstComma + 1, secondComma) === 'true';
-    const content = result.substring(secondComma + 1);
+    const documentsData = result.substring(secondComma + 1);
 
-    console.log('Parsed - status:', status, 'isFrontmost:', isFrontmost, 'content length:', content.length);
+    console.log('Parsed - status:', status, 'isFrontmost:', isFrontmost, 'documents data length:', documentsData.length);
 
     if (status === 'error') {
-      console.log('Status is error, content:', content);
+      console.log('Status is error, content:', documentsData);
       return {
         success: false,
-        error: content,
+        error: documentsData,
         content: '',
+        documents: [],
         isFrontmost: false,
-        isRunning: content.includes('not running') ? false : true,
+        isRunning: documentsData.includes('not running') ? false : true,
         rawResult: result
       };
     }
 
+    // Parse multiple documents from the format:
+    // ==DOC_START==\ndocName\n==CONTENT==\ndocContent\n==DOC_END==
+    const documents: Array<{ name: string; content: string }> = [];
+    const docParts = documentsData.split('==DOC_START==');
+
+    for (const part of docParts) {
+      if (part.trim().length === 0) continue;
+
+      const contentSplit = part.split('==CONTENT==');
+      if (contentSplit.length < 2) continue;
+
+      const docName = contentSplit[0].replace('==DOC_END==', '').trim();
+      const docContent = contentSplit[1].split('==DOC_END==')[0].trim();
+
+      documents.push({
+        name: docName,
+        content: docContent
+      });
+    }
+
+    console.log('Parsed documents:', documents.length);
+
+    // For backward compatibility, set content to first document's content
+    const firstDocContent = documents.length > 0 ? documents[0].content : '';
+
     return {
       success: true,
-      content: content,
+      content: firstDocContent,
+      documents: documents,
       isFrontmost: isFrontmost,
       isRunning: true
     };
@@ -730,10 +702,105 @@ ipcMain.handle('get-word-text', async () => {
       success: false,
       error: errorMessage,
       content: '',
+      documents: [],
       isFrontmost: false,
       isRunning: false,
       isPermissionError: isPermissionError,
       rawResult: rawResult
     };
   }
+});
+
+// Native selection tracking handlers
+let isSelectionTrackingActive = false;
+
+ipcMain.handle('start-selection-tracking', async () => {
+  try {
+    // Check if Word is running
+    const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
+    if (!wordPIDResult) {
+      return { success: false, error: 'Microsoft Word is not running' };
+    }
+
+    const wordPID = parseInt(wordPIDResult);
+    console.log('[SELECTION-TRACKER] Starting observer for Word PID:', wordPID);
+
+    // Check permission first
+    if (!wordAccessibility.checkPermission()) {
+      return {
+        success: false,
+        error: 'Accessibility permission not granted. Please enable in System Settings > Privacy & Security > Accessibility.'
+      };
+    }
+
+    // Start observing with event callback
+    wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
+      console.log('[SELECTION-TRACKER] Received event:', event.type);
+
+      if (event.type === 'selectionChanged') {
+        console.log('[SELECTION-TRACKER] Selection changed:', event.text.substring(0, 50));
+
+        // Send to main window to update UI
+        if (mainWindow) {
+          mainWindow.webContents.send('selection-updated', event.text);
+        }
+        // Note: Button is now rendered natively, no IPC needed!
+      } else if (event.type === 'scrollStarted') {
+        console.log('[SELECTION-TRACKER] Scroll started');
+        // Note: Button is now hidden natively, no IPC needed!
+      } else if (event.type === 'scrollEnded') {
+        console.log('[SELECTION-TRACKER] Scroll ended');
+        // Note: Button is now shown natively at new position, no IPC needed!
+      } else if (event.type === 'buttonClicked') {
+        // Parse action and text from the message format "action|text"
+        const parts = event.text.split('|');
+        const action = parts.length > 0 ? parts[0] : 'unknown';
+        const text = parts.length > 1 ? parts.slice(1).join('|') : event.text;
+
+        console.log('[SELECTION-TRACKER] Button clicked:', action, 'for text:', text.substring(0, 50));
+
+        // Send to main window with action information
+        if (mainWindow) {
+          mainWindow.webContents.send('button-action', { action, text });
+
+          // Also send selection-updated for backward compatibility
+          if (action === 'lookup') {
+            mainWindow.webContents.send('selection-updated', text);
+          }
+        }
+      }
+    });
+
+    isSelectionTrackingActive = true;
+    return { success: true };
+  } catch (error: any) {
+    console.error('[SELECTION-TRACKER] Error starting tracking:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('stop-selection-tracking', async () => {
+  try {
+    console.log('[SELECTION-TRACKER] Stopping observer');
+    wordAccessibility.stopObserving();
+    // Note: Native button is automatically hidden when observer stops
+
+    isSelectionTrackingActive = false;
+    return { success: true };
+  } catch (error: any) {
+    console.error('[SELECTION-TRACKER] Error stopping tracking:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Handle button click from overlay
+ipcMain.handle('selection-button-clicked', async (_event, selectedText: string) => {
+  console.log('[SELECTION-TRACKER] Button clicked for text:', selectedText.substring(0, 50));
+
+  // Send to main window to show in UI
+  if (mainWindow) {
+    mainWindow.webContents.send('selection-updated', selectedText);
+  }
+
+  return { success: true };
 });

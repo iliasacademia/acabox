@@ -14,9 +14,6 @@ tell application "Microsoft Word"
 			return "error,false,Error: No documents are open"
 		end if
 
-		-- Get the text content from the active document
-		set docContent to content of text object of active document
-
 		-- Check if Word is frontmost
 		tell application "System Events"
 			set frontmostApp to name of first application process whose frontmost is true
@@ -24,11 +21,27 @@ tell application "Microsoft Word"
 
 		set isFrontmost to (frontmostApp is "Microsoft Word")
 
+		-- Get all documents
+		set docList to {}
+		set docCount to count of documents
+		repeat with i from 1 to docCount
+			set doc to document i
+			set docName to name of doc
+			set docContent to content of text object of doc
+			set end of docList to "==DOC_START==" & return & docName & return & "==CONTENT==" & return & docContent & return & "==DOC_END=="
+		end repeat
+
+		-- Join all documents with newlines
+		set allDocs to ""
+		repeat with docInfo in docList
+			set allDocs to allDocs & docInfo & return
+		end repeat
+
 		if isFrontmost then
-			-- Return format: status,isFrontmost,content
-			return "success,true," & docContent
+			-- Return format: status,isFrontmost,documents
+			return "success,true," & allDocs
 		else
-			return "success,false," & docContent
+			return "success,false," & allDocs
 		end if
 	on error errMsg
 		return "error,false,Error: " & errMsg
