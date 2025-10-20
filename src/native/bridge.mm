@@ -11,7 +11,8 @@
 @class ButtonOverlayWindow;
 
 // Tooltip/Popup window for showing selected text on hover using React via WKWebView
-@interface TextPopupWindow : NSWindow <WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate>
+// Use NSPanel for non-activating behavior - doesn't steal focus from MS Word
+@interface TextPopupWindow : NSPanel <WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate>
 @property (nonatomic, strong) WKWebView* webView;
 @property (nonatomic, strong) NSTrackingArea* trackingArea;
 @property (nonatomic, weak) ButtonOverlayWindow* buttonWindow;
@@ -46,7 +47,7 @@ NSString* globalPopupPath = nil;
     CGFloat height = 220;
 
     self = [super initWithContentRect:NSMakeRect(0, 0, width, height)
-                            styleMask:NSWindowStyleMaskBorderless
+                            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
                               backing:NSBackingStoreBuffered
                                 defer:NO];
     if (self) {
@@ -55,8 +56,13 @@ NSString* globalPopupPath = nil;
         self.level = NSFloatingWindowLevel + 1;  // Above the button
         self.hasShadow = NO;  // React will provide shadow via CSS
         self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
-                                   NSWindowCollectionBehaviorStationary |
-                                   NSWindowCollectionBehaviorIgnoresCycle;
+                                   NSWindowCollectionBehaviorStationary;
+
+        // CRITICAL: Make this panel non-activating so it doesn't steal focus from MS Word
+        self.floatingPanel = YES;
+        self.becomesKeyOnlyIfNeeded = NO;  // Never become key window
+        self.worksWhenModal = YES;  // Continue working even when modal dialogs are present
+        self.hidesOnDeactivate = NO;  // Don't auto-hide when app deactivates
 
         // Enable mouse events for tracking
         self.ignoresMouseEvents = NO;
@@ -65,6 +71,10 @@ NSString* globalPopupPath = nil;
         // Store the initial text
         self.currentText = text;
         self.isProcessingClick = NO;
+
+        NSLog(@"[TextPopupWindow] Initialized as non-activating panel with text (length: %lu): %@...",
+              (unsigned long)[text length],
+              [text substringToIndex:MIN((NSUInteger)50, [text length])]);
 
         // Configure WKWebView
         WKWebViewConfiguration* config = [[WKWebViewConfiguration alloc] init];
@@ -213,12 +223,43 @@ NSString* globalPopupPath = nil;
 // WKNavigationDelegate - called when page finishes loading
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
     NSLog(@"[TextPopupWindow] Popup HTML loaded successfully");
-    // Wait a bit for JavaScript to initialize before updating content
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (self.currentText) {
-            [self updateContentWithText:self.currentText];
+    // Wait for React to initialize - increase delay to ensure readiness
+    // Try multiple times if needed to ensure content is updated
+    __block int attemptCount = 0;
+    __block __weak void (^weakTryUpdate)(void);
+    void (^tryUpdate)(void);
+
+    tryUpdate = ^{
+        attemptCount++;
+        NSLog(@"[TextPopupWindow] Attempting to update content (attempt %d)", attemptCount);
+
+        if (self.currentText && [self.currentText length] > 0) {
+            // First check if window.updateContent exists
+            NSString* checkScript = @"typeof window.updateContent === 'function'";
+            [self.webView evaluateJavaScript:checkScript completionHandler:^(id result, NSError *error) {
+                BOOL functionExists = [result boolValue];
+                NSLog(@"[TextPopupWindow] window.updateContent exists: %d", functionExists);
+
+                if (functionExists) {
+                    [self updateContentWithText:self.currentText];
+                } else if (attemptCount < 5) {
+                    // Try again after a short delay using weak reference
+                    void (^strongTryUpdate)(void) = weakTryUpdate;
+                    if (strongTryUpdate) {
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                                     dispatch_get_main_queue(), strongTryUpdate);
+                    }
+                } else {
+                    NSLog(@"[TextPopupWindow] ERROR: Failed to initialize after %d attempts", attemptCount);
+                }
+            }];
         }
-    });
+    };
+    weakTryUpdate = tryUpdate;
+
+    // Initial attempt after 0.2 seconds
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                 dispatch_get_main_queue(), tryUpdate);
 }
 
 // WKScriptMessageHandler - receive messages from React
@@ -294,11 +335,17 @@ NSString* globalPopupPath = nil;
 
 - (void)setupMouseTracking {
     // Track mouse enter/exit for the entire content view
+    // Use NSTrackingMouseMoved to get continuous updates
+    // Use NSTrackingActiveAlways so tracking works even when window is not key
     self.trackingArea = [[NSTrackingArea alloc] initWithRect:self.contentView.bounds
-                                                     options:(NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways | NSTrackingInVisibleRect)
+                                                     options:(NSTrackingMouseEnteredAndExited |
+                                                              NSTrackingMouseMoved |
+                                                              NSTrackingActiveAlways |
+                                                              NSTrackingInVisibleRect)
                                                        owner:self
                                                     userInfo:nil];
     [self.contentView addTrackingArea:self.trackingArea];
+    NSLog(@"[TextPopupWindow] Mouse tracking setup complete");
 }
 
 - (void)mouseEntered:(NSEvent *)event {
@@ -322,6 +369,46 @@ NSString* globalPopupPath = nil;
     if (self.buttonWindow) {
         [self.buttonWindow scheduleHidePopup];
     }
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    NSLog(@"[TextPopupWindow] Mouse down - keeping window open");
+    // Handle mouse down to prevent window from closing
+    // Cancel any scheduled hide
+    if (self.buttonWindow) {
+        [self.buttonWindow cancelScheduledHide];
+    }
+}
+
+- (BOOL)canBecomeKeyWindow {
+    // CRITICAL: Return NO to prevent stealing focus from MS Word
+    // Panel will still receive mouse events due to NSWindowStyleMaskNonactivatingPanel
+    return NO;
+}
+
+- (BOOL)canBecomeMainWindow {
+    // CRITICAL: Return NO to prevent becoming the main window
+    return NO;
+}
+
+- (BOOL)acceptsFirstResponder {
+    return YES;
+}
+
+- (void)resignKeyWindow {
+    // Don't let the window auto-hide when it resigns key status
+    NSLog(@"[TextPopupWindow] resignKeyWindow called - keeping window visible");
+    [super resignKeyWindow];
+    // Explicitly cancel any scheduled hide
+    if (self.buttonWindow) {
+        [self.buttonWindow cancelScheduledHide];
+    }
+}
+
+- (void)mouseMoved:(NSEvent *)event {
+    // Track mouse movement to keep window alive while mouse is inside
+    // This prevents false mouse exit events
+    [self.buttonWindow cancelScheduledHide];
 }
 
 - (void)dealloc {
@@ -417,16 +504,18 @@ NSString* globalPopupPath = nil;
     // Cancel any scheduled hide
     [self cancelScheduledHide];
 
-    if (self.popupWindow) {
-        [self.popupWindow orderOut:nil];
-        self.popupWindow = nil;
-    }
-
     if (self.selectedText && self.selectedText.length > 0) {
-        self.popupWindow = [[TextPopupWindow alloc] initWithText:self.selectedText];
-
-        // Connect popup back to button for mouse coordination
-        self.popupWindow.buttonWindow = self;
+        // Reuse existing popup window if available (keeps React loaded and ready)
+        if (!self.popupWindow) {
+            NSLog(@"[ButtonOverlayWindow] Creating new popup window");
+            self.popupWindow = [[TextPopupWindow alloc] initWithText:self.selectedText];
+            // Connect popup back to button for mouse coordination
+            self.popupWindow.buttonWindow = self;
+        } else {
+            // Update existing popup with new text (instant update, no reload delay)
+            NSLog(@"[ButtonOverlayWindow] Reusing existing popup window");
+            [self.popupWindow updateContentWithText:self.selectedText];
+        }
 
         // Get selection bounds (in top-left coordinate system from Accessibility API)
         CGRect selection = self.selectionBounds;
@@ -490,7 +579,8 @@ NSString* globalPopupPath = nil;
         }
 
         [self.popupWindow setFrameOrigin:NSMakePoint(popupX, popupY)];
-        [self.popupWindow orderFront:nil];
+        // Use orderFront without activating the application
+        [self.popupWindow orderFrontRegardless];
     }
 }
 
@@ -499,11 +589,10 @@ NSString* globalPopupPath = nil;
     [self cancelScheduledHide];
 
     if (self.popupWindow) {
-        // Just hide and close - WKWebView cleanup happens in dealloc
-        // Don't call stopLoading here as it can deadlock when called from dispatch_sync
+        // Just hide the window, don't destroy it (keeps React loaded for instant reappearance)
+        NSLog(@"[ButtonOverlayWindow] Hiding popup (keeping window alive for reuse)");
         [self.popupWindow orderOut:nil];
-        [self.popupWindow close];
-        self.popupWindow = nil;
+        // Don't close or nil out the window - we'll reuse it next time
     }
 }
 
@@ -603,9 +692,19 @@ NSString* globalPopupPath = nil;
     [super orderOut:sender];
 }
 
+- (void)destroyPopup {
+    // Actually destroy the popup window (for cleanup)
+    if (self.popupWindow) {
+        NSLog(@"[ButtonOverlayWindow] Destroying popup window");
+        [self.popupWindow orderOut:nil];
+        [self.popupWindow close];
+        self.popupWindow = nil;
+    }
+}
+
 - (void)dealloc {
-    // Clean up popup window
-    [self hidePopup];
+    // Clean up popup window completely during dealloc
+    [self destroyPopup];
 
     // Remove tracking area
     if (_trackingArea) {
@@ -734,7 +833,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
         // Hide and destroy button window synchronously
         if (self->_buttonWindow) {
-            [self->_buttonWindow hidePopup];
+            [self->_buttonWindow destroyPopup];  // Properly destroy the popup window
             [self->_buttonWindow orderOut:nil];
             [self->_buttonWindow close];
             self->_buttonWindow = nil;
