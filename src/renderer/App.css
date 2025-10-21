@@ -16,9 +16,16 @@ body {
   width: 100%;
   max-width: 1200px;
   display: flex;
-  gap: 20px;
+  flex-direction: column;
   position: relative;
   height: 100%;
+}
+
+.app-body {
+  display: flex;
+  gap: 20px;
+  flex: 1;
+  overflow: hidden;
 }
 
 .devBanner {
@@ -47,6 +54,8 @@ button {
 
 .mainContent {
   flex: 1;
+  overflow-y: auto;
+  padding: 20px;
 }
 
 .sidebar {

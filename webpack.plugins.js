@@ -21,6 +21,10 @@ module.exports = [
         to: 'popup',
         noErrorOnMissing: true,
       },
+      {
+        from: 'src/assets/icons',
+        to: 'assets/icons',
+      },
     ],
   }),
 ];

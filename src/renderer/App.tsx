@@ -6,9 +6,11 @@ import ScreenReader from './components/ScreenReader';
 import SyncSection from './components/SyncSection';
 import WordReader from './components/WordReader';
 import SelectionTracker from './components/SelectionTracker';
+import TrayIconSwitcher from './components/TrayIconSwitcher';
+import CustomTitleBar from './components/CustomTitleBar';
 import './App.css';
 
-type Page = 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker';
+type Page = 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker' | 'trayIconSwitcher';
 
 interface DesktopNotification {
   created_at: number;
@@ -133,12 +135,14 @@ const App: React.FC = () => {
 
   return (
     <div className="app">
+      <CustomTitleBar />
       {isDevelopment && (
         <div className="devBanner">
           🔧 DEVELOPMENT MODE
         </div>
       )}
-      <div className="sidebar">
+      <div className="app-body">
+        <div className="sidebar">
         <nav className="sidebarNav">
           <button
             className={`menuItem ${currentPage === 'uploader' ? 'active' : ''}`}
@@ -176,6 +180,12 @@ const App: React.FC = () => {
           >
             Selection Tracker
           </button>
+          <button
+            className={`menuItem ${currentPage === 'trayIconSwitcher' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('trayIconSwitcher')}
+          >
+            Tray Icon
+          </button>
         </nav>
         <button id="logoutButton" onClick={handleLogout}>
           Logout
@@ -207,6 +217,8 @@ const App: React.FC = () => {
         {currentPage === 'sync' && <SyncSection />}
         {currentPage === 'wordReader' && <WordReader />}
         {currentPage === 'selectionTracker' && <SelectionTracker />}
+        {currentPage === 'trayIconSwitcher' && <TrayIconSwitcher />}
+      </div>
       </div>
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
     </div>
