@@ -1,7 +1,8 @@
-import { app, BrowserWindow, ipcMain, dialog, desktopCapturer, screen } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, desktopCapturer, screen, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
+import { createCanvas } from 'canvas';
 import { login, logout, uploadFile, searchFiles, checkLogin, getNotifications, updateNotification, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
 import { syncService } from './syncService';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
@@ -29,11 +30,17 @@ function resolveAppleScriptPath(scriptName: string): string {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
 
 const createWindow = async (): Promise<void> => {
   mainWindow = new BrowserWindow({
     width: 800,
     height: 600,
+    frame: false, // Remove title bar and window decorations
+    show: false, // Hidden on startup
+    transparent: false, // Opaque background
+    hasShadow: true, // Add shadow for visual separation
+    resizable: true, // Allow user to resize
     webPreferences: {
       preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
       nodeIntegration: false,
@@ -56,7 +63,280 @@ const createWindow = async (): Promise<void> => {
   });
 };
 
-app.whenReady().then(createWindow);
+// Helper function to create text-based icon
+const createTextIcon = (letter: string): Electron.NativeImage | null => {
+  console.log('[TRAY] Creating text icon with letter:', letter);
+
+  try {
+    // Render at 3x resolution for crisp, anti-aliased text
+    // Then resize down to 18x18 for the final icon
+    const finalSize = 18;
+    const renderScale = 3;
+    const renderSize = finalSize * renderScale; // 54x54
+
+    const canvas = createCanvas(renderSize, renderSize);
+    const ctx = canvas.getContext('2d');
+
+    // Enable high-quality rendering
+    ctx.antialias = 'subpixel';
+    ctx.patternQuality = 'best';
+    ctx.textDrawingMode = 'path';
+
+    // Clear canvas with transparent background
+    ctx.clearRect(0, 0, renderSize, renderSize);
+
+    // Set text properties - scale font size with render size
+    ctx.fillStyle = '#000000'; // Black text (will be inverted by template mode)
+    // Use 85% of canvas size for better fill
+    const fontSize = Math.floor(renderSize * 0.85);
+    // Note: node-canvas has limited font support, use simple font family
+    ctx.font = `bold ${fontSize}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    console.log('[TRAY] ===== TEXT ICON DETAILS =====');
+    console.log('[TRAY] Render size:', renderSize, 'x', renderSize);
+    console.log('[TRAY] Final target size:', finalSize, 'x', finalSize);
+    console.log('[TRAY] Font size:', fontSize, 'px');
+    console.log('[TRAY] Font string:', ctx.font);
+
+    // Measure the actual text dimensions
+    const letterToRender = letter.toUpperCase();
+    const metrics = ctx.measureText(letterToRender);
+    console.log('[TRAY] Text to render:', letterToRender);
+    console.log('[TRAY] Text metrics.width:', metrics.width);
+    console.log('[TRAY] Text metrics.actualBoundingBoxAscent:', metrics.actualBoundingBoxAscent);
+    console.log('[TRAY] Text metrics.actualBoundingBoxDescent:', metrics.actualBoundingBoxDescent);
+    const textHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
+    console.log('[TRAY] Calculated text height:', textHeight);
+    console.log('[TRAY] Text width as % of canvas:', ((metrics.width / renderSize) * 100).toFixed(1) + '%');
+    console.log('[TRAY] Text height as % of canvas:', ((textHeight / renderSize) * 100).toFixed(1) + '%');
+
+    // Draw the letter centered
+    ctx.fillText(letterToRender, renderSize / 2, renderSize / 2);
+
+    // Get image data from high-res canvas
+    const imageData = ctx.getImageData(0, 0, renderSize, renderSize);
+    const buffer = Buffer.from(imageData.data);
+
+    console.log('[TRAY] Text icon rendered at:', renderSize, 'x', renderSize);
+    console.log('[TRAY] Text icon buffer size:', buffer.length, 'bytes');
+
+    // Save debug image of the high-res canvas
+    try {
+      const debugPath = path.join(app.getPath('userData'), 'debug-text-icon-highres.png');
+      const pngBuffer = canvas.toBuffer('image/png');
+      fs.writeFileSync(debugPath, pngBuffer);
+      console.log('[TRAY] Debug high-res image saved to:', debugPath);
+    } catch (err) {
+      console.error('[TRAY] Failed to save debug image:', err);
+    }
+
+    // Create NativeImage from high-resolution bitmap
+    let icon = nativeImage.createFromBitmap(buffer, {
+      width: renderSize,
+      height: renderSize
+    });
+
+    console.log('[TRAY] High-res icon created - isEmpty():', icon.isEmpty());
+    console.log('[TRAY] High-res icon size:', icon.getSize());
+
+    if (icon.isEmpty()) {
+      console.error('[TRAY] Text icon is empty after creation');
+      return null;
+    }
+
+    // Resize down to final size for sharp, anti-aliased result
+    console.log('[TRAY] Resizing from', icon.getSize(), 'to', finalSize, 'x', finalSize);
+    icon = icon.resize({
+      width: finalSize,
+      height: finalSize,
+      quality: 'best'
+    });
+
+    console.log('[TRAY] Final resized icon size:', icon.getSize());
+    console.log('[TRAY] Final icon isEmpty():', icon.isEmpty());
+
+    // Save debug image of the resized icon
+    try {
+      const debugPath = path.join(app.getPath('userData'), 'debug-text-icon-final.png');
+      const pngBuffer = icon.toPNG();
+      fs.writeFileSync(debugPath, pngBuffer);
+      console.log('[TRAY] Debug final image saved to:', debugPath);
+    } catch (err) {
+      console.error('[TRAY] Failed to save debug final image:', err);
+    }
+
+    // Set as template image for proper dark mode support
+    icon.setTemplateImage(true);
+
+    return icon;
+  } catch (error) {
+    console.error('[TRAY] ERROR creating text icon:', error);
+    console.error('[TRAY] Error message:', (error as Error).message);
+    console.error('[TRAY] Error stack:', (error as Error).stack);
+    return null;
+  }
+};
+
+// Helper function to create icon based on type
+// Available icon types with different shapes:
+// - 'dot' (status dot)
+// - 'gear' (action/settings)
+// - 'bookmark' (bookmark/saved)
+// - 'lock' (locked)
+// - 'unlock' (unlocked)
+// - 'add' (plus sign)
+// - 'remove' (minus sign)
+// - 'refresh' (circular arrow)
+// - 'text' (letter "A")
+type TrayIconType = 'dot' | 'gear' | 'bookmark' | 'lock' | 'unlock' | 'add' | 'remove' | 'refresh' | 'text';
+
+const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => {
+  console.log('[TRAY] Creating icon of type:', iconType);
+
+  let icon: Electron.NativeImage;
+
+  // Handle text icon separately
+  if (iconType === 'text') {
+    const textIcon = createTextIcon('A');
+    if (!textIcon) {
+      console.error('[TRAY] Failed to create text icon');
+      return null;
+    }
+    return textIcon;
+  }
+
+  // Map icon type to macOS system template name
+  const iconNameMap: Record<Exclude<TrayIconType, 'text'>, string> = {
+    'dot': 'NSImageNameStatusAvailable',
+    'gear': 'NSImageNameActionTemplate',
+    'bookmark': 'NSImageNameBookmarksTemplate',
+    'lock': 'NSImageNameLockLockedTemplate',
+    'unlock': 'NSImageNameLockUnlockedTemplate',
+    'add': 'NSImageNameAddTemplate',
+    'remove': 'NSImageNameRemoveTemplate',
+    'refresh': 'NSImageNameRefreshTemplate'
+  };
+
+  const systemIconName = iconNameMap[iconType as Exclude<TrayIconType, 'text'>];
+  console.log('[TRAY] Using system template:', systemIconName);
+
+  try {
+    icon = nativeImage.createFromNamedImage(systemIconName);
+    console.log('[TRAY] Icon created from named image');
+    console.log('[TRAY] Original icon size:', icon.getSize());
+  } catch (error) {
+    console.error('[TRAY] ERROR creating icon from named image:', error);
+    console.error('[TRAY] Error stack:', (error as Error).stack);
+    return null;
+  }
+
+  // Resize icon to match standard menu bar icon size (18pt for normal, 36pt for retina)
+  // macOS menu bar icons are typically 18x18 points
+  try {
+    icon = icon.resize({ width: 18, height: 18 });
+    console.log('[TRAY] Resized icon to:', icon.getSize());
+  } catch (error) {
+    console.error('[TRAY] ERROR resizing icon:', error);
+  }
+
+  // Set as template image for proper dark mode support
+  try {
+    icon.setTemplateImage(true);
+    console.log('[TRAY] Set as template image successfully');
+  } catch (error) {
+    console.error('[TRAY] ERROR setting template image:', error);
+  }
+
+  // Log final icon properties
+  console.log('[TRAY] Final icon isEmpty():', icon.isEmpty());
+  console.log('[TRAY] Final icon size:', icon.getSize());
+  console.log('[TRAY] Final icon aspect ratio:', icon.getAspectRatio());
+
+  return icon;
+};
+
+const createTray = (): void => {
+  const icon = createTrayIcon('text'); // Default to letter "A"
+  if (!icon) {
+    console.error('[TRAY] Failed to create icon, aborting tray creation');
+    return;
+  }
+
+  // Create tray
+  try {
+    tray = new Tray(icon);
+    console.log('[TRAY] Tray created successfully');
+  } catch (error) {
+    console.error('[TRAY] ERROR creating tray:', error);
+    console.error('[TRAY] Error message:', (error as Error).message);
+    console.error('[TRAY] Error stack:', (error as Error).stack);
+    return;
+  }
+
+  // Set tooltip
+  tray.setToolTip('Academia Electron');
+
+  // Create context menu
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Show App',
+      click: () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          positionWindowMiddleRight(); // Position before showing
+          mainWindow.show();
+          mainWindow.focus();
+        } else {
+          createWindow();
+        }
+      },
+    },
+    {
+      label: 'Hide App',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.hide();
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
+  // Set context menu
+  tray.setContextMenu(contextMenu);
+
+  // Clicking the tray icon will show the context menu only
+  // Window can be shown/hidden via "Show App" and "Hide App" menu items
+};
+
+// Helper function to position window at middle-right of screen
+const positionWindowMiddleRight = (): void => {
+  if (!mainWindow) return;
+
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+  const windowBounds = mainWindow.getBounds();
+
+  // Position at middle-right: 20px margin from right edge, vertically centered
+  const x = screenWidth - windowBounds.width - 20;
+  const y = Math.floor((screenHeight - windowBounds.height) / 2);
+
+  mainWindow.setPosition(x, y);
+  console.log(`[WINDOW] Positioned at middle-right: x=${x}, y=${y}`);
+};
+
+app.whenReady().then(() => {
+  createWindow();
+  createTray();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -803,4 +1083,49 @@ ipcMain.handle('selection-button-clicked', async (_event, selectedText: string) 
   }
 
   return { success: true };
+});
+
+// Handle tray icon change
+ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
+  console.log('[TRAY] Changing icon to type:', iconType);
+
+  if (!tray) {
+    console.error('[TRAY] Tray not initialized, cannot change icon');
+    return { success: false, error: 'Tray not initialized' };
+  }
+
+  try {
+    const newIcon = createTrayIcon(iconType);
+    if (!newIcon) {
+      console.error('[TRAY] Failed to create new icon');
+      return { success: false, error: 'Failed to create icon' };
+    }
+
+    tray.setImage(newIcon);
+    console.log('[TRAY] Icon changed successfully');
+    return { success: true };
+  } catch (error) {
+    console.error('[TRAY] ERROR changing icon:', error);
+    return { success: false, error: (error as Error).message };
+  }
+});
+
+// Handle window minimize
+ipcMain.handle('minimize-window', async () => {
+  if (mainWindow) {
+    mainWindow.minimize();
+    console.log('[WINDOW] Window minimized');
+    return { success: true };
+  }
+  return { success: false, error: 'Window not found' };
+});
+
+// Handle window close (hide instead of quit)
+ipcMain.handle('close-window', async () => {
+  if (mainWindow) {
+    mainWindow.hide();
+    console.log('[WINDOW] Window hidden');
+    return { success: true };
+  }
+  return { success: false, error: 'Window not found' };
 });

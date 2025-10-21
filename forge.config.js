@@ -9,7 +9,8 @@ module.exports = {
     extraResource: [
       'src/applescripts',
       'src/native/build/Release/word_accessibility.node',
-      'dist/popup'
+      'dist/popup',
+      'src/assets/icons'
     ],
     extendInfo: {
       NSAppleEventsUsageDescription: 'This app needs to send Apple Events to Microsoft Word to read document content.',
