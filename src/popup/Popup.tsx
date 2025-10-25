@@ -1,36 +1,67 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
+import { useNativeEvent, useSendMessage, useBridgeReady } from './hooks/useBridge';
 
-interface PopupProps {
-  onUpdateCallback: (callback: (text: string) => void) => void;
-}
-
-const Popup: React.FC<PopupProps> = ({ onUpdateCallback }) => {
+const Popup: React.FC = () => {
   const [text, setText] = useState('');
+  const { sendRequest, loading, error } = useSendMessage();
+  const isReady = useBridgeReady();
 
-  useEffect(() => {
-    // Register update callback
-    onUpdateCallback((newText: string) => {
-      setText(newText);
-    });
-  }, [onUpdateCallback]);
+  console.log('[Popup] Render - text state:', text ? text.substring(0, 50) : '(empty)');
 
-  const handleButtonClick = (action: string) => {
-    console.log('Button clicked:', action);
+  // Listen for content updates from native
+  useNativeEvent('updateContent', (msg) => {
+    console.log('[Popup] Content update received:', msg.payload);
+    console.log('[Popup] Payload type:', typeof msg.payload);
 
-    // Send message to native code via WKWebView message handler
-    if (window.webkit?.messageHandlers?.buttonClick) {
-      window.webkit.messageHandlers.buttonClick.postMessage({
+    let newText = '';
+    if (typeof msg.payload === 'string') {
+      newText = msg.payload;
+      console.log('[Popup] Setting text from string payload:', newText.substring(0, 50));
+    } else if (msg.payload?.text) {
+      newText = msg.payload.text;
+      console.log('[Popup] Setting text from payload.text:', newText.substring(0, 50));
+    } else {
+      console.log('[Popup] Payload format not recognized');
+      return;
+    }
+
+    console.log('[Popup] Calling setText with:', newText.substring(0, 50));
+    setText(newText);
+    console.log('[Popup] setText called, should trigger re-render');
+  });
+
+  const handleButtonClick = async (action: string) => {
+    console.log('[Popup] Button clicked:', action);
+
+    try {
+      // Send request to native and await response
+      const result = await sendRequest('buttonClick', {
         action: action,
         text: text
       });
-    } else {
-      console.warn('WKWebView message handler not available');
+
+      console.log('[Popup] Native response:', result);
+
+      // Handle specific actions
+      if (action === 'copy' && result?.success) {
+        // Show temporary feedback
+        console.log('[Popup] Text copied successfully');
+      }
+    } catch (err) {
+      console.error('[Popup] Button click failed:', err);
     }
   };
 
   return (
     <div style={styles.container}>
       <div style={styles.card}>
+        {/* Connection status indicator (only show when not ready) */}
+        {!isReady && (
+          <div style={styles.statusBar}>
+            Connecting to native...
+          </div>
+        )}
+
         <div style={styles.textContainer}>
           <div style={styles.textContent}>
             {text || 'No text selected'}
@@ -39,31 +70,55 @@ const Popup: React.FC<PopupProps> = ({ onUpdateCallback }) => {
 
         <div style={styles.buttonContainer}>
           <button
-            style={styles.button}
+            style={{
+              ...styles.button,
+              ...(loading ? styles.buttonDisabled : {})
+            }}
             onMouseEnter={(e) => {
-              (e.target as HTMLElement).style.backgroundColor = '#0056b3';
+              if (!loading) {
+                (e.target as HTMLElement).style.backgroundColor = '#0056b3';
+              }
             }}
             onMouseLeave={(e) => {
-              (e.target as HTMLElement).style.backgroundColor = '#007bff';
+              if (!loading) {
+                (e.target as HTMLElement).style.backgroundColor = '#007bff';
+              }
             }}
             onClick={() => handleButtonClick('lookup')}
+            disabled={loading || !isReady}
           >
-            Lookup
+            {loading ? 'Loading...' : 'Lookup'}
           </button>
 
           <button
-            style={{...styles.button, ...styles.secondaryButton}}
+            style={{
+              ...styles.button,
+              ...styles.secondaryButton,
+              ...(loading ? styles.buttonDisabled : {})
+            }}
             onMouseEnter={(e) => {
-              (e.target as HTMLElement).style.backgroundColor = '#5a6268';
+              if (!loading) {
+                (e.target as HTMLElement).style.backgroundColor = '#5a6268';
+              }
             }}
             onMouseLeave={(e) => {
-              (e.target as HTMLElement).style.backgroundColor = '#6c757d';
+              if (!loading) {
+                (e.target as HTMLElement).style.backgroundColor = '#6c757d';
+              }
             }}
             onClick={() => handleButtonClick('copy')}
+            disabled={loading || !isReady}
           >
-            Copy
+            {loading ? 'Loading...' : 'Copy'}
           </button>
         </div>
+
+        {/* Error display */}
+        {error && (
+          <div style={styles.errorBar}>
+            Error: {error.message}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -87,6 +142,15 @@ const styles: { [key: string]: React.CSSProperties } = {
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
+  },
+  statusBar: {
+    padding: '8px 16px',
+    backgroundColor: '#fff3cd',
+    color: '#856404',
+    fontSize: '12px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    borderBottom: '1px solid #ffeaa7',
+    textAlign: 'center',
   },
   textContainer: {
     flex: 1,
@@ -123,8 +187,22 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     outline: 'none',
   },
+  buttonDisabled: {
+    backgroundColor: '#ccc',
+    cursor: 'not-allowed',
+    opacity: 0.6,
+  },
   secondaryButton: {
     backgroundColor: '#6c757d',
+  },
+  errorBar: {
+    padding: '8px 16px',
+    backgroundColor: '#f8d7da',
+    color: '#721c24',
+    fontSize: '12px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    borderTop: '1px solid #f5c6cb',
+    textAlign: 'center',
   },
 };
 

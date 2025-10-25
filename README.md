@@ -79,22 +79,43 @@ Supported platforms:
 
 ```
 academia-electron/
-├── main.js           # Main Electron process
-├── preload.js        # Preload script for IPC communication
-├── renderer.js       # Frontend logic
-├── uploader.js       # Academia.edu API client
-├── index.html        # Application UI
-├── forge.config.js   # Electron Forge configuration
-└── package.json      # Project dependencies
+├── src/
+│   ├── main.ts              # Main Electron process
+│   ├── preload.ts           # Preload script for IPC communication
+│   ├── renderer.js          # Frontend logic
+│   ├── uploader.ts          # Academia.edu API client
+│   ├── syncService.ts       # File synchronization service
+│   ├── native/              # Native C++/Objective-C++ modules
+│   │   ├── bridge.mm        # Word accessibility integration
+│   │   └── bridge/          # Cross-platform message bridge
+│   │       ├── interface/   # Platform-agnostic interfaces
+│   │       │   ├── Message.h/cpp
+│   │       │   ├── IWebViewBridge.h
+│   │       │   └── MessageRouter.h/cpp
+│   │       ├── macos/       # macOS-specific implementation
+│   │       │   └── MacOSWebViewBridge.h/mm
+│   │       ├── windows/     # Windows-specific (future)
+│   │       └── factory/     # Bridge factory
+│   │           └── BridgeFactory.h/cpp
+│   └── popup/               # Popup window UI
+│       ├── Popup.tsx        # React popup component
+│       ├── index.tsx        # Popup entry point
+│       ├── messageBridge.ts # TypeScript bridge client
+│       └── hooks/           # React hooks for bridge
+│           └── useBridge.ts
+├── forge.config.js          # Electron Forge configuration
+└── package.json             # Project dependencies
 ```
 
 ### Key Components
 
-- **main.js**: Electron main process that creates windows and handles IPC communication
-- **uploader.js**: Core API client for Academia.edu operations (login, upload, search)
-- **preload.js**: Secure bridge between renderer and main processes
-- **renderer.js**: UI event handlers and DOM manipulation
-- **index.html**: Application interface with login modal, upload status, and search
+- **main.ts**: Electron main process that creates windows and handles IPC communication
+- **uploader.ts**: Core API client for Academia.edu operations (login, upload, search)
+- **preload.ts**: Secure bridge between renderer and main processes
+- **syncService.ts**: Watches folders and syncs files to backend
+- **bridge.mm**: Native module for MS Word accessibility and text selection tracking
+- **bridge/**: Cross-platform message bridge for native ↔ JavaScript communication
+- **popup/**: React-based popup UI for selected text actions
 
 ## Usage
 
@@ -142,11 +163,213 @@ This application implements modern Electron security best practices:
 - **@electron-forge**: Build and packaging tools
 - **@electron/fuses**: Security configuration
 
+## Message Bridge Architecture
+
+This application includes a sophisticated cross-platform message bridge for bidirectional communication between native code (C++/Objective-C++) and JavaScript/TypeScript.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────┐
+│  Native Layer (C++/Objective-C++)   │
+│  ┌───────────────────────────────┐  │
+│  │  MessageRouter                │  │
+│  │  • Multi-client routing       │  │
+│  │  • Priority queue             │  │
+│  │  • State synchronization      │  │
+│  │  • Request-response tracking  │  │
+│  └───────────────────────────────┘  │
+│           ↕                          │
+│  ┌───────────────────────────────┐  │
+│  │  MacOSWebViewBridge           │  │
+│  │  • WKWebView management       │  │
+│  │  • JavaScript injection       │  │
+│  │  • Message serialization      │  │
+│  └───────────────────────────────┘  │
+└─────────────────────────────────────┘
+              ↕
+┌─────────────────────────────────────┐
+│  JavaScript/TypeScript Layer        │
+│  ┌───────────────────────────────┐  │
+│  │  MessageBridge                │  │
+│  │  • Platform detection         │  │
+│  │  • Promise-based API          │  │
+│  │  • Handler registration       │  │
+│  │  • Message queueing           │  │
+│  └───────────────────────────────┘  │
+│           ↕                          │
+│  ┌───────────────────────────────┐  │
+│  │  React Hooks                  │  │
+│  │  • useNativeEvent             │  │
+│  │  • useSendMessage             │  │
+│  │  • useNativeState             │  │
+│  │  • useNativeRequest           │  │
+│  └───────────────────────────────┘  │
+└─────────────────────────────────────┘
+```
+
+### Features
+
+- ✅ **Bidirectional Communication**: Both native and JS can initiate requests
+- ✅ **Type-Safe**: Full TypeScript types + C++ interfaces
+- ✅ **Promise-Based**: Clean async/await syntax
+- ✅ **Multi-Client**: Support for multiple popup windows with centralized routing
+- ✅ **State Sync**: Broadcast state changes to all clients
+- ✅ **High Performance**: Priority queue, message batching, background processing
+- ✅ **Cross-Platform Ready**: Abstract interface for Windows (WebView2) implementation
+- ✅ **Robust**: Timeouts, error handling, automatic message queueing
+
+### Quick Start - JavaScript Side
+
+```typescript
+import { useSendMessage, useNativeEvent } from './hooks/useBridge';
+
+function MyComponent() {
+  const { sendRequest, loading } = useSendMessage();
+
+  // Listen for events from native
+  useNativeEvent('updateContent', (msg) => {
+    console.log('Received:', msg.payload);
+  });
+
+  // Send request to native
+  const handleClick = async () => {
+    const result = await sendRequest('buttonClick', {
+      action: 'lookup',
+      text: 'selected text'
+    });
+    console.log('Result:', result);
+  };
+
+  return <button onClick={handleClick}>Click Me</button>;
+}
+```
+
+### Quick Start - Native Side
+
+```cpp
+#include "bridge/factory/BridgeFactory.h"
+#include "bridge/interface/MessageRouter.h"
+
+using namespace AcademiaBridge;
+
+// Create and register bridge
+auto bridge = BridgeFactory::createBridge();
+bridge->setClientId("popup-1");
+bridge->initialize();
+
+MessageRouter::getInstance().registerClient("popup-1", bridge);
+
+// Send message to JavaScript
+Message msg;
+msg.from = "native";
+msg.to = "popup-1";
+msg.type = MessageType::EVENT;
+msg.action = "updateContent";
+msg.payload = "{\"text\":\"Hello from native!\"}";
+
+bridge->sendMessage(msg);
+
+// Register handler for messages from JavaScript
+bridge->registerHandler("buttonClick", [](const Message& msg) {
+    std::cout << "Button clicked: " << msg.payload << std::endl;
+});
+```
+
+### React Hooks API
+
+#### `useNativeEvent(action, handler)`
+Listen for events from native code with automatic cleanup.
+
+```typescript
+useNativeEvent('updateContent', (msg) => {
+  setText(msg.payload.text);
+});
+```
+
+#### `useSendMessage()`
+Send events and requests to native with loading/error states.
+
+```typescript
+const { sendEvent, sendRequest, loading, error } = useSendMessage();
+
+// Fire-and-forget
+sendEvent('buttonClick', { action: 'copy' });
+
+// Request-response
+const result = await sendRequest('searchFiles', { query: 'test' });
+```
+
+#### `useNativeState(key, initialValue, syncToNative)`
+Bidirectionally synced state between JS and native.
+
+```typescript
+const [text, setText] = useNativeState('selectedText', '');
+// Updates from native automatically update local state
+```
+
+#### `useNativeRequest(action, payload, options)`
+Make a request with built-in loading/error handling.
+
+```typescript
+const { data, loading, error, refetch } = useNativeRequest('getUser', { id: 123 });
+
+if (loading) return <Spinner />;
+if (error) return <Error message={error.message} />;
+return <div>{data.name}</div>;
+```
+
+#### `useNativeCallback(action, payloadMapper, options)`
+Create callbacks that send requests to native.
+
+```typescript
+const handleClick = useNativeCallback('buttonClick', (text) => ({
+  action: 'lookup',
+  text
+}));
+
+<button onClick={() => handleClick(selectedText)}>Lookup</button>
+```
+
+### Building Native Code
+
+```bash
+# Build native bridge module
+npm run build:native
+
+# Or manually
+cd src/native
+npx node-gyp rebuild
+```
+
+### Message Types
+
+- **EVENT**: Fire-and-forget notifications
+- **REQUEST**: Expects a response
+- **RESPONSE**: Response to a request
+- **STATE_UPDATE**: State synchronization
+- **ERROR**: Error message
+
+### Platform Support
+
+- **macOS**: ✅ Fully implemented (WKWebView)
+- **Windows**: 🚧 Ready for implementation (WebView2)
+- **Linux**: 🚧 Future (WebKitGTK)
+
+### Advanced Usage
+
+See [BRIDGE_USAGE.md](./BRIDGE_USAGE.md) for comprehensive documentation including:
+- Multi-client communication patterns
+- State synchronization
+- Error handling
+- Performance optimization
+- Migration guides
+
 ## Known Issues & TODOs
 
+- Windows bridge implementation (WebView2) needs to be completed
 - jQuery is loaded from CDN (see index.html:121) - should be packaged locally
 - Styles are inline (see index.html:8) - should be moved to SCSS
-- uploader.js should be refactored into a class (see uploader.js:14)
 
 ## License
 

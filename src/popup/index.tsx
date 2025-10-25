@@ -1,48 +1,38 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import Popup from './Popup';
+import { getBridgeInstance } from './hooks/useBridge';
 
-// Global state for the popup
-let rootInstance: any = null;
-let updateContentCallback: ((text: string) => void) | null = null;
+// Initialize bridge early
+const bridge = getBridgeInstance('popup-default');
 
-// Expose global function for native code to call
-declare global {
-  interface Window {
-    updateContent: (text: string) => void;
-    webkit?: {
-      messageHandlers?: {
-        buttonClick?: {
-          postMessage: (message: any) => void;
-        };
-      };
-    };
-  }
-}
-
-window.updateContent = (text: string) => {
-  console.log('updateContent called with text:', text.substring(0, 50));
-  if (updateContentCallback) {
-    updateContentCallback(text);
-  }
-};
+console.log('[Popup] Initializing...');
+console.log('[Popup] Platform:', bridge.getPlatform());
 
 // Initialize React app
 const container = document.getElementById('root');
 if (container) {
   const root = createRoot(container);
 
-  root.render(
-    <Popup
-      onUpdateCallback={(callback) => {
-        updateContentCallback = callback;
-      }}
-    />
-  );
+  root.render(<Popup />);
 
-  rootInstance = root;
-  console.log('Popup React app initialized');
+  console.log('[Popup] React app initialized');
+} else {
+  console.error('[Popup] Root container not found!');
 }
 
-// Signal to native code that we're ready
-console.log('Popup loaded and ready');
+// Wait for bridge to be ready, then signal
+const checkReady = setInterval(() => {
+  if (bridge.isConnected()) {
+    console.log('[Popup] Bridge connected and ready');
+    clearInterval(checkReady);
+  }
+}, 100);
+
+// Timeout after 5 seconds
+setTimeout(() => {
+  if (!bridge.isConnected()) {
+    console.error('[Popup] Bridge connection timeout - native bridge may not be initialized');
+    clearInterval(checkReady);
+  }
+}, 5000);

@@ -3,10 +3,16 @@
     {
       "target_name": "word_accessibility",
       "sources": [
-        "bridge.mm"
+        "bridge.mm",
+        "bridge/interface/Message.cpp",
+        "bridge/interface/MessageRouter.cpp",
+        "bridge/factory/BridgeFactory.cpp"
       ],
       "include_dirs": [
-        "<!@(node -p \"require('node-addon-api').include\")"
+        "<!@(node -p \"require('node-addon-api').include\")",
+        "bridge/interface",
+        "bridge/macos",
+        "bridge/factory"
       ],
       "dependencies": [
         "<!(node -p \"require('node-addon-api').gyp\")"
@@ -18,6 +24,9 @@
         [
           "OS=='mac'",
           {
+            "sources": [
+              "bridge/macos/MacOSWebViewBridge.mm"
+            ],
             "xcode_settings": {
               "GCC_ENABLE_CPP_EXCEPTIONS": "YES",
               "CLANG_CXX_LIBRARY": "libc++",
@@ -29,15 +38,30 @@
               "OTHER_LDFLAGS": [
                 "-framework ApplicationServices",
                 "-framework Cocoa",
-                "-framework CoreGraphics"
+                "-framework CoreGraphics",
+                "-framework WebKit"
               ]
             },
             "link_settings": {
               "libraries": [
                 "-framework ApplicationServices",
                 "-framework Cocoa",
-                "-framework CoreGraphics"
+                "-framework CoreGraphics",
+                "-framework WebKit"
               ]
+            }
+          }
+        ],
+        [
+          "OS=='win'",
+          {
+            "sources": [
+              "bridge/windows/WindowsWebViewBridge.cpp"
+            ],
+            "msvs_settings": {
+              "VCCLCompilerTool": {
+                "ExceptionHandling": 1
+              }
             }
           }
         ]
