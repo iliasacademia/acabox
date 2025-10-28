@@ -84,6 +84,7 @@ NSString* globalPopupPath = nil;
         WKUserContentController* userController = [[WKUserContentController alloc] init];
         [userController addScriptMessageHandler:self name:@"buttonClick"];
         [userController addScriptMessageHandler:self name:@"consoleLog"];
+        [userController addScriptMessageHandler:self name:@"bridge"];  // NEW: For new bridge system
 
         // Inject console interceptor script
         NSString* consoleScript = @
@@ -107,6 +108,28 @@ NSString* globalPopupPath = nil;
                                                       injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                    forMainFrameOnly:YES];
         [userController addUserScript:script];
+
+        // NEW: Inject bridge compatibility script
+        NSString* bridgeScript = @
+            "(function() {"
+            "  console.log('[Bridge Compat] Injecting bridge functions');"
+            "  window.__bridgeSend = function(msg) {"
+            "    console.log('[Bridge Compat] Sending to native:', msg.action);"
+            "    window.webkit.messageHandlers.bridge.postMessage(msg);"
+            "  };"
+            "  window.__bridgeReceive = function(msg) {"
+            "    console.log('[Bridge Compat] Received from native:', msg.action);"
+            "    if (window.__bridgeHandlers && window.__bridgeHandlers[msg.action]) {"
+            "      window.__bridgeHandlers[msg.action](msg);"
+            "    }"
+            "  };"
+            "  console.log('[Bridge Compat] Functions injected');"
+            "})();";
+
+        WKUserScript* bridgeCompat = [[WKUserScript alloc] initWithSource:bridgeScript
+                                                           injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                        forMainFrameOnly:YES];
+        [userController addUserScript:bridgeCompat];
 
         config.userContentController = userController;
 
@@ -197,19 +220,33 @@ NSString* globalPopupPath = nil;
 
     NSString* jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
     // Extract just the text value from the JSON array [\"text\"] -> \"text\"
+
+    // NEW: Use new bridge format
     NSString* js = [NSString stringWithFormat:@
         "try { "
-        "  console.log('[Native->JS] Calling updateContent'); "
-        "  if (window.updateContent) { "
+        "  console.log('[Native->JS] Sending updateContent via bridge'); "
+        "  if (window.__bridgeReceive) { "
+        "    var textArray = %@; "
+        "    window.__bridgeReceive({ "
+        "      id: 'native-' + Date.now(), "
+        "      from: 'native', "
+        "      to: 'popup', "
+        "      type: 'event', "
+        "      action: 'updateContent', "
+        "      payload: textArray[0], "
+        "      timestamp: Date.now() "
+        "    }); "
+        "    console.log('[Native->JS] Bridge message sent successfully'); "
+        "  } else if (window.updateContent) { "
         "    var textArray = %@; "
         "    window.updateContent(textArray[0]); "
-        "    console.log('[Native->JS] updateContent called successfully'); "
+        "    console.log('[Native->JS] Fallback to old updateContent'); "
         "  } else { "
-        "    console.error('[Native->JS] window.updateContent not found'); "
+        "    console.error('[Native->JS] Neither bridge nor updateContent found'); "
         "  } "
         "} catch (e) { "
-        "  console.error('[Native->JS] Error calling updateContent:', e); "
-        "}", jsonString];
+        "  console.error('[Native->JS] Error sending message:', e); "
+        "}", jsonString, jsonString];
 
     [self.webView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
         if (error) {
@@ -272,6 +309,78 @@ NSString* globalPopupPath = nil;
             NSString* level = data[@"level"];
             NSString* msg = data[@"message"];
             NSLog(@"[TextPopupWindow/JS/%@] %@", level, msg);
+        }
+    } else if ([message.name isEqualToString:@"bridge"]) {
+        // NEW: Handle new bridge system messages
+        if (![message.body isKindOfClass:[NSDictionary class]]) {
+            NSLog(@"[Bridge] ERROR: Invalid message body type");
+            return;
+        }
+
+        NSDictionary* data = (NSDictionary*)message.body;
+        NSString* action = data[@"action"];
+        NSString* msgType = data[@"type"];
+
+        NSLog(@"[Bridge] Received: action=%@, type=%@", action, msgType);
+
+        // Handle bridge-ready signal
+        if ([action isEqualToString:@"bridge-ready"]) {
+            NSLog(@"[Bridge] JavaScript bridge is ready!");
+            return;
+        }
+
+        // Handle buttonClick action (for compatibility)
+        if ([action isEqualToString:@"buttonClick"]) {
+            NSDictionary* payload = data[@"payload"];
+            NSString* btnAction = payload[@"action"];
+            NSString* text = payload[@"text"];
+
+            NSLog(@"[Bridge] Button click: %@ with text length: %lu", btnAction, (unsigned long)[text length]);
+
+            // Set flag to prevent popup from closing during click processing
+            self.isProcessingClick = YES;
+
+            // Keep the popup open (cancel any scheduled hide)
+            if (self.buttonWindow) {
+                [self.buttonWindow cancelScheduledHide];
+            }
+
+            // Handle copy action
+            if ([btnAction isEqualToString:@"copy"] && text && [text length] > 0) {
+                NSPasteboard* pasteboard = [NSPasteboard generalPasteboard];
+                [pasteboard clearContents];
+                [pasteboard setString:text forType:NSPasteboardTypeString];
+                NSLog(@"[Bridge] Text copied to clipboard");
+            }
+
+            // Forward to the button window's observer with action details
+            if (self.buttonWindow && self.buttonWindow.observer) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self.buttonWindow.observer handleButtonClickWithAction:btnAction text:text];
+                });
+            }
+
+            // Reset the flag after a short delay to allow click to complete
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                self.isProcessingClick = NO;
+                NSLog(@"[Bridge] Click processing complete");
+            });
+
+            // Send response back to JavaScript
+            NSString* responseJS = [NSString stringWithFormat:@
+                "window.__bridgeReceive({"
+                "  id: '%@',"
+                "  type: 'response',"
+                "  action: 'buttonClick',"
+                "  payload: {success: true}"
+                "});",
+                data[@"id"]];
+
+            [self.webView evaluateJavaScript:responseJS completionHandler:^(id result, NSError *error) {
+                if (error) {
+                    NSLog(@"[Bridge] Error sending response: %@", error);
+                }
+            }];
         }
     } else if ([message.name isEqualToString:@"buttonClick"]) {
         @try {

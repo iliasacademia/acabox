@@ -58,7 +58,10 @@ INCS_Debug := \
 	-I/Users/melvynsng/Library/Caches/node-gyp/22.13.1/deps/uv/include \
 	-I/Users/melvynsng/Library/Caches/node-gyp/22.13.1/deps/zlib \
 	-I/Users/melvynsng/Library/Caches/node-gyp/22.13.1/deps/v8/include \
-	-I/Users/melvynsng/Desktop/Academia/academia-electron/node_modules/node-addon-api
+	-I/Users/melvynsng/Desktop/Academia/academia-electron/node_modules/node-addon-api \
+	-I$(srcdir)/bridge/interface \
+	-I$(srcdir)/bridge/macos \
+	-I$(srcdir)/bridge/factory
 
 DEFS_Release := \
 	'-DNODE_GYP_MODULE_NAME=word_accessibility' \
@@ -114,10 +117,17 @@ INCS_Release := \
 	-I/Users/melvynsng/Library/Caches/node-gyp/22.13.1/deps/uv/include \
 	-I/Users/melvynsng/Library/Caches/node-gyp/22.13.1/deps/zlib \
 	-I/Users/melvynsng/Library/Caches/node-gyp/22.13.1/deps/v8/include \
-	-I/Users/melvynsng/Desktop/Academia/academia-electron/node_modules/node-addon-api
+	-I/Users/melvynsng/Desktop/Academia/academia-electron/node_modules/node-addon-api \
+	-I$(srcdir)/bridge/interface \
+	-I$(srcdir)/bridge/macos \
+	-I$(srcdir)/bridge/factory
 
 OBJS := \
-	$(obj).target/$(TARGET)/bridge.o
+	$(obj).target/$(TARGET)/bridge.o \
+	$(obj).target/$(TARGET)/bridge/interface/Message.o \
+	$(obj).target/$(TARGET)/bridge/interface/MessageRouter.o \
+	$(obj).target/$(TARGET)/bridge/factory/BridgeFactory.o \
+	$(obj).target/$(TARGET)/bridge/macos/MacOSWebViewBridge.o
 
 # Add to the list of files we specially track dependencies for.
 all_deps += $(OBJS)
@@ -135,13 +145,22 @@ $(OBJS): GYP_OBJCXXFLAGS := $(DEFS_$(BUILDTYPE)) $(INCS_$(BUILDTYPE))  $(CFLAGS_
 
 # Suffix rules, putting all outputs into $(obj).
 
+$(obj).$(TOOLSET)/$(TARGET)/%.o: $(srcdir)/%.cpp FORCE_DO_CMD
+	@$(call do_cmd,cxx,1)
+
 $(obj).$(TOOLSET)/$(TARGET)/%.o: $(srcdir)/%.mm FORCE_DO_CMD
 	@$(call do_cmd,objcxx,1)
 
 # Try building from generated source, too.
 
+$(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj).$(TOOLSET)/%.cpp FORCE_DO_CMD
+	@$(call do_cmd,cxx,1)
+
 $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj).$(TOOLSET)/%.mm FORCE_DO_CMD
 	@$(call do_cmd,objcxx,1)
+
+$(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.cpp FORCE_DO_CMD
+	@$(call do_cmd,cxx,1)
 
 $(obj).$(TOOLSET)/$(TARGET)/%.o: $(obj)/%.mm FORCE_DO_CMD
 	@$(call do_cmd,objcxx,1)
@@ -152,6 +171,7 @@ LDFLAGS_Debug := \
 	-framework ApplicationServices \
 	-framework Cocoa \
 	-framework CoreGraphics \
+	-framework WebKit \
 	-undefined dynamic_lookup \
 	-Wl,-search_paths_first \
 	-mmacosx-version-min=10.15 \
@@ -164,6 +184,7 @@ LIBTOOLFLAGS_Debug := \
 	-framework ApplicationServices \
 	-framework Cocoa \
 	-framework CoreGraphics \
+	-framework WebKit \
 	-undefined dynamic_lookup \
 	-Wl,-search_paths_first
 
@@ -171,6 +192,7 @@ LDFLAGS_Release := \
 	-framework ApplicationServices \
 	-framework Cocoa \
 	-framework CoreGraphics \
+	-framework WebKit \
 	-undefined dynamic_lookup \
 	-Wl,-search_paths_first \
 	-mmacosx-version-min=10.15 \
@@ -183,13 +205,15 @@ LIBTOOLFLAGS_Release := \
 	-framework ApplicationServices \
 	-framework Cocoa \
 	-framework CoreGraphics \
+	-framework WebKit \
 	-undefined dynamic_lookup \
 	-Wl,-search_paths_first
 
 LIBS := \
 	-framework ApplicationServices \
 	-framework Cocoa \
-	-framework CoreGraphics
+	-framework CoreGraphics \
+	-framework WebKit
 
 $(builddir)/word_accessibility.node: GYP_LDFLAGS := $(LDFLAGS_$(BUILDTYPE))
 $(builddir)/word_accessibility.node: LIBS := $(LIBS)
