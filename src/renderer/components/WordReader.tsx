@@ -12,6 +12,8 @@ const WordReader: React.FC = () => {
   const [documents, setDocuments] = useState<WordDocument[]>([]);
   const [lastReadTime, setLastReadTime] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [showPopup, setShowPopup] = useState(false);
+  const [buttonNumber] = useState(() => Math.floor(Math.random() * 12) + 1); // Random number 1-12
 
   useEffect(() => {
     return () => {
@@ -294,12 +296,77 @@ const WordReader: React.FC = () => {
                   fontFamily: 'system-ui, -apple-system, sans-serif',
                   maxHeight: '400px',
                   overflowY: 'auto',
+                  position: 'relative',
                 }}
               >
                 {doc.content.split(/\r\n|\r|\n/).map((line, index) => (
-                  <p key={index} style={{ margin: '0 0 1em 0' }}>
-                    {line || '\u00A0'}
-                  </p>
+                  <div key={index} style={{ position: 'relative' }}>
+                    {index === 0 && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: '-45px',
+                          top: '0',
+                          display: 'flex',
+                          alignItems: 'center',
+                        }}
+                      >
+                        {/* Circular button */}
+                        <div
+                          style={{
+                            width: '32px',
+                            height: '32px',
+                            borderRadius: '50%',
+                            backgroundColor: 'white',
+                            border: '2px solid black',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            fontSize: '14px',
+                            position: 'relative',
+                          }}
+                          onMouseEnter={() => setShowPopup(true)}
+                          onMouseLeave={() => setShowPopup(false)}
+                        >
+                          {buttonNumber > 9 ? '9+' : buttonNumber}
+
+                          {/* Hover popup */}
+                          {showPopup && (
+                            <div
+                              style={{
+                                position: 'absolute',
+                                left: '40px',
+                                top: '0',
+                                backgroundColor: 'white',
+                                border: '1px solid #dee2e6',
+                                borderRadius: '8px',
+                                padding: '12px 16px',
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+                                whiteSpace: 'nowrap',
+                                zIndex: 1000,
+                                minWidth: '200px',
+                              }}
+                            >
+                              <div style={{ fontWeight: 'bold', marginBottom: '8px' }}>
+                                Line Information
+                              </div>
+                              <div style={{ fontSize: '13px', color: '#666' }}>
+                                Count: {buttonNumber}
+                              </div>
+                              <div style={{ fontSize: '13px', color: '#666', marginTop: '4px' }}>
+                                Click to view details
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    <p style={{ margin: '0 0 1em 0' }}>
+                      {line || '\u00A0'}
+                    </p>
+                  </div>
                 ))}
               </div>
             </div>

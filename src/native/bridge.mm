@@ -9,6 +9,7 @@
 
 // Forward declare to avoid circular dependency
 @class ButtonOverlayWindow;
+@class LineCountButtonWindow;
 
 // Tooltip/Popup window for showing selected text on hover using React via WKWebView
 // Use NSPanel for non-activating behavior - doesn't steal focus from MS Word
@@ -21,8 +22,8 @@
 - (void)updateContentWithText:(NSString*)text;
 @end
 
-// Native button overlay window
-@interface ButtonOverlayWindow : NSWindow
+// Native button overlay window - Use NSPanel for non-activating behavior
+@interface ButtonOverlayWindow : NSPanel
 @property (nonatomic, weak) WordAccessibilityObserver* observer;
 @property (nonatomic, strong) NSButton* button;
 @property (nonatomic, strong) NSTrackingArea* trackingArea;
@@ -30,6 +31,38 @@
 @property (nonatomic, strong) NSString* selectedText;
 @property (nonatomic, copy) dispatch_block_t scheduledHideBlock;
 @property (nonatomic, assign) CGRect selectionBounds;  // Store selection bounds for popup positioning
+- (void)scheduleHidePopup;
+- (void)cancelScheduledHide;
+@end
+
+// Click popup window - Non-activating panel for detailed information with React content
+@interface ClickPopupWindow : NSPanel <WKScriptMessageHandler, WKNavigationDelegate, WKUIDelegate>
+@property (nonatomic, strong) WKWebView* webView;
+@property (nonatomic, strong) NSString* currentData;
+@property (nonatomic, assign) int count;
+@property (nonatomic, strong) id globalMouseMonitor;
+@property (nonatomic, weak) WordAccessibilityObserver* observer;
+- (instancetype)initWithCount:(int)count observer:(WordAccessibilityObserver*)observer;
+- (void)updateContentWithCount:(int)count;
+- (void)loadPopupHTML;
+- (void)startGlobalMouseMonitor;
+- (void)stopGlobalMouseMonitor;
+@end
+
+// Line count button overlay window - Shows count on left of first line
+@interface LineCountButtonWindow : NSPanel
+@property (nonatomic, weak) WordAccessibilityObserver* observer;
+@property (nonatomic, strong) NSTextField* countLabel;
+@property (nonatomic, strong) NSTrackingArea* trackingArea;
+@property (nonatomic, strong) NSPanel* hoverPopup;
+@property (nonatomic, strong) ClickPopupWindow* clickPopup;
+@property (nonatomic, copy) dispatch_block_t scheduledHideBlock;
+@property (nonatomic, assign) int count;
+- (void)updateCount:(int)count;
+- (void)showHoverPopup;
+- (void)hideHoverPopup;
+- (void)showClickPopup;
+- (void)hideClickPopup;
 - (void)scheduleHidePopup;
 - (void)cancelScheduledHide;
 @end
@@ -233,7 +266,10 @@ NSString* globalPopupPath = nil;
         "      to: 'popup', "
         "      type: 'event', "
         "      action: 'updateContent', "
-        "      payload: textArray[0], "
+        "      payload: { "
+        "        type: 'text', "
+        "        text: textArray[0] "
+        "      }, "
         "      timestamp: Date.now() "
         "    }); "
         "    console.log('[Native->JS] Bridge message sent successfully'); "
@@ -549,12 +585,331 @@ NSString* globalPopupPath = nil;
 
 @end
 
+@implementation ClickPopupWindow
+
+- (instancetype)initWithCount:(int)count observer:(WordAccessibilityObserver*)observer {
+    // Fixed size for popup - will contain React UI
+    CGFloat width = 500;
+    CGFloat height = 400;
+
+    self = [super initWithContentRect:NSMakeRect(0, 0, width, height)
+                            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+                              backing:NSBackingStoreBuffered
+                                defer:NO];
+    if (self) {
+        self.count = count;
+        self.observer = observer;
+        self.backgroundColor = [NSColor clearColor];  // Transparent so React controls the background
+        self.opaque = NO;
+        self.level = NSFloatingWindowLevel + 2;  // Above the hover popup
+        self.hasShadow = NO;  // React will provide shadow via CSS
+        self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                   NSWindowCollectionBehaviorStationary;
+
+        // CRITICAL: Make this panel non-activating so it doesn't steal focus from MS Word
+        self.floatingPanel = YES;
+        self.becomesKeyOnlyIfNeeded = NO;  // Never become key window
+        self.hidesOnDeactivate = NO;  // Don't auto-hide when app deactivates
+
+        // Enable mouse events for tracking
+        self.ignoresMouseEvents = NO;
+        self.acceptsMouseMovedEvents = YES;
+
+        // Configure WKWebView
+        WKWebViewConfiguration* config = [[WKWebViewConfiguration alloc] init];
+        config.preferences.javaScriptEnabled = YES;
+
+        // Add message handlers
+        WKUserContentController* userController = [[WKUserContentController alloc] init];
+        [userController addScriptMessageHandler:self name:@"bridge"];
+        [userController addScriptMessageHandler:self name:@"consoleLog"];
+
+        // Inject console interceptor script
+        NSString* consoleScript = @
+            "const originalLog = console.log; "
+            "const originalError = console.error; "
+            "const originalWarn = console.warn; "
+            "console.log = function(...args) { "
+            "  originalLog.apply(console, args); "
+            "  window.webkit.messageHandlers.consoleLog.postMessage({level: 'log', message: args.join(' ')}); "
+            "}; "
+            "console.error = function(...args) { "
+            "  originalError.apply(console, args); "
+            "  window.webkit.messageHandlers.consoleLog.postMessage({level: 'error', message: args.join(' ')}); "
+            "}; "
+            "console.warn = function(...args) { "
+            "  originalWarn.apply(console, args); "
+            "  window.webkit.messageHandlers.consoleLog.postMessage({level: 'warn', message: args.join(' ')}); "
+            "};";
+
+        WKUserScript* script = [[WKUserScript alloc] initWithSource:consoleScript
+                                                      injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                   forMainFrameOnly:YES];
+        [userController addUserScript:script];
+
+        // Inject bridge compatibility script
+        NSString* bridgeScript = @
+            "(function() {"
+            "  console.log('[Bridge Compat] Injecting bridge functions');"
+            "  window.__bridgeSend = function(msg) {"
+            "    console.log('[Bridge Compat] Sending to native:', msg.action);"
+            "    window.webkit.messageHandlers.bridge.postMessage(msg);"
+            "  };"
+            "  window.__bridgeReceive = function(msg) {"
+            "    console.log('[Bridge Compat] Received from native:', msg.action);"
+            "    if (window.__bridgeHandlers && window.__bridgeHandlers[msg.action]) {"
+            "      window.__bridgeHandlers[msg.action](msg);"
+            "    }"
+            "  };"
+            "  console.log('[Bridge Compat] Functions injected');"
+            "})();";
+
+        WKUserScript* bridgeCompat = [[WKUserScript alloc] initWithSource:bridgeScript
+                                                           injectionTime:WKUserScriptInjectionTimeAtDocumentStart
+                                                        forMainFrameOnly:YES];
+        [userController addUserScript:bridgeCompat];
+
+        config.userContentController = userController;
+
+        // Create WKWebView
+        self.webView = [[WKWebView alloc] initWithFrame:self.contentView.bounds configuration:config];
+        self.webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+        self.webView.navigationDelegate = self;
+        self.webView.UIDelegate = self;
+
+        // Make WKWebView background transparent
+        [self.webView setValue:@NO forKey:@"drawsBackground"];
+
+        [self.contentView addSubview:self.webView];
+
+        // Load the React popup HTML
+        [self loadPopupHTML];
+    }
+    return self;
+}
+
+- (void)loadPopupHTML {
+    // Use the same paths as TextPopupWindow
+    NSMutableArray* possiblePaths = [NSMutableArray array];
+
+    // Add custom path if set
+    if (globalPopupPath && [globalPopupPath length] > 0) {
+        [possiblePaths addObject:globalPopupPath];
+    }
+
+    // Add default possible paths
+    [possiblePaths addObjectsFromArray:@[
+        // Development: dist/popup (relative to project root)
+        [[[[NSBundle mainBundle].bundlePath stringByDeletingLastPathComponent] stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"dist/popup/index.html"],
+        // Development: from .webpack output
+        [[NSBundle mainBundle].resourcePath stringByAppendingPathComponent:@"popup/index.html"],
+        // Packaged app
+        [[NSBundle mainBundle].resourcePath stringByAppendingPathComponent:@"../popup/index.html"],
+        // Alternative packaged
+        [[[NSBundle mainBundle].bundlePath stringByAppendingPathComponent:@"Contents/Resources/popup"] stringByAppendingPathComponent:@"index.html"],
+        // Alternative: popup in extraResources
+        [[NSBundle mainBundle].resourcePath stringByAppendingPathComponent:@"../popup/index.html"]
+    ]];
+
+    NSURL* popupURL = nil;
+    for (NSString* path in possiblePaths) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            popupURL = [NSURL fileURLWithPath:path];
+            break;
+        }
+    }
+
+    if (popupURL) {
+        NSURLRequest* request = [NSURLRequest requestWithURL:popupURL];
+        [self.webView loadRequest:request];
+    } else {
+        NSLog(@"[ClickPopupWindow] ERROR: Could not find popup HTML file!");
+        NSLog(@"[ClickPopupWindow] Tried paths:");
+        for (NSString* path in possiblePaths) {
+            NSLog(@"[ClickPopupWindow]   - %@", path);
+        }
+    }
+}
+
+- (void)updateContentWithCount:(int)count {
+    self.count = count;
+
+    // Send count data to React via bridge with type: 'suggestions'
+    NSString* js = [NSString stringWithFormat:@
+        "try { "
+        "  console.log('[Native->JS] Sending updateContent via bridge'); "
+        "  if (window.__bridgeReceive) { "
+        "    window.__bridgeReceive({ "
+        "      id: 'native-' + Date.now(), "
+        "      from: 'native', "
+        "      to: 'popup', "
+        "      type: 'event', "
+        "      action: 'updateContent', "
+        "      payload: { "
+        "        type: 'suggestions', "
+        "        count: %d, "
+        "        text: 'Count: %d' "
+        "      }, "
+        "      timestamp: Date.now() "
+        "    }); "
+        "    console.log('[Native->JS] Bridge message sent successfully'); "
+        "  } else { "
+        "    console.error('[Native->JS] Bridge not found'); "
+        "  } "
+        "} catch (e) { "
+        "  console.error('[Native->JS] Error sending message:', e); "
+        "}", count, count];
+
+    [self.webView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
+        if (error) {
+            NSLog(@"[ClickPopupWindow] Error evaluating JavaScript: %@", error.localizedDescription);
+        }
+    }];
+}
+
+// WKNavigationDelegate - called when page finishes loading
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
+    // Wait for React to initialize then send initial content
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [self updateContentWithCount:self.count];
+    });
+}
+
+// WKScriptMessageHandler - handle messages from JavaScript
+- (void)userContentController:(WKUserContentController *)userContentController didReceiveScriptMessage:(WKScriptMessage *)message {
+    if ([message.name isEqualToString:@"consoleLog"]) {
+        // Handle console logs from WebView
+        NSDictionary* body = message.body;
+        NSString* level = body[@"level"];
+        NSString* msg = body[@"message"];
+        NSLog(@"[ClickPopupWindow WebView %@] %@", level, msg);
+    } else if ([message.name isEqualToString:@"bridge"]) {
+        // Handle bridge messages
+        NSDictionary* msg = message.body;
+        NSString* action = msg[@"action"];
+
+        // Handle button clicks
+        if ([action isEqualToString:@"buttonClick"]) {
+            NSDictionary* payload = msg[@"payload"];
+            NSString* btnAction = payload[@"action"];
+            NSNumber* count = payload[@"count"];
+
+            // Forward to observer which will send to main.ts
+            if (self.observer) {
+                if ([btnAction isEqualToString:@"seeMore"]) {
+                    NSString* message = [NSString stringWithFormat:@"seeMore|count:%@", count];
+                    [self.observer handleButtonClickWithAction:@"seeMore" text:message];
+                } else if ([btnAction isEqualToString:@"dismiss"]) {
+                    NSString* message = [NSString stringWithFormat:@"dismiss|count:%@", count];
+                    [self.observer handleButtonClickWithAction:@"dismiss" text:message];
+                    // Also hide the popup
+                    [self orderOut:nil];
+                    [self stopGlobalMouseMonitor];
+                }
+            }
+
+            // Send response back to JavaScript
+            NSString* responseJS = [NSString stringWithFormat:@
+                "window.__bridgeReceive({"
+                "  id: '%@',"
+                "  type: 'response',"
+                "  action: 'buttonClick',"
+                "  payload: {success: true}"
+                "});",
+                msg[@"id"]];
+
+            [self.webView evaluateJavaScript:responseJS completionHandler:^(id result, NSError *error) {
+                if (error) {
+                    NSLog(@"[ClickPopupWindow] Error sending response: %@", error);
+                }
+            }];
+        } else if ([action isEqualToString:@"close"]) {
+            [self orderOut:nil];
+            [self stopGlobalMouseMonitor];
+        }
+    }
+}
+
+// WKUIDelegate methods
+- (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)navigationAction windowFeatures:(WKWindowFeatures *)windowFeatures {
+    return nil;
+}
+
+- (BOOL)canBecomeKeyWindow {
+    // CRITICAL: Return NO to prevent stealing focus from MS Word
+    // Panel will still receive mouse events due to NSWindowStyleMaskNonactivatingPanel
+    return NO;
+}
+
+- (BOOL)canBecomeMainWindow {
+    // CRITICAL: Return NO to prevent becoming the main window
+    return NO;
+}
+
+- (void)startGlobalMouseMonitor {
+    // Don't create multiple monitors
+    if (self.globalMouseMonitor) {
+        return;
+    }
+
+    // Create a weak reference to self to avoid retain cycles
+    __weak ClickPopupWindow* weakSelf = self;
+
+    self.globalMouseMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskLeftMouseDown
+                                                                      handler:^(NSEvent *event) {
+        ClickPopupWindow* strongSelf = weakSelf;
+        if (!strongSelf) {
+            return;
+        }
+
+        // Get the click location in screen coordinates
+        NSPoint clickLocation = [NSEvent mouseLocation];
+
+        // Check if click is outside the popup window
+        NSRect popupFrame = strongSelf.frame;
+        if (!NSPointInRect(clickLocation, popupFrame)) {
+            [strongSelf orderOut:nil];
+            [strongSelf stopGlobalMouseMonitor];
+        }
+    }];
+}
+
+- (void)stopGlobalMouseMonitor {
+    if (self.globalMouseMonitor) {
+        [NSEvent removeMonitor:self.globalMouseMonitor];
+        self.globalMouseMonitor = nil;
+    }
+}
+
+- (void)dealloc {
+    // Stop global mouse monitor
+    [self stopGlobalMouseMonitor];
+
+    // Clean up WKWebView resources
+    if (_webView) {
+        WKWebView* webView = _webView;
+        webView.navigationDelegate = nil;
+
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [webView stopLoading];
+            [webView.configuration.userContentController removeScriptMessageHandlerForName:@"bridge"];
+            [webView.configuration.userContentController removeScriptMessageHandlerForName:@"consoleLog"];
+        });
+
+        _webView = nil;
+    }
+}
+
+@end
+
 @implementation ButtonOverlayWindow
 
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer {
-    // Create borderless, transparent window - initial size, will be resized dynamically
-    self = [super initWithContentRect:NSMakeRect(0, 0, 10, 20)
-                            styleMask:NSWindowStyleMaskBorderless
+    // Create borderless, transparent panel - fixed size for circular button (24px)
+    // Use NSPanel with non-activating style to prevent stealing focus from Word
+    CGFloat buttonSize = 24.0;
+    self = [super initWithContentRect:NSMakeRect(0, 0, buttonSize, buttonSize)
+                            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
                               backing:NSBackingStoreBuffered
                                 defer:NO];
     if (self) {
@@ -568,10 +923,16 @@ NSString* globalPopupPath = nil;
                                    NSWindowCollectionBehaviorStationary |
                                    NSWindowCollectionBehaviorIgnoresCycle;
 
-        // Create thin vertical button with down caret (wider for better visibility)
-        self.button = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, 10, 20)];
-        self.button.title = @"▼";
-        self.button.font = [NSFont systemFontOfSize:10];
+        // CRITICAL: Make panel non-activating so clicking button doesn't steal focus
+        self.floatingPanel = YES;
+        self.becomesKeyOnlyIfNeeded = NO;  // Never become key window
+        self.worksWhenModal = YES;  // Continue working even when modal dialogs are present
+        self.hidesOnDeactivate = NO;  // Don't auto-hide when app deactivates
+
+        // Create circular button with white "A" letter
+        self.button = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, buttonSize, buttonSize)];
+        self.button.title = @"A";
+        self.button.font = [NSFont boldSystemFontOfSize:14];
         self.button.bezelStyle = NSBezelStyleInline;
         self.button.bordered = NO;
 
@@ -579,15 +940,25 @@ NSString* globalPopupPath = nil;
         self.button.target = self;
         self.button.action = @selector(buttonClicked:);
 
-        // Style the button with green color
+        // Style the button as black circle with white text
         self.button.wantsLayer = YES;
-        self.button.layer.backgroundColor = [[NSColor colorWithRed:0.2 green:0.8 blue:0.3 alpha:0.9] CGColor];
-        self.button.layer.cornerRadius = 3;
+        self.button.layer.backgroundColor = [[NSColor colorWithRed:0.0 green:0.0 blue:0.0 alpha:0.9] CGColor];
+        self.button.layer.cornerRadius = buttonSize / 2;  // Make it circular
+
+        // Set text color to white
+        NSMutableAttributedString *title = [[NSMutableAttributedString alloc] initWithString:@"A"];
+        [title addAttribute:NSForegroundColorAttributeName
+                     value:[NSColor whiteColor]
+                     range:NSMakeRange(0, title.length)];
+        [title addAttribute:NSFontAttributeName
+                     value:[NSFont boldSystemFontOfSize:14]
+                     range:NSMakeRange(0, title.length)];
+        self.button.attributedTitle = title;
 
         [self.contentView addSubview:self.button];
 
-        // Add mouse tracking for hover
-        [self setupMouseTracking];
+        // Add mouse tracking for hover (disabled for now - just console logging)
+        // [self setupMouseTracking];
     }
     return self;
 }
@@ -824,6 +1195,303 @@ NSString* globalPopupPath = nil;
 
 @end
 
+// ============================================
+// LineCountButtonWindow Implementation
+// ============================================
+
+@implementation LineCountButtonWindow
+
+- (instancetype)initWithObserver:(WordAccessibilityObserver*)observer {
+    // Create borderless, transparent panel - 24x24 for circular button
+    CGFloat buttonSize = 24.0;
+    self = [super initWithContentRect:NSMakeRect(0, 0, buttonSize, buttonSize)
+                            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+                              backing:NSBackingStoreBuffered
+                                defer:NO];
+    if (self) {
+        self.observer = observer;
+        self.backgroundColor = [NSColor clearColor];
+        self.opaque = NO;
+        self.level = NSFloatingWindowLevel;  // Always on top
+        self.ignoresMouseEvents = NO;
+        self.hasShadow = YES;
+        self.collectionBehavior = NSWindowCollectionBehaviorCanJoinAllSpaces |
+                                   NSWindowCollectionBehaviorStationary |
+                                   NSWindowCollectionBehaviorIgnoresCycle;
+
+        // CRITICAL: Make panel non-activating so hovering doesn't steal focus
+        self.floatingPanel = YES;
+        self.becomesKeyOnlyIfNeeded = NO;
+        self.worksWhenModal = YES;
+        self.hidesOnDeactivate = NO;
+
+        // Generate random count (1-12, showing "9+" for 10+)
+        self.count = 1 + (arc4random_uniform(12));
+
+        // Create circular background view
+        NSView* circleView = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, buttonSize, buttonSize)];
+        circleView.wantsLayer = YES;
+        circleView.layer.backgroundColor = [[NSColor whiteColor] CGColor];
+        circleView.layer.borderColor = [[NSColor blackColor] CGColor];
+        circleView.layer.borderWidth = 1.0;  // 1px border
+        circleView.layer.cornerRadius = buttonSize / 2;  // Make it circular
+        [self.contentView addSubview:circleView];
+
+        // Create label for number with proper vertical centering
+        // NSTextField doesn't center vertically by default, so we need to adjust the frame
+        CGFloat labelHeight = 14;  // Height for the text (adjusted for 10pt font in 24px button)
+        CGFloat labelY = (buttonSize - labelHeight) / 2;  // Center vertically
+        self.countLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(0, labelY, buttonSize, labelHeight)];
+        self.countLabel.stringValue = self.count > 9 ? @"9+" : [NSString stringWithFormat:@"%d", self.count];
+        self.countLabel.font = [NSFont boldSystemFontOfSize:10];
+        self.countLabel.textColor = [NSColor blackColor];
+        self.countLabel.backgroundColor = [NSColor clearColor];
+        self.countLabel.bordered = NO;
+        self.countLabel.editable = NO;
+        self.countLabel.selectable = NO;
+        self.countLabel.alignment = NSTextAlignmentCenter;
+        self.countLabel.lineBreakMode = NSLineBreakByClipping;
+        [self.contentView addSubview:self.countLabel];
+
+        // Setup mouse tracking for hover
+        [self setupMouseTracking];
+
+        NSLog(@"[LineCountButton] Initialized with count: %d", self.count);
+    }
+    return self;
+}
+
+- (void)setupMouseTracking {
+    NSLog(@"[LineCountButton] Setting up mouse tracking");
+    NSLog(@"[LineCountButton] Content view bounds: x=%.1f y=%.1f w=%.1f h=%.1f",
+          self.contentView.bounds.origin.x, self.contentView.bounds.origin.y,
+          self.contentView.bounds.size.width, self.contentView.bounds.size.height);
+
+    self.trackingArea = [[NSTrackingArea alloc] initWithRect:self.contentView.bounds
+                                                     options:(NSTrackingMouseEnteredAndExited |
+                                                              NSTrackingActiveAlways |
+                                                              NSTrackingInVisibleRect)
+                                                       owner:self
+                                                    userInfo:nil];
+    [self.contentView addTrackingArea:self.trackingArea];
+    NSLog(@"[LineCountButton] Mouse tracking setup complete");
+    NSLog(@"[LineCountButton] ignoresMouseEvents: %d", self.ignoresMouseEvents);
+    NSLog(@"[LineCountButton] acceptsMouseMovedEvents: %d", self.acceptsMouseMovedEvents);
+}
+
+- (void)updateCount:(int)count {
+    self.count = count;
+    self.countLabel.stringValue = count > 9 ? @"9+" : [NSString stringWithFormat:@"%d", count];
+}
+
+- (void)mouseEntered:(NSEvent *)event {
+    NSLog(@"[LineCountButton] Mouse entered");
+    [self cancelScheduledHide];
+    [self showHoverPopup];
+}
+
+- (void)mouseExited:(NSEvent *)event {
+    NSLog(@"[LineCountButton] Mouse exited");
+    [self scheduleHidePopup];
+}
+
+- (void)mouseDown:(NSEvent *)event {
+    NSLog(@"[LineCountButton] ===== MOUSE DOWN EVENT RECEIVED =====");
+    NSLog(@"[LineCountButton] Event type: %ld", (long)event.type);
+    NSLog(@"[LineCountButton] Click count: %ld", (long)event.clickCount);
+    NSLog(@"[LineCountButton] Button frame: x=%.1f y=%.1f w=%.1f h=%.1f",
+          self.frame.origin.x, self.frame.origin.y, self.frame.size.width, self.frame.size.height);
+
+    // Hide hover popup if showing
+    NSLog(@"[LineCountButton] Hiding hover popup (if visible)...");
+    [self hideHoverPopup];
+
+    // Show the larger click popup
+    NSLog(@"[LineCountButton] Calling showClickPopup...");
+    [self showClickPopup];
+    NSLog(@"[LineCountButton] ===== MOUSE DOWN HANDLING COMPLETE =====");
+}
+
+- (void)showHoverPopup {
+    [self cancelScheduledHide];
+
+    if (!self.hoverPopup) {
+        // Create popup window
+        CGFloat popupWidth = 220;
+        CGFloat popupHeight = 100;
+
+        self.hoverPopup = [[NSPanel alloc] initWithContentRect:NSMakeRect(0, 0, popupWidth, popupHeight)
+                                                     styleMask:NSWindowStyleMaskBorderless
+                                                       backing:NSBackingStoreBuffered
+                                                         defer:NO];
+        self.hoverPopup.backgroundColor = [NSColor whiteColor];
+        self.hoverPopup.opaque = YES;
+        self.hoverPopup.level = NSFloatingWindowLevel + 1;  // Above the button
+        self.hoverPopup.hasShadow = YES;
+        self.hoverPopup.floatingPanel = YES;
+        self.hoverPopup.becomesKeyOnlyIfNeeded = NO;
+
+        // Add border
+        self.hoverPopup.contentView.wantsLayer = YES;
+        self.hoverPopup.contentView.layer.borderColor = [[NSColor colorWithWhite:0.8 alpha:1.0] CGColor];
+        self.hoverPopup.contentView.layer.borderWidth = 1.0;
+        self.hoverPopup.contentView.layer.cornerRadius = 8.0;
+
+        // Add title label
+        NSTextField* titleLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, popupHeight - 35, popupWidth - 24, 20)];
+        titleLabel.stringValue = @"Line Information";
+        titleLabel.font = [NSFont boldSystemFontOfSize:13];
+        titleLabel.textColor = [NSColor blackColor];
+        titleLabel.backgroundColor = [NSColor clearColor];
+        titleLabel.bordered = NO;
+        titleLabel.editable = NO;
+        titleLabel.selectable = NO;
+        [self.hoverPopup.contentView addSubview:titleLabel];
+
+        // Add count label
+        NSTextField* countInfoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, popupHeight - 60, popupWidth - 24, 20)];
+        countInfoLabel.stringValue = [NSString stringWithFormat:@"Count: %d", self.count];
+        countInfoLabel.font = [NSFont systemFontOfSize:12];
+        countInfoLabel.textColor = [NSColor colorWithWhite:0.4 alpha:1.0];
+        countInfoLabel.backgroundColor = [NSColor clearColor];
+        countInfoLabel.bordered = NO;
+        countInfoLabel.editable = NO;
+        countInfoLabel.selectable = NO;
+        [self.hoverPopup.contentView addSubview:countInfoLabel];
+
+        // Add info label
+        NSTextField* infoLabel = [[NSTextField alloc] initWithFrame:NSMakeRect(12, popupHeight - 85, popupWidth - 24, 20)];
+        infoLabel.stringValue = @"Click to view details";
+        infoLabel.font = [NSFont systemFontOfSize:12];
+        infoLabel.textColor = [NSColor colorWithWhite:0.4 alpha:1.0];
+        infoLabel.backgroundColor = [NSColor clearColor];
+        infoLabel.bordered = NO;
+        infoLabel.editable = NO;
+        infoLabel.selectable = NO;
+        [self.hoverPopup.contentView addSubview:infoLabel];
+
+        // Setup mouse tracking for popup
+        NSTrackingArea* popupTracking = [[NSTrackingArea alloc]
+            initWithRect:self.hoverPopup.contentView.bounds
+                 options:(NSTrackingMouseEnteredAndExited |
+                          NSTrackingActiveAlways |
+                          NSTrackingInVisibleRect)
+                   owner:self
+                userInfo:nil];
+        [self.hoverPopup.contentView addTrackingArea:popupTracking];
+    }
+
+    // Position popup to the right of button
+    NSRect buttonFrame = self.frame;
+    CGFloat popupX = buttonFrame.origin.x + buttonFrame.size.width + 8;
+    CGFloat popupY = buttonFrame.origin.y;
+
+    [self.hoverPopup setFrameOrigin:NSMakePoint(popupX, popupY)];
+    [self.hoverPopup orderFrontRegardless];
+    NSLog(@"[LineCountButton] Popup shown");
+}
+
+- (void)hideHoverPopup {
+    [self cancelScheduledHide];
+    if (self.hoverPopup) {
+        [self.hoverPopup orderOut:nil];
+        NSLog(@"[LineCountButton] Hover popup hidden");
+    }
+}
+
+- (void)showClickPopup {
+    if (!self.clickPopup) {
+        // Create React-based popup window with current count and observer
+        self.clickPopup = [[ClickPopupWindow alloc] initWithCount:self.count observer:self.observer];
+
+        if (!self.clickPopup) {
+            NSLog(@"[LineCountButton] ERROR: Failed to create ClickPopupWindow!");
+            return;
+        }
+    } else {
+        // Update content with current count
+        [self.clickPopup updateContentWithCount:self.count];
+    }
+
+    // Position popup to the right of button, with top just below button
+    NSRect buttonFrame = self.frame;
+    CGFloat popupX = buttonFrame.origin.x + buttonFrame.size.width + 8;  // 8px to the right of button
+    CGFloat popupY = buttonFrame.origin.y - 404;  // Top of popup 4px below button bottom (4 + 400 = 404)
+
+    [self.clickPopup setFrameOrigin:NSMakePoint(popupX, popupY)];
+    [self.clickPopup orderFrontRegardless];
+
+    // Start monitoring for clicks outside the popup
+    [self.clickPopup startGlobalMouseMonitor];
+}
+
+- (void)hideClickPopup {
+    if (self.clickPopup) {
+        [self.clickPopup stopGlobalMouseMonitor];
+        [self.clickPopup orderOut:nil];
+    }
+}
+
+- (void)scheduleHidePopup {
+    [self cancelScheduledHide];
+
+    __weak typeof(self) weakSelf = self;
+    self.scheduledHideBlock = dispatch_block_create(DISPATCH_BLOCK_INHERIT_QOS_CLASS, ^{
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf) {
+            [strongSelf hideHoverPopup];
+            strongSelf.scheduledHideBlock = nil;
+        }
+    });
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(),
+                   self.scheduledHideBlock);
+}
+
+- (void)cancelScheduledHide {
+    if (self.scheduledHideBlock) {
+        dispatch_block_cancel(self.scheduledHideBlock);
+        self.scheduledHideBlock = nil;
+    }
+}
+
+- (void)orderOut:(id)sender {
+    NSLog(@"[LineCountButton] orderOut called");
+    [self hideHoverPopup];
+    // DON'T hide click popup when button is hidden - let it persist
+    // [self hideClickPopup];  // COMMENTED OUT
+    NSLog(@"[LineCountButton] Hiding hover popup but keeping click popup visible");
+    [super orderOut:sender];
+}
+
+- (void)dealloc {
+    [self hideHoverPopup];
+    [self hideClickPopup];
+    if (_hoverPopup) {
+        [_hoverPopup close];
+        _hoverPopup = nil;
+    }
+    if (_clickPopup) {
+        [_clickPopup close];
+        _clickPopup = nil;
+    }
+    if (_trackingArea) {
+        [self.contentView removeTrackingArea:_trackingArea];
+        _trackingArea = nil;
+    }
+}
+
+- (BOOL)canBecomeKeyWindow {
+    return NO;
+}
+
+- (BOOL)canBecomeMainWindow {
+    return NO;
+}
+
+@end
+
 // Callback function for accessibility events
 static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element, CFStringRef notification, void* refcon);
 
@@ -836,10 +1504,18 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     ButtonClickCallback _buttonClickCallback;
     NSTimer* _scrollDebounceTimer;
     NSTimer* _positionMonitorTimer;
+    NSTimer* _windowMoveDebounceTimer;  // Debounce timer for window move/resize
     BOOL _isScrolling;
+    BOOL _isWindowMoving;  // Track if window is currently moving/resizing
     CGRect _lastSelectionBounds;
     BOOL _hasLastBounds;
+    CGRect _lastFirstLinePosition;  // Track first line position for scroll detection
+    BOOL _hasLastFirstLinePosition;
+    id _scrollEventMonitor;  // Global scroll event monitor
+    CGRect _cachedWordBounds;  // Cached Word window bounds for performance
+    NSTimeInterval _lastBoundsUpdate;  // Timestamp of last bounds cache update
     ButtonOverlayWindow* _buttonWindow;
+    LineCountButtonWindow* _lineCountButton;  // NEW: Line count button
     NSString* _currentSelectedText;
     id _appActivationObserver;
 }
@@ -851,8 +1527,14 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _wordApp = AXUIElementCreateApplication(pid);
         _observer = NULL;
         _isScrolling = NO;
+        _isWindowMoving = NO;
         _lastSelectionBounds = CGRectZero;
         _hasLastBounds = NO;
+        _lastFirstLinePosition = CGRectZero;
+        _hasLastFirstLinePosition = NO;
+        _scrollEventMonitor = nil;
+        _cachedWordBounds = CGRectZero;
+        _lastBoundsUpdate = 0;
     }
     return self;
 }
@@ -898,16 +1580,20 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         return NO;
     }
 
-    // Add notifications
-    AXObserverAddNotification(_observer, _wordApp, kAXSelectedTextChangedNotification, (__bridge void*)self);
-    AXObserverAddNotification(_observer, _wordApp, kAXValueChangedNotification, (__bridge void*)self);
+    // DISABLED: Selection-based notifications (temporarily disabled for fixed button implementation)
+    // AXObserverAddNotification(_observer, _wordApp, kAXSelectedTextChangedNotification, (__bridge void*)self);
+    // AXObserverAddNotification(_observer, _wordApp, kAXValueChangedNotification, (__bridge void*)self);
+
+    // Add window position/size notifications for instant button updates
+    AXObserverAddNotification(_observer, _wordApp, kAXWindowMovedNotification, (__bridge void*)self);
+    AXObserverAddNotification(_observer, _wordApp, kAXWindowResizedNotification, (__bridge void*)self);
 
     // Add observer to run loop
     CFRunLoopAddSource(CFRunLoopGetCurrent(),
                        AXObserverGetRunLoopSource(_observer),
                        kCFRunLoopDefaultMode);
 
-    // Listen for app activation to restore button when Word comes back to foreground
+    // Listen for app activation/deactivation to show/hide button automatically
     __weak typeof(self) weakSelf = self;
     _appActivationObserver = [[NSWorkspace sharedWorkspace].notificationCenter
         addObserverForName:NSWorkspaceDidActivateApplicationNotification
@@ -919,10 +1605,24 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
         NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
         if (app.processIdentifier == strongSelf->_pid) {
-            // MS Word came to foreground - check if there's still selected text
-            [strongSelf handleAppActivation];
+            // MS Word came to foreground - show button
+            [strongSelf startWordWindowTracking];
+        } else {
+            // Different app activated - hide button
+            [strongSelf hideButton];
+            // Stop position monitoring to save resources
+            if (strongSelf->_positionMonitorTimer) {
+                [strongSelf->_positionMonitorTimer invalidate];
+                strongSelf->_positionMonitorTimer = nil;
+            }
         }
     }];
+
+    // Check if Word is currently the active application and show button immediately
+    NSRunningApplication *activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    if (activeApp.processIdentifier == _pid) {
+        [self startWordWindowTracking];
+    }
 
     return YES;
 }
@@ -940,12 +1640,29 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             self->_positionMonitorTimer = nil;
         }
 
+        if (self->_windowMoveDebounceTimer) {
+            [self->_windowMoveDebounceTimer invalidate];
+            self->_windowMoveDebounceTimer = nil;
+        }
+
+        // Stop scroll event monitor
+        [self stopScrollEventMonitor];
+
         // Hide and destroy button window synchronously
         if (self->_buttonWindow) {
             [self->_buttonWindow destroyPopup];  // Properly destroy the popup window
             [self->_buttonWindow orderOut:nil];
             [self->_buttonWindow close];
             self->_buttonWindow = nil;
+        }
+
+        // Hide and destroy line count button synchronously
+        if (self->_lineCountButton) {
+            [self->_lineCountButton hideHoverPopup];
+            [self->_lineCountButton hideClickPopup];
+            [self->_lineCountButton orderOut:nil];
+            [self->_lineCountButton close];
+            self->_lineCountButton = nil;
         }
     });
 
@@ -957,8 +1674,14 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
     // Stop accessibility observer
     if (_observer) {
-        AXObserverRemoveNotification(_observer, _wordApp, kAXSelectedTextChangedNotification);
-        AXObserverRemoveNotification(_observer, _wordApp, kAXValueChangedNotification);
+        // DISABLED: Selection-based notifications (temporarily disabled)
+        // AXObserverRemoveNotification(_observer, _wordApp, kAXSelectedTextChangedNotification);
+        // AXObserverRemoveNotification(_observer, _wordApp, kAXValueChangedNotification);
+
+        // Remove window move/resize notifications
+        AXObserverRemoveNotification(_observer, _wordApp, kAXWindowMovedNotification);
+        AXObserverRemoveNotification(_observer, _wordApp, kAXWindowResizedNotification);
+
         CFRunLoopRemoveSource(CFRunLoopGetCurrent(),
                              AXObserverGetRunLoopSource(_observer),
                              kCFRunLoopDefaultMode);
@@ -969,6 +1692,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     // Clear state
     _hasLastBounds = NO;
     _isScrolling = NO;
+    _isWindowMoving = NO;
     _currentSelectedText = nil;
 }
 
@@ -1007,18 +1731,327 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         CGPoint buttonPosition = CGPointMake(buttonX, bounds.origin.y);
         [self->_buttonWindow positionAtPoint:buttonPosition withHeight:bounds.size.height];
 
-        // Show the button
-        [self->_buttonWindow orderFront:nil];
-        [self->_buttonWindow makeKeyAndOrderFront:nil];
+        // Show the button without activating (non-activating panel)
+        [self->_buttonWindow orderFrontRegardless];
     });
 }
 
 - (void)hideButton {
+    // Execute synchronously for immediate hiding (called from main thread via NSEvent handler)
+    if (_buttonWindow) {
+        [_buttonWindow orderOut:nil];
+    }
+    if (_lineCountButton) {
+        [_lineCountButton hideHoverPopup];
+        // Hide click popup when Word loses focus
+        [_lineCountButton hideClickPopup];
+        [_lineCountButton orderOut:nil];
+    }
+}
+
+- (void)showFixedButton {
     dispatch_async(dispatch_get_main_queue(), ^{
-        if (self->_buttonWindow) {
-            [self->_buttonWindow orderOut:nil];
+        // Create button window if it doesn't exist
+        if (!self->_buttonWindow) {
+            self->_buttonWindow = [[ButtonOverlayWindow alloc] initWithObserver:self];
         }
+
+        // Get Word window bounds
+        CGRect wordBounds = [self getWordWindowBounds];
+        if (CGRectIsEmpty(wordBounds)) {
+            return;
+        }
+
+        // Position to the right of Grammarly button
+        // Grammarly button is typically ~40-50px from left edge and ~40px wide
+        CGFloat bottomPadding = 40.0;  // Match Grammarly's vertical position
+        CGFloat leftOffset = 45.0;  // Position to the right of Grammarly button
+        CGFloat buttonSize = 24.0;
+
+        // Get primary screen height for coordinate conversion
+        NSScreen* primaryScreen = [NSScreen screens][0];
+        CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
+
+        // Word bounds are in top-left coordinate system (from Accessibility API)
+        // Convert to Cocoa coordinates (bottom-left origin)
+        CGFloat windowBottom = primaryScreenHeight - (wordBounds.origin.y + wordBounds.size.height);
+
+        // Position button to the right of Grammarly button at bottom
+        CGFloat buttonX = wordBounds.origin.x + leftOffset;
+        CGFloat buttonY = windowBottom + bottomPadding;
+
+        // Position the button window
+        NSRect buttonFrame = NSMakeRect(buttonX, buttonY, buttonSize, buttonSize);
+        [self->_buttonWindow setFrame:buttonFrame display:YES];
+
+        // Show the button without activating (non-activating panel)
+        [self->_buttonWindow orderFrontRegardless];
+
+        // Also show line count button
+        [self showLineCountButton];
     });
+}
+
+- (void)showLineCountButton {
+    // Must be called from main queue
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Create line count button if it doesn't exist
+        if (!self->_lineCountButton) {
+            self->_lineCountButton = [[LineCountButtonWindow alloc] initWithObserver:self];
+        }
+
+        // Get Word window bounds and text area info
+        CGRect wordBounds = [self getWordWindowBounds];
+        if (CGRectIsEmpty(wordBounds)) {
+            NSLog(@"[LineCountButton] Cannot show - Word window bounds unavailable");
+            return;
+        }
+
+        // Get the position of the first line using Accessibility API
+        CGRect firstLineBounds = [self getFirstLinePosition];
+
+        CGFloat buttonSize = 24.0;
+        CGFloat buttonX, buttonY;
+
+        if (!CGRectIsEmpty(firstLineBounds)) {
+            // Successfully got first line position - position button to the left of it
+            CGFloat leftMargin = 60.0;  // 60px margin from left edge of first character
+            buttonX = firstLineBounds.origin.x - buttonSize - leftMargin;
+
+            // Convert from top-left origin (Accessibility API) to bottom-left origin (Cocoa)
+            NSScreen* primaryScreen = [NSScreen screens][0];
+            CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
+
+            // Convert Y coordinate: bottom-left Y = screenHeight - topLeft Y - height
+            CGFloat cocoaY = primaryScreenHeight - firstLineBounds.origin.y - firstLineBounds.size.height;
+
+            // Center button vertically with the first line
+            buttonY = cocoaY + (firstLineBounds.size.height - buttonSize) / 2;
+        } else {
+            // Fallback to fixed positioning if we can't get first line
+            CGFloat topPadding = 150.0;
+            CGFloat leftPadding = 50.0;
+
+            // Get primary screen height for coordinate conversion
+            NSScreen* primaryScreen = [NSScreen screens][0];
+            CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
+            CGFloat windowTop = primaryScreenHeight - wordBounds.origin.y;
+
+            buttonX = wordBounds.origin.x + leftPadding;
+            buttonY = windowTop - topPadding;
+        }
+
+        // Validate that button position is on-screen
+        NSRect buttonFrame = NSMakeRect(buttonX, buttonY, buttonSize, buttonSize);
+
+        // Check if button is within any visible screen bounds
+        BOOL isOnScreen = NO;
+        for (NSScreen* screen in [NSScreen screens]) {
+            if (NSIntersectsRect(buttonFrame, screen.frame)) {
+                isOnScreen = YES;
+                break;
+            }
+        }
+
+        if (!isOnScreen) {
+            // Button would be off-screen, hide it instead
+            [self->_lineCountButton orderOut:nil];
+            return;
+        }
+
+        // Position the button window
+        [self->_lineCountButton setFrame:buttonFrame display:YES];
+
+        // Show the button without activating (non-activating panel)
+        [self->_lineCountButton orderFrontRegardless];
+    });
+}
+
+- (void)startWordWindowTracking {
+    // Start scroll event monitor for immediate scroll detection
+    [self startScrollEventMonitor];
+
+    // Start position monitoring timer for fallback (keyboard scrolling, edge cases)
+    [_positionMonitorTimer invalidate];
+    _positionMonitorTimer = [NSTimer scheduledTimerWithTimeInterval:0.5  // Check every 500ms (fallback for edge cases)
+                                                             repeats:YES
+                                                               block:^(NSTimer * _Nonnull timer) {
+        [self updateButtonPosition];
+    }];
+
+    // Show button immediately
+    [self showFixedButton];
+}
+
+- (void)updateCachedWordBounds {
+    _cachedWordBounds = [self getWordWindowBounds];
+    _lastBoundsUpdate = [[NSDate date] timeIntervalSince1970];
+}
+
+- (void)startScrollEventMonitor {
+    if (_scrollEventMonitor) {
+        return;  // Already monitoring
+    }
+
+    // Initialize bounds cache
+    [self updateCachedWordBounds];
+
+    __weak WordAccessibilityObserver* weakSelf = self;
+
+    _scrollEventMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskScrollWheel
+                                                                  handler:^(NSEvent *event) {
+        WordAccessibilityObserver* strongSelf = weakSelf;
+        if (!strongSelf) {
+            return;
+        }
+
+        // Get mouse location in screen coordinates
+        NSPoint mouseLocation = [NSEvent mouseLocation];
+
+        // Refresh bounds cache if stale (older than 1 second)
+        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
+        if (now - strongSelf->_lastBoundsUpdate > 1.0 || CGRectIsEmpty(strongSelf->_cachedWordBounds)) {
+            [strongSelf updateCachedWordBounds];
+        }
+
+        // Check if mouse is within Word window bounds
+        if (!CGRectIsEmpty(strongSelf->_cachedWordBounds) &&
+            NSPointInRect(mouseLocation, strongSelf->_cachedWordBounds)) {
+            // Mouse is over Word window - handle scroll event
+            [strongSelf handleScrollEvent:event];
+        }
+    }];
+}
+
+- (void)handleScrollEvent:(NSEvent*)event {
+    // Ignore momentum scrolling (only handle active user scrolling)
+    if (event.momentumPhase != NSEventPhaseNone) {
+        // During momentum phase, still debounce but don't trigger initial hide
+        if (_isScrolling) {
+            // Reset debounce timer during momentum
+            [_scrollDebounceTimer invalidate];
+            _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
+                                                                    repeats:NO
+                                                                      block:^(NSTimer * _Nonnull timer) {
+                self->_isScrolling = NO;
+                [self showFixedButton];
+            }];
+        }
+        return;
+    }
+
+    // Active scrolling detected
+    if (!_isScrolling) {
+        _isScrolling = YES;
+        // Hide button and popup immediately
+        [self hideButton];
+    }
+
+    // Debounce scroll end - reset timer on each scroll event
+    [_scrollDebounceTimer invalidate];
+    _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
+                                                            repeats:NO
+                                                              block:^(NSTimer * _Nonnull timer) {
+        self->_isScrolling = NO;
+        // Show button at new position after scroll ends
+        [self showFixedButton];
+    }];
+}
+
+- (void)stopScrollEventMonitor {
+    if (_scrollEventMonitor) {
+        [NSEvent removeMonitor:_scrollEventMonitor];
+        _scrollEventMonitor = nil;
+    }
+}
+
+- (void)updateButtonPosition {
+    if (!_buttonWindow) {
+        return;
+    }
+
+    // Get current Word window bounds
+    CGRect wordBounds = [self getWordWindowBounds];
+    if (CGRectIsEmpty(wordBounds)) {
+        // Word window not available, hide button
+        [self hideButton];
+        return;
+    }
+
+    // Get current first line position for scroll detection
+    CGRect currentFirstLinePosition = [self getFirstLinePosition];
+
+    // Check if first line position changed (indicates scrolling)
+    if (_hasLastFirstLinePosition && !CGRectIsEmpty(currentFirstLinePosition)) {
+        CGFloat tolerance = 1.0;  // 1px tolerance
+        BOOL positionChanged = (fabs(currentFirstLinePosition.origin.y - _lastFirstLinePosition.origin.y) > tolerance);
+
+        if (positionChanged) {
+            // Position changed - user is scrolling
+            if (!_isScrolling) {
+                _isScrolling = YES;
+                // Hide button and popup immediately on scroll start
+                [self hideButton];
+            }
+
+            // Update stored position
+            _lastFirstLinePosition = currentFirstLinePosition;
+
+            // Debounce scroll end
+            [_scrollDebounceTimer invalidate];
+            _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
+                                                                    repeats:NO
+                                                                      block:^(NSTimer * _Nonnull timer) {
+                self->_isScrolling = NO;
+                // Show button at new position after scroll ends
+                [self showFixedButton];
+            }];
+
+            return;  // Don't update button position while scrolling
+        }
+    }
+
+    // Store current position for next check
+    if (!CGRectIsEmpty(currentFirstLinePosition)) {
+        _lastFirstLinePosition = currentFirstLinePosition;
+        _hasLastFirstLinePosition = YES;
+    }
+
+    // Update button position (only if not scrolling)
+    if (!_isScrolling) {
+        [self showFixedButton];
+    }
+}
+
+- (void)handleWindowMoveOrResize {
+    // Immediately hide button during window movement/resize
+    if (!_isWindowMoving) {
+        _isWindowMoving = YES;
+        [self hideButton];
+    }
+
+    // Update cached Word bounds immediately when window moves
+    [self updateCachedWordBounds];
+
+    // Cancel any existing debounce timer
+    if (_windowMoveDebounceTimer) {
+        [_windowMoveDebounceTimer invalidate];
+        _windowMoveDebounceTimer = nil;
+    }
+
+    // Start new debounce timer (500ms)
+    __weak typeof(self) weakSelf = self;
+    _windowMoveDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
+                                                                repeats:NO
+                                                                  block:^(NSTimer * _Nonnull timer) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf) {
+            // Window movement stopped for 500ms - show button at new position
+            strongSelf->_isWindowMoving = NO;
+            [strongSelf updateButtonPosition];
+            strongSelf->_windowMoveDebounceTimer = nil;
+        }
+    }];
 }
 
 - (void)handleAppActivation {
@@ -1058,9 +2091,9 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 }
 
 - (void)handleButtonClick {
-    // Call back to JavaScript with the selected text when button is clicked
-    if (_buttonClickCallback && _currentSelectedText) {
-        _buttonClickCallback([_currentSelectedText UTF8String]);
+    // Also send callback to JavaScript for logging in main.ts
+    if (_buttonClickCallback) {
+        _buttonClickCallback("academia-button-clicked");
     }
 }
 
@@ -1144,6 +2177,85 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
     // Return the left edge (x coordinate) of the text area (the left margin)
     return position.x;
+}
+
+- (CGRect)getFirstLinePosition {
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        return CGRectZero;
+    }
+
+    // Create a range for the first character (location: 0, length: 1)
+    CFRange range = CFRangeMake(0, 1);
+    AXValueRef rangeValue = AXValueCreate(kAXValueTypeCFRange, &range);
+
+    if (!rangeValue) {
+        CFRelease(focusedElement);
+        return CGRectZero;
+    }
+
+    // Get bounds for the first character
+    CFTypeRef boundsValue = NULL;
+    error = AXUIElementCopyParameterizedAttributeValue(focusedElement,
+                                                       kAXBoundsForRangeParameterizedAttribute,
+                                                       rangeValue,
+                                                       &boundsValue);
+
+    CGRect bounds = CGRectZero;
+    if (error == kAXErrorSuccess && boundsValue) {
+        AXValueGetValue((AXValueRef)boundsValue, (AXValueType)kAXValueTypeCGRect, &bounds);
+        CFRelease(boundsValue);
+    }
+
+    CFRelease(rangeValue);
+    CFRelease(focusedElement);
+
+    return bounds;
+}
+
+- (CGRect)getWordWindowBounds {
+    // Get the frontmost window of Word
+    CFTypeRef windowsRef = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXWindowsAttribute, &windowsRef);
+
+    if (error != kAXErrorSuccess || !windowsRef) {
+        return CGRectZero;
+    }
+
+    CFArrayRef windows = (CFArrayRef)windowsRef;
+    if (CFArrayGetCount(windows) == 0) {
+        CFRelease(windowsRef);
+        return CGRectZero;
+    }
+
+    // Get the first window (frontmost)
+    AXUIElementRef frontWindow = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
+
+    // Get window position
+    CFTypeRef positionValue = NULL;
+    error = AXUIElementCopyAttributeValue(frontWindow, kAXPositionAttribute, &positionValue);
+    CGPoint position = CGPointZero;
+    if (error == kAXErrorSuccess && positionValue) {
+        AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
+        CFRelease(positionValue);
+    }
+
+    // Get window size
+    CFTypeRef sizeValue = NULL;
+    error = AXUIElementCopyAttributeValue(frontWindow, kAXSizeAttribute, &sizeValue);
+    CGSize size = CGSizeZero;
+    if (error == kAXErrorSuccess && sizeValue) {
+        AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+        CFRelease(sizeValue);
+    }
+
+    CFRelease(windowsRef);
+
+    CGRect bounds = CGRectMake(position.x, position.y, size.width, size.height);
+
+    return bounds;
 }
 
 - (void)checkPositionChange {
@@ -1299,6 +2411,12 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             [self handleSelectionChanged];
         } else if ([notificationName isEqualToString:(__bridge NSString*)kAXValueChangedNotification]) {
             [self handleValueChanged];
+        } else if ([notificationName isEqualToString:(__bridge NSString*)kAXWindowMovedNotification]) {
+            // Window moved - hide button and debounce
+            [self handleWindowMoveOrResize];
+        } else if ([notificationName isEqualToString:(__bridge NSString*)kAXWindowResizedNotification]) {
+            // Window resized - hide button and debounce
+            [self handleWindowMoveOrResize];
         }
     }
 }

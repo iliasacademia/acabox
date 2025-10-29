@@ -13,10 +13,13 @@ import './App.css';
 type Page = 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker' | 'trayIconSwitcher';
 
 interface DesktopNotification {
+  data: string;
+  user_id: number;
+  file_id: number;
+  status: 'unread' | 'read' | 'dismissed';
   created_at: number;
-  title: string;
-  description: string;
-  shown_at: number | null;
+  read_at: number | null;
+  dismissed_at: number | null;
 }
 
 const App: React.FC = () => {
@@ -24,8 +27,6 @@ const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('uploader');
   const [userId, setUserId] = useState<number | null>(null);
   const isDevelopment = process.env.NODE_ENV === 'development';
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const shownNotificationsRef = useRef<Set<number>>(new Set());
 
   useEffect(() => {
     checkLoginStatus();
@@ -54,14 +55,19 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (userId) {
-      // Start polling for notifications
-      pollNotifications();
-      pollingIntervalRef.current = setInterval(pollNotifications, 10000); // Poll every 10 seconds
+      // Start notification polling in main process
+      window.electronAPI.invoke('start-notification-polling', userId);
+
+      // Listen for new notifications
+      const handleNewNotification = (_event: any, notif: DesktopNotification) => {
+        showDesktopNotification(notif);
+      };
+      window.electronAPI.on('new-notification', handleNewNotification);
 
       return () => {
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-        }
+        // Stop polling on unmount
+        window.electronAPI.invoke('stop-notification-polling');
+        window.electronAPI.removeListener('new-notification', handleNewNotification);
       };
     }
   }, [userId]);
@@ -80,34 +86,10 @@ const App: React.FC = () => {
     }
   };
 
-  const pollNotifications = async () => {
-    try {
-      const response = await window.electronAPI.invoke('get-notifications');
-      const notifications: DesktopNotification[] = response.notifications || [];
-
-      // Filter notifications that haven't been shown yet
-      const unshownNotifications = notifications.filter(
-        (notif) => notif.shown_at === null && !shownNotificationsRef.current.has(notif.created_at)
-      );
-
-      // Show each unshown notification
-      for (const notif of unshownNotifications) {
-        showDesktopNotification(notif);
-        shownNotificationsRef.current.add(notif.created_at);
-
-        // Update the backend to mark as shown
-        if (userId) {
-          await window.electronAPI.invoke('update-notification', userId, notif.created_at);
-        }
-      }
-    } catch (error) {
-      console.error('Error polling notifications:', error);
-    }
-  };
-
   const showDesktopNotification = (notif: DesktopNotification) => {
-    new Notification(notif.title, {
-      body: notif.description,
+    // Show native OS notification
+    new Notification('Academia Notification', {
+      body: notif.data,
     });
   };
 
@@ -125,11 +107,7 @@ const App: React.FC = () => {
     if (result.success) {
       setShowLogin(true);
       setUserId(null);
-      shownNotificationsRef.current.clear();
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
-      }
+      // Stop notification polling (handled by useEffect cleanup when userId changes to null)
     }
   };
 
