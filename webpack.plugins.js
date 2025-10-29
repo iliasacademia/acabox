@@ -1,5 +1,6 @@
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const NativeWatchPlugin = require('./webpack.native-watch.plugin');
 
 module.exports = [
   new ForkTsCheckerWebpackPlugin({
@@ -26,5 +27,8 @@ module.exports = [
         to: 'assets/icons',
       },
     ],
+  }),
+  new NativeWatchPlugin({
+    debounceDelay: 300, // Wait 300ms after last change before rebuilding
   }),
 ];

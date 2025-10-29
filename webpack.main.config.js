@@ -15,6 +15,7 @@ module.exports = {
     {
       'tesseract.js': 'commonjs2 tesseract.js',
       'canvas': 'commonjs2 canvas',
+      'better-sqlite3': 'commonjs2 better-sqlite3',
     },
     // Mark all .node files as external (native modules)
     function ({ request }, callback) {

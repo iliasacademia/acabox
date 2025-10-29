@@ -27,3 +27,21 @@ yarn-error.log*
 .idea
 
 eng.traineddata
+
+/tmp
+
+# Native addon build artifacts (node-gyp)
+src/native/build/
+*.o
+*.a
+*.obj
+*.so
+*.dylib
+*.dll
+*.node
+*.d
+*.mk
+*.target.mk
+.deps/
+
+src/native/build/SimpleTests

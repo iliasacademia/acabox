@@ -6,13 +6,25 @@
         "bridge.mm",
         "bridge/interface/Message.cpp",
         "bridge/interface/MessageRouter.cpp",
-        "bridge/factory/BridgeFactory.cpp"
+        "bridge/factory/BridgeFactory.cpp",
+        "bridge/helpers/ScriptInjector.mm",
+        "bridge/helpers/HTMLLoader.mm",
+        "bridge/helpers/PanelStyleHelper.mm",
+        "bridge/helpers/WebViewConfigHelper.mm",
+        "bridge/windows/BasePopupWindow.mm",
+        "bridge/windows/BaseNativeWindow.mm",
+        "bridge/windows/TextPopupWindow.mm",
+        "bridge/windows/ClickPopupWindow.mm",
+        "bridge/windows/ButtonOverlayWindow.mm",
+        "bridge/windows/LineCountButtonWindow.mm"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
         "bridge/interface",
         "bridge/macos",
-        "bridge/factory"
+        "bridge/factory",
+        "bridge/helpers",
+        "bridge/windows"
       ],
       "dependencies": [
         "<!(node -p \"require('node-addon-api').gyp\")"

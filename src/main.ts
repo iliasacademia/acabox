@@ -3,8 +3,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { createCanvas } from 'canvas';
-import { login, logout, uploadFile, searchFiles, checkLogin, getNotifications, updateNotification, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
+import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
 import { syncService } from './syncService';
+import { notificationService } from './notificationService';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
 
 
@@ -29,11 +30,11 @@ function resolveAppleScriptPath(scriptName: string): string {
   return app.isPackaged ? prodPath : devPath;
 }
 
-let mainWindow: BrowserWindow | null = null;
+let devWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
 const createWindow = async (): Promise<void> => {
-  mainWindow = new BrowserWindow({
+  devWindow = new BrowserWindow({
     width: 800,
     height: 600,
     frame: false, // Remove title bar and window decorations
@@ -48,16 +49,19 @@ const createWindow = async (): Promise<void> => {
     },
   });
 
-  mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
+  devWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.webContents.openDevTools();
+    devWindow.webContents.openDevTools();
   }
 
   // Initialize sync service with main window
-  syncService.setMainWindow(mainWindow);
+  syncService.setMainWindow(devWindow);
+
+  // Initialize notification service with main window
+  notificationService.setMainWindow(devWindow);
 
   // Wait for window to be ready, then initialize
-  mainWindow.webContents.once('did-finish-load', async () => {
+  devWindow.webContents.once('did-finish-load', async () => {
     console.log('[MAIN] Window loaded, initializing sync service...');
     await syncService.initialize();
   });
@@ -278,37 +282,48 @@ const createTray = (): void => {
   // Set tooltip
   tray.setToolTip('Academia Electron');
 
-  // Create context menu
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Show App',
-      click: () => {
-        if (mainWindow) {
-          if (mainWindow.isMinimized()) mainWindow.restore();
-          positionWindowMiddleRight(); // Position before showing
-          mainWindow.show();
-          mainWindow.focus();
-        } else {
-          createWindow();
-        }
+  // Create context menu with development-only options
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
+  const menuItems: Electron.MenuItemConstructorOptions[] = [];
+
+  // Add development window controls only in dev mode
+  if (isDevelopment) {
+    menuItems.push(
+      {
+        label: 'Show Development Window',
+        click: () => {
+          if (devWindow) {
+            if (devWindow.isMinimized()) devWindow.restore();
+            positionWindowMiddleRight(); // Position before showing
+            devWindow.show();
+            devWindow.focus();
+          } else {
+            createWindow();
+          }
+        },
       },
-    },
-    {
-      label: 'Hide App',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.hide();
-        }
+      {
+        label: 'Hide Development Window',
+        click: () => {
+          if (devWindow) {
+            devWindow.hide();
+          }
+        },
       },
+      { type: 'separator' }
+    );
+  }
+
+  // Add quit option (always present)
+  menuItems.push({
+    label: 'Quit',
+    click: () => {
+      app.quit();
     },
-    { type: 'separator' },
-    {
-      label: 'Quit',
-      click: () => {
-        app.quit();
-      },
-    },
-  ]);
+  });
+
+  const contextMenu = Menu.buildFromTemplate(menuItems);
 
   // Set context menu
   tray.setContextMenu(contextMenu);
@@ -319,23 +334,84 @@ const createTray = (): void => {
 
 // Helper function to position window at middle-right of screen
 const positionWindowMiddleRight = (): void => {
-  if (!mainWindow) return;
+  if (!devWindow) return;
 
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
-  const windowBounds = mainWindow.getBounds();
+  const windowBounds = devWindow.getBounds();
 
   // Position at middle-right: 20px margin from right edge, vertically centered
   const x = screenWidth - windowBounds.width - 20;
   const y = Math.floor((screenHeight - windowBounds.height) / 2);
 
-  mainWindow.setPosition(x, y);
+  devWindow.setPosition(x, y);
   console.log(`[WINDOW] Positioned at middle-right: x=${x}, y=${y}`);
 };
 
-app.whenReady().then(() => {
-  createWindow();
+app.whenReady().then(async () => {
+  // Only create dev window in development mode
+  if (process.env.NODE_ENV === 'development') {
+    createWindow();
+  }
   createTray();
+
+  // Auto-start Word button tracking if Word is running
+  try {
+    const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
+    if (wordPIDResult) {
+      const wordPID = parseInt(wordPIDResult);
+      console.log('[WORD-BUTTON] MS Word detected (PID:', wordPID, ') - starting automatic button tracking');
+
+      // Check accessibility permission
+      if (wordAccessibility.checkPermission()) {
+        // Start observing with event callback
+        wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
+          if (event.type === 'buttonClicked') {
+            if (event.text === 'academia-button-clicked') {
+              console.log('[WORD-BUTTON] ✨ MS Word Academia main button clicked!');
+            }
+          }
+        });
+        isSelectionTrackingActive = true;
+        console.log('[WORD-BUTTON] ✅ Automatic button tracking started successfully');
+      } else {
+        console.log('[WORD-BUTTON] ⚠️ Accessibility permission not granted - button will not show');
+      }
+    } else {
+      console.log('[WORD-BUTTON] MS Word not running - button will auto-start when Word launches');
+    }
+  } catch (error) {
+    console.log('[WORD-BUTTON] MS Word not running - button will auto-start when Word launches');
+  }
+
+  // Periodically check if Word launches (check every 5 seconds)
+  setInterval(() => {
+    if (isSelectionTrackingActive) {
+      return; // Already tracking
+    }
+
+    try {
+      const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
+      if (wordPIDResult) {
+        const wordPID = parseInt(wordPIDResult);
+        console.log('[WORD-BUTTON] MS Word launched (PID:', wordPID, ') - starting automatic button tracking');
+
+        if (wordAccessibility.checkPermission()) {
+          wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
+            if (event.type === 'buttonClicked') {
+              if (event.text === 'academia-button-clicked') {
+                console.log('[WORD-BUTTON] ✨ MS Word Academia main button clicked!');
+              }
+            }
+          });
+          isSelectionTrackingActive = true;
+          console.log('[WORD-BUTTON] ✅ Automatic button tracking started successfully');
+        }
+      }
+    } catch (error) {
+      // Word not running yet
+    }
+  }, 5000);
 });
 
 app.on('window-all-closed', () => {
@@ -350,8 +426,8 @@ app.on('activate', () => {
   }
 });
 
-// Helper function for cleanup before exit
-function cleanupAndExit() {
+// Helper function for cleanup
+function cleanupNativeResources() {
   console.log('[APP] Cleaning up native resources...');
 
   if (isSelectionTrackingActive) {
@@ -363,7 +439,11 @@ function cleanupAndExit() {
       console.error('[APP] Error stopping observer:', error);
     }
   }
+}
 
+// Helper function for cleanup before exit
+function cleanupAndExit() {
+  cleanupNativeResources();
   process.exit(0);
 }
 
@@ -381,6 +461,13 @@ process.on('SIGTERM', () => {
 process.on('SIGHUP', () => {
   console.log('[APP] Received SIGHUP (terminal closed) - cleaning up...');
   cleanupAndExit();
+});
+
+// Handle cleanup request from dev tools (for hot reload)
+ipcMain.handle('dev-cleanup-native', async () => {
+  console.log('[APP] Dev-mode cleanup requested');
+  cleanupNativeResources();
+  return { success: true };
 });
 
 ipcMain.handle('check-login', async () => {
@@ -409,15 +496,15 @@ ipcMain.handle('logout', async () => {
 });
 
 ipcMain.handle('select-folder', async () => {
-  if (!mainWindow) return;
-  const result = await dialog.showOpenDialog(mainWindow, {
+  if (!devWindow) return;
+  const result = await dialog.showOpenDialog(devWindow, {
     properties: ['openDirectory'],
   });
   return result.filePaths[0];
 });
 
 ipcMain.handle('upload-files', async (_event, folderPath: string) => {
-  if (!mainWindow) return;
+  if (!devWindow) return;
   const files = fs.readdirSync(folderPath, { recursive: true }) as string[];
 
   for (const file of files) {
@@ -426,7 +513,7 @@ ipcMain.handle('upload-files', async (_event, folderPath: string) => {
     console.log(`Uploading ${filePath}`);
     // Do this synchronously so as not to overwhelm the server and the user's network
     const result = await uploadFile(filePath, folderPath);
-    mainWindow.webContents.send('file-uploaded', { status: result.status, paper: result.data.private_paper });
+    devWindow.webContents.send('file-uploaded', { status: result.status, paper: result.data.private_paper });
   }
 });
 
@@ -435,22 +522,58 @@ ipcMain.handle('search-files', async (_event, searchTerm: string) => {
   return results;
 });
 
-ipcMain.handle('get-notifications', async () => {
+// Notification IPC handlers
+ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread' | 'read' | 'dismissed'; userId?: number }) => {
   try {
-    const result = await getNotifications();
-    return result;
+    const userId = options?.userId;
+    if (!userId) {
+      return { notifications: [] };
+    }
+
+    const notifications = notificationService.getNotificationsByStatus(userId, options?.status);
+    return { notifications };
   } catch (error: any) {
     console.error('Failed to get notifications:', error);
     return { notifications: [] };
   }
 });
 
-ipcMain.handle('update-notification', async (_event, userId: number, createdAt: number) => {
+ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
   try {
-    await updateNotification(userId, createdAt);
+    notificationService.startPolling(userId, 30000); // 30 second interval
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to update notification:', error);
+    console.error('Failed to start notification polling:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('stop-notification-polling', async () => {
+  try {
+    notificationService.stopPolling();
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to stop notification polling:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('mark-notification-read', async (_event, createdAt: number) => {
+  try {
+    await notificationService.markAsRead(createdAt);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to mark notification as read:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('dismiss-notification', async (_event, createdAt: number) => {
+  try {
+    await notificationService.dismissNotification(createdAt);
+    return { success: true };
+  } catch (error: any) {
+    console.error('Failed to dismiss notification:', error);
     return { success: false, error: error.message };
   }
 });
@@ -484,6 +607,11 @@ app.on('before-quit', async () => {
   // Stop all sync watchers
   console.log('[APP] Stopping sync watchers...');
   await syncService.stopAll();
+
+  // Stop notification polling and close database
+  console.log('[APP] Closing notification service...');
+  notificationService.close();
+
   console.log('[APP] Cleanup complete');
 });
 
@@ -1021,8 +1149,8 @@ ipcMain.handle('start-selection-tracking', async () => {
         console.log('[SELECTION-TRACKER] Selection changed:', event.text.substring(0, 50));
 
         // Send to main window to update UI
-        if (mainWindow) {
-          mainWindow.webContents.send('selection-updated', event.text);
+        if (devWindow) {
+          devWindow.webContents.send('selection-updated', event.text);
         }
         // Note: Button is now rendered natively, no IPC needed!
       } else if (event.type === 'scrollStarted') {
@@ -1032,20 +1160,32 @@ ipcMain.handle('start-selection-tracking', async () => {
         console.log('[SELECTION-TRACKER] Scroll ended');
         // Note: Button is now shown natively at new position, no IPC needed!
       } else if (event.type === 'buttonClicked') {
-        // Parse action and text from the message format "action|text"
-        const parts = event.text.split('|');
-        const action = parts.length > 0 ? parts[0] : 'unknown';
-        const text = parts.length > 1 ? parts.slice(1).join('|') : event.text;
+        // Handle Academia button click
+        if (event.text === 'academia-button-clicked') {
+          console.log('[WORD-BUTTON] ✨ MS Word Academia main button clicked!');
+        } else {
+          // Legacy: Parse action and text from the message format "action|text"
+          const parts = event.text.split('|');
+          const action = parts.length > 0 ? parts[0] : 'unknown';
+          const text = parts.length > 1 ? parts.slice(1).join('|') : event.text;
 
-        console.log('[SELECTION-TRACKER] Button clicked:', action, 'for text:', text.substring(0, 50));
+          console.log('[SELECTION-TRACKER] Button clicked:', action, 'for text:', text.substring(0, 50));
 
-        // Send to main window with action information
-        if (mainWindow) {
-          mainWindow.webContents.send('button-action', { action, text });
+          // Handle specific actions
+          if (action === 'seeMore') {
+            console.log('[SUGGESTIONS] 🔍 See more clicked:', text);
+          } else if (action === 'dismiss') {
+            console.log('[SUGGESTIONS] ❌ Dismiss clicked:', text);
+          }
 
-          // Also send selection-updated for backward compatibility
-          if (action === 'lookup') {
-            mainWindow.webContents.send('selection-updated', text);
+          // Send to main window with action information
+          if (devWindow) {
+            devWindow.webContents.send('button-action', { action, text });
+
+            // Also send selection-updated for backward compatibility
+            if (action === 'lookup') {
+              devWindow.webContents.send('selection-updated', text);
+            }
           }
         }
       }
@@ -1078,8 +1218,8 @@ ipcMain.handle('selection-button-clicked', async (_event, selectedText: string) 
   console.log('[SELECTION-TRACKER] Button clicked for text:', selectedText.substring(0, 50));
 
   // Send to main window to show in UI
-  if (mainWindow) {
-    mainWindow.webContents.send('selection-updated', selectedText);
+  if (devWindow) {
+    devWindow.webContents.send('selection-updated', selectedText);
   }
 
   return { success: true };
@@ -1112,8 +1252,8 @@ ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
 
 // Handle window minimize
 ipcMain.handle('minimize-window', async () => {
-  if (mainWindow) {
-    mainWindow.minimize();
+  if (devWindow) {
+    devWindow.minimize();
     console.log('[WINDOW] Window minimized');
     return { success: true };
   }
@@ -1122,8 +1262,8 @@ ipcMain.handle('minimize-window', async () => {
 
 // Handle window close (hide instead of quit)
 ipcMain.handle('close-window', async () => {
-  if (mainWindow) {
-    mainWindow.hide();
+  if (devWindow) {
+    devWindow.hide();
     console.log('[WINDOW] Window hidden');
     return { success: true };
   }

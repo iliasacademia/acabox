@@ -168,10 +168,13 @@ export const logout = async () => {
 
 // Desktop Notifications API
 export interface DesktopNotification {
+  data: string;
+  user_id: number;
+  file_id: number;
+  status: 'unread' | 'read' | 'dismissed';
   created_at: number;
-  title: string;
-  description: string;
-  shown_at: number | null;
+  read_at: number | null;
+  dismissed_at: number | null;
 }
 
 export interface GetNotificationsResponse {
@@ -184,14 +187,21 @@ export const getNotifications = async (): Promise<GetNotificationsResponse> => {
   return response.data;
 };
 
-export const updateNotification = async (userId: number, createdAt: number): Promise<void> => {
+export const updateNotification = async (
+  createdAt: number,
+  status: 'unread' | 'read' | 'dismissed',
+  readAt?: number | null,
+  dismissedAt?: number | null
+): Promise<void> => {
   const client = await APIclient();
   const csrfToken = await getCsrfToken();
   await client.patch(
     '/v0/desktop_notifications/update_notification',
     {
-      user_id: userId,
       created_at: createdAt,
+      status,
+      read_at: readAt,
+      dismissed_at: dismissedAt,
     },
     {
       headers: { 'x-csrf-token': csrfToken },

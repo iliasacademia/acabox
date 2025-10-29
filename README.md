@@ -365,6 +365,83 @@ See [BRIDGE_USAGE.md](./BRIDGE_USAGE.md) for comprehensive documentation includi
 - Performance optimization
 - Migration guides
 
+## Why Native WebView vs Electron BrowserWindow
+
+This application uses **native WKWebView (macOS)** instead of Electron BrowserWindow for the Word integration popups. This is an **architectural necessity**, not a preference.
+
+### The Critical Requirement
+
+The application displays interactive popups (`TextPopupWindow`, `ClickPopupWindow`) over Microsoft Word when text is selected. These popups must:
+- Display React-based UI with buttons and suggestions
+- Respond to mouse clicks and hover events
+- **Never steal focus from Word** - users must continue typing seamlessly
+
+### Why Electron BrowserWindow Cannot Work
+
+Electron windows have a fundamental limitation for this use case:
+
+| Feature | Native WKWebView + NSPanel | Electron BrowserWindow |
+|---------|---------------------------|------------------------|
+| **Non-Activating Behavior** | ✅ Interactive without stealing focus | ❌ Always activates on interaction |
+| **Focus Management** | ✅ `NSPanel` with `becomesKeyOnlyIfNeeded` | ❌ Either activates or ignores all input |
+| **Window Level Control** | ✅ `NSFloatingWindowLevel` - precise z-order | ⚠️ Limited floating capabilities |
+| **Memory Footprint** | ✅ 10-20MB per popup | ❌ 100MB+ per window |
+| **Startup Time** | ✅ <100ms | ⚠️ ~500ms+ |
+| **Multiple Popups** | ✅ Can spawn 5-10 simultaneously | ❌ Memory prohibitive |
+
+**The Dealbreaker**: Electron BrowserWindow either steals focus (interrupts typing) or ignores mouse events (unusable UI). There's no middle ground for non-activating interactive windows.
+
+### Technical Requirements Only Native APIs Fulfill
+
+1. **Non-Activating Popups** ⭐⭐⭐
+   - `NSPanel` with `NSWindowStyleMaskNonactivatingPanel` style
+   - `floatingPanel = YES` and `becomesKeyOnlyIfNeeded = NO`
+   - Essential for uninterrupted Word workflow
+
+2. **True Floating Windows** ⭐⭐⭐
+   - `NSFloatingWindowLevel + 1` - stays above Word, below system UI
+   - Works with Spaces, Mission Control, multi-monitor setups
+   - Electron cannot reliably float over other applications
+
+3. **Lightweight Resource Usage** ⭐⭐
+   - Multiple concurrent popups (5-10 for citations)
+   - Native: 10-20MB each → 50-100MB total ✅
+   - Electron: 100MB each → 500-1000MB total ❌
+
+4. **Pixel-Perfect Positioning** ⭐⭐
+   - Accessibility API returns bounds in native screen coordinates
+   - `NSPanel` positioning matches exactly
+   - Electron has coordinate system conversion issues
+
+### The Hybrid Approach
+
+Our architecture leverages each technology's strengths:
+
+- **Native WKWebView**: Word integration popups (critical UX)
+  - Non-activating behavior
+  - Lightweight and fast
+  - Platform-specific but necessary
+
+- **Electron BrowserWindow**: Dev/admin window
+  - Full development experience
+  - DevTools integration
+  - Hidden in production
+
+- **Tray Icon**: Primary UI in production
+  - Minimal footprint
+  - Always accessible
+
+### User Experience Impact
+
+Without native webview, **every popup interaction would interrupt typing in Word**. This would make the application frustrating and unusable for its core purpose. The native implementation ensures:
+- Seamless text selection → popup workflow
+- No disruption to writing process
+- Professional, native macOS integration
+
+### Conclusion
+
+The native WKWebView implementation is **essential and irreplaceable**. The complexity of maintaining native code (Objective-C++, platform-specific builds, Accessibility API integration) is justified because it enables the fundamental user experience that makes this application viable.
+
 ## Known Issues & TODOs
 
 - Windows bridge implementation (WebView2) needs to be completed
