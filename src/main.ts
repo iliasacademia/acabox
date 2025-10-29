@@ -1269,3 +1269,43 @@ ipcMain.handle('close-window', async () => {
   }
   return { success: false, error: 'Window not found' };
 });
+
+// Handle position debug info request
+ipcMain.handle('get-position-debug-info', async () => {
+  try {
+    // Get position data from native bridge
+    const documentTopLeftCorner = wordAccessibility.getDocumentTopLeftCorner();
+    const wordWindowBounds = wordAccessibility.getWordWindowBounds();
+    const firstLinePosition = wordAccessibility.getFirstLinePosition();
+    const pageCornerVisibility = wordAccessibility.getPageCornerVisibility();
+    const parentHierarchy = wordAccessibility.getParentHierarchy();
+    const buttonStates = wordAccessibility.getButtonStates();
+    const scrollAreaBounds = wordAccessibility.getScrollAreaBounds();
+
+    // Get screen height for coordinate conversion
+    const primaryDisplay = screen.getPrimaryDisplay();
+    const screenHeight = primaryDisplay.bounds.height;
+
+    return {
+      success: true,
+      data: {
+        documentTopLeftCorner,
+        wordWindowBounds,
+        firstLinePosition,
+        pageCornerVisibility,
+        parentHierarchy,
+        buttonStates,
+        scrollAreaBounds,
+        screenHeight,
+        timestamp: Date.now()
+      }
+    };
+  } catch (error: any) {
+    console.error('[POSITION-DEBUG] Error getting position info:', error);
+    return {
+      success: false,
+      error: error.message,
+      data: null
+    };
+  }
+});

@@ -7,10 +7,11 @@ import SyncSection from './components/SyncSection';
 import WordReader from './components/WordReader';
 import SelectionTracker from './components/SelectionTracker';
 import TrayIconSwitcher from './components/TrayIconSwitcher';
+import PositionDebugger from './components/PositionDebugger';
 import CustomTitleBar from './components/CustomTitleBar';
 import './App.css';
 
-type Page = 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker' | 'trayIconSwitcher';
+type Page = 'positionDebugger' | 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker' | 'trayIconSwitcher';
 
 interface DesktopNotification {
   data: string;
@@ -24,7 +25,7 @@ interface DesktopNotification {
 
 const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
-  const [currentPage, setCurrentPage] = useState<Page>('uploader');
+  const [currentPage, setCurrentPage] = useState<Page>('positionDebugger');
   const [userId, setUserId] = useState<number | null>(null);
   const isDevelopment = process.env.NODE_ENV === 'development';
 
@@ -123,6 +124,12 @@ const App: React.FC = () => {
         <div className="sidebar">
         <nav className="sidebarNav">
           <button
+            className={`menuItem ${currentPage === 'positionDebugger' ? 'active' : ''}`}
+            onClick={() => setCurrentPage('positionDebugger')}
+          >
+            Position Debugger
+          </button>
+          <button
             className={`menuItem ${currentPage === 'uploader' ? 'active' : ''}`}
             onClick={() => setCurrentPage('uploader')}
           >
@@ -170,6 +177,7 @@ const App: React.FC = () => {
         </button>
       </div>
       <div className="mainContent">
+        {currentPage === 'positionDebugger' && <PositionDebugger />}
         {currentPage === 'uploader' && (
           <>
             <h1>Select Folder to Upload</h1>

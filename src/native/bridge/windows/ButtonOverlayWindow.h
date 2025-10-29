@@ -38,6 +38,10 @@
 // Positioning
 - (void)positionAtPoint:(CGPoint)point withHeight:(CGFloat)selectionHeight;
 
+// Clipping/Masking for partial visibility
+- (void)setVisibleRect:(NSRect)visibleRect inFrame:(NSRect)fullFrame;
+- (void)clearVisibleRectMask;
+
 // Cleanup
 - (void)orderOut:(id)sender;
 

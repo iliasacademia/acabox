@@ -31,12 +31,60 @@ export interface SelectedText {
   height: number;
 }
 
+export interface Position {
+  x: number;
+  y: number;
+}
+
+export interface Bounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PageCornerVisibility {
+  isVisible: boolean;
+  inViewport: boolean;
+  visibleRangeStart: number;
+  visibleRangeLength: number;
+}
+
+export interface ParentElement {
+  level: number;
+  role: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ButtonState {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  isVisible: boolean;
+}
+
+export interface ButtonStates {
+  academiaButton: ButtonState | null;
+  countButton: ButtonState | null;
+}
+
 interface NativeModule {
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean;
   stopObserving(): void;
   getSelectedText(): SelectedText | null;
   checkPermission(): boolean;
   setPopupPath(path: string): boolean;
+  getDocumentTopLeftCorner(): Position | null;
+  getWordWindowBounds(): Bounds | null;
+  getFirstLinePosition(): Bounds | null;
+  getPageCornerVisibility(): PageCornerVisibility | null;
+  getParentHierarchy(): ParentElement[];
+  getButtonStates(): ButtonStates | null;
+  getScrollAreaBounds(): Bounds | null;
 }
 
 // Load the native module
@@ -175,6 +223,98 @@ export class WordAccessibilityBridge {
 
   isObserving(): boolean {
     return this.pid !== null && this.callback !== null;
+  }
+
+  getDocumentTopLeftCorner(): Position | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getDocumentTopLeftCorner();
+    } catch (error) {
+      console.error('Failed to get document top left corner:', error);
+      return null;
+    }
+  }
+
+  getWordWindowBounds(): Bounds | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getWordWindowBounds();
+    } catch (error) {
+      console.error('Failed to get Word window bounds:', error);
+      return null;
+    }
+  }
+
+  getFirstLinePosition(): Bounds | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getFirstLinePosition();
+    } catch (error) {
+      console.error('Failed to get first line position:', error);
+      return null;
+    }
+  }
+
+  getPageCornerVisibility(): PageCornerVisibility | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getPageCornerVisibility();
+    } catch (error) {
+      console.error('Failed to get page corner visibility:', error);
+      return null;
+    }
+  }
+
+  getParentHierarchy(): ParentElement[] {
+    if (!nativeModule) {
+      return [];
+    }
+
+    try {
+      const result = nativeModule.getParentHierarchy();
+      return result || [];  // Convert null to empty array
+    } catch (error) {
+      console.error('Failed to get parent hierarchy:', error);
+      return [];
+    }
+  }
+
+  getButtonStates(): ButtonStates | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getButtonStates();
+    } catch (error) {
+      console.error('Failed to get button states:', error);
+      return null;
+    }
+  }
+
+  getScrollAreaBounds(): Bounds | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getScrollAreaBounds();
+    } catch (error) {
+      console.error('Failed to get scroll area bounds:', error);
+      return null;
+    }
   }
 }
 

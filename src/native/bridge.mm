@@ -36,8 +36,8 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     BOOL _isWindowMoving;  // Track if window is currently moving/resizing
     CGRect _lastSelectionBounds;
     BOOL _hasLastBounds;
-    CGRect _lastFirstLinePosition;  // Track first line position for scroll detection
-    BOOL _hasLastFirstLinePosition;
+    CGPoint _lastPageCornerPosition;  // Track page corner position for scroll detection
+    BOOL _hasLastPageCornerPosition;
     id _scrollEventMonitor;  // Global scroll event monitor
     CGRect _cachedWordBounds;  // Cached Word window bounds for performance
     NSTimeInterval _lastBoundsUpdate;  // Timestamp of last bounds cache update
@@ -45,6 +45,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     LineCountButtonWindow* _lineCountButton;  // NEW: Line count button
     NSString* _currentSelectedText;
     id _appActivationObserver;
+    id _spaceChangeObserver;
 }
 
 - (instancetype)initWithPID:(pid_t)pid {
@@ -57,8 +58,8 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _isWindowMoving = NO;
         _lastSelectionBounds = CGRectZero;
         _hasLastBounds = NO;
-        _lastFirstLinePosition = CGRectZero;
-        _hasLastFirstLinePosition = NO;
+        _lastPageCornerPosition = CGPointZero;
+        _hasLastPageCornerPosition = NO;
         _scrollEventMonitor = nil;
         _cachedWordBounds = CGRectZero;
         _lastBoundsUpdate = 0;
@@ -145,6 +146,20 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         }
     }];
 
+    // Listen for space/desktop changes to hide overlays immediately
+    // This handles Mission Control and manual space switching
+    _spaceChangeObserver = [[NSWorkspace sharedWorkspace].notificationCenter
+        addObserverForName:NSWorkspaceActiveSpaceDidChangeNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *notification) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+
+        // Hide overlays immediately when switching spaces
+        [strongSelf handleSpaceChange];
+    }];
+
     // Check if Word is currently the active application and show button immediately
     NSRunningApplication *activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
     if (activeApp.processIdentifier == _pid) {
@@ -197,6 +212,12 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     if (_appActivationObserver) {
         [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:_appActivationObserver];
         _appActivationObserver = nil;
+    }
+
+    // Remove space change observer
+    if (_spaceChangeObserver) {
+        [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:_spaceChangeObserver];
+        _spaceChangeObserver = nil;
     }
 
     // Stop accessibility observer
@@ -334,28 +355,29 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             return;
         }
 
-        // Get the position of the first line using Accessibility API
-        CGRect firstLineBounds = [self getFirstLinePosition];
+        // Get the position of the page corner (top-left of document including margins)
+        CGPoint pageCorner = [self getDocumentTopLeftCorner];
 
         CGFloat buttonSize = 24.0;
         CGFloat buttonX, buttonY;
 
-        if (!CGRectIsEmpty(firstLineBounds)) {
-            // Successfully got first line position - position button to the left of it
-            CGFloat leftMargin = 60.0;  // 60px margin from left edge of first character
-            buttonX = firstLineBounds.origin.x - buttonSize - leftMargin;
+        if (!CGPointEqualToPoint(pageCorner, CGPointZero)) {
+            // Successfully got page corner position - position button at the left edge of page
+            CGFloat leftMargin = 12.0;   // 12px margin from left edge of page
+            CGFloat topOffset = 12.0;   // 12px offset from top of page corner
+            buttonX = pageCorner.x + leftMargin;
 
             // Convert from top-left origin (Accessibility API) to bottom-left origin (Cocoa)
             NSScreen* primaryScreen = [NSScreen screens][0];
             CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
 
-            // Convert Y coordinate: bottom-left Y = screenHeight - topLeft Y - height
-            CGFloat cocoaY = primaryScreenHeight - firstLineBounds.origin.y - firstLineBounds.size.height;
+            // Convert Y coordinate: bottom-left Y = screenHeight - topLeft Y
+            // Add topOffset to position button slightly below the page corner
+            CGFloat cocoaY = primaryScreenHeight - pageCorner.y - topOffset - buttonSize;
 
-            // Center button vertically with the first line
-            buttonY = cocoaY + (firstLineBounds.size.height - buttonSize) / 2;
+            buttonY = cocoaY;
         } else {
-            // Fallback to fixed positioning if we can't get first line
+            // Fallback to fixed positioning if we can't get page corner
             CGFloat topPadding = 150.0;
             CGFloat leftPadding = 50.0;
 
@@ -368,8 +390,40 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             buttonY = windowTop - topPadding;
         }
 
+        // Get scroll area bounds to check if button is within scrollable content
+        CGRect scrollAreaBounds = [self getScrollAreaBounds];
+
+        if (CGRectIsEmpty(scrollAreaBounds)) {
+            // No scroll area found - hide button
+            NSLog(@"[LineCountButton] Hiding button - scroll area not found");
+            [self->_lineCountButton orderOut:nil];
+            return;
+        }
+
         // Validate that button position is on-screen
         NSRect buttonFrame = NSMakeRect(buttonX, buttonY, buttonSize, buttonSize);
+
+        // Check for intersection between button and scroll area bounds
+        // Convert scroll area bounds from Accessibility coordinates (top-left origin) to Cocoa coordinates (bottom-left origin)
+        NSScreen* primaryScreen = [NSScreen screens][0];
+        CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
+
+        CGRect scrollAreaCocoa = CGRectMake(
+            scrollAreaBounds.origin.x,
+            primaryScreenHeight - scrollAreaBounds.origin.y - scrollAreaBounds.size.height,
+            scrollAreaBounds.size.width,
+            scrollAreaBounds.size.height
+        );
+
+        // Calculate intersection between button frame and scroll area
+        NSRect visibleRect = NSIntersectionRect(scrollAreaCocoa, buttonFrame);
+
+        if (NSIsEmptyRect(visibleRect)) {
+            // No intersection - button is completely outside scroll area, hide it
+            NSLog(@"[LineCountButton] Hiding button - completely outside scroll area bounds");
+            [self->_lineCountButton orderOut:nil];
+            return;
+        }
 
         // Check if button is within any visible screen bounds
         BOOL isOnScreen = NO;
@@ -388,6 +442,17 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
         // Position the button window
         [self->_lineCountButton setFrame:buttonFrame display:YES];
+
+        // Apply clipping mask if button is partially outside scroll area
+        if (NSContainsRect(scrollAreaCocoa, buttonFrame)) {
+            // Button is fully contained - clear any existing mask
+            [self->_lineCountButton clearVisibleRectMask];
+            NSLog(@"[LineCountButton] Button fully visible - no clipping needed");
+        } else {
+            // Button is partially visible - apply clipping mask
+            [self->_lineCountButton setVisibleRect:visibleRect inFrame:buttonFrame];
+            NSLog(@"[LineCountButton] Button partially visible - clipping mask applied");
+        }
 
         // Show the button without activating (non-activating panel)
         [self->_lineCountButton orderFrontRegardless];
@@ -505,13 +570,13 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         return;
     }
 
-    // Get current first line position for scroll detection
-    CGRect currentFirstLinePosition = [self getFirstLinePosition];
+    // Get current page corner position for scroll detection
+    CGPoint currentPageCornerPosition = [self getDocumentTopLeftCorner];
 
-    // Check if first line position changed (indicates scrolling)
-    if (_hasLastFirstLinePosition && !CGRectIsEmpty(currentFirstLinePosition)) {
+    // Check if page corner position changed (indicates scrolling)
+    if (_hasLastPageCornerPosition && !CGPointEqualToPoint(currentPageCornerPosition, CGPointZero)) {
         CGFloat tolerance = 1.0;  // 1px tolerance
-        BOOL positionChanged = (fabs(currentFirstLinePosition.origin.y - _lastFirstLinePosition.origin.y) > tolerance);
+        BOOL positionChanged = (fabs(currentPageCornerPosition.y - _lastPageCornerPosition.y) > tolerance);
 
         if (positionChanged) {
             // Position changed - user is scrolling
@@ -522,7 +587,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             }
 
             // Update stored position
-            _lastFirstLinePosition = currentFirstLinePosition;
+            _lastPageCornerPosition = currentPageCornerPosition;
 
             // Debounce scroll end
             [_scrollDebounceTimer invalidate];
@@ -539,9 +604,9 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     }
 
     // Store current position for next check
-    if (!CGRectIsEmpty(currentFirstLinePosition)) {
-        _lastFirstLinePosition = currentFirstLinePosition;
-        _hasLastFirstLinePosition = YES;
+    if (!CGPointEqualToPoint(currentPageCornerPosition, CGPointZero)) {
+        _lastPageCornerPosition = currentPageCornerPosition;
+        _hasLastPageCornerPosition = YES;
     }
 
     // Update button position (only if not scrolling)
@@ -579,6 +644,27 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             strongSelf->_windowMoveDebounceTimer = nil;
         }
     }];
+}
+
+- (void)handleSpaceChange {
+    // Hide overlays immediately when space/desktop changes
+    [self hideButton];
+
+    // Stop position monitoring to save resources
+    if (_positionMonitorTimer) {
+        [_positionMonitorTimer invalidate];
+        _positionMonitorTimer = nil;
+    }
+
+    // After space change, check if Word is still the frontmost app
+    // If it is, we need to show the overlays again
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        NSRunningApplication *activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
+        if (activeApp.processIdentifier == self->_pid) {
+            // Word is still active on the new space - show overlays
+            [self startWordWindowTracking];
+        }
+    });
 }
 
 - (void)handleAppActivation {
@@ -706,6 +792,258 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     return position.x;
 }
 
+- (NSArray*)getParentHierarchy {
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        return @[];
+    }
+
+    NSMutableArray* hierarchy = [NSMutableArray array];
+    AXUIElementRef currentElement = focusedElement;
+    CFRetain(currentElement);
+
+    // Walk up parent hierarchy (up to 20 levels)
+    for (int i = 0; i < 20; i++) {
+        // Get role
+        CFTypeRef roleValue = NULL;
+        AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute, &roleValue);
+        NSString* role = (__bridge_transfer NSString*)roleValue;
+
+        // Get position
+        CFTypeRef positionValue = NULL;
+        error = AXUIElementCopyAttributeValue(currentElement, kAXPositionAttribute, &positionValue);
+        CGPoint position = CGPointZero;
+        if (error == kAXErrorSuccess && positionValue) {
+            AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
+            CFRelease(positionValue);
+        }
+
+        // Get size
+        CFTypeRef sizeValue = NULL;
+        AXUIElementCopyAttributeValue(currentElement, kAXSizeAttribute, &sizeValue);
+        CGSize size = CGSizeZero;
+        if (sizeValue) {
+            AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+            CFRelease(sizeValue);
+        }
+
+        [hierarchy addObject:@{
+            @"level": @(i),
+            @"role": role ?: @"Unknown",
+            @"x": @(position.x),
+            @"y": @(position.y),
+            @"width": @(size.width),
+            @"height": @(size.height)
+        }];
+
+        // Get parent element
+        CFTypeRef parentValue = NULL;
+        error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
+
+        if (error != kAXErrorSuccess || !parentValue) {
+            // No more parents - break without releasing (will be released after loop)
+            break;
+        }
+
+        // We have a parent, so release current element before moving to parent
+        if (currentElement != focusedElement) {
+            CFRelease(currentElement);
+        }
+
+        currentElement = (AXUIElementRef)parentValue;
+    }
+
+    // Clean up final element
+    if (currentElement != focusedElement) {
+        CFRelease(currentElement);
+    }
+    CFRelease(focusedElement);
+
+    return hierarchy;
+}
+
+- (CGPoint)getDocumentTopLeftCorner {
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        return CGPointZero;
+    }
+
+    // Strategy: Find AXTextArea in hierarchy, then return position 2 levels up from it
+    // This gives us the page corner including top margins
+
+    NSMutableArray* hierarchy = [NSMutableArray array];
+    AXUIElementRef currentElement = focusedElement;
+    CFRetain(currentElement);
+
+    // Walk up parent hierarchy and collect all levels
+    for (int i = 0; i < 20; i++) {
+        // Get role
+        CFTypeRef roleValue = NULL;
+        AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute, &roleValue);
+        NSString* role = (__bridge_transfer NSString*)roleValue;
+
+        // Get position
+        CFTypeRef positionValue = NULL;
+        error = AXUIElementCopyAttributeValue(currentElement, kAXPositionAttribute, &positionValue);
+        CGPoint position = CGPointZero;
+        if (error == kAXErrorSuccess && positionValue) {
+            AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
+            CFRelease(positionValue);
+        }
+
+        // Store this level
+        [hierarchy addObject:@{
+            @"level": @(i),
+            @"role": role ?: @"Unknown",
+            @"position": [NSValue valueWithPoint:NSPointFromCGPoint(position)]
+        }];
+
+        // Get parent element
+        CFTypeRef parentValue = NULL;
+        error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
+
+        if (error != kAXErrorSuccess || !parentValue) {
+            break;
+        }
+
+        if (currentElement != focusedElement) {
+            CFRelease(currentElement);
+        }
+
+        currentElement = (AXUIElementRef)parentValue;
+    }
+
+    // Clean up
+    if (currentElement != focusedElement) {
+        CFRelease(currentElement);
+    }
+    CFRelease(focusedElement);
+
+    // Find AXTextArea in hierarchy
+    int textAreaLevel = -1;
+    for (NSDictionary* item in hierarchy) {
+        if ([item[@"role"] isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
+            textAreaLevel = [item[@"level"] intValue];
+            break;
+        }
+    }
+
+    // If we found AXTextArea, return position 2 levels up from it
+    if (textAreaLevel >= 0) {
+        NSUInteger pageLevel = (NSUInteger)(textAreaLevel + 2);
+        if (pageLevel < hierarchy.count) {
+            NSDictionary* pageItem = hierarchy[pageLevel];
+            CGPoint pagePosition = NSPointToCGPoint([pageItem[@"position"] pointValue]);
+            return pagePosition;
+        }
+    }
+
+    // Fallback: AXTextArea not found (Word not focused?) - return zero
+    return CGPointZero;
+}
+
+- (CGRect)getScrollAreaBounds {
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        return CGRectZero;
+    }
+
+    // Strategy: Find AXTextArea at level 0, then check if level 4 parent is an AXScrollArea
+    // If yes, return the bounds of the scroll area
+
+    NSMutableArray* hierarchy = [NSMutableArray array];
+    AXUIElementRef currentElement = focusedElement;
+    CFRetain(currentElement);
+
+    // Walk up parent hierarchy and collect all levels
+    for (int i = 0; i < 20; i++) {
+        // Get role
+        CFTypeRef roleValue = NULL;
+        AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute, &roleValue);
+        NSString* role = (__bridge_transfer NSString*)roleValue;
+
+        // Get position
+        CFTypeRef positionValue = NULL;
+        error = AXUIElementCopyAttributeValue(currentElement, kAXPositionAttribute, &positionValue);
+        CGPoint position = CGPointZero;
+        if (error == kAXErrorSuccess && positionValue) {
+            AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
+            CFRelease(positionValue);
+        }
+
+        // Get size
+        CFTypeRef sizeValue = NULL;
+        AXUIElementCopyAttributeValue(currentElement, kAXSizeAttribute, &sizeValue);
+        CGSize size = CGSizeZero;
+        if (sizeValue) {
+            AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+            CFRelease(sizeValue);
+        }
+
+        // Store this level
+        [hierarchy addObject:@{
+            @"level": @(i),
+            @"role": role ?: @"Unknown",
+            @"position": [NSValue valueWithPoint:NSPointFromCGPoint(position)],
+            @"size": [NSValue valueWithSize:NSSizeFromCGSize(size)]
+        }];
+
+        // Get parent element
+        CFTypeRef parentValue = NULL;
+        error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
+
+        if (error != kAXErrorSuccess || !parentValue) {
+            break;
+        }
+
+        if (currentElement != focusedElement) {
+            CFRelease(currentElement);
+        }
+
+        currentElement = (AXUIElementRef)parentValue;
+    }
+
+    // Clean up
+    if (currentElement != focusedElement) {
+        CFRelease(currentElement);
+    }
+    CFRelease(focusedElement);
+
+    // Find AXTextArea in hierarchy (should be at level 0)
+    int textAreaLevel = -1;
+    for (NSDictionary* item in hierarchy) {
+        if ([item[@"role"] isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
+            textAreaLevel = [item[@"level"] intValue];
+            break;
+        }
+    }
+
+    // If we found AXTextArea at level 0, check if level 4 parent is an AXScrollArea
+    if (textAreaLevel == 0) {
+        NSUInteger scrollAreaLevel = 4;
+        if (scrollAreaLevel < hierarchy.count) {
+            NSDictionary* scrollItem = hierarchy[scrollAreaLevel];
+            NSString* scrollRole = scrollItem[@"role"];
+
+            if ([scrollRole isEqualToString:(__bridge NSString*)kAXScrollAreaRole]) {
+                CGPoint position = NSPointToCGPoint([scrollItem[@"position"] pointValue]);
+                CGSize size = NSSizeFromCGSize([scrollItem[@"size"] sizeValue]);
+                CGRect scrollBounds = CGRectMake(position.x, position.y, size.width, size.height);
+                return scrollBounds;
+            }
+        }
+    }
+
+    // Fallback: AXScrollArea not found at expected location
+    return CGRectZero;
+}
+
 - (CGRect)getFirstLinePosition {
     AXUIElementRef focusedElement = NULL;
     AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
@@ -740,6 +1078,57 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     CFRelease(focusedElement);
 
     return bounds;
+}
+
+- (CFRange)getVisibleCharacterRange {
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        return CFRangeMake(0, 0);
+    }
+
+    // Get visible character range
+    CFTypeRef visibleRangeValue = NULL;
+    error = AXUIElementCopyAttributeValue(focusedElement, kAXVisibleCharacterRangeAttribute, &visibleRangeValue);
+
+    CFRange visibleRange = CFRangeMake(0, 0);
+    if (error == kAXErrorSuccess && visibleRangeValue) {
+        AXValueGetValue((AXValueRef)visibleRangeValue, kAXValueTypeCFRange, &visibleRange);
+        CFRelease(visibleRangeValue);
+    }
+
+    CFRelease(focusedElement);
+
+    return visibleRange;
+}
+
+- (BOOL)isPageCornerVisible {
+    // Check if character 0 is in the visible range (viewport check)
+    CFRange visibleRange = [self getVisibleCharacterRange];
+    BOOL inViewport = (visibleRange.location == 0 && visibleRange.length > 0);
+
+    // Check if the page corner position is on-screen
+    BOOL onScreen = NO;
+    if (inViewport) {
+        CGPoint cornerPosition = [self getDocumentTopLeftCorner];
+        if (!CGPointEqualToPoint(cornerPosition, CGPointZero)) {
+            // Check if position is within any visible screen bounds
+            for (NSScreen* screen in [NSScreen screens]) {
+                NSRect screenFrame = screen.frame;
+                if (cornerPosition.x >= screenFrame.origin.x &&
+                    cornerPosition.x <= screenFrame.origin.x + screenFrame.size.width &&
+                    cornerPosition.y >= screenFrame.origin.y &&
+                    cornerPosition.y <= screenFrame.origin.y + screenFrame.size.height) {
+                    onScreen = YES;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Return true only if both conditions are met
+    return inViewport && onScreen;
 }
 
 - (CGRect)getWordWindowBounds {
@@ -783,6 +1172,40 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     CGRect bounds = CGRectMake(position.x, position.y, size.width, size.height);
 
     return bounds;
+}
+
+- (NSDictionary*)getButtonStates {
+    NSMutableDictionary* states = [NSMutableDictionary dictionary];
+
+    // Academia button state
+    if (_buttonWindow) {
+        NSRect frame = _buttonWindow.frame;
+        states[@"academiaButton"] = @{
+            @"x": @(frame.origin.x),
+            @"y": @(frame.origin.y),
+            @"width": @(frame.size.width),
+            @"height": @(frame.size.height),
+            @"isVisible": @([_buttonWindow isVisible])
+        };
+    } else {
+        states[@"academiaButton"] = [NSNull null];
+    }
+
+    // Count button state
+    if (_lineCountButton) {
+        NSRect frame = _lineCountButton.frame;
+        states[@"countButton"] = @{
+            @"x": @(frame.origin.x),
+            @"y": @(frame.origin.y),
+            @"width": @(frame.size.width),
+            @"height": @(frame.size.height),
+            @"isVisible": @([_lineCountButton isVisible])
+        };
+    } else {
+        states[@"countButton"] = [NSNull null];
+    }
+
+    return states;
 }
 
 - (void)checkPositionChange {
@@ -1109,12 +1532,202 @@ Napi::Value SetPopupPath(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+Napi::Value GetDocumentTopLeftCorner(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    CGPoint corner = [globalObserver getDocumentTopLeftCorner];
+
+    if (CGPointEqualToPoint(corner, CGPointZero)) {
+        return env.Null();
+    }
+
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("x", Napi::Number::New(env, corner.x));
+    result.Set("y", Napi::Number::New(env, corner.y));
+
+    return result;
+}
+
+Napi::Value GetWordWindowBounds(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    CGRect bounds = [globalObserver getWordWindowBounds];
+
+    if (CGRectIsEmpty(bounds)) {
+        return env.Null();
+    }
+
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("x", Napi::Number::New(env, bounds.origin.x));
+    result.Set("y", Napi::Number::New(env, bounds.origin.y));
+    result.Set("width", Napi::Number::New(env, bounds.size.width));
+    result.Set("height", Napi::Number::New(env, bounds.size.height));
+
+    return result;
+}
+
+Napi::Value GetFirstLinePosition(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    CGRect bounds = [globalObserver getFirstLinePosition];
+
+    if (CGRectIsEmpty(bounds)) {
+        return env.Null();
+    }
+
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("x", Napi::Number::New(env, bounds.origin.x));
+    result.Set("y", Napi::Number::New(env, bounds.origin.y));
+    result.Set("width", Napi::Number::New(env, bounds.size.width));
+    result.Set("height", Napi::Number::New(env, bounds.size.height));
+
+    return result;
+}
+
+Napi::Value GetPageCornerVisibility(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    BOOL isVisible = [globalObserver isPageCornerVisible];
+    CFRange visibleRange = [globalObserver getVisibleCharacterRange];
+
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("isVisible", Napi::Boolean::New(env, isVisible));
+    result.Set("inViewport", Napi::Boolean::New(env, visibleRange.location == 0 && visibleRange.length > 0));
+    result.Set("visibleRangeStart", Napi::Number::New(env, visibleRange.location));
+    result.Set("visibleRangeLength", Napi::Number::New(env, visibleRange.length));
+
+    return result;
+}
+
+Napi::Value GetParentHierarchy(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    NSArray* hierarchy = [globalObserver getParentHierarchy];
+
+    Napi::Array result = Napi::Array::New(env, hierarchy.count);
+
+    for (NSUInteger i = 0; i < hierarchy.count; i++) {
+        NSDictionary* parent = hierarchy[i];
+        Napi::Object parentObj = Napi::Object::New(env);
+
+        parentObj.Set("level", Napi::Number::New(env, [parent[@"level"] intValue]));
+        parentObj.Set("role", Napi::String::New(env, [parent[@"role"] UTF8String]));
+        parentObj.Set("x", Napi::Number::New(env, [parent[@"x"] doubleValue]));
+        parentObj.Set("y", Napi::Number::New(env, [parent[@"y"] doubleValue]));
+        parentObj.Set("width", Napi::Number::New(env, [parent[@"width"] doubleValue]));
+        parentObj.Set("height", Napi::Number::New(env, [parent[@"height"] doubleValue]));
+
+        result[i] = parentObj;
+    }
+
+    return result;
+}
+
+Napi::Value GetButtonStates(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    NSDictionary* states = [globalObserver getButtonStates];
+
+    if (!states) {
+        return env.Null();
+    }
+
+    // Convert NSDictionary to Napi::Object
+    Napi::Object result = Napi::Object::New(env);
+
+    // Academia button
+    id academiaButton = states[@"academiaButton"];
+    if (academiaButton == [NSNull null]) {
+        result.Set("academiaButton", env.Null());
+    } else {
+        NSDictionary* academiaDict = (NSDictionary*)academiaButton;
+        Napi::Object academiaObj = Napi::Object::New(env);
+        academiaObj.Set("x", Napi::Number::New(env, [academiaDict[@"x"] doubleValue]));
+        academiaObj.Set("y", Napi::Number::New(env, [academiaDict[@"y"] doubleValue]));
+        academiaObj.Set("width", Napi::Number::New(env, [academiaDict[@"width"] doubleValue]));
+        academiaObj.Set("height", Napi::Number::New(env, [academiaDict[@"height"] doubleValue]));
+        academiaObj.Set("isVisible", Napi::Boolean::New(env, [academiaDict[@"isVisible"] boolValue]));
+        result.Set("academiaButton", academiaObj);
+    }
+
+    // Count button
+    id countButton = states[@"countButton"];
+    if (countButton == [NSNull null]) {
+        result.Set("countButton", env.Null());
+    } else {
+        NSDictionary* countDict = (NSDictionary*)countButton;
+        Napi::Object countObj = Napi::Object::New(env);
+        countObj.Set("x", Napi::Number::New(env, [countDict[@"x"] doubleValue]));
+        countObj.Set("y", Napi::Number::New(env, [countDict[@"y"] doubleValue]));
+        countObj.Set("width", Napi::Number::New(env, [countDict[@"width"] doubleValue]));
+        countObj.Set("height", Napi::Number::New(env, [countDict[@"height"] doubleValue]));
+        countObj.Set("isVisible", Napi::Boolean::New(env, [countDict[@"isVisible"] boolValue]));
+        result.Set("countButton", countObj);
+    }
+
+    return result;
+}
+
+Napi::Value GetScrollAreaBounds(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    CGRect bounds = [globalObserver getScrollAreaBounds];
+
+    if (CGRectIsEmpty(bounds)) {
+        return env.Null();
+    }
+
+    // Convert CGRect to Napi::Object
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("x", Napi::Number::New(env, bounds.origin.x));
+    result.Set("y", Napi::Number::New(env, bounds.origin.y));
+    result.Set("width", Napi::Number::New(env, bounds.size.width));
+    result.Set("height", Napi::Number::New(env, bounds.size.height));
+
+    return result;
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("startObserving", Napi::Function::New(env, StartObserving));
     exports.Set("stopObserving", Napi::Function::New(env, StopObserving));
     exports.Set("getSelectedText", Napi::Function::New(env, GetSelectedText));
     exports.Set("checkPermission", Napi::Function::New(env, CheckPermission));
     exports.Set("setPopupPath", Napi::Function::New(env, SetPopupPath));
+    exports.Set("getDocumentTopLeftCorner", Napi::Function::New(env, GetDocumentTopLeftCorner));
+    exports.Set("getWordWindowBounds", Napi::Function::New(env, GetWordWindowBounds));
+    exports.Set("getFirstLinePosition", Napi::Function::New(env, GetFirstLinePosition));
+    exports.Set("getPageCornerVisibility", Napi::Function::New(env, GetPageCornerVisibility));
+    exports.Set("getParentHierarchy", Napi::Function::New(env, GetParentHierarchy));
+    exports.Set("getButtonStates", Napi::Function::New(env, GetButtonStates));
+    exports.Set("getScrollAreaBounds", Napi::Function::New(env, GetScrollAreaBounds));
     return exports;
 }
 

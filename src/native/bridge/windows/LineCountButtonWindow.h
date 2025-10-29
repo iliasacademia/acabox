@@ -37,6 +37,10 @@
 - (void)scheduleHidePopup;
 - (void)cancelScheduledHide;
 
+// Clipping/Masking for partial visibility
+- (void)setVisibleRect:(NSRect)visibleRect inFrame:(NSRect)fullFrame;
+- (void)clearVisibleRectMask;
+
 // Cleanup
 - (void)orderOut:(id)sender;
 
