@@ -15,6 +15,7 @@
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
+    "test:native": "cd src/native && ./run-simple-tests.sh",
     "prebuild": "npm run build:native && npm run build:popup",
     "package": "electron-forge package",
     "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - {} \\;",
