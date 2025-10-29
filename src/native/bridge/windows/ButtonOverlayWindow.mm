@@ -1,4 +1,5 @@
 #import "ButtonOverlayWindow.h"
+#import <QuartzCore/QuartzCore.h>
 
 @implementation ButtonOverlayWindow
 
@@ -283,6 +284,34 @@
         [self.popupWindow close];
         self.popupWindow = nil;
     }
+}
+
+- (void)setVisibleRect:(NSRect)visibleRect inFrame:(NSRect)fullFrame {
+    // Convert global visibleRect to button's local coordinates
+    CGRect localVisible = CGRectMake(
+        visibleRect.origin.x - fullFrame.origin.x,
+        visibleRect.origin.y - fullFrame.origin.y,
+        visibleRect.size.width,
+        visibleRect.size.height
+    );
+
+    // Create mask layer with visible rect
+    CAShapeLayer *maskLayer = [CAShapeLayer layer];
+    CGPathRef path = CGPathCreateWithRect(localVisible, NULL);
+    maskLayer.path = path;
+    CGPathRelease(path);
+
+    // Apply mask to content view
+    self.contentView.layer.mask = maskLayer;
+
+    NSLog(@"[ButtonOverlayWindow] Applied clipping mask - local visible rect: (%.1f, %.1f, %.1f, %.1f)",
+          localVisible.origin.x, localVisible.origin.y, localVisible.size.width, localVisible.size.height);
+}
+
+- (void)clearVisibleRectMask {
+    // Remove mask to show full button
+    self.contentView.layer.mask = nil;
+    NSLog(@"[ButtonOverlayWindow] Cleared clipping mask");
 }
 
 - (void)dealloc {

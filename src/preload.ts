@@ -5,7 +5,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   // IPC handlers
   invoke: (channel: string, ...args: any[]) => {
-    const validChannels = ['check-login', 'login', 'logout', 'select-folder', 'upload-files', 'search-files', 'get-notifications', 'update-notification', 'get-current-user', 'get-screen-sources', 'get-all-sources', 'get-word-content', 'test-word-api', 'check-word-frontmost', 'get-word-scroll-position', 'get-word-text', 'process-screen-ocr', 'get-sync-folders', 'add-sync-folder', 'remove-sync-folder', 'sync-folder-now', 'get-folder-files', 'process-word-window', 'start-selection-tracking', 'stop-selection-tracking', 'selection-button-clicked', 'change-tray-icon', 'minimize-window', 'close-window', 'start-notification-polling', 'stop-notification-polling', 'mark-notification-read', 'dismiss-notification'];
+    const validChannels = ['check-login', 'login', 'logout', 'select-folder', 'upload-files', 'search-files', 'get-notifications', 'update-notification', 'get-current-user', 'get-screen-sources', 'get-all-sources', 'get-word-content', 'test-word-api', 'check-word-frontmost', 'get-word-scroll-position', 'get-word-text', 'process-screen-ocr', 'get-sync-folders', 'add-sync-folder', 'remove-sync-folder', 'sync-folder-now', 'get-folder-files', 'process-word-window', 'start-selection-tracking', 'stop-selection-tracking', 'selection-button-clicked', 'change-tray-icon', 'minimize-window', 'close-window', 'start-notification-polling', 'stop-notification-polling', 'mark-notification-read', 'dismiss-notification', 'get-position-debug-info'];
     if (validChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);
     }

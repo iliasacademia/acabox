@@ -21,6 +21,7 @@ typedef void (*ButtonClickCallback)(const char* text);
 - (BOOL)checkAccessibilityPermission;
 - (void)handleButtonClick;
 - (void)handleButtonClickWithAction:(NSString*)action text:(NSString*)text;
+- (CGRect)getScrollAreaBounds;
 
 @end
 
