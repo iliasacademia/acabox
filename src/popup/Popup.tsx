@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNativeEvent, useSendMessage, useBridgeReady } from './hooks/useBridge';
+import { logJSON } from './utils/logger';
 
 const Popup: React.FC = () => {
   const [text, setText] = useState('');
@@ -10,7 +11,7 @@ const Popup: React.FC = () => {
 
   // Listen for content updates from native
   useNativeEvent('updateContent', (msg) => {
-    console.log('[Popup] Content update received:', msg.payload);
+    logJSON('[Popup] Content update received:', msg.payload);
     console.log('[Popup] Payload type:', typeof msg.payload);
 
     let newText = '';
@@ -40,7 +41,7 @@ const Popup: React.FC = () => {
         text: text
       });
 
-      console.log('[Popup] Native response:', result);
+      logJSON('[Popup] Native response:', result);
 
       // Handle specific actions
       if (action === 'copy' && result?.success) {

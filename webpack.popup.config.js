@@ -1,5 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
 
 module.exports = {
   mode: 'production',
@@ -36,6 +37,14 @@ module.exports = {
       template: './src/popup/index.html',
       filename: 'index.html',
       inject: 'body',
+    }),
+    new CopyWebpackPlugin({
+      patterns: [
+        {
+          from: './src/popup/bridge-preload.js',
+          to: 'bridge-preload.js',
+        },
+      ],
     }),
   ],
   optimization: {

@@ -1,4 +1,5 @@
 #import "ButtonOverlayWindow.h"
+#import "TextPopupWindow.h"
 #import <QuartzCore/QuartzCore.h>
 
 @implementation ButtonOverlayWindow
@@ -60,145 +61,6 @@
         // [self setupMouseTracking];
     }
     return self;
-}
-
-- (void)setupMouseTracking {
-    self.trackingArea = [[NSTrackingArea alloc] initWithRect:self.button.bounds
-                                                     options:(NSTrackingMouseEnteredAndExited | NSTrackingActiveAlways)
-                                                       owner:self
-                                                    userInfo:nil];
-    [self.button addTrackingArea:self.trackingArea];
-}
-
-- (void)mouseEntered:(NSEvent *)event {
-    [self cancelScheduledHide];
-    [self showPopup];
-}
-
-- (void)mouseExited:(NSEvent *)event {
-    [self scheduleHidePopup];
-}
-
-- (void)showPopup {
-    // Cancel any scheduled hide
-    [self cancelScheduledHide];
-
-    if (self.selectedText && self.selectedText.length > 0) {
-        // Reuse existing popup window if available (keeps React loaded and ready)
-        if (!self.popupWindow) {
-            NSLog(@"[ButtonOverlayWindow] Creating new popup window");
-            self.popupWindow = [[TextPopupWindow alloc] initWithText:self.selectedText];
-            // Connect popup back to button for mouse coordination
-            self.popupWindow.buttonWindow = self;
-        } else {
-            // Update existing popup with new text (instant update, no reload delay)
-            NSLog(@"[ButtonOverlayWindow] Reusing existing popup window");
-            [self.popupWindow updateContentWithText:self.selectedText];
-        }
-
-        // Get selection bounds (in top-left coordinate system from Accessibility API)
-        CGRect selection = self.selectionBounds;
-        NSRect popupFrame = self.popupWindow.frame;
-
-        // Get the primary screen height to convert coordinates
-        NSScreen* primaryScreen = [NSScreen screens][0];
-        CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
-
-        // Convert selection to Cocoa coordinates (bottom-left origin)
-        CGFloat selectionTop = primaryScreenHeight - selection.origin.y;  // Top in Cocoa coords
-        CGFloat selectionBottom = primaryScreenHeight - (selection.origin.y + selection.size.height);  // Bottom in Cocoa coords
-
-        // Find which screen contains the selection
-        NSScreen* targetScreen = nil;
-        for (NSScreen* screen in [NSScreen screens]) {
-            NSRect screenFrame = screen.frame;
-            CGFloat selectionCenterY = (selectionTop + selectionBottom) / 2;
-            if (selection.origin.x >= screenFrame.origin.x &&
-                selection.origin.x <= screenFrame.origin.x + screenFrame.size.width &&
-                selectionCenterY >= screenFrame.origin.y &&
-                selectionCenterY <= screenFrame.origin.y + screenFrame.size.height) {
-                targetScreen = screen;
-                break;
-            }
-        }
-
-        if (!targetScreen) {
-            targetScreen = [NSScreen mainScreen];
-        }
-
-        NSRect screenFrame = targetScreen.frame;
-
-        // Calculate available space above and below selection
-        // In Cocoa coords: higher Y = higher on screen (towards top)
-        // Space visually ABOVE = from selection top to screen top
-        CGFloat spaceAbove = (screenFrame.origin.y + screenFrame.size.height) - selectionTop;
-        // Space visually BELOW = from selection bottom to screen bottom
-        CGFloat spaceBelow = selectionBottom - screenFrame.origin.y;
-
-        CGFloat popupX, popupY;
-
-        // Position horizontally: align with left edge of selection
-        popupX = selection.origin.x;
-
-        // Ensure popup fits within screen horizontally
-        if (popupX + popupFrame.size.width > screenFrame.origin.x + screenFrame.size.width) {
-            popupX = screenFrame.origin.x + screenFrame.size.width - popupFrame.size.width - 10;
-        }
-
-        // Position vertically: above or below based on available space
-        // Note: In Cocoa coords, window origin (popupY) is at bottom-left of window
-        if (spaceAbove >= popupFrame.size.height || spaceAbove > spaceBelow) {
-            // Position visually ABOVE selection (higher Y value)
-            // Popup bottom should be at selection top, with slight overlap
-            popupY = selectionTop - 3;
-        } else {
-            // Position visually BELOW selection (lower Y value)
-            // Popup top should be at selection bottom, with slight overlap
-            popupY = selectionBottom - popupFrame.size.height + 3;
-        }
-
-        [self.popupWindow setFrameOrigin:NSMakePoint(popupX, popupY)];
-        // Use orderFront without activating the application
-        [self.popupWindow orderFrontRegardless];
-    }
-}
-
-- (void)hidePopup {
-    // Cancel any scheduled hide
-    [self cancelScheduledHide];
-
-    if (self.popupWindow) {
-        // Just hide the window, don't destroy it (keeps React loaded for instant reappearance)
-        NSLog(@"[ButtonOverlayWindow] Hiding popup (keeping window alive for reuse)");
-        [self.popupWindow orderOut:nil];
-        // Don't close or nil out the window - we'll reuse it next time
-    }
-}
-
-- (void)scheduleHidePopup {
-    // Cancel any existing scheduled hide
-    [self cancelScheduledHide];
-
-    // Schedule hide after a delay (400ms gives enough time to move mouse to popup)
-    __weak __typeof__(self) weakSelf = self;
-    self.scheduledHideBlock = dispatch_block_create(DISPATCH_BLOCK_INHERIT_QOS_CLASS, ^{
-        __typeof__(self) strongSelf = weakSelf;
-        if (strongSelf) {
-            [strongSelf hidePopup];
-            strongSelf.scheduledHideBlock = nil;
-        }
-    });
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(),
-                   self.scheduledHideBlock);
-}
-
-- (void)cancelScheduledHide {
-    if (self.scheduledHideBlock) {
-        dispatch_block_cancel(self.scheduledHideBlock);
-        self.scheduledHideBlock = nil;
-    }
 }
 
 - (void)setSelectedText:(NSString*)text {
@@ -264,15 +126,16 @@
     // Update button frame to fill the window
     self.button.frame = NSMakeRect(0, 0, 10, selectionHeight);
 
-    // Update tracking area for new button size
-    if (self.trackingArea) {
-        [self.button removeTrackingArea:self.trackingArea];
-    }
-    [self setupMouseTracking];
+    // Update tracking area for new button size (disabled - hover functionality removed)
+    // if (self.trackingArea) {
+    //     [self.button removeTrackingArea:self.trackingArea];
+    // }
+    // [self setupMouseTracking];
 }
 
 - (void)orderOut:(id)sender {
-    [self hidePopup];
+    // Destroy popup window when button is hidden
+    [self destroyPopup];
     [super orderOut:sender];
 }
 
@@ -317,12 +180,6 @@
 - (void)dealloc {
     // Clean up popup window completely during dealloc
     [self destroyPopup];
-
-    // Remove tracking area
-    if (_trackingArea) {
-        [_button removeTrackingArea:_trackingArea];
-        _trackingArea = nil;
-    }
 }
 
 @end

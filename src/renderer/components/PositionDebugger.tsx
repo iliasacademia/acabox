@@ -41,6 +41,15 @@ interface ButtonStates {
   countButton: ButtonState | null;
 }
 
+interface FirstTextAreaInfo {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  charCount: number;
+}
+
 interface PositionDebugData {
   documentTopLeftCorner: Position | null;
   wordWindowBounds: Bounds | null;
@@ -49,6 +58,7 @@ interface PositionDebugData {
   parentHierarchy: ParentElement[];
   buttonStates: ButtonStates | null;
   scrollAreaBounds: Bounds | null;
+  firstTextAreaInfo: FirstTextAreaInfo | null;
   screenHeight: number;
   timestamp: number;
 }
@@ -370,6 +380,59 @@ const PositionDebugger: React.FC = () => {
             )}
           </div>
 
+          {/* First TextArea Info */}
+          <div style={{
+            padding: '15px',
+            border: '2px solid #2196F3',
+            borderRadius: '4px',
+            background: '#e3f2fd'
+          }}>
+            <h3 style={{ margin: '0 0 10px 0', color: '#1565C0' }}>
+              7. First TextArea (Full Content)
+            </h3>
+            {data.firstTextAreaInfo ? (
+              <div style={{ fontSize: '14px' }}>
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ fontFamily: 'monospace', fontSize: '14px', marginBottom: '5px' }}>
+                    <strong>Position & Size:</strong> {formatCoordinates(data.firstTextAreaInfo)}
+                  </div>
+                  <div style={{ fontSize: '14px', marginBottom: '10px' }}>
+                    <strong>Character Count:</strong> {data.firstTextAreaInfo.charCount.toLocaleString()} characters
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>
+                    Text Content:
+                  </div>
+                  <div style={{
+                    padding: '10px',
+                    background: '#fff',
+                    border: '1px solid #90CAF9',
+                    borderRadius: '4px',
+                    maxHeight: '300px',
+                    overflowY: 'auto',
+                    fontFamily: 'monospace',
+                    fontSize: '12px',
+                    lineHeight: '1.5',
+                    whiteSpace: 'pre-wrap',
+                    wordBreak: 'break-word'
+                  }}>
+                    {data.firstTextAreaInfo.text || '(empty)'}
+                  </div>
+                </div>
+                {data.firstTextAreaInfo.text.length > 1000 && (
+                  <div style={{ marginTop: '10px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
+                    💡 Showing {data.firstTextAreaInfo.text.length} characters (scroll to view all)
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ color: '#ff9800' }}>
+                First TextArea info not available (document may not have focus)
+              </div>
+            )}
+          </div>
+
           {/* Button Positions */}
           <div style={{
             padding: '15px',
@@ -378,7 +441,7 @@ const PositionDebugger: React.FC = () => {
             background: '#fafafa'
           }}>
             <h3 style={{ margin: '0 0 10px 0', color: '#333' }}>
-              7. Button Positions
+              8. Button Positions
             </h3>
             {data.buttonStates ? (
               <div style={{ fontSize: '14px' }}>

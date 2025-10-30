@@ -1281,6 +1281,7 @@ ipcMain.handle('get-position-debug-info', async () => {
     const parentHierarchy = wordAccessibility.getParentHierarchy();
     const buttonStates = wordAccessibility.getButtonStates();
     const scrollAreaBounds = wordAccessibility.getScrollAreaBounds();
+    const firstTextAreaInfo = wordAccessibility.getFirstTextAreaInfo();
 
     // Get screen height for coordinate conversion
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -1296,6 +1297,7 @@ ipcMain.handle('get-position-debug-info', async () => {
         parentHierarchy,
         buttonStates,
         scrollAreaBounds,
+        firstTextAreaInfo,
         screenHeight,
         timestamp: Date.now()
       }

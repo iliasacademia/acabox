@@ -1,5 +1,6 @@
 #import "WebViewConfigHelper.h"
 #import "ScriptInjector.h"
+#import <AppKit/AppKit.h>
 
 @implementation WebViewConfigHelper
 
@@ -16,6 +17,11 @@
 
     // Make WKWebView background transparent (for React to control styling)
     [webView setValue:@NO forKey:@"drawsBackground"];
+
+    // Additional transparency settings for proper rounded corner display
+    // Set the layer background to clear for true transparency at rounded corners
+    webView.wantsLayer = YES;
+    webView.layer.backgroundColor = [[NSColor clearColor] CGColor];
 
     return webView;
 }
@@ -45,10 +51,13 @@
 
         // Bridge compatibility script
         NSString* bridgeScript = [ScriptInjector bridgeCompatibilityScript];
+        NSLog(@"[WebViewConfigHelper] Bridge script length: %lu", (unsigned long)[bridgeScript length]);
+        NSLog(@"[WebViewConfigHelper] Bridge script start: %@", [bridgeScript substringToIndex:MIN((NSUInteger)100, [bridgeScript length])]);
         WKUserScript* bridgeUserScript = [[WKUserScript alloc] initWithSource:bridgeScript
                                                                 injectionTime:WKUserScriptInjectionTimeAtDocumentStart
                                                              forMainFrameOnly:YES];
         [userController addUserScript:bridgeUserScript];
+        NSLog(@"[WebViewConfigHelper] Bridge script added to userController");
     }
 
     config.userContentController = userController;

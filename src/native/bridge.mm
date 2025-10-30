@@ -46,6 +46,11 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     NSString* _currentSelectedText;
     id _appActivationObserver;
     id _spaceChangeObserver;
+    id _clickPopupBecameKeyObserver;
+    id _clickPopupResignedKeyObserver;
+    AXUIElementRef _wordWindow;  // Reference to Word's frontmost window for potential future use
+    CGRect _cachedScrollAreaBounds;  // Cached scroll area bounds for when ClickPopup has focus
+    NSTimeInterval _lastScrollAreaUpdate;  // Timestamp of last scroll area cache update
 }
 
 - (instancetype)initWithPID:(pid_t)pid {
@@ -63,6 +68,11 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _scrollEventMonitor = nil;
         _cachedWordBounds = CGRectZero;
         _lastBoundsUpdate = 0;
+        _clickPopupBecameKeyObserver = nil;
+        _clickPopupResignedKeyObserver = nil;
+        _wordWindow = NULL;
+        _cachedScrollAreaBounds = CGRectZero;
+        _lastScrollAreaUpdate = 0;
     }
     return self;
 }
@@ -71,6 +81,10 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     [self stopObserving];
     if (_wordApp) {
         CFRelease(_wordApp);
+    }
+    if (_wordWindow) {
+        CFRelease(_wordWindow);
+        _wordWindow = NULL;
     }
 }
 
@@ -132,18 +146,57 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         if (!strongSelf) return;
 
         NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
+        pid_t ourAppPID = [[NSRunningApplication currentApplication] processIdentifier];
+
+        NSLog(@"[Bridge] ===== APP ACTIVATION =====");
+        NSLog(@"[Bridge] Active app: %@ (PID: %d)", app.localizedName, app.processIdentifier);
+        NSLog(@"[Bridge] Word PID: %d, Our app PID: %d", strongSelf->_pid, ourAppPID);
+
+        // If our Academia app (which owns the ClickPopup) became active, skip handling
+        // The window-level notifications will handle ClickPopup focus changes
+        if (app.processIdentifier == ourAppPID) {
+            NSLog(@"[Bridge] Our app activated - skipping (window notifications will handle)");
+            NSLog(@"[Bridge] =====================================");
+            return;
+        }
+
         if (app.processIdentifier == strongSelf->_pid) {
             // MS Word came to foreground - show button
+            NSLog(@"[Bridge] Word activated - showing Count button");
             [strongSelf startWordWindowTracking];
+
+            // Restore click popup if it was visible before Word lost focus
+            if (strongSelf->_lineCountButton &&
+                strongSelf->_lineCountButton.clickPopup &&
+                strongSelf->_lineCountButton.clickPopup.wasVisibleBeforeHiding) {
+                NSLog(@"[Bridge] Restoring ClickPopup that was visible before");
+                [strongSelf->_lineCountButton showClickPopup];
+                strongSelf->_lineCountButton.clickPopup.wasVisibleBeforeHiding = NO;
+            }
         } else {
-            // Different app activated - hide button
-            [strongSelf hideButton];
+            // Different app activated (not Word, not our app)
+            NSLog(@"[Bridge] Different app activated - hiding button and ClickPopup");
+
+            // Check if ClickPopup is currently visible so we can restore it later
+            if (strongSelf->_lineCountButton && strongSelf->_lineCountButton.clickPopup) {
+                BOOL isClickPopupVisible = [strongSelf->_lineCountButton.clickPopup isVisible];
+                if (isClickPopupVisible) {
+                    // Remember that ClickPopup was visible so we can restore it
+                    strongSelf->_lineCountButton.clickPopup.wasVisibleBeforeHiding = YES;
+                    NSLog(@"[Bridge] ClickPopup was visible - will restore when returning to Word");
+                }
+            }
+
+            // Hide both button and ClickPopup when switching to different app
+            [strongSelf hideButtonAndPopup:YES];
+
             // Stop position monitoring to save resources
             if (strongSelf->_positionMonitorTimer) {
                 [strongSelf->_positionMonitorTimer invalidate];
                 strongSelf->_positionMonitorTimer = nil;
             }
         }
+        NSLog(@"[Bridge] =====================================");
     }];
 
     // Listen for space/desktop changes to hide overlays immediately
@@ -220,6 +273,9 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _spaceChangeObserver = nil;
     }
 
+    // Remove ClickPopup window observers
+    [self unregisterClickPopupObservers];
+
     // Stop accessibility observer
     if (_observer) {
         // DISABLED: Selection-based notifications (temporarily disabled)
@@ -285,14 +341,24 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 }
 
 - (void)hideButton {
+    // Convenience method - hide button but keep ClickPopup visible (for scroll)
+    [self hideButtonAndPopup:NO];
+}
+
+- (void)hideButtonAndPopup:(BOOL)hideClickPopup {
     // Execute synchronously for immediate hiding (called from main thread via NSEvent handler)
     if (_buttonWindow) {
         [_buttonWindow orderOut:nil];
     }
     if (_lineCountButton) {
         [_lineCountButton hideHoverPopup];
-        // Hide click popup when Word loses focus
-        [_lineCountButton hideClickPopup];
+
+        if (hideClickPopup) {
+            // Hide ClickPopup (e.g., when switching apps)
+            [_lineCountButton hideClickPopup];
+        }
+        // Otherwise keep ClickPopup visible (e.g., during scroll)
+
         [_lineCountButton orderOut:nil];
     }
 }
@@ -391,11 +457,28 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         }
 
         // Get scroll area bounds to check if button is within scrollable content
-        CGRect scrollAreaBounds = [self getScrollAreaBounds];
+        // Check if ClickPopup currently has focus
+        BOOL clickPopupHasFocus = (self->_lineCountButton &&
+                                   self->_lineCountButton.clickPopup &&
+                                   [self->_lineCountButton.clickPopup isKeyWindow]);
+
+        CGRect scrollAreaBounds;
+        if (clickPopupHasFocus && !CGRectIsEmpty(self->_cachedScrollAreaBounds)) {
+            // Use cached bounds when ClickPopup has focus (Word doesn't have focus to query)
+            scrollAreaBounds = self->_cachedScrollAreaBounds;
+        } else {
+            // Query fresh bounds from Word
+            scrollAreaBounds = [self getScrollAreaBounds];
+            if (!CGRectIsEmpty(scrollAreaBounds)) {
+                // Update cache with fresh bounds
+                self->_cachedScrollAreaBounds = scrollAreaBounds;
+                self->_lastScrollAreaUpdate = [[NSDate date] timeIntervalSince1970];
+            }
+        }
 
         if (CGRectIsEmpty(scrollAreaBounds)) {
             // No scroll area found - hide button
-            NSLog(@"[LineCountButton] Hiding button - scroll area not found");
+            NSLog(@"[LineCountButton] Hiding button - no scroll area bounds available");
             [self->_lineCountButton orderOut:nil];
             return;
         }
@@ -447,7 +530,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         if (NSContainsRect(scrollAreaCocoa, buttonFrame)) {
             // Button is fully contained - clear any existing mask
             [self->_lineCountButton clearVisibleRectMask];
-            NSLog(@"[LineCountButton] Button fully visible - no clipping needed");
         } else {
             // Button is partially visible - apply clipping mask
             [self->_lineCountButton setVisibleRect:visibleRect inFrame:buttonFrame];
@@ -537,6 +619,10 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _isScrolling = YES;
         // Hide button and popup immediately
         [self hideButton];
+
+        // Invalidate cached scroll area bounds (document scrolled)
+        _cachedScrollAreaBounds = CGRectZero;
+        _lastScrollAreaUpdate = 0;
     }
 
     // Debounce scroll end - reset timer on each scroll event
@@ -625,6 +711,10 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     // Update cached Word bounds immediately when window moves
     [self updateCachedWordBounds];
 
+    // Invalidate cached scroll area bounds (window moved/resized)
+    _cachedScrollAreaBounds = CGRectZero;
+    _lastScrollAreaUpdate = 0;
+
     // Cancel any existing debounce timer
     if (_windowMoveDebounceTimer) {
         [_windowMoveDebounceTimer invalidate];
@@ -663,6 +753,107 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         if (activeApp.processIdentifier == self->_pid) {
             // Word is still active on the new space - show overlays
             [self startWordWindowTracking];
+        }
+    });
+}
+
+// Observer registration for ClickPopup window
+- (void)registerClickPopupObservers {
+    if (!_lineCountButton || !_lineCountButton.clickPopup) {
+        NSLog(@"[Bridge] Cannot register ClickPopup observers - popup doesn't exist");
+        return;
+    }
+
+    // Remove existing observers first (in case of re-registration)
+    [self unregisterClickPopupObservers];
+
+    NSLog(@"[Bridge] Registering window notification observers for ClickPopup");
+
+    __weak typeof(self) weakSelf = self;
+
+    // Register for ClickPopup becoming key window
+    _clickPopupBecameKeyObserver = [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSWindowDidBecomeKeyNotification
+                    object:_lineCountButton.clickPopup
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *notification) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf) {
+            [strongSelf clickPopupDidBecomeKey:notification];
+        }
+    }];
+
+    // Register for ClickPopup resigning key window
+    _clickPopupResignedKeyObserver = [[NSNotificationCenter defaultCenter]
+        addObserverForName:NSWindowDidResignKeyNotification
+                    object:_lineCountButton.clickPopup
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *notification) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf) {
+            [strongSelf clickPopupDidResignKey:notification];
+        }
+    }];
+
+    NSLog(@"[Bridge] ClickPopup observers registered successfully");
+}
+
+- (void)unregisterClickPopupObservers {
+    if (_clickPopupBecameKeyObserver) {
+        [[NSNotificationCenter defaultCenter] removeObserver:_clickPopupBecameKeyObserver];
+        _clickPopupBecameKeyObserver = nil;
+        NSLog(@"[Bridge] Removed ClickPopup becameKey observer");
+    }
+
+    if (_clickPopupResignedKeyObserver) {
+        [[NSNotificationCenter defaultCenter] removeObserver:_clickPopupResignedKeyObserver];
+        _clickPopupResignedKeyObserver = nil;
+        NSLog(@"[Bridge] Removed ClickPopup resignedKey observer");
+    }
+}
+
+// Window-level focus notification handlers
+- (void)clickPopupDidBecomeKey:(NSNotification *)notification {
+    NSLog(@"[Bridge] ===== ClickPopup Became Key =====");
+    NSLog(@"[Bridge] ClickPopupWindow gained focus - ensuring Count button stays visible");
+
+    // Make sure Count button is still showing when ClickPopup becomes key
+    // This handles the case where user clicks in the popup to enter text
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self->_lineCountButton) {
+            // Ensure button is visible
+            [self showLineCountButton];
+            NSLog(@"[Bridge] Count button kept visible while ClickPopup is key");
+        }
+    });
+}
+
+- (void)clickPopupDidResignKey:(NSNotification *)notification {
+    NSLog(@"[Bridge] ===== ClickPopup Resigned Key =====");
+    NSLog(@"[Bridge] ClickPopupWindow lost focus - checking where focus went");
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        // Check if focus went back to Word (Word became active)
+        NSRunningApplication *activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
+
+        if (activeApp.processIdentifier == self->_pid) {
+            // Focus returned to Word - keep button visible
+            NSLog(@"[Bridge] Focus returned to Word - keeping Count button visible");
+            [self showLineCountButton];
+        } else {
+            // Focus went to a different app - hide button and ClickPopup
+            NSLog(@"[Bridge] Focus went to different app: %@ - hiding button and ClickPopup", activeApp.localizedName);
+
+            // Remember if ClickPopup was visible so we can restore it
+            if (self->_lineCountButton && self->_lineCountButton.clickPopup) {
+                BOOL isVisible = [self->_lineCountButton.clickPopup isVisible];
+                if (isVisible) {
+                    self->_lineCountButton.clickPopup.wasVisibleBeforeHiding = YES;
+                }
+            }
+
+            // Hide both button and ClickPopup
+            [self hideButtonAndPopup:YES];
         }
     });
 }
@@ -761,6 +952,349 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
     return @{
         @"text": text ?: @"",
+        @"x": @(bounds.origin.x),
+        @"y": @(bounds.origin.y),
+        @"width": @(bounds.size.width),
+        @"height": @(bounds.size.height)
+    };
+}
+
+- (NSDictionary*)getFirstTextAreaInfo {
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        return nil;
+    }
+
+    // Verify this is a text area
+    CFTypeRef roleValue = NULL;
+    AXUIElementCopyAttributeValue(focusedElement, kAXRoleAttribute, &roleValue);
+    NSString* role = (__bridge_transfer NSString*)roleValue;
+
+    if (![role isEqualToString:@"AXTextArea"]) {
+        CFRelease(focusedElement);
+        return nil;
+    }
+
+    // Get the full text content using AXValue
+    CFTypeRef textValue = NULL;
+    error = AXUIElementCopyAttributeValue(focusedElement, CFSTR("AXValue"), &textValue);
+
+    NSString* text = @"";
+    if (error == kAXErrorSuccess && textValue) {
+        text = (__bridge_transfer NSString*)textValue;
+    }
+
+    // Get number of characters
+    CFTypeRef charCountValue = NULL;
+    error = AXUIElementCopyAttributeValue(focusedElement, CFSTR("AXNumberOfCharacters"), &charCountValue);
+
+    NSInteger charCount = 0;
+    if (error == kAXErrorSuccess && charCountValue) {
+        CFNumberGetValue((CFNumberRef)charCountValue, kCFNumberNSIntegerType, &charCount);
+        CFRelease(charCountValue);
+    }
+
+    // Get position
+    CFTypeRef positionValue = NULL;
+    error = AXUIElementCopyAttributeValue(focusedElement, kAXPositionAttribute, &positionValue);
+    CGPoint position = CGPointZero;
+    if (error == kAXErrorSuccess && positionValue) {
+        AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
+        CFRelease(positionValue);
+    }
+
+    // Get size
+    CFTypeRef sizeValue = NULL;
+    error = AXUIElementCopyAttributeValue(focusedElement, kAXSizeAttribute, &sizeValue);
+    CGSize size = CGSizeZero;
+    if (error == kAXErrorSuccess && sizeValue) {
+        AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+        CFRelease(sizeValue);
+    }
+
+    CFRelease(focusedElement);
+
+    return @{
+        @"text": text ?: @"",
+        @"x": @(position.x),
+        @"y": @(position.y),
+        @"width": @(size.width),
+        @"height": @(size.height),
+        @"charCount": @(charCount)
+    };
+}
+
+- (pid_t)getWordPID {
+    return _pid;
+}
+
+- (AXUIElementRef)getWordApp {
+    return _wordApp;
+}
+
+- (BOOL)focusDocument {
+    NSLog(@"[Bridge] ===== focusDocument START =====");
+
+    // Get the frontmost window of Word
+    CFTypeRef windowsRef = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXWindowsAttribute, &windowsRef);
+
+    if (error != kAXErrorSuccess || !windowsRef) {
+        NSLog(@"[Bridge] ERROR: Could not get Word windows (error: %d)", error);
+        return NO;
+    }
+
+    CFArrayRef windows = (CFArrayRef)windowsRef;
+    if (CFArrayGetCount(windows) == 0) {
+        NSLog(@"[Bridge] ERROR: No Word windows found");
+        CFRelease(windowsRef);
+        return NO;
+    }
+
+    // Get the first window (frontmost)
+    AXUIElementRef frontWindow = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
+
+    // DEFENSIVE CHECK 1: Validate frontWindow is not NULL
+    if (!frontWindow) {
+        NSLog(@"[Bridge] ERROR: frontWindow is NULL");
+        CFRelease(windowsRef);
+        return NO;
+    }
+
+    // Retain frontWindow since it's a borrowed reference we're storing
+    CFRetain(frontWindow);
+
+    NSLog(@"[Bridge] Got frontmost Word window");
+
+    // Use iterative approach with a queue to avoid block retain cycle
+    AXUIElementRef textAreaElement = NULL;
+    NSMutableArray* queue = [NSMutableArray arrayWithObject:(__bridge id)frontWindow];
+    NSMutableArray* depths = [NSMutableArray arrayWithObject:@0];
+
+    // DEFENSIVE CHECK 2: Add iteration limit to prevent infinite loops
+    int maxIterations = 1000;
+    int iterations = 0;
+
+    while (queue.count > 0 && depths.count > 0 && !textAreaElement && iterations < maxIterations) {
+        iterations++;
+
+        // DEFENSIVE CHECK 3: Validate queue/depths sync
+        if (queue.count != depths.count) {
+            NSLog(@"[Bridge] ERROR: Queue and depths out of sync (%lu vs %lu)",
+                  (unsigned long)queue.count, (unsigned long)depths.count);
+            break;
+        }
+
+        AXUIElementRef element = (__bridge AXUIElementRef)[queue firstObject];
+        int depth = [[depths firstObject] intValue];
+        [queue removeObjectAtIndex:0];
+        [depths removeObjectAtIndex:0];
+
+        // DEFENSIVE CHECK 4: Validate element is not NULL
+        if (!element) {
+            NSLog(@"[Bridge] WARNING: NULL element in queue at depth %d, skipping", depth);
+            continue;
+        }
+
+        if (depth > 10) continue; // Limit depth
+
+        // Get role
+        CFTypeRef roleValue = NULL;
+        AXError roleError = AXUIElementCopyAttributeValue(element, kAXRoleAttribute, &roleValue);
+
+        // DEFENSIVE CHECK 5: Handle invalid element errors
+        if (roleError == kAXErrorInvalidUIElement) {
+            NSLog(@"[Bridge] WARNING: Invalid/stale element at depth %d, skipping", depth);
+            continue;
+        }
+
+        if (roleError == kAXErrorSuccess && roleValue) {
+            NSString* role = (__bridge_transfer NSString*)roleValue;
+
+            if ([role isEqualToString:@"AXTextArea"]) {
+                NSLog(@"[Bridge] Found AXTextArea at depth %d", depth);
+                textAreaElement = element;
+                CFRetain(textAreaElement);
+                break;
+            }
+        } else if (roleError != kAXErrorSuccess) {
+            NSLog(@"[Bridge] WARNING: Failed to get role at depth %d (error: %d)", depth, roleError);
+        }
+
+        // Get children and add to queue
+        CFTypeRef childrenRef = NULL;
+        AXError childrenError = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute, &childrenRef);
+
+        // DEFENSIVE CHECK 6: Handle invalid element during children retrieval
+        if (childrenError == kAXErrorInvalidUIElement) {
+            NSLog(@"[Bridge] WARNING: Element became invalid while getting children at depth %d", depth);
+            continue;
+        }
+
+        if (childrenError == kAXErrorSuccess && childrenRef) {
+            CFArrayRef children = (CFArrayRef)childrenRef;
+            CFIndex childCount = CFArrayGetCount(children);
+
+            for (CFIndex i = 0; i < childCount; i++) {
+                AXUIElementRef child = (AXUIElementRef)CFArrayGetValueAtIndex(children, i);
+
+                // DEFENSIVE CHECK 7: Validate child is not NULL
+                if (!child) {
+                    NSLog(@"[Bridge] WARNING: NULL child at index %ld (depth %d), skipping", i, depth);
+                    continue;
+                }
+
+                // Retain child since it's a borrowed reference we're storing
+                CFRetain(child);
+
+                [queue addObject:(__bridge id)child];
+                [depths addObject:@(depth + 1)];
+            }
+
+            CFRelease(childrenRef);
+        } else if (childrenError != kAXErrorSuccess) {
+            NSLog(@"[Bridge] WARNING: Failed to get children at depth %d (error: %d)", depth, childrenError);
+        }
+
+        // Release element when done processing it
+        CFRelease(element);
+    }
+
+    // Clean up any remaining elements in queue that weren't processed
+    for (id obj in queue) {
+        AXUIElementRef element = (__bridge AXUIElementRef)obj;
+        if (element) {
+            CFRelease(element);
+        }
+    }
+
+    // DEFENSIVE CHECK 8: Log if iteration limit reached
+    if (iterations >= maxIterations) {
+        NSLog(@"[Bridge] ERROR: Traversal exceeded max iterations (%d)", maxIterations);
+        CFRelease(windowsRef);
+        return NO;
+    }
+
+    // Keep windowsRef alive during traversal - release after we're done using elements
+
+    if (!textAreaElement) {
+        NSLog(@"[Bridge] ERROR: Could not find AXTextArea in window hierarchy");
+        CFRelease(windowsRef);
+        return NO;
+    }
+
+    NSLog(@"[Bridge] Attempting to set focus on AXTextArea...");
+
+    // Try to set focus on the text area
+    error = AXUIElementSetAttributeValue(textAreaElement, kAXFocusedAttribute, kCFBooleanTrue);
+
+    CFRelease(textAreaElement);
+
+    if (error != kAXErrorSuccess) {
+        NSLog(@"[Bridge] ERROR: Could not set focus (error: %d)", error);
+        CFRelease(windowsRef);
+        return NO;
+    }
+
+    NSLog(@"[Bridge] Successfully set focus on document");
+    CFRelease(windowsRef);
+    return YES;
+}
+
+- (NSDictionary*)findTextPosition:(NSString*)searchText {
+    NSLog(@"[Bridge] ===== findTextPosition START =====");
+    NSLog(@"[Bridge] Searching for: \"%@\"", searchText);
+
+    if (!searchText || searchText.length == 0) {
+        NSLog(@"[Bridge] ERROR: Empty search text");
+        return @{@"found": @NO};
+    }
+
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        NSLog(@"[Bridge] ERROR: Could not get focused element (error: %d)", error);
+        return @{@"found": @NO};
+    }
+    NSLog(@"[Bridge] Got focused element successfully");
+
+    // Verify this is a text area
+    CFTypeRef roleValue = NULL;
+    AXUIElementCopyAttributeValue(focusedElement, kAXRoleAttribute, &roleValue);
+    NSString* role = (__bridge_transfer NSString*)roleValue;
+    NSLog(@"[Bridge] Focused element role: %@", role);
+
+    if (![role isEqualToString:@"AXTextArea"]) {
+        NSLog(@"[Bridge] ERROR: Focused element is not AXTextArea (got %@)", role);
+        CFRelease(focusedElement);
+        return @{@"found": @NO};
+    }
+
+    // Get the full text content
+    CFTypeRef textValue = NULL;
+    error = AXUIElementCopyAttributeValue(focusedElement, CFSTR("AXValue"), &textValue);
+
+    if (error != kAXErrorSuccess || !textValue) {
+        NSLog(@"[Bridge] ERROR: Could not get AXValue (error: %d)", error);
+        CFRelease(focusedElement);
+        return @{@"found": @NO};
+    }
+
+    NSString* fullText = (__bridge_transfer NSString*)textValue;
+    NSLog(@"[Bridge] Document text length: %lu characters", (unsigned long)[fullText length]);
+    if ([fullText length] > 0) {
+        NSUInteger previewLength = MIN((NSUInteger)200, [fullText length]);
+        NSLog(@"[Bridge] Document text preview (first %lu chars): \"%@\"",
+              (unsigned long)previewLength, [fullText substringToIndex:previewLength]);
+    }
+
+    // Search for the text (case-insensitive)
+    NSLog(@"[Bridge] Performing case-insensitive search...");
+    NSRange searchRange = [fullText rangeOfString:searchText options:NSCaseInsensitiveSearch];
+
+    if (searchRange.location == NSNotFound) {
+        NSLog(@"[Bridge] NOT FOUND: \"%@\" not found in document", searchText);
+        CFRelease(focusedElement);
+        return @{
+            @"found": @NO,
+            @"text": searchText
+        };
+    }
+    NSLog(@"[Bridge] FOUND: \"%@\" at character index %lu (length %lu)",
+          searchText, (unsigned long)searchRange.location, (unsigned long)searchRange.length);
+
+    // Found! Now get the bounds for this text range
+    NSLog(@"[Bridge] Getting bounds for text range...");
+    CFRange range = CFRangeMake(searchRange.location, searchRange.length);
+    AXValueRef rangeValue = AXValueCreate(kAXValueTypeCFRange, &range);
+
+    CFTypeRef boundsValue = NULL;
+    error = AXUIElementCopyParameterizedAttributeValue(focusedElement,
+                                                       kAXBoundsForRangeParameterizedAttribute,
+                                                       rangeValue,
+                                                       &boundsValue);
+
+    CGRect bounds = CGRectZero;
+    if (error == kAXErrorSuccess && boundsValue) {
+        AXValueGetValue((AXValueRef)boundsValue, (AXValueType)kAXValueTypeCGRect, &bounds);
+        NSLog(@"[Bridge] Bounds retrieved: x=%.1f, y=%.1f, w=%.1f, h=%.1f",
+              bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+        CFRelease(boundsValue);
+    } else {
+        NSLog(@"[Bridge] WARNING: Could not get bounds (error: %d)", error);
+    }
+
+    CFRelease(rangeValue);
+    CFRelease(focusedElement);
+
+    NSLog(@"[Bridge] ===== findTextPosition END (SUCCESS) =====");
+    return @{
+        @"found": @YES,
+        @"text": searchText,
+        @"charIndex": @(searchRange.location),
         @"x": @(bounds.origin.x),
         @"y": @(bounds.origin.y),
         @"width": @(bounds.size.width),
@@ -1506,6 +2040,29 @@ Napi::Value GetSelectedText(const Napi::CallbackInfo& info) {
     return result;
 }
 
+Napi::Value GetFirstTextAreaInfo(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    NSDictionary* textAreaInfo = [globalObserver getFirstTextAreaInfo];
+    if (!textAreaInfo) {
+        return env.Null();
+    }
+
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("text", Napi::String::New(env, [textAreaInfo[@"text"] UTF8String]));
+    result.Set("x", Napi::Number::New(env, [textAreaInfo[@"x"] doubleValue]));
+    result.Set("y", Napi::Number::New(env, [textAreaInfo[@"y"] doubleValue]));
+    result.Set("width", Napi::Number::New(env, [textAreaInfo[@"width"] doubleValue]));
+    result.Set("height", Napi::Number::New(env, [textAreaInfo[@"height"] doubleValue]));
+    result.Set("charCount", Napi::Number::New(env, [textAreaInfo[@"charCount"] integerValue]));
+
+    return result;
+}
+
 Napi::Value CheckPermission(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1719,6 +2276,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("startObserving", Napi::Function::New(env, StartObserving));
     exports.Set("stopObserving", Napi::Function::New(env, StopObserving));
     exports.Set("getSelectedText", Napi::Function::New(env, GetSelectedText));
+    exports.Set("getFirstTextAreaInfo", Napi::Function::New(env, GetFirstTextAreaInfo));
     exports.Set("checkPermission", Napi::Function::New(env, CheckPermission));
     exports.Set("setPopupPath", Napi::Function::New(env, SetPopupPath));
     exports.Set("getDocumentTopLeftCorner", Napi::Function::New(env, GetDocumentTopLeftCorner));
