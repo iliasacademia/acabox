@@ -12,7 +12,7 @@ extern NSString* globalPopupPath;
                 windowLevel:(NSWindowLevel)level
                    observer:(WordAccessibilityObserver*)observer {
     self = [super initWithContentRect:NSMakeRect(0, 0, size.width, size.height)
-                            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel
+                            styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel | NSWindowStyleMaskResizable
                               backing:NSBackingStoreBuffered
                                 defer:NO];
     if (self) {
@@ -24,16 +24,21 @@ extern NSString* globalPopupPath;
                                              hasShadow:NO
                                             isOpaque:NO];
 
+        // Set size constraints for resizable window
+        [self setMinSize:NSMakeSize(300, 250)];
+        [self setMaxSize:NSMakeSize(1000, 800)];
+
         // Enable mouse events for tracking
         self.ignoresMouseEvents = NO;
         self.acceptsMouseMovedEvents = YES;
 
         // Create configured WKWebView using helper
         // Register standard message handlers: bridge, consoleLog
+        // Note: injectScripts:NO because HTMLLoader injects bridge script at runtime into HTML
         self.webView = [WebViewConfigHelper createWebViewWithFrame:self.contentView.bounds
                                                     messageHandler:self
                                                messageHandlerNames:@[@"bridge", @"consoleLog"]
-                                                     injectScripts:YES];
+                                                     injectScripts:NO];
 
         // Set navigation and UI delegates
         self.webView.navigationDelegate = self;
@@ -104,9 +109,9 @@ createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration
 #pragma mark - Focus Management
 
 - (BOOL)canBecomeKeyWindow {
-    // CRITICAL: Return NO to prevent stealing focus from MS Word
-    // Panel will still receive mouse events due to NSWindowStyleMaskNonactivatingPanel
-    return NO;
+    // Allow window to become key to enable text input focus
+    // This allows keyboard events to reach text inputs in the WebView
+    return YES;
 }
 
 - (BOOL)canBecomeMainWindow {

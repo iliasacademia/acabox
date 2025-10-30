@@ -17,8 +17,11 @@
     }
 
     if (popupURL) {
-        NSURLRequest* request = [NSURLRequest requestWithURL:popupURL];
-        [webView loadRequest:request];
+        NSLog(@"[%@] Loading popup from: %@", windowName, popupURL.path);
+
+        // Use loadFileURL:allowingReadAccessToURL: for proper file access
+        NSURL* folderURL = [popupURL URLByDeletingLastPathComponent];
+        [webView loadFileURL:popupURL allowingReadAccessToURL:folderURL];
     } else {
         NSLog(@"[%@] ERROR: Could not find popup HTML file!", windowName);
         NSLog(@"[%@] Tried paths:", windowName);

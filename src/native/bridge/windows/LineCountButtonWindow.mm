@@ -1,4 +1,5 @@
 #import "LineCountButtonWindow.h"
+#import "../../bridge.h"
 #import <QuartzCore/QuartzCore.h>
 
 @implementation LineCountButtonWindow
@@ -197,11 +198,11 @@
     [self cancelScheduledHide];
     if (self.hoverPopup) {
         [self.hoverPopup orderOut:nil];
-        NSLog(@"[LineCountButton] Hover popup hidden");
     }
 }
 
 - (void)showClickPopup {
+    BOOL isNewPopup = NO;
     if (!self.clickPopup) {
         // Create React-based popup window with current count and observer
         self.clickPopup = [[ClickPopupWindow alloc] initWithCount:self.count observer:self.observer];
@@ -210,26 +211,67 @@
             NSLog(@"[LineCountButton] ERROR: Failed to create ClickPopupWindow!");
             return;
         }
+        isNewPopup = YES;
     } else {
         // Update content with current count
         [self.clickPopup updateContentWithCount:self.count];
     }
 
-    // Position popup to the right of button, with top just below button
-    NSRect buttonFrame = self.frame;
-    CGFloat popupX = buttonFrame.origin.x + buttonFrame.size.width + 8;  // 8px to the right of button
-    CGFloat popupY = buttonFrame.origin.y - 404;  // Top of popup 4px below button bottom (4 + 400 = 404)
+    // Register window observers for new popup
+    if (isNewPopup && self.observer) {
+        [self.observer registerClickPopupObservers];
+    }
 
-    [self.clickPopup setFrameOrigin:NSMakePoint(popupX, popupY)];
-    [self.clickPopup orderFrontRegardless];
+    // Position popup: use saved position if available, otherwise calculate default
+    if (!NSEqualRects(self.clickPopup.savedFrame, NSZeroRect)) {
+        // Restore saved position and size from last time
+        [self.clickPopup setFrame:self.clickPopup.savedFrame display:YES];
+    } else {
+        // First time showing - calculate default position relative to button
+        NSRect buttonFrame = self.frame;
+        CGFloat popupX = buttonFrame.origin.x + buttonFrame.size.width + 8;  // 8px to the right of button
+        CGFloat popupY = buttonFrame.origin.y - 404;  // Top of popup 4px below button bottom (4 + 400 = 404)
 
-    // Start monitoring for clicks outside the popup
-    [self.clickPopup startGlobalMouseMonitor];
+        [self.clickPopup setFrameOrigin:NSMakePoint(popupX, popupY)];
+        // Save this initial position
+        self.clickPopup.savedFrame = self.clickPopup.frame;
+    }
+
+    [self.clickPopup orderFront:nil];
+
+    // Debug logging: Compare window levels
+    NSLog(@"[LineCountButton] ===== WINDOW LEVEL DEBUG =====");
+    NSLog(@"[LineCountButton] ClickPopupWindow level: %ld", (long)self.clickPopup.level);
+
+    // Get active app
+    NSRunningApplication* activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    NSLog(@"[LineCountButton] Active app: %@ (PID: %d)", activeApp.localizedName, activeApp.processIdentifier);
+
+    // Get window levels from CGWindowList
+    CFArrayRef windowList = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
+    if (windowList) {
+        for (NSDictionary* windowInfo in (__bridge NSArray*)windowList) {
+            NSString* ownerName = windowInfo[(id)kCGWindowOwnerName];
+            NSNumber* windowLevel = windowInfo[(id)kCGWindowLayer];
+            NSNumber* windowPID = windowInfo[(id)kCGWindowOwnerPID];
+
+            // Log Word windows
+            if ([ownerName isEqualToString:@"Microsoft Word"]) {
+                NSLog(@"[LineCountButton] Word window level: %@", windowLevel);
+            }
+
+            // Log active app windows
+            if ([windowPID intValue] == activeApp.processIdentifier) {
+                NSLog(@"[LineCountButton] %@ window level: %@", ownerName, windowLevel);
+            }
+        }
+        CFRelease(windowList);
+    }
+    NSLog(@"[LineCountButton] =====================================");
 }
 
 - (void)hideClickPopup {
     if (self.clickPopup) {
-        [self.clickPopup stopGlobalMouseMonitor];
         [self.clickPopup orderOut:nil];
     }
 }
@@ -259,11 +301,9 @@
 }
 
 - (void)orderOut:(id)sender {
-    NSLog(@"[LineCountButton] orderOut called");
     [self hideHoverPopup];
     // DON'T hide click popup when button is hidden - let it persist
     // [self hideClickPopup];  // COMMENTED OUT
-    NSLog(@"[LineCountButton] Hiding hover popup but keeping click popup visible");
     [super orderOut:sender];
 }
 
@@ -292,7 +332,6 @@
 - (void)clearVisibleRectMask {
     // Remove mask to show full button
     self.contentView.layer.mask = nil;
-    NSLog(@"[LineCountButton] Cleared clipping mask");
 }
 
 - (void)dealloc {
@@ -303,6 +342,10 @@
         _hoverPopup = nil;
     }
     if (_clickPopup) {
+        // Unregister observers before closing
+        if (self.observer) {
+            [self.observer unregisterClickPopupObservers];
+        }
         [_clickPopup close];
         _clickPopup = nil;
     }

@@ -19,6 +19,9 @@
                                              hasShadow:YES  // Native windows usually have shadows
                                             isOpaque:NO];
 
+        // Make panel float above other windows (for buttons and overlays)
+        self.floatingPanel = YES;
+
         // Enable mouse events for native controls
         self.ignoresMouseEvents = NO;
         self.acceptsMouseMovedEvents = YES;

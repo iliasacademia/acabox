@@ -72,10 +72,20 @@ export interface ButtonStates {
   countButton: ButtonState | null;
 }
 
+export interface FirstTextAreaInfo {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  charCount: number;
+}
+
 interface NativeModule {
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean;
   stopObserving(): void;
   getSelectedText(): SelectedText | null;
+  getFirstTextAreaInfo(): FirstTextAreaInfo | null;
   checkPermission(): boolean;
   setPopupPath(path: string): boolean;
   getDocumentTopLeftCorner(): Position | null;
@@ -217,6 +227,19 @@ export class WordAccessibilityBridge {
       return nativeModule.getSelectedText();
     } catch (error) {
       console.error('Failed to get selected text:', error);
+      return null;
+    }
+  }
+
+  getFirstTextAreaInfo(): FirstTextAreaInfo | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getFirstTextAreaInfo();
+    } catch (error) {
+      console.error('Failed to get first text area info:', error);
       return null;
     }
   }
