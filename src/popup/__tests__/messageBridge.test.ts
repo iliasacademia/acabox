@@ -40,7 +40,14 @@ describe('MessageBridge', () => {
       mockPostMessage(msg);
     };
     (window as any).__bridgeReceive = function (msg: Message) {
-      // This will be overridden by MessageBridge
+      // Simulate the production bridgeCompatibilityScript behavior
+      // If MessageBridge has registered itself, forward to it
+      if ((window as any).__messageBridge && (window as any).__messageBridge.handleNativeMessage) {
+        (window as any).__messageBridge.handleNativeMessage(msg);
+        return;
+      }
+
+      // Otherwise use legacy handler system (backward compatibility)
       if ((window as any).__bridgeHandlers && (window as any).__bridgeHandlers[msg.action]) {
         (window as any).__bridgeHandlers[msg.action](msg);
       }
@@ -153,8 +160,10 @@ describe('MessageBridge', () => {
         // Send a request
         const requestPromise = bridge.sendRequest('native', 'testRequest', { query: 'test' });
 
-        // Get the request message
+        // Get the request message (now at index -1, ACK is at -2)
         expect(mockPostMessage).toHaveBeenCalled();
+        // WAGENT-73: Now sends 2 messages - ACK first, then request
+        expect(mockPostMessage.mock.calls.length).toBeGreaterThanOrEqual(2);
         const requestMsg = mockPostMessage.mock.calls[mockPostMessage.mock.calls.length - 1][0];
         expect(requestMsg.action).toBe('testRequest');
         expect(requestMsg.type).toBe('request');
@@ -318,6 +327,115 @@ describe('MessageBridge', () => {
 
         // Should not throw when receiving unknown action
         expect(() => window.__bridgeReceive!(msg)).not.toThrow();
+        done();
+      }, 300);
+    });
+  });
+
+  describe('WAGENT-73: ACK Pattern', () => {
+    it('should send ACK after registering pending request', (done) => {
+      setTimeout(async () => {
+        // Clear previous calls
+        mockPostMessage.mockClear();
+
+        // Send a request
+        const requestPromise = bridge.sendRequest('native', 'testRequest', { query: 'test' });
+
+        // Check that ACK was sent
+        // First call should be the ACK (request-registered event)
+        // Second call should be the actual request
+        expect(mockPostMessage).toHaveBeenCalledTimes(2);
+
+        const ackCall = mockPostMessage.mock.calls[0][0];
+        expect(ackCall.action).toBe('request-registered');
+        expect(ackCall.type).toBe('event');
+        expect(ackCall.payload.requestId).toBeDefined();
+
+        const requestCall = mockPostMessage.mock.calls[1][0];
+        expect(requestCall.action).toBe('testRequest');
+        expect(requestCall.type).toBe('request');
+
+        // ACK should contain the same requestId as the request
+        expect(ackCall.payload.requestId).toBe(requestCall.id);
+
+        // Clean up - send response to avoid timeout
+        setTimeout(() => {
+          const responseMsg: Message = {
+            id: requestCall.id,
+            from: 'native',
+            to: 'test-client',
+            type: 'response' as MessageType,
+            action: 'testRequest',
+            payload: { result: 'success' },
+            timestamp: Date.now(),
+          };
+          window.__bridgeReceive!(responseMsg);
+        }, 50);
+
+        await requestPromise;
+        done();
+      }, 300);
+    });
+
+    it('should send ACK with correct requestId', (done) => {
+      setTimeout(async () => {
+        mockPostMessage.mockClear();
+
+        // Send multiple requests
+        const requestPromise1 = bridge.sendRequest('native', 'req1', null);
+        const requestPromise2 = bridge.sendRequest('native', 'req2', null);
+
+        // Each request should have its own ACK
+        expect(mockPostMessage.mock.calls.length).toBeGreaterThanOrEqual(4);
+
+        // Check first request
+        const ack1 = mockPostMessage.mock.calls[0][0];
+        const req1 = mockPostMessage.mock.calls[1][0];
+        expect(ack1.payload.requestId).toBe(req1.id);
+
+        // Check second request
+        const ack2 = mockPostMessage.mock.calls[2][0];
+        const req2 = mockPostMessage.mock.calls[3][0];
+        expect(ack2.payload.requestId).toBe(req2.id);
+
+        // Clean up - send responses
+        setTimeout(() => {
+          window.__bridgeReceive!({
+            id: req1.id,
+            from: 'native',
+            to: 'test-client',
+            type: 'response' as MessageType,
+            action: 'req1',
+            payload: {},
+            timestamp: Date.now(),
+          });
+          window.__bridgeReceive!({
+            id: req2.id,
+            from: 'native',
+            to: 'test-client',
+            type: 'response' as MessageType,
+            action: 'req2',
+            payload: {},
+            timestamp: Date.now(),
+          });
+        }, 50);
+
+        await Promise.all([requestPromise1, requestPromise2]);
+        done();
+      }, 300);
+    });
+
+    it('should send ACK to the correct target', (done) => {
+      setTimeout(() => {
+        mockPostMessage.mockClear();
+
+        // Send request to 'native'
+        bridge.sendRequest('native', 'testRequest', null);
+
+        const ackCall = mockPostMessage.mock.calls[0][0];
+        expect(ackCall.to).toBe('native');
+        expect(ackCall.from).toBe('test-client');
+
         done();
       }, 300);
     });

@@ -1,4 +1,5 @@
 #import "BasePopupWindow.h"
+#import "ClickProcessingState.h"
 
 // Forward declaration
 @class ButtonOverlayWindow;
@@ -10,7 +11,7 @@
 // Properties
 @property (nonatomic, weak) ButtonOverlayWindow* buttonWindow;  // Parent button window
 @property (nonatomic, strong) NSString* currentText;           // Currently displayed text
-@property (nonatomic, assign) BOOL isProcessingClick;          // Flag to prevent popup close during button clicks
+@property (nonatomic, assign) ClickProcessingState clickState; // WAGENT-78: State machine for click processing
 @property (nonatomic, strong) NSTrackingArea* trackingArea;    // Mouse tracking area
 
 // Initialization

@@ -15,7 +15,7 @@
     if (self) {
         // Store the initial text
         self.currentText = text;
-        self.isProcessingClick = NO;
+        self.clickState = ClickStateIdle; // WAGENT-78: Initialize state machine
 
         NSLog(@"[TextPopupWindow] Initialized as non-activating panel with text (length: %lu): %@...",
               (unsigned long)[text length],
@@ -63,8 +63,8 @@
 
         NSLog(@"[Bridge] Button click: %@ with text length: %lu", btnAction, (unsigned long)[text length]);
 
-        // Set flag to prevent popup from closing during click processing
-        self.isProcessingClick = YES;
+        // WAGENT-78: Transition to processing state
+        self.clickState = ClickStateProcessing;
 
         // Keep the popup open (cancel any scheduled hide)
         // TODO: Implement auto-hide scheduling for ButtonOverlayWindow
@@ -88,14 +88,18 @@
                 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
                 [observer performSelector:@selector(handleButtonClickWithAction:text:) withObject:btnAction withObject:text];
                 #pragma clang diagnostic pop
-            });
-        }
 
-        // Reset the flag after a short delay to allow click to complete
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            self.isProcessingClick = NO;
-            NSLog(@"[Bridge] Click processing complete");
-        });
+                // WAGENT-78: Transition to complete then idle immediately after forwarding
+                // No arbitrary delay needed - the action has been forwarded
+                self.clickState = ClickStateComplete;
+                self.clickState = ClickStateIdle;
+                NSLog(@"[Bridge] Click processing complete");
+            });
+        } else {
+            // No observer, transition immediately
+            self.clickState = ClickStateComplete;
+            self.clickState = ClickStateIdle;
+        }
 
         // Send response back to JavaScript
         NSString* responseJS = [NSString stringWithFormat:@
@@ -134,8 +138,8 @@
                 return;
             }
 
-            // Set flag to prevent popup from closing during click processing
-            self.isProcessingClick = YES;
+            // WAGENT-78: Transition to processing state
+            self.clickState = ClickStateProcessing;
 
             NSDictionary* data = (NSDictionary*)scriptMessage.body;
             NSString* action = data[@"action"];
@@ -143,7 +147,7 @@
 
             if (!action) {
                 NSLog(@"[TextPopupWindow] ERROR: No action in message");
-                self.isProcessingClick = NO;
+                self.clickState = ClickStateIdle; // Reset on error
                 return;
             }
 
@@ -177,17 +181,20 @@
                     #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
                     [observer performSelector:@selector(handleButtonClickWithAction:text:) withObject:action withObject:text];
                     #pragma clang diagnostic pop
-                });
-            }
 
-            // Reset the flag after a short delay to allow click to complete
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-                self.isProcessingClick = NO;
-                NSLog(@"[TextPopupWindow] Click processing complete, popup can now be hidden");
-            });
+                    // WAGENT-78: Transition to complete then idle immediately after forwarding
+                    self.clickState = ClickStateComplete;
+                    self.clickState = ClickStateIdle;
+                    NSLog(@"[TextPopupWindow] Click processing complete, popup can now be hidden");
+                });
+            } else {
+                // No observer, transition immediately
+                self.clickState = ClickStateComplete;
+                self.clickState = ClickStateIdle;
+            }
         } @catch (NSException *exception) {
             NSLog(@"[TextPopupWindow] ERROR handling button click: %@", exception.reason);
-            self.isProcessingClick = NO;
+            self.clickState = ClickStateIdle; // Reset on error
         }
     }
 }
@@ -320,11 +327,11 @@
 }
 
 - (void)mouseExited:(NSEvent *)event {
-    NSLog(@"[TextPopupWindow] Mouse exited (isProcessingClick: %d)", self.isProcessingClick);
+    NSLog(@"[TextPopupWindow] Mouse exited (clickState: %ld)", (long)self.clickState);
 
-    // Don't hide if we're processing a button click
-    if (self.isProcessingClick) {
-        NSLog(@"[TextPopupWindow] Ignoring mouse exit during button click");
+    // WAGENT-78: Don't hide if we're processing a button click
+    if (self.clickState != ClickStateIdle) {
+        NSLog(@"[TextPopupWindow] Ignoring mouse exit during button click processing");
         return;
     }
 

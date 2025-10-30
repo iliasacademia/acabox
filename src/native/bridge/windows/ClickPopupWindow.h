@@ -12,6 +12,9 @@
 @property (nonatomic, strong) NativeHeaderView* nativeHeader;  // Native header view for dragging
 @property (nonatomic, strong) ResizeHandleView* resizeHandle;  // Resize handle view
 
+// WAGENT-73: Pending responses waiting for ACK from JavaScript
+@property (nonatomic, strong) NSMutableDictionary* pendingResponses;  // Store responses waiting for ACK
+
 // Position and size persistence
 @property (nonatomic, assign) BOOL wasVisibleBeforeHiding;    // Track if window was visible before app deactivation
 @property (nonatomic, assign) NSRect savedFrame;              // Stores last known position and size

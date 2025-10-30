@@ -16,6 +16,9 @@
         self.count = count;
         self.delegate = self;
 
+        // WAGENT-73: Initialize pending responses dictionary
+        self.pendingResponses = [NSMutableDictionary dictionary];
+
         // Define header height
         CGFloat headerHeight = 48;
 
@@ -58,6 +61,36 @@
 - (void)handleBridgeMessage:(NSDictionary*)message {
     NSString* action = message[@"action"];
 
+    // WAGENT-73: Handle ACK from JavaScript that pending request is registered
+    if ([action isEqualToString:@"request-registered"]) {
+        NSDictionary* payload = message[@"payload"];
+        NSString* requestId = payload[@"requestId"];
+
+        NSLog(@"[ClickPopupWindow] Received ACK for request: %@", requestId);
+
+        // Check if we have a pending response for this request
+        NSString* pendingResponse = self.pendingResponses[requestId];
+        if (pendingResponse) {
+            NSLog(@"[ClickPopupWindow] Sending pending response for: %@", requestId);
+
+            // Send the response immediately now that we know JS is ready
+            [self.webView evaluateJavaScript:pendingResponse completionHandler:^(id result, NSError *error) {
+                if (error) {
+                    NSLog(@"[ClickPopupWindow] ERROR sending response: %@", error);
+                } else {
+                    NSLog(@"[ClickPopupWindow] Response sent successfully");
+                }
+            }];
+
+            // Remove from pending
+            [self.pendingResponses removeObjectForKey:requestId];
+        } else {
+            NSLog(@"[ClickPopupWindow] No pending response found for: %@", requestId);
+        }
+
+        return;
+    }
+
     // Handle button clicks
     if ([action isEqualToString:@"buttonClick"]) {
         NSLog(@"[ClickPopupWindow] ===== buttonClick DEBUG =====");
@@ -99,33 +132,42 @@
             }
         }
 
-        // Add a small delay before sending response to avoid race condition
-        // This ensures the JavaScript side has completed registering the pending request
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.01 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            // Send response back to JavaScript with complete message structure
-            NSString* responseJS = [NSString stringWithFormat:@
-                "window.__bridgeReceive({"
-                "  id: '%@',"
-                "  from: 'native',"
-                "  to: 'popup',"
-                "  type: 'response',"
-                "  action: 'buttonClick',"
-                "  payload: {success: true},"
-                "  timestamp: Date.now()"
-                "});",
-                messageId];
+        // WAGENT-73: Store response and wait for ACK from JavaScript
+        // This replaces the 10ms arbitrary delay with proper acknowledgment pattern
+        NSString* responseJS = [NSString stringWithFormat:@
+            "window.__bridgeReceive({"
+            "  id: '%@',"
+            "  from: 'native',"
+            "  to: 'popup',"
+            "  type: 'response',"
+            "  action: 'buttonClick',"
+            "  payload: {success: true},"
+            "  timestamp: Date.now()"
+            "});",
+            messageId];
 
-            NSLog(@"[ClickPopupWindow] Sending response JavaScript:");
-            NSLog(@"%@", responseJS);
+        NSLog(@"[ClickPopupWindow] Storing response, waiting for ACK");
+        self.pendingResponses[messageId] = responseJS;
 
-            [self.webView evaluateJavaScript:responseJS completionHandler:^(id result, NSError *error) {
-                if (error) {
-                    NSLog(@"[ClickPopupWindow] ERROR sending response: %@", error);
-                    NSLog(@"[ClickPopupWindow] JavaScript was: %@", responseJS);
-                } else {
-                    NSLog(@"[ClickPopupWindow] Response sent successfully");
-                }
-            }];
+        // WAGENT-73: Add timeout fallback (50ms) in case ACK never arrives
+        // This ensures we don't block forever if something goes wrong
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            NSString* pendingResponse = self.pendingResponses[messageId];
+            if (pendingResponse) {
+                NSLog(@"[ClickPopupWindow] ACK timeout - sending response anyway");
+
+                [self.webView evaluateJavaScript:pendingResponse completionHandler:^(id result, NSError *error) {
+                    if (error) {
+                        NSLog(@"[ClickPopupWindow] ERROR sending response: %@", error);
+                        NSLog(@"[ClickPopupWindow] JavaScript was: %@", pendingResponse);
+                    } else {
+                        NSLog(@"[ClickPopupWindow] Response sent successfully (fallback)");
+                    }
+                }];
+
+                // Remove from pending
+                [self.pendingResponses removeObjectForKey:messageId];
+            }
         });
     }
     // Handle text position search
@@ -255,10 +297,41 @@
 }
 
 - (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation {
-    // Wait for React to initialize then send initial content
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [self updateContentWithCount:self.count];
-    });
+    // WAGENT-78: Replace arbitrary 500ms delay with proper readiness check
+    // Check if React/window.__bridgeReceive is ready before sending content
+    __block int attemptCount = 0;
+    __block __weak void (^weakTryUpdate)(void);
+    void (^tryUpdate)(void);
+
+    tryUpdate = ^{
+        attemptCount++;
+        NSLog(@"[ClickPopupWindow] Checking if bridge is ready (attempt %d)", attemptCount);
+
+        // Check if window.__bridgeReceive exists (indicating bridge is ready)
+        NSString* checkScript = @"typeof window.__bridgeReceive === 'function'";
+        [self.webView evaluateJavaScript:checkScript completionHandler:^(id result, NSError *error) {
+            BOOL bridgeReady = [result boolValue];
+            NSLog(@"[ClickPopupWindow] Bridge ready: %d", bridgeReady);
+
+            if (bridgeReady) {
+                // Bridge is ready, send initial content
+                [self updateContentWithCount:self.count];
+            } else if (attemptCount < 10) {
+                // Not ready yet, try again after a short delay
+                void (^strongTryUpdate)(void) = weakTryUpdate;
+                if (strongTryUpdate) {
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)),
+                                 dispatch_get_main_queue(), strongTryUpdate);
+                }
+            } else {
+                NSLog(@"[ClickPopupWindow] ERROR: Bridge not ready after %d attempts", attemptCount);
+            }
+        }];
+    };
+    weakTryUpdate = tryUpdate;
+
+    // Start checking immediately
+    tryUpdate();
 }
 
 #pragma mark - Content Update

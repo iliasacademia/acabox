@@ -255,6 +255,11 @@ export class MessageBridge {
       console.log(`[MessageBridge ${this.instanceId}] Global instance ID:`, (window.__messageBridge as any)?.instanceId);
       console.log(`[MessageBridge ${this.instanceId}] Same instance?`, this === window.__messageBridge);
 
+      // WAGENT-73: Send ACK immediately after registering pending request
+      // This eliminates the race condition that required a 10ms delay on native side
+      this.sendEvent(to, 'request-registered', { requestId: msgId });
+      console.log(`[MessageBridge] Sent ACK for request: ${msgId}`);
+
       const msg: Message = {
         id: msgId,
         from: this.clientId,
@@ -296,7 +301,7 @@ export class MessageBridge {
 
   // ========== Message Receiving ==========
 
-  private handleNativeMessage(msg: Message) {
+  public handleNativeMessage(msg: Message) {
     console.log(`[MessageBridge ${this.instanceId}] Received from native: ${msg.action} (type: ${msg.type})`);
 
     // Handle responses to pending requests
