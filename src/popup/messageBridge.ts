@@ -55,6 +55,7 @@ declare global {
     __bridgeOn?: (action: string, handler: MessageHandler) => void;
     __bridgeOff?: (action: string) => void;
     __bridgeHandlers?: Record<string, MessageHandler>;
+    __messageBridge?: MessageBridge;
   }
 }
 
@@ -78,6 +79,24 @@ export class MessageBridge {
     this.setupNativeInterface();
 
     console.log(`[MessageBridge] Initialized for client: ${clientId}, platform: ${this.platform}`);
+
+    // Transfer pending requests from old instance (hot-reload support)
+    if (window.__messageBridge && window.__messageBridge.pendingRequests) {
+      const oldRequests = window.__messageBridge.pendingRequests;
+      let transferCount = 0;
+
+      oldRequests.forEach((value, key) => {
+        this.pendingRequests.set(key, value);
+        transferCount++;
+      });
+
+      if (transferCount > 0) {
+        console.warn(`[MessageBridge] Transferred ${transferCount} pending request(s) from old instance`);
+      }
+    }
+
+    // Register this instance globally
+    window.__messageBridge = this;
   }
 
   // ========== Platform Detection ==========
@@ -378,6 +397,37 @@ export class MessageBridge {
 
   public isConnected(): boolean {
     return this.isReady;
+  }
+
+  /**
+   * Destroy the bridge instance
+   * Cleans up pending requests, handlers, and global references
+   */
+  public destroy(): void {
+    console.log('[MessageBridge] Destroying bridge instance');
+
+    // Cancel all pending request timeouts and reject them
+    this.pendingRequests.forEach((request, requestId) => {
+      clearTimeout(request.timeoutId);
+      request.reject(new Error('Bridge destroyed'));
+    });
+
+    // Clear pending requests
+    this.pendingRequests.clear();
+
+    // Clear handlers
+    this.handlers.clear();
+
+    // Clear window globals
+    if (window.__bridgeHandlers) {
+      window.__bridgeHandlers = {};
+    }
+
+    if (window.__messageBridge === this) {
+      delete window.__messageBridge;
+    }
+
+    console.log('[MessageBridge] Bridge instance destroyed');
   }
 }
 
