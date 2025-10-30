@@ -18,10 +18,17 @@ typedef void (*ButtonClickCallback)(const char* text);
                   error:(NSError**)error;
 - (void)stopObserving;
 - (NSDictionary*)getSelectedText;
+- (NSDictionary*)getFirstTextAreaInfo;
+- (NSDictionary*)findTextPosition:(NSString*)searchText;
+- (pid_t)getWordPID;
+- (AXUIElementRef)getWordApp;
+- (BOOL)focusDocument;
 - (BOOL)checkAccessibilityPermission;
 - (void)handleButtonClick;
 - (void)handleButtonClickWithAction:(NSString*)action text:(NSString*)text;
 - (CGRect)getScrollAreaBounds;
+- (void)registerClickPopupObservers;
+- (void)unregisterClickPopupObservers;
 
 @end
 

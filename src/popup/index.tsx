@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import Popup from './Popup';
 import SuggestionsContainer from './SuggestionsContainer';
 import { getBridgeInstance } from './hooks/useBridge';
+import { logJSON } from './utils/logger';
 
 // Initialize bridge early
 const bridge = getBridgeInstance('popup-default');
@@ -19,9 +20,8 @@ const App: React.FC = () => {
 
     // Listen for updateContent messages to determine which view to show
     const handler = (msg: any) => {
-      console.log('[App] updateContent received:', msg);
-      console.log('[App] Full message object:', JSON.stringify(msg, null, 2));
-      console.log('[App] Payload:', msg.payload);
+      logJSON('[App] updateContent received:', msg);
+      logJSON('[App] Payload:', msg.payload);
       console.log('[App] Payload type:', msg.payload?.type);
 
       if (msg.payload?.type === 'suggestions') {

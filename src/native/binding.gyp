@@ -16,7 +16,9 @@
         "bridge/windows/TextPopupWindow.mm",
         "bridge/windows/ClickPopupWindow.mm",
         "bridge/windows/ButtonOverlayWindow.mm",
-        "bridge/windows/LineCountButtonWindow.mm"
+        "bridge/windows/LineCountButtonWindow.mm",
+        "bridge/views/NativeHeaderView.mm",
+        "bridge/views/ResizeHandleView.mm"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
@@ -24,7 +26,8 @@
         "bridge/macos",
         "bridge/factory",
         "bridge/helpers",
-        "bridge/windows"
+        "bridge/windows",
+        "bridge/views"
       ],
       "dependencies": [
         "<!(node -p \"require('node-addon-api').gyp\")"

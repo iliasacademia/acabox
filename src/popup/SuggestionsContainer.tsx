@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNativeEvent, useSendMessage, useBridgeReady } from './hooks/useBridge';
+import { logJSON } from './utils/logger';
 
 interface Suggestion {
   id: string;
@@ -7,8 +8,21 @@ interface Suggestion {
   content: string;
 }
 
+interface SearchResult {
+  found: boolean;
+  text?: string;
+  charIndex?: number;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+}
+
 const SuggestionsContainer: React.FC = () => {
   const [count, setCount] = useState(0);
+  const [searchText, setSearchText] = useState('');
+  const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
   const { sendRequest, loading, error } = useSendMessage();
   const isReady = useBridgeReady();
 
@@ -16,7 +30,7 @@ const SuggestionsContainer: React.FC = () => {
 
   // Listen for content updates from native
   useNativeEvent('updateContent', (msg) => {
-    console.log('[SuggestionsContainer] Content update received:', msg.payload);
+    logJSON('[SuggestionsContainer] Content update received:', msg.payload);
 
     if (msg.payload?.count !== undefined) {
       const newCount = msg.payload.count;
@@ -53,7 +67,7 @@ const SuggestionsContainer: React.FC = () => {
         count: count
       });
 
-      console.log('[SuggestionsContainer] See more response:', result);
+      logJSON('[SuggestionsContainer] See more response:', result);
     } catch (err) {
       console.error('[SuggestionsContainer] See more failed:', err);
     }
@@ -68,11 +82,38 @@ const SuggestionsContainer: React.FC = () => {
         count: count
       });
 
-      console.log('[SuggestionsContainer] Dismiss response:', result);
+      logJSON('[SuggestionsContainer] Dismiss response:', result);
     } catch (err) {
       console.error('[SuggestionsContainer] Dismiss failed:', err);
     }
   };
+
+  const handleSearch = async () => {
+    if (!searchText.trim()) {
+      return;
+    }
+
+    console.log('[SuggestionsContainer] Searching for text:', searchText);
+    setIsSearching(true);
+    setSearchResult(null);
+
+    try {
+      const result = await sendRequest('searchTextPosition', {
+        text: searchText
+      });
+
+      console.log('[SuggestionsContainer] Search response:', JSON.stringify(result, null, 2));
+      console.log('[SuggestionsContainer] Payload:', JSON.stringify(result.payload, null, 2));
+      setSearchResult(result.payload as SearchResult);
+    } catch (err) {
+      console.error('[SuggestionsContainer] Search failed:', err);
+      setSearchResult({ found: false });
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Note: handleClose removed - close button now handled by native header
 
   return (
     <div style={styles.container}>
@@ -84,10 +125,53 @@ const SuggestionsContainer: React.FC = () => {
           </div>
         )}
 
-        {/* Header */}
-        <div style={styles.header}>
-          <h2 style={styles.title}>Suggestions</h2>
-          <div style={styles.badge}>{count}</div>
+        {/* Note: Header removed - now rendered as native NSView above WKWebView */}
+
+        {/* Text Search */}
+        <div style={styles.searchContainer}>
+          <div style={styles.searchInputContainer}>
+            <input
+              type="text"
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleSearch();
+                }
+              }}
+              placeholder="Search text in document..."
+              style={styles.searchInput}
+              disabled={isSearching || !isReady}
+            />
+            <button
+              style={{
+                ...styles.searchButton,
+                ...(isSearching || !isReady ? styles.buttonDisabled : {})
+              }}
+              onClick={handleSearch}
+              disabled={isSearching || !isReady}
+            >
+              {isSearching ? 'Searching...' : 'Search'}
+            </button>
+          </div>
+
+          {/* Search Result Display */}
+          {searchResult && (
+            <div style={searchResult.found ? styles.searchResultSuccess : styles.searchResultError}>
+              {searchResult.found ? (
+                <>
+                  <div style={styles.searchResultTitle}>✓ Found "{searchResult.text}"</div>
+                  <div style={styles.searchResultDetails}>
+                    <div>Character index: {searchResult.charIndex}</div>
+                    <div>Position: ({searchResult.x?.toFixed(1)}, {searchResult.y?.toFixed(1)})</div>
+                    <div>Size: {searchResult.width?.toFixed(1)} × {searchResult.height?.toFixed(1)}</div>
+                  </div>
+                </>
+              ) : (
+                <div style={styles.searchResultTitle}>✗ "{searchResult.text || searchText}" not found</div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Suggestions list */}
@@ -169,7 +253,6 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   card: {
     backgroundColor: '#ffffff',
-    borderRadius: '12px',
     boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15), 0 2px 6px rgba(0, 0, 0, 0.1)',
     overflow: 'hidden',
     width: '100%',
@@ -186,30 +269,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderBottom: '1px solid #ffeaa7',
     textAlign: 'center',
   },
-  header: {
-    padding: '16px',
-    backgroundColor: '#f8f9fa',
-    borderBottom: '1px solid #e9ecef',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  title: {
-    margin: 0,
-    fontSize: '18px',
-    fontWeight: 600,
-    color: '#212529',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  },
-  badge: {
-    backgroundColor: '#007bff',
-    color: '#ffffff',
-    borderRadius: '12px',
-    padding: '4px 10px',
-    fontSize: '12px',
-    fontWeight: 600,
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  },
+  // Note: header, title, badge, closeButton styles removed - now handled by native view
   suggestionsContainer: {
     flex: 1,
     overflow: 'auto',
@@ -218,7 +278,6 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   suggestionCard: {
     backgroundColor: '#f8f9fa',
-    borderRadius: '8px',
     padding: '12px',
     marginBottom: '8px',
     border: '1px solid #e9ecef',
@@ -256,7 +315,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     transition: 'background-color 0.15s ease-in-out',
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     outline: 'none',
-  },
+    WebkitAppRegion: 'no-drag',
+  } as React.CSSProperties,
   primaryButton: {
     backgroundColor: '#007bff',
   },
@@ -276,6 +336,65 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
     borderTop: '1px solid #f5c6cb',
     textAlign: 'center',
+  },
+  searchContainer: {
+    padding: '12px 16px',
+    backgroundColor: '#f8f9fa',
+    borderBottom: '1px solid #e9ecef',
+  },
+  searchInputContainer: {
+    display: 'flex',
+    gap: '8px',
+    marginBottom: '8px',
+  },
+  searchInput: {
+    flex: 1,
+    padding: '8px 12px',
+    fontSize: '13px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    border: '1px solid #ced4da',
+    borderRadius: '4px',
+    outline: 'none',
+  } as React.CSSProperties,
+  searchButton: {
+    padding: '8px 16px',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#ffffff',
+    backgroundColor: '#28a745',
+    border: 'none',
+    borderRadius: '4px',
+    cursor: 'pointer',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    outline: 'none',
+    whiteSpace: 'nowrap',
+  } as React.CSSProperties,
+  searchResultSuccess: {
+    padding: '10px',
+    backgroundColor: '#d4edda',
+    border: '1px solid #c3e6cb',
+    borderRadius: '4px',
+    fontSize: '12px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  },
+  searchResultError: {
+    padding: '10px',
+    backgroundColor: '#f8d7da',
+    border: '1px solid #f5c6cb',
+    borderRadius: '4px',
+    fontSize: '12px',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+  },
+  searchResultTitle: {
+    fontWeight: 600,
+    marginBottom: '6px',
+    color: '#155724',
+  },
+  searchResultDetails: {
+    fontSize: '11px',
+    color: '#155724',
+    fontFamily: 'monospace',
+    lineHeight: '1.6',
   },
 };
 

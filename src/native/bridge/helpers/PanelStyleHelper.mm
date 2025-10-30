@@ -17,7 +17,6 @@
                                NSWindowCollectionBehaviorStationary;
 
     // CRITICAL: Make panel non-activating so it doesn't steal focus from MS Word
-    panel.floatingPanel = YES;
     panel.becomesKeyOnlyIfNeeded = NO;     // Never become key window
     panel.worksWhenModal = YES;            // Continue working even when modal dialogs are present
     panel.hidesOnDeactivate = NO;          // Don't auto-hide when app deactivates

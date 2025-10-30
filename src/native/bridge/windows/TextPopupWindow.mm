@@ -67,9 +67,10 @@
         self.isProcessingClick = YES;
 
         // Keep the popup open (cancel any scheduled hide)
-        if (self.buttonWindow) {
-            [self.buttonWindow cancelScheduledHide];
-        }
+        // TODO: Implement auto-hide scheduling for ButtonOverlayWindow
+        // if (self.buttonWindow) {
+        //     [self.buttonWindow cancelScheduledHide];
+        // }
 
         // Handle copy action
         if ([btnAction isEqualToString:@"copy"] && text && [text length] > 0) {
@@ -155,9 +156,10 @@
             NSLog(@"[TextPopupWindow] Button clicked: %@ with text: %@", action, textPreview);
 
             // Keep the popup open (cancel any scheduled hide)
-            if (self.buttonWindow) {
-                [self.buttonWindow cancelScheduledHide];
-            }
+            // TODO: Implement auto-hide scheduling for ButtonOverlayWindow
+            // if (self.buttonWindow) {
+            //     [self.buttonWindow cancelScheduledHide];
+            // }
 
             // Handle copy action
             if ([action isEqualToString:@"copy"] && text && [text length] > 0) {
@@ -311,9 +313,10 @@
 - (void)mouseEntered:(NSEvent *)event {
     NSLog(@"[TextPopupWindow] Mouse entered");
     // Mouse entered popup - cancel any pending hide from button
-    if (self.buttonWindow) {
-        [self.buttonWindow cancelScheduledHide];
-    }
+    // TODO: Implement auto-hide scheduling for ButtonOverlayWindow
+    // if (self.buttonWindow) {
+    //     [self.buttonWindow cancelScheduledHide];
+    // }
 }
 
 - (void)mouseExited:(NSEvent *)event {
@@ -326,24 +329,27 @@
     }
 
     // Mouse left popup - schedule hide
-    if (self.buttonWindow) {
-        [self.buttonWindow scheduleHidePopup];
-    }
+    // TODO: Implement auto-hide scheduling for ButtonOverlayWindow
+    // if (self.buttonWindow) {
+    //     [self.buttonWindow scheduleHidePopup];
+    // }
 }
 
 - (void)mouseDown:(NSEvent *)event {
     NSLog(@"[TextPopupWindow] Mouse down - keeping window open");
     // Handle mouse down to prevent window from closing
     // Cancel any scheduled hide
-    if (self.buttonWindow) {
-        [self.buttonWindow cancelScheduledHide];
-    }
+    // TODO: Implement auto-hide scheduling for ButtonOverlayWindow
+    // if (self.buttonWindow) {
+    //     [self.buttonWindow cancelScheduledHide];
+    // }
 }
 
 - (void)mouseMoved:(NSEvent *)event {
     // Track mouse movement to keep window alive while mouse is inside
     // This prevents false mouse exit events
-    [self.buttonWindow cancelScheduledHide];
+    // TODO: Implement auto-hide scheduling for ButtonOverlayWindow
+    // [self.buttonWindow cancelScheduledHide];
 }
 
 #pragma mark - Focus Handling
@@ -357,9 +363,10 @@
     NSLog(@"[TextPopupWindow] resignKeyWindow called - keeping window visible");
     [super resignKeyWindow];
     // Explicitly cancel any scheduled hide
-    if (self.buttonWindow) {
-        [self.buttonWindow cancelScheduledHide];
-    }
+    // TODO: Implement auto-hide scheduling for ButtonOverlayWindow
+    // if (self.buttonWindow) {
+    //     [self.buttonWindow cancelScheduledHide];
+    // }
 }
 
 #pragma mark - Cleanup

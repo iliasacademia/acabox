@@ -56,6 +56,7 @@ declare global {
     __bridgeOff?: (action: string) => void;
     __bridgeHandlers?: Record<string, MessageHandler>;
     __messageBridge?: MessageBridge;
+    __pendingResponses?: Message[];
   }
 }
 
@@ -63,6 +64,7 @@ declare global {
 
 export class MessageBridge {
   private clientId: string;
+  private instanceId: string;
   private handlers = new Map<string, MessageHandler>();
   private pendingRequests = new Map<string, {
     resolve: (value: any) => void;
@@ -75,7 +77,24 @@ export class MessageBridge {
 
   constructor(clientId: string) {
     this.clientId = clientId;
+    this.instanceId = `${clientId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     this.platform = this.detectPlatform();
+
+    console.log(`[MessageBridge] Creating new instance: ${this.instanceId}`);
+
+    // Detect if we're overwriting an existing instance
+    if (window.__messageBridge) {
+      console.error('[MessageBridge] WARNING: Overwriting existing MessageBridge instance!');
+      console.error('[MessageBridge] Old instance ID:', (window.__messageBridge as any).instanceId);
+      console.error('[MessageBridge] New instance ID:', this.instanceId);
+      console.error('[MessageBridge] Old instance pending requests:', window.__messageBridge.pendingRequests?.size || 0);
+    }
+
+    // CRITICAL: Register this instance globally IMMEDIATELY before any async setup
+    // This ensures that when responses come back, they're routed to the correct instance
+    window.__messageBridge = this;
+    console.log(`[MessageBridge] Registered as window.__messageBridge: ${this.instanceId}`);
+
     this.setupNativeInterface();
 
     console.log(`[MessageBridge] Initialized for client: ${clientId}, platform: ${this.platform}`);
@@ -97,6 +116,7 @@ export class MessageBridge {
 
     // Register this instance globally
     window.__messageBridge = this;
+    console.log(`[MessageBridge] Initialized for client: ${clientId}, platform: ${this.platform}, instance: ${this.instanceId}`);
   }
 
   // ========== Platform Detection ==========
@@ -121,7 +141,7 @@ export class MessageBridge {
       // We need to wrap __bridgeReceive to route through our handler system
       const checkAndSetup = () => {
         if (!window.__bridgeSend || !window.__bridgeReceive) {
-          console.warn('[MessageBridge] WebKit bridge functions not available, waiting...');
+          // console.warn('[MessageBridge] WebKit bridge functions not available, waiting...');
           // Retry after a delay
           setTimeout(checkAndSetup, 200);
           return;
@@ -129,12 +149,17 @@ export class MessageBridge {
 
         console.log('[MessageBridge] WebKit bridge functions now available');
 
-        // Override __bridgeReceive to route through our handleNativeMessage
-        // We don't need to keep the original because we're managing handlers ourselves
-        window.__bridgeReceive = (msg: Message) => {
-          // Call our internal message handler which will route to registered handlers
-          this.handleNativeMessage(msg);
-        };
+        // Process any responses that arrived before MessageBridge was initialized
+        if (window.__pendingResponses && window.__pendingResponses.length > 0) {
+          console.log(`[MessageBridge] Processing ${window.__pendingResponses.length} queued responses`);
+          const pendingResponses = window.__pendingResponses;
+          window.__pendingResponses = []; // Clear the queue
+
+          for (const response of pendingResponses) {
+            console.log(`[MessageBridge] Processing queued response: ${response.action}`);
+            this.handleNativeMessage(response);
+          }
+        }
 
         this.sendReadySignal();
       };
@@ -242,6 +267,13 @@ export class MessageBridge {
 
       this.pendingRequests.set(msgId, { resolve, reject, timeoutId });
 
+      // Debug logging - Maps don't JSON.stringify properly, so use Array.from
+      console.log(`[MessageBridge ${this.instanceId}] pendingRequests size:`, this.pendingRequests.size);
+      console.log(`[MessageBridge ${this.instanceId}] pendingRequests keys:`, Array.from(this.pendingRequests.keys()));
+      console.log(`[MessageBridge ${this.instanceId}] This instance ID:`, this.instanceId);
+      console.log(`[MessageBridge ${this.instanceId}] Global instance ID:`, (window.__messageBridge as any)?.instanceId);
+      console.log(`[MessageBridge ${this.instanceId}] Same instance?`, this === window.__messageBridge);
+
       const msg: Message = {
         id: msgId,
         from: this.clientId,
@@ -284,12 +316,17 @@ export class MessageBridge {
   // ========== Message Receiving ==========
 
   private handleNativeMessage(msg: Message) {
-    console.log(`[MessageBridge] Received from native: ${msg.action} (type: ${msg.type})`);
+    console.log(`[MessageBridge ${this.instanceId}] Received from native: ${msg.action} (type: ${msg.type})`);
 
     // Handle responses to pending requests
     if (msg.type === 'response' || msg.type === 'error') {
+      console.log(`[MessageBridge ${this.instanceId}] Response received with ID: ${msg.id}`);
+      console.log(`[MessageBridge ${this.instanceId}] Current pending requests:`, Array.from(this.pendingRequests.keys()));
+      console.log(`[MessageBridge ${this.instanceId}] pendingRequests size:`, this.pendingRequests.size);
+
       const pending = this.pendingRequests.get(msg.id);
       if (pending) {
+        console.log(`[MessageBridge] Found matching pending request for ID: ${msg.id}`);
         clearTimeout(pending.timeoutId);
         this.pendingRequests.delete(msg.id);
 
@@ -298,6 +335,11 @@ export class MessageBridge {
         } else {
           pending.resolve(msg.payload);
         }
+        return;
+      } else {
+        console.warn(`[MessageBridge] No pending request found for response ID: ${msg.id}`);
+        console.warn(`[MessageBridge] Response message:`, msg);
+        // Don't fall through to handler lookup for responses/errors
         return;
       }
     }
