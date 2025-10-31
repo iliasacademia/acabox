@@ -9,19 +9,10 @@ import SelectionTracker from './components/SelectionTracker';
 import TrayIconSwitcher from './components/TrayIconSwitcher';
 import PositionDebugger from './components/PositionDebugger';
 import CustomTitleBar from './components/CustomTitleBar';
+import { Notification as NotificationType } from '../types/notifications';
 import './App.css';
 
 type Page = 'positionDebugger' | 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker' | 'trayIconSwitcher';
-
-interface DesktopNotification {
-  data: string;
-  user_id: number;
-  file_id: number;
-  status: 'unread' | 'read' | 'dismissed';
-  created_at: number;
-  read_at: number | null;
-  dismissed_at: number | null;
-}
 
 const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
@@ -56,18 +47,13 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (userId) {
-      // Start notification polling in main process
-      window.electronAPI.invoke('start-notification-polling', userId);
-
       // Listen for new notifications
-      const handleNewNotification = (_event: any, notif: DesktopNotification) => {
+      const handleNewNotification = (_event: any, notif: NotificationType) => {
         showDesktopNotification(notif);
       };
       window.electronAPI.on('new-notification', handleNewNotification);
 
       return () => {
-        // Stop polling on unmount
-        window.electronAPI.invoke('stop-notification-polling');
         window.electronAPI.removeListener('new-notification', handleNewNotification);
       };
     }
@@ -87,10 +73,12 @@ const App: React.FC = () => {
     }
   };
 
-  const showDesktopNotification = (notif: DesktopNotification) => {
-    // Show native OS notification
-    new Notification('Academia Notification', {
-      body: notif.data,
+  const showDesktopNotification = (notif: NotificationType) => {
+    // Show native OS notification with new fields
+    // Strip HTML tags from body_html for display in native notification
+    const bodyText = notif.body_html.replace(/<[^>]*>/g, '');
+    new Notification(notif.title, {
+      body: bodyText,
     });
   };
 
@@ -108,7 +96,6 @@ const App: React.FC = () => {
     if (result.success) {
       setShowLogin(true);
       setUserId(null);
-      // Stop notification polling (handled by useEffect cleanup when userId changes to null)
     }
   };
 
