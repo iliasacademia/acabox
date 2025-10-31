@@ -746,15 +746,10 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _positionMonitorTimer = nil;
     }
 
-    // After space change, check if Word is still the frontmost app
-    // If it is, we need to show the overlays again
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        NSRunningApplication *activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
-        if (activeApp.processIdentifier == self->_pid) {
-            // Word is still active on the new space - show overlays
-            [self startWordWindowTracking];
-        }
-    });
+    // WAGENT-77: Removed 200ms arbitrary delay
+    // The existing NSWorkspaceDidActivateApplicationNotification listener (line 140)
+    // will automatically handle showing overlays when Word becomes active on the new space.
+    // This eliminates the timing hack and makes the behavior more reliable.
 }
 
 // Observer registration for ClickPopup window

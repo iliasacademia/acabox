@@ -277,20 +277,11 @@
 }
 
 - (void)scheduleHidePopup {
+    // WAGENT-79: Remove 300ms arbitrary delay
+    // The NSTrackingArea (line 73) already handles mouseExited properly,
+    // so we can hide immediately when the mouse actually leaves
     [self cancelScheduledHide];
-
-    __weak __typeof__(self) weakSelf = self;
-    self.scheduledHideBlock = dispatch_block_create(DISPATCH_BLOCK_INHERIT_QOS_CLASS, ^{
-        __typeof__(self) strongSelf = weakSelf;
-        if (strongSelf) {
-            [strongSelf hideHoverPopup];
-            strongSelf.scheduledHideBlock = nil;
-        }
-    });
-
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.3 * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(),
-                   self.scheduledHideBlock);
+    [self hideHoverPopup];
 }
 
 - (void)cancelScheduledHide {

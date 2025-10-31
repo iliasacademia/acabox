@@ -87,16 +87,13 @@ export class MessageBridge {
 
     // Detect if we're overwriting an existing instance
     if (oldBridge) {
-      console.error('[MessageBridge] WARNING: Overwriting existing MessageBridge instance!');
-      console.error('[MessageBridge] Old instance ID:', (oldBridge as any).instanceId);
-      console.error('[MessageBridge] New instance ID:', this.instanceId);
-      console.error('[MessageBridge] Old instance pending requests:', oldBridge.pendingRequests?.size || 0);
+      console.warn('[MessageBridge] Instance replacement detected - transferring pending requests');
+      console.warn('[MessageBridge] Old instance pending requests:', oldBridge.pendingRequests?.size || 0);
     }
 
     // CRITICAL: Register this instance globally IMMEDIATELY
     // This ensures that when responses come back, they're routed to the correct instance
     window.__messageBridge = this;
-    console.log(`[MessageBridge] Registered as window.__messageBridge: ${this.instanceId}`);
 
     // Transfer pending requests from old instance (hot-reload support)
     // Must happen AFTER window.__messageBridge is set but BEFORE processPreloadQueue
@@ -308,6 +305,11 @@ export class MessageBridge {
       console.log(`[MessageBridge ${this.instanceId}] Global instance ID:`, (window.__messageBridge as any)?.instanceId);
       console.log(`[MessageBridge ${this.instanceId}] Same instance?`, this === window.__messageBridge);
 
+      // WAGENT-73: Send ACK immediately after registering pending request
+      // This eliminates the race condition that required a 10ms delay on native side
+      this.sendEvent(to, 'request-registered', { requestId: msgId });
+      console.log(`[MessageBridge] Sent ACK for request: ${msgId}`);
+
       const msg: Message = {
         id: msgId,
         from: this.clientId,
@@ -349,7 +351,7 @@ export class MessageBridge {
 
   // ========== Message Receiving ==========
 
-  private handleNativeMessage(msg: Message) {
+  public handleNativeMessage(msg: Message) {
     console.log(`[MessageBridge ${this.instanceId}] Received from native: ${msg.action} (type: ${msg.type})`);
 
     // Handle responses to pending requests

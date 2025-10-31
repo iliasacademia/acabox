@@ -78,7 +78,7 @@ void testTextPopupWindowInitialization() {
         ASSERT_NOT_NULL(window, "Window should be created");
         ASSERT_NOT_NULL(window.webView, "WebView should be initialized");
         ASSERT_TRUE([window.currentText isEqualToString:@"Test text"], "Text should be stored");
-        ASSERT_FALSE(window.isProcessingClick, "Should not be processing click");
+        ASSERT_TRUE(window.clickState == ClickStateIdle, "Should be in idle state (WAGENT-78)");
 
         TEST_PASS();
     }
