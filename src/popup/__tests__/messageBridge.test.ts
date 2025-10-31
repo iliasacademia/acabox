@@ -23,6 +23,7 @@ describe('MessageBridge', () => {
     delete (window as any).__bridgeSend;
     delete (window as any).__bridgeReceive;
     delete (window as any).__bridgeHandlers;
+    delete (window as any).__messageBridge;
 
     // Setup mock WebKit
     mockPostMessage = jest.fn();
@@ -63,6 +64,7 @@ describe('MessageBridge', () => {
     delete (window as any).__bridgeSend;
     delete (window as any).__bridgeReceive;
     delete (window as any).__bridgeHandlers;
+    delete (window as any).__messageBridge;
   });
 
   describe('Initialization', () => {
@@ -503,6 +505,80 @@ describe('MessageBridge', () => {
         expect(() => window.__bridgeReceive!(msg)).not.toThrow();
         done();
       }, 300);
+    });
+  });
+
+  describe('Instance Lifecycle Management', () => {
+    it('should transfer pending requests from old instance to new instance', () => {
+      // Create first bridge instance with a pending request
+      const oldBridge = new MessageBridge('old-client');
+
+      // Manually add a pending request to simulate in-flight request
+      const mockResolve = jest.fn();
+      const mockReject = jest.fn();
+      const mockTimeout = setTimeout(() => {}, 5000) as NodeJS.Timeout;
+
+      (oldBridge as any).pendingRequests.set('request-1', {
+        resolve: mockResolve,
+        reject: mockReject,
+        timeoutId: mockTimeout,
+      });
+
+      expect((oldBridge as any).pendingRequests.size).toBe(1);
+      expect(window.__messageBridge).toBe(oldBridge);
+
+      // Create new bridge instance (simulating hot-reload)
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const newBridge = new MessageBridge('new-client');
+
+      // Verify pending requests were transferred
+      expect((newBridge as any).pendingRequests.size).toBe(1);
+      expect((newBridge as any).pendingRequests.get('request-1')).toEqual({
+        resolve: mockResolve,
+        reject: mockReject,
+        timeoutId: mockTimeout,
+      });
+
+      // Verify warning was logged
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[MessageBridge] Transferred 1 pending request(s) from old instance'
+      );
+
+      // Verify new instance is now the global instance
+      expect(window.__messageBridge).toBe(newBridge);
+
+      // Cleanup
+      consoleSpy.mockRestore();
+      clearTimeout(mockTimeout);
+    });
+
+    it('should not log warning when no pending requests to transfer', () => {
+      // Create first bridge with no pending requests
+      const oldBridge = new MessageBridge('old-client');
+      expect((oldBridge as any).pendingRequests.size).toBe(0);
+
+      // Create new bridge instance
+      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const newBridge = new MessageBridge('new-client');
+
+      // Verify no warning was logged
+      expect(consoleSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('Transferred')
+      );
+
+      // Verify new instance is registered
+      expect(window.__messageBridge).toBe(newBridge);
+
+      // Cleanup
+      consoleSpy.mockRestore();
+    });
+
+    it('should register new instance as window.__messageBridge', () => {
+      const bridge1 = new MessageBridge('client-1');
+      expect(window.__messageBridge).toBe(bridge1);
+
+      const bridge2 = new MessageBridge('client-2');
+      expect(window.__messageBridge).toBe(bridge2);
     });
   });
 });

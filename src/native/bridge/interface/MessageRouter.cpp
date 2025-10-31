@@ -123,9 +123,10 @@ void MessageRouter::deliverMessage(const std::string& targetId, const Message& m
     }
 
     if (!bridge->isReady()) {
-        std::cerr << "[MessageRouter] Warning: Client " << targetId
-                  << " not ready, queueing message: " << msg.action << std::endl;
-        // TODO: Implement per-client queue for not-ready clients
+        std::lock_guard<std::mutex> lock(clientQueuesMutex_);
+        clientQueues_[targetId].push(msg);
+        std::cout << "[MessageRouter] Queued message for not-ready client " << targetId
+                  << ": " << msg.action << " (queue size: " << clientQueues_[targetId].size() << ")" << std::endl;
         return;
     }
 
@@ -295,6 +296,36 @@ void MessageRouter::stopProcessing() {
 void MessageRouter::enqueueMessage(const Message& msg) {
     std::lock_guard<std::mutex> lock(queueMutex_);
     messageQueue_.push(std::make_shared<Message>(msg));
+}
+
+void MessageRouter::processClientReadyQueue(const std::string& clientId) {
+    std::queue<Message> messagesToProcess;
+
+    // Extract all queued messages for this client
+    {
+        std::lock_guard<std::mutex> lock(clientQueuesMutex_);
+        auto it = clientQueues_.find(clientId);
+        if (it != clientQueues_.end()) {
+            messagesToProcess.swap(it->second);
+            clientQueues_.erase(it);
+        }
+    }
+
+    // Process messages outside the lock to avoid blocking other operations
+    size_t messageCount = messagesToProcess.size();
+    if (messageCount > 0) {
+        std::cout << "[MessageRouter] Processing " << messageCount
+                  << " queued messages for client " << clientId << std::endl;
+
+        while (!messagesToProcess.empty()) {
+            Message msg = messagesToProcess.front();
+            messagesToProcess.pop();
+            deliverMessage(clientId, msg);
+        }
+
+        std::cout << "[MessageRouter] Finished processing queued messages for client "
+                  << clientId << std::endl;
+    }
 }
 
 void MessageRouter::processQueue() {
