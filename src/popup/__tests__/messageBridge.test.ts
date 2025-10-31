@@ -155,13 +155,17 @@ describe('MessageBridge', () => {
       // Send a request
       const requestPromise = bridge.sendRequest('native', 'testRequest', { query: 'test' });
 
+      // Wait for microtasks to complete to ensure request is registered
+      await Promise.resolve();
+      await Promise.resolve();
+
       // Get the request message
       expect(mockPostMessage).toHaveBeenCalled();
       const requestMsg = mockPostMessage.mock.calls[mockPostMessage.mock.calls.length - 1][0];
       expect(requestMsg.action).toBe('testRequest');
       expect(requestMsg.type).toBe('request');
 
-      // Simulate native sending a response immediately
+      // Simulate native sending a response
       const responseMsg: Message = {
         id: requestMsg.id, // Same ID as request
         from: 'native',
@@ -172,9 +176,13 @@ describe('MessageBridge', () => {
         timestamp: Date.now(),
       };
 
-      // Send response after a small delay to allow request to be registered
-      await new Promise(resolve => setTimeout(resolve, 10));
-      window.__bridgeReceive!(responseMsg);
+      // Use setImmediate to ensure response is processed in next tick
+      await new Promise<void>(resolve => {
+        setImmediate(() => {
+          window.__bridgeReceive!(responseMsg);
+          resolve();
+        });
+      });
 
       // Wait for response
       const result = await requestPromise;
