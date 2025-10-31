@@ -82,6 +82,9 @@ export class MessageBridge {
 
     console.log(`[MessageBridge] Creating new instance: ${this.instanceId}`);
 
+    // Store reference to old instance before overwriting (for hot-reload support)
+    const oldBridge = window.__messageBridge;
+
     // Detect if we're overwriting an existing instance
     if (window.__messageBridge) {
       console.error('[MessageBridge] WARNING: Overwriting existing MessageBridge instance!');
@@ -90,18 +93,13 @@ export class MessageBridge {
       console.error('[MessageBridge] Old instance pending requests:', window.__messageBridge.pendingRequests?.size || 0);
     }
 
-    // CRITICAL: Register this instance globally IMMEDIATELY before any async setup
-    // This ensures that when responses come back, they're routed to the correct instance
-    window.__messageBridge = this;
-    console.log(`[MessageBridge] Registered as window.__messageBridge: ${this.instanceId}`);
-
     this.setupNativeInterface();
 
     console.log(`[MessageBridge] Initialized for client: ${clientId}, platform: ${this.platform}`);
 
     // Transfer pending requests from old instance (hot-reload support)
-    if (window.__messageBridge && window.__messageBridge.pendingRequests) {
-      const oldRequests = window.__messageBridge.pendingRequests;
+    if (oldBridge && oldBridge.pendingRequests) {
+      const oldRequests = oldBridge.pendingRequests;
       let transferCount = 0;
 
       oldRequests.forEach((value, key) => {
