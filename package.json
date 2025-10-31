@@ -6,6 +6,7 @@
   "scripts": {
     "build:native": "cd src/native && npx node-gyp rebuild",
     "build:popup": "webpack --config webpack.popup.config.js",
+    "build:popup:watch": "webpack --config webpack.popup.config.js --watch",
     "prestart": "npm run build:native && npm run build:popup",
     "start": "electron-forge start",
     "cleanup": "./cleanup.sh",

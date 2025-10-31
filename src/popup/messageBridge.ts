@@ -87,16 +87,13 @@ export class MessageBridge {
 
     // Detect if we're overwriting an existing instance
     if (oldBridge) {
-      console.error('[MessageBridge] WARNING: Overwriting existing MessageBridge instance!');
-      console.error('[MessageBridge] Old instance ID:', (oldBridge as any).instanceId);
-      console.error('[MessageBridge] New instance ID:', this.instanceId);
-      console.error('[MessageBridge] Old instance pending requests:', oldBridge.pendingRequests?.size || 0);
+      console.warn('[MessageBridge] Instance replacement detected - transferring pending requests');
+      console.warn('[MessageBridge] Old instance pending requests:', oldBridge.pendingRequests?.size || 0);
     }
 
     // CRITICAL: Register this instance globally IMMEDIATELY
     // This ensures that when responses come back, they're routed to the correct instance
     window.__messageBridge = this;
-    console.log(`[MessageBridge] Registered as window.__messageBridge: ${this.instanceId}`);
 
     // Transfer pending requests from old instance (hot-reload support)
     // Must happen AFTER window.__messageBridge is set but BEFORE processPreloadQueue
