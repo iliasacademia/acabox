@@ -142,6 +142,12 @@ public:
      */
     void enqueueMessage(const Message& msg);
 
+    /**
+     * Process queued messages for a client that just became ready
+     * @param clientId client identifier that is now ready
+     */
+    void processClientReadyQueue(const std::string& clientId);
+
     // ========== Statistics ==========
 
     struct Stats {
@@ -187,7 +193,11 @@ private:
                        std::vector<std::shared_ptr<Message>>,
                        MessageComparator> messageQueue_;
 
+    // Per-client message queues for not-ready clients (WAGENT-69)
+    std::map<std::string, std::queue<Message>> clientQueues_;
+
     mutable std::mutex clientsMutex_;
+    mutable std::mutex clientQueuesMutex_;
     mutable std::mutex queueMutex_;
     mutable std::mutex stateMutex_;
     mutable std::mutex requestsMutex_;

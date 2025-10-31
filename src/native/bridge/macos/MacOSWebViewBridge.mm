@@ -2,6 +2,7 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
 #include <iostream>
+#include "MessageRouter.h"
 
 // Forward declare to break circular dependency
 @interface BridgeMessageHandler : NSObject <WKScriptMessageHandler>
@@ -284,6 +285,9 @@ void MacOSWebViewBridge::handleMessageFromJS(const std::string& json) {
     if (msg->action == "bridge-ready") {
         isReady_ = true;
         std::cout << "[MacOSWebViewBridge] JavaScript bridge is ready" << std::endl;
+
+        // Notify router that client is ready (to process queued messages)
+        MessageRouter::getInstance().processClientReadyQueue(clientId_);
         return;
     }
 

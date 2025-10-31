@@ -1,0 +1,13 @@
+{
+  "_comment": "Claude Code Review Blacklist - Authors who don't want their PRs reviewed",
+  "_instructions": [
+    "To add a user to the blacklist, add their GitHub username to the 'blacklisted_authors' array",
+    "Bot accounts should use their full bot name format (e.g., 'dependabot[bot]')",
+    "Human users should use their GitHub username exactly as it appears",
+    "Changes to this file take effect on the next PR"
+  ],
+  "blacklisted_authors": [
+    "dependabot[bot]",
+    "github-actions[bot]"
+  ]
+}

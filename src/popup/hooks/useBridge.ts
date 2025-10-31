@@ -14,10 +14,32 @@ let bridgeInstance: MessageBridge | null = null;
  * Get or create the bridge singleton
  */
 export function getBridgeInstance(clientId: string = 'popup-default'): MessageBridge {
+  if (bridgeInstance && process.env.NODE_ENV === 'development') {
+    console.warn('[useBridge] Using existing bridge instance to prevent duplication');
+  }
+
   if (!bridgeInstance) {
     bridgeInstance = new MessageBridge(clientId);
   }
   return bridgeInstance;
+}
+
+/**
+ * Reset the bridge instance
+ * Cleans up handlers, pending requests, and nullifies the singleton
+ * Useful for development and testing scenarios
+ */
+export function resetBridgeInstance(): void {
+  if (bridgeInstance) {
+    bridgeInstance.destroy();
+    bridgeInstance = null;
+    console.log('[useBridge] Bridge instance reset');
+  }
+}
+
+// Expose reset function on window for dev tools access
+if (typeof window !== 'undefined') {
+  (window as any).resetBridge = resetBridgeInstance;
 }
 
 /**

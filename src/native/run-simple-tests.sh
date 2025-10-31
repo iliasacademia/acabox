@@ -34,17 +34,22 @@ clang++ -arch arm64 -arch x86_64 \
     -framework WebKit \
     -framework ApplicationServices \
     -framework CoreGraphics \
+    -framework QuartzCore \
     -ObjC++ \
     -std=c++17 \
     -fobjc-arc \
     -Wno-deprecated-declarations \
     -I"$SCRIPT_DIR" \
     -I"$SCRIPT_DIR/bridge/interface" \
+    -I"$SCRIPT_DIR/bridge/macos" \
     -I"$SCRIPT_DIR/bridge/helpers" \
     -I"$SCRIPT_DIR/bridge/windows" \
+    -I"$SCRIPT_DIR/bridge/views" \
     -I"$SCRIPT_DIR/../node_modules/node-addon-api" \
     -o build/SimpleTests \
     bridge/__tests__/SimpleTests.mm \
+    bridge/interface/Message.cpp \
+    bridge/interface/MessageRouter.cpp \
     bridge/helpers/ScriptInjector.mm \
     bridge/helpers/HTMLLoader.mm \
     bridge/helpers/PanelStyleHelper.mm \
@@ -54,7 +59,9 @@ clang++ -arch arm64 -arch x86_64 \
     bridge/windows/TextPopupWindow.mm \
     bridge/windows/ClickPopupWindow.mm \
     bridge/windows/ButtonOverlayWindow.mm \
-    bridge/windows/LineCountButtonWindow.mm
+    bridge/windows/LineCountButtonWindow.mm \
+    bridge/views/NativeHeaderView.mm \
+    bridge/views/ResizeHandleView.mm
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}Compilation failed!${NC}"
