@@ -69,8 +69,16 @@ try {
 
       // If this is a response but MessageBridge isn't loaded yet, queue it
       if (msg.type === 'response' || msg.type === 'error') {
+        // WAGENT-80: Add queue monitoring
+        console.log('[Bridge Compat] Queue length before push:', window.__pendingResponses.length);
         console.log('[Bridge Compat] Queueing response for MessageBridge');
         window.__pendingResponses.push(msg);
+        console.log('[Bridge Compat] Queue length after push:', window.__pendingResponses.length);
+
+        // WAGENT-80: Warn if queue is growing large
+        if (window.__pendingResponses.length > 5) {
+          console.warn('[Bridge Compat] WARNING: Queue size growing large:', window.__pendingResponses.length, 'responses pending');
+        }
         return;
       }
 
