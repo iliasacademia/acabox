@@ -3,18 +3,8 @@ name: macOS Native Tests
 on:
   push:
     branches: [main]
-    paths:
-      - 'src/native/**'
-      - 'src/applescripts/**'
-      - 'package.json'
-      - 'binding.gyp'
   pull_request:
     branches: [main]
-    paths:
-      - 'src/native/**'
-      - 'src/applescripts/**'
-      - 'package.json'
-      - 'binding.gyp'
 
 jobs:
   native-tests:
