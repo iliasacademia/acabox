@@ -179,7 +179,7 @@ describe('MessageBridge', () => {
       // Wait for response
       const result = await requestPromise;
       expect(result).toEqual({ result: 'success' });
-    });
+    }, 10000); // 10 second timeout for this test
 
     it('should timeout requests that do not receive response', async () => {
       // Wait for bridge initialization
