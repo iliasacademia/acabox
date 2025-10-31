@@ -1,0 +1,285 @@
+import { BrowserWindow } from 'electron';
+import { getNotifications, updateNotification } from './uploader';
+import { Notification } from './types/notifications';
+
+export interface CachedNotification extends Notification {
+  fetched_at: number;
+  synced_to_backend: boolean;
+}
+
+class NotificationManager {
+  private notifications: Map<number, CachedNotification> = new Map();
+  private mainWindow: BrowserWindow | null = null;
+  private pollingInterval: NodeJS.Timeout | null = null;
+  private currentUserId: number | null = null;
+  private isSyncing = false;
+
+  setMainWindow(window: BrowserWindow | null) {
+    this.mainWindow = window;
+  }
+
+  /**
+   * Sync notifications from backend API and merge into memory
+   */
+  async syncWithBackend(userId: number): Promise<void> {
+    if (this.isSyncing) {
+      console.log('Sync already in progress, skipping...');
+      return;
+    }
+
+    this.isSyncing = true;
+    try {
+      console.log('Syncing notifications from backend...');
+      const response = await getNotifications();
+      const fetchedAt = Date.now();
+
+      // Get existing notification IDs
+      const existingIds = new Set<number>();
+      for (const [id, notif] of this.notifications) {
+        if (notif.user_id === userId) {
+          existingIds.add(id);
+        }
+      }
+
+      const newNotifications: Notification[] = [];
+
+      // Upsert notifications from API
+      for (const notif of response.notifications) {
+        const cached: CachedNotification = {
+          ...notif,
+          fetched_at: fetchedAt,
+          synced_to_backend: true,
+        };
+
+        // Check if this is a new notification
+        if (!existingIds.has(notif.id) && notif.status === 'unread') {
+          newNotifications.push(notif);
+        }
+
+        // Store in memory
+        this.notifications.set(notif.id, cached);
+      }
+
+      // Sync local changes to backend
+      await this.syncLocalChangesToBackend();
+
+      // Notify renderer about new notifications
+      if (newNotifications.length > 0 && this.mainWindow) {
+        for (const notif of newNotifications) {
+          this.mainWindow.webContents.send('new-notification', notif);
+        }
+      }
+
+      console.log(`Synced ${response.notifications.length} notifications, ${newNotifications.length} new`);
+    } catch (error) {
+      console.error('Failed to sync notifications:', error);
+    } finally {
+      this.isSyncing = false;
+    }
+  }
+
+  /**
+   * Sync local changes (that haven't been synced) to backend
+   */
+  private async syncLocalChangesToBackend(): Promise<void> {
+    const unsynced: CachedNotification[] = [];
+
+    for (const notif of this.notifications.values()) {
+      if (!notif.synced_to_backend) {
+        unsynced.push(notif);
+      }
+    }
+
+    for (const notif of unsynced) {
+      try {
+        await updateNotification(
+          notif.id,
+          notif.status,
+          notif.read_at,
+          notif.dismissed_at
+        );
+
+        // Mark as synced
+        notif.synced_to_backend = true;
+        this.notifications.set(notif.id, notif);
+      } catch (error) {
+        console.error(`Failed to sync notification ${notif.id} to backend:`, error);
+      }
+    }
+  }
+
+  /**
+   * Get notifications filtered by status
+   */
+  getNotificationsByStatus(
+    userId: number,
+    status?: 'unread' | 'read' | 'dismissed'
+  ): CachedNotification[] {
+    const results: CachedNotification[] = [];
+
+    for (const notif of this.notifications.values()) {
+      if (notif.user_id === userId) {
+        if (!status || notif.status === status) {
+          results.push(notif);
+        }
+      }
+    }
+
+    // Sort by created_at descending
+    return results.sort((a, b) => b.created_at - a.created_at);
+  }
+
+  /**
+   * Get unread notifications
+   */
+  getUnreadNotifications(userId: number): CachedNotification[] {
+    return this.getNotificationsByStatus(userId, 'unread');
+  }
+
+  /**
+   * Update notification status
+   */
+  private updateStatus(
+    id: number,
+    status: 'unread' | 'read' | 'dismissed',
+    timestamp: number | null
+  ): void {
+    const notif = this.notifications.get(id);
+    if (!notif) {
+      console.error(`Notification ${id} not found`);
+      return;
+    }
+
+    notif.status = status;
+    notif.synced_to_backend = false;
+
+    if (status === 'read') {
+      notif.read_at = timestamp;
+    } else if (status === 'dismissed') {
+      notif.dismissed_at = timestamp;
+    }
+
+    this.notifications.set(id, notif);
+  }
+
+  /**
+   * Mark notification as read
+   */
+  async markAsRead(id: number): Promise<void> {
+    const now = Date.now();
+    this.updateStatus(id, 'read', now);
+
+    // Sync to backend immediately
+    try {
+      await updateNotification(id, 'read', now, null);
+
+      // Mark as synced
+      const notif = this.notifications.get(id);
+      if (notif) {
+        notif.synced_to_backend = true;
+        this.notifications.set(id, notif);
+      }
+    } catch (error) {
+      console.error('Failed to sync mark as read to backend:', error);
+      // Will be retried in next syncLocalChangesToBackend call
+    }
+
+    // Notify renderer
+    if (this.mainWindow) {
+      this.mainWindow.webContents.send('notification-updated', { id, status: 'read' });
+    }
+  }
+
+  /**
+   * Dismiss notification
+   */
+  async dismissNotification(id: number): Promise<void> {
+    const now = Date.now();
+    this.updateStatus(id, 'dismissed', now);
+
+    // Sync to backend immediately
+    try {
+      await updateNotification(id, 'dismissed', null, now);
+
+      // Mark as synced
+      const notif = this.notifications.get(id);
+      if (notif) {
+        notif.synced_to_backend = true;
+        this.notifications.set(id, notif);
+      }
+    } catch (error) {
+      console.error('Failed to sync dismiss to backend:', error);
+      // Will be retried in next syncLocalChangesToBackend call
+    }
+
+    // Notify renderer
+    if (this.mainWindow) {
+      this.mainWindow.webContents.send('notification-updated', { id, status: 'dismissed' });
+    }
+  }
+
+  /**
+   * Start polling for notifications
+   */
+  startPolling(userId: number, interval: number = 30000): void {
+    this.currentUserId = userId;
+
+    // Clear existing interval if any
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+    }
+
+    // Initial sync
+    this.syncWithBackend(userId);
+
+    // Start periodic sync
+    this.pollingInterval = setInterval(() => {
+      if (this.currentUserId) {
+        this.syncWithBackend(this.currentUserId);
+      }
+    }, interval);
+
+    console.log(`Started notification polling for user ${userId} with ${interval}ms interval`);
+  }
+
+  /**
+   * Stop polling
+   */
+  stopPolling(): void {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+      this.pollingInterval = null;
+    }
+    this.currentUserId = null;
+    console.log('Stopped notification polling');
+  }
+
+  /**
+   * Clear all notifications for a user (for logout/testing)
+   */
+  clearNotifications(userId: number): void {
+    const toDelete: number[] = [];
+
+    for (const [id, notif] of this.notifications) {
+      if (notif.user_id === userId) {
+        toDelete.push(id);
+      }
+    }
+
+    for (const id of toDelete) {
+      this.notifications.delete(id);
+    }
+  }
+
+  /**
+   * Close/cleanup
+   */
+  close(): void {
+    this.stopPolling();
+    // No database to close, just clear memory
+    this.notifications.clear();
+  }
+}
+
+// Export singleton instance
+export const notificationManager = new NotificationManager();
