@@ -86,18 +86,20 @@ export class MessageBridge {
     const oldBridge = window.__messageBridge;
 
     // Detect if we're overwriting an existing instance
-    if (window.__messageBridge) {
+    if (oldBridge) {
       console.error('[MessageBridge] WARNING: Overwriting existing MessageBridge instance!');
-      console.error('[MessageBridge] Old instance ID:', (window.__messageBridge as any).instanceId);
+      console.error('[MessageBridge] Old instance ID:', (oldBridge as any).instanceId);
       console.error('[MessageBridge] New instance ID:', this.instanceId);
-      console.error('[MessageBridge] Old instance pending requests:', window.__messageBridge.pendingRequests?.size || 0);
+      console.error('[MessageBridge] Old instance pending requests:', oldBridge.pendingRequests?.size || 0);
     }
 
-    this.setupNativeInterface();
-
-    console.log(`[MessageBridge] Initialized for client: ${clientId}, platform: ${this.platform}`);
+    // CRITICAL: Register this instance globally IMMEDIATELY
+    // This ensures that when responses come back, they're routed to the correct instance
+    window.__messageBridge = this;
+    console.log(`[MessageBridge] Registered as window.__messageBridge: ${this.instanceId}`);
 
     // Transfer pending requests from old instance (hot-reload support)
+    // Must happen AFTER window.__messageBridge is set but BEFORE setupNativeInterface
     if (oldBridge && oldBridge.pendingRequests) {
       const oldRequests = oldBridge.pendingRequests;
       let transferCount = 0;
@@ -112,8 +114,8 @@ export class MessageBridge {
       }
     }
 
-    // Register this instance globally
-    window.__messageBridge = this;
+    this.setupNativeInterface();
+
     console.log(`[MessageBridge] Initialized for client: ${clientId}, platform: ${this.platform}, instance: ${this.instanceId}`);
   }
 
