@@ -13,26 +13,50 @@ jest.mock('electron', () => ({
   },
 }));
 
+// Mock axios-cookiejar-support (ESM module)
+jest.mock('axios-cookiejar-support', () => ({
+  wrapper: jest.fn((axios) => axios),
+}));
+
+// Mock http-cookie-agent (ESM module)
+jest.mock('http-cookie-agent/http', () => ({
+  HttpCookieAgent: jest.fn(),
+  HttpsCookieAgent: jest.fn(),
+}));
+
+// Mock tough-cookie
+jest.mock('tough-cookie', () => ({
+  CookieJar: jest.fn(() => ({})),
+}));
+
+// Mock tough-cookie-file-store
+jest.mock('tough-cookie-file-store', () => jest.fn());
+
+// Mock pdf-lib
+jest.mock('pdf-lib', () => ({
+  PDFDocument: {
+    load: jest.fn(),
+  },
+}));
+
 // Import after mocking
 import { getNotifications, updateNotification } from '../uploader';
 import { Notification } from '../types/notifications';
 
+// Create a mock axios instance
+const mockClient: any = {
+  get: jest.fn(),
+  patch: jest.fn(),
+  post: jest.fn(),
+};
+
+// Mock axios.create to return our mock client (called once when module loads)
+mockedAxios.create = jest.fn(() => mockClient);
+
 describe('Notification API Client', () => {
-  let mockClient: any;
-
   beforeEach(() => {
-    // Reset mocks before each test
+    // Clear previous call history
     jest.clearAllMocks();
-
-    // Create a mock axios instance
-    mockClient = {
-      get: jest.fn(),
-      patch: jest.fn(),
-      post: jest.fn(),
-    };
-
-    // Mock axios.create to return our mock client
-    mockedAxios.create = jest.fn(() => mockClient as any);
   });
 
   describe('getNotifications', () => {
@@ -108,15 +132,11 @@ describe('Notification API Client', () => {
   });
 
   describe('updateNotification', () => {
-    beforeEach(() => {
-      // Mock getCsrfToken
-      mockClient.post.mockResolvedValue({ data: 'mock-csrf-token' });
-    });
-
     it('should update notification status to read using id', async () => {
       const notificationId = 1;
       const readAt = Date.now();
 
+      mockClient.post.mockResolvedValue({ data: 'mock-csrf-token' });
       mockClient.patch.mockResolvedValue({ status: 200 });
 
       await updateNotification(notificationId, 'read', readAt, null);
@@ -149,6 +169,7 @@ describe('Notification API Client', () => {
       const notificationId = 2;
       const dismissedAt = Date.now();
 
+      mockClient.post.mockResolvedValue({ data: 'mock-csrf-token' });
       mockClient.patch.mockResolvedValue({ status: 200 });
 
       await updateNotification(notificationId, 'dismissed', null, dismissedAt);
@@ -170,6 +191,7 @@ describe('Notification API Client', () => {
     it('should update notification status to unread using id', async () => {
       const notificationId = 3;
 
+      mockClient.post.mockResolvedValue({ data: 'mock-csrf-token' });
       mockClient.patch.mockResolvedValue({ status: 200 });
 
       await updateNotification(notificationId, 'unread', null, null);
@@ -190,6 +212,8 @@ describe('Notification API Client', () => {
 
     it('should use id parameter not created_at', async () => {
       const notificationId = 42;
+
+      mockClient.post.mockResolvedValue({ data: 'mock-csrf-token' });
       mockClient.patch.mockResolvedValue({ status: 200 });
 
       await updateNotification(notificationId, 'read', Date.now(), null);
@@ -205,6 +229,8 @@ describe('Notification API Client', () => {
 
     it('should throw error when API call fails', async () => {
       const mockError = new Error('Update failed');
+
+      mockClient.post.mockResolvedValue({ data: 'mock-csrf-token' });
       mockClient.patch.mockRejectedValue(mockError);
 
       await expect(updateNotification(1, 'read', Date.now(), null)).rejects.toThrow('Update failed');
