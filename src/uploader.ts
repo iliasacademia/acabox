@@ -168,6 +168,11 @@ export const logout = async () => {
 };
 
 // Desktop Notifications API
+import { DesktopNotification as DesktopNotificationType, GetNotificationsResponse as GetNotificationsResponseType } from './shared/types';
+
+export type DesktopNotification = DesktopNotificationType;
+export type GetNotificationsResponse = GetNotificationsResponseType;
+
 export const getNotifications = async (): Promise<GetNotificationsResponse> => {
   const client = await APIclient();
   const response = await client.get('/v0/desktop_notifications/get_notifications');

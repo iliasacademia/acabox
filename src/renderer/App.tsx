@@ -10,6 +10,7 @@ import TrayIconSwitcher from './components/TrayIconSwitcher';
 import PositionDebugger from './components/PositionDebugger';
 import CustomTitleBar from './components/CustomTitleBar';
 import { Notification as NotificationType } from '../types/notifications';
+import { stripHtml } from '../shared/utils';
 import './App.css';
 
 type Page = 'positionDebugger' | 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker' | 'trayIconSwitcher';
@@ -74,11 +75,10 @@ const App: React.FC = () => {
   };
 
   const showDesktopNotification = (notif: NotificationType) => {
-    // Show native OS notification with new fields
-    // Strip HTML tags from body_html for display in native notification
-    const bodyText = notif.body_html.replace(/<[^>]*>/g, '');
+    // Show native OS notification with HTML stripped from body
     new Notification(notif.title, {
-      body: bodyText,
+      body: stripHtml(notif.body_html),
+      tag: notif.id.toString(), // Use id for deduplication
     });
   };
 
@@ -178,8 +178,9 @@ const App: React.FC = () => {
             <h1>Notifications</h1>
             <p>Notifications page coming soon...</p>
             <button onClick={() => {
-              new Notification('Academia Uploader', {
-                body: 'This is a test notification from your Academia Uploader app!'
+              new Notification('Test Notification', {
+                body: 'This is a test notification from your Academia Uploader app!',
+                tag: 'test-notification'
               });
             }}>
               Test Notification
