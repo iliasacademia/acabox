@@ -99,7 +99,7 @@ export class MessageBridge {
     console.log(`[MessageBridge] Registered as window.__messageBridge: ${this.instanceId}`);
 
     // Transfer pending requests from old instance (hot-reload support)
-    // Must happen AFTER window.__messageBridge is set but BEFORE setupNativeInterface
+    // Must happen AFTER window.__messageBridge is set but BEFORE processPreloadQueue
     if (oldBridge && oldBridge.pendingRequests) {
       const oldRequests = oldBridge.pendingRequests;
       let transferCount = 0;
@@ -114,9 +114,32 @@ export class MessageBridge {
       }
     }
 
+    // WAGENT-68: Process any responses that arrived before MessageBridge was initialized
+    // This MUST happen synchronously before any async operations to guarantee no responses are lost
+    this.processPreloadQueue();
+
     this.setupNativeInterface();
 
     console.log(`[MessageBridge] Initialized for client: ${clientId}, platform: ${this.platform}, instance: ${this.instanceId}`);
+  }
+
+  // ========== Queue Processing ==========
+
+  /**
+   * WAGENT-68: Process responses that arrived before MessageBridge was initialized
+   * This runs synchronously during construction to guarantee no responses are lost
+   */
+  private processPreloadQueue() {
+    if (window.__pendingResponses && window.__pendingResponses.length > 0) {
+      console.log(`[MessageBridge] Processing ${window.__pendingResponses.length} queued responses (WAGENT-68)`);
+      const pendingResponses = window.__pendingResponses;
+      window.__pendingResponses = []; // Clear the queue
+
+      for (const response of pendingResponses) {
+        console.log(`[MessageBridge] Processing queued response: ${response.action}`);
+        this.handleNativeMessage(response);
+      }
+    }
   }
 
   // ========== Platform Detection ==========
@@ -165,6 +188,17 @@ export class MessageBridge {
       };
 
       checkAndSetup();
+
+      // WAGENT-81: Add timeout protection to clear stale queue
+      // If MessageBridge fails to initialize within 5 seconds, clear the queue to prevent memory leaks
+      setTimeout(() => {
+        if (window.__pendingResponses && window.__pendingResponses.length > 0) {
+          console.error(
+            `[MessageBridge] ${window.__pendingResponses.length} responses still queued after 5s - clearing (WAGENT-81)`
+          );
+          window.__pendingResponses = [];
+        }
+      }, 5000);
     } else if (this.platform === 'webview2') {
       // Windows WebView2
       window.chrome!.webview!.addEventListener('message', (e: any) => {
