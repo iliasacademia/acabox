@@ -17,6 +17,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      id-token: write
 
     steps:
       - name: Checkout code with full history
@@ -109,7 +110,7 @@ jobs:
             WebFetch(domain:nodejs.org),
             WebFetch(domain:developer.mozilla.org),
             WebFetch(domain:owasp.org)
-          prompt: |
+          direct_prompt: |
             You are reviewing a pull request for an Electron desktop application built with TypeScript and React 19.
 
             ## PR SIZE
