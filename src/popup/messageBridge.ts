@@ -82,18 +82,37 @@ export class MessageBridge {
 
     console.log(`[MessageBridge] Creating new instance: ${this.instanceId}`);
 
+    // Store reference to old instance before overwriting (for hot-reload support)
+    const oldBridge = window.__messageBridge;
+
     // Detect if we're overwriting an existing instance
-    if (window.__messageBridge) {
+    if (oldBridge) {
       console.error('[MessageBridge] WARNING: Overwriting existing MessageBridge instance!');
-      console.error('[MessageBridge] Old instance ID:', (window.__messageBridge as any).instanceId);
+      console.error('[MessageBridge] Old instance ID:', (oldBridge as any).instanceId);
       console.error('[MessageBridge] New instance ID:', this.instanceId);
-      console.error('[MessageBridge] Old instance pending requests:', window.__messageBridge.pendingRequests?.size || 0);
+      console.error('[MessageBridge] Old instance pending requests:', oldBridge.pendingRequests?.size || 0);
     }
 
-    // CRITICAL: Register this instance globally IMMEDIATELY before any async setup
+    // CRITICAL: Register this instance globally IMMEDIATELY
     // This ensures that when responses come back, they're routed to the correct instance
     window.__messageBridge = this;
     console.log(`[MessageBridge] Registered as window.__messageBridge: ${this.instanceId}`);
+
+    // Transfer pending requests from old instance (hot-reload support)
+    // Must happen AFTER window.__messageBridge is set but BEFORE setupNativeInterface
+    if (oldBridge && oldBridge.pendingRequests) {
+      const oldRequests = oldBridge.pendingRequests;
+      let transferCount = 0;
+
+      oldRequests.forEach((value, key) => {
+        this.pendingRequests.set(key, value);
+        transferCount++;
+      });
+
+      if (transferCount > 0) {
+        console.warn(`[MessageBridge] Transferred ${transferCount} pending request(s) from old instance`);
+      }
+    }
 
     this.setupNativeInterface();
 
@@ -420,6 +439,37 @@ export class MessageBridge {
 
   public isConnected(): boolean {
     return this.isReady;
+  }
+
+  /**
+   * Destroy the bridge instance
+   * Cleans up pending requests, handlers, and global references
+   */
+  public destroy(): void {
+    console.log('[MessageBridge] Destroying bridge instance');
+
+    // Cancel all pending request timeouts and reject them
+    this.pendingRequests.forEach((request, requestId) => {
+      clearTimeout(request.timeoutId);
+      request.reject(new Error('Bridge destroyed'));
+    });
+
+    // Clear pending requests
+    this.pendingRequests.clear();
+
+    // Clear handlers
+    this.handlers.clear();
+
+    // Clear window globals
+    if (window.__bridgeHandlers) {
+      window.__bridgeHandlers = {};
+    }
+
+    if (window.__messageBridge === this) {
+      delete window.__messageBridge;
+    }
+
+    console.log('[MessageBridge] Bridge instance destroyed');
   }
 }
 
