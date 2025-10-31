@@ -41,12 +41,15 @@ clang++ -arch arm64 -arch x86_64 \
     -Wno-deprecated-declarations \
     -I"$SCRIPT_DIR" \
     -I"$SCRIPT_DIR/bridge/interface" \
+    -I"$SCRIPT_DIR/bridge/macos" \
     -I"$SCRIPT_DIR/bridge/helpers" \
     -I"$SCRIPT_DIR/bridge/windows" \
     -I"$SCRIPT_DIR/bridge/views" \
     -I"$SCRIPT_DIR/../node_modules/node-addon-api" \
     -o build/SimpleTests \
     bridge/__tests__/SimpleTests.mm \
+    bridge/interface/Message.cpp \
+    bridge/interface/MessageRouter.cpp \
     bridge/helpers/ScriptInjector.mm \
     bridge/helpers/HTMLLoader.mm \
     bridge/helpers/PanelStyleHelper.mm \
