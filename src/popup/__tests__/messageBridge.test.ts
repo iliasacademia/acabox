@@ -40,7 +40,13 @@ describe('MessageBridge', () => {
       mockPostMessage(msg);
     };
     (window as any).__bridgeReceive = function (msg: Message) {
-      // This will be overridden by MessageBridge
+      // If MessageBridge has registered itself, forward to it
+      if ((window as any).__messageBridge && (window as any).__messageBridge.handleNativeMessage) {
+        (window as any).__messageBridge.handleNativeMessage(msg);
+        return;
+      }
+
+      // Handle regular messages with action handlers (backward compatibility)
       if ((window as any).__bridgeHandlers && (window as any).__bridgeHandlers[msg.action]) {
         (window as any).__bridgeHandlers[msg.action](msg);
       }
@@ -150,36 +156,40 @@ describe('MessageBridge', () => {
 
     it('should send request and handle response', (done) => {
       setTimeout(async () => {
-        // Send a request
-        const requestPromise = bridge.sendRequest('native', 'testRequest', { query: 'test' });
+        try {
+          // Send a request
+          const requestPromise = bridge.sendRequest('native', 'testRequest', { query: 'test' });
 
-        // Get the request message
-        expect(mockPostMessage).toHaveBeenCalled();
-        const requestMsg = mockPostMessage.mock.calls[mockPostMessage.mock.calls.length - 1][0];
-        expect(requestMsg.action).toBe('testRequest');
-        expect(requestMsg.type).toBe('request');
+          // Get the request message
+          expect(mockPostMessage).toHaveBeenCalled();
+          const requestMsg = mockPostMessage.mock.calls[mockPostMessage.mock.calls.length - 1][0];
+          expect(requestMsg.action).toBe('testRequest');
+          expect(requestMsg.type).toBe('request');
 
-        // Simulate native sending a response
-        setTimeout(() => {
-          const responseMsg: Message = {
-            id: requestMsg.id, // Same ID as request
-            from: 'native',
-            to: 'test-client',
-            type: 'response' as MessageType,
-            action: 'testRequest',
-            payload: { result: 'success' },
-            timestamp: Date.now(),
-          };
+          // Simulate native sending a response
+          setTimeout(() => {
+            const responseMsg: Message = {
+              id: requestMsg.id, // Same ID as request
+              from: 'native',
+              to: 'test-client',
+              type: 'response' as MessageType,
+              action: 'testRequest',
+              payload: { result: 'success' },
+              timestamp: Date.now(),
+            };
 
-          window.__bridgeReceive!(responseMsg);
-        }, 50);
+            window.__bridgeReceive!(responseMsg);
+          }, 50);
 
-        // Wait for response
-        const result = await requestPromise;
-        expect(result).toEqual({ result: 'success' });
-        done();
+          // Wait for response
+          const result = await requestPromise;
+          expect(result).toEqual({ result: 'success' });
+          done();
+        } catch (error) {
+          done(error);
+        }
       }, 300);
-    });
+    }, 10000);
 
     it('should timeout requests that do not receive response', (done) => {
       setTimeout(async () => {
@@ -283,6 +293,179 @@ describe('MessageBridge', () => {
       // but we can verify it doesn't throw an error)
       expect(true).toBe(true);
     });
+  });
+
+  describe('Preload Queue Processing (WAGENT-68)', () => {
+    it('should process pending responses immediately during initialization', (done) => {
+      // Setup: Create pending responses BEFORE MessageBridge is created
+      const preloadResponse1: Message = {
+        id: 'preload-req-1',
+        from: 'native',
+        to: 'test-client',
+        type: 'response' as MessageType,
+        action: 'earlyRequest',
+        payload: { result: 'early-response-1' },
+        timestamp: Date.now(),
+      };
+
+      const preloadResponse2: Message = {
+        id: 'preload-req-2',
+        from: 'native',
+        to: 'test-client',
+        type: 'response' as MessageType,
+        action: 'earlyRequest',
+        payload: { result: 'early-response-2' },
+        timestamp: Date.now(),
+      };
+
+      // Simulate responses arriving before MessageBridge is created
+      (window as any).__pendingResponses = [preloadResponse1, preloadResponse2];
+
+      // Create a new MessageBridge instance
+      const newBridge = new MessageBridge('preload-test');
+
+      // The queue should be processed synchronously during construction
+      // So __pendingResponses should be cleared immediately
+      expect((window as any).__pendingResponses).toEqual([]);
+
+      done();
+    });
+
+    it('should handle responses in preload queue that match pending requests', (done) => {
+      // Setup: Create a response that will match a pending request
+      const requestId = 'test-preload-request-123';
+      const preloadResponse: Message = {
+        id: requestId,
+        from: 'native',
+        to: 'test-client',
+        type: 'response' as MessageType,
+        action: 'testAction',
+        payload: { result: 'preloaded-success' },
+        timestamp: Date.now(),
+      };
+
+      // Simulate response arriving before MessageBridge is created
+      (window as any).__pendingResponses = [preloadResponse];
+
+      // Create a new MessageBridge instance
+      const newBridge = new MessageBridge('preload-test-2');
+
+      // Wait for bridge to be ready
+      setTimeout(async () => {
+        // Create a mock pending request by accessing the private field
+        // This simulates a request that was made before the response arrived
+        const pendingRequests = (newBridge as any).pendingRequests;
+
+        // Add a pending request that matches the preloaded response
+        const resolvePromise = jest.fn();
+        const rejectPromise = jest.fn();
+        pendingRequests.set(requestId, {
+          resolve: resolvePromise,
+          reject: rejectPromise,
+          timeoutId: setTimeout(() => {}, 5000),
+        });
+
+        // Now process the preload queue again (simulating late arrival)
+        (window as any).__pendingResponses = [preloadResponse];
+        (newBridge as any).processPreloadQueue();
+
+        // The promise should have been resolved with the payload
+        expect(resolvePromise).toHaveBeenCalledWith({ result: 'preloaded-success' });
+        expect(rejectPromise).not.toHaveBeenCalled();
+
+        done();
+      }, 300);
+    });
+  });
+
+  describe('Queue Timeout Protection (WAGENT-81)', () => {
+    it('should clear stale queue after 5 seconds if bridge fails to initialize', (done) => {
+      // Create a scenario where bridge functions are not available
+      delete (window as any).__bridgeSend;
+      delete (window as any).__bridgeReceive;
+
+      // Mock console.error to verify it's called
+      const originalConsoleError = console.error;
+      console.error = jest.fn();
+
+      // Create MessageBridge - it won't be able to initialize because bridge functions are missing
+      const failingBridge = new MessageBridge('timeout-test');
+
+      // Simulate responses arriving AFTER MessageBridge is created
+      // This represents responses that arrive during the window between construction and timeout
+      setTimeout(() => {
+        (window as any).__pendingResponses = [
+          {
+            id: 'late-1',
+            from: 'native',
+            to: 'test-client',
+            type: 'response' as MessageType,
+            action: 'lateRequest',
+            payload: { result: 'late-response-1' },
+            timestamp: Date.now(),
+          },
+          {
+            id: 'late-2',
+            from: 'native',
+            to: 'test-client',
+            type: 'response' as MessageType,
+            action: 'lateRequest',
+            payload: { result: 'late-response-2' },
+            timestamp: Date.now(),
+          },
+        ];
+      }, 1000); // Add responses 1 second after construction
+
+      // Wait for 5+ seconds for timeout to trigger
+      setTimeout(() => {
+        // Verify console.error was called with the stale queue message
+        expect(console.error).toHaveBeenCalledWith(
+          expect.stringContaining('responses still queued after 5s - clearing (WAGENT-81)')
+        );
+
+        // Restore console.error
+        console.error = originalConsoleError;
+
+        done();
+      }, 5100); // Wait just over 5 seconds
+    }, 10000); // Increase test timeout to 10 seconds
+
+    it('should not clear queue if bridge initializes successfully', (done) => {
+      // Setup: Create responses and ensure bridge functions are available
+      const response: Message = {
+        id: 'success-1',
+        from: 'native',
+        to: 'test-client',
+        type: 'response' as MessageType,
+        action: 'successRequest',
+        payload: { result: 'success-response' },
+        timestamp: Date.now(),
+      };
+
+      (window as any).__pendingResponses = [response];
+
+      // Mock console.error to verify it's NOT called
+      const originalConsoleError = console.error;
+      const mockConsoleError = jest.fn();
+      console.error = mockConsoleError;
+
+      // Create MessageBridge with bridge functions available (from beforeEach setup)
+      const successBridge = new MessageBridge('success-test');
+
+      // Wait for 5+ seconds
+      setTimeout(() => {
+        // Verify console.error was NOT called with the stale queue message
+        const errorCalls = mockConsoleError.mock.calls.filter((call: any) =>
+          call.some((arg: any) => typeof arg === 'string' && arg.includes('responses still queued after 5s'))
+        );
+        expect(errorCalls.length).toBe(0);
+
+        // Restore console.error
+        console.error = originalConsoleError;
+
+        done();
+      }, 5100); // Wait just over 5 seconds
+    }, 10000); // Increase test timeout to 10 seconds
   });
 
   describe('Error Handling', () => {
