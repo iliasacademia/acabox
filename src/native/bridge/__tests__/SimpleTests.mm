@@ -199,21 +199,22 @@ void testButtonOverlayPositioning() {
     }
 }
 
-void testScheduleAndCancelHide() {
-    TEST_START("Schedule and Cancel Hide");
-
-    @autoreleasepool {
-        ButtonOverlayWindow* button = [[ButtonOverlayWindow alloc] initWithObserver:nil];
-
-        [button scheduleHidePopup];
-        ASSERT_NOT_NULL(button.scheduledHideBlock, "Hide should be scheduled");
-
-        [button cancelScheduledHide];
-        ASSERT_TRUE(button.scheduledHideBlock == nil, "Hide should be cancelled");
-
-        TEST_PASS();
-    }
-}
+// NOTE: Commented out - scheduleHidePopup/cancelScheduledHide methods removed in refactor
+// void testScheduleAndCancelHide() {
+//     TEST_START("Schedule and Cancel Hide");
+//
+//     @autoreleasepool {
+//         ButtonOverlayWindow* button = [[ButtonOverlayWindow alloc] initWithObserver:nil];
+//
+//         [button scheduleHidePopup];
+//         ASSERT_NOT_NULL(button.scheduledHideBlock, "Hide should be scheduled");
+//
+//         [button cancelScheduledHide];
+//         ASSERT_TRUE(button.scheduledHideBlock == nil, "Hide should be cancelled");
+//
+//         TEST_PASS();
+//     }
+// }
 
 void testMemoryDeallocation() {
     TEST_START("Memory Deallocation");
@@ -257,7 +258,7 @@ int main(int argc, const char * argv[]) {
         testWindowInitializationWithNilObserver();
         testTextPopupUpdateContent();
         testButtonOverlayPositioning();
-        testScheduleAndCancelHide();
+        // testScheduleAndCancelHide();  // Commented out - methods removed in refactor
         testMemoryDeallocation();
 
         // Print results
