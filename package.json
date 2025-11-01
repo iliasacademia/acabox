@@ -36,7 +36,6 @@
     "@electron-forge/plugin-webpack": "^7.10.2",
     "@electron/fuses": "^1.8.0",
     "@electron/osx-sign": "^2.2.0",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.7.2",
     "@types/react": "^19.2.2",
@@ -61,7 +60,6 @@
   "dependencies": {
     "axios": "^1.10.0",
     "axios-cookiejar-support": "^6.0.3",
-    "better-sqlite3": "^12.4.1",
     "canvas": "^3.2.0",
     "chokidar": "^4.0.3",
     "electron-squirrel-startup": "^1.0.1",
