@@ -48,6 +48,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (userId) {
+      // Start polling in main process
+      window.electronAPI.invoke('start-notification-polling', userId);
+
       // Listen for new notifications
       const handleNewNotification = (_event: any, notif: NotificationType) => {
         showDesktopNotification(notif);
@@ -56,6 +59,8 @@ const App: React.FC = () => {
 
       return () => {
         window.electronAPI.removeListener('new-notification', handleNewNotification);
+        // Stop polling on cleanup
+        window.electronAPI.invoke('stop-notification-polling');
       };
     }
   }, [userId]);
