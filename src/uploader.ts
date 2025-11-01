@@ -9,6 +9,7 @@ import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'fs/promises';
 import { app } from 'electron';
+import { Notification, GetNotificationsResponse } from './types/notifications';
 
 // In development mode, default to devdemia API
 const isDev = !app.isPackaged;
@@ -167,20 +168,6 @@ export const logout = async () => {
 };
 
 // Desktop Notifications API
-export interface DesktopNotification {
-  data: string;
-  user_id: number;
-  file_id: number;
-  status: 'unread' | 'read' | 'dismissed';
-  created_at: number;
-  read_at: number | null;
-  dismissed_at: number | null;
-}
-
-export interface GetNotificationsResponse {
-  notifications: DesktopNotification[];
-}
-
 export const getNotifications = async (): Promise<GetNotificationsResponse> => {
   const client = await APIclient();
   const response = await client.get('/v0/desktop_notifications/get_notifications');
@@ -188,7 +175,7 @@ export const getNotifications = async (): Promise<GetNotificationsResponse> => {
 };
 
 export const updateNotification = async (
-  createdAt: number,
+  id: number,
   status: 'unread' | 'read' | 'dismissed',
   readAt?: number | null,
   dismissedAt?: number | null
@@ -198,7 +185,7 @@ export const updateNotification = async (
   await client.patch(
     '/v0/desktop_notifications/update_notification',
     {
-      created_at: createdAt,
+      id,
       status,
       read_at: readAt,
       dismissed_at: dismissedAt,

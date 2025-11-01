@@ -3,9 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { createCanvas } from 'canvas';
-import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
+import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles, getNotifications, updateNotification } from './uploader';
 import { syncService } from './syncService';
-import { notificationService } from './notificationService';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
 
 
@@ -56,9 +55,6 @@ const createWindow = async (): Promise<void> => {
 
   // Initialize sync service with main window
   syncService.setMainWindow(devWindow);
-
-  // Initialize notification service with main window
-  notificationService.setMainWindow(devWindow);
 
   // Wait for window to be ready, then initialize
   devWindow.webContents.once('did-finish-load', async () => {
@@ -523,44 +519,20 @@ ipcMain.handle('search-files', async (_event, searchTerm: string) => {
 });
 
 // Notification IPC handlers
-ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread' | 'read' | 'dismissed'; userId?: number }) => {
+ipcMain.handle('get-notifications', async () => {
   try {
-    const userId = options?.userId;
-    if (!userId) {
-      return { notifications: [] };
-    }
-
-    const notifications = notificationService.getNotificationsByStatus(userId, options?.status);
-    return { notifications };
+    const response = await getNotifications();
+    return response;
   } catch (error: any) {
     console.error('Failed to get notifications:', error);
     return { notifications: [] };
   }
 });
 
-ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
+ipcMain.handle('mark-notification-read', async (_event, id: number) => {
   try {
-    notificationService.startPolling(userId, 30000); // 30 second interval
-    return { success: true };
-  } catch (error: any) {
-    console.error('Failed to start notification polling:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('stop-notification-polling', async () => {
-  try {
-    notificationService.stopPolling();
-    return { success: true };
-  } catch (error: any) {
-    console.error('Failed to stop notification polling:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('mark-notification-read', async (_event, createdAt: number) => {
-  try {
-    await notificationService.markAsRead(createdAt);
+    const now = Date.now();
+    await updateNotification(id, 'read', now, null);
     return { success: true };
   } catch (error: any) {
     console.error('Failed to mark notification as read:', error);
@@ -568,9 +540,10 @@ ipcMain.handle('mark-notification-read', async (_event, createdAt: number) => {
   }
 });
 
-ipcMain.handle('dismiss-notification', async (_event, createdAt: number) => {
+ipcMain.handle('dismiss-notification', async (_event, id: number) => {
   try {
-    await notificationService.dismissNotification(createdAt);
+    const now = Date.now();
+    await updateNotification(id, 'dismissed', null, now);
     return { success: true };
   } catch (error: any) {
     console.error('Failed to dismiss notification:', error);
@@ -607,10 +580,6 @@ app.on('before-quit', async () => {
   // Stop all sync watchers
   console.log('[APP] Stopping sync watchers...');
   await syncService.stopAll();
-
-  // Stop notification polling and close database
-  console.log('[APP] Closing notification service...');
-  notificationService.close();
 
   console.log('[APP] Cleanup complete');
 });

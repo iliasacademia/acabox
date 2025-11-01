@@ -5,11 +5,12 @@ import SuggestionsContainer from './SuggestionsContainer';
 import { getBridgeInstance } from './hooks/useBridge';
 import { logJSON } from './utils/logger';
 
-// Initialize bridge early
-const bridge = getBridgeInstance('popup-default');
+// Initialize bridge early (but don't capture it in a variable)
+getBridgeInstance('popup-default');
 
 console.log('[Popup] Initializing...');
-console.log('[Popup] Platform:', bridge.getPlatform());
+// CRITICAL: Always use window.__messageBridge to get the current global instance
+console.log('[Popup] Platform:', window.__messageBridge?.getPlatform());
 
 // App wrapper component that decides which component to render
 const App: React.FC = () => {
@@ -35,13 +36,17 @@ const App: React.FC = () => {
       }
     };
 
-    // Register handler with bridge
-    bridge.on('updateContent', handler);
-
-    console.log('[App] View type listener registered');
+    // Register handler with bridge - always use current global instance
+    const bridge = window.__messageBridge;
+    if (bridge) {
+      bridge.on('updateContent', handler);
+      console.log('[App] View type listener registered');
+    }
 
     return () => {
-      bridge.off('updateContent');
+      if (bridge) {
+        bridge.off('updateContent');
+      }
     };
   }, [viewType]);
 
@@ -68,7 +73,8 @@ if (container) {
 
 // Wait for bridge to be ready, then signal
 const checkReady = setInterval(() => {
-  if (bridge.isConnected()) {
+  const bridge = window.__messageBridge;
+  if (bridge && bridge.isConnected()) {
     console.log('[Popup] Bridge connected and ready');
     clearInterval(checkReady);
   }
@@ -76,7 +82,8 @@ const checkReady = setInterval(() => {
 
 // Timeout after 5 seconds
 setTimeout(() => {
-  if (!bridge.isConnected()) {
+  const bridge = window.__messageBridge;
+  if (!bridge || !bridge.isConnected()) {
     console.error('[Popup] Bridge connection timeout - native bridge may not be initialized');
     clearInterval(checkReady);
   }
