@@ -102,68 +102,72 @@ describe('useBridge', () => {
       process.env.NODE_ENV = 'development';
 
       const bridge1 = getBridgeInstance();
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
       const bridge2 = getBridgeInstance();
 
-      // Should have warned about reusing instance
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[useBridge] Using existing bridge instance to prevent duplication'
+      // Should have logged about returning existing instance
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '[useBridge] Returning existing bridge instance:',
+        expect.any(String) // instance ID
       );
       expect(bridge1).toBe(bridge2);
 
-      consoleWarnSpy.mockRestore();
+      consoleLogSpy.mockRestore();
     });
 
     it('should not warn on first instance creation in development mode', () => {
       process.env.NODE_ENV = 'development';
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
       const bridge = getBridgeInstance();
 
-      // Should not warn on first creation
-      expect(consoleWarnSpy).not.toHaveBeenCalledWith(
-        '[useBridge] Using existing bridge instance to prevent duplication'
+      // Should not log about returning existing instance on first creation
+      expect(consoleLogSpy).not.toHaveBeenCalledWith(
+        '[useBridge] Returning existing bridge instance:',
+        expect.any(String)
       );
 
-      consoleWarnSpy.mockRestore();
+      consoleLogSpy.mockRestore();
     });
 
     it('should not warn in production mode', () => {
       process.env.NODE_ENV = 'production';
 
       const bridge1 = getBridgeInstance();
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
       const bridge2 = getBridgeInstance();
 
-      // Should NOT warn in production
-      expect(consoleWarnSpy).not.toHaveBeenCalledWith(
-        '[useBridge] Using existing bridge instance to prevent duplication'
+      // Should NOT log in production mode
+      expect(consoleLogSpy).not.toHaveBeenCalledWith(
+        '[useBridge] Returning existing bridge instance:',
+        expect.any(String)
       );
       expect(bridge1).toBe(bridge2);
 
-      consoleWarnSpy.mockRestore();
+      consoleLogSpy.mockRestore();
     });
 
     it('should warn each time existing instance is reused in development', () => {
       process.env.NODE_ENV = 'development';
 
       const bridge1 = getBridgeInstance();
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
       getBridgeInstance();
       getBridgeInstance();
       getBridgeInstance();
 
-      // Should warn 3 times (once for each reuse)
-      expect(consoleWarnSpy).toHaveBeenCalledTimes(3);
-      expect(consoleWarnSpy).toHaveBeenCalledWith(
-        '[useBridge] Using existing bridge instance to prevent duplication'
+      // Should log 3 times (once for each reuse)
+      expect(consoleLogSpy).toHaveBeenCalledTimes(3);
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '[useBridge] Returning existing bridge instance:',
+        expect.any(String)
       );
 
-      consoleWarnSpy.mockRestore();
+      consoleLogSpy.mockRestore();
     });
   });
 
