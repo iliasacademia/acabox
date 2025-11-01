@@ -1,11 +1,12 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { IPC_CHANNELS } from './shared/types';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
   // IPC handlers
   invoke: (channel: string, ...args: any[]) => {
-    const validChannels = ['check-login', 'login', 'logout', 'select-folder', 'upload-files', 'search-files', 'get-notifications', 'update-notification', 'get-current-user', 'get-screen-sources', 'get-all-sources', 'get-word-content', 'test-word-api', 'check-word-frontmost', 'get-word-scroll-position', 'get-word-text', 'process-screen-ocr', 'get-sync-folders', 'add-sync-folder', 'remove-sync-folder', 'sync-folder-now', 'get-folder-files', 'process-word-window', 'start-selection-tracking', 'stop-selection-tracking', 'selection-button-clicked', 'change-tray-icon', 'minimize-window', 'close-window', 'start-notification-polling', 'stop-notification-polling', 'mark-notification-read', 'dismiss-notification', 'get-position-debug-info'];
+    const validChannels = Object.values(IPC_CHANNELS) as string[];
     if (validChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);
     }
@@ -14,25 +15,55 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Event listeners
   on: (channel: string, callback: (event: IpcRendererEvent, ...args: any[]) => void) => {
-    const validChannels = ['file-uploaded', 'file-synced', 'folder-sync-status', 'initial-sync-status', 'initial-sync-progress', 'selection-updated', 'button-action', 'new-notification', 'notification-updated'];
+    const validChannels: string[] = [
+      IPC_CHANNELS.FILE_UPLOADED,
+      IPC_CHANNELS.FILE_SYNCED,
+      IPC_CHANNELS.FOLDER_SYNC_STATUS,
+      IPC_CHANNELS.INITIAL_SYNC_STATUS,
+      IPC_CHANNELS.INITIAL_SYNC_PROGRESS,
+      IPC_CHANNELS.SELECTION_UPDATED,
+      IPC_CHANNELS.BUTTON_ACTION,
+      IPC_CHANNELS.NEW_NOTIFICATION,
+      IPC_CHANNELS.NOTIFICATION_UPDATED,
+    ];
     if (validChannels.includes(channel)) {
-      ipcRenderer.on(channel, callback);
+      ipcRenderer.on(channel as any, callback);
     }
   },
 
   // Remove specific event listener
   removeListener: (channel: string, callback: (event: IpcRendererEvent, ...args: any[]) => void) => {
-    const validChannels = ['file-uploaded', 'file-synced', 'folder-sync-status', 'initial-sync-status', 'initial-sync-progress', 'selection-updated', 'button-action', 'new-notification', 'notification-updated'];
+    const validChannels: string[] = [
+      IPC_CHANNELS.FILE_UPLOADED,
+      IPC_CHANNELS.FILE_SYNCED,
+      IPC_CHANNELS.FOLDER_SYNC_STATUS,
+      IPC_CHANNELS.INITIAL_SYNC_STATUS,
+      IPC_CHANNELS.INITIAL_SYNC_PROGRESS,
+      IPC_CHANNELS.SELECTION_UPDATED,
+      IPC_CHANNELS.BUTTON_ACTION,
+      IPC_CHANNELS.NEW_NOTIFICATION,
+      IPC_CHANNELS.NOTIFICATION_UPDATED,
+    ];
     if (validChannels.includes(channel)) {
-      ipcRenderer.removeListener(channel, callback);
+      ipcRenderer.removeListener(channel as any, callback);
     }
   },
 
   // Remove all event listeners
   removeAllListeners: (channel: string) => {
-    const validChannels = ['file-uploaded', 'file-synced', 'folder-sync-status', 'initial-sync-status', 'initial-sync-progress', 'selection-updated', 'button-action', 'new-notification', 'notification-updated'];
+    const validChannels: string[] = [
+      IPC_CHANNELS.FILE_UPLOADED,
+      IPC_CHANNELS.FILE_SYNCED,
+      IPC_CHANNELS.FOLDER_SYNC_STATUS,
+      IPC_CHANNELS.INITIAL_SYNC_STATUS,
+      IPC_CHANNELS.INITIAL_SYNC_PROGRESS,
+      IPC_CHANNELS.SELECTION_UPDATED,
+      IPC_CHANNELS.BUTTON_ACTION,
+      IPC_CHANNELS.NEW_NOTIFICATION,
+      IPC_CHANNELS.NOTIFICATION_UPDATED,
+    ];
     if (validChannels.includes(channel)) {
-      ipcRenderer.removeAllListeners(channel);
+      ipcRenderer.removeAllListeners(channel as any);
     }
   },
 });
