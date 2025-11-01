@@ -12,15 +12,30 @@ let bridgeInstance: MessageBridge | null = null;
 
 /**
  * Get or create the bridge singleton
+ *
+ * IMPORTANT: This enforces a true singleton pattern to prevent instance mismatches.
+ * Once created, the same instance is always returned, even if called with different clientIds.
  */
 export function getBridgeInstance(clientId: string = 'popup-default'): MessageBridge {
-  if (bridgeInstance && process.env.NODE_ENV === 'development') {
-    console.warn('[useBridge] Using existing bridge instance to prevent duplication');
+  if (bridgeInstance) {
+    // Instance already exists - always return the same one
+    if (process.env.NODE_ENV === 'development') {
+      console.log('[useBridge] Returning existing bridge instance:', (bridgeInstance as any).instanceId);
+    }
+    return bridgeInstance;
   }
 
-  if (!bridgeInstance) {
-    bridgeInstance = new MessageBridge(clientId);
+  // Create new instance
+  console.log('[useBridge] Creating new bridge instance with clientId:', clientId);
+  bridgeInstance = new MessageBridge(clientId);
+
+  // Also check if window.__messageBridge already exists and is different
+  // This would indicate module re-execution
+  if (window.__messageBridge && window.__messageBridge !== bridgeInstance) {
+    console.warn('[useBridge] WARNING: window.__messageBridge already exists with different instance!');
+    console.warn('[useBridge] This indicates module re-execution. Bridge should still work due to fallback logic.');
   }
+
   return bridgeInstance;
 }
 
@@ -47,13 +62,24 @@ if (typeof window !== 'undefined') {
  *
  * Returns the bridge instance for direct access
  *
+ * IMPORTANT: This always returns the current global instance from window.__messageBridge
+ * to ensure all components use the same instance, even if instances are replaced during hot-reload.
+ *
  * @example
  * const bridge = useBridge();
  * const result = await bridge.sendRequest('native', 'action', payload);
  */
 export function useBridge(clientId?: string): MessageBridge {
-  const [bridge] = useState(() => getBridgeInstance(clientId));
-  return bridge;
+  // Ensure instance is created
+  getBridgeInstance(clientId);
+
+  // CRITICAL FIX: Always return the current global instance, not a captured one
+  // This prevents the issue where React closures hold old instances after hot-reload
+  if (!window.__messageBridge) {
+    throw new Error('[useBridge] MessageBridge global instance not found');
+  }
+
+  return window.__messageBridge;
 }
 
 /**

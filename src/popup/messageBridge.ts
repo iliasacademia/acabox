@@ -360,11 +360,28 @@ export class MessageBridge {
       console.log(`[MessageBridge ${this.instanceId}] Current pending requests:`, Array.from(this.pendingRequests.keys()));
       console.log(`[MessageBridge ${this.instanceId}] pendingRequests size:`, this.pendingRequests.size);
 
-      const pending = this.pendingRequests.get(msg.id);
+      // FIRST: Check if THIS instance has the pending request
+      let pending = this.pendingRequests.get(msg.id);
+      let foundInInstance: MessageBridge | null = null;
+
       if (pending) {
-        console.log(`[MessageBridge] Found matching pending request for ID: ${msg.id}`);
+        foundInInstance = this;
+        console.log(`[MessageBridge] Found matching pending request in current instance for ID: ${msg.id}`);
+      }
+      // SECOND: If not found, check if there's a different global instance with this request
+      // This handles the case where a new instance was created after the request was sent
+      else if (window.__messageBridge && window.__messageBridge !== this) {
+        console.log(`[MessageBridge] Checking global instance (different from current)`);
+        pending = window.__messageBridge.pendingRequests.get(msg.id);
+        if (pending) {
+          foundInInstance = window.__messageBridge;
+          console.log(`[MessageBridge] Found matching pending request in global instance for ID: ${msg.id}`);
+        }
+      }
+
+      if (pending && foundInInstance) {
         clearTimeout(pending.timeoutId);
-        this.pendingRequests.delete(msg.id);
+        foundInInstance.pendingRequests.delete(msg.id);
 
         if (msg.type === 'error') {
           pending.reject(new Error(msg.payload?.error || 'Unknown error'));
@@ -374,7 +391,8 @@ export class MessageBridge {
         return;
       } else {
         console.warn(`[MessageBridge] No pending request found for response ID: ${msg.id}`);
-        console.warn(`[MessageBridge] Response message:`, msg);
+        console.warn(`[MessageBridge] Response message:`, JSON.stringify(msg));
+        console.warn(`[MessageBridge] Checked this instance (${this.instanceId}) and global instance (${window.__messageBridge?.instanceId})`);
         // Don't fall through to handler lookup for responses/errors
         return;
       }
