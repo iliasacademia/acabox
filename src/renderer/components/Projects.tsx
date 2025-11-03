@@ -5,6 +5,8 @@ import ProjectDetail from './ProjectDetail';
 import CreateProjectWizard, {
   ProjectCreationData,
 } from './CreateProjectWizard';
+import AlertDialog from './AlertDialog';
+import ConfirmDialog from './ConfirmDialog';
 import {
   Project,
   getProjects,
@@ -15,6 +17,13 @@ import './Projects.css';
 
 type View = 'list' | 'detail';
 
+interface DialogState {
+  type: 'alert' | 'confirm' | null;
+  title: string;
+  message: string;
+  onConfirm?: () => void;
+}
+
 const Projects: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -24,6 +33,11 @@ const Projects: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('list');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [showCreateWizard, setShowCreateWizard] = useState(false);
+  const [dialog, setDialog] = useState<DialogState>({
+    type: null,
+    title: '',
+    message: '',
+  });
 
   useEffect(() => {
     checkLoginStatus();
@@ -120,7 +134,11 @@ const Projects: React.FC = () => {
       setCurrentView('detail');
     } catch (error) {
       console.error('Error creating project:', error);
-      alert('Failed to create project. Please try again.');
+      setDialog({
+        type: 'alert',
+        title: 'Error',
+        message: 'Failed to create project. Please try again.',
+      });
     }
   };
 
@@ -130,25 +148,33 @@ const Projects: React.FC = () => {
   };
 
   const handleDeleteProject = async (project: Project) => {
-    if (!confirm(`Are you sure you want to delete "${project.name}"?`)) {
-      return;
-    }
+    setDialog({
+      type: 'confirm',
+      title: 'Delete Project',
+      message: `Are you sure you want to delete "${project.name}"?`,
+      onConfirm: async () => {
+        setDialog({ type: null, title: '', message: '' });
+        try {
+          const success = await deleteProject(project.id);
+          if (success) {
+            setProjects(projects.filter((p) => p.id !== project.id));
 
-    try {
-      const success = await deleteProject(project.id);
-      if (success) {
-        setProjects(projects.filter((p) => p.id !== project.id));
-
-        // If we're viewing the deleted project, go back to list
-        if (selectedProject?.id === project.id) {
-          setCurrentView('list');
-          setSelectedProject(null);
+            // If we're viewing the deleted project, go back to list
+            if (selectedProject?.id === project.id) {
+              setCurrentView('list');
+              setSelectedProject(null);
+            }
+          }
+        } catch (error) {
+          console.error('Error deleting project:', error);
+          setDialog({
+            type: 'alert',
+            title: 'Error',
+            message: 'Failed to delete project. Please try again.',
+          });
         }
-      }
-    } catch (error) {
-      console.error('Error deleting project:', error);
-      alert('Failed to delete project. Please try again.');
-    }
+      },
+    });
   };
 
   const handleBackToList = () => {
@@ -198,6 +224,25 @@ const Projects: React.FC = () => {
         <CreateProjectWizard
           onClose={() => setShowCreateWizard(false)}
           onComplete={handleWizardComplete}
+        />
+      )}
+
+      {/* Alert Dialog */}
+      {dialog.type === 'alert' && (
+        <AlertDialog
+          title={dialog.title}
+          message={dialog.message}
+          onClose={() => setDialog({ type: null, title: '', message: '' })}
+        />
+      )}
+
+      {/* Confirm Dialog */}
+      {dialog.type === 'confirm' && dialog.onConfirm && (
+        <ConfirmDialog
+          title={dialog.title}
+          message={dialog.message}
+          onConfirm={dialog.onConfirm}
+          onCancel={() => setDialog({ type: null, title: '', message: '' })}
         />
       )}
     </div>

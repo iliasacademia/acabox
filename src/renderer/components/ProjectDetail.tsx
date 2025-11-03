@@ -13,6 +13,7 @@ import {
 } from '../services/mockProjectsApi';
 import ProjectSidebar from './ProjectSidebar';
 import ReviewComponent from './ReviewComponent';
+import AlertDialog from './AlertDialog';
 
 interface ProjectDetailProps {
   project: Project;
@@ -25,6 +26,8 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAlert, setShowAlert] = useState(false);
+  const [alertMessage, setAlertMessage] = useState('');
 
   useEffect(() => {
     loadProjectData();
@@ -58,12 +61,14 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
 
   const handleAddFolder = () => {
     // TODO: Implement folder selection
-    alert('Add folder functionality - to be implemented');
+    setAlertMessage('Add folder functionality - to be implemented');
+    setShowAlert(true);
   };
 
   const handleAddCollaborator = () => {
     // TODO: Implement collaborator invitation
-    alert('Add collaborator functionality - to be implemented');
+    setAlertMessage('Add collaborator functionality - to be implemented');
+    setShowAlert(true);
   };
 
   const handleAcceptReview = async (review: Review) => {
@@ -161,6 +166,15 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
           </div>
         </div>
       </div>
+
+      {/* Alert Dialog */}
+      {showAlert && (
+        <AlertDialog
+          title="Notice"
+          message={alertMessage}
+          onClose={() => setShowAlert(false)}
+        />
+      )}
     </div>
   );
 };

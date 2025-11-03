@@ -145,7 +145,9 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   };
 
   const handleAddCollaborator = () => {
-    if (collaboratorEmail && collaboratorEmail.includes('@')) {
+    // Proper email validation regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (collaboratorEmail && emailRegex.test(collaboratorEmail)) {
       setCollaboratorEmails([...collaboratorEmails, collaboratorEmail]);
       setCollaboratorEmail('');
     }
