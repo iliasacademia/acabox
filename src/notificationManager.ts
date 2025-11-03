@@ -51,8 +51,8 @@ class NotificationManager {
           synced_to_backend: true,
         };
 
-        // Check if this is a new notification
-        if (!existingIds.has(notif.id) && notif.status === 'unread') {
+        // Check if this is a new notification (not yet delivered)
+        if (notif.status === 'unread' && !notif.delivered_at) {
           newNotifications.push(notif);
         }
 
@@ -63,10 +63,32 @@ class NotificationManager {
       // Sync local changes to backend
       await this.syncLocalChangesToBackend();
 
-      // Notify renderer about new notifications
+      // Notify renderer about new notifications and mark as delivered
       if (newNotifications.length > 0 && this.mainWindow) {
         for (const notif of newNotifications) {
+          // Send popup event
           this.mainWindow.webContents.send('new-notification', notif);
+
+          // Mark as delivered immediately
+          try {
+            const deliveredAt = Date.now();
+            await updateNotification(
+              notif.id,
+              notif.status,
+              notif.read_at,
+              notif.dismissed_at,
+              deliveredAt
+            );
+
+            // Update in memory
+            const cached = this.notifications.get(notif.id);
+            if (cached) {
+              cached.delivered_at = deliveredAt;
+              this.notifications.set(notif.id, cached);
+            }
+          } catch (error) {
+            console.error(`Failed to mark notification ${notif.id} as delivered:`, error);
+          }
         }
       }
 
@@ -96,7 +118,8 @@ class NotificationManager {
           notif.id,
           notif.status,
           notif.read_at,
-          notif.dismissed_at
+          notif.dismissed_at,
+          notif.delivered_at
         );
 
         // Mark as synced
@@ -171,10 +194,10 @@ class NotificationManager {
 
     // Sync to backend immediately
     try {
-      await updateNotification(id, 'read', now, null);
+      const notif = this.notifications.get(id);
+      await updateNotification(id, 'read', now, null, notif?.delivered_at);
 
       // Mark as synced
-      const notif = this.notifications.get(id);
       if (notif) {
         notif.synced_to_backend = true;
         this.notifications.set(id, notif);
@@ -199,10 +222,10 @@ class NotificationManager {
 
     // Sync to backend immediately
     try {
-      await updateNotification(id, 'dismissed', null, now);
+      const notif = this.notifications.get(id);
+      await updateNotification(id, 'dismissed', null, now, notif?.delivered_at);
 
       // Mark as synced
-      const notif = this.notifications.get(id);
       if (notif) {
         notif.synced_to_backend = true;
         this.notifications.set(id, notif);

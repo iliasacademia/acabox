@@ -38,6 +38,9 @@ export interface Notification {
   /** Timestamp when the notification was dismissed (null if not dismissed) */
   dismissed_at: number | null;
 
+  /** Timestamp when the notification was delivered/shown as a popup (null if not yet delivered) */
+  delivered_at?: number | null;
+
   /** Timestamp when the notification was created */
   created_at: number;
 }

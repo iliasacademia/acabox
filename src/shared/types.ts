@@ -70,6 +70,7 @@ export interface DesktopNotification {
   status: 'unread' | 'read' | 'dismissed';
   read_at: number | null;
   dismissed_at: number | null;
+  delivered_at?: number | null;
 }
 
 export interface GetNotificationsResponse {

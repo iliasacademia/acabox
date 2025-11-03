@@ -178,7 +178,8 @@ export const updateNotification = async (
   id: number,
   status: 'unread' | 'read' | 'dismissed',
   readAt?: number | null,
-  dismissedAt?: number | null
+  dismissedAt?: number | null,
+  deliveredAt?: number | null
 ): Promise<void> => {
   const client = await APIclient();
   const csrfToken = await getCsrfToken();
@@ -189,6 +190,7 @@ export const updateNotification = async (
       status,
       read_at: readAt,
       dismissed_at: dismissedAt,
+      delivered_at: deliveredAt,
     },
     {
       headers: { 'x-csrf-token': csrfToken },
