@@ -59,24 +59,47 @@ const Projects: React.FC = () => {
   const checkLoginStatus = async () => {
     try {
       const loggedIn = await window.electronAPI.invoke('check-login');
+
+      // Validate response
+      if (typeof loggedIn !== 'boolean') {
+        throw new Error('Invalid login status response');
+      }
+
       setIsLoggedIn(loggedIn);
       if (!loggedIn) {
         setShowLogin(true);
         setUserId(null);
         setUserName(null);
       } else {
-        // Get current user
+        // Get current user with validation
         const user = await window.electronAPI.invoke('get-current-user');
-        if (user) {
-          setUserId(user.id);
-          setUserName(user.first_name || user.name || null);
+
+        // Validate user object
+        if (!user || typeof user !== 'object') {
+          throw new Error('Invalid user data received');
         }
+
+        if (typeof user.id !== 'number') {
+          throw new Error('Invalid user ID');
+        }
+
+        setUserId(user.id);
+        setUserName(user.first_name || user.name || null);
       }
     } catch (error) {
       console.error('Error checking login status:', error);
-      // Show login modal on error (same as dev window)
+      // Force logout on authentication errors
+      setIsLoggedIn(false);
       setShowLogin(true);
       setUserId(null);
+      setUserName(null);
+
+      // Show error to user
+      setDialog({
+        type: 'alert',
+        title: 'Authentication Error',
+        message: 'Unable to verify login status. Please log in again.',
+      });
     } finally {
       setLoading(false);
     }
@@ -98,15 +121,34 @@ const Projects: React.FC = () => {
     setShowLogin(false);
     setIsLoggedIn(true);
 
-    // Get user ID after successful login
+    // Get user ID after successful login with validation
     try {
       const user = await window.electronAPI.invoke('get-current-user');
-      if (user) {
-        setUserId(user.id);
-        setUserName(user.first_name || user.name || null);
+
+      // Validate user object
+      if (!user || typeof user !== 'object') {
+        throw new Error('Invalid user data received after login');
       }
+
+      if (typeof user.id !== 'number') {
+        throw new Error('Invalid user ID received after login');
+      }
+
+      setUserId(user.id);
+      setUserName(user.first_name || user.name || null);
     } catch (error) {
       console.error('Error getting current user:', error);
+      // Reset authentication state on error
+      setIsLoggedIn(false);
+      setShowLogin(true);
+      setUserId(null);
+      setUserName(null);
+
+      setDialog({
+        type: 'alert',
+        title: 'Login Error',
+        message: 'Login succeeded but failed to retrieve user information. Please try again.',
+      });
     }
   };
 

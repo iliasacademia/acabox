@@ -57,11 +57,15 @@ const createWindow = async (): Promise<void> => {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           "default-src 'self'; " +
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " + // unsafe-inline needed for React inline styles
           "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src 'self' data: http://localhost:*; " +
+          "img-src 'self' data:; " + // Removed localhost wildcard for production
           "script-src 'self'; " +
-          "connect-src 'self' http://localhost:* https://*.academia.edu ws://localhost:*"
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu; " + // Specific domains only
+          "object-src 'none'; " + // Disable plugins
+          "base-uri 'self'; " + // Prevent base tag injection
+          "form-action 'self'; " + // Restrict form submissions
+          "frame-ancestors 'none'" // Prevent clickjacking
         ]
       }
     });
@@ -109,11 +113,15 @@ const createMainWindow = async (): Promise<void> => {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           "default-src 'self'; " +
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " + // unsafe-inline needed for React inline styles
           "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src 'self' data: http://localhost:*; " +
+          "img-src 'self' data:; " + // Removed localhost wildcard for production
           "script-src 'self'; " +
-          "connect-src 'self' http://localhost:* https://*.academia.edu ws://localhost:*"
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu; " + // Specific domains only
+          "object-src 'none'; " + // Disable plugins
+          "base-uri 'self'; " + // Prevent base tag injection
+          "form-action 'self'; " + // Restrict form submissions
+          "frame-ancestors 'none'" // Prevent clickjacking
         ]
       }
     });

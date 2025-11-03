@@ -145,10 +145,14 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   };
 
   const handleAddCollaborator = () => {
-    // Proper email validation regex
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (collaboratorEmail && emailRegex.test(collaboratorEmail)) {
-      setCollaboratorEmails([...collaboratorEmails, collaboratorEmail]);
+    // RFC-compliant email validation regex
+    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+    const trimmedEmail = collaboratorEmail.trim();
+
+    if (trimmedEmail &&
+        trimmedEmail.length <= 254 &&
+        emailRegex.test(trimmedEmail)) {
+      setCollaboratorEmails([...collaboratorEmails, trimmedEmail]);
       setCollaboratorEmail('');
     }
   };
