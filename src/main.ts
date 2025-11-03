@@ -539,21 +539,25 @@ ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread'
 });
 
 ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
+  console.log(`[Main] Received start-notification-polling request for user ${userId}`);
   try {
     notificationManager.startPolling(userId, 30000); // 30 second interval
+    console.log(`[Main] Successfully started notification polling for user ${userId}`);
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to start notification polling:', error);
+    console.error('[Main] Failed to start notification polling:', error);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('stop-notification-polling', async () => {
+  console.log('[Main] Received stop-notification-polling request');
   try {
     notificationManager.stopPolling();
+    console.log('[Main] Successfully stopped notification polling');
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to stop notification polling:', error);
+    console.error('[Main] Failed to stop notification polling:', error);
     return { success: false, error: error.message };
   }
 });

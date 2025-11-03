@@ -33,6 +33,8 @@ class NotificationManager {
       const response = await getNotifications();
       const fetchedAt = Date.now();
 
+      console.log(`[NotificationManager] Received ${response.notifications.length} notifications from backend`);
+
       // Get existing notification IDs
       const existingIds = new Set<number>();
       for (const [id, notif] of this.notifications) {
@@ -45,6 +47,15 @@ class NotificationManager {
 
       // Upsert notifications from API
       for (const notif of response.notifications) {
+        // Log each notification details
+        console.log(`[NotificationManager] Notification ${notif.id}:`, {
+          title: notif.title,
+          status: notif.status,
+          delivered_at: notif.delivered_at,
+          delivered_at_type: typeof notif.delivered_at,
+          is_null_or_undefined: notif.delivered_at == null,
+        });
+
         const cached: CachedNotification = {
           ...notif,
           fetched_at: fetchedAt,
@@ -53,7 +64,10 @@ class NotificationManager {
 
         // Check if this is a new notification (not yet delivered)
         // Use == null to check for both null and undefined explicitly
-        if (notif.status === 'unread' && notif.delivered_at == null) {
+        const shouldShowPopup = notif.status === 'unread' && notif.delivered_at == null;
+        console.log(`[NotificationManager] Notification ${notif.id} should show popup: ${shouldShowPopup} (status=${notif.status}, delivered_at=${notif.delivered_at})`);
+
+        if (shouldShowPopup) {
           newNotifications.push(notif);
         }
 
@@ -64,9 +78,14 @@ class NotificationManager {
       // Sync local changes to backend
       await this.syncLocalChangesToBackend();
 
+      console.log(`[NotificationManager] ${newNotifications.length} notifications will trigger popups`);
+      console.log(`[NotificationManager] MainWindow available: ${!!this.mainWindow}`);
+
       // Notify renderer about new notifications and mark as delivered
       if (newNotifications.length > 0 && this.mainWindow) {
+        console.log(`[NotificationManager] Sending popups for ${newNotifications.length} notifications`);
         for (const notif of newNotifications) {
+          console.log(`[NotificationManager] Sending popup for notification ${notif.id}: "${notif.title}"`);
           // Send popup event
           this.mainWindow.webContents.send('new-notification', notif);
 
@@ -81,6 +100,8 @@ class NotificationManager {
               deliveredAt
             );
 
+            console.log(`[NotificationManager] Marked notification ${notif.id} as delivered at ${deliveredAt}`);
+
             // Update in memory
             const cached = this.notifications.get(notif.id);
             if (cached) {
@@ -91,6 +112,8 @@ class NotificationManager {
             console.error(`Failed to mark notification ${notif.id} as delivered:`, error);
           }
         }
+      } else if (newNotifications.length > 0 && !this.mainWindow) {
+        console.warn(`[NotificationManager] Have ${newNotifications.length} new notifications but mainWindow is not set!`);
       }
 
       console.log(`Synced ${response.notifications.length} notifications, ${newNotifications.length} new`);
