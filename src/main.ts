@@ -50,6 +50,23 @@ const createWindow = async (): Promise<void> => {
     },
   });
 
+  // Set Content Security Policy
+  devWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; " +
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+          "font-src 'self' https://fonts.gstatic.com; " +
+          "img-src 'self' data: http://localhost:*; " +
+          "script-src 'self'; " +
+          "connect-src 'self' http://localhost:* https://*.academia.edu ws://localhost:*"
+        ]
+      }
+    });
+  });
+
   devWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
   if (process.env.NODE_ENV === 'development') {
     devWindow.webContents.openDevTools();
@@ -83,6 +100,23 @@ const createMainWindow = async (): Promise<void> => {
       nodeIntegration: false,
       contextIsolation: true,
     },
+  });
+
+  // Set Content Security Policy
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          "default-src 'self'; " +
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+          "font-src 'self' https://fonts.gstatic.com; " +
+          "img-src 'self' data: http://localhost:*; " +
+          "script-src 'self'; " +
+          "connect-src 'self' http://localhost:* https://*.academia.edu ws://localhost:*"
+        ]
+      }
+    });
   });
 
   // Load with query parameter to indicate this is the main window

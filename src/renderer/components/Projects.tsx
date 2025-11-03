@@ -24,10 +24,17 @@ interface DialogState {
   onConfirm?: () => void;
 }
 
+interface UserData {
+  id: number;
+  first_name?: string;
+  name?: string;
+}
+
 const Projects: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userId, setUserId] = useState<number | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<View>('list');
@@ -56,11 +63,13 @@ const Projects: React.FC = () => {
       if (!loggedIn) {
         setShowLogin(true);
         setUserId(null);
+        setUserName(null);
       } else {
         // Get current user
         const user = await window.electronAPI.invoke('get-current-user');
         if (user) {
           setUserId(user.id);
+          setUserName(user.first_name || user.name || null);
         }
       }
     } catch (error) {
@@ -94,6 +103,7 @@ const Projects: React.FC = () => {
       const user = await window.electronAPI.invoke('get-current-user');
       if (user) {
         setUserId(user.id);
+        setUserName(user.first_name || user.name || null);
       }
     } catch (error) {
       console.error('Error getting current user:', error);
@@ -107,6 +117,7 @@ const Projects: React.FC = () => {
         setIsLoggedIn(false);
         setShowLogin(true);
         setUserId(null);
+        setUserName(null);
         setProjects([]);
         setCurrentView('list');
         setSelectedProject(null);
@@ -198,7 +209,7 @@ const Projects: React.FC = () => {
         <div className="projectsUserMenu">
           <div className="userAvatar" onClick={handleLogout} title="Logout">
             <span className="avatarInitial">
-              {userId ? userId.toString()[0] : 'U'}
+              {userName ? userName.charAt(0).toUpperCase() : (userId ? userId.toString()[0] : 'U')}
             </span>
           </div>
         </div>
