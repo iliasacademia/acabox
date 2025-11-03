@@ -31,6 +31,7 @@ function resolveAppleScriptPath(scriptName: string): string {
 }
 
 let devWindow: BrowserWindow | null = null;
+let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
 const createWindow = async (): Promise<void> => {
@@ -65,6 +66,34 @@ const createWindow = async (): Promise<void> => {
     console.log('[MAIN] Window loaded, initializing sync service...');
     await syncService.initialize();
   });
+};
+
+// Create main window (Projects UI)
+const createMainWindow = async (): Promise<void> => {
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    frame: false, // Remove title bar and window decorations
+    show: false, // Hidden on startup
+    transparent: false, // Opaque background
+    hasShadow: true, // Add shadow for visual separation
+    resizable: true, // Allow user to resize
+    webPreferences: {
+      preload: MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY,
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  // Load with query parameter to indicate this is the main window
+  mainWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY + '?window=main');
+
+  // Open DevTools in development mode
+  if (process.env.NODE_ENV === 'development') {
+    mainWindow.webContents.openDevTools();
+  }
+
+  console.log('[MAIN] Main window created');
 };
 
 // Helper function to create text-based icon
@@ -287,9 +316,34 @@ const createTray = (): void => {
 
   const menuItems: Electron.MenuItemConstructorOptions[] = [];
 
+  // Add main window controls (always present)
+  menuItems.push(
+    {
+      label: 'Show Main Window',
+      click: () => {
+        if (mainWindow) {
+          if (mainWindow.isMinimized()) mainWindow.restore();
+          mainWindow.show();
+          mainWindow.focus();
+        } else {
+          createMainWindow();
+        }
+      },
+    },
+    {
+      label: 'Hide Main Window',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.hide();
+        }
+      },
+    }
+  );
+
   // Add development window controls only in dev mode
   if (isDevelopment) {
     menuItems.push(
+      { type: 'separator' },
       {
         label: 'Show Development Window',
         click: () => {
@@ -310,18 +364,20 @@ const createTray = (): void => {
             devWindow.hide();
           }
         },
-      },
-      { type: 'separator' }
+      }
     );
   }
 
   // Add quit option (always present)
-  menuItems.push({
-    label: 'Quit',
-    click: () => {
-      app.quit();
-    },
-  });
+  menuItems.push(
+    { type: 'separator' },
+    {
+      label: 'Quit',
+      click: () => {
+        app.quit();
+      },
+    }
+  );
 
   const contextMenu = Menu.buildFromTemplate(menuItems);
 
@@ -349,6 +405,9 @@ const positionWindowMiddleRight = (): void => {
 };
 
 app.whenReady().then(async () => {
+  // Create main window (always)
+  createMainWindow();
+
   // Only create dev window in development mode
   if (process.env.NODE_ENV === 'development') {
     createWindow();
