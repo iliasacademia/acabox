@@ -595,4 +595,226 @@ describe('NotificationManager', () => {
       expect(notifications).toHaveLength(0);
     });
   });
+
+  describe('getUndismissedNotifications', () => {
+    it('should return both unread and read notifications', async () => {
+      const now = Date.now();
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 1,
+            title: 'Unread notification',
+            body_html: '<p>Unread</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: now,
+            read_at: null,
+            dismissed_at: null,
+          },
+          {
+            id: 2,
+            title: 'Read notification',
+            body_html: '<p>Read</p>',
+            user_id: 1,
+            file_id: 456,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'read' as const,
+            created_at: now - 1000,
+            read_at: now - 500,
+            dismissed_at: null,
+          },
+          {
+            id: 3,
+            title: 'Dismissed notification',
+            body_html: '<p>Dismissed</p>',
+            user_id: 1,
+            file_id: 789,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'dismissed' as const,
+            created_at: now - 2000,
+            read_at: null,
+            dismissed_at: now - 1500,
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      notificationManager.setMainWindow(mockWindow);
+      await notificationManager.syncWithBackend(1);
+
+      const undismissed = notificationManager.getUndismissedNotifications(1);
+
+      // Should return 2 notifications (unread and read, excluding dismissed)
+      expect(undismissed).toHaveLength(2);
+      expect(undismissed.map((n) => n.id).sort()).toEqual([1, 2]);
+      expect(undismissed.every((n) => n.status !== 'dismissed')).toBe(true);
+    });
+
+    it('should exclude dismissed notifications only', async () => {
+      const now = Date.now();
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 1,
+            title: 'Dismissed 1',
+            body_html: '<p>Dismissed 1</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'dismissed' as const,
+            created_at: now,
+            read_at: null,
+            dismissed_at: now - 100,
+          },
+          {
+            id: 2,
+            title: 'Dismissed 2',
+            body_html: '<p>Dismissed 2</p>',
+            user_id: 1,
+            file_id: 456,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'dismissed' as const,
+            created_at: now - 1000,
+            read_at: null,
+            dismissed_at: now - 500,
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      notificationManager.setMainWindow(mockWindow);
+      await notificationManager.syncWithBackend(1);
+
+      const undismissed = notificationManager.getUndismissedNotifications(1);
+
+      // Should return empty array (all dismissed)
+      expect(undismissed).toHaveLength(0);
+    });
+
+    it('should return empty array when no notifications exist', () => {
+      const undismissed = notificationManager.getUndismissedNotifications(1);
+      expect(undismissed).toEqual([]);
+    });
+
+    it('should filter by userId correctly', async () => {
+      const now = Date.now();
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 1,
+            title: 'User 1 notification',
+            body_html: '<p>User 1</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: now,
+            read_at: null,
+            dismissed_at: null,
+          },
+          {
+            id: 2,
+            title: 'User 2 notification',
+            body_html: '<p>User 2</p>',
+            user_id: 2,
+            file_id: 456,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: now,
+            read_at: null,
+            dismissed_at: null,
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      notificationManager.setMainWindow(mockWindow);
+
+      // Sync - this adds both user 1 and user 2 notifications to memory
+      await notificationManager.syncWithBackend(1);
+
+      const user1Undismissed = notificationManager.getUndismissedNotifications(1);
+      const user2Undismissed = notificationManager.getUndismissedNotifications(2);
+
+      // User 1 should have 1 notification
+      expect(user1Undismissed).toHaveLength(1);
+      expect(user1Undismissed[0].user_id).toBe(1);
+
+      // User 2 should also have 1 (from the same sync)
+      expect(user2Undismissed).toHaveLength(1);
+      expect(user2Undismissed[0].user_id).toBe(2);
+    });
+
+    it('should return notifications sorted by created_at descending', async () => {
+      const now = Date.now();
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 1,
+            title: 'Oldest',
+            body_html: '<p>Oldest</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: now - 3000,
+            read_at: null,
+            dismissed_at: null,
+          },
+          {
+            id: 2,
+            title: 'Newest',
+            body_html: '<p>Newest</p>',
+            user_id: 1,
+            file_id: 456,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'read' as const,
+            created_at: now,
+            read_at: now - 500,
+            dismissed_at: null,
+          },
+          {
+            id: 3,
+            title: 'Middle',
+            body_html: '<p>Middle</p>',
+            user_id: 1,
+            file_id: 789,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: now - 1500,
+            read_at: null,
+            dismissed_at: null,
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      notificationManager.setMainWindow(mockWindow);
+      await notificationManager.syncWithBackend(1);
+
+      const undismissed = notificationManager.getUndismissedNotifications(1);
+
+      // Should be sorted by created_at descending (newest first)
+      expect(undismissed).toHaveLength(3);
+      expect(undismissed[0].id).toBe(2); // Newest
+      expect(undismissed[1].id).toBe(3); // Middle
+      expect(undismissed[2].id).toBe(1); // Oldest
+
+      // Verify sorting
+      expect(undismissed[0].created_at).toBeGreaterThanOrEqual(undismissed[1].created_at);
+      expect(undismissed[1].created_at).toBeGreaterThanOrEqual(undismissed[2].created_at);
+    });
+  });
 });

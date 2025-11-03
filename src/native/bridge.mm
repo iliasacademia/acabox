@@ -51,6 +51,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     AXUIElementRef _wordWindow;  // Reference to Word's frontmost window for potential future use
     CGRect _cachedScrollAreaBounds;  // Cached scroll area bounds for when ClickPopup has focus
     NSTimeInterval _lastScrollAreaUpdate;  // Timestamp of last scroll area cache update
+    int _lastBadgeCount;  // Store badge count so it can be applied when button is recreated
 }
 
 - (instancetype)initWithPID:(pid_t)pid {
@@ -73,6 +74,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _wordWindow = NULL;
         _cachedScrollAreaBounds = CGRectZero;
         _lastScrollAreaUpdate = 0;
+        _lastBadgeCount = 0;  // Initialize badge count to 0
     }
     return self;
 }
@@ -307,7 +309,14 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
         // Create button window if it doesn't exist
         if (!self->_buttonWindow) {
+            NSLog(@"[Bridge-Observer] Creating new ButtonOverlayWindow");
             self->_buttonWindow = [[ButtonOverlayWindow alloc] initWithObserver:self];
+
+            // Apply stored badge count to newly created window
+            if (self->_lastBadgeCount > 0) {
+                NSLog(@"[Bridge-Observer] Applying stored badge count %d to new button window", self->_lastBadgeCount);
+                [self->_buttonWindow updateBadge:self->_lastBadgeCount];
+            }
         }
 
         // Update the selected text for hover popup
@@ -367,7 +376,14 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     dispatch_async(dispatch_get_main_queue(), ^{
         // Create button window if it doesn't exist
         if (!self->_buttonWindow) {
+            NSLog(@"[Bridge-Observer] Creating new ButtonOverlayWindow in showFixedButton");
             self->_buttonWindow = [[ButtonOverlayWindow alloc] initWithObserver:self];
+
+            // Apply stored badge count to newly created window
+            if (self->_lastBadgeCount > 0) {
+                NSLog(@"[Bridge-Observer] Applying stored badge count %d to new button window", self->_lastBadgeCount);
+                [self->_buttonWindow updateBadge:self->_lastBadgeCount];
+            }
         }
 
         // Get Word window bounds
@@ -395,7 +411,9 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         CGFloat buttonY = windowBottom + bottomPadding;
 
         // Position the button window
-        NSRect buttonFrame = NSMakeRect(buttonX, buttonY, buttonSize, buttonSize);
+        // Window must accommodate badge (badge extends 6px beyond button's right AND top edges)
+        CGFloat badgeOverhang = 6.0;
+        NSRect buttonFrame = NSMakeRect(buttonX, buttonY, buttonSize + badgeOverhang, buttonSize + badgeOverhang);
         [self->_buttonWindow setFrame:buttonFrame display:YES];
 
         // Show the button without activating (non-activating panel)
@@ -1877,6 +1895,45 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     }
 }
 
+- (void)updateButtonBadge:(int)count {
+    NSLog(@"[Bridge-Observer] ========== updateButtonBadge called on WordAccessibilityObserver ==========");
+    NSLog(@"[Bridge-Observer] count=%d, _buttonWindow=%@", count, _buttonWindow ? @"exists" : @"NULL");
+
+    // Store the badge count so it can be applied when button is created
+    _lastBadgeCount = count;
+    NSLog(@"[Bridge-Observer] Stored badge count: %d", _lastBadgeCount);
+
+    // Update the button badge with notification count
+    if (_buttonWindow) {
+        NSLog(@"[Bridge-Observer] Calling [_buttonWindow updateBadge:%d]", count);
+        [_buttonWindow updateBadge:count];
+        NSLog(@"[Bridge-Observer] [_buttonWindow updateBadge:%d] returned", count);
+    } else {
+        NSLog(@"[Bridge-Observer] _buttonWindow is NULL, badge will be applied when button is created");
+    }
+
+    NSLog(@"[Bridge-Observer] ========== updateButtonBadge on WordAccessibilityObserver complete ==========");
+}
+
+- (NSDictionary*)getBadgeState {
+    // Get badge state for debugging
+    if (_buttonWindow && _buttonWindow.badgeView) {
+        CGRect badgeFrame = [_buttonWindow getBadgeFrame];
+        BOOL isVisible = !_buttonWindow.badgeView.hidden;
+        int count = [_buttonWindow getBadgeCount];
+
+        return @{
+            @"count": @(count),
+            @"isVisible": @(isVisible),
+            @"x": @(badgeFrame.origin.x),
+            @"y": @(badgeFrame.origin.y),
+            @"width": @(badgeFrame.size.width),
+            @"height": @(badgeFrame.size.height)
+        };
+    }
+    return nil;
+}
+
 @end
 
 // Accessibility callback function
@@ -2267,6 +2324,61 @@ Napi::Value GetScrollAreaBounds(const Napi::CallbackInfo& info) {
     return result;
 }
 
+Napi::Value UpdateButtonBadge(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+    NSLog(@"[Bridge-N-API] ========== UpdateButtonBadge N-API function called ==========");
+
+    if (info.Length() < 1 || !info[0].IsNumber()) {
+        NSLog(@"[Bridge-N-API] ERROR: Invalid arguments");
+        Napi::TypeError::New(env, "Expected (count: number)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int32_t count = info[0].As<Napi::Number>().Int32Value();
+    NSLog(@"[Bridge-N-API] Received count: %d", count);
+
+    if (!globalObserver) {
+        NSLog(@"[Bridge-N-API] ERROR: globalObserver is NULL!");
+        return env.Null();
+    }
+
+    NSLog(@"[Bridge-N-API] globalObserver exists, dispatching to main queue");
+    // Update badge on the button window via the observer's public method
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSLog(@"[Bridge-N-API] Now on main queue, calling [globalObserver updateButtonBadge:%d]", count);
+        [globalObserver updateButtonBadge:count];
+        NSLog(@"[Bridge-N-API] [globalObserver updateButtonBadge:%d] returned", count);
+    });
+
+    NSLog(@"[Bridge-N-API] dispatch_async queued, returning from N-API function");
+    return env.Null();
+}
+
+Napi::Value GetBadgeState(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!globalObserver) {
+        return env.Null();
+    }
+
+    NSDictionary* badgeState = [globalObserver getBadgeState];
+
+    if (badgeState == nil) {
+        return env.Null();
+    }
+
+    // Convert NSDictionary to Napi::Object
+    Napi::Object result = Napi::Object::New(env);
+    result.Set("count", Napi::Number::New(env, [badgeState[@"count"] intValue]));
+    result.Set("isVisible", Napi::Boolean::New(env, [badgeState[@"isVisible"] boolValue]));
+    result.Set("x", Napi::Number::New(env, [badgeState[@"x"] doubleValue]));
+    result.Set("y", Napi::Number::New(env, [badgeState[@"y"] doubleValue]));
+    result.Set("width", Napi::Number::New(env, [badgeState[@"width"] doubleValue]));
+    result.Set("height", Napi::Number::New(env, [badgeState[@"height"] doubleValue]));
+
+    return result;
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("startObserving", Napi::Function::New(env, StartObserving));
     exports.Set("stopObserving", Napi::Function::New(env, StopObserving));
@@ -2281,6 +2393,8 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getParentHierarchy", Napi::Function::New(env, GetParentHierarchy));
     exports.Set("getButtonStates", Napi::Function::New(env, GetButtonStates));
     exports.Set("getScrollAreaBounds", Napi::Function::New(env, GetScrollAreaBounds));
+    exports.Set("updateButtonBadge", Napi::Function::New(env, UpdateButtonBadge));
+    exports.Set("getBadgeState", Napi::Function::New(env, GetBadgeState));
     return exports;
 }
 

@@ -81,6 +81,15 @@ export interface FirstTextAreaInfo {
   charCount: number;
 }
 
+export interface BadgeState {
+  count: number;
+  isVisible: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface NativeModule {
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean;
   stopObserving(): void;
@@ -95,6 +104,8 @@ interface NativeModule {
   getParentHierarchy(): ParentElement[];
   getButtonStates(): ButtonStates | null;
   getScrollAreaBounds(): Bounds | null;
+  updateButtonBadge(count: number): void;
+  getBadgeState(): BadgeState | null;
 }
 
 // Load the native module
@@ -336,6 +347,42 @@ export class WordAccessibilityBridge {
       return nativeModule.getScrollAreaBounds();
     } catch (error) {
       console.error('Failed to get scroll area bounds:', error);
+      return null;
+    }
+  }
+
+  updateButtonBadge(count: number): void {
+    const startTime = Date.now();
+    console.log(`[WordAccessibility] ========== updateButtonBadge START at ${startTime} ==========`);
+    console.log(`[WordAccessibility] Called with count: ${count}`);
+
+    if (!nativeModule) {
+      console.warn('[WordAccessibility] Native module not loaded, cannot update button badge');
+      return;
+    }
+
+    console.log(`[WordAccessibility] Native module is loaded, calling nativeModule.updateButtonBadge(${count})`);
+
+    try {
+      const beforeNative = Date.now();
+      nativeModule.updateButtonBadge(count);
+      const afterNative = Date.now();
+      console.log(`[WordAccessibility] nativeModule.updateButtonBadge returned (took ${afterNative - beforeNative}ms)`);
+      console.log(`[WordAccessibility] ========== updateButtonBadge END at ${afterNative} (total: ${afterNative - startTime}ms) ==========`);
+    } catch (error) {
+      console.error('[WordAccessibility] Failed to update button badge:', error);
+    }
+  }
+
+  getBadgeState(): BadgeState | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getBadgeState();
+    } catch (error) {
+      console.error('Failed to get badge state:', error);
       return null;
     }
   }

@@ -13,6 +13,9 @@
 @property (nonatomic, strong) TextPopupWindow* popupWindow;  // Keep for destroyPopup cleanup
 @property (nonatomic, strong) NSString* selectedText;
 @property (nonatomic, assign) CGRect selectionBounds;  // Store selection bounds for popup positioning
+@property (nonatomic, strong) NSView* badgeView;  // Red badge indicator for notifications
+@property (nonatomic, strong) NSTextField* badgeLabel;  // Label showing notification count
+@property (nonatomic, assign) int badgeCount;  // Current badge count (for debugging)
 
 // Initialization
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer;
@@ -29,6 +32,11 @@
 // Clipping/Masking for partial visibility
 - (void)setVisibleRect:(NSRect)visibleRect inFrame:(NSRect)fullFrame;
 - (void)clearVisibleRectMask;
+
+// Badge management
+- (void)updateBadge:(int)count;
+- (int)getBadgeCount;
+- (CGRect)getBadgeFrame;
 
 // Cleanup
 - (void)orderOut:(id)sender;

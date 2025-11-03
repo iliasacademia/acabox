@@ -60,6 +60,11 @@ const createWindow = async (): Promise<void> => {
   // Initialize notification manager with main window
   notificationManager.setMainWindow(devWindow);
 
+  // Set up badge update callback to be called after sync completes
+  notificationManager.setOnSyncComplete((userId: number) => {
+    updateButtonBadgeCount(userId);
+  });
+
   // Wait for window to be ready, then initialize
   devWindow.webContents.once('did-finish-load', async () => {
     console.log('[MAIN] Window loaded, initializing sync service...');
@@ -538,11 +543,42 @@ ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread'
   }
 });
 
+// Helper function to update button badge with undismissed notification count
+function updateButtonBadgeCount(userId: number): void {
+  const startTime = Date.now();
+  console.log(`[Main] ========== updateButtonBadgeCount START at ${startTime} ==========`);
+  console.log(`[Main] Called with userId: ${userId}`);
+
+  try {
+    const beforeGet = Date.now();
+    const undismissedNotifications = notificationManager.getUndismissedNotifications(userId);
+    const afterGet = Date.now();
+
+    const count = undismissedNotifications.length;
+    console.log(`[Main] Got ${count} undismissed notifications (took ${afterGet - beforeGet}ms)`);
+    console.log(`[Main] Notification IDs: [${undismissedNotifications.map(n => n.id).join(', ')}]`);
+
+    const beforeNative = Date.now();
+    console.log(`[Main] Calling wordAccessibility.updateButtonBadge(${count}) at ${beforeNative}`);
+    wordAccessibility.updateButtonBadge(count);
+    const afterNative = Date.now();
+
+    console.log(`[Main] wordAccessibility.updateButtonBadge returned (took ${afterNative - beforeNative}ms)`);
+    console.log(`[Main] ========== updateButtonBadgeCount END at ${afterNative} (total: ${afterNative - startTime}ms) ==========`);
+  } catch (error: any) {
+    console.error('[Main] Failed to update button badge:', error);
+  }
+}
+
 ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
   console.log(`[Main] Received start-notification-polling request for user ${userId}`);
   try {
     notificationManager.startPolling(userId, 30000); // 30 second interval
     console.log(`[Main] Successfully started notification polling for user ${userId}`);
+
+    // Note: Badge is now updated via onSyncComplete callback after each sync
+    // No need for separate badge update interval
+
     return { success: true };
   } catch (error: any) {
     console.error('[Main] Failed to start notification polling:', error);
@@ -554,6 +590,10 @@ ipcMain.handle('stop-notification-polling', async () => {
   console.log('[Main] Received stop-notification-polling request');
   try {
     notificationManager.stopPolling();
+
+    // Clear badge when polling stops
+    wordAccessibility.updateButtonBadge(0);
+
     console.log('[Main] Successfully stopped notification polling');
     return { success: true };
   } catch (error: any) {
@@ -565,6 +605,13 @@ ipcMain.handle('stop-notification-polling', async () => {
 ipcMain.handle('mark-notification-read', async (_event, id: number) => {
   try {
     await notificationManager.markAsRead(id);
+
+    // Update badge immediately after marking as read
+    const userId = notificationManager.getCurrentUserId();
+    if (userId) {
+      updateButtonBadgeCount(userId);
+    }
+
     return { success: true };
   } catch (error: any) {
     console.error('Failed to mark notification as read:', error);
@@ -575,6 +622,13 @@ ipcMain.handle('mark-notification-read', async (_event, id: number) => {
 ipcMain.handle('dismiss-notification', async (_event, id: number) => {
   try {
     await notificationManager.dismissNotification(id);
+
+    // Update badge immediately after dismissing
+    const userId = notificationManager.getCurrentUserId();
+    if (userId) {
+      updateButtonBadgeCount(userId);
+    }
+
     return { success: true };
   } catch (error: any) {
     console.error('Failed to dismiss notification:', error);
@@ -1286,6 +1340,7 @@ ipcMain.handle('get-position-debug-info', async () => {
     const buttonStates = wordAccessibility.getButtonStates();
     const scrollAreaBounds = wordAccessibility.getScrollAreaBounds();
     const firstTextAreaInfo = wordAccessibility.getFirstTextAreaInfo();
+    const badgeState = wordAccessibility.getBadgeState();
 
     // Get screen height for coordinate conversion
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -1302,6 +1357,7 @@ ipcMain.handle('get-position-debug-info', async () => {
         buttonStates,
         scrollAreaBounds,
         firstTextAreaInfo,
+        badgeState,
         screenHeight,
         timestamp: Date.now()
       }
@@ -1312,6 +1368,45 @@ ipcMain.handle('get-position-debug-info', async () => {
       success: false,
       error: error.message,
       data: null
+    };
+  }
+});
+
+// Handle get all notifications request for debugging
+ipcMain.handle('get-all-notifications', async () => {
+  try {
+    const userId = notificationManager.getCurrentUserId();
+
+    if (!userId) {
+      return {
+        success: false,
+        error: 'No user logged in',
+        notifications: [],
+        currentUserId: null
+      };
+    }
+
+    // Get all notifications (no status filter)
+    const notifications = notificationManager.getNotificationsByStatus(userId);
+
+    // Get status breakdown
+    const unread = notifications.filter(n => n.status === 'unread').length;
+    const read = notifications.filter(n => n.status === 'read').length;
+    const dismissed = notifications.filter(n => n.status === 'dismissed').length;
+
+    return {
+      success: true,
+      notifications,
+      currentUserId: userId,
+      breakdown: { unread, read, dismissed, total: notifications.length }
+    };
+  } catch (error: any) {
+    console.error('[NOTIFICATIONS-DEBUG] Error getting notifications:', error);
+    return {
+      success: false,
+      error: error.message,
+      notifications: [],
+      currentUserId: null
     };
   }
 });
