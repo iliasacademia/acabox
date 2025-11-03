@@ -52,7 +52,8 @@ class NotificationManager {
         };
 
         // Check if this is a new notification (not yet delivered)
-        if (notif.status === 'unread' && !notif.delivered_at) {
+        // Use == null to check for both null and undefined explicitly
+        if (notif.status === 'unread' && notif.delivered_at == null) {
           newNotifications.push(notif);
         }
 

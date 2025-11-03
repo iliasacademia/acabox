@@ -165,12 +165,13 @@ describe('NotificationManager', () => {
     it('should mark notification as read by id', async () => {
       await notificationManager.markAsRead(1);
 
-      // Verify API was called with correct parameters
+      // Verify API was called with correct parameters (including delivered_at)
       expect(mockUpdateNotification).toHaveBeenCalledWith(
         1,
         'read',
         expect.any(Number),
-        null
+        null,
+        expect.any(Number) // delivered_at should be set from initial sync
       );
 
       // Verify status was updated in memory
@@ -188,12 +189,13 @@ describe('NotificationManager', () => {
     it('should dismiss notification by id', async () => {
       await notificationManager.dismissNotification(1);
 
-      // Verify API was called with correct parameters
+      // Verify API was called with correct parameters (including delivered_at)
       expect(mockUpdateNotification).toHaveBeenCalledWith(
         1,
         'dismissed',
         null,
-        expect.any(Number)
+        expect.any(Number),
+        expect.any(Number) // delivered_at should be set from initial sync
       );
 
       // Verify status was updated in memory
@@ -206,6 +208,321 @@ describe('NotificationManager', () => {
         'notification-updated',
         { id: 1, status: 'dismissed' }
       );
+    });
+  });
+
+  describe('Notification Popup Logic with delivered_at', () => {
+    it('should send popup for new notification without delivered_at field (undefined)', async () => {
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 1,
+            title: 'New notification',
+            body_html: '<p>New body</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: null,
+            // No delivered_at field - should be undefined
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      mockUpdateNotification.mockResolvedValue(undefined);
+      notificationManager.setMainWindow(mockWindow);
+
+      await notificationManager.syncWithBackend(1);
+
+      // Should send popup event for new notification
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        'new-notification',
+        expect.objectContaining({ id: 1 })
+      );
+
+      // Should mark as delivered
+      expect(mockUpdateNotification).toHaveBeenCalledWith(
+        1,
+        'unread',
+        null,
+        null,
+        expect.any(Number)
+      );
+    });
+
+    it('should send popup for new notification with delivered_at = null', async () => {
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 2,
+            title: 'New notification',
+            body_html: '<p>New body</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: null,
+            delivered_at: null, // Explicitly null
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      mockUpdateNotification.mockResolvedValue(undefined);
+      notificationManager.setMainWindow(mockWindow);
+
+      await notificationManager.syncWithBackend(1);
+
+      // Should send popup event
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        'new-notification',
+        expect.objectContaining({ id: 2 })
+      );
+    });
+
+    it('should NOT send popup when delivered_at = 0 (edge case)', async () => {
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 3,
+            title: 'Already delivered',
+            body_html: '<p>Already delivered</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: null,
+            delivered_at: 0, // Edge case: 0 is falsy but is a valid timestamp
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      notificationManager.setMainWindow(mockWindow);
+
+      await notificationManager.syncWithBackend(1);
+
+      // Should NOT send popup event (already delivered)
+      expect(mockWindow.webContents.send).not.toHaveBeenCalledWith(
+        'new-notification',
+        expect.anything()
+      );
+    });
+
+    it('should NOT send popup for already delivered notification', async () => {
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 4,
+            title: 'Already delivered',
+            body_html: '<p>Already delivered</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: null,
+            delivered_at: 1234567890, // Has timestamp - already delivered
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      notificationManager.setMainWindow(mockWindow);
+
+      await notificationManager.syncWithBackend(1);
+
+      // Should NOT send popup event
+      expect(mockWindow.webContents.send).not.toHaveBeenCalledWith(
+        'new-notification',
+        expect.anything()
+      );
+    });
+
+    it('should NOT send popup for notifications with status = "read"', async () => {
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 5,
+            title: 'Read notification',
+            body_html: '<p>Read body</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'read' as const,
+            created_at: Date.now(),
+            read_at: Date.now() - 1000,
+            dismissed_at: null,
+            delivered_at: null, // Not delivered but already read
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      notificationManager.setMainWindow(mockWindow);
+
+      await notificationManager.syncWithBackend(1);
+
+      // Should NOT send popup event for read notifications
+      expect(mockWindow.webContents.send).not.toHaveBeenCalledWith(
+        'new-notification',
+        expect.anything()
+      );
+    });
+
+    it('should NOT send popup for notifications with status = "dismissed"', async () => {
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 6,
+            title: 'Dismissed notification',
+            body_html: '<p>Dismissed body</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'dismissed' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: Date.now() - 1000,
+            delivered_at: null,
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      notificationManager.setMainWindow(mockWindow);
+
+      await notificationManager.syncWithBackend(1);
+
+      // Should NOT send popup event for dismissed notifications
+      expect(mockWindow.webContents.send).not.toHaveBeenCalledWith(
+        'new-notification',
+        expect.anything()
+      );
+    });
+
+    it('should update in-memory cache with delivered_at after showing popup', async () => {
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 7,
+            title: 'New notification',
+            body_html: '<p>New body</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: null,
+            delivered_at: null,
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      mockUpdateNotification.mockResolvedValue(undefined);
+      notificationManager.setMainWindow(mockWindow);
+
+      await notificationManager.syncWithBackend(1);
+
+      // Get notification from memory
+      const notifications = notificationManager.getNotificationsByStatus(1);
+      const notification = notifications.find((n) => n.id === 7);
+
+      // Should have delivered_at set in memory
+      expect(notification).toBeDefined();
+      expect(notification?.delivered_at).not.toBeNull();
+      expect(notification?.delivered_at).toBeGreaterThan(0);
+    });
+
+    it('should handle multiple new notifications correctly', async () => {
+      const mockNotifications = {
+        notifications: [
+          {
+            id: 8,
+            title: 'New notification 1',
+            body_html: '<p>New body 1</p>',
+            user_id: 1,
+            file_id: 123,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: null,
+            delivered_at: null,
+          },
+          {
+            id: 9,
+            title: 'New notification 2',
+            body_html: '<p>New body 2</p>',
+            user_id: 1,
+            file_id: 456,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: null,
+            delivered_at: null,
+          },
+          {
+            id: 10,
+            title: 'Already delivered',
+            body_html: '<p>Already delivered</p>',
+            user_id: 1,
+            file_id: 789,
+            project_id: 0,
+            project_file_id: 0,
+            status: 'unread' as const,
+            created_at: Date.now(),
+            read_at: null,
+            dismissed_at: null,
+            delivered_at: 1234567890,
+          },
+        ],
+      };
+
+      mockGetNotifications.mockResolvedValue(mockNotifications);
+      mockUpdateNotification.mockResolvedValue(undefined);
+      notificationManager.setMainWindow(mockWindow);
+
+      await notificationManager.syncWithBackend(1);
+
+      // Should send popup for 2 new notifications (id 8 and 9)
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        'new-notification',
+        expect.objectContaining({ id: 8 })
+      );
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        'new-notification',
+        expect.objectContaining({ id: 9 })
+      );
+
+      // Should NOT send popup for already delivered notification (id 10)
+      expect(mockWindow.webContents.send).not.toHaveBeenCalledWith(
+        'new-notification',
+        expect.objectContaining({ id: 10 })
+      );
+
+      // Should call updateNotification twice (for id 8 and 9)
+      expect(mockUpdateNotification).toHaveBeenCalledTimes(2);
     });
   });
 
