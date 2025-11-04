@@ -1,8 +1,7 @@
-#import "ButtonOverlayWindow.h"
-#import "TextPopupWindow.h"
+#import "AcademiaNotificationsButton.h"
 #import <QuartzCore/QuartzCore.h>
 
-@implementation ButtonOverlayWindow
+@implementation AcademiaNotificationsButton
 
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer {
     // Create borderless, transparent panel - fixed size for circular button (24px)
@@ -37,7 +36,7 @@
         self.contentView.wantsLayer = YES;
         self.contentView.layer.masksToBounds = NO;
         self.contentView.layer.mask = nil;  // Clear any existing mask
-        NSLog(@"[ButtonOverlayWindow] ContentView layer configured - wantsLayer: YES, masksToBounds: NO");
+        NSLog(@"[AcademiaNotificationsButton] ContentView layer configured - wantsLayer: YES, masksToBounds: NO");
 
         // Create circular button with white "A" letter
         self.button = [[NSButton alloc] initWithFrame:NSMakeRect(0, 0, buttonSize, buttonSize)];
@@ -96,6 +95,14 @@
 
         [self.badgeView addSubview:self.badgeLabel];
         [self.button addSubview:self.badgeView];  // Badge is now a subview of button, not window
+
+        // Initialize polling properties
+        self.lastCount = -1;  // -1 indicates no count fetched yet
+        self.pollTimer = nil;
+        self.apiBaseUrl = @"http://127.0.0.1:23111";  // Default base URL
+        self.authToken = nil;
+
+        NSLog(@"[AcademiaNotificationsButton] Initialized with default API base URL: %@", self.apiBaseUrl);
 
         // Add mouse tracking for hover (disabled for now - just console logging)
         // [self setupMouseTracking];
@@ -185,24 +192,12 @@
 }
 
 - (void)orderOut:(id)sender {
-    // Destroy popup window when button is hidden
-    [self destroyPopup];
     [super orderOut:sender];
-}
-
-- (void)destroyPopup {
-    // Actually destroy the popup window (for cleanup)
-    if (self.popupWindow) {
-        NSLog(@"[ButtonOverlayWindow] Destroying popup window");
-        [self.popupWindow orderOut:nil];
-        [self.popupWindow close];
-        self.popupWindow = nil;
-    }
 }
 
 - (void)setVisibleRect:(NSRect)visibleRect inFrame:(NSRect)fullFrame {
     // DISABLED FOR TESTING: No mask applied, 50px window should show everything
-    NSLog(@"[ButtonOverlayWindow] Clipping DISABLED - 50px window test, no mask applied");
+    NSLog(@"[AcademiaNotificationsButton] Clipping DISABLED - 50px window test, no mask applied");
     return;
 
     // OLD CODE BELOW (disabled):
@@ -223,61 +218,61 @@
     // Apply mask to content view
     self.contentView.layer.mask = maskLayer;
 
-    NSLog(@"[ButtonOverlayWindow] Applied clipping mask - local visible rect: (%.1f, %.1f, %.1f, %.1f)",
+    NSLog(@"[AcademiaNotificationsButton] Applied clipping mask - local visible rect: (%.1f, %.1f, %.1f, %.1f)",
           localVisible.origin.x, localVisible.origin.y, localVisible.size.width, localVisible.size.height);
 }
 
 - (void)clearVisibleRectMask {
     // DISABLED FOR TESTING: No mask to clear
-    NSLog(@"[ButtonOverlayWindow] clearVisibleRectMask called - no mask to clear (disabled)");
+    NSLog(@"[AcademiaNotificationsButton] clearVisibleRectMask called - no mask to clear (disabled)");
     return;
 
     // OLD CODE BELOW (disabled):
     // Remove mask to show full button
     self.contentView.layer.mask = nil;
-    NSLog(@"[ButtonOverlayWindow] Cleared clipping mask");
+    NSLog(@"[AcademiaNotificationsButton] Cleared clipping mask");
 }
 
 - (void)updateBadge:(int)count {
-    NSLog(@"[ButtonOverlayWindow] ========== updateBadge START ==========");
-    NSLog(@"[ButtonOverlayWindow] Received count: %d", count);
-    NSLog(@"[ButtonOverlayWindow] Previous badgeCount: %d", self.badgeCount);
-    NSLog(@"[ButtonOverlayWindow] badgeView exists: %@", self.badgeView ? @"YES" : @"NO");
-    NSLog(@"[ButtonOverlayWindow] badgeLabel exists: %@", self.badgeLabel ? @"YES" : @"NO");
-    NSLog(@"[ButtonOverlayWindow] badgeView.hidden (before): %@", self.badgeView.hidden ? @"YES" : @"NO");
+    NSLog(@"[AcademiaNotificationsButton] ========== updateBadge START ==========");
+    NSLog(@"[AcademiaNotificationsButton] Received count: %d", count);
+    NSLog(@"[AcademiaNotificationsButton] Previous badgeCount: %d", self.badgeCount);
+    NSLog(@"[AcademiaNotificationsButton] badgeView exists: %@", self.badgeView ? @"YES" : @"NO");
+    NSLog(@"[AcademiaNotificationsButton] badgeLabel exists: %@", self.badgeLabel ? @"YES" : @"NO");
+    NSLog(@"[AcademiaNotificationsButton] badgeView.hidden (before): %@", self.badgeView.hidden ? @"YES" : @"NO");
 
     // Update badge visibility and count based on undismissed notifications
     self.badgeCount = count;  // Store count for debugging
 
     if (count > 0) {
-        NSLog(@"[ButtonOverlayWindow] count > 0, showing badge");
+        NSLog(@"[AcademiaNotificationsButton] count > 0, showing badge");
         // Show badge with count
         NSString* countText;
         if (count > 9) {
             countText = @"9+";
-            NSLog(@"[ButtonOverlayWindow] count > 9, displaying '9+'");
+            NSLog(@"[AcademiaNotificationsButton] count > 9, displaying '9+'");
         } else {
             countText = [NSString stringWithFormat:@"%d", count];
-            NSLog(@"[ButtonOverlayWindow] Displaying exact count: %d", count);
+            NSLog(@"[AcademiaNotificationsButton] Displaying exact count: %d", count);
         }
 
-        NSLog(@"[ButtonOverlayWindow] Setting badgeLabel.stringValue = '%@'", countText);
+        NSLog(@"[AcademiaNotificationsButton] Setting badgeLabel.stringValue = '%@'", countText);
         self.badgeLabel.stringValue = countText;
 
-        NSLog(@"[ButtonOverlayWindow] Setting badgeView.hidden = NO");
+        NSLog(@"[AcademiaNotificationsButton] Setting badgeView.hidden = NO");
         self.badgeView.hidden = NO;
 
-        NSLog(@"[ButtonOverlayWindow] Badge updated and visible with count: %d", count);
+        NSLog(@"[AcademiaNotificationsButton] Badge updated and visible with count: %d", count);
     } else {
-        NSLog(@"[ButtonOverlayWindow] count = 0, hiding badge");
+        NSLog(@"[AcademiaNotificationsButton] count = 0, hiding badge");
         // Hide badge when no undismissed notifications
         self.badgeView.hidden = YES;
-        NSLog(@"[ButtonOverlayWindow] Badge hidden (no undismissed notifications)");
+        NSLog(@"[AcademiaNotificationsButton] Badge hidden (no undismissed notifications)");
     }
 
-    NSLog(@"[ButtonOverlayWindow] badgeView.hidden (after): %@", self.badgeView.hidden ? @"YES" : @"NO");
-    NSLog(@"[ButtonOverlayWindow] badgeLabel.stringValue (after): '%@'", self.badgeLabel.stringValue);
-    NSLog(@"[ButtonOverlayWindow] ========== updateBadge END ==========");
+    NSLog(@"[AcademiaNotificationsButton] badgeView.hidden (after): %@", self.badgeView.hidden ? @"YES" : @"NO");
+    NSLog(@"[AcademiaNotificationsButton] badgeLabel.stringValue (after): '%@'", self.badgeLabel.stringValue);
+    NSLog(@"[AcademiaNotificationsButton] ========== updateBadge END ==========");
 }
 
 - (int)getBadgeCount {
@@ -291,9 +286,195 @@
     return CGRectZero;
 }
 
+- (void)startPolling {
+    // Don't start polling if base URL not set
+    if (!self.apiBaseUrl) {
+        NSLog(@"[AcademiaNotificationsButton] Cannot start polling - API base URL not set");
+        return;
+    }
+
+    NSLog(@"[AcademiaNotificationsButton] Starting notification count polling (1 second interval, no auth)");
+
+    // Stop existing timer if any
+    [self stopPolling];
+
+    // Create timer that fires every 1 second
+    self.pollTimer = [NSTimer scheduledTimerWithTimeInterval:10.0
+                                                      target:self
+                                                    selector:@selector(fetchNotificationCount)
+                                                    userInfo:nil
+                                                     repeats:YES];
+
+    // Also fetch immediately
+    [self fetchNotificationCount];
+}
+
+- (void)stopPolling {
+    NSLog(@"[AcademiaNotificationsButton] Stopping notification count polling");
+
+    if (self.pollTimer) {
+        [self.pollTimer invalidate];
+        self.pollTimer = nil;
+    }
+}
+
+- (void)fetchNotificationCount {
+    // Don't fetch if base URL not set
+    if (!self.apiBaseUrl) {
+        NSLog(@"[AcademiaNotificationsButton] Cannot fetch - API base URL not set");
+        return;
+    }
+
+    // Construct API URL
+    NSString* urlString = [NSString stringWithFormat:@"%@/api/notifications/count", self.apiBaseUrl];
+    NSURL* url = [NSURL URLWithString:urlString];
+
+    if (!url) {
+        NSLog(@"[AcademiaNotificationsButton] Invalid API URL: %@", urlString);
+        return;
+    }
+
+    // Create request (no auth required)
+    NSMutableURLRequest* request = [NSMutableURLRequest requestWithURL:url];
+    [request setHTTPMethod:@"GET"];
+    [request setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+    [request setTimeoutInterval:2.0];  // 2 second timeout
+
+    // Make async request
+    NSURLSession* session = [NSURLSession sharedSession];
+    NSURLSessionDataTask* task = [session dataTaskWithRequest:request
+                                            completionHandler:^(NSData* data, NSURLResponse* response, NSError* error) {
+        if (error) {
+            NSLog(@"[AcademiaNotificationsButton] Error fetching notification count: %@", error.localizedDescription);
+            return;
+        }
+
+        NSHTTPURLResponse* httpResponse = (NSHTTPURLResponse*)response;
+        if (httpResponse.statusCode != 200) {
+            NSLog(@"[AcademiaNotificationsButton] HTTP error %ld when fetching notification count", (long)httpResponse.statusCode);
+            return;
+        }
+
+        // Parse JSON response
+        NSError* jsonError = nil;
+        NSDictionary* json = [NSJSONSerialization JSONObjectWithData:data options:0 error:&jsonError];
+
+        if (jsonError) {
+            NSLog(@"[AcademiaNotificationsButton] JSON parse error: %@", jsonError.localizedDescription);
+            return;
+        }
+
+        // Extract total count
+        NSNumber* totalNumber = json[@"total"];
+        if (!totalNumber) {
+            NSLog(@"[AcademiaNotificationsButton] No 'total' field in response");
+            return;
+        }
+
+        int total = [totalNumber intValue];
+        NSLog(@"[AcademiaNotificationsButton] Fetched notification count: %d (last: %d)", total, self.lastCount);
+
+        // Update badge if count changed
+        if (total != self.lastCount) {
+            NSLog(@"[AcademiaNotificationsButton] Count changed from %d to %d, updating badge", self.lastCount, total);
+            self.lastCount = total;
+
+            // Update badge on main thread
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self updateBadge:total];
+            });
+        }
+    }];
+
+    [task resume];
+}
+
 - (void)dealloc {
-    // Clean up popup window completely during dealloc
-    [self destroyPopup];
+    // Stop polling and cleanup
+    [self stopPolling];
+}
+
+#pragma mark - OverlayWindow Protocol
+
+- (void)updatePositionWithWordState:(WordPositionState)state {
+    // Position button at bottom-left of Word scroll area
+
+    // If scrollAreaBounds is empty, hide the button
+    if (CGRectIsEmpty(state.scrollAreaBounds)) {
+        NSLog(@"[AcademiaNotificationsButton] Cannot position - scrollAreaBounds is empty, hiding button");
+        [self hide];
+        return;
+    }
+
+    // Button dimensions
+    CGFloat buttonSize = 24.0;
+    CGFloat badgeSize = 12.0;
+    CGFloat badgeOverhang = badgeSize * 0.5;  // 6px
+    CGFloat windowWidth = buttonSize + badgeOverhang;  // 30px to accommodate badge
+    CGFloat windowHeight = buttonSize + badgeOverhang;  // 30px to accommodate badge
+
+    // Margins from scroll area edges
+    CGFloat leftMargin = 50.0;   // Space from left edge of scroll area
+    CGFloat bottomMargin = 12.0;  // Space from bottom edge of scroll area
+
+    // Get primary screen for coordinate conversion
+    NSScreen* primaryScreen = [NSScreen screens][0];
+    CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
+
+    // scrollAreaBounds is in Accessibility coordinates (top-left origin)
+    // Need to convert to Cocoa coordinates (bottom-left origin)
+
+    // Calculate bottom-left corner of scroll area in Cocoa coordinates
+    // AX: scrollAreaBounds.origin.y is the TOP of the scroll area
+    // AX: scrollAreaBounds.origin.y + scrollAreaBounds.size.height is the BOTTOM of the scroll area
+    CGFloat scrollAreaBottomAX = state.scrollAreaBounds.origin.y + state.scrollAreaBounds.size.height;
+    CGFloat scrollAreaBottomCocoa = primaryScreenHeight - scrollAreaBottomAX;
+
+    // Position button at bottom-left with margins
+    // X: Scroll area left + margin
+    CGFloat buttonX = state.scrollAreaBounds.origin.x + leftMargin;
+    // Y: Scroll area bottom (in Cocoa coords) + margin
+    CGFloat buttonY = scrollAreaBottomCocoa + bottomMargin;
+
+    // Set button frame
+    NSRect newFrame = NSMakeRect(buttonX, buttonY, windowWidth, windowHeight);
+    [self setFrame:newFrame display:YES];
+
+    // Update button frame within window (button is 24x24, positioned at origin)
+    self.button.frame = NSMakeRect(0, 0, buttonSize, buttonSize);
+
+    // Update badge position (top-right of button with overlap)
+    CGFloat badgeX = buttonSize - badgeOverhang;  // 24 - 6 = 18
+    CGFloat badgeY = 0 - badgeOverhang;  // -6 (overlaps top edge)
+    self.badgeView.frame = NSMakeRect(badgeX, badgeY, badgeSize, badgeSize);
+
+    NSLog(@"[AcademiaNotificationsButton] Positioned at (%.1f, %.1f) based on scroll area at (%.1f, %.1f, %.1f, %.1f)",
+          buttonX, buttonY,
+          state.scrollAreaBounds.origin.x, state.scrollAreaBounds.origin.y,
+          state.scrollAreaBounds.size.width, state.scrollAreaBounds.size.height);
+}
+
+- (void)hide {
+    NSLog(@"[AcademiaNotificationsButton] hide called");
+    [self stopPolling];  // Stop polling when button is hidden
+    [self orderOut:nil];
+}
+
+- (void)show {
+    NSLog(@"[AcademiaNotificationsButton] show called");
+    [self orderFront:nil];
+    [self startPolling];  // Start polling when button is shown
+}
+
+// isVisible is inherited from NSWindow - no need to override
+
+- (void)updateBadgeCount:(NSInteger)count {
+    NSLog(@"[AcademiaNotificationsButton] updateBadgeCount: %ld (via protocol)", (long)count);
+    [self updateBadge:(int)count];
+}
+
+- (NSString *)overlayIdentifier {
+    return @"NotificationsButton";
 }
 
 @end

@@ -1,7 +1,7 @@
-#import "NotificationPopoverWindow.h"
-#import "ButtonOverlayWindow.h"
+#import "AcademiaNotificationsPopup.h"
+#import "AcademiaNotificationsButton.h"
 
-@implementation NotificationPopoverWindow
+@implementation AcademiaNotificationsPopup
 
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer {
     // Size for notification popover - 700x600 to match design
@@ -10,10 +10,10 @@
 
     // Call base class initializer with size and window level
     self = [super initWithSize:CGSizeMake(width, height)
-                   windowLevel:NSFloatingWindowLevel + 1  // Above the button
-                      observer:observer];
+                  windowLevel:NSFloatingWindowLevel + 1  // Above the button
+                     observer:observer];
     if (self) {
-        NSLog(@"[NotificationPopoverWindow] Initialized as non-activating panel");
+        NSLog(@"[AcademiaNotificationsPopup] Initialized as non-activating panel");
 
         // Add message handler for notification actions
         [self.webView.configuration.userContentController addScriptMessageHandler:self name:@"notificationAction"];
@@ -24,14 +24,14 @@
 #pragma mark - BasePopupWindow Overrides
 
 - (NSString*)windowNameForLogging {
-    return @"NotificationPopoverWindow";
+    return @"AcademiaNotificationsPopup";
 }
 
 - (void)handleConsoleLog:(NSDictionary*)logMessage {
     // Handle console messages from WebView
     NSString* level = logMessage[@"level"];
     NSString* msg = logMessage[@"message"];
-    NSLog(@"[NotificationPopoverWindow/JS/%@] %@", level, msg);
+    NSLog(@"[AcademiaNotificationsPopup/JS/%@] %@", level, msg);
 }
 
 - (void)handleBridgeMessage:(NSDictionary*)message {
@@ -68,7 +68,7 @@
     // Handle old-style direct message handlers (notificationAction)
     if ([message.name isEqualToString:@"notificationAction"]) {
         NSDictionary* body = message.body;
-        NSLog(@"[NotificationPopoverWindow] notificationAction: %@", body);
+        NSLog(@"[AcademiaNotificationsPopup] notificationAction: %@", body);
 
         // Forward to handleBridgeMessage for unified handling
         [self handleBridgeMessage:@{
@@ -111,11 +111,37 @@
 
     [self.webView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
         if (error) {
-            NSLog(@"[NotificationPopoverWindow] Error updating content: %@", error);
+            NSLog(@"[AcademiaNotificationsPopup] Error updating content: %@", error);
         } else {
-            NSLog(@"[NotificationPopoverWindow] Content updated to notifications view");
+            NSLog(@"[AcademiaNotificationsPopup] Content updated to notifications view");
         }
     }];
+}
+
+#pragma mark - OverlayWindow Protocol
+
+- (void)updatePositionWithWordState:(WordPositionState)state {
+    // AcademiaNotificationsPopup is positioned relative to its parent button (ButtonOverlayWindow)
+    // The popup's position is managed by the parent button
+    // This method is a no-op for popup windows
+
+    NSLog(@"[AcademiaNotificationsPopup] updatePositionWithWordState called - position managed by parent button");
+}
+
+- (void)hide {
+    NSLog(@"[AcademiaNotificationsPopup] hide called");
+    [self orderOut:nil];
+}
+
+- (void)show {
+    NSLog(@"[AcademiaNotificationsPopup] show called");
+    [self orderFront:nil];
+}
+
+// isVisible is inherited from NSWindow - no need to override
+
+- (NSString *)overlayIdentifier {
+    return @"AcademiaNotificationsPopup";
 }
 
 @end

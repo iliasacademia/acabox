@@ -7,6 +7,7 @@ import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, dow
 import { syncService } from './syncService';
 import { notificationManager } from './notificationManager';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
+import { AcademiaHttpServer } from './server/httpServer';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -32,6 +33,8 @@ function resolveAppleScriptPath(scriptName: string): string {
 
 let devWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let httpServer: AcademiaHttpServer | null = null;
+let wordCheckInterval: NodeJS.Timeout | null = null;
 
 const createWindow = async (): Promise<void> => {
   devWindow = new BrowserWindow({
@@ -60,10 +63,8 @@ const createWindow = async (): Promise<void> => {
   // Initialize notification manager with main window
   notificationManager.setMainWindow(devWindow);
 
-  // Set up badge update callback to be called after sync completes
-  notificationManager.setOnSyncComplete((userId: number) => {
-    updateButtonBadgeCount(userId);
-  });
+  // WAGENT-94: Badge updates now handled by new architecture (AcademiaManager)
+  // No need for manual badge update callbacks
 
   // Wait for window to be ready, then initialize
   devWindow.webContents.once('did-finish-load', async () => {
@@ -360,6 +361,20 @@ app.whenReady().then(async () => {
   }
   createTray();
 
+  // Start HTTP server for data fetching
+  console.log('[HTTP Server] Starting HTTP server...');
+  httpServer = new AcademiaHttpServer(
+    notificationManager,
+    () => notificationManager.getCurrentUserId()
+  );
+  try {
+    const port = await httpServer.start();
+    console.log(`[HTTP Server] ✓ Server started on port ${port}`);
+    console.log(`[HTTP Server] Base URL: ${httpServer.getBaseUrl()}`);
+  } catch (error) {
+    console.error('[HTTP Server] ✗ Failed to start server:', error);
+  }
+
   // Auto-start Word button tracking if Word is running
   try {
     const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
@@ -390,7 +405,7 @@ app.whenReady().then(async () => {
   }
 
   // Periodically check if Word launches (check every 5 seconds)
-  setInterval(() => {
+  wordCheckInterval = setInterval(() => {
     if (isSelectionTrackingActive) {
       return; // Already tracking
     }
@@ -543,32 +558,7 @@ ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread'
   }
 });
 
-// Helper function to update button badge with undismissed notification count
-function updateButtonBadgeCount(userId: number): void {
-  const startTime = Date.now();
-  console.log(`[Main] ========== updateButtonBadgeCount START at ${startTime} ==========`);
-  console.log(`[Main] Called with userId: ${userId}`);
-
-  try {
-    const beforeGet = Date.now();
-    const undismissedNotifications = notificationManager.getUndismissedNotifications(userId);
-    const afterGet = Date.now();
-
-    const count = undismissedNotifications.length;
-    console.log(`[Main] Got ${count} undismissed notifications (took ${afterGet - beforeGet}ms)`);
-    console.log(`[Main] Notification IDs: [${undismissedNotifications.map(n => n.id).join(', ')}]`);
-
-    const beforeNative = Date.now();
-    console.log(`[Main] Calling wordAccessibility.updateButtonBadge(${count}) at ${beforeNative}`);
-    wordAccessibility.updateButtonBadge(count);
-    const afterNative = Date.now();
-
-    console.log(`[Main] wordAccessibility.updateButtonBadge returned (took ${afterNative - beforeNative}ms)`);
-    console.log(`[Main] ========== updateButtonBadgeCount END at ${afterNative} (total: ${afterNative - startTime}ms) ==========`);
-  } catch (error: any) {
-    console.error('[Main] Failed to update button badge:', error);
-  }
-}
+// WAGENT-94: Badge update function removed - new architecture handles badges automatically
 
 ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
   console.log(`[Main] Received start-notification-polling request for user ${userId}`);
@@ -591,8 +581,7 @@ ipcMain.handle('stop-notification-polling', async () => {
   try {
     notificationManager.stopPolling();
 
-    // Clear badge when polling stops
-    wordAccessibility.updateButtonBadge(0);
+    // WAGENT-94: Badge clearing handled by new architecture
 
     console.log('[Main] Successfully stopped notification polling');
     return { success: true };
@@ -606,11 +595,7 @@ ipcMain.handle('mark-notification-read', async (_event, id: number) => {
   try {
     await notificationManager.markAsRead(id);
 
-    // Update badge immediately after marking as read
-    const userId = notificationManager.getCurrentUserId();
-    if (userId) {
-      updateButtonBadgeCount(userId);
-    }
+    // WAGENT-94: Badge updates handled by new architecture
 
     return { success: true };
   } catch (error: any) {
@@ -623,11 +608,7 @@ ipcMain.handle('dismiss-notification', async (_event, id: number) => {
   try {
     await notificationManager.dismissNotification(id);
 
-    // Update badge immediately after dismissing
-    const userId = notificationManager.getCurrentUserId();
-    if (userId) {
-      updateButtonBadgeCount(userId);
-    }
+    // WAGENT-94: Badge updates handled by new architecture
 
     return { success: true };
   } catch (error: any) {
@@ -646,9 +627,44 @@ ipcMain.handle('get-current-user', async () => {
   }
 });
 
+// HTTP Server IPC handlers
+ipcMain.handle('get-http-server-info', async () => {
+  if (!httpServer || !httpServer.isRunning()) {
+    return {
+      running: false,
+      baseUrl: null,
+      port: null,
+    };
+  }
+
+  return {
+    running: true,
+    baseUrl: httpServer.getBaseUrl(),
+    port: httpServer.getPort(),
+  };
+});
+
+ipcMain.handle('generate-http-token', async (_event, identifier?: string) => {
+  if (!httpServer) {
+    throw new Error('HTTP server not initialized');
+  }
+
+  const token = httpServer.generateToken(identifier);
+  console.log(`[Main] Generated HTTP token for ${identifier || 'unknown'}: ${token.substring(0, 16)}...`);
+
+  return { token };
+});
+
 // Cleanup on app quit
 app.on('before-quit', async () => {
   console.log('[APP] Application quitting - cleaning up resources...');
+
+  // Stop Word check interval
+  if (wordCheckInterval) {
+    console.log('[APP] Stopping Word check interval...');
+    clearInterval(wordCheckInterval);
+    wordCheckInterval = null;
+  }
 
   // Stop selection tracking first (synchronous cleanup of native resources)
   if (isSelectionTrackingActive) {
@@ -669,6 +685,17 @@ app.on('before-quit', async () => {
   // Stop notification polling and cleanup
   console.log('[APP] Closing notification manager...');
   notificationManager.close();
+
+  // Stop HTTP server
+  if (httpServer) {
+    console.log('[APP] Stopping HTTP server...');
+    try {
+      await httpServer.stop();
+      console.log('[APP] HTTP server stopped successfully');
+    } catch (error) {
+      console.error('[APP] Error stopping HTTP server:', error);
+    }
+  }
 
   console.log('[APP] Cleanup complete');
 });
@@ -1340,7 +1367,7 @@ ipcMain.handle('get-position-debug-info', async () => {
     const buttonStates = wordAccessibility.getButtonStates();
     const scrollAreaBounds = wordAccessibility.getScrollAreaBounds();
     const firstTextAreaInfo = wordAccessibility.getFirstTextAreaInfo();
-    const badgeState = wordAccessibility.getBadgeState();
+    // WAGENT-94: badgeState removed - badges handled by new architecture
 
     // Get screen height for coordinate conversion
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -1357,7 +1384,7 @@ ipcMain.handle('get-position-debug-info', async () => {
         buttonStates,
         scrollAreaBounds,
         firstTextAreaInfo,
-        badgeState,
+        // badgeState removed - WAGENT-94
         screenHeight,
         timestamp: Date.now()
       }

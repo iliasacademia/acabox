@@ -8,10 +8,17 @@
 @class WordAccessibilityObserver;
 
 // Import extracted window classes
-#import "bridge/windows/TextPopupWindow.h"
-#import "bridge/windows/ClickPopupWindow.h"
-#import "bridge/windows/ButtonOverlayWindow.h"
-#import "bridge/windows/LineCountButtonWindow.h"
+#import "bridge/windows/OverallReviewPopup.h"
+#import "bridge/windows/AcademiaNotificationsButton.h"
+#import "bridge/windows/OverallReviewButton.h"
+
+// Import new architecture components (WAGENT-94)
+#import "bridge/adapters/MicrosoftWordAdapter.h"
+#import "bridge/managers/AcademiaManager.h"
+
+// Import debug windows (WAGENT-94)
+#import "bridge/windows/DebugBorderWindow.h"
+#import "bridge/windows/DebugInfoOverlay.h"
 
 
 // Global variable for popup path (declared at file scope for accessibility from both Obj-C and C++)
@@ -29,29 +36,23 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     SelectionChangedCallback _selectionCallback;
     ScrollEventCallback _scrollCallback;
     ButtonClickCallback _buttonClickCallback;
-    NSTimer* _scrollDebounceTimer;
-    NSTimer* _positionMonitorTimer;
-    NSTimer* _windowMoveDebounceTimer;  // Debounce timer for window move/resize
-    BOOL _isScrolling;
-    BOOL _isWindowMoving;  // Track if window is currently moving/resizing
-    CGRect _lastSelectionBounds;
-    BOOL _hasLastBounds;
-    CGPoint _lastPageCornerPosition;  // Track page corner position for scroll detection
-    BOOL _hasLastPageCornerPosition;
-    id _scrollEventMonitor;  // Global scroll event monitor
-    CGRect _cachedWordBounds;  // Cached Word window bounds for performance
-    NSTimeInterval _lastBoundsUpdate;  // Timestamp of last bounds cache update
-    ButtonOverlayWindow* _buttonWindow;
-    LineCountButtonWindow* _lineCountButton;  // NEW: Line count button
-    NSString* _currentSelectedText;
-    id _appActivationObserver;
     id _spaceChangeObserver;
-    id _clickPopupBecameKeyObserver;
-    id _clickPopupResignedKeyObserver;
-    AXUIElementRef _wordWindow;  // Reference to Word's frontmost window for potential future use
-    CGRect _cachedScrollAreaBounds;  // Cached scroll area bounds for when ClickPopup has focus
-    NSTimeInterval _lastScrollAreaUpdate;  // Timestamp of last scroll area cache update
-    int _lastBadgeCount;  // Store badge count so it can be applied when button is recreated
+    id _appActivationObserver;
+
+    // WAGENT-94: New architecture components
+    MicrosoftWordAdapter* _wordAdapter;  // Handles Word state tracking
+    AcademiaManager* _academiaManager;   // Coordinates overlay windows
+    BOOL _useNewArchitecture;  // Feature flag to enable/disable new architecture
+
+    // Overlay windows
+    AcademiaNotificationsButton* _notificationsButton;
+    OverallReviewButton* _overallReviewButton;
+
+    // Debug windows (enabled with DEBUG=1)
+    DebugBorderWindow* _debugWindowBorder;     // Red border for Word window
+    DebugBorderWindow* _debugScrollBorder;     // Blue border for scroll area
+    DebugBorderWindow* _debugDocumentBorder;   // Green border for layout container
+    DebugInfoOverlay* _debugInfoOverlay;       // Info overlay at bottom-right
 }
 
 - (instancetype)initWithPID:(pid_t)pid {
@@ -60,33 +61,91 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _pid = pid;
         _wordApp = AXUIElementCreateApplication(pid);
         _observer = NULL;
-        _isScrolling = NO;
-        _isWindowMoving = NO;
-        _lastSelectionBounds = CGRectZero;
-        _hasLastBounds = NO;
-        _lastPageCornerPosition = CGPointZero;
-        _hasLastPageCornerPosition = NO;
-        _scrollEventMonitor = nil;
-        _cachedWordBounds = CGRectZero;
-        _lastBoundsUpdate = 0;
-        _clickPopupBecameKeyObserver = nil;
-        _clickPopupResignedKeyObserver = nil;
-        _wordWindow = NULL;
-        _cachedScrollAreaBounds = CGRectZero;
-        _lastScrollAreaUpdate = 0;
-        _lastBadgeCount = 0;  // Initialize badge count to 0
+
+        // WAGENT-94: Initialize new architecture components
+        _useNewArchitecture = YES;
+        NSLog(@"[Bridge] WAGENT-94: Initializing new architecture (MicrosoftWordAdapter + AcademiaManager)");
+
+        // Create Word adapter with self as delegate
+        _wordAdapter = [[MicrosoftWordAdapter alloc] initWithPID:pid delegate:nil];
+
+        // Create Academia manager with the adapter
+        _academiaManager = [[AcademiaManager alloc] initWithWordAdapter:_wordAdapter];
+
+        // Create and register overlay windows
+        _notificationsButton = [[AcademiaNotificationsButton alloc] initWithObserver:self];
+        _overallReviewButton = [[OverallReviewButton alloc] initWithObserver:self];
+
+        [_academiaManager registerOverlay:_notificationsButton];
+        [_academiaManager registerOverlay:_overallReviewButton];
+
+        // Check if debug mode is enabled via DEBUG=1 environment variable
+        NSString* debugEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"DEBUG"];
+        BOOL isDebugMode = [debugEnv isEqualToString:@"1"];
+
+        if (isDebugMode) {
+            NSLog(@"[Bridge] DEBUG: Debug mode enabled, creating debug windows");
+
+            // Create debug border windows with appropriate colors
+            _debugWindowBorder = [[DebugBorderWindow alloc] initWithBorderType:DebugBorderTypeWordWindow
+                                                                         color:[NSColor redColor]];
+            _debugScrollBorder = [[DebugBorderWindow alloc] initWithBorderType:DebugBorderTypeScrollArea
+                                                                         color:[NSColor blueColor]];
+            _debugDocumentBorder = [[DebugBorderWindow alloc] initWithBorderType:DebugBorderTypeLayout
+                                                                           color:[NSColor greenColor]];
+
+            // Create debug info overlay
+            _debugInfoOverlay = [[DebugInfoOverlay alloc] init];
+
+            // Register all debug windows with the manager
+            [_academiaManager registerOverlay:_debugWindowBorder];
+            [_academiaManager registerOverlay:_debugScrollBorder];
+            [_academiaManager registerOverlay:_debugDocumentBorder];
+            [_academiaManager registerOverlay:_debugInfoOverlay];
+
+            NSLog(@"[Bridge] DEBUG: Created and registered 4 debug windows (3 borders + 1 info overlay)");
+        }
+
+        NSLog(@"[Bridge] WAGENT-94: New architecture components initialized with %ld overlays",
+              (long)[_academiaManager registeredOverlayCount]);
     }
     return self;
 }
 
 - (void)dealloc {
     [self stopObserving];
+
+    // Clean up debug windows
+    if (_debugWindowBorder) {
+        [_debugWindowBorder close];
+        _debugWindowBorder = nil;
+    }
+    if (_debugScrollBorder) {
+        [_debugScrollBorder close];
+        _debugScrollBorder = nil;
+    }
+    if (_debugDocumentBorder) {
+        [_debugDocumentBorder close];
+        _debugDocumentBorder = nil;
+    }
+    if (_debugInfoOverlay) {
+        [_debugInfoOverlay close];
+        _debugInfoOverlay = nil;
+    }
+
+    // WAGENT-94: Clean up new architecture components
+    if (_academiaManager) {
+        [_academiaManager stopManaging];
+        _academiaManager = nil;
+    }
+    if (_wordAdapter) {
+        [_wordAdapter stopObserving];
+        _wordAdapter = nil;
+    }
+    NSLog(@"[Bridge] WAGENT-94: New architecture components cleaned up");
+
     if (_wordApp) {
         CFRelease(_wordApp);
-    }
-    if (_wordWindow) {
-        CFRelease(_wordWindow);
-        _wordWindow = NULL;
     }
 }
 
@@ -137,7 +196,38 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
                        AXObserverGetRunLoopSource(_observer),
                        kCFRunLoopDefaultMode);
 
-    // Listen for app activation/deactivation to show/hide button automatically
+    // WAGENT-94: Start new architecture if enabled
+    if (_useNewArchitecture) {
+        NSLog(@"[Bridge] WAGENT-94: Starting new architecture components");
+
+        // Start Word adapter observation
+        NSError *adapterError = nil;
+        if (![_wordAdapter startObserving:&adapterError]) {
+            NSLog(@"[Bridge] WAGENT-94: ERROR - Failed to start Word adapter: %@", adapterError);
+            if (error) {
+                *error = adapterError;
+            }
+            return NO;
+        }
+
+        // Start Academia manager
+        if (![_academiaManager startManaging]) {
+            NSLog(@"[Bridge] WAGENT-94: ERROR - Failed to start Academia manager");
+            if (error) {
+                *error = [NSError errorWithDomain:@"WordAccessibility"
+                                            code:3
+                                        userInfo:@{NSLocalizedDescriptionKey: @"Failed to start Academia manager"}];
+            }
+            return NO;
+        }
+
+        NSLog(@"[Bridge] WAGENT-94: New architecture started successfully");
+
+        // Note: With new architecture, the manager handles overlay coordination
+        // Legacy app activation observer below is still active for compatibility
+    }
+
+    // Listen for app activation/deactivation (handled by new architecture)
     __weak typeof(self) weakSelf = self;
     _appActivationObserver = [[NSWorkspace sharedWorkspace].notificationCenter
         addObserverForName:NSWorkspaceDidActivateApplicationNotification
@@ -148,56 +238,20 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         if (!strongSelf) return;
 
         NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
-        pid_t ourAppPID = [[NSRunningApplication currentApplication] processIdentifier];
 
         NSLog(@"[Bridge] ===== APP ACTIVATION =====");
         NSLog(@"[Bridge] Active app: %@ (PID: %d)", app.localizedName, app.processIdentifier);
-        NSLog(@"[Bridge] Word PID: %d, Our app PID: %d", strongSelf->_pid, ourAppPID);
+        NSLog(@"[Bridge] Word PID: %d", strongSelf->_pid);
 
-        // If our Academia app (which owns the ClickPopup) became active, skip handling
-        // The window-level notifications will handle ClickPopup focus changes
-        if (app.processIdentifier == ourAppPID) {
-            NSLog(@"[Bridge] Our app activated - skipping (window notifications will handle)");
-            NSLog(@"[Bridge] =====================================");
-            return;
-        }
-
-        if (app.processIdentifier == strongSelf->_pid) {
-            // MS Word came to foreground - show button
-            NSLog(@"[Bridge] Word activated - showing Count button");
-            [strongSelf startWordWindowTracking];
-
-            // Restore click popup if it was visible before Word lost focus
-            if (strongSelf->_lineCountButton &&
-                strongSelf->_lineCountButton.clickPopup &&
-                strongSelf->_lineCountButton.clickPopup.wasVisibleBeforeHiding) {
-                NSLog(@"[Bridge] Restoring ClickPopup that was visible before");
-                [strongSelf->_lineCountButton showClickPopup];
-                strongSelf->_lineCountButton.clickPopup.wasVisibleBeforeHiding = NO;
-            }
-        } else {
-            // Different app activated (not Word, not our app)
-            NSLog(@"[Bridge] Different app activated - hiding button and ClickPopup");
-
-            // Check if ClickPopup is currently visible so we can restore it later
-            if (strongSelf->_lineCountButton && strongSelf->_lineCountButton.clickPopup) {
-                BOOL isClickPopupVisible = [strongSelf->_lineCountButton.clickPopup isVisible];
-                if (isClickPopupVisible) {
-                    // Remember that ClickPopup was visible so we can restore it
-                    strongSelf->_lineCountButton.clickPopup.wasVisibleBeforeHiding = YES;
-                    NSLog(@"[Bridge] ClickPopup was visible - will restore when returning to Word");
-                }
-            }
-
-            // Hide both button and ClickPopup when switching to different app
-            [strongSelf hideButtonAndPopup:YES];
-
-            // Stop position monitoring to save resources
-            if (strongSelf->_positionMonitorTimer) {
-                [strongSelf->_positionMonitorTimer invalidate];
-                strongSelf->_positionMonitorTimer = nil;
+        // WAGENT-94: New architecture handles all overlay visibility
+        if (strongSelf->_useNewArchitecture) {
+            if (app.processIdentifier == strongSelf->_pid) {
+                NSLog(@"[Bridge] Word activated - new architecture handling overlays");
+            } else {
+                NSLog(@"[Bridge] Different app activated - new architecture handling overlays");
             }
         }
+
         NSLog(@"[Bridge] =====================================");
     }];
 
@@ -215,53 +269,15 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         [strongSelf handleSpaceChange];
     }];
 
-    // Check if Word is currently the active application and show button immediately
-    NSRunningApplication *activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
-    if (activeApp.processIdentifier == _pid) {
-        [self startWordWindowTracking];
-    }
+    // WAGENT-94: New architecture handles initial overlay display
+    NSLog(@"[Bridge] startObserving completed - new architecture managing overlays");
 
     return YES;
 }
 
 - (void)stopObserving {
-    // Stop all timers first (must be on main thread)
-    dispatch_sync(dispatch_get_main_queue(), ^{
-        if (self->_scrollDebounceTimer) {
-            [self->_scrollDebounceTimer invalidate];
-            self->_scrollDebounceTimer = nil;
-        }
-
-        if (self->_positionMonitorTimer) {
-            [self->_positionMonitorTimer invalidate];
-            self->_positionMonitorTimer = nil;
-        }
-
-        if (self->_windowMoveDebounceTimer) {
-            [self->_windowMoveDebounceTimer invalidate];
-            self->_windowMoveDebounceTimer = nil;
-        }
-
-        // Stop scroll event monitor
-        [self stopScrollEventMonitor];
-
-        // Hide and destroy button window synchronously
-        if (self->_buttonWindow) {
-            [self->_buttonWindow destroyPopup];  // Properly destroy the popup window
-            [self->_buttonWindow orderOut:nil];
-            [self->_buttonWindow close];
-            self->_buttonWindow = nil;
-        }
-
-        // Hide and destroy line count button synchronously
-        if (self->_lineCountButton) {
-            [self->_lineCountButton hideHoverPopup];
-            [self->_lineCountButton hideClickPopup];
-            [self->_lineCountButton orderOut:nil];
-            [self->_lineCountButton close];
-            self->_lineCountButton = nil;
-        }
-    });
+    // WAGENT-94: New architecture cleanup is handled in dealloc
+    NSLog(@"[Bridge] stopObserving - cleaning up observers");
 
     // Remove app activation observer
     if (_appActivationObserver) {
@@ -274,9 +290,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:_spaceChangeObserver];
         _spaceChangeObserver = nil;
     }
-
-    // Remove ClickPopup window observers
-    [self unregisterClickPopupObservers];
 
     // Stop accessibility observer
     if (_observer) {
@@ -295,617 +308,32 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _observer = NULL;
     }
 
-    // Clear state
-    _hasLastBounds = NO;
-    _isScrolling = NO;
-    _isWindowMoving = NO;
-    _currentSelectedText = nil;
 }
 
-- (void)showButtonAtPosition:(CGRect)bounds withText:(NSString*)text {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        // Store current selection
-        self->_currentSelectedText = text;
+#pragma mark - Legacy Button Methods Removed (Replaced by New Architecture)
 
-        // Create button window if it doesn't exist
-        if (!self->_buttonWindow) {
-            NSLog(@"[Bridge-Observer] Creating new ButtonOverlayWindow");
-            self->_buttonWindow = [[ButtonOverlayWindow alloc] initWithObserver:self];
-
-            // Apply stored badge count to newly created window
-            if (self->_lastBadgeCount > 0) {
-                NSLog(@"[Bridge-Observer] Applying stored badge count %d to new button window", self->_lastBadgeCount);
-                [self->_buttonWindow updateBadge:self->_lastBadgeCount];
-            }
-        }
-
-        // Update the selected text for hover popup
-        [self->_buttonWindow setSelectedText:text];
-
-        // Store selection bounds for popup positioning
-        self->_buttonWindow.selectionBounds = bounds;
-
-        // Get the document's left margin
-        CGFloat leftMargin = [self getDocumentLeftMargin];
-
-        // Position button to the left of the document margin
-        CGFloat buttonWidth = 10;  // Current button width
-        CGFloat buttonPadding = 15;  // Space between button and margin
-        CGFloat buttonX;
-
-        if (leftMargin > 0) {
-            // Use document left margin
-            buttonX = leftMargin + buttonPadding;
-        } else {
-            // Fallback: position to left of selection
-            buttonX = bounds.origin.x - buttonWidth - buttonPadding;
-        }
-
-        CGPoint buttonPosition = CGPointMake(buttonX, bounds.origin.y);
-        [self->_buttonWindow positionAtPoint:buttonPosition withHeight:bounds.size.height];
-
-        // Show the button without activating (non-activating panel)
-        [self->_buttonWindow orderFrontRegardless];
-    });
-}
-
-- (void)hideButton {
-    // Convenience method - hide button but keep ClickPopup visible (for scroll)
-    [self hideButtonAndPopup:NO];
-}
-
-- (void)hideButtonAndPopup:(BOOL)hideClickPopup {
-    // Execute synchronously for immediate hiding (called from main thread via NSEvent handler)
-    if (_buttonWindow) {
-        [_buttonWindow orderOut:nil];
-    }
-    if (_lineCountButton) {
-        [_lineCountButton hideHoverPopup];
-
-        if (hideClickPopup) {
-            // Hide ClickPopup (e.g., when switching apps)
-            [_lineCountButton hideClickPopup];
-        }
-        // Otherwise keep ClickPopup visible (e.g., during scroll)
-
-        [_lineCountButton orderOut:nil];
-    }
-}
-
-- (void)showFixedButton {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        // Create button window if it doesn't exist
-        if (!self->_buttonWindow) {
-            NSLog(@"[Bridge-Observer] Creating new ButtonOverlayWindow in showFixedButton");
-            self->_buttonWindow = [[ButtonOverlayWindow alloc] initWithObserver:self];
-
-            // Apply stored badge count to newly created window
-            if (self->_lastBadgeCount > 0) {
-                NSLog(@"[Bridge-Observer] Applying stored badge count %d to new button window", self->_lastBadgeCount);
-                [self->_buttonWindow updateBadge:self->_lastBadgeCount];
-            }
-        }
-
-        // Get Word window bounds
-        CGRect wordBounds = [self getWordWindowBounds];
-        if (CGRectIsEmpty(wordBounds)) {
-            return;
-        }
-
-        // Position to the right of Grammarly button
-        // Grammarly button is typically ~40-50px from left edge and ~40px wide
-        CGFloat bottomPadding = 40.0;  // Match Grammarly's vertical position
-        CGFloat leftOffset = 45.0;  // Position to the right of Grammarly button
-        CGFloat buttonSize = 24.0;
-
-        // Get primary screen height for coordinate conversion
-        NSScreen* primaryScreen = [NSScreen screens][0];
-        CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
-
-        // Word bounds are in top-left coordinate system (from Accessibility API)
-        // Convert to Cocoa coordinates (bottom-left origin)
-        CGFloat windowBottom = primaryScreenHeight - (wordBounds.origin.y + wordBounds.size.height);
-
-        // Position button to the right of Grammarly button at bottom
-        CGFloat buttonX = wordBounds.origin.x + leftOffset;
-        CGFloat buttonY = windowBottom + bottomPadding;
-
-        // Position the button window
-        // Window must accommodate badge (badge extends 6px beyond button's right AND top edges)
-        CGFloat badgeOverhang = 6.0;
-        NSRect buttonFrame = NSMakeRect(buttonX, buttonY, buttonSize + badgeOverhang, buttonSize + badgeOverhang);
-        [self->_buttonWindow setFrame:buttonFrame display:YES];
-
-        // Show the button without activating (non-activating panel)
-        [self->_buttonWindow orderFrontRegardless];
-
-        // Also show line count button
-        [self showLineCountButton];
-    });
-}
-
-- (void)showLineCountButton {
-    // Must be called from main queue
-    dispatch_async(dispatch_get_main_queue(), ^{
-        // Create line count button if it doesn't exist
-        if (!self->_lineCountButton) {
-            self->_lineCountButton = [[LineCountButtonWindow alloc] initWithObserver:self];
-        }
-
-        // Get Word window bounds and text area info
-        CGRect wordBounds = [self getWordWindowBounds];
-        if (CGRectIsEmpty(wordBounds)) {
-            NSLog(@"[LineCountButton] Cannot show - Word window bounds unavailable");
-            return;
-        }
-
-        // Get the position of the page corner (top-left of document including margins)
-        CGPoint pageCorner = [self getDocumentTopLeftCorner];
-
-        CGFloat buttonSize = 24.0;
-        CGFloat buttonX, buttonY;
-
-        if (!CGPointEqualToPoint(pageCorner, CGPointZero)) {
-            // Successfully got page corner position - position button at the left edge of page
-            CGFloat leftMargin = 12.0;   // 12px margin from left edge of page
-            CGFloat topOffset = 12.0;   // 12px offset from top of page corner
-            buttonX = pageCorner.x + leftMargin;
-
-            // Convert from top-left origin (Accessibility API) to bottom-left origin (Cocoa)
-            NSScreen* primaryScreen = [NSScreen screens][0];
-            CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
-
-            // Convert Y coordinate: bottom-left Y = screenHeight - topLeft Y
-            // Add topOffset to position button slightly below the page corner
-            CGFloat cocoaY = primaryScreenHeight - pageCorner.y - topOffset - buttonSize;
-
-            buttonY = cocoaY;
-        } else {
-            // Fallback to fixed positioning if we can't get page corner
-            CGFloat topPadding = 150.0;
-            CGFloat leftPadding = 50.0;
-
-            // Get primary screen height for coordinate conversion
-            NSScreen* primaryScreen = [NSScreen screens][0];
-            CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
-            CGFloat windowTop = primaryScreenHeight - wordBounds.origin.y;
-
-            buttonX = wordBounds.origin.x + leftPadding;
-            buttonY = windowTop - topPadding;
-        }
-
-        // Get scroll area bounds to check if button is within scrollable content
-        // Check if ClickPopup currently has focus
-        BOOL clickPopupHasFocus = (self->_lineCountButton &&
-                                   self->_lineCountButton.clickPopup &&
-                                   [self->_lineCountButton.clickPopup isKeyWindow]);
-
-        CGRect scrollAreaBounds;
-        if (clickPopupHasFocus && !CGRectIsEmpty(self->_cachedScrollAreaBounds)) {
-            // Use cached bounds when ClickPopup has focus (Word doesn't have focus to query)
-            scrollAreaBounds = self->_cachedScrollAreaBounds;
-        } else {
-            // Query fresh bounds from Word
-            scrollAreaBounds = [self getScrollAreaBounds];
-            if (!CGRectIsEmpty(scrollAreaBounds)) {
-                // Update cache with fresh bounds
-                self->_cachedScrollAreaBounds = scrollAreaBounds;
-                self->_lastScrollAreaUpdate = [[NSDate date] timeIntervalSince1970];
-            }
-        }
-
-        if (CGRectIsEmpty(scrollAreaBounds)) {
-            // No scroll area found - hide button
-            NSLog(@"[LineCountButton] Hiding button - no scroll area bounds available");
-            [self->_lineCountButton orderOut:nil];
-            return;
-        }
-
-        // Validate that button position is on-screen
-        NSRect buttonFrame = NSMakeRect(buttonX, buttonY, buttonSize, buttonSize);
-
-        // Check for intersection between button and scroll area bounds
-        // Convert scroll area bounds from Accessibility coordinates (top-left origin) to Cocoa coordinates (bottom-left origin)
-        NSScreen* primaryScreen = [NSScreen screens][0];
-        CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
-
-        CGRect scrollAreaCocoa = CGRectMake(
-            scrollAreaBounds.origin.x,
-            primaryScreenHeight - scrollAreaBounds.origin.y - scrollAreaBounds.size.height,
-            scrollAreaBounds.size.width,
-            scrollAreaBounds.size.height
-        );
-
-        // Calculate intersection between button frame and scroll area
-        NSRect visibleRect = NSIntersectionRect(scrollAreaCocoa, buttonFrame);
-
-        if (NSIsEmptyRect(visibleRect)) {
-            // No intersection - button is completely outside scroll area, hide it
-            NSLog(@"[LineCountButton] Hiding button - completely outside scroll area bounds");
-            [self->_lineCountButton orderOut:nil];
-            return;
-        }
-
-        // Check if button is within any visible screen bounds
-        BOOL isOnScreen = NO;
-        for (NSScreen* screen in [NSScreen screens]) {
-            if (NSIntersectsRect(buttonFrame, screen.frame)) {
-                isOnScreen = YES;
-                break;
-            }
-        }
-
-        if (!isOnScreen) {
-            // Button would be off-screen, hide it instead
-            [self->_lineCountButton orderOut:nil];
-            return;
-        }
-
-        // Position the button window
-        [self->_lineCountButton setFrame:buttonFrame display:YES];
-
-        // Apply clipping mask if button is partially outside scroll area
-        if (NSContainsRect(scrollAreaCocoa, buttonFrame)) {
-            // Button is fully contained - clear any existing mask
-            [self->_lineCountButton clearVisibleRectMask];
-        } else {
-            // Button is partially visible - apply clipping mask
-            [self->_lineCountButton setVisibleRect:visibleRect inFrame:buttonFrame];
-            NSLog(@"[LineCountButton] Button partially visible - clipping mask applied");
-        }
-
-        // Show the button without activating (non-activating panel)
-        [self->_lineCountButton orderFrontRegardless];
-    });
-}
-
-- (void)startWordWindowTracking {
-    // Start scroll event monitor for immediate scroll detection
-    [self startScrollEventMonitor];
-
-    // Start position monitoring timer for fallback (keyboard scrolling, edge cases)
-    [_positionMonitorTimer invalidate];
-    _positionMonitorTimer = [NSTimer scheduledTimerWithTimeInterval:0.5  // Check every 500ms (fallback for edge cases)
-                                                             repeats:YES
-                                                               block:^(NSTimer * _Nonnull timer) {
-        [self updateButtonPosition];
-    }];
-
-    // Show button immediately
-    [self showFixedButton];
-}
-
-- (void)updateCachedWordBounds {
-    _cachedWordBounds = [self getWordWindowBounds];
-    _lastBoundsUpdate = [[NSDate date] timeIntervalSince1970];
-}
-
-- (void)startScrollEventMonitor {
-    if (_scrollEventMonitor) {
-        return;  // Already monitoring
-    }
-
-    // Initialize bounds cache
-    [self updateCachedWordBounds];
-
-    __weak WordAccessibilityObserver* weakSelf = self;
-
-    _scrollEventMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskScrollWheel
-                                                                  handler:^(NSEvent *event) {
-        WordAccessibilityObserver* strongSelf = weakSelf;
-        if (!strongSelf) {
-            return;
-        }
-
-        // Get mouse location in screen coordinates
-        NSPoint mouseLocation = [NSEvent mouseLocation];
-
-        // Refresh bounds cache if stale (older than 1 second)
-        NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-        if (now - strongSelf->_lastBoundsUpdate > 1.0 || CGRectIsEmpty(strongSelf->_cachedWordBounds)) {
-            [strongSelf updateCachedWordBounds];
-        }
-
-        // Check if mouse is within Word window bounds
-        if (!CGRectIsEmpty(strongSelf->_cachedWordBounds) &&
-            NSPointInRect(mouseLocation, strongSelf->_cachedWordBounds)) {
-            // Mouse is over Word window - handle scroll event
-            [strongSelf handleScrollEvent:event];
-        }
-    }];
-}
-
-- (void)handleScrollEvent:(NSEvent*)event {
-    // Ignore momentum scrolling (only handle active user scrolling)
-    if (event.momentumPhase != NSEventPhaseNone) {
-        // During momentum phase, still debounce but don't trigger initial hide
-        if (_isScrolling) {
-            // Reset debounce timer during momentum
-            [_scrollDebounceTimer invalidate];
-            _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
-                                                                    repeats:NO
-                                                                      block:^(NSTimer * _Nonnull timer) {
-                self->_isScrolling = NO;
-                [self showFixedButton];
-            }];
-        }
-        return;
-    }
-
-    // Active scrolling detected
-    if (!_isScrolling) {
-        _isScrolling = YES;
-        // Hide button and popup immediately
-        [self hideButton];
-
-        // Invalidate cached scroll area bounds (document scrolled)
-        _cachedScrollAreaBounds = CGRectZero;
-        _lastScrollAreaUpdate = 0;
-    }
-
-    // Debounce scroll end - reset timer on each scroll event
-    [_scrollDebounceTimer invalidate];
-    _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
-                                                            repeats:NO
-                                                              block:^(NSTimer * _Nonnull timer) {
-        self->_isScrolling = NO;
-        // Show button at new position after scroll ends
-        [self showFixedButton];
-    }];
-}
-
-- (void)stopScrollEventMonitor {
-    if (_scrollEventMonitor) {
-        [NSEvent removeMonitor:_scrollEventMonitor];
-        _scrollEventMonitor = nil;
-    }
-}
-
-- (void)updateButtonPosition {
-    if (!_buttonWindow) {
-        return;
-    }
-
-    // Get current Word window bounds
-    CGRect wordBounds = [self getWordWindowBounds];
-    if (CGRectIsEmpty(wordBounds)) {
-        // Word window not available, hide button
-        [self hideButton];
-        return;
-    }
-
-    // Get current page corner position for scroll detection
-    CGPoint currentPageCornerPosition = [self getDocumentTopLeftCorner];
-
-    // Check if page corner position changed (indicates scrolling)
-    if (_hasLastPageCornerPosition && !CGPointEqualToPoint(currentPageCornerPosition, CGPointZero)) {
-        CGFloat tolerance = 1.0;  // 1px tolerance
-        BOOL positionChanged = (fabs(currentPageCornerPosition.y - _lastPageCornerPosition.y) > tolerance);
-
-        if (positionChanged) {
-            // Position changed - user is scrolling
-            if (!_isScrolling) {
-                _isScrolling = YES;
-                // Hide button and popup immediately on scroll start
-                [self hideButton];
-            }
-
-            // Update stored position
-            _lastPageCornerPosition = currentPageCornerPosition;
-
-            // Debounce scroll end
-            [_scrollDebounceTimer invalidate];
-            _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
-                                                                    repeats:NO
-                                                                      block:^(NSTimer * _Nonnull timer) {
-                self->_isScrolling = NO;
-                // Show button at new position after scroll ends
-                [self showFixedButton];
-            }];
-
-            return;  // Don't update button position while scrolling
-        }
-    }
-
-    // Store current position for next check
-    if (!CGPointEqualToPoint(currentPageCornerPosition, CGPointZero)) {
-        _lastPageCornerPosition = currentPageCornerPosition;
-        _hasLastPageCornerPosition = YES;
-    }
-
-    // Update button position (only if not scrolling)
-    if (!_isScrolling) {
-        [self showFixedButton];
-    }
-}
-
-- (void)handleWindowMoveOrResize {
-    // Immediately hide button during window movement/resize
-    if (!_isWindowMoving) {
-        _isWindowMoving = YES;
-        [self hideButton];
-    }
-
-    // Update cached Word bounds immediately when window moves
-    [self updateCachedWordBounds];
-
-    // Invalidate cached scroll area bounds (window moved/resized)
-    _cachedScrollAreaBounds = CGRectZero;
-    _lastScrollAreaUpdate = 0;
-
-    // Cancel any existing debounce timer
-    if (_windowMoveDebounceTimer) {
-        [_windowMoveDebounceTimer invalidate];
-        _windowMoveDebounceTimer = nil;
-    }
-
-    // Start new debounce timer (500ms)
-    __weak typeof(self) weakSelf = self;
-    _windowMoveDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
-                                                                repeats:NO
-                                                                  block:^(NSTimer * _Nonnull timer) {
-        typeof(self) strongSelf = weakSelf;
-        if (strongSelf) {
-            // Window movement stopped for 500ms - show button at new position
-            strongSelf->_isWindowMoving = NO;
-            [strongSelf updateButtonPosition];
-            strongSelf->_windowMoveDebounceTimer = nil;
-        }
-    }];
-}
+#pragma mark - Space Change Handler
 
 - (void)handleSpaceChange {
-    // Hide overlays immediately when space/desktop changes
-    [self hideButton];
-
-    // Stop position monitoring to save resources
-    if (_positionMonitorTimer) {
-        [_positionMonitorTimer invalidate];
-        _positionMonitorTimer = nil;
-    }
-
-    // WAGENT-77: Removed 200ms arbitrary delay
-    // The existing NSWorkspaceDidActivateApplicationNotification listener (line 140)
-    // will automatically handle showing overlays when Word becomes active on the new space.
-    // This eliminates the timing hack and makes the behavior more reliable.
+    // WAGENT-94: New architecture handles overlay hiding via AcademiaManager
+    // This method is called by _spaceChangeObserver but new architecture
+    // handles space changes through its own mechanisms
+    NSLog(@"[Bridge] Space change detected - new architecture handling");
 }
 
-// Observer registration for ClickPopup window
+#pragma mark - Legacy Click Popup Observers (No-op in New Architecture)
+
 - (void)registerClickPopupObservers {
-    if (!_lineCountButton || !_lineCountButton.clickPopup) {
-        NSLog(@"[Bridge] Cannot register ClickPopup observers - popup doesn't exist");
-        return;
-    }
-
-    // Remove existing observers first (in case of re-registration)
-    [self unregisterClickPopupObservers];
-
-    NSLog(@"[Bridge] Registering window notification observers for ClickPopup");
-
-    __weak typeof(self) weakSelf = self;
-
-    // Register for ClickPopup becoming key window
-    _clickPopupBecameKeyObserver = [[NSNotificationCenter defaultCenter]
-        addObserverForName:NSWindowDidBecomeKeyNotification
-                    object:_lineCountButton.clickPopup
-                     queue:[NSOperationQueue mainQueue]
-                usingBlock:^(NSNotification *notification) {
-        typeof(self) strongSelf = weakSelf;
-        if (strongSelf) {
-            [strongSelf clickPopupDidBecomeKey:notification];
-        }
-    }];
-
-    // Register for ClickPopup resigning key window
-    _clickPopupResignedKeyObserver = [[NSNotificationCenter defaultCenter]
-        addObserverForName:NSWindowDidResignKeyNotification
-                    object:_lineCountButton.clickPopup
-                     queue:[NSOperationQueue mainQueue]
-                usingBlock:^(NSNotification *notification) {
-        typeof(self) strongSelf = weakSelf;
-        if (strongSelf) {
-            [strongSelf clickPopupDidResignKey:notification];
-        }
-    }];
-
-    NSLog(@"[Bridge] ClickPopup observers registered successfully");
+    // WAGENT-94: No-op - new architecture handles popup events
+    NSLog(@"[Bridge] registerClickPopupObservers called (no-op in new architecture)");
 }
 
 - (void)unregisterClickPopupObservers {
-    if (_clickPopupBecameKeyObserver) {
-        [[NSNotificationCenter defaultCenter] removeObserver:_clickPopupBecameKeyObserver];
-        _clickPopupBecameKeyObserver = nil;
-        NSLog(@"[Bridge] Removed ClickPopup becameKey observer");
-    }
-
-    if (_clickPopupResignedKeyObserver) {
-        [[NSNotificationCenter defaultCenter] removeObserver:_clickPopupResignedKeyObserver];
-        _clickPopupResignedKeyObserver = nil;
-        NSLog(@"[Bridge] Removed ClickPopup resignedKey observer");
-    }
+    // WAGENT-94: No-op - new architecture handles popup events
+    NSLog(@"[Bridge] unregisterClickPopupObservers called (no-op in new architecture)");
 }
 
-// Window-level focus notification handlers
-- (void)clickPopupDidBecomeKey:(NSNotification *)notification {
-    NSLog(@"[Bridge] ===== ClickPopup Became Key =====");
-    NSLog(@"[Bridge] ClickPopupWindow gained focus - ensuring Count button stays visible");
-
-    // Make sure Count button is still showing when ClickPopup becomes key
-    // This handles the case where user clicks in the popup to enter text
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (self->_lineCountButton) {
-            // Ensure button is visible
-            [self showLineCountButton];
-            NSLog(@"[Bridge] Count button kept visible while ClickPopup is key");
-        }
-    });
-}
-
-- (void)clickPopupDidResignKey:(NSNotification *)notification {
-    NSLog(@"[Bridge] ===== ClickPopup Resigned Key =====");
-    NSLog(@"[Bridge] ClickPopupWindow lost focus - checking where focus went");
-
-    dispatch_async(dispatch_get_main_queue(), ^{
-        // Check if focus went back to Word (Word became active)
-        NSRunningApplication *activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
-
-        if (activeApp.processIdentifier == self->_pid) {
-            // Focus returned to Word - keep button visible
-            NSLog(@"[Bridge] Focus returned to Word - keeping Count button visible");
-            [self showLineCountButton];
-        } else {
-            // Focus went to a different app - hide button and ClickPopup
-            NSLog(@"[Bridge] Focus went to different app: %@ - hiding button and ClickPopup", activeApp.localizedName);
-
-            // Remember if ClickPopup was visible so we can restore it
-            if (self->_lineCountButton && self->_lineCountButton.clickPopup) {
-                BOOL isVisible = [self->_lineCountButton.clickPopup isVisible];
-                if (isVisible) {
-                    self->_lineCountButton.clickPopup.wasVisibleBeforeHiding = YES;
-                }
-            }
-
-            // Hide both button and ClickPopup
-            [self hideButtonAndPopup:YES];
-        }
-    });
-}
-
-- (void)handleAppActivation {
-    // When MS Word comes to foreground, delay slightly to allow the text editor to receive focus
-    // before querying the accessibility API for selected text
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        typeof(self) strongSelf = weakSelf;
-        if (!strongSelf) return;
-
-        NSDictionary* selection = [strongSelf getSelectedText];
-        if (selection && [selection[@"text"] length] > 0) {
-            NSString* text = selection[@"text"];
-            CGRect bounds = CGRectMake(
-                [selection[@"x"] doubleValue],
-                [selection[@"y"] doubleValue],
-                [selection[@"width"] doubleValue],
-                [selection[@"height"] doubleValue]
-            );
-
-            // Update stored bounds
-            strongSelf->_lastSelectionBounds = bounds;
-            strongSelf->_hasLastBounds = YES;
-
-            // Show the button at the current position
-            [strongSelf showButtonAtPosition:bounds withText:text];
-
-            // Always restart position monitoring to ensure it's running
-            [strongSelf->_positionMonitorTimer invalidate];
-            strongSelf->_positionMonitorTimer = [NSTimer scheduledTimerWithTimeInterval:0.05
-                                                                                 repeats:YES
-                                                                                   block:^(NSTimer * _Nonnull timer) {
-                [strongSelf checkPositionChange];
-            }];
-        }
-    });
-}
+#pragma mark - Button Click Handlers
 
 - (void)handleButtonClick {
     // Also send callback to JavaScript for logging in main.ts
@@ -1315,28 +743,49 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     };
 }
 
-- (CGFloat)getDocumentLeftMargin {
-    AXUIElementRef focusedElement = NULL;
-    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+#pragma mark - Legacy Duplicate Position Query Methods (Now Delegated to Adapter)
+// The following methods delegate to MicrosoftWordAdapter for WAGENT-94 refactoring
 
-    if (error != kAXErrorSuccess || !focusedElement) {
-        return 0;
+- (CGPoint)getDocumentTopLeftCorner {
+    if (_useNewArchitecture && _wordAdapter) {
+        return [_wordAdapter getLayoutBounds].origin;
     }
+    return CGPointZero;
+}
 
-    // Get the position of the text area element
-    CFTypeRef positionValue = NULL;
-    error = AXUIElementCopyAttributeValue(focusedElement, kAXPositionAttribute, &positionValue);
-
-    CGPoint position = CGPointZero;
-    if (error == kAXErrorSuccess && positionValue) {
-        AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
-        CFRelease(positionValue);
+- (CGRect)getScrollAreaBounds {
+    if (_useNewArchitecture && _wordAdapter) {
+        return [_wordAdapter getScrollAreaBounds];
     }
+    return CGRectZero;
+}
 
-    CFRelease(focusedElement);
+- (CGRect)getFirstLinePosition {
+    if (_useNewArchitecture && _wordAdapter) {
+        return [_wordAdapter getFirstLinePosition];
+    }
+    return CGRectZero;
+}
 
-    // Return the left edge (x coordinate) of the text area (the left margin)
-    return position.x;
+- (CFRange)getVisibleCharacterRange {
+    if (_useNewArchitecture && _wordAdapter) {
+        return [_wordAdapter getVisibleCharacterRange];
+    }
+    return CFRangeMake(0, 0);
+}
+
+- (BOOL)isPageCornerVisible {
+    if (_useNewArchitecture && _wordAdapter) {
+        return [_wordAdapter isPageCornerVisible];
+    }
+    return NO;
+}
+
+- (CGRect)getWordWindowBounds {
+    if (_useNewArchitecture && _wordAdapter) {
+        return [_wordAdapter getWordWindowBounds];
+    }
+    return CGRectZero;
 }
 
 - (NSArray*)getParentHierarchy {
@@ -1411,527 +860,91 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     return hierarchy;
 }
 
-- (CGPoint)getDocumentTopLeftCorner {
-    AXUIElementRef focusedElement = NULL;
-    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
-
-    if (error != kAXErrorSuccess || !focusedElement) {
-        return CGPointZero;
-    }
-
-    // Strategy: Find AXTextArea in hierarchy, then return position 2 levels up from it
-    // This gives us the page corner including top margins
-
-    NSMutableArray* hierarchy = [NSMutableArray array];
-    AXUIElementRef currentElement = focusedElement;
-    CFRetain(currentElement);
-
-    // Walk up parent hierarchy and collect all levels
-    for (int i = 0; i < 20; i++) {
-        // Get role
-        CFTypeRef roleValue = NULL;
-        AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute, &roleValue);
-        NSString* role = (__bridge_transfer NSString*)roleValue;
-
-        // Get position
-        CFTypeRef positionValue = NULL;
-        error = AXUIElementCopyAttributeValue(currentElement, kAXPositionAttribute, &positionValue);
-        CGPoint position = CGPointZero;
-        if (error == kAXErrorSuccess && positionValue) {
-            AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
-            CFRelease(positionValue);
-        }
-
-        // Store this level
-        [hierarchy addObject:@{
-            @"level": @(i),
-            @"role": role ?: @"Unknown",
-            @"position": [NSValue valueWithPoint:NSPointFromCGPoint(position)]
-        }];
-
-        // Get parent element
-        CFTypeRef parentValue = NULL;
-        error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
-
-        if (error != kAXErrorSuccess || !parentValue) {
-            break;
-        }
-
-        if (currentElement != focusedElement) {
-            CFRelease(currentElement);
-        }
-
-        currentElement = (AXUIElementRef)parentValue;
-    }
-
-    // Clean up
-    if (currentElement != focusedElement) {
-        CFRelease(currentElement);
-    }
-    CFRelease(focusedElement);
-
-    // Find AXTextArea in hierarchy
-    int textAreaLevel = -1;
-    for (NSDictionary* item in hierarchy) {
-        if ([item[@"role"] isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
-            textAreaLevel = [item[@"level"] intValue];
-            break;
-        }
-    }
-
-    // If we found AXTextArea, return position 2 levels up from it
-    if (textAreaLevel >= 0) {
-        NSUInteger pageLevel = (NSUInteger)(textAreaLevel + 2);
-        if (pageLevel < hierarchy.count) {
-            NSDictionary* pageItem = hierarchy[pageLevel];
-            CGPoint pagePosition = NSPointToCGPoint([pageItem[@"position"] pointValue]);
-            return pagePosition;
-        }
-    }
-
-    // Fallback: AXTextArea not found (Word not focused?) - return zero
-    return CGPointZero;
-}
-
-- (CGRect)getScrollAreaBounds {
-    AXUIElementRef focusedElement = NULL;
-    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
-
-    if (error != kAXErrorSuccess || !focusedElement) {
-        return CGRectZero;
-    }
-
-    // Strategy: Find AXTextArea at level 0, then check if level 4 parent is an AXScrollArea
-    // If yes, return the bounds of the scroll area
-
-    NSMutableArray* hierarchy = [NSMutableArray array];
-    AXUIElementRef currentElement = focusedElement;
-    CFRetain(currentElement);
-
-    // Walk up parent hierarchy and collect all levels
-    for (int i = 0; i < 20; i++) {
-        // Get role
-        CFTypeRef roleValue = NULL;
-        AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute, &roleValue);
-        NSString* role = (__bridge_transfer NSString*)roleValue;
-
-        // Get position
-        CFTypeRef positionValue = NULL;
-        error = AXUIElementCopyAttributeValue(currentElement, kAXPositionAttribute, &positionValue);
-        CGPoint position = CGPointZero;
-        if (error == kAXErrorSuccess && positionValue) {
-            AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
-            CFRelease(positionValue);
-        }
-
-        // Get size
-        CFTypeRef sizeValue = NULL;
-        AXUIElementCopyAttributeValue(currentElement, kAXSizeAttribute, &sizeValue);
-        CGSize size = CGSizeZero;
-        if (sizeValue) {
-            AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
-            CFRelease(sizeValue);
-        }
-
-        // Store this level
-        [hierarchy addObject:@{
-            @"level": @(i),
-            @"role": role ?: @"Unknown",
-            @"position": [NSValue valueWithPoint:NSPointFromCGPoint(position)],
-            @"size": [NSValue valueWithSize:NSSizeFromCGSize(size)]
-        }];
-
-        // Get parent element
-        CFTypeRef parentValue = NULL;
-        error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
-
-        if (error != kAXErrorSuccess || !parentValue) {
-            break;
-        }
-
-        if (currentElement != focusedElement) {
-            CFRelease(currentElement);
-        }
-
-        currentElement = (AXUIElementRef)parentValue;
-    }
-
-    // Clean up
-    if (currentElement != focusedElement) {
-        CFRelease(currentElement);
-    }
-    CFRelease(focusedElement);
-
-    // Find AXTextArea in hierarchy (should be at level 0)
-    int textAreaLevel = -1;
-    for (NSDictionary* item in hierarchy) {
-        if ([item[@"role"] isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
-            textAreaLevel = [item[@"level"] intValue];
-            break;
-        }
-    }
-
-    // If we found AXTextArea at level 0, check if level 4 parent is an AXScrollArea
-    if (textAreaLevel == 0) {
-        NSUInteger scrollAreaLevel = 4;
-        if (scrollAreaLevel < hierarchy.count) {
-            NSDictionary* scrollItem = hierarchy[scrollAreaLevel];
-            NSString* scrollRole = scrollItem[@"role"];
-
-            if ([scrollRole isEqualToString:(__bridge NSString*)kAXScrollAreaRole]) {
-                CGPoint position = NSPointToCGPoint([scrollItem[@"position"] pointValue]);
-                CGSize size = NSSizeFromCGSize([scrollItem[@"size"] sizeValue]);
-                CGRect scrollBounds = CGRectMake(position.x, position.y, size.width, size.height);
-                return scrollBounds;
-            }
-        }
-    }
-
-    // Fallback: AXScrollArea not found at expected location
-    return CGRectZero;
-}
-
-- (CGRect)getFirstLinePosition {
-    AXUIElementRef focusedElement = NULL;
-    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
-
-    if (error != kAXErrorSuccess || !focusedElement) {
-        return CGRectZero;
-    }
-
-    // Create a range for the first character (location: 0, length: 1)
-    CFRange range = CFRangeMake(0, 1);
-    AXValueRef rangeValue = AXValueCreate(kAXValueTypeCFRange, &range);
-
-    if (!rangeValue) {
-        CFRelease(focusedElement);
-        return CGRectZero;
-    }
-
-    // Get bounds for the first character
-    CFTypeRef boundsValue = NULL;
-    error = AXUIElementCopyParameterizedAttributeValue(focusedElement,
-                                                       kAXBoundsForRangeParameterizedAttribute,
-                                                       rangeValue,
-                                                       &boundsValue);
-
-    CGRect bounds = CGRectZero;
-    if (error == kAXErrorSuccess && boundsValue) {
-        AXValueGetValue((AXValueRef)boundsValue, (AXValueType)kAXValueTypeCGRect, &bounds);
-        CFRelease(boundsValue);
-    }
-
-    CFRelease(rangeValue);
-    CFRelease(focusedElement);
-
-    return bounds;
-}
-
-- (CFRange)getVisibleCharacterRange {
-    AXUIElementRef focusedElement = NULL;
-    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
-
-    if (error != kAXErrorSuccess || !focusedElement) {
-        return CFRangeMake(0, 0);
-    }
-
-    // Get visible character range
-    CFTypeRef visibleRangeValue = NULL;
-    error = AXUIElementCopyAttributeValue(focusedElement, kAXVisibleCharacterRangeAttribute, &visibleRangeValue);
-
-    CFRange visibleRange = CFRangeMake(0, 0);
-    if (error == kAXErrorSuccess && visibleRangeValue) {
-        AXValueGetValue((AXValueRef)visibleRangeValue, kAXValueTypeCFRange, &visibleRange);
-        CFRelease(visibleRangeValue);
-    }
-
-    CFRelease(focusedElement);
-
-    return visibleRange;
-}
-
-- (BOOL)isPageCornerVisible {
-    // Check if character 0 is in the visible range (viewport check)
-    CFRange visibleRange = [self getVisibleCharacterRange];
-    BOOL inViewport = (visibleRange.location == 0 && visibleRange.length > 0);
-
-    // Check if the page corner position is on-screen
-    BOOL onScreen = NO;
-    if (inViewport) {
-        CGPoint cornerPosition = [self getDocumentTopLeftCorner];
-        if (!CGPointEqualToPoint(cornerPosition, CGPointZero)) {
-            // Check if position is within any visible screen bounds
-            for (NSScreen* screen in [NSScreen screens]) {
-                NSRect screenFrame = screen.frame;
-                if (cornerPosition.x >= screenFrame.origin.x &&
-                    cornerPosition.x <= screenFrame.origin.x + screenFrame.size.width &&
-                    cornerPosition.y >= screenFrame.origin.y &&
-                    cornerPosition.y <= screenFrame.origin.y + screenFrame.size.height) {
-                    onScreen = YES;
-                    break;
-                }
-            }
-        }
-    }
-
-    // Return true only if both conditions are met
-    return inViewport && onScreen;
-}
-
-- (CGRect)getWordWindowBounds {
-    // Get the frontmost window of Word
-    CFTypeRef windowsRef = NULL;
-    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXWindowsAttribute, &windowsRef);
-
-    if (error != kAXErrorSuccess || !windowsRef) {
-        return CGRectZero;
-    }
-
-    CFArrayRef windows = (CFArrayRef)windowsRef;
-    if (CFArrayGetCount(windows) == 0) {
-        CFRelease(windowsRef);
-        return CGRectZero;
-    }
-
-    // Get the first window (frontmost)
-    AXUIElementRef frontWindow = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
-
-    // Get window position
-    CFTypeRef positionValue = NULL;
-    error = AXUIElementCopyAttributeValue(frontWindow, kAXPositionAttribute, &positionValue);
-    CGPoint position = CGPointZero;
-    if (error == kAXErrorSuccess && positionValue) {
-        AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
-        CFRelease(positionValue);
-    }
-
-    // Get window size
-    CFTypeRef sizeValue = NULL;
-    error = AXUIElementCopyAttributeValue(frontWindow, kAXSizeAttribute, &sizeValue);
-    CGSize size = CGSizeZero;
-    if (error == kAXErrorSuccess && sizeValue) {
-        AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
-        CFRelease(sizeValue);
-    }
-
-    CFRelease(windowsRef);
-
-    CGRect bounds = CGRectMake(position.x, position.y, size.width, size.height);
-
-    return bounds;
-}
+#pragma mark - Button State Query (Used by N-API)
 
 - (NSDictionary*)getButtonStates {
-    NSMutableDictionary* states = [NSMutableDictionary dictionary];
+    // WAGENT-94: Legacy buttons removed - return null for both
+    // New architecture manages overlays through AcademiaManager
+    return @{
+        @"academiaButton": [NSNull null],
+        @"countButton": [NSNull null]
+    };
+}
 
-    // Academia button state
-    if (_buttonWindow) {
-        NSRect frame = _buttonWindow.frame;
-        states[@"academiaButton"] = @{
-            @"x": @(frame.origin.x),
-            @"y": @(frame.origin.y),
-            @"width": @(frame.size.width),
-            @"height": @(frame.size.height),
-            @"isVisible": @([_buttonWindow isVisible])
-        };
+#pragma mark - Legacy Scroll Detection and Badge Methods Removed
+// The following methods have been removed (replaced by new architecture):
+// - checkPositionChange (selection-based scroll detection)
+// - handleSelectionChanged (disabled notification handler)
+// - handleValueChanged (disabled notification handler)
+// - updateButtonBadge (removed - use updateBadgeCountViaManager from Objective-C)
+// - getBadgeState (removed - debug method for legacy badge system)
+
+#pragma mark - WAGENT-94: New Architecture Access Methods
+
+/**
+ * Enable the new architecture (MicrosoftWordAdapter + AcademiaManager)
+ * Must be called BEFORE startObserving
+ *
+ * @return YES if enabled successfully, NO if already observing
+ */
+- (BOOL)enableNewArchitecture {
+    // Cannot enable if already observing (must be set before startObserving)
+    if (_observer != NULL) {
+        NSLog(@"[Bridge] WAGENT-94: ERROR - Cannot enable new architecture after startObserving has been called");
+        return NO;
+    }
+
+    if (_useNewArchitecture) {
+        NSLog(@"[Bridge] WAGENT-94: New architecture already enabled");
+        return YES;
+    }
+
+    NSLog(@"[Bridge] WAGENT-94: Enabling new architecture");
+    _useNewArchitecture = YES;
+
+    // Initialize components (will be started in startObserving)
+    _wordAdapter = [[MicrosoftWordAdapter alloc] initWithPID:_pid delegate:nil];
+    _academiaManager = [[AcademiaManager alloc] initWithWordAdapter:_wordAdapter];
+
+    NSLog(@"[Bridge] WAGENT-94: New architecture enabled (components will start with startObserving)");
+    return YES;
+}
+
+/**
+ * Check if new architecture is enabled
+ */
+- (BOOL)isUsingNewArchitecture {
+    return _useNewArchitecture;
+}
+
+/**
+ * Get the Word adapter instance (WAGENT-94)
+ * Returns nil if new architecture is not enabled
+ */
+- (MicrosoftWordAdapter *)getWordAdapter {
+    return _wordAdapter;
+}
+
+/**
+ * Get the Academia manager instance (WAGENT-94)
+ * Returns nil if new architecture is not enabled
+ */
+- (AcademiaManager *)getAcademiaManager {
+    return _academiaManager;
+}
+
+/**
+ * Update badge count via new architecture manager
+ *
+ * @param count Badge count to display
+ */
+- (void)updateBadgeCountViaManager:(NSInteger)count {
+    if (_useNewArchitecture && _academiaManager) {
+        NSLog(@"[Bridge] WAGENT-94: Updating badge count via AcademiaManager: %ld", (long)count);
+        [_academiaManager updateBadgeCount:count];
     } else {
-        states[@"academiaButton"] = [NSNull null];
+        NSLog(@"[Bridge] WAGENT-94: ERROR - New architecture not initialized, cannot update badge");
     }
-
-    // Count button state
-    if (_lineCountButton) {
-        NSRect frame = _lineCountButton.frame;
-        states[@"countButton"] = @{
-            @"x": @(frame.origin.x),
-            @"y": @(frame.origin.y),
-            @"width": @(frame.size.width),
-            @"height": @(frame.size.height),
-            @"isVisible": @([_lineCountButton isVisible])
-        };
-    } else {
-        states[@"countButton"] = [NSNull null];
-    }
-
-    return states;
-}
-
-- (void)checkPositionChange {
-    if (!_hasLastBounds) {
-        return;
-    }
-
-    NSDictionary* selection = [self getSelectedText];
-    if (!selection || [selection[@"text"] length] == 0) {
-        // Selection cleared, stop monitoring and hide button
-        [_positionMonitorTimer invalidate];
-        _positionMonitorTimer = nil;
-        _hasLastBounds = NO;
-        [self hideButton];
-        return;
-    }
-
-    CGRect currentBounds = CGRectMake(
-        [selection[@"x"] doubleValue],
-        [selection[@"y"] doubleValue],
-        [selection[@"width"] doubleValue],
-        [selection[@"height"] doubleValue]
-    );
-
-    // Use very small tolerance for immediate detection
-    CGFloat tolerance = 0.5;
-    BOOL positionChanged = (fabs(currentBounds.origin.x - _lastSelectionBounds.origin.x) > tolerance ||
-                           fabs(currentBounds.origin.y - _lastSelectionBounds.origin.y) > tolerance);
-
-    if (positionChanged) {
-        // Update stored bounds
-        _lastSelectionBounds = currentBounds;
-
-        if (!_isScrolling) {
-            _isScrolling = YES;
-            // Hide button immediately on scroll start
-            [self hideButton];
-
-            if (_scrollCallback) {
-                _scrollCallback(YES);  // scrollStarted
-            }
-        }
-
-        // Debounce scroll end
-        [_scrollDebounceTimer invalidate];
-        _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
-                                                                repeats:NO
-                                                                  block:^(NSTimer * _Nonnull timer) {
-            self->_isScrolling = NO;
-
-            // Show button at new position after scroll ends
-            NSString* text = selection[@"text"];
-            [self showButtonAtPosition:currentBounds withText:text];
-
-            if (self->_scrollCallback) {
-                self->_scrollCallback(NO);  // scrollEnded
-            }
-        }];
-    }
-}
-
-- (void)handleSelectionChanged {
-    NSDictionary* selection = [self getSelectedText];
-    if (selection && [selection[@"text"] length] > 0) {
-        NSString* text = selection[@"text"];
-        CGRect bounds = CGRectMake(
-            [selection[@"x"] doubleValue],
-            [selection[@"y"] doubleValue],
-            [selection[@"width"] doubleValue],
-            [selection[@"height"] doubleValue]
-        );
-
-        // Store the bounds for scroll detection
-        _lastSelectionBounds = bounds;
-        _hasLastBounds = YES;
-
-        // Show native button immediately (no IPC delay!)
-        [self showButtonAtPosition:bounds withText:text];
-
-        // Start periodic position monitoring for immediate scroll detection
-        [_positionMonitorTimer invalidate];
-        _positionMonitorTimer = [NSTimer scheduledTimerWithTimeInterval:0.05  // Check every 50ms
-                                                                 repeats:YES
-                                                                   block:^(NSTimer * _Nonnull timer) {
-            [self checkPositionChange];
-        }];
-
-        // Still notify JS about selection (for main window update)
-        if (_selectionCallback) {
-            _selectionCallback([text UTF8String], bounds);
-        }
-    }
-}
-
-- (void)handleValueChanged {
-    // Detect scrolling by checking if selected text position changed
-    if (!_hasLastBounds) {
-        return;
-    }
-
-    NSDictionary* selection = [self getSelectedText];
-    if (!selection || [selection[@"text"] length] == 0) {
-        return;
-    }
-
-    CGRect currentBounds = CGRectMake(
-        [selection[@"x"] doubleValue],
-        [selection[@"y"] doubleValue],
-        [selection[@"width"] doubleValue],
-        [selection[@"height"] doubleValue]
-    );
-
-    // Check if position has changed (indicating scroll)
-    // Allow small tolerance for floating point comparison
-    CGFloat tolerance = 1.0;
-    BOOL positionChanged = (fabs(currentBounds.origin.x - _lastSelectionBounds.origin.x) > tolerance ||
-                           fabs(currentBounds.origin.y - _lastSelectionBounds.origin.y) > tolerance);
-
-    if (positionChanged) {
-        // Update stored bounds
-        _lastSelectionBounds = currentBounds;
-
-        if (!_isScrolling) {
-            _isScrolling = YES;
-            if (_scrollCallback) {
-                _scrollCallback(YES);  // scrollStarted
-            }
-        }
-
-        // Debounce scroll end
-        [_scrollDebounceTimer invalidate];
-        _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:0.3
-                                                                repeats:NO
-                                                                  block:^(NSTimer * _Nonnull timer) {
-            self->_isScrolling = NO;
-            if (self->_scrollCallback) {
-                self->_scrollCallback(NO);  // scrollEnded
-            }
-        }];
-    }
-}
-
-- (void)updateButtonBadge:(int)count {
-    NSLog(@"[Bridge-Observer] ========== updateButtonBadge called on WordAccessibilityObserver ==========");
-    NSLog(@"[Bridge-Observer] count=%d, _buttonWindow=%@", count, _buttonWindow ? @"exists" : @"NULL");
-
-    // Store the badge count so it can be applied when button is created
-    _lastBadgeCount = count;
-    NSLog(@"[Bridge-Observer] Stored badge count: %d", _lastBadgeCount);
-
-    // Update the button badge with notification count
-    if (_buttonWindow) {
-        NSLog(@"[Bridge-Observer] Calling [_buttonWindow updateBadge:%d]", count);
-        [_buttonWindow updateBadge:count];
-        NSLog(@"[Bridge-Observer] [_buttonWindow updateBadge:%d] returned", count);
-    } else {
-        NSLog(@"[Bridge-Observer] _buttonWindow is NULL, badge will be applied when button is created");
-    }
-
-    NSLog(@"[Bridge-Observer] ========== updateButtonBadge on WordAccessibilityObserver complete ==========");
-}
-
-- (NSDictionary*)getBadgeState {
-    // Get badge state for debugging
-    if (_buttonWindow && _buttonWindow.badgeView) {
-        CGRect badgeFrame = [_buttonWindow getBadgeFrame];
-        BOOL isVisible = !_buttonWindow.badgeView.hidden;
-        int count = [_buttonWindow getBadgeCount];
-
-        return @{
-            @"count": @(count),
-            @"isVisible": @(isVisible),
-            @"x": @(badgeFrame.origin.x),
-            @"y": @(badgeFrame.origin.y),
-            @"width": @(badgeFrame.size.width),
-            @"height": @(badgeFrame.size.height)
-        };
-    }
-    return nil;
 }
 
 @end
@@ -1939,20 +952,15 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 // Accessibility callback function
 static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element, CFStringRef notification, void* refcon) {
     @autoreleasepool {
-        WordAccessibilityObserver* self = (__bridge WordAccessibilityObserver*)refcon;
-
         NSString* notificationName = (__bridge NSString*)notification;
 
-        if ([notificationName isEqualToString:(__bridge NSString*)kAXSelectedTextChangedNotification]) {
-            [self handleSelectionChanged];
-        } else if ([notificationName isEqualToString:(__bridge NSString*)kAXValueChangedNotification]) {
-            [self handleValueChanged];
-        } else if ([notificationName isEqualToString:(__bridge NSString*)kAXWindowMovedNotification]) {
-            // Window moved - hide button and debounce
-            [self handleWindowMoveOrResize];
-        } else if ([notificationName isEqualToString:(__bridge NSString*)kAXWindowResizedNotification]) {
-            // Window resized - hide button and debounce
-            [self handleWindowMoveOrResize];
+        // WAGENT-94: Legacy notification handlers removed - new architecture handles all events
+        NSLog(@"[Bridge] Received accessibility notification: %@", notificationName);
+
+        // Note: Window move/resize events are logged but handled by new architecture
+        if ([notificationName isEqualToString:(__bridge NSString*)kAXWindowMovedNotification] ||
+            [notificationName isEqualToString:(__bridge NSString*)kAXWindowResizedNotification]) {
+            NSLog(@"[Bridge] Window geometry change - new architecture will update overlays");
         }
     }
 }
@@ -2324,60 +1332,7 @@ Napi::Value GetScrollAreaBounds(const Napi::CallbackInfo& info) {
     return result;
 }
 
-Napi::Value UpdateButtonBadge(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
-    NSLog(@"[Bridge-N-API] ========== UpdateButtonBadge N-API function called ==========");
-
-    if (info.Length() < 1 || !info[0].IsNumber()) {
-        NSLog(@"[Bridge-N-API] ERROR: Invalid arguments");
-        Napi::TypeError::New(env, "Expected (count: number)").ThrowAsJavaScriptException();
-        return env.Null();
-    }
-
-    int32_t count = info[0].As<Napi::Number>().Int32Value();
-    NSLog(@"[Bridge-N-API] Received count: %d", count);
-
-    if (!globalObserver) {
-        NSLog(@"[Bridge-N-API] ERROR: globalObserver is NULL!");
-        return env.Null();
-    }
-
-    NSLog(@"[Bridge-N-API] globalObserver exists, dispatching to main queue");
-    // Update badge on the button window via the observer's public method
-    dispatch_async(dispatch_get_main_queue(), ^{
-        NSLog(@"[Bridge-N-API] Now on main queue, calling [globalObserver updateButtonBadge:%d]", count);
-        [globalObserver updateButtonBadge:count];
-        NSLog(@"[Bridge-N-API] [globalObserver updateButtonBadge:%d] returned", count);
-    });
-
-    NSLog(@"[Bridge-N-API] dispatch_async queued, returning from N-API function");
-    return env.Null();
-}
-
-Napi::Value GetBadgeState(const Napi::CallbackInfo& info) {
-    Napi::Env env = info.Env();
-
-    if (!globalObserver) {
-        return env.Null();
-    }
-
-    NSDictionary* badgeState = [globalObserver getBadgeState];
-
-    if (badgeState == nil) {
-        return env.Null();
-    }
-
-    // Convert NSDictionary to Napi::Object
-    Napi::Object result = Napi::Object::New(env);
-    result.Set("count", Napi::Number::New(env, [badgeState[@"count"] intValue]));
-    result.Set("isVisible", Napi::Boolean::New(env, [badgeState[@"isVisible"] boolValue]));
-    result.Set("x", Napi::Number::New(env, [badgeState[@"x"] doubleValue]));
-    result.Set("y", Napi::Number::New(env, [badgeState[@"y"] doubleValue]));
-    result.Set("width", Napi::Number::New(env, [badgeState[@"width"] doubleValue]));
-    result.Set("height", Napi::Number::New(env, [badgeState[@"height"] doubleValue]));
-
-    return result;
-}
+// WAGENT-94: Legacy badge N-API functions removed - badges handled by AcademiaManager
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("startObserving", Napi::Function::New(env, StartObserving));
@@ -2393,8 +1348,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getParentHierarchy", Napi::Function::New(env, GetParentHierarchy));
     exports.Set("getButtonStates", Napi::Function::New(env, GetButtonStates));
     exports.Set("getScrollAreaBounds", Napi::Function::New(env, GetScrollAreaBounds));
-    exports.Set("updateButtonBadge", Napi::Function::New(env, UpdateButtonBadge));
-    exports.Set("getBadgeState", Napi::Function::New(env, GetBadgeState));
+    // WAGENT-94: Badge functions removed - handled by AcademiaManager
     return exports;
 }
 

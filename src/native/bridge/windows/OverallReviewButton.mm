@@ -1,8 +1,8 @@
-#import "LineCountButtonWindow.h"
+#import "OverallReviewButton.h"
 #import "../../bridge.h"
 #import <QuartzCore/QuartzCore.h>
 
-@implementation LineCountButtonWindow
+@implementation OverallReviewButton
 
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer {
     // Create borderless, transparent panel - 24x24 for circular button
@@ -59,14 +59,14 @@
         // Setup mouse tracking for hover
         [self setupMouseTracking];
 
-        NSLog(@"[LineCountButton] Initialized with count: %d", self.count);
+        NSLog(@"[OverallReviewButton] Initialized with count: %d", self.count);
     }
     return self;
 }
 
 - (void)setupMouseTracking {
-    NSLog(@"[LineCountButton] Setting up mouse tracking");
-    NSLog(@"[LineCountButton] Content view bounds: x=%.1f y=%.1f w=%.1f h=%.1f",
+    NSLog(@"[OverallReviewButton] Setting up mouse tracking");
+    NSLog(@"[OverallReviewButton] Content view bounds: x=%.1f y=%.1f w=%.1f h=%.1f",
           self.contentView.bounds.origin.x, self.contentView.bounds.origin.y,
           self.contentView.bounds.size.width, self.contentView.bounds.size.height);
 
@@ -77,9 +77,9 @@
                                                        owner:self
                                                     userInfo:nil];
     [self.contentView addTrackingArea:self.trackingArea];
-    NSLog(@"[LineCountButton] Mouse tracking setup complete");
-    NSLog(@"[LineCountButton] ignoresMouseEvents: %d", self.ignoresMouseEvents);
-    NSLog(@"[LineCountButton] acceptsMouseMovedEvents: %d", self.acceptsMouseMovedEvents);
+    NSLog(@"[OverallReviewButton] Mouse tracking setup complete");
+    NSLog(@"[OverallReviewButton] ignoresMouseEvents: %d", self.ignoresMouseEvents);
+    NSLog(@"[OverallReviewButton] acceptsMouseMovedEvents: %d", self.acceptsMouseMovedEvents);
 }
 
 - (void)updateCount:(int)count {
@@ -88,31 +88,31 @@
 }
 
 - (void)mouseEntered:(NSEvent *)event {
-    NSLog(@"[LineCountButton] Mouse entered");
+    NSLog(@"[OverallReviewButton] Mouse entered");
     [self cancelScheduledHide];
     [self showHoverPopup];
 }
 
 - (void)mouseExited:(NSEvent *)event {
-    NSLog(@"[LineCountButton] Mouse exited");
+    NSLog(@"[OverallReviewButton] Mouse exited");
     [self scheduleHidePopup];
 }
 
 - (void)mouseDown:(NSEvent *)event {
-    NSLog(@"[LineCountButton] ===== MOUSE DOWN EVENT RECEIVED =====");
-    NSLog(@"[LineCountButton] Event type: %ld", (long)event.type);
-    NSLog(@"[LineCountButton] Click count: %ld", (long)event.clickCount);
-    NSLog(@"[LineCountButton] Button frame: x=%.1f y=%.1f w=%.1f h=%.1f",
+    NSLog(@"[OverallReviewButton] ===== MOUSE DOWN EVENT RECEIVED =====");
+    NSLog(@"[OverallReviewButton] Event type: %ld", (long)event.type);
+    NSLog(@"[OverallReviewButton] Click count: %ld", (long)event.clickCount);
+    NSLog(@"[OverallReviewButton] Button frame: x=%.1f y=%.1f w=%.1f h=%.1f",
           self.frame.origin.x, self.frame.origin.y, self.frame.size.width, self.frame.size.height);
 
     // Hide hover popup if showing
-    NSLog(@"[LineCountButton] Hiding hover popup (if visible)...");
+    NSLog(@"[OverallReviewButton] Hiding hover popup (if visible)...");
     [self hideHoverPopup];
 
     // Show the larger click popup
-    NSLog(@"[LineCountButton] Calling showClickPopup...");
+    NSLog(@"[OverallReviewButton] Calling showClickPopup...");
     [self showClickPopup];
-    NSLog(@"[LineCountButton] ===== MOUSE DOWN HANDLING COMPLETE =====");
+    NSLog(@"[OverallReviewButton] ===== MOUSE DOWN HANDLING COMPLETE =====");
 }
 
 - (void)showHoverPopup {
@@ -174,14 +174,14 @@
         [self.hoverPopup.contentView addSubview:infoLabel];
 
         // Setup mouse tracking for popup
-        NSTrackingArea* popupTracking = [[NSTrackingArea alloc]
+        self.popupTrackingArea = [[NSTrackingArea alloc]
             initWithRect:self.hoverPopup.contentView.bounds
                  options:(NSTrackingMouseEnteredAndExited |
                           NSTrackingActiveAlways |
                           NSTrackingInVisibleRect)
                    owner:self
                 userInfo:nil];
-        [self.hoverPopup.contentView addTrackingArea:popupTracking];
+        [self.hoverPopup.contentView addTrackingArea:self.popupTrackingArea];
     }
 
     // Position popup to the right of button
@@ -191,7 +191,7 @@
 
     [self.hoverPopup setFrameOrigin:NSMakePoint(popupX, popupY)];
     [self.hoverPopup orderFrontRegardless];
-    NSLog(@"[LineCountButton] Popup shown");
+    NSLog(@"[OverallReviewButton] Popup shown");
 }
 
 - (void)hideHoverPopup {
@@ -205,10 +205,10 @@
     BOOL isNewPopup = NO;
     if (!self.clickPopup) {
         // Create React-based popup window with current count and observer
-        self.clickPopup = [[ClickPopupWindow alloc] initWithCount:self.count observer:self.observer];
+        self.clickPopup = [[OverallReviewPopup alloc] initWithCount:self.count observer:self.observer];
 
         if (!self.clickPopup) {
-            NSLog(@"[LineCountButton] ERROR: Failed to create ClickPopupWindow!");
+            NSLog(@"[OverallReviewButton] ERROR: Failed to create ClickPopupWindow!");
             return;
         }
         isNewPopup = YES;
@@ -240,12 +240,12 @@
     [self.clickPopup orderFront:nil];
 
     // Debug logging: Compare window levels
-    NSLog(@"[LineCountButton] ===== WINDOW LEVEL DEBUG =====");
-    NSLog(@"[LineCountButton] ClickPopupWindow level: %ld", (long)self.clickPopup.level);
+    NSLog(@"[OverallReviewButton] ===== WINDOW LEVEL DEBUG =====");
+    NSLog(@"[OverallReviewButton] ClickPopupWindow level: %ld", (long)self.clickPopup.level);
 
     // Get active app
     NSRunningApplication* activeApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
-    NSLog(@"[LineCountButton] Active app: %@ (PID: %d)", activeApp.localizedName, activeApp.processIdentifier);
+    NSLog(@"[OverallReviewButton] Active app: %@ (PID: %d)", activeApp.localizedName, activeApp.processIdentifier);
 
     // Get window levels from CGWindowList
     CFArrayRef windowList = CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly, kCGNullWindowID);
@@ -257,17 +257,17 @@
 
             // Log Word windows
             if ([ownerName isEqualToString:@"Microsoft Word"]) {
-                NSLog(@"[LineCountButton] Word window level: %@", windowLevel);
+                NSLog(@"[OverallReviewButton] Word window level: %@", windowLevel);
             }
 
             // Log active app windows
             if ([windowPID intValue] == activeApp.processIdentifier) {
-                NSLog(@"[LineCountButton] %@ window level: %@", ownerName, windowLevel);
+                NSLog(@"[OverallReviewButton] %@ window level: %@", ownerName, windowLevel);
             }
         }
         CFRelease(windowList);
     }
-    NSLog(@"[LineCountButton] =====================================");
+    NSLog(@"[OverallReviewButton] =====================================");
 }
 
 - (void)hideClickPopup {
@@ -316,7 +316,7 @@
     // Apply mask to content view
     self.contentView.layer.mask = maskLayer;
 
-    NSLog(@"[LineCountButton] Applied clipping mask - local visible rect: (%.1f, %.1f, %.1f, %.1f)",
+    NSLog(@"[OverallReviewButton] Applied clipping mask - local visible rect: (%.1f, %.1f, %.1f, %.1f)",
           localVisible.origin.x, localVisible.origin.y, localVisible.size.width, localVisible.size.height);
 }
 
@@ -328,6 +328,10 @@
 - (void)dealloc {
     [self hideHoverPopup];
     [self hideClickPopup];
+    if (_popupTrackingArea && _hoverPopup) {
+        [_hoverPopup.contentView removeTrackingArea:_popupTrackingArea];
+        _popupTrackingArea = nil;
+    }
     if (_hoverPopup) {
         [_hoverPopup close];
         _hoverPopup = nil;
@@ -352,6 +356,82 @@
 
 - (BOOL)canBecomeMainWindow {
     return NO;
+}
+
+#pragma mark - OverlayWindow Protocol
+
+- (void)updatePositionWithWordState:(WordPositionState)state {
+    // Position button at the layout container's top-left corner
+    // state.layoutPosition contains the position of the layout container corner
+
+    if (CGPointEqualToPoint(state.layoutPosition, CGPointZero)) {
+        NSLog(@"[OverallReviewButton] Cannot position - layoutPosition is invalid");
+        return;
+    }
+
+    // Check if scrollAreaBounds is valid
+    if (CGRectIsEmpty(state.scrollAreaBounds)) {
+        NSLog(@"[OverallReviewButton] Cannot position - scrollAreaBounds is empty, hiding button");
+        [self hide];
+        return;
+    }
+
+    // Check if layout position is outside the scroll area (in Accessibility coordinates)
+    CGFloat scrollMinX = state.scrollAreaBounds.origin.x;
+    CGFloat scrollMaxX = state.scrollAreaBounds.origin.x + state.scrollAreaBounds.size.width;
+    CGFloat scrollMinY = state.scrollAreaBounds.origin.y;
+    CGFloat scrollMaxY = state.scrollAreaBounds.origin.y + state.scrollAreaBounds.size.height;
+
+    if (state.layoutPosition.x < scrollMinX || state.layoutPosition.x > scrollMaxX ||
+        state.layoutPosition.y < scrollMinY || state.layoutPosition.y > scrollMaxY) {
+        NSLog(@"[OverallReviewButton] Layout position (%.1f, %.1f) is outside scroll area (%.1f, %.1f, %.1f, %.1f), hiding button",
+              state.layoutPosition.x, state.layoutPosition.y,
+              scrollMinX, scrollMinY, scrollMaxX, scrollMaxY);
+        [self hide];
+        return;
+    }
+
+    // Button is 24x24, position it to the right and above the layout corner
+    CGFloat buttonSize = 24.0;
+    CGFloat rightMargin = 8.0;  // Space to the right of layout corner
+    CGFloat topMargin = 8.0;    // Space above layout corner
+
+    // Get primary screen for coordinate conversion
+    NSScreen* primaryScreen = [NSScreen screens][0];
+    CGFloat primaryScreenHeight = primaryScreen.frame.size.height;
+
+    // layoutPosition is in Accessibility coordinates (top-left origin)
+    // Convert to Cocoa coordinates (bottom-left origin)
+    CGFloat cocoaY = primaryScreenHeight - state.layoutPosition.y;
+
+    // Position button to the right of layout corner, slightly above it
+    CGFloat buttonX = state.layoutPosition.x + rightMargin;
+    CGFloat buttonY = cocoaY - buttonSize - topMargin;
+
+    NSRect newFrame = NSMakeRect(buttonX, buttonY, buttonSize, buttonSize);
+    [self setFrame:newFrame display:YES];
+
+    NSLog(@"[OverallReviewButton] Positioned at (%.1f, %.1f) based on layout corner at (%.1f, %.1f)",
+          buttonX, buttonY, state.layoutPosition.x, state.layoutPosition.y);
+
+    // Show the button if it was previously hidden
+    [self show];
+}
+
+- (void)hide {
+    NSLog(@"[OverallReviewButton] hide called");
+    [self orderOut:nil];
+}
+
+- (void)show {
+    NSLog(@"[OverallReviewButton] show called");
+    [self orderFront:nil];
+}
+
+// isVisible is inherited from NSWindow - no need to override
+
+- (NSString *)overlayIdentifier {
+    return @"OverallReviewButton";
 }
 
 @end

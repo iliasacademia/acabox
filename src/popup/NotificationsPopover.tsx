@@ -1,5 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Notification } from '../types/notifications';
+import {
+  initializeNotificationsApi,
+  fetchNotifications,
+  markNotificationAsRead,
+  dismissNotification,
+} from './api/notifications';
 
 interface NotificationsPopoverProps {
   onClose?: () => void;
@@ -8,11 +14,48 @@ interface NotificationsPopoverProps {
 const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // TODO: Fetch notifications from main process via IPC
-    // For now, use mock data
-    const mockNotifications: Notification[] = [
+    // Initialize API client and fetch notifications
+    const initializeAndFetch = async () => {
+      try {
+        console.log('[NotificationsPopover] Initializing HTTP API client...');
+
+        // Get HTTP server info from main process
+        const serverInfo = await (window as any).electron.invoke('get-http-server-info');
+
+        if (!serverInfo.running) {
+          throw new Error('HTTP server not running');
+        }
+
+        console.log('[NotificationsPopover] HTTP server running at:', serverInfo.baseUrl);
+
+        // Generate authentication token
+        const { token } = await (window as any).electron.invoke('generate-http-token', 'NotificationsPopover');
+
+        console.log('[NotificationsPopover] Generated auth token:', token.substring(0, 16) + '...');
+
+        // Initialize API client
+        initializeNotificationsApi(serverInfo.baseUrl, token);
+
+        console.log('[NotificationsPopover] API client initialized, fetching notifications...');
+
+        // Fetch notifications (unread + read, but not dismissed)
+        const fetchedNotifications = await fetchNotifications();
+
+        console.log('[NotificationsPopover] Fetched', fetchedNotifications.length, 'notifications');
+
+        setNotifications(fetchedNotifications);
+        setLoading(false);
+      } catch (err: any) {
+        console.error('[NotificationsPopover] Error initializing or fetching:', err);
+        setError(err.message || 'Failed to load notifications');
+        setLoading(false);
+
+        // Fallback to mock data for development/testing
+        console.log('[NotificationsPopover] Falling back to mock data');
+        const mockNotifications: Notification[] = [
       {
         id: 1,
         title: 'Overall review | Wed, 29 Oct',
@@ -67,8 +110,12 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
       },
     ];
 
-    setNotifications(mockNotifications);
-    setLoading(false);
+        setNotifications(mockNotifications);
+        setLoading(false);
+      }
+    };
+
+    initializeAndFetch();
   }, []);
 
   const formatTimestamp = (timestamp: number): string => {
@@ -86,14 +133,57 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
     }
   };
 
-  const handleNotificationClick = (notification: Notification) => {
+  const handleNotificationClick = async (notification: Notification) => {
     console.log('[NotificationsPopover] Notification clicked:', notification.id);
-    // TODO: Mark as read and navigate to notification
+
+    try {
+      // Mark as read if currently unread
+      if (notification.status === 'unread') {
+        console.log('[NotificationsPopover] Marking notification', notification.id, 'as read');
+
+        await markNotificationAsRead(notification.id);
+
+        // Update local state to reflect the change
+        setNotifications((prev) =>
+          prev.map((n) =>
+            n.id === notification.id
+              ? { ...n, status: 'read' as const, read_at: Date.now() }
+              : n
+          )
+        );
+
+        console.log('[NotificationsPopover] Notification marked as read successfully');
+      }
+
+      // TODO: Navigate to notification content (e.g., open document location)
+    } catch (err: any) {
+      console.error('[NotificationsPopover] Error marking notification as read:', err);
+      setError(`Failed to mark notification as read: ${err.message}`);
+    }
+  };
+
+  const handleDismiss = async (notificationId: number, event: React.MouseEvent) => {
+    // Prevent triggering the parent onClick
+    event.stopPropagation();
+
+    console.log('[NotificationsPopover] Dismissing notification:', notificationId);
+
+    try {
+      await dismissNotification(notificationId);
+
+      // Remove from local state
+      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+
+      console.log('[NotificationsPopover] Notification dismissed successfully');
+    } catch (err: any) {
+      console.error('[NotificationsPopover] Error dismissing notification:', err);
+      setError(`Failed to dismiss notification: ${err.message}`);
+    }
   };
 
   const handleSeeMore = () => {
     console.log('[NotificationsPopover] See previous notifications clicked');
-    // TODO: Show all notifications or open full view
+    // TODO: Show all notifications including dismissed, or open full view
   };
 
   return (
@@ -113,6 +203,20 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
           )}
         </div>
 
+        {/* Error Message */}
+        {error && (
+          <div style={styles.errorBanner}>
+            <span style={styles.errorText}>{error}</span>
+            <button
+              style={styles.errorDismiss}
+              onClick={() => setError(null)}
+              aria-label="Dismiss error"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Notifications List */}
         <div style={styles.notificationsList}>
           {loading ? (
@@ -128,6 +232,7 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
               <div
                 key={notification.id}
                 style={styles.notificationItem}
+                className="notification-item"
                 onClick={() => handleNotificationClick(notification)}
               >
                 {/* Blue dot indicator for unread */}
@@ -147,8 +252,18 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
                     )}
                   </div>
                 </div>
-                <div style={styles.notificationTimestamp}>
-                  {formatTimestamp(notification.created_at)}
+                <div style={styles.notificationActions}>
+                  <div style={styles.notificationTimestamp}>
+                    {formatTimestamp(notification.created_at)}
+                  </div>
+                  <button
+                    style={styles.dismissButton}
+                    onClick={(e) => handleDismiss(notification.id, e)}
+                    aria-label="Dismiss notification"
+                    title="Dismiss"
+                  >
+                    ×
+                  </button>
                 </div>
               </div>
             ))
@@ -285,12 +400,64 @@ const styles: { [key: string]: React.CSSProperties } = {
     color: '#666666',
     lineHeight: 1.4,
   },
+  notificationActions: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: '8px',
+    flexShrink: 0,
+    marginLeft: '16px',
+  },
   notificationTimestamp: {
     fontSize: '15px',
     fontWeight: 400,
     color: '#666666',
-    flexShrink: 0,
-    marginLeft: '16px',
+  },
+  dismissButton: {
+    width: '24px',
+    height: '24px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    fontSize: '24px',
+    fontWeight: 300,
+    color: '#999999',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%',
+    transition: 'background-color 0.2s ease, color 0.2s ease',
+    padding: 0,
+    lineHeight: 1,
+  },
+  errorBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '12px 32px',
+    backgroundColor: '#ffebee',
+    borderBottom: '1px solid #ffcdd2',
+  },
+  errorText: {
+    fontSize: '14px',
+    color: '#c62828',
+    flex: 1,
+  },
+  errorDismiss: {
+    width: '24px',
+    height: '24px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    fontSize: '24px',
+    fontWeight: 300,
+    color: '#c62828',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%',
+    padding: 0,
+    lineHeight: 1,
   },
   footer: {
     padding: '16px 32px',
@@ -324,6 +491,13 @@ if (typeof document !== 'undefined') {
     .see-more-button:hover {
       background-color: #f8f8f8 !important;
       border-color: #999999 !important;
+    }
+    button[aria-label="Dismiss notification"]:hover {
+      background-color: #f0f0f0 !important;
+      color: #666666 !important;
+    }
+    button[aria-label="Dismiss error"]:hover {
+      background-color: rgba(0, 0, 0, 0.1) !important;
     }
   `;
 
