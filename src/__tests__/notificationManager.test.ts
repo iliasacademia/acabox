@@ -745,13 +745,13 @@ describe('NotificationManager', () => {
       const user1Undismissed = notificationManager.getUndismissedNotifications(1);
       const user2Undismissed = notificationManager.getUndismissedNotifications(2);
 
-      // User 1 should have 1 notification
-      expect(user1Undismissed).toHaveLength(1);
-      expect(user1Undismissed[0].user_id).toBe(1);
+      // Both calls should return all notifications (backend already filtered by logged-in user)
+      expect(user1Undismissed).toHaveLength(2);
+      expect(user1Undismissed.map(n => n.user_id).sort()).toEqual([1, 2]);
 
-      // User 2 should also have 1 (from the same sync)
-      expect(user2Undismissed).toHaveLength(1);
-      expect(user2Undismissed[0].user_id).toBe(2);
+      // User 2 should also get all notifications (from the same sync)
+      expect(user2Undismissed).toHaveLength(2);
+      expect(user2Undismissed.map(n => n.user_id).sort()).toEqual([1, 2]);
     });
 
     it('should return notifications sorted by created_at descending', async () => {
