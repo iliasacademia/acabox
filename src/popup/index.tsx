@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import Popup from './Popup';
 import SuggestionsContainer from './SuggestionsContainer';
+import NotificationsPopover from './NotificationsPopover';
 import { getBridgeInstance } from './hooks/useBridge';
 import { logJSON } from './utils/logger';
 
@@ -14,7 +15,7 @@ console.log('[Popup] Platform:', window.__messageBridge?.getPlatform());
 
 // App wrapper component that decides which component to render
 const App: React.FC = () => {
-  const [viewType, setViewType] = useState<'text' | 'suggestions'>('suggestions'); // Default to suggestions for ClickPopupWindow
+  const [viewType, setViewType] = useState<'text' | 'suggestions' | 'notifications'>('suggestions'); // Default to suggestions for ClickPopupWindow
 
   useEffect(() => {
     console.log('[App] Setting up view type listener');
@@ -28,6 +29,9 @@ const App: React.FC = () => {
       if (msg.payload?.type === 'suggestions') {
         console.log('[App] Switching to SuggestionsContainer');
         setViewType('suggestions');
+      } else if (msg.payload?.type === 'notifications') {
+        console.log('[App] Switching to NotificationsPopover');
+        setViewType('notifications');
       } else if (msg.payload?.type === 'text' || typeof msg.payload === 'string') {
         console.log('[App] Switching to Popup (text view)');
         setViewType('text');
@@ -54,6 +58,8 @@ const App: React.FC = () => {
 
   if (viewType === 'suggestions') {
     return <SuggestionsContainer />;
+  } else if (viewType === 'notifications') {
+    return <NotificationsPopover />;
   }
 
   return <Popup />;
