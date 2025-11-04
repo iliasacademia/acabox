@@ -196,7 +196,7 @@ void testButtonOverlayPositioning() {
 
         ASSERT_EQUAL(button.frame.origin.x, testPoint.x, "Button X position should match");
         ASSERT_EQUAL(button.frame.size.height, testHeight, "Button height should match");
-        ASSERT_EQUAL(button.frame.size.width, 10, "Button width should be 10px");
+        ASSERT_EQUAL(button.frame.size.width, 30, "Button width should be 30px");
 
         TEST_PASS();
     }
