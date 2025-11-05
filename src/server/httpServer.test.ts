@@ -8,6 +8,20 @@
 
 import { AcademiaHttpServer } from './httpServer';
 
+// Polyfill Web APIs required by undici in Node test environment
+if (typeof (global as any).File === 'undefined') {
+  // Simple File polyfill for Node.js
+  (global as any).File = class File {
+    constructor(bits: any[], name: string, options?: any) {
+      // Minimal implementation for tests
+    }
+  };
+}
+
+if (typeof (global as any).FormData === 'undefined') {
+  (global as any).FormData = class FormData {};
+}
+
 // Import fetch from undici for Node.js environment
 const { fetch, Headers, Request, Response } = require('undici');
 global.fetch = fetch;
