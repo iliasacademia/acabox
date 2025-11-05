@@ -8,34 +8,6 @@
 
 import { AcademiaHttpServer } from './httpServer';
 
-// Polyfill String.prototype.toWellFormed for older Node/Jest environments
-if (typeof String.prototype.toWellFormed === 'undefined') {
-  String.prototype.toWellFormed = function() {
-    return this.toString();
-  };
-}
-
-// Polyfill Web APIs required by undici in Node test environment
-if (typeof (global as any).File === 'undefined') {
-  // Simple File polyfill for Node.js
-  (global as any).File = class File {
-    constructor(bits: any[], name: string, options?: any) {
-      // Minimal implementation for tests
-    }
-  };
-}
-
-if (typeof (global as any).FormData === 'undefined') {
-  (global as any).FormData = class FormData {};
-}
-
-// Import fetch from undici for Node.js environment
-const { fetch, Headers, Request, Response } = require('undici');
-global.fetch = fetch;
-(global as any).Headers = Headers;
-(global as any).Request = Request;
-(global as any).Response = Response;
-
 // Mock NotificationManager for testing
 class MockNotificationManager {
   private notifications = new Map<number, any>();
@@ -237,7 +209,7 @@ describe('AcademiaHttpServer', () => {
       expect(response.status).toBe(200);
 
       const data = await response.json();
-      expect(data.notifications).toBeInstanceOf(Array);
+      expect(Array.isArray(data.notifications)).toBe(true);
       expect(data.count).toBe(2); // Both test notifications are undismissed
       expect(data.notifications.length).toBe(2);
     });
@@ -252,7 +224,7 @@ describe('AcademiaHttpServer', () => {
       expect(response.status).toBe(200);
 
       const data = await response.json();
-      expect(data.notifications).toBeInstanceOf(Array);
+      expect(Array.isArray(data.notifications)).toBe(true);
       expect(data.count).toBe(1); // Only 1 unread notification
       expect(data.notifications[0].status).toBe('unread');
     });
@@ -267,7 +239,7 @@ describe('AcademiaHttpServer', () => {
       expect(response.status).toBe(200);
 
       const data = await response.json();
-      expect(data.notifications).toBeInstanceOf(Array);
+      expect(Array.isArray(data.notifications)).toBe(true);
       expect(data.count).toBe(1); // Only 1 read notification
       expect(data.notifications[0].status).toBe('read');
     });
