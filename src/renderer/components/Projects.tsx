@@ -11,8 +11,11 @@ import {
   Project,
   getProjects,
   createProject,
+  updateProject,
   deleteProject,
-} from '../services/mockProjectsApi';
+  addFolderToProject,
+  addCollaborator,
+} from '../services/projectsApi';
 import './Projects.css';
 
 type View = 'list' | 'detail';
@@ -48,6 +51,38 @@ const Projects: React.FC = () => {
 
   useEffect(() => {
     checkLoginStatus();
+
+    // Listen for API logs from main process
+    const handleApiLog = (_event: any, logData: any) => {
+      if (logData.type === 'request') {
+        console.log(
+          `%c[API REQUEST] ${logData.method} ${logData.endpoint}`,
+          'color: #0645b1; font-weight: bold',
+          logData.data || ''
+        );
+      } else if (logData.type === 'response') {
+        console.log(
+          `%c[API RESPONSE] ${logData.method} ${logData.endpoint} - ${logData.status} ${logData.statusText}`,
+          'color: #28a745; font-weight: bold'
+        );
+      } else if (logData.type === 'error') {
+        console.error(
+          `%c[API ERROR] ${logData.method} ${logData.endpoint} - ${logData.status || 'No status'}`,
+          'color: #dc3545; font-weight: bold',
+          {
+            url: logData.url,
+            message: logData.message,
+            data: logData.data,
+          }
+        );
+      }
+    };
+
+    window.electronAPI.on('api-log', handleApiLog);
+
+    return () => {
+      window.electronAPI.removeListener('api-log', handleApiLog);
+    };
   }, []);
 
   useEffect(() => {
@@ -175,10 +210,86 @@ const Projects: React.FC = () => {
 
   const handleWizardComplete = async (data: ProjectCreationData) => {
     try {
+      console.log('[Projects] Creating project with data:', data);
+
+      // 1. Create the project
       const newProject = await createProject({
         name: data.name,
         description: data.description,
       });
+      console.log('[Projects] Project created:', newProject);
+
+      // 2. Add folders to the project and start syncing
+      if (data.folders && data.folders.length > 0) {
+        console.log('[Projects] Adding and syncing', data.folders.length, 'folders');
+
+        for (const folderPath of data.folders) {
+          try {
+            console.log('[Projects] Adding folder to project:', folderPath);
+
+            // Add folder to project (returns folder with ID)
+            const folder = await addFolderToProject(newProject.id, folderPath);
+            console.log('[Projects] Folder added to project:', folder);
+
+            // Check if manuscript is in this folder
+            const manuscriptInThisFolder = data.primaryManuscriptPath?.startsWith(folderPath)
+              ? data.primaryManuscriptPath
+              : undefined;
+
+            if (manuscriptInThisFolder) {
+              console.log('[Projects] Manuscript will be tagged during sync:', manuscriptInThisFolder);
+            }
+
+            // Start syncing files from this folder
+            console.log('[Projects] Starting sync for folder:', folderPath);
+            const syncResult = await window.electronAPI.invoke(
+              'start-project-folder-sync',
+              newProject.id,
+              folder.id,
+              folderPath,
+              manuscriptInThisFolder
+            );
+
+            if (!syncResult.success) {
+              console.error(`[Projects] Failed to start sync for folder ${folderPath}:`, syncResult.error);
+              setDialog({
+                type: 'alert',
+                title: 'Sync Warning',
+                message: `Folder added but sync failed: ${syncResult.error}`,
+              });
+            } else {
+              console.log(`[Projects] Successfully started syncing folder ${folderPath}`);
+            }
+          } catch (error) {
+            console.error(`[Projects] Failed to add folder ${folderPath}:`, error);
+            setDialog({
+              type: 'alert',
+              title: 'Error',
+              message: `Failed to add folder: ${folderPath}`,
+            });
+          }
+        }
+      } else {
+        console.log('[Projects] No folders to add');
+      }
+
+      // 3. Add collaborators to the project
+      if (data.collaboratorEmails && data.collaboratorEmails.length > 0) {
+        for (const email of data.collaboratorEmails) {
+          try {
+            await addCollaborator(newProject.id, email);
+          } catch (error) {
+            console.error(`Failed to add collaborator ${email}:`, error);
+          }
+        }
+      }
+
+      // 4. Primary manuscript is now handled during folder sync above
+      // The manuscript file is tagged with 'manuscript' when uploaded
+      if (data.primaryManuscriptPath) {
+        console.log('[Projects] Primary manuscript tagged during sync:', data.primaryManuscriptPath);
+      }
+
       setProjects([newProject, ...projects]);
       setShowCreateWizard(false);
 

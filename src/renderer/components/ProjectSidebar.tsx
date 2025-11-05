@@ -1,5 +1,5 @@
 import React from 'react';
-import { ProjectFile, ProjectFolder, Collaborator } from '../services/mockProjectsApi';
+import { ProjectFile, ProjectFolder, Collaborator } from '../services/projectsApi';
 
 interface ProjectSidebarProps {
   manuscript: ProjectFile | null;

@@ -3,8 +3,9 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { createCanvas } from 'canvas';
-import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
+import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles, APIclient, getCsrfToken } from './uploader';
 import { syncService } from './syncService';
+import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
 
@@ -52,6 +53,10 @@ const createWindow = async (): Promise<void> => {
 
   // Set Content Security Policy
   devWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const scriptSrc = process.env.NODE_ENV === 'development'
+      ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
+      : "script-src 'self'; ";
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -60,7 +65,7 @@ const createWindow = async (): Promise<void> => {
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " + // unsafe-inline needed for React inline styles
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
-          "script-src 'self'; " +
+          scriptSrc +
           "connect-src 'self' https://api.academia.edu https://www.academia.edu; " + // Specific domains only
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
@@ -76,17 +81,8 @@ const createWindow = async (): Promise<void> => {
     devWindow.webContents.openDevTools();
   }
 
-  // Initialize sync service with main window
-  syncService.setMainWindow(devWindow);
-
-  // Initialize notification manager with main window
-  notificationManager.setMainWindow(devWindow);
-
-  // Wait for window to be ready, then initialize
-  devWindow.webContents.once('did-finish-load', async () => {
-    console.log('[MAIN] Window loaded, initializing sync service...');
-    await syncService.initialize();
-  });
+  // Dev window is now just for development/debugging
+  // Sync functionality is handled by the main window (Projects UI)
 };
 
 // Create main window (Projects UI)
@@ -108,6 +104,10 @@ const createMainWindow = async (): Promise<void> => {
 
   // Set Content Security Policy
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    const scriptSrc = process.env.NODE_ENV === 'development'
+      ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
+      : "script-src 'self'; ";
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
@@ -116,7 +116,7 @@ const createMainWindow = async (): Promise<void> => {
           "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " + // unsafe-inline needed for React inline styles
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
-          "script-src 'self'; " +
+          scriptSrc +
           "connect-src 'self' https://api.academia.edu https://www.academia.edu; " + // Specific domains only
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
@@ -134,6 +134,21 @@ const createMainWindow = async (): Promise<void> => {
   if (process.env.NODE_ENV === 'development') {
     mainWindow.webContents.openDevTools();
   }
+
+  // Initialize sync service with main window
+  syncService.setMainWindow(mainWindow);
+
+  // Initialize project sync service with main window
+  projectSyncService.setMainWindow(mainWindow);
+
+  // Initialize notification manager with main window
+  notificationManager.setMainWindow(mainWindow);
+
+  // Wait for window to be ready, then initialize
+  mainWindow.webContents.once('did-finish-load', async () => {
+    console.log('[MAIN] Main window loaded, initializing sync service...');
+    await syncService.initialize();
+  });
 
   console.log('[MAIN] Main window created');
 };
@@ -596,12 +611,209 @@ ipcMain.handle('logout', async () => {
   return result;
 });
 
-ipcMain.handle('select-folder', async () => {
-  if (!devWindow) return;
-  const result = await dialog.showOpenDialog(devWindow, {
+// Project Sync IPC handlers
+ipcMain.handle('start-project-folder-sync', async (_event, projectId: number, folderId: number, folderPath: string, manuscriptPath?: string) => {
+  try {
+    console.log(`[IPC] Starting project folder sync for project ${projectId}, folder ${folderId}: ${folderPath}`);
+    if (manuscriptPath) {
+      console.log(`[IPC] Manuscript file will be tagged: ${manuscriptPath}`);
+    }
+    await projectSyncService.startWatching(projectId, folderId, folderPath, manuscriptPath);
+    return { success: true };
+  } catch (error: any) {
+    console.error('[IPC] Failed to start project folder sync:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('stop-project-folder-sync', async (_event, projectId: number, folderId: number) => {
+  try {
+    console.log(`[IPC] Stopping project folder sync for project ${projectId}, folder ${folderId}`);
+    await projectSyncService.stopWatching(projectId, folderId);
+    return { success: true };
+  } catch (error: any) {
+    console.error('[IPC] Failed to stop project folder sync:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
+  try {
+    console.log(`[IPC] Stopping all folder syncs for project ${projectId}`);
+    await projectSyncService.stopWatchingProject(projectId);
+    return { success: true };
+  } catch (error: any) {
+    console.error('[IPC] Failed to stop project sync:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Generic API call handler for Projects API
+ipcMain.handle('api-call', async (event, options: { method: string; endpoint: string; data?: any }) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+
+  try {
+    const { method, endpoint, data } = options;
+    const client = await APIclient();
+
+    console.log(`[API] ${method} ${endpoint}`, data ? `with data: ${JSON.stringify(data)}` : '');
+
+    // Send log to renderer for DevTools console
+    if (senderWindow && !senderWindow.isDestroyed()) {
+      senderWindow.webContents.send('api-log', {
+        type: 'request',
+        method,
+        endpoint,
+        data,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Get CSRF token for non-GET requests
+    const headers: any = {};
+    if (method.toUpperCase() !== 'GET') {
+      const csrfToken = await getCsrfToken();
+      headers['x-csrf-token'] = csrfToken;
+      console.log(`[API] Including CSRF token for ${method} request`);
+    }
+
+    let response;
+    switch (method.toUpperCase()) {
+      case 'GET':
+        response = await client.get(endpoint);
+        break;
+      case 'POST':
+        response = await client.post(endpoint, data, { headers });
+        break;
+      case 'PUT':
+        response = await client.put(endpoint, data, { headers });
+        break;
+      case 'DELETE':
+        response = await client.delete(endpoint, { headers });
+        break;
+      default:
+        throw new Error(`Unsupported HTTP method: ${method}`);
+    }
+
+    console.log(`[API] ${method} ${endpoint} - Success:`, response.status);
+
+    // Send success log to renderer
+    if (senderWindow && !senderWindow.isDestroyed()) {
+      senderWindow.webContents.send('api-log', {
+        type: 'response',
+        method,
+        endpoint,
+        status: response.status,
+        statusText: response.statusText,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    return response.data;
+  } catch (error: any) {
+    const fullUrl = error.config?.baseURL + error.config?.url;
+    console.error(`[API] ${options.method} ${options.endpoint} failed:`, {
+      url: fullUrl,
+      status: error.response?.status,
+      statusText: error.response?.statusText,
+      message: error.message,
+      data: error.response?.data,
+    });
+
+    // Send error log to renderer
+    if (senderWindow && !senderWindow.isDestroyed()) {
+      senderWindow.webContents.send('api-log', {
+        type: 'error',
+        method: options.method,
+        endpoint: options.endpoint,
+        url: fullUrl,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        message: error.message,
+        data: error.response?.data,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    // Re-throw with response data if available
+    if (error.response) {
+      const apiError: any = new Error(error.message);
+      apiError.response = {
+        status: error.response.status,
+        data: error.response.data,
+      };
+      throw apiError;
+    }
+    throw error;
+  }
+});
+
+ipcMain.handle('select-folder', async (event) => {
+  // Determine which window is requesting the dialog
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow) return;
+
+  const result = await dialog.showOpenDialog(senderWindow, {
     properties: ['openDirectory'],
   });
   return result.filePaths[0];
+});
+
+// Scan folder for files
+ipcMain.handle('scan-folder-for-files', async (_event, folderPaths: string[]) => {
+  try {
+    const allFiles: Array<{ path: string; name: string; relativePath: string; folderPath: string }> = [];
+
+    for (const folderPath of folderPaths) {
+      if (!fs.existsSync(folderPath)) {
+        console.error(`[SCAN] Folder does not exist: ${folderPath}`);
+        continue;
+      }
+
+      // Recursively get all files
+      const scanDirectory = (dirPath: string) => {
+        try {
+          const items = fs.readdirSync(dirPath);
+
+          for (const item of items) {
+            // Skip hidden files/folders
+            if (item.startsWith('.')) continue;
+
+            const fullPath = path.join(dirPath, item);
+            const stat = fs.statSync(fullPath);
+
+            if (stat.isDirectory()) {
+              scanDirectory(fullPath);
+            } else if (stat.isFile()) {
+              // Only include common document types
+              const ext = path.extname(fullPath).toLowerCase();
+              const documentExtensions = ['.pdf', '.doc', '.docx', '.txt', '.md', '.tex', '.rtf'];
+
+              if (documentExtensions.includes(ext)) {
+                const relativePath = path.relative(folderPath, fullPath);
+                allFiles.push({
+                  path: fullPath,
+                  name: path.basename(fullPath),
+                  relativePath: relativePath,
+                  folderPath: folderPath,
+                });
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`[SCAN] Error scanning directory ${dirPath}:`, error);
+        }
+      };
+
+      scanDirectory(folderPath);
+    }
+
+    console.log(`[SCAN] Found ${allFiles.length} files across ${folderPaths.length} folders`);
+    return allFiles;
+  } catch (error: any) {
+    console.error('[SCAN] Error scanning folders:', error);
+    return [];
+  }
 });
 
 ipcMain.handle('upload-files', async (_event, folderPath: string) => {
@@ -991,17 +1203,25 @@ ipcMain.handle('get-sync-folders', async () => {
 
 ipcMain.handle('add-sync-folder', async (_event, folderPath: string) => {
   try {
+    console.log('[ADD-SYNC-FOLDER] Starting to add folder:', folderPath);
     const folderName = path.basename(folderPath);
+    console.log('[ADD-SYNC-FOLDER] Folder name:', folderName);
+
+    console.log('[ADD-SYNC-FOLDER] Calling backend to register folder...');
     const response = await addFolder(folderName, folderPath);
+    console.log('[ADD-SYNC-FOLDER] Backend response:', response.status, response.data);
 
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`Failed to add folder: ${response.status}`);
     }
 
     const folder = response.data.folder;
+    console.log('[ADD-SYNC-FOLDER] Folder registered:', folder);
 
     // Start watching (will handle recursive subfolders automatically)
+    console.log('[ADD-SYNC-FOLDER] Starting sync service watcher...');
     await syncService.startWatching(folder.folder_name, folderPath);
+    console.log('[ADD-SYNC-FOLDER] Sync service watcher started successfully');
 
     return {
       success: true,
@@ -1014,7 +1234,7 @@ ipcMain.handle('add-sync-folder', async (_event, folderPath: string) => {
       },
     };
   } catch (error: any) {
-    console.error('Failed to add sync folder:', error);
+    console.error('[ADD-SYNC-FOLDER] Failed to add sync folder:', error);
     return { success: false, error: error.message };
   }
 });

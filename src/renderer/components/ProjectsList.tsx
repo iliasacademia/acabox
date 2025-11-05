@@ -1,5 +1,5 @@
 import React from 'react';
-import { Project } from '../services/mockProjectsApi';
+import { Project } from '../services/projectsApi';
 import ProjectCard from './ProjectCard';
 
 interface ProjectsListProps {

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { ProjectFile, ProjectFolder } from '../services/mockProjectsApi';
+import React, { useState, useEffect } from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 
 interface CreateProjectWizardProps {
   onClose: () => void;
@@ -10,67 +10,16 @@ export interface ProjectCreationData {
   name: string;
   description?: string;
   folders: string[];
-  primaryManuscriptId?: number;
+  primaryManuscriptPath?: string;
   collaboratorEmails: string[];
 }
 
-// Dummy data for demonstration
-const AVAILABLE_FOLDERS: ProjectFolder[] = [
-  {
-    id: 1,
-    project_id: 0,
-    folder_name: 'Protocols',
-    folder_path: '/Users/researcher/Documents/Protocols',
-    file_count: 16,
-    created_at: new Date().toISOString(),
-    synced: true,
-  },
-  {
-    id: 2,
-    project_id: 0,
-    folder_name: 'Sequencing-Results-2024',
-    folder_path: '/Users/researcher/Documents/Sequencing-Results-2024',
-    file_count: 8,
-    created_at: new Date().toISOString(),
-    synced: true,
-  },
-];
-
-const AVAILABLE_FILES: ProjectFile[] = [
-  {
-    id: 1,
-    project_id: 0,
-    file_name: 'draft_manuscript_v0.3',
-    file_type: 'manuscript',
-    file_path: '/manuscripts/draft_manuscript_v0.3.docx',
-    size: 2048576,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    is_primary_manuscript: false,
-  },
-  {
-    id: 2,
-    project_id: 0,
-    file_name: 'genes_expression',
-    file_type: 'data',
-    file_path: '/data/genes_expression.csv',
-    size: 5242880,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    is_primary_manuscript: false,
-  },
-  {
-    id: 3,
-    project_id: 0,
-    file_name: 'micro_analysis',
-    file_type: 'data',
-    file_path: '/data/micro_analysis.xlsx',
-    size: 3145728,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    is_primary_manuscript: false,
-  },
-];
+interface LocalFile {
+  path: string;
+  name: string;
+  relativePath: string;
+  folderPath: string;
+}
 
 const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   onClose,
@@ -79,13 +28,61 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
-  const [selectedFolders, setSelectedFolders] = useState<number[]>([]);
-  const [selectedManuscript, setSelectedManuscript] = useState<number | null>(
-    null
-  );
+  const [selectedFolderPaths, setSelectedFolderPaths] = useState<string[]>([]);
+  const [availableFiles, setAvailableFiles] = useState<LocalFile[]>([]);
+  const [selectedManuscriptPath, setSelectedManuscriptPath] = useState<string | null>(null);
   const [collaboratorEmail, setCollaboratorEmail] = useState('');
   const [collaboratorEmails, setCollaboratorEmails] = useState<string[]>([]);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  // Load files when step 3 is reached
+  useEffect(() => {
+    if (step === 3) {
+      loadFiles();
+    }
+  }, [step]);
+
+  const loadFiles = async () => {
+    try {
+      setLoading(true);
+
+      // Scan selected folders for files
+      if (selectedFolderPaths.length > 0) {
+        const files = await window.electronAPI.invoke(IPC_CHANNELS.SCAN_FOLDER_FOR_FILES, selectedFolderPaths);
+        console.log('[Wizard] Scanned files from folders:', files);
+        setAvailableFiles(files || []);
+      } else {
+        setAvailableFiles([]);
+      }
+    } catch (err: any) {
+      console.error('Failed to load files:', err);
+      setError('Failed to load files');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSelectFolder = async () => {
+    try {
+      setError('');
+
+      // Open folder selection dialog
+      const folderPath = await window.electronAPI.invoke(IPC_CHANNELS.SELECT_FOLDER);
+
+      if (!folderPath) {
+        return; // User cancelled
+      }
+
+      // Add to selected folders (will be synced when project is created)
+      if (!selectedFolderPaths.includes(folderPath)) {
+        setSelectedFolderPaths([...selectedFolderPaths, folderPath]);
+      }
+    } catch (err: any) {
+      console.error('Failed to select folder:', err);
+      setError('Failed to select folder');
+    }
+  };
 
   const handleNext = () => {
     setError('');
@@ -97,9 +94,13 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
       }
       setStep(2);
     } else if (step === 2) {
+      if (selectedFolderPaths.length === 0) {
+        setError('Please select at least one folder');
+        return;
+      }
       setStep(3);
     } else if (step === 3) {
-      if (!selectedManuscript) {
+      if (!selectedManuscriptPath) {
         setError('Please select a primary manuscript');
         return;
       }
@@ -116,31 +117,29 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
 
   const handleSkip = () => {
     setError('');
-    if (step === 4) {
+    if (step === 3) {
+      // Skip manuscript selection
+      setStep(4);
+    } else if (step === 4) {
       handleComplete();
     }
   };
 
   const handleComplete = () => {
-    const folders = selectedFolders.map(
-      (id) =>
-        AVAILABLE_FOLDERS.find((f) => f.id === id)?.folder_path || ''
-    );
-
     onComplete({
       name: projectName,
       description: projectDescription,
-      folders,
-      primaryManuscriptId: selectedManuscript || undefined,
+      folders: selectedFolderPaths,
+      primaryManuscriptPath: selectedManuscriptPath || undefined,
       collaboratorEmails,
     });
   };
 
-  const toggleFolder = (folderId: number) => {
-    if (selectedFolders.includes(folderId)) {
-      setSelectedFolders(selectedFolders.filter((id) => id !== folderId));
+  const toggleFolder = (folderPath: string) => {
+    if (selectedFolderPaths.includes(folderPath)) {
+      setSelectedFolderPaths(selectedFolderPaths.filter((p) => p !== folderPath));
     } else {
-      setSelectedFolders([...selectedFolders, folderId]);
+      setSelectedFolderPaths([...selectedFolderPaths, folderPath]);
     }
   };
 
@@ -237,44 +236,38 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
                 <p className="wizardSectionTitle">
                   Add folders your project will read from
                 </p>
+                {loading && <div className="wizardLoading">Loading folders...</div>}
                 <div className="folderList">
-                  {selectedFolders.length > 0 && (
+                  {selectedFolderPaths.length > 0 && (
                     <div className="selectedFolders">
-                      {selectedFolders.map((folderId) => {
-                        const folder = AVAILABLE_FOLDERS.find(
-                          (f) => f.id === folderId
-                        );
-                        return folder ? (
-                          <div key={folder.id} className="selectedFolderItem">
+                      {selectedFolderPaths.map((folderPath) => {
+                        const folderName = folderPath.split('/').pop() || folderPath;
+
+                        return (
+                          <div key={folderPath} className="selectedFolderItem">
                             <span className="folderIcon">📁</span>
-                            <span className="folderName">
-                              {folder.folder_name} ({folder.file_count} files)
-                            </span>
+                            <span className="folderName">{folderName}</span>
                             <button
                               className="folderRemove"
-                              onClick={() => toggleFolder(folder.id)}
+                              onClick={() => toggleFolder(folderPath)}
                             >
                               ×
                             </button>
                           </div>
-                        ) : null;
+                        );
                       })}
                     </div>
                   )}
                   <button
                     className="wizardAddButton"
-                    onClick={() => {
-                      // Toggle first folder for demo
-                      if (AVAILABLE_FOLDERS.length > 0) {
-                        toggleFolder(AVAILABLE_FOLDERS[0].id);
-                      }
-                    }}
+                    onClick={handleSelectFolder}
                   >
                     + Select folders
                   </button>
                 </div>
               </div>
             </div>
+            {error && <div className="wizardError">{error}</div>}
             <div className="wizardActions">
               <button className="wizardButtonSecondary" onClick={handleBack}>
                 Back
@@ -291,21 +284,30 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
           <div className="wizardContent">
             <h2 className="wizardTitle">Select your primary manuscript</h2>
             <div className="wizardForm">
+              {loading && <div className="wizardLoading">Loading files...</div>}
               <div className="manuscriptList">
-                {AVAILABLE_FILES.map((file) => (
+                {availableFiles.length === 0 && !loading && (
+                  <div className="wizardEmpty">
+                    No synced files found. Add folders with documents to see them here.
+                  </div>
+                )}
+                {availableFiles.map((file) => (
                   <div
-                    key={file.id}
+                    key={file.path}
                     className={`manuscriptItem ${
-                      selectedManuscript === file.id ? 'selected' : ''
+                      selectedManuscriptPath === file.path ? 'selected' : ''
                     }`}
-                    onClick={() => setSelectedManuscript(file.id)}
+                    onClick={() => setSelectedManuscriptPath(file.path)}
                   >
                     <span className="fileIcon">📄</span>
-                    <span className="fileName">{file.file_name}</span>
+                    <div className="fileName">
+                      <span>{file.name}</span>
+                      <span className="fileRelPath">{file.relativePath}</span>
+                    </div>
                     <input
                       type="radio"
-                      checked={selectedManuscript === file.id}
-                      onChange={() => setSelectedManuscript(file.id)}
+                      checked={selectedManuscriptPath === file.path}
+                      onChange={() => setSelectedManuscriptPath(file.path)}
                     />
                   </div>
                 ))}
@@ -316,7 +318,14 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
               <button className="wizardButtonSecondary" onClick={handleBack}>
                 Back
               </button>
-              <button className="wizardButtonPrimary" onClick={handleNext}>
+              <button className="wizardButtonText" onClick={handleSkip}>
+                Skip
+              </button>
+              <button
+                className="wizardButtonPrimary"
+                onClick={handleNext}
+                disabled={!selectedManuscriptPath}
+              >
                 Next
               </button>
             </div>
