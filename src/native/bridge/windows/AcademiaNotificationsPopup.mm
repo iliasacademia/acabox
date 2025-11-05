@@ -15,6 +15,12 @@
     if (self) {
         NSLog(@"[AcademiaNotificationsPopup] Initialized as non-activating panel");
 
+        // Disable dragging for the notifications popup
+        if ([self.webView isKindOfClass:NSClassFromString(@"DraggableAcceptingWebView")]) {
+            [self.webView setValue:@0 forKey:@"dragHandleHeight"];
+            NSLog(@"[AcademiaNotificationsPopup] Dragging disabled");
+        }
+
         // Add message handler for notification actions
         [self.webView.configuration.userContentController addScriptMessageHandler:self name:@"notificationAction"];
     }
