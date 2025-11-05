@@ -195,8 +195,12 @@
     } else {
         // First time showing - calculate default position relative to button
         NSRect buttonFrame = self.frame;
-        CGFloat popupX = buttonFrame.origin.x + buttonFrame.size.width + 8;  // 8px to the right of button
-        CGFloat popupY = buttonFrame.origin.y - 404;  // Top of popup 4px below button bottom (4 + 400 = 404)
+        CGFloat popupHeight = 450;  // Default popup height
+        CGFloat verticalSpacing = 4;  // Space between button and popup
+
+        // Position directly below button, left-aligned
+        CGFloat popupX = buttonFrame.origin.x;
+        CGFloat popupY = buttonFrame.origin.y - popupHeight - verticalSpacing;
 
         [self.clickPopup setFrameOrigin:NSMakePoint(popupX, popupY)];
         // Save this initial position
