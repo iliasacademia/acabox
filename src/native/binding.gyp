@@ -20,6 +20,7 @@
         "bridge/windows/DebugInfoOverlay.mm",
         "bridge/views/NativeHeaderView.mm",
         "bridge/views/ResizeHandleView.mm",
+        "bridge/views/AcceptingWebView.mm",
         "bridge/adapters/MicrosoftWordAdapter.mm",
         "bridge/managers/AcademiaManager.mm"
       ],

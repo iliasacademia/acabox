@@ -62,6 +62,7 @@ COMMON_IMPL="bridge/interface/Message.cpp \
     bridge/windows/OverallReviewPopup.mm \
     bridge/views/NativeHeaderView.mm \
     bridge/views/ResizeHandleView.mm \
+    bridge/views/AcceptingWebView.mm \
     bridge/adapters/MicrosoftWordAdapter.mm \
     bridge/managers/AcademiaManager.mm \
     bridge/macos/MacOSWebViewBridge.mm"
