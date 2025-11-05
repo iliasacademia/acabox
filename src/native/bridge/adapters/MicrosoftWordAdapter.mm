@@ -29,6 +29,7 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     // Debounce timers
     NSTimer* _scrollDebounceTimer;
     NSTimer* _windowMoveDebounceTimer;
+    NSTimer* _focusChangeDebounceTimer;
 
     // Position tracking for scroll detection
     CGPoint _lastLayoutCornerPosition;
@@ -139,6 +140,9 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     AXObserverAddNotification(_observer, _wordApp, kAXWindowMovedNotification, (__bridge void*)self);
     AXObserverAddNotification(_observer, _wordApp, kAXWindowResizedNotification, (__bridge void*)self);
 
+    // Add focus change notification to track when focused element changes
+    AXObserverAddNotification(_observer, _wordApp, kAXFocusedUIElementChangedNotification, (__bridge void*)self);
+
     // Add observer to run loop and store the runloop for later cleanup
     _observerRunLoop = CFRunLoopGetCurrent();
     CFRetain(_observerRunLoop);  // Retain to ensure it's valid during cleanup
@@ -204,6 +208,9 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
     [_windowMoveDebounceTimer invalidate];
     _windowMoveDebounceTimer = nil;
+
+    [_focusChangeDebounceTimer invalidate];
+    _focusChangeDebounceTimer = nil;
 
     // Remove scroll event monitor
     if (_scrollEventMonitor) {
@@ -311,6 +318,36 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     if ([_delegate respondsToSelector:@selector(wordAdapterDidDeactivate:)]) {
         [_delegate wordAdapterDidDeactivate:self];
     }
+}
+
+- (void)handleFocusChanged {
+    NSLog(@"[MicrosoftWordAdapter] Focus changed detected");
+
+    // Mark as changing if not already
+    if (!_isChanging) {
+        _isChanging = YES;
+
+        // Notify delegate: change started
+        if (_delegate) {
+            [_delegate wordAdapterDidStartChanging:self];
+        }
+    }
+
+    // Cancel existing debounce timer
+    [_focusChangeDebounceTimer invalidate];
+
+    // Start new debounce timer (same interval as scroll events)
+    __weak typeof(self) weakSelf = self;
+    _focusChangeDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:kScrollDebounceInterval
+                                                                 repeats:NO
+                                                                   block:^(NSTimer * _Nonnull timer) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf) {
+            NSLog(@"[MicrosoftWordAdapter] Focus change debounce timer fired");
+            [strongSelf handleChangeComplete];
+            strongSelf->_focusChangeDebounceTimer = nil;
+        }
+    }];
 }
 
 - (void)handleWindowMoveOrResize {
@@ -1194,6 +1231,11 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
         // Window moved or resized
         dispatch_async(dispatch_get_main_queue(), ^{
             [adapter handleWindowMoveOrResize];
+        });
+    } else if ([notificationName isEqualToString:(__bridge NSString*)kAXFocusedUIElementChangedNotification]) {
+        // Focused element changed
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [adapter handleFocusChanged];
         });
     }
 }
