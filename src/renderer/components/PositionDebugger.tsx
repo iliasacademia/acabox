@@ -50,6 +50,34 @@ interface FirstTextAreaInfo {
   charCount: number;
 }
 
+interface BadgeState {
+  count: number;
+  isVisible: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface NotificationItem {
+  id: number;
+  title: string;
+  body_html: string;
+  user_id: number;
+  status: 'unread' | 'read' | 'dismissed';
+  created_at: number;
+  delivered_at: number | null;
+  read_at: number | null;
+  dismissed_at: number | null;
+}
+
+interface NotificationBreakdown {
+  unread: number;
+  read: number;
+  dismissed: number;
+  total: number;
+}
+
 interface PositionDebugData {
   documentTopLeftCorner: Position | null;
   wordWindowBounds: Bounds | null;
@@ -59,6 +87,10 @@ interface PositionDebugData {
   buttonStates: ButtonStates | null;
   scrollAreaBounds: Bounds | null;
   firstTextAreaInfo: FirstTextAreaInfo | null;
+  badgeState: BadgeState | null;
+  notifications: NotificationItem[];
+  notificationBreakdown: NotificationBreakdown;
+  currentUserId: number | null;
   screenHeight: number;
   timestamp: number;
 }
@@ -72,14 +104,24 @@ const PositionDebugger: React.FC = () => {
 
   const fetchPositionData = async () => {
     try {
-      const result = await window.electronAPI.invoke('get-position-debug-info');
+      // Fetch both position data and notifications in parallel
+      const [positionResult, notificationsResult] = await Promise.all([
+        window.electronAPI.invoke('get-position-debug-info'),
+        window.electronAPI.invoke('get-all-notifications')
+      ]);
 
-      if (result.success) {
-        setData(result.data);
+      if (positionResult.success && notificationsResult.success) {
+        // Merge the results
+        setData({
+          ...positionResult.data,
+          notifications: notificationsResult.notifications,
+          notificationBreakdown: notificationsResult.breakdown,
+          currentUserId: notificationsResult.currentUserId
+        });
         setLastUpdateTime(new Date().toLocaleTimeString());
         setError(null);
       } else {
-        setError(result.error || 'Failed to get position data');
+        setError(positionResult.error || notificationsResult.error || 'Failed to get data');
       }
     } catch (err: any) {
       setError(err.message || 'Unknown error occurred');
@@ -513,6 +555,143 @@ const PositionDebugger: React.FC = () => {
             ) : (
               <div style={{ color: '#ff9800' }}>
                 Button state data not available
+              </div>
+            )}
+          </div>
+
+          {/* Notification Badge */}
+          <div style={{
+            padding: '15px',
+            border: '2px solid #ff9800',
+            borderRadius: '4px',
+            background: '#fff8e1'
+          }}>
+            <h3 style={{ margin: '0 0 10px 0', color: '#e65100' }}>
+              9. Notification Badge
+            </h3>
+            {data.badgeState ? (
+              <div style={{ fontSize: '14px' }}>
+                <div style={{ marginBottom: '8px' }}>
+                  <strong>Count:</strong> {data.badgeState.count}
+                </div>
+                <div style={{ marginBottom: '8px' }}>
+                  <strong>Visible:</strong>{' '}
+                  <span style={{
+                    padding: '2px 8px',
+                    borderRadius: '3px',
+                    background: data.badgeState.isVisible ? '#4caf50' : '#f44336',
+                    color: 'white',
+                    fontWeight: 'bold'
+                  }}>
+                    {data.badgeState.isVisible ? 'YES' : 'NO'}
+                  </span>
+                </div>
+                <div style={{ marginBottom: '8px' }}>
+                  <strong>Position:</strong> x={data.badgeState.x.toFixed(1)}, y={data.badgeState.y.toFixed(1)}
+                </div>
+                <div style={{ marginBottom: '8px' }}>
+                  <strong>Size:</strong> {data.badgeState.width.toFixed(1)} × {data.badgeState.height.toFixed(1)}
+                </div>
+                <div style={{ marginTop: '10px', fontSize: '12px', color: '#666', fontStyle: 'italic' }}>
+                  💡 Note: Badge is positioned relative to the Academia button frame
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: '#ff9800' }}>
+                Badge state data not available (button may not be initialized or no notifications)
+              </div>
+            )}
+          </div>
+
+          {/* All Notifications */}
+          <div style={{
+            padding: '15px',
+            border: '2px solid #2196f3',
+            borderRadius: '4px',
+            background: '#e3f2fd'
+          }}>
+            <h3 style={{ margin: '0 0 10px 0', color: '#1565c0' }}>
+              10. All Notifications
+            </h3>
+            {data.notifications && data.notifications.length > 0 ? (
+              <div style={{ fontSize: '14px' }}>
+                {/* Summary */}
+                <div style={{ marginBottom: '15px', padding: '10px', background: '#fff', borderRadius: '4px' }}>
+                  <div><strong>Current User ID:</strong> {data.currentUserId}</div>
+                  <div><strong>Total Notifications:</strong> {data.notificationBreakdown.total}</div>
+                  <div style={{ marginTop: '8px', display: 'flex', gap: '15px' }}>
+                    <span style={{ color: '#2196f3' }}>
+                      <strong>Unread:</strong> {data.notificationBreakdown.unread}
+                    </span>
+                    <span style={{ color: '#4caf50' }}>
+                      <strong>Read:</strong> {data.notificationBreakdown.read}
+                    </span>
+                    <span style={{ color: '#9e9e9e' }}>
+                      <strong>Dismissed:</strong> {data.notificationBreakdown.dismissed}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Notifications Table */}
+                <div style={{ overflowX: 'auto' }}>
+                  <table style={{
+                    width: '100%',
+                    borderCollapse: 'collapse',
+                    background: '#fff',
+                    fontSize: '12px'
+                  }}>
+                    <thead>
+                      <tr style={{ background: '#1565c0', color: 'white' }}>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>ID</th>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Title</th>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Status</th>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>User ID</th>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Created</th>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Delivered</th>
+                        <th style={{ padding: '8px', textAlign: 'left', border: '1px solid #ddd' }}>Read</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.notifications.map((notif) => (
+                        <tr key={notif.id} style={{ borderBottom: '1px solid #ddd' }}>
+                          <td style={{ padding: '8px', border: '1px solid #ddd' }}>{notif.id}</td>
+                          <td style={{ padding: '8px', border: '1px solid #ddd' }}>
+                            {notif.title.length > 40 ? notif.title.substring(0, 40) + '...' : notif.title}
+                          </td>
+                          <td style={{ padding: '8px', border: '1px solid #ddd' }}>
+                            <span style={{
+                              padding: '2px 8px',
+                              borderRadius: '3px',
+                              background: notif.status === 'unread' ? '#2196f3' :
+                                         notif.status === 'read' ? '#4caf50' : '#9e9e9e',
+                              color: 'white',
+                              fontWeight: 'bold',
+                              fontSize: '11px'
+                            }}>
+                              {notif.status.toUpperCase()}
+                            </span>
+                          </td>
+                          <td style={{ padding: '8px', border: '1px solid #ddd' }}>{notif.user_id}</td>
+                          <td style={{ padding: '8px', border: '1px solid #ddd' }}>
+                            {new Date(notif.created_at).toLocaleString()}
+                          </td>
+                          <td style={{ padding: '8px', border: '1px solid #ddd' }}>
+                            {notif.delivered_at ? new Date(notif.delivered_at).toLocaleString() : 'Not delivered'}
+                          </td>
+                          <td style={{ padding: '8px', border: '1px solid #ddd' }}>
+                            {notif.read_at ? new Date(notif.read_at).toLocaleString() : 'Not read'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : (
+              <div style={{ color: '#1565c0' }}>
+                {data.currentUserId ?
+                  `No notifications found for user ${data.currentUserId}` :
+                  'No user logged in or no notifications available'}
               </div>
             )}
           </div>

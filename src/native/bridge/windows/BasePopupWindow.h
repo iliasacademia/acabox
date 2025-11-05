@@ -17,6 +17,7 @@
 // Properties
 @property (nonatomic, strong) WKWebView* webView;
 @property (nonatomic, weak) WordAccessibilityObserver* observer;  // Weak to avoid retain cycles
+@property (nonatomic, strong) NSString* htmlSubpath;  // Subpath for HTML file (e.g., "academiaNotifications" -> dist/popup/academiaNotifications/index.html)
 
 // Initialization
 // Subclasses should call this in their init methods

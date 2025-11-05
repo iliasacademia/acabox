@@ -1,10 +1,11 @@
 #import "BasePopupWindow.h"
 #import "../views/NativeHeaderView.h"
 #import "../views/ResizeHandleView.h"
+#import "../managers/AcademiaManager.h"
 
-// ClickPopupWindow: Click popup for detailed suggestions/information with React content
+// OverallReviewPopup: Click popup for detailed suggestions/information with React content
 // Inherits from BasePopupWindow to leverage shared WKWebView setup, HTML loading, and message handling
-@interface ClickPopupWindow : BasePopupWindow <NSWindowDelegate>
+@interface OverallReviewPopup : BasePopupWindow <NSWindowDelegate, OverlayWindow>
 
 // Properties
 @property (nonatomic, strong) NSString* currentData;      // Current data (for compatibility)

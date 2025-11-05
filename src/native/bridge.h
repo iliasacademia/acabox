@@ -30,6 +30,11 @@ typedef void (*ButtonClickCallback)(const char* text);
 - (void)registerClickPopupObservers;
 - (void)unregisterClickPopupObservers;
 
+// WAGENT-94: New architecture methods
+- (BOOL)enableNewArchitecture;
+- (BOOL)isUsingNewArchitecture;
+- (void)updateBadgeCountViaManager:(NSInteger)count;
+
 @end
 
 #endif // WORD_ACCESSIBILITY_BRIDGE_H

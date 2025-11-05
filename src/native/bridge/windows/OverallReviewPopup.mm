@@ -1,7 +1,7 @@
-#import "ClickPopupWindow.h"
+#import "OverallReviewPopup.h"
 #import "../../bridge.h"
 
-@implementation ClickPopupWindow
+@implementation OverallReviewPopup
 
 - (instancetype)initWithCount:(int)count observer:(WordAccessibilityObserver*)observer {
     // Fixed size for popup - will contain React UI
@@ -47,15 +47,24 @@
 
 #pragma mark - BasePopupWindow Overrides
 
+- (void)loadPopupHTML {
+    // Set HTML subpath BEFORE loading (called by base class init)
+    self.htmlSubpath = @"overallReview";
+    NSLog(@"[OverallReviewPopup] Loading with subpath: %@", self.htmlSubpath);
+
+    // Call parent implementation which will use the subpath
+    [super loadPopupHTML];
+}
+
 - (NSString*)windowNameForLogging {
-    return @"ClickPopupWindow";
+    return @"OverallReviewPopup";
 }
 
 - (void)handleConsoleLog:(NSDictionary*)logMessage {
     // Handle console logs from WebView
     NSString* level = logMessage[@"level"];
     NSString* msg = logMessage[@"message"];
-    NSLog(@"[ClickPopupWindow WebView %@] %@", level, msg);
+    NSLog(@"[OverallReviewPopup WebView %@] %@", level, msg);
 }
 
 - (void)handleBridgeMessage:(NSDictionary*)message {
@@ -66,26 +75,26 @@
         NSDictionary* payload = message[@"payload"];
         NSString* requestId = payload[@"requestId"];
 
-        NSLog(@"[ClickPopupWindow] Received ACK for request: %@", requestId);
+        NSLog(@"[OverallReviewPopup] Received ACK for request: %@", requestId);
 
         // Check if we have a pending response for this request
         NSString* pendingResponse = self.pendingResponses[requestId];
         if (pendingResponse) {
-            NSLog(@"[ClickPopupWindow] Sending pending response for: %@", requestId);
+            NSLog(@"[OverallReviewPopup] Sending pending response for: %@", requestId);
 
             // Send the response immediately now that we know JS is ready
             [self.webView evaluateJavaScript:pendingResponse completionHandler:^(id result, NSError *error) {
                 if (error) {
-                    NSLog(@"[ClickPopupWindow] ERROR sending response: %@", error);
+                    NSLog(@"[OverallReviewPopup] ERROR sending response: %@", error);
                 } else {
-                    NSLog(@"[ClickPopupWindow] Response sent successfully");
+                    NSLog(@"[OverallReviewPopup] Response sent successfully");
                 }
             }];
 
             // Remove from pending
             [self.pendingResponses removeObjectForKey:requestId];
         } else {
-            NSLog(@"[ClickPopupWindow] No pending response found for: %@", requestId);
+            NSLog(@"[OverallReviewPopup] No pending response found for: %@", requestId);
         }
 
         return;
@@ -93,14 +102,14 @@
 
     // Handle button clicks
     if ([action isEqualToString:@"buttonClick"]) {
-        NSLog(@"[ClickPopupWindow] ===== buttonClick DEBUG =====");
-        NSLog(@"[ClickPopupWindow] Message ID: %@", message[@"id"]);
-        NSLog(@"[ClickPopupWindow] Full message: %@", message);
+        NSLog(@"[OverallReviewPopup] ===== buttonClick DEBUG =====");
+        NSLog(@"[OverallReviewPopup] Message ID: %@", message[@"id"]);
+        NSLog(@"[OverallReviewPopup] Full message: %@", message);
 
         // Verify message ID exists
         NSString* messageId = message[@"id"];
         if (!messageId || messageId.length == 0) {
-            NSLog(@"[ClickPopupWindow] ERROR: Missing or empty message ID!");
+            NSLog(@"[OverallReviewPopup] ERROR: Missing or empty message ID!");
             return;
         }
 
@@ -108,7 +117,7 @@
         NSString* btnAction = payload[@"action"];
         NSNumber* count = payload[@"count"];
 
-        NSLog(@"[ClickPopupWindow] Button action: %@, count: %@", btnAction, count);
+        NSLog(@"[OverallReviewPopup] Button action: %@, count: %@", btnAction, count);
 
         // Forward to observer which will send to main.ts
         if (self.observer) {
@@ -146,7 +155,7 @@
             "});",
             messageId];
 
-        NSLog(@"[ClickPopupWindow] Storing response, waiting for ACK");
+        NSLog(@"[OverallReviewPopup] Storing response, waiting for ACK");
         self.pendingResponses[messageId] = responseJS;
 
         // WAGENT-73: Add timeout fallback (50ms) in case ACK never arrives
@@ -154,14 +163,14 @@
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             NSString* pendingResponse = self.pendingResponses[messageId];
             if (pendingResponse) {
-                NSLog(@"[ClickPopupWindow] ACK timeout - sending response anyway");
+                NSLog(@"[OverallReviewPopup] ACK timeout - sending response anyway");
 
                 [self.webView evaluateJavaScript:pendingResponse completionHandler:^(id result, NSError *error) {
                     if (error) {
-                        NSLog(@"[ClickPopupWindow] ERROR sending response: %@", error);
-                        NSLog(@"[ClickPopupWindow] JavaScript was: %@", pendingResponse);
+                        NSLog(@"[OverallReviewPopup] ERROR sending response: %@", error);
+                        NSLog(@"[OverallReviewPopup] JavaScript was: %@", pendingResponse);
                     } else {
-                        NSLog(@"[ClickPopupWindow] Response sent successfully (fallback)");
+                        NSLog(@"[OverallReviewPopup] Response sent successfully (fallback)");
                     }
                 }];
 
@@ -172,13 +181,13 @@
     }
     // Handle text position search
     else if ([action isEqualToString:@"searchTextPosition"]) {
-        NSLog(@"[ClickPopupWindow] ===== searchTextPosition DEBUG =====");
-        NSLog(@"[ClickPopupWindow] Message ID: %@", message[@"id"]);
-        NSLog(@"[ClickPopupWindow] Full message: %@", message);
+        NSLog(@"[OverallReviewPopup] ===== searchTextPosition DEBUG =====");
+        NSLog(@"[OverallReviewPopup] Message ID: %@", message[@"id"]);
+        NSLog(@"[OverallReviewPopup] Full message: %@", message);
 
         NSDictionary* payload = message[@"payload"];
         NSString* searchText = payload[@"text"];
-        NSLog(@"[ClickPopupWindow] Search text: %@", searchText);
+        NSLog(@"[OverallReviewPopup] Search text: %@", searchText);
 
         // CRITICAL: Return focus to MS Word before searching
         // The search needs Word's document to be the focused AXTextArea
@@ -187,7 +196,7 @@
             NSRunningApplication* wordApp = [NSRunningApplication runningApplicationWithProcessIdentifier:wordPID];
             if (wordApp) {
                 [wordApp activateWithOptions:NSApplicationActivateIgnoringOtherApps];
-                NSLog(@"[ClickPopupWindow] Activated MS Word");
+                NSLog(@"[OverallReviewPopup] Activated MS Word");
 
                 // Give Word a moment to come to the front
                 [NSThread sleepForTimeInterval:0.1];
@@ -196,9 +205,9 @@
                 if ([self.observer respondsToSelector:@selector(focusDocument)]) {
                     BOOL focusSet = [self.observer focusDocument];
                     if (focusSet) {
-                        NSLog(@"[ClickPopupWindow] Successfully focused document");
+                        NSLog(@"[OverallReviewPopup] Successfully focused document");
                     } else {
-                        NSLog(@"[ClickPopupWindow] WARNING: Could not set document focus");
+                        NSLog(@"[OverallReviewPopup] WARNING: Could not set document focus");
                     }
                 }
 
@@ -221,7 +230,7 @@
                             CFRelease(testElement);
 
                             if ([role isEqualToString:@"AXTextArea"]) {
-                                NSLog(@"[ClickPopupWindow] Verified document has focus after %dms", (i+1) * 100);
+                                NSLog(@"[OverallReviewPopup] Verified document has focus after %dms", (i+1) * 100);
                                 documentHasFocus = YES;
                                 break;
                             }
@@ -230,7 +239,7 @@
                 }
 
                 if (!documentHasFocus) {
-                    NSLog(@"[ClickPopupWindow] WARNING: Could not verify document focus after 1000ms");
+                    NSLog(@"[OverallReviewPopup] WARNING: Could not verify document focus after 1000ms");
                 }
             }
         }
@@ -246,11 +255,11 @@
         }
 
         // Log the search result
-        NSLog(@"[ClickPopupWindow] findTextPosition result: %@", result);
-        NSLog(@"[ClickPopupWindow] Found: %@", result[@"found"]);
+        NSLog(@"[OverallReviewPopup] findTextPosition result: %@", result);
+        NSLog(@"[OverallReviewPopup] Found: %@", result[@"found"]);
         if ([result[@"found"] boolValue]) {
-            NSLog(@"[ClickPopupWindow] Match at character index %@", result[@"charIndex"]);
-            NSLog(@"[ClickPopupWindow] Bounds: x=%@, y=%@, w=%@, h=%@",
+            NSLog(@"[OverallReviewPopup] Match at character index %@", result[@"charIndex"]);
+            NSLog(@"[OverallReviewPopup] Bounds: x=%@, y=%@, w=%@, h=%@",
                   result[@"x"], result[@"y"], result[@"width"], result[@"height"]);
         }
 
@@ -280,16 +289,16 @@
             "});",
             message[@"id"], found, text, charIndex, x, y, width, height];
 
-        NSLog(@"[ClickPopupWindow] Response JavaScript:");
+        NSLog(@"[OverallReviewPopup] Response JavaScript:");
         NSLog(@"%@", responseJS);
 
         // Send response immediately - compatibility layer will queue if needed
         [self.webView evaluateJavaScript:responseJS completionHandler:^(id result, NSError *error) {
             if (error) {
-                NSLog(@"[ClickPopupWindow] ERROR evaluating JavaScript: %@", error);
-                NSLog(@"[ClickPopupWindow] JavaScript was: %@", responseJS);
+                NSLog(@"[OverallReviewPopup] ERROR evaluating JavaScript: %@", error);
+                NSLog(@"[OverallReviewPopup] JavaScript was: %@", responseJS);
             } else {
-                NSLog(@"[ClickPopupWindow] JavaScript executed successfully");
+                NSLog(@"[OverallReviewPopup] JavaScript executed successfully");
             }
         }];
     }
@@ -305,13 +314,13 @@
 
     tryUpdate = ^{
         attemptCount++;
-        NSLog(@"[ClickPopupWindow] Checking if bridge is ready (attempt %d)", attemptCount);
+        NSLog(@"[OverallReviewPopup] Checking if bridge is ready (attempt %d)", attemptCount);
 
         // Check if window.__bridgeReceive exists (indicating bridge is ready)
         NSString* checkScript = @"typeof window.__bridgeReceive === 'function'";
         [self.webView evaluateJavaScript:checkScript completionHandler:^(id result, NSError *error) {
             BOOL bridgeReady = [result boolValue];
-            NSLog(@"[ClickPopupWindow] Bridge ready: %d", bridgeReady);
+            NSLog(@"[OverallReviewPopup] Bridge ready: %d", bridgeReady);
 
             if (bridgeReady) {
                 // Bridge is ready, send initial content
@@ -324,7 +333,7 @@
                                  dispatch_get_main_queue(), strongTryUpdate);
                 }
             } else {
-                NSLog(@"[ClickPopupWindow] ERROR: Bridge not ready after %d attempts", attemptCount);
+                NSLog(@"[OverallReviewPopup] ERROR: Bridge not ready after %d attempts", attemptCount);
             }
         }];
     };
@@ -342,7 +351,7 @@
     // Update native header badge
     [self.nativeHeader updateBadgeCount:count];
 
-    // Send count data to React via bridge with type: 'suggestions'
+    // Send count data to React via bridge (no routing needed with dedicated entry point)
     NSString* js = [NSString stringWithFormat:@
         "try { "
         "  console.log('[Native->JS] Sending updateContent via bridge'); "
@@ -354,7 +363,6 @@
         "      type: 'event', "
         "      action: 'updateContent', "
         "      payload: { "
-        "        type: 'suggestions', "
         "        count: %d, "
         "        text: 'Count: %d' "
         "      }, "
@@ -370,7 +378,7 @@
 
     [self.webView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
         if (error) {
-            NSLog(@"[ClickPopupWindow] Error evaluating JavaScript: %@", error.localizedDescription);
+            NSLog(@"[OverallReviewPopup] Error evaluating JavaScript: %@", error.localizedDescription);
         }
     }];
 }
@@ -378,7 +386,7 @@
 #pragma mark - Close Button Handler
 
 - (void)handleCloseButton:(id)sender {
-    NSLog(@"[ClickPopupWindow] Close button clicked");
+    NSLog(@"[OverallReviewPopup] Close button clicked");
 
     // Close the window
     [self orderOut:nil];
@@ -419,6 +427,32 @@
 
 - (void)dealloc {
     // Base class handles WKWebView cleanup
+}
+
+#pragma mark - OverlayWindow Protocol
+
+- (void)updatePositionWithWordState:(WordPositionState)state {
+    // ClickPopupWindow is positioned relative to its parent button, not Word state
+    // The popup's position is managed by the parent button (OverallReviewButton)
+    // This method is a no-op for popup windows
+
+    NSLog(@"[OverallReviewPopup] updatePositionWithWordState called - position managed by parent button");
+}
+
+- (void)hide {
+    NSLog(@"[OverallReviewPopup] hide called");
+    [self orderOut:nil];
+}
+
+- (void)show {
+    NSLog(@"[OverallReviewPopup] show called");
+    [self orderFront:nil];
+}
+
+// isVisible is inherited from NSWindow - no need to override
+
+- (NSString *)overlayIdentifier {
+    return @"OverallReviewPopup";
 }
 
 @end

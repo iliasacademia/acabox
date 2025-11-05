@@ -13,9 +13,14 @@ class NotificationManager {
   private pollingInterval: NodeJS.Timeout | null = null;
   private currentUserId: number | null = null;
   private isSyncing = false;
+  private onSyncComplete: ((userId: number) => void) | null = null;
 
   setMainWindow(window: BrowserWindow | null) {
     this.mainWindow = window;
+  }
+
+  setOnSyncComplete(callback: (userId: number) => void) {
+    this.onSyncComplete = callback;
   }
 
   /**
@@ -33,6 +38,14 @@ class NotificationManager {
       const response = await getNotifications();
       const fetchedAt = Date.now();
 
+      console.log(`[NotificationManager] Received ${response.notifications.length} notifications from backend`);
+
+      // Log the raw response to see field names
+      if (response.notifications.length > 0) {
+        console.log('[NotificationManager] Raw first notification from backend:', JSON.stringify(response.notifications[0], null, 2));
+        console.log('[NotificationManager] Field names:', Object.keys(response.notifications[0]));
+      }
+
       // Get existing notification IDs
       const existingIds = new Set<number>();
       for (const [id, notif] of this.notifications) {
@@ -45,14 +58,28 @@ class NotificationManager {
 
       // Upsert notifications from API
       for (const notif of response.notifications) {
+        // Log each notification details
+        console.log(`[NotificationManager] Notification ${notif.id}:`, {
+          title: notif.title,
+          status: notif.status,
+          delivered_at: notif.delivered_at,
+          delivered_at_type: typeof notif.delivered_at,
+          is_null_or_undefined: notif.delivered_at == null,
+          raw_keys: Object.keys(notif),
+        });
+
         const cached: CachedNotification = {
           ...notif,
           fetched_at: fetchedAt,
           synced_to_backend: true,
         };
 
-        // Check if this is a new notification
-        if (!existingIds.has(notif.id) && notif.status === 'unread') {
+        // Check if this is a new notification (not yet delivered)
+        // Use == null to check for both null and undefined explicitly
+        const shouldShowPopup = notif.status === 'unread' && notif.delivered_at == null;
+        console.log(`[NotificationManager] Notification ${notif.id} should show popup: ${shouldShowPopup} (status=${notif.status}, delivered_at=${notif.delivered_at})`);
+
+        if (shouldShowPopup) {
           newNotifications.push(notif);
         }
 
@@ -63,14 +90,59 @@ class NotificationManager {
       // Sync local changes to backend
       await this.syncLocalChangesToBackend();
 
-      // Notify renderer about new notifications
+      console.log(`[NotificationManager] ${newNotifications.length} notifications will trigger popups`);
+      console.log(`[NotificationManager] MainWindow available: ${!!this.mainWindow}`);
+
+      // Notify renderer about new notifications and mark as delivered
       if (newNotifications.length > 0 && this.mainWindow) {
+        console.log(`[NotificationManager] Sending popups for ${newNotifications.length} notifications`);
         for (const notif of newNotifications) {
+          console.log(`[NotificationManager] Sending popup for notification ${notif.id}: "${notif.title}"`);
+          // Send popup event
           this.mainWindow.webContents.send('new-notification', notif);
+
+          // Mark as delivered immediately
+          try {
+            const deliveredAt = Date.now();
+            await updateNotification(
+              notif.id,
+              notif.status,
+              notif.read_at,
+              notif.dismissed_at,
+              deliveredAt
+            );
+
+            console.log(`[NotificationManager] Successfully marked notification ${notif.id} as delivered at ${deliveredAt}`);
+
+            // Update in memory
+            const cached = this.notifications.get(notif.id);
+            if (cached) {
+              cached.delivered_at = deliveredAt;
+              this.notifications.set(notif.id, cached);
+              console.log(`[NotificationManager] Updated in-memory cache for notification ${notif.id} with delivered_at=${deliveredAt}`);
+            } else {
+              console.warn(`[NotificationManager] Could not find notification ${notif.id} in cache to update delivered_at`);
+            }
+          } catch (error) {
+            console.error(`Failed to mark notification ${notif.id} as delivered:`, error);
+          }
         }
+      } else if (newNotifications.length > 0 && !this.mainWindow) {
+        console.warn(`[NotificationManager] Have ${newNotifications.length} new notifications but mainWindow is not set!`);
       }
 
       console.log(`Synced ${response.notifications.length} notifications, ${newNotifications.length} new`);
+
+      // Notify listeners that sync is complete (for badge updates, etc.)
+      const syncCompleteTime = Date.now();
+      console.log(`[NotificationManager] Sync complete at ${syncCompleteTime}, invoking onSyncComplete callback`);
+      if (this.onSyncComplete) {
+        console.log(`[NotificationManager] Calling onSyncComplete callback with userId=${userId}`);
+        this.onSyncComplete(userId);
+        console.log(`[NotificationManager] onSyncComplete callback completed at ${Date.now()} (took ${Date.now() - syncCompleteTime}ms)`);
+      } else {
+        console.warn(`[NotificationManager] onSyncComplete callback is NOT set!`);
+      }
     } catch (error) {
       console.error('Failed to sync notifications:', error);
     } finally {
@@ -96,7 +168,8 @@ class NotificationManager {
           notif.id,
           notif.status,
           notif.read_at,
-          notif.dismissed_at
+          notif.dismissed_at,
+          notif.delivered_at
         );
 
         // Mark as synced
@@ -118,10 +191,9 @@ class NotificationManager {
     const results: CachedNotification[] = [];
 
     for (const notif of this.notifications.values()) {
-      if (notif.user_id === userId) {
-        if (!status || notif.status === status) {
-          results.push(notif);
-        }
+      
+      if (!status || notif.status === status) {
+        results.push(notif);
       }
     }
 
@@ -134,6 +206,13 @@ class NotificationManager {
    */
   getUnreadNotifications(userId: number): CachedNotification[] {
     return this.getNotificationsByStatus(userId, 'unread');
+  }
+
+  /**
+   * Get undismissed notifications (both unread and read, but not dismissed)
+   */
+  getUndismissedNotifications(userId: number): CachedNotification[] {
+    return this.getNotificationsByStatus(userId).filter(n => n.status !== 'dismissed');
   }
 
   /**
@@ -171,10 +250,10 @@ class NotificationManager {
 
     // Sync to backend immediately
     try {
-      await updateNotification(id, 'read', now, null);
+      const notif = this.notifications.get(id);
+      await updateNotification(id, 'read', now, null, notif?.delivered_at);
 
       // Mark as synced
-      const notif = this.notifications.get(id);
       if (notif) {
         notif.synced_to_backend = true;
         this.notifications.set(id, notif);
@@ -199,10 +278,10 @@ class NotificationManager {
 
     // Sync to backend immediately
     try {
-      await updateNotification(id, 'dismissed', null, now);
+      const notif = this.notifications.get(id);
+      await updateNotification(id, 'dismissed', null, now, notif?.delivered_at);
 
       // Mark as synced
-      const notif = this.notifications.get(id);
       if (notif) {
         notif.synced_to_backend = true;
         this.notifications.set(id, notif);
@@ -269,6 +348,13 @@ class NotificationManager {
     for (const id of toDelete) {
       this.notifications.delete(id);
     }
+  }
+
+  /**
+   * Get current user ID (for badge updates)
+   */
+  getCurrentUserId(): number | null {
+    return this.currentUserId;
   }
 
   /**

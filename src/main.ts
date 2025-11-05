@@ -7,6 +7,7 @@ import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, dow
 import { syncService } from './syncService';
 import { notificationManager } from './notificationManager';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
+import { AcademiaHttpServer } from './server/httpServer';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -32,6 +33,8 @@ function resolveAppleScriptPath(scriptName: string): string {
 
 let devWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let httpServer: AcademiaHttpServer | null = null;
+let wordCheckInterval: NodeJS.Timeout | null = null;
 
 const createWindow = async (): Promise<void> => {
   devWindow = new BrowserWindow({
@@ -59,6 +62,9 @@ const createWindow = async (): Promise<void> => {
 
   // Initialize notification manager with main window
   notificationManager.setMainWindow(devWindow);
+
+  // WAGENT-94: Badge updates now handled by new architecture (AcademiaManager)
+  // No need for manual badge update callbacks
 
   // Wait for window to be ready, then initialize
   devWindow.webContents.once('did-finish-load', async () => {
@@ -355,6 +361,20 @@ app.whenReady().then(async () => {
   }
   createTray();
 
+  // Start HTTP server for data fetching
+  console.log('[HTTP Server] Starting HTTP server...');
+  httpServer = new AcademiaHttpServer(
+    notificationManager,
+    () => notificationManager.getCurrentUserId()
+  );
+  try {
+    const port = await httpServer.start();
+    console.log(`[HTTP Server] ✓ Server started on port ${port}`);
+    console.log(`[HTTP Server] Base URL: ${httpServer.getBaseUrl()}`);
+  } catch (error) {
+    console.error('[HTTP Server] ✗ Failed to start server:', error);
+  }
+
   // Auto-start Word button tracking if Word is running
   try {
     const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
@@ -385,7 +405,7 @@ app.whenReady().then(async () => {
   }
 
   // Periodically check if Word launches (check every 5 seconds)
-  setInterval(() => {
+  wordCheckInterval = setInterval(() => {
     if (isSelectionTrackingActive) {
       return; // Already tracking
     }
@@ -538,22 +558,35 @@ ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread'
   }
 });
 
+// WAGENT-94: Badge update function removed - new architecture handles badges automatically
+
 ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
+  console.log(`[Main] Received start-notification-polling request for user ${userId}`);
   try {
     notificationManager.startPolling(userId, 30000); // 30 second interval
+    console.log(`[Main] Successfully started notification polling for user ${userId}`);
+
+    // Note: Badge is now updated via onSyncComplete callback after each sync
+    // No need for separate badge update interval
+
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to start notification polling:', error);
+    console.error('[Main] Failed to start notification polling:', error);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('stop-notification-polling', async () => {
+  console.log('[Main] Received stop-notification-polling request');
   try {
     notificationManager.stopPolling();
+
+    // WAGENT-94: Badge clearing handled by new architecture
+
+    console.log('[Main] Successfully stopped notification polling');
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to stop notification polling:', error);
+    console.error('[Main] Failed to stop notification polling:', error);
     return { success: false, error: error.message };
   }
 });
@@ -561,6 +594,9 @@ ipcMain.handle('stop-notification-polling', async () => {
 ipcMain.handle('mark-notification-read', async (_event, id: number) => {
   try {
     await notificationManager.markAsRead(id);
+
+    // WAGENT-94: Badge updates handled by new architecture
+
     return { success: true };
   } catch (error: any) {
     console.error('Failed to mark notification as read:', error);
@@ -571,6 +607,9 @@ ipcMain.handle('mark-notification-read', async (_event, id: number) => {
 ipcMain.handle('dismiss-notification', async (_event, id: number) => {
   try {
     await notificationManager.dismissNotification(id);
+
+    // WAGENT-94: Badge updates handled by new architecture
+
     return { success: true };
   } catch (error: any) {
     console.error('Failed to dismiss notification:', error);
@@ -588,9 +627,44 @@ ipcMain.handle('get-current-user', async () => {
   }
 });
 
+// HTTP Server IPC handlers
+ipcMain.handle('get-http-server-info', async () => {
+  if (!httpServer || !httpServer.isRunning()) {
+    return {
+      running: false,
+      baseUrl: null,
+      port: null,
+    };
+  }
+
+  return {
+    running: true,
+    baseUrl: httpServer.getBaseUrl(),
+    port: httpServer.getPort(),
+  };
+});
+
+ipcMain.handle('generate-http-token', async (_event, identifier?: string) => {
+  if (!httpServer) {
+    throw new Error('HTTP server not initialized');
+  }
+
+  const token = httpServer.generateToken(identifier);
+  console.log(`[Main] Generated HTTP token for ${identifier || 'unknown'}: ${token.substring(0, 16)}...`);
+
+  return { token };
+});
+
 // Cleanup on app quit
 app.on('before-quit', async () => {
   console.log('[APP] Application quitting - cleaning up resources...');
+
+  // Stop Word check interval
+  if (wordCheckInterval) {
+    console.log('[APP] Stopping Word check interval...');
+    clearInterval(wordCheckInterval);
+    wordCheckInterval = null;
+  }
 
   // Stop selection tracking first (synchronous cleanup of native resources)
   if (isSelectionTrackingActive) {
@@ -611,6 +685,17 @@ app.on('before-quit', async () => {
   // Stop notification polling and cleanup
   console.log('[APP] Closing notification manager...');
   notificationManager.close();
+
+  // Stop HTTP server
+  if (httpServer) {
+    console.log('[APP] Stopping HTTP server...');
+    try {
+      await httpServer.stop();
+      console.log('[APP] HTTP server stopped successfully');
+    } catch (error) {
+      console.error('[APP] Error stopping HTTP server:', error);
+    }
+  }
 
   console.log('[APP] Cleanup complete');
 });
@@ -1282,6 +1367,7 @@ ipcMain.handle('get-position-debug-info', async () => {
     const buttonStates = wordAccessibility.getButtonStates();
     const scrollAreaBounds = wordAccessibility.getScrollAreaBounds();
     const firstTextAreaInfo = wordAccessibility.getFirstTextAreaInfo();
+    // WAGENT-94: badgeState removed - badges handled by new architecture
 
     // Get screen height for coordinate conversion
     const primaryDisplay = screen.getPrimaryDisplay();
@@ -1298,6 +1384,7 @@ ipcMain.handle('get-position-debug-info', async () => {
         buttonStates,
         scrollAreaBounds,
         firstTextAreaInfo,
+        // badgeState removed - WAGENT-94
         screenHeight,
         timestamp: Date.now()
       }
@@ -1308,6 +1395,45 @@ ipcMain.handle('get-position-debug-info', async () => {
       success: false,
       error: error.message,
       data: null
+    };
+  }
+});
+
+// Handle get all notifications request for debugging
+ipcMain.handle('get-all-notifications', async () => {
+  try {
+    const userId = notificationManager.getCurrentUserId();
+
+    if (!userId) {
+      return {
+        success: false,
+        error: 'No user logged in',
+        notifications: [],
+        currentUserId: null
+      };
+    }
+
+    // Get all notifications (no status filter)
+    const notifications = notificationManager.getNotificationsByStatus(userId);
+
+    // Get status breakdown
+    const unread = notifications.filter(n => n.status === 'unread').length;
+    const read = notifications.filter(n => n.status === 'read').length;
+    const dismissed = notifications.filter(n => n.status === 'dismissed').length;
+
+    return {
+      success: true,
+      notifications,
+      currentUserId: userId,
+      breakdown: { unread, read, dismissed, total: notifications.length }
+    };
+  } catch (error: any) {
+    console.error('[NOTIFICATIONS-DEBUG] Error getting notifications:', error);
+    return {
+      success: false,
+      error: error.message,
+      notifications: [],
+      currentUserId: null
     };
   }
 });

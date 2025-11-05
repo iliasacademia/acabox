@@ -81,6 +81,15 @@ export interface FirstTextAreaInfo {
   charCount: number;
 }
 
+export interface BadgeState {
+  count: number;
+  isVisible: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 interface NativeModule {
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean;
   stopObserving(): void;
@@ -95,6 +104,7 @@ interface NativeModule {
   getParentHierarchy(): ParentElement[];
   getButtonStates(): ButtonStates | null;
   getScrollAreaBounds(): Bounds | null;
+  // WAGENT-94: updateButtonBadge and getBadgeState removed - badges handled by new architecture
 }
 
 // Load the native module
@@ -339,6 +349,9 @@ export class WordAccessibilityBridge {
       return null;
     }
   }
+
+  // WAGENT-94: updateButtonBadge and getBadgeState methods removed
+  // Badge management now handled by new architecture (AcademiaManager)
 }
 
 // Export singleton instance

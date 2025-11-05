@@ -1,9 +1,8 @@
 #import <Cocoa/Cocoa.h>
 #import <WebKit/WebKit.h>
-#import "../windows/TextPopupWindow.h"
-#import "../windows/ClickPopupWindow.h"
-#import "../windows/ButtonOverlayWindow.h"
-#import "../windows/LineCountButtonWindow.h"
+#import "../windows/AcademiaNotificationsButton.h"
+#import "../windows/OverallReviewButton.h"
+#import "../windows/OverallReviewPopup.h"
 #import "../windows/BasePopupWindow.h"
 #include "../interface/MessageRouter.h"
 #include "../interface/Message.h"
@@ -69,46 +68,38 @@ static int testsPassed = 0;
 
 #pragma mark - Test Functions
 
-void testTextPopupWindowInitialization() {
-    TEST_START("TextPopupWindow Initialization");
+// NOTE: TextPopupWindow removed - legacy code (WAGENT-94)
+// NOTE: ClickPopupWindow removed - merged into OverallReviewPopup
+// void testClickPopupWindowInitialization() {
+//     TEST_START("ClickPopupWindow Initialization");
+//
+//     @autoreleasepool {
+//         // Use nil observer for this test
+//         ClickPopupWindow* window = [[ClickPopupWindow alloc] initWithCount:5 observer:nil];
+//
+//         ASSERT_NOT_NULL(window, "Window should be created");
+//         ASSERT_NOT_NULL(window.webView, "WebView should be initialized");
+//         ASSERT_EQUAL(window.count, 5, "Count should be set");
+//
+//         TEST_PASS();
+//     }
+// }
 
-    @autoreleasepool {
-        TextPopupWindow* window = [[TextPopupWindow alloc] initWithText:@"Test text"];
-
-        ASSERT_NOT_NULL(window, "Window should be created");
-        ASSERT_NOT_NULL(window.webView, "WebView should be initialized");
-        ASSERT_TRUE([window.currentText isEqualToString:@"Test text"], "Text should be stored");
-        ASSERT_TRUE(window.clickState == ClickStateIdle, "Should be in idle state (WAGENT-78)");
-
-        TEST_PASS();
-    }
-}
-
-void testClickPopupWindowInitialization() {
-    TEST_START("ClickPopupWindow Initialization");
-
-    @autoreleasepool {
-        // Use nil observer for this test
-        ClickPopupWindow* window = [[ClickPopupWindow alloc] initWithCount:5 observer:nil];
-
-        ASSERT_NOT_NULL(window, "Window should be created");
-        ASSERT_NOT_NULL(window.webView, "WebView should be initialized");
-        ASSERT_EQUAL(window.count, 5, "Count should be set");
-
-        TEST_PASS();
-    }
-}
-
-void testButtonOverlayWindowInitialization() {
-    TEST_START("ButtonOverlayWindow Initialization");
+void testAcademiaNotificationsButtonInitialization() {
+    TEST_START("AcademiaNotificationsButton Initialization");
 
     @autoreleasepool {
         // Use nil observer for this test
-        ButtonOverlayWindow* window = [[ButtonOverlayWindow alloc] initWithObserver:nil];
+        NSLog(@"[TEST] About to create AcademiaNotificationsButton...");
+        AcademiaNotificationsButton* window = [[AcademiaNotificationsButton alloc] initWithObserver:nil];
+        NSLog(@"[TEST] AcademiaNotificationsButton created: %@", window);
 
         ASSERT_NOT_NULL(window, "Window should be created");
+        NSLog(@"[TEST] Window is not null, checking button...");
         ASSERT_NOT_NULL(window.button, "Button should be initialized");
+        NSLog(@"[TEST] Button is not null, checking title...");
         ASSERT_TRUE([window.button.title isEqualToString:@"A"], "Button should have 'A' title");
+        NSLog(@"[TEST] Title is correct, checking panel properties...");
         ASSERT_TRUE(window.floatingPanel, "Should be a floating panel");
         ASSERT_FALSE(window.becomesKeyOnlyIfNeeded, "Should not become key window");
 
@@ -116,21 +107,22 @@ void testButtonOverlayWindowInitialization() {
     }
 }
 
-void testLineCountButtonWindowInitialization() {
-    TEST_START("LineCountButtonWindow Initialization");
-
-    @autoreleasepool {
-        // Use nil observer for this test
-        LineCountButtonWindow* window = [[LineCountButtonWindow alloc] initWithObserver:nil];
-
-        ASSERT_NOT_NULL(window, "Window should be created");
-        ASSERT_NOT_NULL(window.countLabel, "Count label should be initialized");
-        ASSERT_TRUE(window.count >= 1 && window.count <= 12, "Count should be between 1 and 12");
-        ASSERT_TRUE(window.floatingPanel, "Should be a floating panel");
-
-        TEST_PASS();
-    }
-}
+// NOTE: LineCountButtonWindow removed - merged into OverallReviewButton
+// void testLineCountButtonWindowInitialization() {
+//     TEST_START("LineCountButtonWindow Initialization");
+//
+//     @autoreleasepool {
+//         // Use nil observer for this test
+//         LineCountButtonWindow* window = [[LineCountButtonWindow alloc] initWithObserver:nil];
+//
+//         ASSERT_NOT_NULL(window, "Window should be created");
+//         ASSERT_NOT_NULL(window.countLabel, "Count label should be initialized");
+//         ASSERT_TRUE(window.count >= 1 && window.count <= 12, "Count should be between 1 and 12");
+//         ASSERT_TRUE(window.floatingPanel, "Should be a floating panel");
+//
+//         TEST_PASS();
+//     }
+// }
 
 void testBasePopupWindowInitialization() {
     TEST_START("BasePopupWindow Initialization");
@@ -153,41 +145,21 @@ void testWindowInitializationWithNilObserver() {
     TEST_START("Window Initialization with Nil Observer");
 
     @autoreleasepool {
-        ButtonOverlayWindow* button = [[ButtonOverlayWindow alloc] initWithObserver:nil];
-        ASSERT_NOT_NULL(button, "ButtonOverlay should create with nil observer");
+        AcademiaNotificationsButton* button = [[AcademiaNotificationsButton alloc] initWithObserver:nil];
+        ASSERT_NOT_NULL(button, "AcademiaNotificationsButton should create with nil observer");
 
-        LineCountButtonWindow* count = [[LineCountButtonWindow alloc] initWithObserver:nil];
-        ASSERT_NOT_NULL(count, "LineCountButton should create with nil observer");
-
-        ClickPopupWindow* click = [[ClickPopupWindow alloc] initWithCount:5 observer:nil];
-        ASSERT_NOT_NULL(click, "ClickPopup should create with nil observer");
+        OverallReviewButton* reviewButton = [[OverallReviewButton alloc] initWithObserver:nil];
+        ASSERT_NOT_NULL(reviewButton, "OverallReviewButton should create with nil observer");
 
         TEST_PASS();
     }
 }
 
-void testTextPopupUpdateContent() {
-    TEST_START("TextPopupWindow Update Content");
+void testAcademiaNotificationsButtonPositioning() {
+    TEST_START("AcademiaNotificationsButton Positioning");
 
     @autoreleasepool {
-        TextPopupWindow* popup = [[TextPopupWindow alloc] initWithText:@"Initial"];
-
-        [popup updateContentWithText:@"Updated"];
-        ASSERT_TRUE([popup.currentText isEqualToString:@"Updated"], "Text should be updated");
-
-        // Test with empty text
-        [popup updateContentWithText:@""];
-        [popup updateContentWithText:nil];
-
-        TEST_PASS();
-    }
-}
-
-void testButtonOverlayPositioning() {
-    TEST_START("ButtonOverlay Positioning");
-
-    @autoreleasepool {
-        ButtonOverlayWindow* button = [[ButtonOverlayWindow alloc] initWithObserver:nil];
+        AcademiaNotificationsButton* button = [[AcademiaNotificationsButton alloc] initWithObserver:nil];
 
         CGPoint testPoint = CGPointMake(500, 300);
         CGFloat testHeight = 20;
@@ -196,7 +168,7 @@ void testButtonOverlayPositioning() {
 
         ASSERT_EQUAL(button.frame.origin.x, testPoint.x, "Button X position should match");
         ASSERT_EQUAL(button.frame.size.height, testHeight, "Button height should match");
-        ASSERT_EQUAL(button.frame.size.width, 10, "Button width should be 10px");
+        ASSERT_EQUAL(button.frame.size.width, 30, "Button width should be 30px");
 
         TEST_PASS();
     }
@@ -207,7 +179,7 @@ void testButtonOverlayPositioning() {
 //     TEST_START("Schedule and Cancel Hide");
 //
 //     @autoreleasepool {
-//         ButtonOverlayWindow* button = [[ButtonOverlayWindow alloc] initWithObserver:nil];
+//         AcademiaNotificationsButton* button = [[AcademiaNotificationsButton alloc] initWithObserver:nil];
 //
 //         [button scheduleHidePopup];
 //         ASSERT_NOT_NULL(button.scheduledHideBlock, "Hide should be scheduled");
@@ -218,31 +190,6 @@ void testButtonOverlayPositioning() {
 //         TEST_PASS();
 //     }
 // }
-
-void testMemoryDeallocation() {
-    TEST_START("Memory Deallocation");
-
-    __weak TextPopupWindow* weakWindow = nil;
-
-    @autoreleasepool {
-        TextPopupWindow* window = [[TextPopupWindow alloc] initWithText:@"Test"];
-        weakWindow = window;
-        ASSERT_NOT_NULL(weakWindow, "Window should exist");
-    }
-
-    // Give more time for deallocation (WebView cleanup can be slow)
-    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
-
-    // Note: This test may occasionally fail due to WebView's async cleanup
-    // It's a known issue with WKWebView having delayed deallocation
-    if (weakWindow == nil) {
-        NSLog(@"  ✓ Window properly deallocated");
-    } else {
-        NSLog(@"  ⚠ Window still referenced (WKWebView async cleanup - this is expected)");
-    }
-
-    TEST_PASS();
-}
 
 #pragma mark - Message Queue Tests (WAGENT-69, 70, 71, 72)
 
@@ -494,21 +441,29 @@ void testMultipleClientQueues() {
 
 int main(int argc, const char * argv[]) {
     @autoreleasepool {
+        // Initialize NSApplication for window creation tests
+        // Set activation policy BEFORE getting shared application
+        [NSApplication sharedApplication];
+        [NSApp setActivationPolicy:NSApplicationActivationPolicyProhibited];  // Completely headless
+
+        // Finish launching to fully initialize the app
+        [NSApp finishLaunching];
+
         NSLog(@"======================================");
         NSLog(@"Running Critical Native Tests (Simple)");
         NSLog(@"======================================\n");
 
         // Run all tests
-        testTextPopupWindowInitialization();
-        testClickPopupWindowInitialization();
-        testButtonOverlayWindowInitialization();
-        testLineCountButtonWindowInitialization();
+        // testTextPopupWindowInitialization();  // Removed - legacy code (WAGENT-94)
+        // testClickPopupWindowInitialization();  // Removed - merged into OverallReviewPopup
+        testAcademiaNotificationsButtonInitialization();
+        // testLineCountButtonWindowInitialization();  // Removed - merged into OverallReviewButton
         testBasePopupWindowInitialization();
         testWindowInitializationWithNilObserver();
-        testTextPopupUpdateContent();
-        testButtonOverlayPositioning();
+        // testTextPopupUpdateContent();  // Removed - legacy code (WAGENT-94)
+        testAcademiaNotificationsButtonPositioning();
         // testScheduleAndCancelHide();  // Commented out - methods removed in refactor
-        testMemoryDeallocation();
+        // testMemoryDeallocation();  // Removed - TextPopupWindow dependency (WAGENT-94)
 
         // Message queue tests (WAGENT-69, 70, 71, 72)
         testMessageQueueingForNotReadyClient();

@@ -40,6 +40,7 @@ interface WebKitInterface {
 interface ChromeWebView {
   postMessage: (message: any) => void;
   addEventListener: (event: string, callback: (e: any) => void) => void;
+  removeEventListener?: (event: string, callback: (e: any) => void) => void;
 }
 
 interface ChromeInterface {
@@ -74,6 +75,7 @@ export class MessageBridge {
   private platform: 'webkit' | 'webview2' | 'unknown';
   private isReady = false;
   private messageQueue: Message[] = [];
+  private webview2MessageListener?: (e: any) => void;
 
   constructor(clientId: string) {
     this.clientId = clientId;
@@ -198,9 +200,10 @@ export class MessageBridge {
       }, 5000);
     } else if (this.platform === 'webview2') {
       // Windows WebView2
-      window.chrome!.webview!.addEventListener('message', (e: any) => {
+      this.webview2MessageListener = (e: any) => {
         this.handleNativeMessage(e.data);
-      });
+      };
+      window.chrome!.webview!.addEventListener('message', this.webview2MessageListener);
       this.sendReadySignal();
     } else {
       console.error('[MessageBridge] Unknown platform, bridge may not work');
@@ -501,6 +504,16 @@ export class MessageBridge {
    */
   public destroy(): void {
     console.log('[MessageBridge] Destroying bridge instance');
+
+    // Remove WebView2 event listener if present
+    if (this.webview2MessageListener && this.platform === 'webview2') {
+      try {
+        window.chrome?.webview?.removeEventListener?.('message', this.webview2MessageListener);
+        this.webview2MessageListener = undefined;
+      } catch (error) {
+        console.error('[MessageBridge] Error removing WebView2 listener:', error);
+      }
+    }
 
     // Cancel all pending request timeouts and reject them
     this.pendingRequests.forEach((request, requestId) => {

@@ -12,13 +12,16 @@
         "bridge/helpers/PanelStyleHelper.mm",
         "bridge/helpers/WebViewConfigHelper.mm",
         "bridge/windows/BasePopupWindow.mm",
-        "bridge/windows/BaseNativeWindow.mm",
-        "bridge/windows/TextPopupWindow.mm",
-        "bridge/windows/ClickPopupWindow.mm",
-        "bridge/windows/ButtonOverlayWindow.mm",
-        "bridge/windows/LineCountButtonWindow.mm",
+        "bridge/windows/OverallReviewPopup.mm",
+        "bridge/windows/AcademiaNotificationsButton.mm",
+        "bridge/windows/OverallReviewButton.mm",
+        "bridge/windows/AcademiaNotificationsPopup.mm",
+        "bridge/windows/DebugBorderWindow.mm",
+        "bridge/windows/DebugInfoOverlay.mm",
         "bridge/views/NativeHeaderView.mm",
-        "bridge/views/ResizeHandleView.mm"
+        "bridge/views/ResizeHandleView.mm",
+        "bridge/adapters/MicrosoftWordAdapter.mm",
+        "bridge/managers/AcademiaManager.mm"
       ],
       "include_dirs": [
         "<!@(node -p \"require('node-addon-api').include\")",
@@ -27,7 +30,9 @@
         "bridge/factory",
         "bridge/helpers",
         "bridge/windows",
-        "bridge/views"
+        "bridge/views",
+        "bridge/adapters",
+        "bridge/managers"
       ],
       "dependencies": [
         "<!(node -p \"require('node-addon-api').gyp\")"

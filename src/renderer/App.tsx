@@ -48,14 +48,31 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (userId) {
+      console.log(`[Renderer] Starting notification polling for user ${userId}`);
+      // Start polling in main process
+      window.electronAPI.invoke('start-notification-polling', userId)
+        .then(() => console.log('[Renderer] Notification polling started successfully'))
+        .catch((error) => console.error('[Renderer] Failed to start notification polling:', error));
+
       // Listen for new notifications
       const handleNewNotification = (_event: any, notif: NotificationType) => {
+        console.log('[Renderer] Received new-notification event:', {
+          id: notif.id,
+          title: notif.title,
+          status: notif.status,
+          delivered_at: notif.delivered_at,
+        });
         showDesktopNotification(notif);
       };
       window.electronAPI.on('new-notification', handleNewNotification);
 
+      console.log('[Renderer] new-notification event listener registered');
+
       return () => {
+        console.log('[Renderer] Cleaning up notification listeners and stopping polling');
         window.electronAPI.removeListener('new-notification', handleNewNotification);
+        // Stop polling on cleanup
+        window.electronAPI.invoke('stop-notification-polling');
       };
     }
   }, [userId]);
@@ -75,11 +92,27 @@ const App: React.FC = () => {
   };
 
   const showDesktopNotification = (notif: NotificationType) => {
-    // Show native OS notification with HTML stripped from body
-    new Notification(notif.title, {
-      body: stripHtml(notif.body_html),
-      tag: notif.id.toString(), // Use id for deduplication
-    });
+    console.log(`[Renderer] Showing OS notification for ${notif.id}: "${notif.title}"`);
+
+    try {
+      // Show native OS notification with HTML stripped from body
+      const osNotification = new Notification(notif.title, {
+        body: stripHtml(notif.body_html),
+        tag: notif.id.toString(), // Use id for deduplication
+      });
+
+      console.log(`[Renderer] OS notification created successfully for ${notif.id}`);
+
+      osNotification.onclick = () => {
+        console.log(`[Renderer] Notification ${notif.id} clicked`);
+      };
+
+      osNotification.onerror = (error) => {
+        console.error(`[Renderer] OS notification error for ${notif.id}:`, error);
+      };
+    } catch (error) {
+      console.error(`[Renderer] Failed to create OS notification for ${notif.id}:`, error);
+    }
   };
 
   const handleLoginSuccess = async () => {

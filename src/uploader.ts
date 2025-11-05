@@ -178,22 +178,50 @@ export const updateNotification = async (
   id: number,
   status: 'unread' | 'read' | 'dismissed',
   readAt?: number | null,
-  dismissedAt?: number | null
+  dismissedAt?: number | null,
+  deliveredAt?: number | null
 ): Promise<void> => {
   const client = await APIclient();
   const csrfToken = await getCsrfToken();
-  await client.patch(
-    '/v0/desktop_notifications/update_notification',
-    {
-      id,
-      status,
-      read_at: readAt,
-      dismissed_at: dismissedAt,
-    },
-    {
-      headers: { 'x-csrf-token': csrfToken },
-    }
-  );
+
+  const requestPayload = {
+    id,
+    status,
+    read_at: readAt,
+    dismissed_at: dismissedAt,
+    delivered_at: deliveredAt,
+  };
+
+  console.log('[API] updateNotification request:', {
+    endpoint: '/v0/desktop_notifications/update_notification',
+    method: 'PATCH',
+    payload: requestPayload,
+    delivered_at_type: typeof deliveredAt,
+    delivered_at_value: deliveredAt,
+  });
+
+  try {
+    const response = await client.patch(
+      '/v0/desktop_notifications/update_notification',
+      requestPayload,
+      {
+        headers: { 'x-csrf-token': csrfToken },
+      }
+    );
+
+    console.log('[API] updateNotification response:', {
+      status: response.status,
+      statusText: response.statusText,
+      data: response.data,
+    });
+  } catch (error: any) {
+    console.error('[API] updateNotification error:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+    });
+    throw error;
+  }
 };
 
 // Sync Folder API

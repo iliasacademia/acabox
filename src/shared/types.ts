@@ -57,6 +57,7 @@ export const IPC_CHANNELS = {
   MINIMIZE_WINDOW: 'minimize-window',
   CLOSE_WINDOW: 'close-window',
   GET_POSITION_DEBUG_INFO: 'get-position-debug-info',
+  GET_ALL_NOTIFICATIONS: 'get-all-notifications',
 } as const;
 
 export interface DesktopNotification {
@@ -70,6 +71,7 @@ export interface DesktopNotification {
   status: 'unread' | 'read' | 'dismissed';
   read_at: number | null;
   dismissed_at: number | null;
+  delivered_at?: number | null;
 }
 
 export interface GetNotificationsResponse {

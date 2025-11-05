@@ -1,6 +1,13 @@
 import React, { useState } from 'react';
-import { useNativeEvent, useSendMessage, useBridgeReady } from './hooks/useBridge';
+import { createRoot } from 'react-dom/client';
+import { useNativeEvent, useSendMessage, useBridgeReady, getBridgeInstance } from './hooks/useBridge';
 import { logJSON } from './utils/logger';
+
+// Initialize bridge early
+getBridgeInstance('overall-review-popup');
+
+console.log('[OverallReviewPopup] Initializing...');
+console.log('[OverallReviewPopup] Platform:', window.__messageBridge?.getPlatform());
 
 interface Suggestion {
   id: string;
@@ -18,7 +25,7 @@ interface SearchResult {
   height?: number;
 }
 
-const SuggestionsContainer: React.FC = () => {
+const OverallReviewPopup: React.FC = () => {
   const [count, setCount] = useState(0);
   const [searchText, setSearchText] = useState('');
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null);
@@ -26,15 +33,15 @@ const SuggestionsContainer: React.FC = () => {
   const { sendRequest, loading, error } = useSendMessage();
   const isReady = useBridgeReady();
 
-  console.log('[SuggestionsContainer] Render - count:', count);
+  console.log('[OverallReviewPopup] Render - count:', count);
 
   // Listen for content updates from native
   useNativeEvent('updateContent', (msg) => {
-    logJSON('[SuggestionsContainer] Content update received:', msg.payload);
+    logJSON('[OverallReviewPopup] Content update received:', msg.payload);
 
     if (msg.payload?.count !== undefined) {
       const newCount = msg.payload.count;
-      console.log('[SuggestionsContainer] Setting count:', newCount);
+      console.log('[OverallReviewPopup] Setting count:', newCount);
       setCount(newCount);
     }
   });
@@ -59,7 +66,7 @@ const SuggestionsContainer: React.FC = () => {
   ];
 
   const handleSeeMore = async () => {
-    console.log('[SuggestionsContainer] See more button clicked');
+    console.log('[OverallReviewPopup] See more button clicked');
 
     try {
       const result = await sendRequest('buttonClick', {
@@ -67,14 +74,14 @@ const SuggestionsContainer: React.FC = () => {
         count: count
       });
 
-      logJSON('[SuggestionsContainer] See more response:', result);
+      logJSON('[OverallReviewPopup] See more response:', result);
     } catch (err) {
-      console.error('[SuggestionsContainer] See more failed:', err);
+      console.error('[OverallReviewPopup] See more failed:', err);
     }
   };
 
   const handleDismiss = async () => {
-    console.log('[SuggestionsContainer] Dismiss button clicked');
+    console.log('[OverallReviewPopup] Dismiss button clicked');
 
     try {
       const result = await sendRequest('buttonClick', {
@@ -82,9 +89,9 @@ const SuggestionsContainer: React.FC = () => {
         count: count
       });
 
-      logJSON('[SuggestionsContainer] Dismiss response:', result);
+      logJSON('[OverallReviewPopup] Dismiss response:', result);
     } catch (err) {
-      console.error('[SuggestionsContainer] Dismiss failed:', err);
+      console.error('[OverallReviewPopup] Dismiss failed:', err);
     }
   };
 
@@ -93,7 +100,7 @@ const SuggestionsContainer: React.FC = () => {
       return;
     }
 
-    console.log('[SuggestionsContainer] Searching for text:', searchText);
+    console.log('[OverallReviewPopup] Searching for text:', searchText);
     setIsSearching(true);
     setSearchResult(null);
 
@@ -102,18 +109,16 @@ const SuggestionsContainer: React.FC = () => {
         text: searchText
       });
 
-      console.log('[SuggestionsContainer] Search response:', JSON.stringify(result, null, 2));
-      console.log('[SuggestionsContainer] Payload:', JSON.stringify(result.payload, null, 2));
+      console.log('[OverallReviewPopup] Search response:', JSON.stringify(result, null, 2));
+      console.log('[OverallReviewPopup] Payload:', JSON.stringify(result.payload, null, 2));
       setSearchResult(result.payload as SearchResult);
     } catch (err) {
-      console.error('[SuggestionsContainer] Search failed:', err);
+      console.error('[OverallReviewPopup] Search failed:', err);
       setSearchResult({ found: false });
     } finally {
       setIsSearching(false);
     }
   };
-
-  // Note: handleClose removed - close button now handled by native header
 
   return (
     <div style={styles.container}>
@@ -269,7 +274,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderBottom: '1px solid #ffeaa7',
     textAlign: 'center',
   },
-  // Note: header, title, badge, closeButton styles removed - now handled by native view
   suggestionsContainer: {
     flex: 1,
     overflow: 'auto',
@@ -398,4 +402,32 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
 };
 
-export default SuggestionsContainer;
+// Initialize React app
+const container = document.getElementById('root');
+if (container) {
+  const root = createRoot(container);
+  root.render(<OverallReviewPopup />);
+  console.log('[OverallReviewPopup] React app initialized');
+} else {
+  console.error('[OverallReviewPopup] Root container not found!');
+}
+
+// Wait for bridge to be ready
+const checkReady = setInterval(() => {
+  const bridge = window.__messageBridge;
+  if (bridge && bridge.isConnected()) {
+    console.log('[OverallReviewPopup] Bridge connected and ready');
+    clearInterval(checkReady);
+  }
+}, 100);
+
+// Timeout after 5 seconds
+setTimeout(() => {
+  const bridge = window.__messageBridge;
+  if (!bridge || !bridge.isConnected()) {
+    console.error('[OverallReviewPopup] Bridge connection timeout - native bridge may not be initialized');
+    clearInterval(checkReady);
+  }
+}, 5000);
+
+export default OverallReviewPopup;

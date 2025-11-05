@@ -1,19 +1,21 @@
 #import <Cocoa/Cocoa.h>
-#import "ClickPopupWindow.h"
+#import "OverallReviewPopup.h"
+#import "../managers/AcademiaManager.h"
 
 // Forward declaration
 @class WordAccessibilityObserver;
 
-// LineCountButtonWindow: Shows line count on left of first line
+// OverallReviewButton: Shows review count on left of first line
 // Circular button with count, shows hover popup and click popup
-@interface LineCountButtonWindow : NSPanel
+@interface OverallReviewButton : NSPanel <OverlayWindow>
 
 // Properties
 @property (nonatomic, weak) WordAccessibilityObserver* observer;
 @property (nonatomic, strong) NSTextField* countLabel;
 @property (nonatomic, strong) NSTrackingArea* trackingArea;
+@property (nonatomic, strong) NSTrackingArea* popupTrackingArea;
 @property (nonatomic, strong) NSPanel* hoverPopup;
-@property (nonatomic, strong) ClickPopupWindow* clickPopup;
+@property (nonatomic, strong) OverallReviewPopup* clickPopup;
 @property (nonatomic, copy) dispatch_block_t scheduledHideBlock;
 @property (nonatomic, assign) int count;
 

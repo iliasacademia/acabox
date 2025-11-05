@@ -10,10 +10,13 @@ const CopyWebpackPlugin = require('copy-webpack-plugin');
 // - To watch for changes: npm run build:popup:watch (use with caution)
 module.exports = {
   mode: 'production',
-  entry: './src/popup/index.tsx',
+  entry: {
+    academiaNotifications: './src/popup/AcademiaNotificationsPopup.tsx',
+    overallReview: './src/popup/OverallReviewPopup.tsx',
+  },
   output: {
     path: path.resolve(__dirname, 'dist/popup'),
-    filename: 'bundle.js',
+    filename: '[name]/bundle.js',
     clean: true,
   },
   target: 'web',
@@ -40,15 +43,26 @@ module.exports = {
   },
   plugins: [
     new HtmlWebpackPlugin({
-      template: './src/popup/index.html',
-      filename: 'index.html',
+      template: './src/popup/academia-notifications.html',
+      filename: 'academiaNotifications/index.html',
+      chunks: ['academiaNotifications'],
+      inject: 'body',
+    }),
+    new HtmlWebpackPlugin({
+      template: './src/popup/overall-review.html',
+      filename: 'overallReview/index.html',
+      chunks: ['overallReview'],
       inject: 'body',
     }),
     new CopyWebpackPlugin({
       patterns: [
         {
           from: './src/popup/bridge-preload.js',
-          to: 'bridge-preload.js',
+          to: 'academiaNotifications/bridge-preload.js',
+        },
+        {
+          from: './src/popup/bridge-preload.js',
+          to: 'overallReview/bridge-preload.js',
         },
       ],
     }),
