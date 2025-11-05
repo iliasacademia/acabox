@@ -86,7 +86,6 @@ describe('AcademiaHttpServer', () => {
   let server: AcademiaHttpServer;
   let mockNotificationManager: MockNotificationManager;
   let baseUrl: string;
-  let validToken: string;
 
   beforeAll(async () => {
     // Create mock notification manager
@@ -103,11 +102,7 @@ describe('AcademiaHttpServer', () => {
     const port = await server.start();
     baseUrl = `http://127.0.0.1:${port}`;
 
-    // Generate a valid token
-    validToken = server.generateToken('test-client');
-
     console.log(`[Test] Server started at ${baseUrl}`);
-    console.log(`[Test] Valid token: ${validToken.substring(0, 16)}...`);
   });
 
   afterAll(async () => {
@@ -124,19 +119,10 @@ describe('AcademiaHttpServer', () => {
     it('should have a valid base URL', () => {
       expect(server.getBaseUrl()).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
     });
-
-    it('should generate unique tokens', () => {
-      const token1 = server.generateToken('client-1');
-      const token2 = server.generateToken('client-2');
-
-      expect(token1).not.toBe(token2);
-      expect(token1.length).toBe(64); // 32 bytes * 2 (hex encoding)
-      expect(token2.length).toBe(64);
-    });
   });
 
   describe('GET /api/health', () => {
-    it('should return health status without authentication', async () => {
+    it('should return health status', async () => {
       const response = await fetch(`${baseUrl}/api/health`);
 
       expect(response.status).toBe(200);
@@ -148,63 +134,9 @@ describe('AcademiaHttpServer', () => {
     });
   });
 
-  describe('Authentication', () => {
-    it('should reject requests without Authorization header', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications`);
-
-      expect(response.status).toBe(401);
-
-      const data = await response.json();
-      expect(data.error).toBe('Unauthorized');
-      expect(data.message).toContain('Missing Authorization header');
-    });
-
-    it('should reject requests with malformed Authorization header', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications`, {
-        headers: {
-          Authorization: 'InvalidFormat',
-        },
-      });
-
-      expect(response.status).toBe(401);
-
-      const data = await response.json();
-      expect(data.error).toBe('Unauthorized');
-      expect(data.message).toContain('Malformed Authorization header');
-    });
-
-    it('should reject requests with invalid token', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications`, {
-        headers: {
-          Authorization: 'Bearer invalid-token-12345',
-        },
-      });
-
-      expect(response.status).toBe(401);
-
-      const data = await response.json();
-      expect(data.error).toBe('Unauthorized');
-      expect(data.message).toContain('Invalid or expired token');
-    });
-
-    it('should accept requests with valid token', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications`, {
-        headers: {
-          Authorization: `Bearer ${validToken}`,
-        },
-      });
-
-      expect(response.status).toBe(200);
-    });
-  });
-
   describe('GET /api/notifications', () => {
     it('should return all undismissed notifications', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications`, {
-        headers: {
-          Authorization: `Bearer ${validToken}`,
-        },
-      });
+      const response = await fetch(`${baseUrl}/api/notifications`);
 
       expect(response.status).toBe(200);
 
@@ -215,11 +147,7 @@ describe('AcademiaHttpServer', () => {
     });
 
     it('should filter notifications by status=unread', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications?status=unread`, {
-        headers: {
-          Authorization: `Bearer ${validToken}`,
-        },
-      });
+      const response = await fetch(`${baseUrl}/api/notifications?status=unread`);
 
       expect(response.status).toBe(200);
 
@@ -230,11 +158,7 @@ describe('AcademiaHttpServer', () => {
     });
 
     it('should filter notifications by status=read', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications?status=read`, {
-        headers: {
-          Authorization: `Bearer ${validToken}`,
-        },
-      });
+      const response = await fetch(`${baseUrl}/api/notifications?status=read`);
 
       expect(response.status).toBe(200);
 
@@ -245,11 +169,7 @@ describe('AcademiaHttpServer', () => {
     });
 
     it('should respect limit parameter', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications?limit=1`, {
-        headers: {
-          Authorization: `Bearer ${validToken}`,
-        },
-      });
+      const response = await fetch(`${baseUrl}/api/notifications?limit=1`);
 
       expect(response.status).toBe(200);
 
@@ -260,7 +180,7 @@ describe('AcademiaHttpServer', () => {
   });
 
   describe('GET /api/notifications/count', () => {
-    it('should return notification counts without authentication', async () => {
+    it('should return notification counts', async () => {
       const response = await fetch(`${baseUrl}/api/notifications/count`);
 
       expect(response.status).toBe(200);
@@ -270,21 +190,6 @@ describe('AcademiaHttpServer', () => {
       expect(data.unread).toBe(1); // 1 unread notification
       expect(data.read).toBe(1); // 1 read notification
     });
-
-    it('should also work with authentication token (backward compatible)', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications/count`, {
-        headers: {
-          Authorization: `Bearer ${validToken}`,
-        },
-      });
-
-      expect(response.status).toBe(200);
-
-      const data = await response.json();
-      expect(data.total).toBe(2);
-      expect(data.unread).toBe(1);
-      expect(data.read).toBe(1);
-    });
   });
 
   describe('PATCH /api/notifications/:id', () => {
@@ -292,7 +197,6 @@ describe('AcademiaHttpServer', () => {
       const response = await fetch(`${baseUrl}/api/notifications/1`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${validToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ status: 'read' }),
@@ -311,7 +215,6 @@ describe('AcademiaHttpServer', () => {
       const response = await fetch(`${baseUrl}/api/notifications/2`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${validToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ status: 'dismissed' }),
@@ -330,7 +233,6 @@ describe('AcademiaHttpServer', () => {
       const response = await fetch(`${baseUrl}/api/notifications/1`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${validToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ status: 'invalid' }),
@@ -346,7 +248,6 @@ describe('AcademiaHttpServer', () => {
       const response = await fetch(`${baseUrl}/api/notifications/abc`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${validToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ status: 'read' }),
@@ -358,55 +259,6 @@ describe('AcademiaHttpServer', () => {
       expect(data.error).toBe('BadRequest');
       expect(data.message).toContain('Invalid notification ID');
     });
-
-    it('should require authentication', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications/1`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ status: 'read' }),
-      });
-
-      expect(response.status).toBe(401);
-    });
-  });
-
-  describe('Token Management', () => {
-    it('should revoke tokens', () => {
-      const token = server.generateToken('revoke-test');
-
-      // Token should be valid initially
-      expect(server.getTokenManager().isValidToken(token)).toBe(true);
-
-      // Revoke token
-      const revoked = server.revokeToken(token);
-      expect(revoked).toBe(true);
-
-      // Token should no longer be valid
-      expect(server.getTokenManager().isValidToken(token)).toBe(false);
-    });
-
-    it('should return false when revoking non-existent token', () => {
-      const revoked = server.revokeToken('non-existent-token');
-      expect(revoked).toBe(false);
-    });
-
-    it('should track active token count', () => {
-      const initialCount = server.getActiveTokenCount();
-
-      const token1 = server.generateToken();
-      expect(server.getActiveTokenCount()).toBe(initialCount + 1);
-
-      const token2 = server.generateToken();
-      expect(server.getActiveTokenCount()).toBe(initialCount + 2);
-
-      server.revokeToken(token1);
-      expect(server.getActiveTokenCount()).toBe(initialCount + 1);
-
-      server.revokeToken(token2);
-      expect(server.getActiveTokenCount()).toBe(initialCount);
-    });
   });
 
   describe('Error Handling', () => {
@@ -414,7 +266,6 @@ describe('AcademiaHttpServer', () => {
       const response = await fetch(`${baseUrl}/api/notifications/1`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${validToken}`,
           'Content-Type': 'application/json',
         },
         body: '{invalid json}',
@@ -427,7 +278,6 @@ describe('AcademiaHttpServer', () => {
       const response = await fetch(`${baseUrl}/api/notifications/1`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${validToken}`,
           'Content-Type': 'application/json',
         },
       });

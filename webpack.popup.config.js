@@ -46,13 +46,15 @@ module.exports = {
       template: './src/popup/academia-notifications.html',
       filename: 'academiaNotifications/index.html',
       chunks: ['academiaNotifications'],
-      inject: 'body',
+      inject: false, // Don't inject - we manually control script loading order
+      scriptLoading: 'blocking',
     }),
     new HtmlWebpackPlugin({
       template: './src/popup/overall-review.html',
       filename: 'overallReview/index.html',
       chunks: ['overallReview'],
-      inject: 'body',
+      inject: false, // Don't inject - we manually control script loading order
+      scriptLoading: 'blocking',
     }),
     new CopyWebpackPlugin({
       patterns: [

@@ -18,20 +18,18 @@ import { Notification } from '../../types/notifications';
  */
 interface ApiConfig {
   baseUrl: string;
-  token: string;
 }
 
 let apiConfig: ApiConfig | null = null;
 
 /**
- * Initialize the API client with server info and authentication token
+ * Initialize the API client with server info
  * Must be called before making any API requests
  *
- * @param baseUrl Base URL of the HTTP server (e.g., http://127.0.0.1:52341)
- * @param token Authentication token
+ * @param baseUrl Base URL of the HTTP server (e.g., http://127.0.0.1:23111)
  */
-export function initializeNotificationsApi(baseUrl: string, token: string): void {
-  apiConfig = { baseUrl, token };
+export function initializeNotificationsApi(baseUrl: string): void {
+  apiConfig = { baseUrl };
   console.log(`[Notifications API] Initialized with baseUrl: ${baseUrl}`);
 }
 
@@ -54,13 +52,13 @@ function getConfig(): ApiConfig {
 }
 
 /**
- * Make an authenticated fetch request
+ * Make a fetch request to the API
  *
  * @param endpoint API endpoint (e.g., /api/notifications)
  * @param options Fetch options
  * @returns Response data
  */
-async function authenticatedFetch<T>(
+async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
@@ -69,7 +67,6 @@ async function authenticatedFetch<T>(
   const url = `${config.baseUrl}${endpoint}`;
 
   const headers = new Headers(options.headers);
-  headers.set('Authorization', `Bearer ${config.token}`);
   headers.set('Content-Type', 'application/json');
 
   const response = await fetch(url, {
@@ -112,7 +109,7 @@ export async function fetchNotifications(options?: {
 
   console.log(`[Notifications API] Fetching notifications: ${endpoint}`);
 
-  const response = await authenticatedFetch<{
+  const response = await apiFetch<{
     notifications: Notification[];
     count: number;
   }>(endpoint);
@@ -141,7 +138,7 @@ export async function markNotificationAsRead(
 ): Promise<Notification | null> {
   console.log(`[Notifications API] Marking notification ${notificationId} as read`);
 
-  const response = await authenticatedFetch<{
+  const response = await apiFetch<{
     success: boolean;
     notification: Notification | null;
   }>(`/api/notifications/${notificationId}`, {
@@ -169,7 +166,7 @@ export async function dismissNotification(
 ): Promise<Notification | null> {
   console.log(`[Notifications API] Dismissing notification ${notificationId}`);
 
-  const response = await authenticatedFetch<{
+  const response = await apiFetch<{
     success: boolean;
     notification: Notification | null;
   }>(`/api/notifications/${notificationId}`, {

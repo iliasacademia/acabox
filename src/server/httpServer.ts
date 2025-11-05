@@ -6,17 +6,16 @@
  *
  * Security:
  * - Only listens on 127.0.0.1 (localhost)
- * - Token-based authentication (Bearer tokens)
- * - Tokens generated per webview and injected into HTML
  *
  * Architecture:
  * - Uses Fastify for performance and TypeScript support
  * - Modular routes in /routes directory
- * - Authentication middleware in /middleware
+ * - Serves static popup files via @fastify/static
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
-import { TokenManager, createAuthMiddleware } from './middleware/auth';
+import fastifyStatic from '@fastify/static';
+import path from 'path';
 import { registerNotificationRoutes } from './routes/notifications';
 import { ServerConfig, HealthResponse } from './types';
 
@@ -27,7 +26,6 @@ import { ServerConfig, HealthResponse } from './types';
  */
 export class AcademiaHttpServer {
   private fastify: FastifyInstance | null = null;
-  private tokenManager: TokenManager;
   private config: ServerConfig;
   private notificationManager: any;
   private currentUserId: () => number | null;
@@ -48,7 +46,6 @@ export class AcademiaHttpServer {
   ) {
     this.notificationManager = notificationManager;
     this.currentUserId = currentUserId;
-    this.tokenManager = new TokenManager();
 
     // Default config: listen on port 23111 on localhost
     this.config = {
@@ -90,19 +87,18 @@ export class AcademiaHttpServer {
       });
     });
 
-    // Register authentication middleware for all routes except /api/health and /api/notifications/count
-    this.fastify.addHook('preHandler', async (request, reply) => {
-      // Skip auth for health check and notification count
-      if (request.url === '/api/health' || request.url === '/api/notifications/count') {
-        return;
-      }
+    // Register static file serving for popup UI
+    // Serve files from dist/popup at /ui/popup route
+    const popupDistPath = path.join(__dirname, '..', '..', 'dist', 'popup');
+    console.log('[HTTP Server] Registering static files from:', popupDistPath);
 
-      // Apply auth middleware
-      const authMiddleware = createAuthMiddleware(this.tokenManager);
-      await authMiddleware(request, reply);
+    await this.fastify.register(fastifyStatic, {
+      root: popupDistPath,
+      prefix: '/ui/popup/',
+      decorateReply: false, // Don't add sendFile method to reply object
     });
 
-    // Register health check endpoint (no auth required)
+    // Register health check endpoint
     this.fastify.get('/api/health', async (request, reply) => {
       const response: HealthResponse = {
         status: 'ok',
@@ -112,7 +108,7 @@ export class AcademiaHttpServer {
       reply.send(response);
     });
 
-    // Register notification routes (auth required)
+    // Register notification routes
     await registerNotificationRoutes(
       this.fastify,
       this.notificationManager,
@@ -155,9 +151,6 @@ export class AcademiaHttpServer {
       this.fastify = null;
       this.actualPort = null;
 
-      // Revoke all tokens on shutdown
-      this.tokenManager.revokeAllTokens();
-
       console.log('[HTTP Server] ✓ Server stopped');
     } catch (error) {
       console.error('[HTTP Server] Error stopping server:', error);
@@ -183,36 +176,6 @@ export class AcademiaHttpServer {
   }
 
   /**
-   * Generate a new authentication token
-   * Token should be injected into webview HTML for authenticated requests
-   *
-   * @param identifier Optional identifier for debugging (e.g., "NotificationsPopover")
-   * @returns Token string
-   */
-  generateToken(identifier?: string): string {
-    const metadata = this.tokenManager.generateToken(identifier);
-    return metadata.token;
-  }
-
-  /**
-   * Revoke an authentication token
-   *
-   * @param token Token to revoke
-   * @returns true if token was revoked, false if it didn't exist
-   */
-  revokeToken(token: string): boolean {
-    return this.tokenManager.revokeToken(token);
-  }
-
-  /**
-   * Get count of active tokens
-   * Useful for debugging
-   */
-  getActiveTokenCount(): number {
-    return this.tokenManager.getActiveTokenCount();
-  }
-
-  /**
    * Get the base URL for the API
    * Use this to construct full URLs for webviews
    *
@@ -225,14 +188,6 @@ export class AcademiaHttpServer {
       return null;
     }
     return `http://${this.config.host}:${this.actualPort}`;
-  }
-
-  /**
-   * Get token manager (for advanced usage)
-   * Generally you should use generateToken() instead
-   */
-  getTokenManager(): TokenManager {
-    return this.tokenManager;
   }
 }
 
