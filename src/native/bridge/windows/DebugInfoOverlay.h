@@ -1,7 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import "../adapters/MicrosoftWordAdapter.h"
-
-@protocol OverlayWindow;
+#import "../managers/AcademiaManager.h"
 
 /**
  * DebugInfoOverlay displays Word position state information in a fixed overlay

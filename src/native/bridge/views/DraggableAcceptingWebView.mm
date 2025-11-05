@@ -31,7 +31,6 @@
 
     // Get mouse location in view coordinates
     NSPoint locationInView = [self convertPoint:event.locationInWindow fromView:nil];
-    CGFloat viewHeight = self.bounds.size.height;
     CGFloat viewWidth = self.bounds.size.width;
 
     // Check if click is in the draggable horizontal strip at TOP

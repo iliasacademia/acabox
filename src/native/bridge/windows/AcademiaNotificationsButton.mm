@@ -8,7 +8,6 @@
     // Use NSPanel with non-activating style to prevent stealing focus from Word
     CGFloat buttonSize = 24.0;
     CGFloat badgeSize = 12.0;
-    CGFloat badgeOverlap = badgeSize * 0.5;  // Badge overlaps button by half its size (6px)
     CGFloat windowSize = 50.0;  // TESTING: 50px window to ensure badge is visible
     self = [super initWithContentRect:NSMakeRect(0, 0, windowSize, windowSize)
                             styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel

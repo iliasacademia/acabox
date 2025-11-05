@@ -25,6 +25,7 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     BOOL _isChanging;           // Whether Word is currently changing (scroll, move, resize)
     BOOL _isScrolling;          // Scroll in progress
     BOOL _isWindowMoving;       // Window move/resize in progress
+    BOOL _wordHasAppFocus;      // Whether Word application has system focus
 
     // Debounce timers
     NSTimer* _scrollDebounceTimer;
@@ -70,6 +71,7 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
         _isChanging = NO;
         _isScrolling = NO;
         _isWindowMoving = NO;
+        _wordHasAppFocus = NO;
         _lastLayoutCornerPosition = CGPointZero;
         _hasLastLayoutCornerPosition = NO;
 
@@ -278,6 +280,9 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 - (void)handleWordActivated {
     NSLog(@"[MicrosoftWordAdapter] handleWordActivated: Word application activated");
 
+    // Track that Word now has application focus
+    _wordHasAppFocus = YES;
+
     // Update caches immediately on activation
     [self updateCachedWordBounds];
     [self invalidateScrollAreaCache];
@@ -304,6 +309,9 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 }
 
 - (void)handleWordDeactivated {
+    // Track that Word no longer has application focus
+    _wordHasAppFocus = NO;
+
     // Mark as changing when Word is deactivated
     if (!_isChanging) {
         _isChanging = YES;
@@ -323,27 +331,27 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 - (void)handleFocusChanged {
     NSLog(@"[MicrosoftWordAdapter] Focus changed detected");
 
-    // Mark as changing if not already
-    if (!_isChanging) {
-        _isChanging = YES;
-
-        // Notify delegate: change started
-        if (_delegate) {
-            [_delegate wordAdapterDidStartChanging:self];
-        }
+    // Check if Word has application focus - if so, this is an internal focus change
+    if (!_wordHasAppFocus) {
+        // Word doesn't have app focus - this shouldn't happen as app observers handle external focus
+        NSLog(@"[MicrosoftWordAdapter] Focus change while Word lacks app focus - ignoring");
+        return;
     }
+
+    // Internal focus change within Word - skip "change start", only trigger "change complete"
+    NSLog(@"[MicrosoftWordAdapter] Internal focus change within Word - skipping change start");
 
     // Cancel existing debounce timer
     [_focusChangeDebounceTimer invalidate];
 
-    // Start new debounce timer (same interval as scroll events)
+    // Start new debounce timer to trigger change complete (for overlay position refresh)
     __weak typeof(self) weakSelf = self;
     _focusChangeDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:kScrollDebounceInterval
                                                                  repeats:NO
                                                                    block:^(NSTimer * _Nonnull timer) {
         typeof(self) strongSelf = weakSelf;
         if (strongSelf) {
-            NSLog(@"[MicrosoftWordAdapter] Focus change debounce timer fired");
+            NSLog(@"[MicrosoftWordAdapter] Focus change debounce timer fired - triggering change complete only");
             [strongSelf handleChangeComplete];
             strongSelf->_focusChangeDebounceTimer = nil;
         }
@@ -802,7 +810,6 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     AXUIElementRef currentElement = focusedElement;
     CFRetain(currentElement);
     AXUIElementRef layoutElement = NULL;
-    int textAreaLevel = -1;
 
     // Walk up the hierarchy looking for AXTextArea
     for (int i = 0; i < 20; i++) {
@@ -813,8 +820,6 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
         // Check if this is the text area
         if ([role isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
-            textAreaLevel = i;
-
             // Need to go up 3 more levels to get the layout element
             // Continue walking to get 3 levels up
             for (int j = 0; j < 3; j++) {

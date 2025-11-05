@@ -1,5 +1,6 @@
 #import <Cocoa/Cocoa.h>
 #import "../adapters/MicrosoftWordAdapter.h"
+#import "../managers/AcademiaManager.h"
 
 // Border type enum to identify which bounds to track
 typedef NS_ENUM(NSInteger, DebugBorderType) {
@@ -7,8 +8,6 @@ typedef NS_ENUM(NSInteger, DebugBorderType) {
     DebugBorderTypeScrollArea,      // Blue - tracks scroll area bounds
     DebugBorderTypeLayout           // Green - tracks layout container bounds
 };
-
-@protocol OverlayWindow;
 
 /**
  * DebugBorderWindow draws a colored 1px border around different Word UI elements
