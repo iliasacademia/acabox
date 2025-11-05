@@ -1,5 +1,4 @@
 #import "BasePopupWindow.h"
-#import "../views/NativeHeaderView.h"
 #import "../views/ResizeHandleView.h"
 #import "../managers/AcademiaManager.h"
 
@@ -10,7 +9,6 @@
 // Properties
 @property (nonatomic, strong) NSString* currentData;      // Current data (for compatibility)
 @property (nonatomic, assign) int count;                  // Count to display
-@property (nonatomic, strong) NativeHeaderView* nativeHeader;  // Native header view for dragging
 @property (nonatomic, strong) ResizeHandleView* resizeHandle;  // Resize handle view
 
 // WAGENT-73: Pending responses waiting for ACK from JavaScript

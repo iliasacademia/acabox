@@ -305,7 +305,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     gap: '8px',
     transition: 'background-color 0.15s ease-in-out',
     outline: 'none',
-    WebkitAppRegion: 'no-drag',
   } as React.CSSProperties,
   deleteIcon: {
     flexShrink: 0,
@@ -325,7 +324,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     justifyContent: 'center',
     outline: 'none',
     zIndex: 10,
-    WebkitAppRegion: 'no-drag',
   } as React.CSSProperties,
   contentArea: {
     flex: 1,
@@ -358,7 +356,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     transition: 'background-color 0.15s ease-in-out',
     outline: 'none',
     whiteSpace: 'pre-wrap',
-    WebkitAppRegion: 'no-drag',
   } as React.CSSProperties,
   tabButtonActive: {
     backgroundColor: '#E6ECF7', // Figma: blue-300
@@ -418,7 +415,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     background: 'transparent',
     cursor: 'pointer',
     outline: 'none',
-    WebkitAppRegion: 'no-drag',
   } as React.CSSProperties,
   commentHeaderContent: {
     flex: 1,
