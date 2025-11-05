@@ -56,7 +56,6 @@ COMMON_IMPL="bridge/interface/Message.cpp \
     bridge/helpers/PanelStyleHelper.mm \
     bridge/helpers/WebViewConfigHelper.mm \
     bridge/windows/BasePopupWindow.mm \
-    bridge/windows/BaseNativeWindow.mm \
     bridge/windows/AcademiaNotificationsButton.mm \
     bridge/windows/AcademiaNotificationsPopup.mm \
     bridge/windows/OverallReviewButton.mm \

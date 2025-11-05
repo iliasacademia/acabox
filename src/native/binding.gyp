@@ -12,7 +12,6 @@
         "bridge/helpers/PanelStyleHelper.mm",
         "bridge/helpers/WebViewConfigHelper.mm",
         "bridge/windows/BasePopupWindow.mm",
-        "bridge/windows/BaseNativeWindow.mm",
         "bridge/windows/OverallReviewPopup.mm",
         "bridge/windows/AcademiaNotificationsButton.mm",
         "bridge/windows/OverallReviewButton.mm",
