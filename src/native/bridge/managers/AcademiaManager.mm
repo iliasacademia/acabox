@@ -213,11 +213,13 @@
     WordPositionState state = [_wordAdapter getCurrentState];
 
     NSLog(@"[AcademiaManager] Recalculating positions for %lu overlays", (unsigned long)[self registeredOverlayCount]);
-    NSLog(@"[AcademiaManager] Word state - window: (%.1f, %.1f, %.1f, %.1f), scroll: (%.1f, %.1f, %.1f, %.1f)",
+    NSLog(@"[AcademiaManager] Word state - window: (%.1f, %.1f, %.1f, %.1f), scroll: (%.1f, %.1f, %.1f, %.1f), layout: (%.1f, %.1f, %.1f, %.1f)",
           state.windowBounds.origin.x, state.windowBounds.origin.y,
           state.windowBounds.size.width, state.windowBounds.size.height,
           state.scrollAreaBounds.origin.x, state.scrollAreaBounds.origin.y,
-          state.scrollAreaBounds.size.width, state.scrollAreaBounds.size.height);
+          state.scrollAreaBounds.size.width, state.scrollAreaBounds.size.height,
+          state.layoutPosition.x, state.layoutPosition.y,
+          state.layoutSize.width, state.layoutSize.height);
 
     for (id<OverlayWindow> overlay in _overlays) {
         [overlay updatePositionWithWordState:state];
@@ -269,11 +271,8 @@
     NSLog(@"[AcademiaManager] Updating %lu overlays with new Word state", (unsigned long)[self registeredOverlayCount]);
 
     for (id<OverlayWindow> overlay in _overlays) {
-        // Update position first
+        // Update position - each overlay handles its own show/hide logic
         [overlay updatePositionWithWordState:state];
-
-        // Then show overlay
-        [overlay show];
     }
 
     NSLog(@"[AcademiaManager] Overlay positions updated and shown");

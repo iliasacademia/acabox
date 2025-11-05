@@ -154,6 +154,7 @@ static const CGFloat kMarginFromEdge = 20.0;
         (long)state.visibleCharacterRange.length];
 
     // Note: Position stays fixed at bottom-right, no need to move the overlay
+    [self show];
 }
 
 - (void)hide {

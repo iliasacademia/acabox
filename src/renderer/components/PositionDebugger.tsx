@@ -99,7 +99,7 @@ const PositionDebugger: React.FC = () => {
   const [data, setData] = useState<PositionDebugData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdateTime, setLastUpdateTime] = useState<string | null>(null);
-  const [isAutoRefresh, setIsAutoRefresh] = useState(true);
+  const [isAutoRefresh, setIsAutoRefresh] = useState(false);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchPositionData = async () => {

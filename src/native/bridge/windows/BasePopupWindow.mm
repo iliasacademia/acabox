@@ -33,13 +33,18 @@ extern NSString* globalPopupPath;
         self.ignoresMouseEvents = NO;
         self.acceptsMouseMovedEvents = YES;
 
+        // Check if debug mode is enabled via DEBUG=1 environment variable
+        NSString* debugEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"DEBUG"];
+        BOOL isDebugMode = [debugEnv isEqualToString:@"1"];
+
         // Create configured WKWebView using helper
         // Register standard message handlers: bridge, consoleLog
         // Note: injectScripts:NO because HTMLLoader injects bridge script at runtime into HTML
         self.webView = [WebViewConfigHelper createWebViewWithFrame:self.contentView.bounds
                                                     messageHandler:self
                                                messageHandlerNames:@[@"bridge", @"consoleLog"]
-                                                     injectScripts:NO];
+                                                     injectScripts:NO
+                                                   showDebugBorder:isDebugMode];
 
         // Set navigation and UI delegates
         self.webView.navigationDelegate = self;

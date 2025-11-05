@@ -105,6 +105,13 @@ typedef struct {
 @property (nonatomic, readonly) BOOL isObserving;
 
 /**
+ * Enable verbose logging for getLayoutBounds function
+ * When enabled, logs every step of the accessibility hierarchy walk
+ * Default: NO
+ */
+@property (nonatomic) BOOL enableGetLayoutBoundsLogging;
+
+/**
  * Initialize adapter for a specific Word process
  *
  * @param pid Process ID of Microsoft Word

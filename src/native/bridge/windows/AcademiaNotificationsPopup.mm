@@ -130,6 +130,7 @@
     // This method is a no-op for popup windows
 
     NSLog(@"[AcademiaNotificationsPopup] updatePositionWithWordState called - position managed by parent button");
+    [self show];
 }
 
 - (void)hide {

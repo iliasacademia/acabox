@@ -488,6 +488,9 @@
           buttonX, buttonY,
           state.scrollAreaBounds.origin.x, state.scrollAreaBounds.origin.y,
           state.scrollAreaBounds.size.width, state.scrollAreaBounds.size.height);
+    if (![self isVisible]) {
+        [self show];
+    }
 }
 
 - (void)hide {

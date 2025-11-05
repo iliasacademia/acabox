@@ -8,13 +8,17 @@
 + (WKWebView*)createWebViewWithFrame:(CGRect)frame
                       messageHandler:(id<WKScriptMessageHandler>)messageHandler
                  messageHandlerNames:(NSArray<NSString*>*)handlerNames
-                       injectScripts:(BOOL)injectScripts {
+                       injectScripts:(BOOL)injectScripts
+                     showDebugBorder:(BOOL)showDebugBorder {
     WKWebViewConfiguration* config = [self createConfigurationWithMessageHandler:messageHandler
                                                              messageHandlerNames:handlerNames
                                                                    injectScripts:injectScripts];
 
-    WKWebView* webView = [[DraggableAcceptingWebView alloc] initWithFrame:frame configuration:config];
+    DraggableAcceptingWebView* webView = [[DraggableAcceptingWebView alloc] initWithFrame:frame configuration:config];
     webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+    // Configure debug border based on parameter
+    webView.showDebugBorder = showDebugBorder;
 
     // Make WKWebView background transparent (for React to control styling)
     [webView setValue:@NO forKey:@"drawsBackground"];

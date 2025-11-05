@@ -92,7 +92,7 @@
     NSView* borderView = [[NSView alloc] initWithFrame:NSMakeRect(x, y, width, height)];
     borderView.wantsLayer = YES;
     borderView.layer.borderColor = [[NSColor redColor] CGColor];
-    borderView.layer.borderWidth = 2.0;  // 2px for better visibility
+    borderView.layer.borderWidth = 1.0;  // 2px for better visibility
     borderView.layer.backgroundColor = [[NSColor clearColor] CGColor];
 
     // Autoresizing: maintain distance from top, expand width
