@@ -1,13 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Notification } from '../types/notifications';
-import {
-  initializeNotificationsApi,
-  fetchNotifications,
-  markNotificationAsRead,
-  dismissNotification,
-} from './api/notifications';
-import { getBridgeInstance } from './hooks/useBridge';
+import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
 
 // Initialize bridge early
 getBridgeInstance('notifications-popup');
@@ -19,46 +13,16 @@ const AcademiaNotificationsPopup: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { sendRequest } = useSendMessage();
 
   useEffect(() => {
-    // Initialize API client and fetch notifications
-    const initializeAndFetch = async () => {
+    // Load mock notifications (TODO: Integrate with bridge to fetch real data)
+    const loadNotifications = async () => {
       try {
-        console.log('[AcademiaNotificationsPopup] Initializing HTTP API client...');
+        console.log('[AcademiaNotificationsPopup] Loading notifications...');
 
-        // Get HTTP server info from main process
-        const serverInfo = await (window as any).electron.invoke('get-http-server-info');
-
-        if (!serverInfo.running) {
-          throw new Error('HTTP server not running');
-        }
-
-        console.log('[AcademiaNotificationsPopup] HTTP server running at:', serverInfo.baseUrl);
-
-        // Generate authentication token
-        const { token } = await (window as any).electron.invoke('generate-http-token', 'AcademiaNotificationsPopup');
-
-        console.log('[AcademiaNotificationsPopup] Generated auth token:', token.substring(0, 16) + '...');
-
-        // Initialize API client
-        initializeNotificationsApi(serverInfo.baseUrl, token);
-
-        console.log('[AcademiaNotificationsPopup] API client initialized, fetching notifications...');
-
-        // Fetch notifications (unread + read, but not dismissed)
-        const fetchedNotifications = await fetchNotifications();
-
-        console.log('[AcademiaNotificationsPopup] Fetched', fetchedNotifications.length, 'notifications');
-
-        setNotifications(fetchedNotifications);
-        setLoading(false);
-      } catch (err: any) {
-        console.error('[AcademiaNotificationsPopup] Error initializing or fetching:', err);
-        setError(err.message || 'Failed to load notifications');
-        setLoading(false);
-
-        // Fallback to mock data for development/testing
-        console.log('[AcademiaNotificationsPopup] Falling back to mock data');
+        // For now, use mock data
+        // TODO: Use bridge to request notifications from native code
         const mockNotifications: Notification[] = [
       {
         id: 1,
@@ -116,10 +80,14 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
         setNotifications(mockNotifications);
         setLoading(false);
+      } catch (err: any) {
+        console.error('[AcademiaNotificationsPopup] Error loading notifications:', err);
+        setError(err.message || 'Failed to load notifications');
+        setLoading(false);
       }
     };
 
-    initializeAndFetch();
+    loadNotifications();
   }, []);
 
   const formatTimestamp = (timestamp: number): string => {
@@ -145,7 +113,8 @@ const AcademiaNotificationsPopup: React.FC = () => {
       if (notification.status === 'unread') {
         console.log('[AcademiaNotificationsPopup] Marking notification', notification.id, 'as read');
 
-        await markNotificationAsRead(notification.id);
+        // TODO: Use bridge to mark notification as read via native code
+        // await sendRequest('markNotificationAsRead', { notificationId: notification.id });
 
         // Update local state to reflect the change
         setNotifications((prev) =>
@@ -156,7 +125,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
           )
         );
 
-        console.log('[AcademiaNotificationsPopup] Notification marked as read successfully');
+        console.log('[AcademiaNotificationsPopup] Notification marked as read locally');
       }
 
       // TODO: Navigate to notification content (e.g., open document location)
@@ -173,12 +142,13 @@ const AcademiaNotificationsPopup: React.FC = () => {
     console.log('[AcademiaNotificationsPopup] Dismissing notification:', notificationId);
 
     try {
-      await dismissNotification(notificationId);
+      // TODO: Use bridge to dismiss notification via native code
+      // await sendRequest('dismissNotification', { notificationId });
 
       // Remove from local state
       setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
 
-      console.log('[AcademiaNotificationsPopup] Notification dismissed successfully');
+      console.log('[AcademiaNotificationsPopup] Notification dismissed locally');
     } catch (err: any) {
       console.error('[AcademiaNotificationsPopup] Error dismissing notification:', err);
       setError(`Failed to dismiss notification: ${err.message}`);
@@ -190,12 +160,31 @@ const AcademiaNotificationsPopup: React.FC = () => {
     // TODO: Show all notifications including dismissed, or open full view
   };
 
+  const handleClose = async () => {
+    console.log('[AcademiaNotificationsPopup] Close button clicked');
+
+    try {
+      await sendRequest('closeWindow', {});
+      console.log('[AcademiaNotificationsPopup] Close window request sent');
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Close failed:', err);
+    }
+  };
+
   return (
     <div style={styles.container}>
       <div style={styles.modal}>
         {/* Header */}
         <div style={styles.header}>
           <h1 style={styles.title}>Notifications</h1>
+          <button
+            style={styles.closeButton}
+            onClick={handleClose}
+            aria-label="Close"
+            title="Close"
+          >
+            ×
+          </button>
         </div>
 
         {/* Error Message */}
@@ -289,8 +278,8 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: 'transparent',
   },
   modal: {
-    width: '700px',
-    maxHeight: '600px',
+    width: '370px',
+    height: '460px',
     backgroundColor: '#ffffff',
     borderRadius: '16px',
     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)',
@@ -311,6 +300,23 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 600,
     color: '#000000',
     margin: 0,
+  },
+  closeButton: {
+    width: '32px',
+    height: '32px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    fontSize: '28px',
+    fontWeight: 300,
+    color: '#000000',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '50%',
+    transition: 'background-color 0.2s ease',
+    padding: 0,
+    lineHeight: 1,
   },
   notificationsList: {
     flex: 1,
@@ -469,6 +475,9 @@ if (typeof document !== 'undefined') {
     }
     button[aria-label="Dismiss error"]:hover {
       background-color: rgba(0, 0, 0, 0.1) !important;
+    }
+    button[aria-label="Close"]:hover {
+      background-color: #f0f0f0 !important;
     }
   `;
 

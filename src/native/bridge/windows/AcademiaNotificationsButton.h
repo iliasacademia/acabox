@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#import "AcademiaNotificationsPopup.h"
 #import "../managers/AcademiaManager.h"
 
 // Forward declaration
@@ -15,6 +16,8 @@
 @property (nonatomic, strong) NSView* badgeView;  // Red badge indicator for notifications
 @property (nonatomic, strong) NSTextField* badgeLabel;  // Label showing notification count
 @property (nonatomic, assign) int badgeCount;  // Current badge count (for debugging)
+@property (nonatomic, strong) AcademiaNotificationsPopup* popup;  // Notifications popup window
+@property (nonatomic, assign) BOOL popupWasVisible;  // Track if popup should be re-shown after Word state changes
 
 // Polling properties
 @property (nonatomic, strong) NSTimer* pollTimer;  // Timer for polling notification count

@@ -115,15 +115,45 @@
 }
 
 - (void)buttonClicked:(id)sender {
-    // When button is clicked, notify the observer
-    if (self.observer) {
-        // Use performSelector to avoid forward declaration issues
-        id observer = self.observer;
-        #pragma clang diagnostic push
-        #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
-        [observer performSelector:@selector(handleButtonClick)];
-        #pragma clang diagnostic pop
+    NSLog(@"[AcademiaNotificationsButton] Button clicked");
+
+    // Toggle popup visibility if it already exists and is visible
+    if (self.popup && [self.popup isVisible]) {
+        NSLog(@"[AcademiaNotificationsButton] Popup is visible, hiding it (toggle off)");
+        [self.popup orderOut:nil];
+        self.popupWasVisible = NO;
+        return;
     }
+
+    // Create popup if it doesn't exist
+    if (!self.popup) {
+        self.popup = [[AcademiaNotificationsPopup alloc] initWithObserver:self.observer];
+
+        if (!self.popup) {
+            NSLog(@"[AcademiaNotificationsButton] ERROR: Failed to create AcademiaNotificationsPopup!");
+            return;
+        }
+        NSLog(@"[AcademiaNotificationsButton] Created new popup window");
+    }
+
+    // Position popup above the button
+    NSRect buttonFrame = self.frame;
+    CGFloat popupWidth = 370;  // From AcademiaNotificationsPopup.mm line 8
+    CGFloat popupHeight = 460; // From AcademiaNotificationsPopup.mm line 9
+    CGFloat margin = 8.0;  // Space between button and popup
+
+    // In Cocoa coordinates (bottom-left origin):
+    // - buttonFrame.origin.y is the bottom of the button
+    // - buttonFrame.origin.y + buttonFrame.size.height is the top of the button
+    // - To place popup above, set popup's origin.y to button's top + margin
+    CGFloat popupX = buttonFrame.origin.x;  // Align left edges
+    CGFloat popupY = buttonFrame.origin.y + buttonFrame.size.height + margin;  // Above button with margin
+
+    [self.popup setFrame:NSMakeRect(popupX, popupY, popupWidth, popupHeight) display:YES];
+    [self.popup orderFront:nil];
+    self.popupWasVisible = YES;  // Mark popup as visible for Word state tracking
+
+    NSLog(@"[AcademiaNotificationsButton] Popup shown above button at position (%.1f, %.1f)", popupX, popupY);
 }
 
 - (void)positionAtPoint:(CGPoint)point withHeight:(CGFloat)selectionHeight {
@@ -392,6 +422,12 @@
 - (void)dealloc {
     // Stop polling and cleanup
     [self stopPolling];
+
+    // Close and cleanup popup
+    if (_popup) {
+        [_popup close];
+        _popup = nil;
+    }
 }
 
 #pragma mark - OverlayWindow Protocol
@@ -456,6 +492,16 @@
 
 - (void)hide {
     NSLog(@"[AcademiaNotificationsButton] hide called");
+
+    // Track popup visibility state before hiding
+    if (self.popup && [self.popup isVisible]) {
+        NSLog(@"[AcademiaNotificationsButton] Popup is visible, hiding it and marking for re-show");
+        self.popupWasVisible = YES;
+        [self.popup orderOut:nil];
+    } else {
+        self.popupWasVisible = NO;
+    }
+
     [self stopPolling];  // Stop polling when button is hidden
     [self orderOut:nil];
 }
@@ -464,6 +510,23 @@
     NSLog(@"[AcademiaNotificationsButton] show called");
     [self orderFront:nil];
     [self startPolling];  // Start polling when button is shown
+
+    // Re-show popup if it was visible before Word state changed
+    if (self.popupWasVisible && self.popup) {
+        NSLog(@"[AcademiaNotificationsButton] Re-showing popup after Word state change");
+
+        // Recalculate popup position based on button's new position
+        NSRect buttonFrame = self.frame;
+        CGFloat popupWidth = 370;
+        CGFloat popupHeight = 460;
+        CGFloat margin = 8.0;
+
+        CGFloat popupX = buttonFrame.origin.x;
+        CGFloat popupY = buttonFrame.origin.y + buttonFrame.size.height + margin;
+
+        [self.popup setFrame:NSMakeRect(popupX, popupY, popupWidth, popupHeight) display:YES];
+        [self.popup orderFront:nil];
+    }
 }
 
 // isVisible is inherited from NSWindow - no need to override

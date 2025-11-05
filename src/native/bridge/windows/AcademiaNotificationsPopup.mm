@@ -5,8 +5,8 @@
 
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer {
     // Size for notification popover - 700x600 to match design
-    CGFloat width = 700;
-    CGFloat height = 600;
+    CGFloat width = 370;
+    CGFloat height = 460;
 
     // Call base class initializer with size and window level
     self = [super initWithSize:CGSizeMake(width, height)
@@ -52,6 +52,37 @@
     // Handle bridge-ready signal
     if ([action isEqualToString:@"bridge-ready"]) {
         NSLog(@"[Bridge] JavaScript bridge is ready!");
+        return;
+    }
+
+    // Handle closeWindow action
+    if ([action isEqualToString:@"closeWindow"]) {
+        NSLog(@"[AcademiaNotificationsPopup] Close window requested");
+
+        // Send response back to JavaScript
+        NSString* messageId = message[@"id"];
+        if (messageId) {
+            NSString* responseJS = [NSString stringWithFormat:@
+                "window.__bridgeReceive({"
+                "  id: '%@',"
+                "  from: 'native',"
+                "  to: 'notifications-popup',"
+                "  type: 'response',"
+                "  action: 'closeWindow',"
+                "  payload: {success: true},"
+                "  timestamp: Date.now()"
+                "});",
+                messageId];
+
+            [self.webView evaluateJavaScript:responseJS completionHandler:^(id result, NSError *error) {
+                if (error) {
+                    NSLog(@"[AcademiaNotificationsPopup] ERROR sending response: %@", error);
+                }
+            }];
+        }
+
+        // Close the window
+        [self orderOut:nil];
         return;
     }
 
