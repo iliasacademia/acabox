@@ -47,15 +47,24 @@
 
 #pragma mark - BasePopupWindow Overrides
 
+- (void)loadPopupHTML {
+    // Set HTML subpath BEFORE loading (called by base class init)
+    self.htmlSubpath = @"overallReview";
+    NSLog(@"[OverallReviewPopup] Loading with subpath: %@", self.htmlSubpath);
+
+    // Call parent implementation which will use the subpath
+    [super loadPopupHTML];
+}
+
 - (NSString*)windowNameForLogging {
-    return @"ClickPopupWindow";
+    return @"OverallReviewPopup";
 }
 
 - (void)handleConsoleLog:(NSDictionary*)logMessage {
     // Handle console logs from WebView
     NSString* level = logMessage[@"level"];
     NSString* msg = logMessage[@"message"];
-    NSLog(@"[ClickPopupWindow WebView %@] %@", level, msg);
+    NSLog(@"[OverallReviewPopup WebView %@] %@", level, msg);
 }
 
 - (void)handleBridgeMessage:(NSDictionary*)message {
@@ -342,7 +351,7 @@
     // Update native header badge
     [self.nativeHeader updateBadgeCount:count];
 
-    // Send count data to React via bridge with type: 'suggestions'
+    // Send count data to React via bridge (no routing needed with dedicated entry point)
     NSString* js = [NSString stringWithFormat:@
         "try { "
         "  console.log('[Native->JS] Sending updateContent via bridge'); "
@@ -354,7 +363,6 @@
         "      type: 'event', "
         "      action: 'updateContent', "
         "      payload: { "
-        "        type: 'suggestions', "
         "        count: %d, "
         "        text: 'Count: %d' "
         "      }, "

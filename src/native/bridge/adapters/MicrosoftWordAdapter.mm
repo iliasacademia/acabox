@@ -261,9 +261,22 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     if ([_delegate respondsToSelector:@selector(wordAdapterDidActivate:)]) {
         [_delegate wordAdapterDidActivate:self];
     }
+
+    // Complete any pending changes
+    [self handleChangeComplete];
 }
 
 - (void)handleWordDeactivated {
+    // Mark as changing when Word is deactivated
+    if (!_isChanging) {
+        _isChanging = YES;
+
+        // Notify delegate: change started
+        if (_delegate) {
+            [_delegate wordAdapterDidStartChanging:self];
+        }
+    }
+
     // Notify delegate
     if ([_delegate respondsToSelector:@selector(wordAdapterDidDeactivate:)]) {
         [_delegate wordAdapterDidDeactivate:self];

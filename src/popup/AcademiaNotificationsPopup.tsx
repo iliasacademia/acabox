@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createRoot } from 'react-dom/client';
 import { Notification } from '../types/notifications';
 import {
   initializeNotificationsApi,
@@ -6,12 +7,15 @@ import {
   markNotificationAsRead,
   dismissNotification,
 } from './api/notifications';
+import { getBridgeInstance } from './hooks/useBridge';
 
-interface NotificationsPopoverProps {
-  onClose?: () => void;
-}
+// Initialize bridge early
+getBridgeInstance('notifications-popup');
 
-const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) => {
+console.log('[AcademiaNotificationsPopup] Initializing...');
+console.log('[AcademiaNotificationsPopup] Platform:', window.__messageBridge?.getPlatform());
+
+const AcademiaNotificationsPopup: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +24,7 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
     // Initialize API client and fetch notifications
     const initializeAndFetch = async () => {
       try {
-        console.log('[NotificationsPopover] Initializing HTTP API client...');
+        console.log('[AcademiaNotificationsPopup] Initializing HTTP API client...');
 
         // Get HTTP server info from main process
         const serverInfo = await (window as any).electron.invoke('get-http-server-info');
@@ -29,32 +33,32 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
           throw new Error('HTTP server not running');
         }
 
-        console.log('[NotificationsPopover] HTTP server running at:', serverInfo.baseUrl);
+        console.log('[AcademiaNotificationsPopup] HTTP server running at:', serverInfo.baseUrl);
 
         // Generate authentication token
-        const { token } = await (window as any).electron.invoke('generate-http-token', 'NotificationsPopover');
+        const { token } = await (window as any).electron.invoke('generate-http-token', 'AcademiaNotificationsPopup');
 
-        console.log('[NotificationsPopover] Generated auth token:', token.substring(0, 16) + '...');
+        console.log('[AcademiaNotificationsPopup] Generated auth token:', token.substring(0, 16) + '...');
 
         // Initialize API client
         initializeNotificationsApi(serverInfo.baseUrl, token);
 
-        console.log('[NotificationsPopover] API client initialized, fetching notifications...');
+        console.log('[AcademiaNotificationsPopup] API client initialized, fetching notifications...');
 
         // Fetch notifications (unread + read, but not dismissed)
         const fetchedNotifications = await fetchNotifications();
 
-        console.log('[NotificationsPopover] Fetched', fetchedNotifications.length, 'notifications');
+        console.log('[AcademiaNotificationsPopup] Fetched', fetchedNotifications.length, 'notifications');
 
         setNotifications(fetchedNotifications);
         setLoading(false);
       } catch (err: any) {
-        console.error('[NotificationsPopover] Error initializing or fetching:', err);
+        console.error('[AcademiaNotificationsPopup] Error initializing or fetching:', err);
         setError(err.message || 'Failed to load notifications');
         setLoading(false);
 
         // Fallback to mock data for development/testing
-        console.log('[NotificationsPopover] Falling back to mock data');
+        console.log('[AcademiaNotificationsPopup] Falling back to mock data');
         const mockNotifications: Notification[] = [
       {
         id: 1,
@@ -134,12 +138,12 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
   };
 
   const handleNotificationClick = async (notification: Notification) => {
-    console.log('[NotificationsPopover] Notification clicked:', notification.id);
+    console.log('[AcademiaNotificationsPopup] Notification clicked:', notification.id);
 
     try {
       // Mark as read if currently unread
       if (notification.status === 'unread') {
-        console.log('[NotificationsPopover] Marking notification', notification.id, 'as read');
+        console.log('[AcademiaNotificationsPopup] Marking notification', notification.id, 'as read');
 
         await markNotificationAsRead(notification.id);
 
@@ -152,12 +156,12 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
           )
         );
 
-        console.log('[NotificationsPopover] Notification marked as read successfully');
+        console.log('[AcademiaNotificationsPopup] Notification marked as read successfully');
       }
 
       // TODO: Navigate to notification content (e.g., open document location)
     } catch (err: any) {
-      console.error('[NotificationsPopover] Error marking notification as read:', err);
+      console.error('[AcademiaNotificationsPopup] Error marking notification as read:', err);
       setError(`Failed to mark notification as read: ${err.message}`);
     }
   };
@@ -166,7 +170,7 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
     // Prevent triggering the parent onClick
     event.stopPropagation();
 
-    console.log('[NotificationsPopover] Dismissing notification:', notificationId);
+    console.log('[AcademiaNotificationsPopup] Dismissing notification:', notificationId);
 
     try {
       await dismissNotification(notificationId);
@@ -174,15 +178,15 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
       // Remove from local state
       setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
 
-      console.log('[NotificationsPopover] Notification dismissed successfully');
+      console.log('[AcademiaNotificationsPopup] Notification dismissed successfully');
     } catch (err: any) {
-      console.error('[NotificationsPopover] Error dismissing notification:', err);
+      console.error('[AcademiaNotificationsPopup] Error dismissing notification:', err);
       setError(`Failed to dismiss notification: ${err.message}`);
     }
   };
 
   const handleSeeMore = () => {
-    console.log('[NotificationsPopover] See previous notifications clicked');
+    console.log('[AcademiaNotificationsPopup] See previous notifications clicked');
     // TODO: Show all notifications including dismissed, or open full view
   };
 
@@ -192,15 +196,6 @@ const NotificationsPopover: React.FC<NotificationsPopoverProps> = ({ onClose }) 
         {/* Header */}
         <div style={styles.header}>
           <h1 style={styles.title}>Notifications</h1>
-          {onClose && (
-            <button
-              style={styles.closeButton}
-              onClick={onClose}
-              aria-label="Close"
-            >
-              ×
-            </button>
-          )}
         </div>
 
         {/* Error Message */}
@@ -316,23 +311,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 600,
     color: '#000000',
     margin: 0,
-  },
-  closeButton: {
-    width: '32px',
-    height: '32px',
-    border: 'none',
-    backgroundColor: 'transparent',
-    fontSize: '32px',
-    fontWeight: 300,
-    color: '#666666',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: '50%',
-    transition: 'background-color 0.2s ease',
-    padding: 0,
-    lineHeight: 1,
   },
   notificationsList: {
     flex: 1,
@@ -485,13 +463,6 @@ if (typeof document !== 'undefined') {
     .notification-item:hover {
       background-color: #f8f8f8 !important;
     }
-    .close-button:hover {
-      background-color: #f0f0f0 !important;
-    }
-    .see-more-button:hover {
-      background-color: #f8f8f8 !important;
-      border-color: #999999 !important;
-    }
     button[aria-label="Dismiss notification"]:hover {
       background-color: #f0f0f0 !important;
       color: #666666 !important;
@@ -502,10 +473,36 @@ if (typeof document !== 'undefined') {
   `;
 
   // Only append if not already added
-  if (!document.getElementById('notifications-popover-styles')) {
-    styleElement.id = 'notifications-popover-styles';
+  if (!document.getElementById('academia-notifications-popup-styles')) {
+    styleElement.id = 'academia-notifications-popup-styles';
     document.head.appendChild(styleElement);
   }
 }
 
-export default NotificationsPopover;
+// Initialize React app
+const container = document.getElementById('root');
+if (container) {
+  const root = createRoot(container);
+  root.render(<AcademiaNotificationsPopup />);
+  console.log('[AcademiaNotificationsPopup] React app initialized');
+} else {
+  console.error('[AcademiaNotificationsPopup] Root container not found!');
+}
+
+// Wait for bridge to be ready
+const checkReady = setInterval(() => {
+  const bridge = window.__messageBridge;
+  if (bridge && bridge.isConnected()) {
+    console.log('[AcademiaNotificationsPopup] Bridge connected and ready');
+    clearInterval(checkReady);
+  }
+}, 100);
+
+// Timeout after 5 seconds
+setTimeout(() => {
+  const bridge = window.__messageBridge;
+  if (!bridge || !bridge.isConnected()) {
+    console.error('[AcademiaNotificationsPopup] Bridge connection timeout - native bridge may not be initialized');
+    clearInterval(checkReady);
+  }
+}, 5000);

@@ -23,6 +23,15 @@
 
 #pragma mark - BasePopupWindow Overrides
 
+- (void)loadPopupHTML {
+    // Set HTML subpath BEFORE loading (called by base class init)
+    self.htmlSubpath = @"academiaNotifications";
+    NSLog(@"[AcademiaNotificationsPopup] Loading with subpath: %@", self.htmlSubpath);
+
+    // Call parent implementation which will use the subpath
+    [super loadPopupHTML];
+}
+
 - (NSString*)windowNameForLogging {
     return @"AcademiaNotificationsPopup";
 }
@@ -80,42 +89,6 @@
 
     // Delegate to base class for standard handlers (bridge, consoleLog)
     [super userContentController:userContentController didReceiveScriptMessage:message];
-}
-
-#pragma mark - Content Update
-
-- (void)updateContent {
-    // Send message to JavaScript to update notifications view using proper bridge format
-    NSString* js = [NSString stringWithFormat:@
-        "try { "
-        "  console.log('[Native->JS] Sending updateContent for notifications'); "
-        "  if (window.__bridgeReceive) { "
-        "    window.__bridgeReceive({ "
-        "      id: 'native-' + Date.now(), "
-        "      from: 'native', "
-        "      to: 'popup', "
-        "      type: 'event', "
-        "      action: 'updateContent', "
-        "      payload: { "
-        "        type: 'notifications' "
-        "      }, "
-        "      timestamp: Date.now() "
-        "    }); "
-        "    console.log('[Native->JS] Notifications view message sent successfully'); "
-        "  } else { "
-        "    console.error('[Native->JS] Bridge not found'); "
-        "  } "
-        "} catch (e) { "
-        "  console.error('[Native->JS] Error sending notifications message:', e); "
-        "}"];
-
-    [self.webView evaluateJavaScript:js completionHandler:^(id result, NSError *error) {
-        if (error) {
-            NSLog(@"[AcademiaNotificationsPopup] Error updating content: %@", error);
-        } else {
-            NSLog(@"[AcademiaNotificationsPopup] Content updated to notifications view");
-        }
-    }];
 }
 
 #pragma mark - OverlayWindow Protocol
