@@ -123,7 +123,9 @@
                 [observer performSelector:@selector(handleButtonClickWithAction:text:)
                                withObject:@"dismiss" withObject:msg];
                 #pragma clang diagnostic pop
-                // Also hide the popup
+                // Clear visibility flag before hiding (user manually closed)
+                self.wasVisibleBeforeHiding = NO;
+                NSLog(@"[OverallReviewPopup] User dismissed popup - clearing visibility flag");
                 [self orderOut:nil];
             }
         }
@@ -372,6 +374,10 @@
 - (void)handleCloseButton:(id)sender {
     NSLog(@"[OverallReviewPopup] Close button clicked");
 
+    // Clear visibility flag before closing (user manually closed)
+    self.wasVisibleBeforeHiding = NO;
+    NSLog(@"[OverallReviewPopup] User closed popup - clearing visibility flag");
+
     // Close the window
     [self orderOut:nil];
 }
@@ -420,12 +426,21 @@
 
 - (void)hide {
     NSLog(@"[OverallReviewPopup] hide called");
+    // Save current visibility state before hiding
+    self.wasVisibleBeforeHiding = [self isVisible];
+    NSLog(@"[OverallReviewPopup] Saving visibility state: %d", self.wasVisibleBeforeHiding);
     [self orderOut:nil];
 }
 
 - (void)show {
-    NSLog(@"[OverallReviewPopup] show called");
-    [self orderFront:nil];
+    NSLog(@"[OverallReviewPopup] show called (wasVisibleBeforeHiding: %d)", self.wasVisibleBeforeHiding);
+    // Only show if the popup was visible before hiding (e.g., during Word deactivation)
+    // This prevents auto-showing the popup when it was manually closed by the user
+    if (self.wasVisibleBeforeHiding) {
+        [self orderFront:nil];
+    } else {
+        NSLog(@"[OverallReviewPopup] Skipping show - popup was not visible before hiding");
+    }
 }
 
 // isVisible is inherited from NSWindow - no need to override

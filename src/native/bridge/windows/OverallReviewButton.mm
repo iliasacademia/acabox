@@ -220,6 +220,17 @@
     // Register window observers for new popup
     if (isNewPopup && self.observer) {
         [self.observer registerClickPopupObservers];
+
+        // Register popup with AcademiaManager to receive activation/deactivation events
+        if ([self.observer respondsToSelector:@selector(getAcademiaManager)]) {
+            id academiaManager = [self.observer getAcademiaManager];
+            if (academiaManager && [academiaManager respondsToSelector:@selector(registerOverlay:)]) {
+                [academiaManager registerOverlay:self.clickPopup];
+                NSLog(@"[OverallReviewButton] Registered popup with AcademiaManager");
+            } else {
+                NSLog(@"[OverallReviewButton] WARNING: Could not register popup - AcademiaManager not available");
+            }
+        }
     }
 
     // Position popup: use saved position if available, otherwise calculate default
@@ -236,6 +247,10 @@
         // Save this initial position
         self.clickPopup.savedFrame = self.clickPopup.frame;
     }
+
+    // Set visibility flag before showing (popup is being explicitly opened)
+    self.clickPopup.wasVisibleBeforeHiding = YES;
+    NSLog(@"[OverallReviewButton] Setting wasVisibleBeforeHiding to YES before showing popup");
 
     [self.clickPopup orderFront:nil];
 
@@ -340,6 +355,15 @@
         // Unregister observers before closing
         if (self.observer) {
             [self.observer unregisterClickPopupObservers];
+
+            // Unregister popup from AcademiaManager
+            if ([self.observer respondsToSelector:@selector(getAcademiaManager)]) {
+                id academiaManager = [self.observer getAcademiaManager];
+                if (academiaManager && [academiaManager respondsToSelector:@selector(unregisterOverlay:)]) {
+                    [academiaManager unregisterOverlay:_clickPopup];
+                    NSLog(@"[OverallReviewButton] Unregistered popup from AcademiaManager");
+                }
+            }
         }
         [_clickPopup close];
         _clickPopup = nil;
