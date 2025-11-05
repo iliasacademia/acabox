@@ -116,16 +116,16 @@
                 [observer performSelector:@selector(handleButtonClickWithAction:text:)
                                withObject:@"seeMore" withObject:msg];
                 #pragma clang diagnostic pop
-            } else if ([btnAction isEqualToString:@"dismiss"]) {
-                NSString* msg = [NSString stringWithFormat:@"dismiss|count:%@", count];
+            } else if ([btnAction isEqualToString:@"close"]) {
+                NSString* msg = [NSString stringWithFormat:@"close|count:%@", count];
                 #pragma clang diagnostic push
                 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
                 [observer performSelector:@selector(handleButtonClickWithAction:text:)
-                               withObject:@"dismiss" withObject:msg];
+                               withObject:@"close" withObject:msg];
                 #pragma clang diagnostic pop
                 // Clear visibility flag before hiding (user manually closed)
                 self.wasVisibleBeforeHiding = NO;
-                NSLog(@"[OverallReviewPopup] User dismissed popup - clearing visibility flag");
+                NSLog(@"[OverallReviewPopup] User closed popup - clearing visibility flag");
                 [self orderOut:nil];
             }
         }
