@@ -29,17 +29,23 @@ function formatArgsForNative(args) {
 
 console.log = function(...args) {
   originalLog.apply(console, args);
-  window.webkit.messageHandlers.consoleLog.postMessage({level: 'log', message: formatArgsForNative(args)});
+  if (window.webkit && window.webkit.messageHandlers.consoleLog) {
+    window.webkit.messageHandlers.consoleLog.postMessage({level: 'log', message: formatArgsForNative(args)});
+  }
 };
 
 console.error = function(...args) {
   originalError.apply(console, args);
-  window.webkit.messageHandlers.consoleLog.postMessage({level: 'error', message: formatArgsForNative(args)});
+  if (window.webkit && window.webkit.messageHandlers.consoleLog) {
+    window.webkit.messageHandlers.consoleLog.postMessage({level: 'error', message: formatArgsForNative(args)});
+  }
 };
 
 console.warn = function(...args) {
   originalWarn.apply(console, args);
-  window.webkit.messageHandlers.consoleLog.postMessage({level: 'warn', message: formatArgsForNative(args)});
+  if (window.webkit && window.webkit.messageHandlers.consoleLog) {
+    window.webkit.messageHandlers.consoleLog.postMessage({level: 'warn', message: formatArgsForNative(args)});
+  }
 };
 
 // ===== Bridge Compatibility Layer =====

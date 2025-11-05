@@ -2,12 +2,30 @@ import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Notification } from '../types/notifications';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
+import {
+  initializeNotificationsApi,
+  fetchNotifications,
+  markNotificationAsRead as apiMarkAsRead,
+  dismissNotification as apiDismiss,
+} from './api/notifications';
 
 // Initialize bridge early
 getBridgeInstance('notifications-popup');
 
 console.log('[AcademiaNotificationsPopup] Initializing...');
 console.log('[AcademiaNotificationsPopup] Platform:', window.__messageBridge?.getPlatform());
+
+// Initialize API client with server base URL from window.location
+// The popup is loaded from http://127.0.0.1:{port}/ui/popup/academiaNotifications/
+// We need to extract the base URL
+const getBaseUrl = (): string => {
+  const { protocol, hostname, port } = window.location;
+  return `${protocol}//${hostname}:${port}`;
+};
+
+const baseUrl = getBaseUrl();
+console.log('[AcademiaNotificationsPopup] Initializing API client with base URL:', baseUrl);
+initializeNotificationsApi(baseUrl);
 
 const AcademiaNotificationsPopup: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -16,69 +34,16 @@ const AcademiaNotificationsPopup: React.FC = () => {
   const { sendRequest } = useSendMessage();
 
   useEffect(() => {
-    // Load mock notifications (TODO: Integrate with bridge to fetch real data)
+    // Load notifications from HTTP API
     const loadNotifications = async () => {
       try {
-        console.log('[AcademiaNotificationsPopup] Loading notifications...');
+        console.log('[AcademiaNotificationsPopup] Loading notifications from API...');
 
-        // For now, use mock data
-        // TODO: Use bridge to request notifications from native code
-        const mockNotifications: Notification[] = [
-      {
-        id: 1,
-        title: 'Overall review | Wed, 29 Oct',
-        body_html: 'Review your document',
-        user_id: 1,
-        file_id: 1,
-        project_id: 1,
-        project_file_id: 1,
-        status: 'unread',
-        read_at: null,
-        dismissed_at: null,
-        created_at: Date.now(),
-      },
-      {
-        id: 2,
-        title: 'Citation suggestion',
-        body_html: 'Introduction > Paragraph 1',
-        user_id: 1,
-        file_id: 1,
-        project_id: 1,
-        project_file_id: 1,
-        status: 'unread',
-        read_at: null,
-        dismissed_at: null,
-        created_at: Date.now(),
-      },
-      {
-        id: 3,
-        title: 'Argument strength',
-        body_html: 'Introduction > Paragraph 1',
-        user_id: 1,
-        file_id: 1,
-        project_id: 1,
-        project_file_id: 1,
-        status: 'unread',
-        read_at: null,
-        dismissed_at: null,
-        created_at: Date.now(),
-      },
-      {
-        id: 4,
-        title: 'Citation suggestion',
-        body_html: 'Introduction > Paragraph 1',
-        user_id: 1,
-        file_id: 1,
-        project_id: 1,
-        project_file_id: 1,
-        status: 'read',
-        read_at: Date.now() - 86400000, // Yesterday
-        dismissed_at: null,
-        created_at: Date.now() - 86400000,
-      },
-    ];
+        // Fetch notifications from the HTTP server
+        const fetchedNotifications = await fetchNotifications();
 
-        setNotifications(mockNotifications);
+        console.log(`[AcademiaNotificationsPopup] Loaded ${fetchedNotifications.length} notifications`);
+        setNotifications(fetchedNotifications);
         setLoading(false);
       } catch (err: any) {
         console.error('[AcademiaNotificationsPopup] Error loading notifications:', err);
@@ -113,19 +78,19 @@ const AcademiaNotificationsPopup: React.FC = () => {
       if (notification.status === 'unread') {
         console.log('[AcademiaNotificationsPopup] Marking notification', notification.id, 'as read');
 
-        // TODO: Use bridge to mark notification as read via native code
-        // await sendRequest('markNotificationAsRead', { notificationId: notification.id });
+        // Call API to mark notification as read
+        const updatedNotification = await apiMarkAsRead(notification.id);
 
         // Update local state to reflect the change
-        setNotifications((prev) =>
-          prev.map((n) =>
-            n.id === notification.id
-              ? { ...n, status: 'read' as const, read_at: Date.now() }
-              : n
-          )
-        );
+        if (updatedNotification) {
+          setNotifications((prev) =>
+            prev.map((n) =>
+              n.id === notification.id ? updatedNotification : n
+            )
+          );
+        }
 
-        console.log('[AcademiaNotificationsPopup] Notification marked as read locally');
+        console.log('[AcademiaNotificationsPopup] Notification marked as read');
       }
 
       // TODO: Navigate to notification content (e.g., open document location)
@@ -135,25 +100,20 @@ const AcademiaNotificationsPopup: React.FC = () => {
     }
   };
 
-  const handleDismiss = async (notificationId: number, event: React.MouseEvent) => {
-    // Prevent triggering the parent onClick
-    event.stopPropagation();
-
-    console.log('[AcademiaNotificationsPopup] Dismissing notification:', notificationId);
-
-    try {
-      // TODO: Use bridge to dismiss notification via native code
-      // await sendRequest('dismissNotification', { notificationId });
-
-      // Remove from local state
-      setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
-
-      console.log('[AcademiaNotificationsPopup] Notification dismissed locally');
-    } catch (err: any) {
-      console.error('[AcademiaNotificationsPopup] Error dismissing notification:', err);
-      setError(`Failed to dismiss notification: ${err.message}`);
-    }
-  };
+  // Note: Individual dismiss functionality removed to match Figma design
+  // Keeping function for potential future use
+  // const handleDismiss = async (notificationId: number, event: React.MouseEvent) => {
+  //   event.stopPropagation();
+  //   console.log('[AcademiaNotificationsPopup] Dismissing notification:', notificationId);
+  //   try {
+  //     await apiDismiss(notificationId);
+  //     setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
+  //     console.log('[AcademiaNotificationsPopup] Notification dismissed');
+  //   } catch (err: any) {
+  //     console.error('[AcademiaNotificationsPopup] Error dismissing notification:', err);
+  //     setError(`Failed to dismiss notification: ${err.message}`);
+  //   }
+  // };
 
   const handleSeeMore = () => {
     console.log('[AcademiaNotificationsPopup] See previous notifications clicked');
@@ -212,45 +172,39 @@ const AcademiaNotificationsPopup: React.FC = () => {
               <p style={styles.emptyText}>No notifications</p>
             </div>
           ) : (
-            notifications.map((notification) => (
-              <div
-                key={notification.id}
-                style={styles.notificationItem}
-                className="notification-item"
-                onClick={() => handleNotificationClick(notification)}
-              >
-                {/* Blue dot indicator for unread */}
-                <div style={styles.notificationContent}>
-                  {notification.status === 'unread' && (
-                    <div style={styles.unreadDot} />
-                  )}
-                  <div style={styles.notificationText}>
-                    <div style={styles.notificationTitle}>{notification.title}</div>
-                    {notification.body_html && (
-                      <div
-                        style={styles.notificationSubtitle}
-                        dangerouslySetInnerHTML={{
-                          __html: notification.body_html
-                        }}
-                      />
+            <div style={styles.notificationsContainer}>
+              {notifications.map((notification) => (
+                <div
+                  key={notification.id}
+                  style={styles.notificationItem}
+                  className="notification-item"
+                  onClick={() => handleNotificationClick(notification)}
+                >
+                  {/* Content: blue dot + text */}
+                  <div style={styles.notificationContent}>
+                    {/* Blue dot indicator for unread */}
+                    {notification.status === 'unread' && (
+                      <div style={styles.unreadDot} />
                     )}
+                    <div style={styles.notificationText}>
+                      <div style={styles.notificationTitle}>{notification.title}</div>
+                      {notification.body_html && (
+                        <div
+                          style={styles.notificationLocation}
+                          dangerouslySetInnerHTML={{
+                            __html: notification.body_html
+                          }}
+                        />
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div style={styles.notificationActions}>
+                  {/* Timestamp on the right */}
                   <div style={styles.notificationTimestamp}>
                     {formatTimestamp(notification.created_at)}
                   </div>
-                  <button
-                    style={styles.dismissButton}
-                    onClick={(e) => handleDismiss(notification.id, e)}
-                    aria-label="Dismiss notification"
-                    title="Dismiss"
-                  >
-                    ×
-                  </button>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           )}
         </div>
 
@@ -280,9 +234,10 @@ const styles: { [key: string]: React.CSSProperties } = {
   modal: {
     width: '370px',
     height: '460px',
-    backgroundColor: '#ffffff',
+    background: '#F9F8F6', // Figma: background-beige-light
     borderRadius: '16px',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.12), 0 2px 8px rgba(0, 0, 0, 0.08)',
+    border: '1px solid #CCC9BC', // Figma: stroke-beige-light
+    boxShadow: '0 4px 12px 0 rgba(0, 0, 0, 0.25)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -292,23 +247,25 @@ const styles: { [key: string]: React.CSSProperties } = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '24px 32px',
-    borderBottom: '1px solid #f0f0f0',
+    padding: '24px 24px 0 24px', // Adjusted padding
+    paddingBottom: '4px', // Reduced bottom padding
+    position: 'relative', // For absolute positioned close button
   },
   title: {
-    fontSize: '28px',
-    fontWeight: 600,
+    fontSize: '20px', // Figma: body/lg size
+    fontWeight: 400, // Figma: regular weight
     color: '#000000',
     margin: 0,
+    lineHeight: '32px', // Figma: body/lg line-height
   },
   closeButton: {
-    width: '32px',
-    height: '32px',
+    width: '20px',
+    height: '20px',
     border: 'none',
     backgroundColor: 'transparent',
-    fontSize: '28px',
+    fontSize: '20px',
     fontWeight: 300,
-    color: '#000000',
+    color: '#141413', // Figma: text-primary
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
@@ -317,108 +274,100 @@ const styles: { [key: string]: React.CSSProperties } = {
     transition: 'background-color 0.2s ease',
     padding: 0,
     lineHeight: 1,
+    position: 'absolute',
+    top: '12px',
+    right: '16px',
   },
   notificationsList: {
     flex: 1,
     overflowY: 'auto',
-    padding: '8px 0',
+    padding: '16px 24px 0 24px', // Top padding only
+  },
+  notificationsContainer: {
+    border: '1px solid #CCC9BC', // Figma: stroke-beige-light
+    borderRadius: '16px', // Figma: corner-radius/radius-lg
+    overflow: 'hidden',
+    backgroundColor: '#ffffff', // White background for container
   },
   loadingContainer: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '48px 32px',
+    padding: '48px 24px',
   },
   loadingText: {
     fontSize: '16px',
-    color: '#666666',
+    color: '#535366', // Figma: text-secondary
   },
   emptyContainer: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '48px 32px',
+    padding: '48px 24px',
   },
   emptyText: {
     fontSize: '16px',
-    color: '#666666',
+    color: '#535366', // Figma: text-secondary
   },
   notificationItem: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '20px 32px',
-    borderBottom: '1px solid #f0f0f0',
+    gap: '16px',
+    padding: '16px 16px 16px 12px', // Figma: 12px left, 16px right
+    height: '80px', // Figma: fixed height
+    backgroundColor: '#ffffff', // Figma: background-white
+    borderBottom: '1px solid #DDDDE2', // Figma: stroke-grey-light
     cursor: 'pointer',
     transition: 'background-color 0.15s ease',
+    boxSizing: 'border-box',
   },
   notificationContent: {
     display: 'flex',
-    alignItems: 'flex-start',
-    gap: '16px',
+    alignItems: 'center',
+    gap: '12px', // Figma: spacing/xs-12
     flex: 1,
+    minWidth: 0,
   },
   unreadDot: {
-    width: '10px',
-    height: '10px',
+    width: '12px', // Figma: 12px size
+    height: '12px',
     borderRadius: '50%',
-    backgroundColor: '#007AFF',
+    backgroundColor: '#386AC1', // Figma: rgba(56, 106, 193, 1)
     flexShrink: 0,
-    marginTop: '6px',
   },
   notificationText: {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: '0', // No gap between lines
+    minWidth: 0,
   },
   notificationTitle: {
-    fontSize: '17px',
-    fontWeight: 600,
-    color: '#000000',
-    lineHeight: 1.4,
+    fontSize: '16px', // Figma: body/md size
+    fontWeight: 600, // Figma: semibold-600
+    color: '#141413', // Figma: text-primary
+    lineHeight: '20px', // Figma: body/md line-height
   },
-  notificationSubtitle: {
-    fontSize: '15px',
-    fontWeight: 400,
-    color: '#666666',
-    lineHeight: 1.4,
-  },
-  notificationActions: {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    gap: '8px',
-    flexShrink: 0,
-    marginLeft: '16px',
+  notificationLocation: {
+    fontSize: '16px', // Figma: body/md size
+    fontWeight: 400, // Figma: regular
+    color: '#535366', // Figma: text-secondary
+    lineHeight: '20px', // Figma: body/md line-height
   },
   notificationTimestamp: {
-    fontSize: '15px',
-    fontWeight: 400,
-    color: '#666666',
-  },
-  dismissButton: {
-    width: '24px',
-    height: '24px',
-    border: 'none',
-    backgroundColor: 'transparent',
-    fontSize: '24px',
-    fontWeight: 300,
-    color: '#999999',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: '50%',
-    transition: 'background-color 0.2s ease, color 0.2s ease',
-    padding: 0,
-    lineHeight: 1,
+    fontSize: '12px', // Figma: body/xs size
+    fontWeight: 400, // Figma: regular
+    color: '#535366', // Figma: text-secondary
+    lineHeight: '16px', // Figma: body/xs line-height
+    flexShrink: 0,
+    paddingTop: '8px', // Align to top
   },
   errorBanner: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '12px 32px',
+    padding: '12px 24px',
     backgroundColor: '#ffebee',
     borderBottom: '1px solid #ffcdd2',
   },
@@ -444,21 +393,25 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: 1,
   },
   footer: {
-    padding: '16px 32px',
-    borderTop: '1px solid #f0f0f0',
+    padding: '16px 24px', // Adjusted padding
   },
   seeMoreButton: {
     width: '100%',
-    padding: '14px',
-    fontSize: '16px',
-    fontWeight: 500,
-    color: '#000000',
-    backgroundColor: 'transparent',
-    border: '1px solid #d0d0d0',
-    borderRadius: '8px',
+    padding: '4px 8px', // Figma: button/xs padding
+    height: '32px', // Figma: button xs height
+    fontSize: '14px', // Figma: body/sm size
+    fontWeight: 400, // Figma: regular
+    color: '#141413', // Figma: text-primary
+    backgroundColor: '#ffffff', // Figma: button-xs-fill
+    border: '1px solid #141413', // Figma: button-xs-stroke
+    borderRadius: '8px', // Figma: extra-small-buttons/corner-radius
     cursor: 'pointer',
     transition: 'background-color 0.15s ease, border-color 0.15s ease',
     fontFamily: 'inherit',
+    lineHeight: '20px', // Figma: body/sm line-height
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 };
 
@@ -467,17 +420,13 @@ if (typeof document !== 'undefined') {
   const styleElement = document.createElement('style');
   styleElement.textContent = `
     .notification-item:hover {
-      background-color: #f8f8f8 !important;
-    }
-    button[aria-label="Dismiss notification"]:hover {
-      background-color: #f0f0f0 !important;
-      color: #666666 !important;
+      background-color: #f5f5f5 !important;
     }
     button[aria-label="Dismiss error"]:hover {
       background-color: rgba(0, 0, 0, 0.1) !important;
     }
     button[aria-label="Close"]:hover {
-      background-color: #f0f0f0 !important;
+      background-color: rgba(0, 0, 0, 0.05) !important;
     }
   `;
 

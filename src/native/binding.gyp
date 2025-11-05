@@ -18,8 +18,8 @@
         "bridge/windows/AcademiaNotificationsPopup.mm",
         "bridge/windows/DebugBorderWindow.mm",
         "bridge/windows/DebugInfoOverlay.mm",
-        "bridge/views/NativeHeaderView.mm",
         "bridge/views/ResizeHandleView.mm",
+        "bridge/views/DraggableAcceptingWebView.mm",
         "bridge/adapters/MicrosoftWordAdapter.mm",
         "bridge/managers/AcademiaManager.mm"
       ],

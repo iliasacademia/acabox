@@ -370,7 +370,18 @@ app.whenReady().then(async () => {
   try {
     const port = await httpServer.start();
     console.log(`[HTTP Server] ✓ Server started on port ${port}`);
-    console.log(`[HTTP Server] Base URL: ${httpServer.getBaseUrl()}`);
+    const baseUrl = httpServer.getBaseUrl();
+    console.log(`[HTTP Server] Base URL: ${baseUrl}`);
+
+    // Set server base URL for native popups
+    if (baseUrl) {
+      const success = wordAccessibility.setServerBaseUrl(baseUrl);
+      if (success) {
+        console.log('[HTTP Server] ✓ Server URL set for native popups');
+      } else {
+        console.error('[HTTP Server] ✗ Failed to set server URL for native popups');
+      }
+    }
   } catch (error) {
     console.error('[HTTP Server] ✗ Failed to start server:', error);
   }
@@ -644,16 +655,6 @@ ipcMain.handle('get-http-server-info', async () => {
   };
 });
 
-ipcMain.handle('generate-http-token', async (_event, identifier?: string) => {
-  if (!httpServer) {
-    throw new Error('HTTP server not initialized');
-  }
-
-  const token = httpServer.generateToken(identifier);
-  console.log(`[Main] Generated HTTP token for ${identifier || 'unknown'}: ${token.substring(0, 16)}...`);
-
-  return { token };
-});
 
 // Cleanup on app quit
 app.on('before-quit', async () => {

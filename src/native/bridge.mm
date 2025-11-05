@@ -24,6 +24,9 @@
 // Global variable for popup path (declared at file scope for accessibility from both Obj-C and C++)
 NSString* globalPopupPath = nil;
 
+// Global variable for HTTP server base URL (e.g., "http://127.0.0.1:23111")
+NSString* globalServerBaseUrl = nil;
+
 // Implementations
 
 // Callback function for accessibility events
@@ -1149,6 +1152,23 @@ Napi::Value SetPopupPath(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+Napi::Value SetServerBaseUrl(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsString()) {
+        Napi::TypeError::New(env, "Expected (url: string)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::string urlStr = info[0].As<Napi::String>().Utf8Value();
+    // globalServerBaseUrl is accessible here because it's declared at file scope
+    ::globalServerBaseUrl = [NSString stringWithUTF8String:urlStr.c_str()];
+
+    NSLog(@"[Native] Server base URL set to: %@", ::globalServerBaseUrl);
+
+    return Napi::Boolean::New(env, true);
+}
+
 Napi::Value GetDocumentTopLeftCorner(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1341,6 +1361,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getFirstTextAreaInfo", Napi::Function::New(env, GetFirstTextAreaInfo));
     exports.Set("checkPermission", Napi::Function::New(env, CheckPermission));
     exports.Set("setPopupPath", Napi::Function::New(env, SetPopupPath));
+    exports.Set("setServerBaseUrl", Napi::Function::New(env, SetServerBaseUrl));
     exports.Set("getDocumentTopLeftCorner", Napi::Function::New(env, GetDocumentTopLeftCorner));
     exports.Set("getWordWindowBounds", Napi::Function::New(env, GetWordWindowBounds));
     exports.Set("getFirstLinePosition", Napi::Function::New(env, GetFirstLinePosition));

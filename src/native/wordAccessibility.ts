@@ -97,6 +97,7 @@ interface NativeModule {
   getFirstTextAreaInfo(): FirstTextAreaInfo | null;
   checkPermission(): boolean;
   setPopupPath(path: string): boolean;
+  setServerBaseUrl(url: string): boolean;
   getDocumentTopLeftCorner(): Position | null;
   getWordWindowBounds(): Bounds | null;
   getFirstLinePosition(): Bounds | null;
@@ -347,6 +348,20 @@ export class WordAccessibilityBridge {
     } catch (error) {
       console.error('Failed to get scroll area bounds:', error);
       return null;
+    }
+  }
+
+  setServerBaseUrl(url: string): boolean {
+    if (!nativeModule) {
+      console.error('Failed to set server base URL: Native module not loaded');
+      return false;
+    }
+
+    try {
+      return nativeModule.setServerBaseUrl(url);
+    } catch (error) {
+      console.error('Failed to set server base URL:', error);
+      return false;
     }
   }
 

@@ -19,21 +19,8 @@
         // WAGENT-73: Initialize pending responses dictionary
         self.pendingResponses = [NSMutableDictionary dictionary];
 
-        // Define header height
-        CGFloat headerHeight = 48;
-
-        // Create native header view for dragging
-        NSRect headerFrame = NSMakeRect(0, height - headerHeight, width, headerHeight);
-        self.nativeHeader = [[NativeHeaderView alloc] initWithFrame:headerFrame window:self];
-        self.nativeHeader.target = self;
-        self.nativeHeader.closeAction = @selector(handleCloseButton:);
-        [self.nativeHeader updateBadgeCount:count];
-
-        // Add header view to content view
-        [self.contentView addSubview:self.nativeHeader];
-
-        // Adjust WKWebView frame to sit below the header
-        NSRect webViewFrame = NSMakeRect(0, 0, width, height - headerHeight);
+        // Make WKWebView full-height (no native header)
+        NSRect webViewFrame = NSMakeRect(0, 0, width, height);
         self.webView.frame = webViewFrame;
 
         // Create resize handle in bottom-right corner
@@ -129,14 +116,16 @@
                 [observer performSelector:@selector(handleButtonClickWithAction:text:)
                                withObject:@"seeMore" withObject:msg];
                 #pragma clang diagnostic pop
-            } else if ([btnAction isEqualToString:@"dismiss"]) {
-                NSString* msg = [NSString stringWithFormat:@"dismiss|count:%@", count];
+            } else if ([btnAction isEqualToString:@"close"]) {
+                NSString* msg = [NSString stringWithFormat:@"close|count:%@", count];
                 #pragma clang diagnostic push
                 #pragma clang diagnostic ignored "-Warc-performSelector-leaks"
                 [observer performSelector:@selector(handleButtonClickWithAction:text:)
-                               withObject:@"dismiss" withObject:msg];
+                               withObject:@"close" withObject:msg];
                 #pragma clang diagnostic pop
-                // Also hide the popup
+                // Clear visibility flag before hiding (user manually closed)
+                self.wasVisibleBeforeHiding = NO;
+                NSLog(@"[OverallReviewPopup] User closed popup - clearing visibility flag");
                 [self orderOut:nil];
             }
         }
@@ -348,9 +337,6 @@
 - (void)updateContentWithCount:(int)count {
     self.count = count;
 
-    // Update native header badge
-    [self.nativeHeader updateBadgeCount:count];
-
     // Send count data to React via bridge (no routing needed with dedicated entry point)
     NSString* js = [NSString stringWithFormat:@
         "try { "
@@ -388,6 +374,10 @@
 - (void)handleCloseButton:(id)sender {
     NSLog(@"[OverallReviewPopup] Close button clicked");
 
+    // Clear visibility flag before closing (user manually closed)
+    self.wasVisibleBeforeHiding = NO;
+    NSLog(@"[OverallReviewPopup] User closed popup - clearing visibility flag");
+
     // Close the window
     [self orderOut:nil];
 }
@@ -405,13 +395,8 @@
     CGFloat width = windowFrame.size.width;
     CGFloat height = windowFrame.size.height;
 
-    // Header stays at fixed height (48pt) at the top
-    CGFloat headerHeight = 48;
-    NSRect headerFrame = NSMakeRect(0, height - headerHeight, width, headerHeight);
-    self.nativeHeader.frame = headerFrame;
-
-    // WebView fills remaining space below header
-    NSRect webViewFrame = NSMakeRect(0, 0, width, height - headerHeight);
+    // WebView fills entire window
+    NSRect webViewFrame = NSMakeRect(0, 0, width, height);
     self.webView.frame = webViewFrame;
 
     // Reposition resize handle to stay in bottom-right corner
@@ -441,12 +426,21 @@
 
 - (void)hide {
     NSLog(@"[OverallReviewPopup] hide called");
+    // Save current visibility state before hiding
+    self.wasVisibleBeforeHiding = [self isVisible];
+    NSLog(@"[OverallReviewPopup] Saving visibility state: %d", self.wasVisibleBeforeHiding);
     [self orderOut:nil];
 }
 
 - (void)show {
-    NSLog(@"[OverallReviewPopup] show called");
-    [self orderFront:nil];
+    NSLog(@"[OverallReviewPopup] show called (wasVisibleBeforeHiding: %d)", self.wasVisibleBeforeHiding);
+    // Only show if the popup was visible before hiding (e.g., during Word deactivation)
+    // This prevents auto-showing the popup when it was manually closed by the user
+    if (self.wasVisibleBeforeHiding) {
+        [self orderFront:nil];
+    } else {
+        NSLog(@"[OverallReviewPopup] Skipping show - popup was not visible before hiding");
+    }
 }
 
 // isVisible is inherited from NSWindow - no need to override

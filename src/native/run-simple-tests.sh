@@ -60,8 +60,8 @@ COMMON_IMPL="bridge/interface/Message.cpp \
     bridge/windows/AcademiaNotificationsPopup.mm \
     bridge/windows/OverallReviewButton.mm \
     bridge/windows/OverallReviewPopup.mm \
-    bridge/views/NativeHeaderView.mm \
     bridge/views/ResizeHandleView.mm \
+    bridge/views/DraggableAcceptingWebView.mm \
     bridge/adapters/MicrosoftWordAdapter.mm \
     bridge/managers/AcademiaManager.mm \
     bridge/macos/MacOSWebViewBridge.mm"

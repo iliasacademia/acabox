@@ -1,5 +1,6 @@
 #import "WebViewConfigHelper.h"
 #import "ScriptInjector.h"
+#import "DraggableAcceptingWebView.h"
 #import <AppKit/AppKit.h>
 
 @implementation WebViewConfigHelper
@@ -12,7 +13,7 @@
                                                              messageHandlerNames:handlerNames
                                                                    injectScripts:injectScripts];
 
-    WKWebView* webView = [[WKWebView alloc] initWithFrame:frame configuration:config];
+    WKWebView* webView = [[DraggableAcceptingWebView alloc] initWithFrame:frame configuration:config];
     webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
 
     // Make WKWebView background transparent (for React to control styling)

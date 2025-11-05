@@ -2,6 +2,7 @@
 #import "../helpers/WebViewConfigHelper.h"
 #import "../helpers/HTMLLoader.h"
 #import "../helpers/PanelStyleHelper.h"
+#import "../views/DraggableAcceptingWebView.h"
 
 // External reference to global popup path (defined in bridge.mm)
 extern NSString* globalPopupPath;
@@ -45,6 +46,23 @@ extern NSString* globalPopupPath;
         self.webView.UIDelegate = self;
 
         [self.contentView addSubview:self.webView];
+
+        // Add debug border if webView is DraggableAcceptingWebView
+        if ([self.webView isKindOfClass:[DraggableAcceptingWebView class]]) {
+            DraggableAcceptingWebView* draggableWebView = (DraggableAcceptingWebView*)self.webView;
+            NSView* debugBorder = [draggableWebView createDebugBorderView];
+            if (debugBorder) {
+                // Convert the border frame from WebView coordinates to contentView coordinates
+                NSRect borderFrameInWebView = debugBorder.frame;
+                NSRect borderFrameInContentView = [self.webView convertRect:borderFrameInWebView toView:self.contentView];
+                debugBorder.frame = borderFrameInContentView;
+
+                [self.contentView addSubview:debugBorder positioned:NSWindowAbove relativeTo:self.webView];
+                NSLog(@"[BasePopupWindow] Added debug border view on top of webview at frame: (%.1f, %.1f, %.1f, %.1f)",
+                      borderFrameInContentView.origin.x, borderFrameInContentView.origin.y,
+                      borderFrameInContentView.size.width, borderFrameInContentView.size.height);
+            }
+        }
 
         // Load HTML (subclass can override loadPopupHTML)
         [self loadPopupHTML];

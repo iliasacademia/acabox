@@ -35,6 +35,9 @@ typedef void (*ButtonClickCallback)(const char* text);
 - (BOOL)isUsingNewArchitecture;
 - (void)updateBadgeCountViaManager:(NSInteger)count;
 
+// Accessor methods for managers
+- (id)getAcademiaManager;
+
 @end
 
 #endif // WORD_ACCESSIBILITY_BRIDGE_H
