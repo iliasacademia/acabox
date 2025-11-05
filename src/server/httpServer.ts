@@ -79,8 +79,12 @@ export class AcademiaHttpServer {
     // Register global error handler
     this.fastify.setErrorHandler((error, request, reply) => {
       console.error('[HTTP Server] Error handling request:', error);
+
+      // Map validation errors (400 status) to BadRequest
+      const errorName = error.statusCode === 400 ? 'BadRequest' : (error.name || 'InternalServerError');
+
       reply.code(error.statusCode || 500).send({
-        error: error.name || 'InternalServerError',
+        error: errorName,
         message: error.message || 'An unexpected error occurred',
         statusCode: error.statusCode || 500,
       });

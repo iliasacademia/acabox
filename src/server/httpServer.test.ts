@@ -2,9 +2,18 @@
  * Integration tests for AcademiaHttpServer
  *
  * Tests the HTTP server endpoints, authentication, and data flow
+ *
+ * @jest-environment node
  */
 
 import { AcademiaHttpServer } from './httpServer';
+
+// Import fetch from undici for Node.js environment
+const { fetch, Headers, Request, Response } = require('undici');
+global.fetch = fetch;
+(global as any).Headers = Headers;
+(global as any).Request = Request;
+(global as any).Response = Response;
 
 // Mock NotificationManager for testing
 class MockNotificationManager {
@@ -90,10 +99,11 @@ describe('AcademiaHttpServer', () => {
     // Create mock notification manager
     mockNotificationManager = new MockNotificationManager();
 
-    // Create server instance
+    // Create server instance with port 23110 (dedicated test port)
     server = new AcademiaHttpServer(
       mockNotificationManager,
-      () => mockNotificationManager.getCurrentUserId()
+      () => mockNotificationManager.getCurrentUserId(),
+      { port: 23110 } // Use dedicated test port
     );
 
     // Start server
