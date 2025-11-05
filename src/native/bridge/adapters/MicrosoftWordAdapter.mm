@@ -791,21 +791,10 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 }
 
 - (CGRect)getLayoutBounds {
-    if (self.enableGetLayoutBoundsLogging) {
-        NSLog(@"[getLayoutBounds] === FUNCTION CALLED ===");
-    }
-
     AXUIElementRef focusedElement = NULL;
     AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
 
-    if (self.enableGetLayoutBoundsLogging) {
-        NSLog(@"[getLayoutBounds] Getting focused element: error=%d, element=%p", error, focusedElement);
-    }
-
     if (error != kAXErrorSuccess || !focusedElement) {
-        if (self.enableGetLayoutBoundsLogging) {
-            NSLog(@"[getLayoutBounds] ERROR: Failed to get focused element (error=%d). Returning CGRectZero", error);
-        }
         return CGRectZero;
     }
 
@@ -815,10 +804,6 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     AXUIElementRef layoutElement = NULL;
     int textAreaLevel = -1;
 
-    if (self.enableGetLayoutBoundsLogging) {
-        NSLog(@"[getLayoutBounds] Starting hierarchy walk (max 20 levels)");
-    }
-
     // Walk up the hierarchy looking for AXTextArea
     for (int i = 0; i < 20; i++) {
         // Get role
@@ -826,16 +811,9 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
         AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute, &roleValue);
         NSString* role = (__bridge_transfer NSString*)roleValue;
 
-        if (self.enableGetLayoutBoundsLogging) {
-            NSLog(@"[getLayoutBounds] Level %d: role='%@', element=%p", i, role ? role : @"(null)", currentElement);
-        }
-
         // Check if this is the text area
         if ([role isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
             textAreaLevel = i;
-            if (self.enableGetLayoutBoundsLogging) {
-                NSLog(@"[getLayoutBounds] *** FOUND AXTextArea at level %d! Walking up 3 more levels...", i);
-            }
 
             // Need to go up 3 more levels to get the layout element
             // Continue walking to get 3 levels up
@@ -843,23 +821,7 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
                 CFTypeRef parentValue = NULL;
                 error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
 
-                if (self.enableGetLayoutBoundsLogging) {
-                    // Get role of parent element
-                    NSString* parentRole = @"(unknown)";
-                    if (error == kAXErrorSuccess && parentValue) {
-                        CFTypeRef parentRoleValue = NULL;
-                        AXUIElementCopyAttributeValue((AXUIElementRef)parentValue, kAXRoleAttribute, &parentRoleValue);
-                        if (parentRoleValue) {
-                            parentRole = (__bridge_transfer NSString*)parentRoleValue;
-                        }
-                    }
-                    NSLog(@"[getLayoutBounds]   Going up level %d/3: error=%d, parent=%p, role='%@'", j+1, error, parentValue, parentRole);
-                }
-
                 if (error != kAXErrorSuccess || !parentValue) {
-                    if (self.enableGetLayoutBoundsLogging) {
-                        NSLog(@"[getLayoutBounds]   ERROR: Failed to get parent at level %d/3 (error=%d)", j+1, error);
-                    }
                     break;
                 }
                 if (currentElement != focusedElement) {
@@ -869,88 +831,6 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
             }
             layoutElement = currentElement;
             CFRetain(layoutElement);  // Retain so we can use it after cleanup
-
-            if (self.enableGetLayoutBoundsLogging) {
-                // Get role of layout element
-                NSString* layoutRole = @"(unknown)";
-                CFTypeRef layoutRoleValue = NULL;
-                AXUIElementCopyAttributeValue(layoutElement, kAXRoleAttribute, &layoutRoleValue);
-                if (layoutRoleValue) {
-                    layoutRole = (__bridge_transfer NSString*)layoutRoleValue;
-                }
-                NSLog(@"[getLayoutBounds] Layout element set: %p, role='%@'", layoutElement, layoutRole);
-
-                // Get and log all children of the layout element
-                CFTypeRef childrenValue = NULL;
-                AXError childrenError = AXUIElementCopyAttributeValue(layoutElement, kAXChildrenAttribute, &childrenValue);
-                if (childrenError == kAXErrorSuccess && childrenValue) {
-                    NSArray* children = (__bridge_transfer NSArray*)childrenValue;
-                    NSLog(@"[getLayoutBounds] Layout element has %lu children", (unsigned long)[children count]);
-
-                    // Build array of child info (role, position, size)
-                    NSMutableArray* childInfoArray = [NSMutableArray array];
-                    for (id childObj in children) {
-                        AXUIElementRef child = (__bridge AXUIElementRef)childObj;
-
-                        // Get role
-                        NSString* childRole = @"(unknown)";
-                        CFTypeRef childRoleValue = NULL;
-                        if (AXUIElementCopyAttributeValue(child, kAXRoleAttribute, &childRoleValue) == kAXErrorSuccess && childRoleValue) {
-                            childRole = (__bridge_transfer NSString*)childRoleValue;
-                        }
-
-                        // Get position
-                        CGPoint childPos = CGPointZero;
-                        CFTypeRef childPosValue = NULL;
-                        if (AXUIElementCopyAttributeValue(child, kAXPositionAttribute, &childPosValue) == kAXErrorSuccess && childPosValue) {
-                            AXValueGetValue((AXValueRef)childPosValue, kAXValueTypeCGPoint, &childPos);
-                            CFRelease(childPosValue);
-                        }
-
-                        // Get size
-                        CGSize childSize = CGSizeZero;
-                        CFTypeRef childSizeValue = NULL;
-                        if (AXUIElementCopyAttributeValue(child, kAXSizeAttribute, &childSizeValue) == kAXErrorSuccess && childSizeValue) {
-                            AXValueGetValue((AXValueRef)childSizeValue, kAXValueTypeCGSize, &childSize);
-                            CFRelease(childSizeValue);
-                        }
-
-                        [childInfoArray addObject:@{
-                            @"role": childRole,
-                            @"y": @(childPos.y),
-                            @"x": @(childPos.x),
-                            @"width": @(childSize.width),
-                            @"height": @(childSize.height),
-                            @"element": [NSValue valueWithPointer:child]
-                        }];
-                    }
-
-                    // Sort by Y position (increasing)
-                    NSArray* sortedChildren = [childInfoArray sortedArrayUsingComparator:^NSComparisonResult(NSDictionary* obj1, NSDictionary* obj2) {
-                        CGFloat y1 = [obj1[@"y"] doubleValue];
-                        CGFloat y2 = [obj2[@"y"] doubleValue];
-                        if (y1 < y2) return NSOrderedAscending;
-                        if (y1 > y2) return NSOrderedDescending;
-                        return NSOrderedSame;
-                    }];
-
-                    // Log all children sorted by Y
-                    NSLog(@"[getLayoutBounds] === Children sorted by Y position (increasing) ===");
-                    for (NSDictionary* childInfo in sortedChildren) {
-                        void* childPtr = [childInfo[@"element"] pointerValue];
-                        NSLog(@"[getLayoutBounds]   Child %p: role='%@', pos=(%.1f, %.1f), size=(%.1f x %.1f)",
-                              childPtr,
-                              childInfo[@"role"],
-                              [childInfo[@"x"] doubleValue],
-                              [childInfo[@"y"] doubleValue],
-                              [childInfo[@"width"] doubleValue],
-                              [childInfo[@"height"] doubleValue]);
-                    }
-                    NSLog(@"[getLayoutBounds] === End of children list ===");
-                } else {
-                    NSLog(@"[getLayoutBounds] Failed to get children (error=%d)", childrenError);
-                }
-            }
             break;
         }
 
@@ -958,14 +838,7 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
         CFTypeRef parentValue = NULL;
         error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
 
-        if (self.enableGetLayoutBoundsLogging) {
-            NSLog(@"[getLayoutBounds] Getting parent from level %d: error=%d, parent=%p", i, error, parentValue);
-        }
-
         if (error != kAXErrorSuccess || !parentValue) {
-            if (self.enableGetLayoutBoundsLogging) {
-                NSLog(@"[getLayoutBounds] ERROR: Failed to get parent at level %d (error=%d). Breaking hierarchy walk.", i, error);
-            }
             break;
         }
 
@@ -982,10 +855,6 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     }
     CFRelease(focusedElement);
 
-    if (self.enableGetLayoutBoundsLogging) {
-        NSLog(@"[getLayoutBounds] Hierarchy walk complete. Layout element: %p (textAreaLevel=%d)", layoutElement, textAreaLevel);
-    }
-
     // If we found the layout element, find the child with smallest Y value
     if (layoutElement) {
         // Get all children
@@ -994,10 +863,6 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
         if (error == kAXErrorSuccess && childrenValue) {
             NSArray* children = (__bridge_transfer NSArray*)childrenValue;
-
-            if (self.enableGetLayoutBoundsLogging) {
-                NSLog(@"[getLayoutBounds] Finding child with smallest Y value from %lu children", (unsigned long)[children count]);
-            }
 
             // Find child with smallest Y value
             AXUIElementRef topChild = NULL;
@@ -1034,34 +899,13 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
             if (topChild) {
                 CGRect result = CGRectMake(topChildPos.x, topChildPos.y, topChildSize.width, topChildSize.height);
-                if (self.enableGetLayoutBoundsLogging) {
-                    // Get role of top child
-                    NSString* topChildRole = @"(unknown)";
-                    CFTypeRef topChildRoleValue = NULL;
-                    if (AXUIElementCopyAttributeValue(topChild, kAXRoleAttribute, &topChildRoleValue) == kAXErrorSuccess && topChildRoleValue) {
-                        topChildRole = (__bridge_transfer NSString*)topChildRoleValue;
-                    }
-                    NSLog(@"[getLayoutBounds] Top child (smallest Y): %p, role='%@', y=%.2f", topChild, topChildRole, minY);
-                    NSLog(@"[getLayoutBounds] === RETURNING: CGRect(x=%.2f, y=%.2f, width=%.2f, height=%.2f) ===",
-                          result.origin.x, result.origin.y, result.size.width, result.size.height);
-                }
                 return result;
-            } else {
-                if (self.enableGetLayoutBoundsLogging) {
-                    NSLog(@"[getLayoutBounds] ERROR: No valid child found with position");
-                }
             }
         } else {
-            if (self.enableGetLayoutBoundsLogging) {
-                NSLog(@"[getLayoutBounds] ERROR: Failed to get children (error=%d)", error);
-            }
             CFRelease(layoutElement);
         }
     }
 
-    if (self.enableGetLayoutBoundsLogging) {
-        NSLog(@"[getLayoutBounds] === RETURNING: CGRectZero (no layout element found) ===");
-    }
     return CGRectZero;
 }
 
