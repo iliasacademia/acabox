@@ -8,6 +8,13 @@
 
 import { AcademiaHttpServer } from './httpServer';
 
+// Polyfill String.prototype.toWellFormed for older Node/Jest environments
+if (typeof String.prototype.toWellFormed === 'undefined') {
+  String.prototype.toWellFormed = function() {
+    return this.toString();
+  };
+}
+
 // Polyfill Web APIs required by undici in Node test environment
 if (typeof (global as any).File === 'undefined') {
   // Simple File polyfill for Node.js
