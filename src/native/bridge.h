@@ -27,12 +27,6 @@ typedef void (*ButtonClickCallback)(const char* text);
 - (void)handleButtonClick;
 - (void)handleButtonClickWithAction:(NSString*)action text:(NSString*)text;
 - (CGRect)getScrollAreaBounds;
-- (void)registerClickPopupObservers;
-- (void)unregisterClickPopupObservers;
-
-// WAGENT-94: New architecture methods
-- (BOOL)enableNewArchitecture;
-- (BOOL)isUsingNewArchitecture;
 - (void)updateBadgeCountViaManager:(NSInteger)count;
 
 // Accessor methods for managers

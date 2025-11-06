@@ -176,8 +176,6 @@
 
     // Register window observers for new popup
     if (isNewPopup && self.observer) {
-        [self.observer registerClickPopupObservers];
-
         // Register popup with AcademiaManager to receive activation/deactivation events
         if ([self.observer respondsToSelector:@selector(getAcademiaManager)]) {
             id academiaManager = [self.observer getAcademiaManager];
@@ -261,8 +259,6 @@
     if (_clickPopup) {
         // Unregister observers before closing
         if (self.observer) {
-            [self.observer unregisterClickPopupObservers];
-
             // Unregister popup from AcademiaManager
             if ([self.observer respondsToSelector:@selector(getAcademiaManager)]) {
                 id academiaManager = [self.observer getAcademiaManager];
