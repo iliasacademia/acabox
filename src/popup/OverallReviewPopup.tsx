@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useNativeEvent, useSendMessage, useBridgeReady, getBridgeInstance } from './hooks/useBridge';
 import { logJSON } from './utils/logger';
@@ -14,66 +14,233 @@ interface Comment {
   title: string;
   content: string;
   expanded: boolean;
+  model?: string;
 }
 
 type TabType = 'major' | 'minor' | 'strengths' | 'figure';
 
+// API Response interfaces
+interface ReviewItem {
+  title: string;
+  critique: string;
+  review_item_type: string;
+  review_item_id: number;
+  review_item_created_at: string;
+  batch?: string;
+  priority?: boolean;
+  selected?: boolean;
+  llm_model?: string;
+  citations?: any[];
+  follow_up_questions?: string[];
+  framework_to_address?: string;
+  individual_critiques?: any[];
+  other_model_critiques?: any[];
+}
+
+interface ApiResponse {
+  document: any;
+  document_id: number;
+  document_created_at: string;
+  metadata: any;
+  peer_review: {
+    suggestions: ReviewItem[];
+  };
+}
+
+// Model icons from Figma
+const MODEL_ICONS = {
+  chatgpt: 'https://www.figma.com/api/mcp/asset/84d4bba6-67d9-4dd7-afc6-de4f1c10f376',
+  gemini: 'https://www.figma.com/api/mcp/asset/92aaa65a-3ed2-4073-b76d-b6b23c239ff3',
+  claude: 'https://www.figma.com/api/mcp/asset/3c1b887d-304d-4726-b949-fd7415be94fe',
+  grok: 'https://www.figma.com/api/mcp/asset/1ce7e722-89c4-4bb3-b948-429e4ca6ff53'
+};
+
+// Map API model names to display info
+interface ModelInfo {
+  displayName: string;
+  icon: string;
+}
+
+function getModelInfo(modelName: string): ModelInfo {
+  const lowerModel = modelName.toLowerCase();
+
+  if (lowerModel.includes('gemini')) {
+    return { displayName: 'Gemini 2.5 Pro', icon: MODEL_ICONS.gemini };
+  } else if (lowerModel.includes('claude')) {
+    return { displayName: 'Claude Opus 4.1', icon: MODEL_ICONS.claude };
+  } else if (lowerModel.includes('grok')) {
+    return { displayName: 'Grok Heavy', icon: MODEL_ICONS.grok };
+  } else if (lowerModel.includes('gpt') || lowerModel.includes('openai')) {
+    return { displayName: 'ChatGPT 5', icon: MODEL_ICONS.chatgpt };
+  }
+
+  // Fallback
+  return { displayName: modelName, icon: '' };
+}
+
+// ModelLabel component matching Figma design
+const ModelLabel: React.FC<{ model: string }> = ({ model }) => {
+  const modelInfo = getModelInfo(model);
+
+  return (
+    <div style={styles.modelLabel}>
+      {modelInfo.icon && (
+        <img
+          src={modelInfo.icon}
+          alt={modelInfo.displayName}
+          style={styles.modelIcon}
+        />
+      )}
+      <span style={styles.modelText}>{modelInfo.displayName}</span>
+    </div>
+  );
+};
+
 const OverallReviewPopup: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('major');
-  const [comments, setComments] = useState<Comment[]>([
-    {
-      id: '1',
-      title: 'Main contribution not clearly distinguished from prior work',
-      content: 'The paper should clearly distinguish its novel contributions from previous work in the field. Consider adding a dedicated section that outlines what specific advances this work makes beyond existing literature.',
-      expanded: false
-    },
-    {
-      id: '2',
-      title: 'Results presented out of logical order — consider re-sequencing',
-      content: 'The flow of results could be improved by reorganizing sections to follow a more logical progression. Consider presenting foundational results before building to more complex analyses.',
-      expanded: false
-    },
-    {
-      id: '3',
-      title: 'Statistical tests not specified for key comparisons',
-      content: 'Please specify which statistical tests were used for the main comparisons presented in Figures 3-5. Include information about correction for multiple comparisons if applicable.',
-      expanded: false
-    },
-    {
-      id: '4',
-      title: 'Over-reliance on older or self-citations',
-      content: 'The reference list shows a heavy reliance on older citations and self-citations. Consider incorporating more recent work from other groups in the field to provide better context.',
-      expanded: false
-    }
-  ]);
+  const [apiData, setApiData] = useState<ApiResponse | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [majorComments, setMajorComments] = useState<Comment[]>([]);
+  const [strengthsComments, setStrengthsComments] = useState<Comment[]>([]);
 
-  const { sendRequest, loading } = useSendMessage();
+  const { sendRequest, loading: sendLoading } = useSendMessage();
   const isReady = useBridgeReady();
 
   console.log('[OverallReviewPopup] Render - activeTab:', activeTab);
+
+  // Helper function to parse HTML and extract strength items
+  const parseStrengthsHTML = (htmlContent: string): Comment[] => {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(htmlContent, 'text/html');
+
+    const strengthItems: Comment[] = [];
+
+    // Look for div elements with class "strength-item"
+    const strengthDivs = doc.querySelectorAll('div.strength-item');
+
+    strengthDivs.forEach((div, index) => {
+      // Find the h2 with class "strength-title" for the title
+      const titleEl = div.querySelector('h2.strength-title');
+      const title = titleEl?.textContent?.trim() || `Strength ${index + 1}`;
+
+      // Find the div with class "strength-content" for the content
+      const contentEl = div.querySelector('div.strength-content');
+      const content = contentEl?.innerHTML || '';
+
+      strengthItems.push({
+        id: `strength-${index + 1}`,
+        title: title,
+        content: content,
+        expanded: false
+      });
+    });
+
+    return strengthItems;
+  };
+
+  // Helper function to transform API data to comments
+  const transformReviewItems = (items: ReviewItem[]): { major: Comment[], strengths: Comment[] } => {
+    const major: Comment[] = [];
+    let strengths: Comment[] = [];
+
+    items.forEach((item, index) => {
+      if (item.review_item_type === 'strength') {
+        // Parse the strengths HTML to extract individual strength items
+        strengths = parseStrengthsHTML(item.critique);
+        // Add model info to all strength items
+        strengths = strengths.map(s => ({ ...s, model: item.llm_model }));
+      } else {
+        // All non-strength items go to major tab
+        major.push({
+          id: `major-${index + 1}`,
+          title: item.title,
+          content: item.critique,
+          expanded: false,
+          model: item.llm_model
+        });
+      }
+    });
+
+    return { major, strengths };
+  };
+
+  // Helper function to format date in user's timezone
+  const formatReviewDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short'
+    });
+  };
+
+  // Fetch data from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        console.log('[OverallReviewPopup] Starting API fetch...');
+
+        const response = await fetch(
+          'http://127.0.0.1:23111/proxy-api/v0/writing_agent/get_document?subdomain_param=api&document_id=257',
+          {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+          }
+        );
+
+        console.log('[OverallReviewPopup] Response received:', response.status, response.statusText);
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('[OverallReviewPopup] Error response:', errorText);
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data: ApiResponse = await response.json();
+        console.log('[OverallReviewPopup] Data parsed successfully');
+        setApiData(data);
+
+        // Transform the data
+        const { major, strengths } = transformReviewItems(data.peer_review.suggestions);
+        setMajorComments(major);
+        setStrengthsComments(strengths);
+
+        console.log('[OverallReviewPopup] Data loaded successfully', {
+          majorCount: major.length,
+          strengthsCount: strengths.length
+        });
+      } catch (err) {
+        console.error('[OverallReviewPopup] Failed to fetch data:', err);
+        const errorMessage = err instanceof Error ? err.message : 'Failed to load review data';
+        console.error('[OverallReviewPopup] Error details:', {
+          name: err instanceof Error ? err.name : 'Unknown',
+          message: errorMessage,
+          stack: err instanceof Error ? err.stack : undefined
+        });
+        setError(errorMessage);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
 
   // Listen for content updates from native
   useNativeEvent('updateContent', (msg) => {
     logJSON('[OverallReviewPopup] Content update received:', msg.payload);
 
     if (msg.payload?.comments) {
-      setComments(msg.payload.comments);
+      // This would override API data if needed
+      // setComments(msg.payload.comments);
     }
   });
-
-  const handleDismiss = async () => {
-    console.log('[OverallReviewPopup] Dismiss button clicked');
-
-    try {
-      const result = await sendRequest('buttonClick', {
-        action: 'dismiss'
-      });
-
-      logJSON('[OverallReviewPopup] Dismiss response:', result);
-    } catch (err) {
-      console.error('[OverallReviewPopup] Dismiss failed:', err);
-    }
-  };
 
   const handleClose = async () => {
     console.log('[OverallReviewPopup] Close button clicked');
@@ -90,15 +257,30 @@ const OverallReviewPopup: React.FC = () => {
   };
 
   const toggleComment = (id: string) => {
-    setComments(comments.map(comment =>
-      comment.id === id ? { ...comment, expanded: !comment.expanded } : comment
-    ));
+    // Toggle based on which tab is active
+    if (activeTab === 'major') {
+      setMajorComments(majorComments.map(comment =>
+        comment.id === id ? { ...comment, expanded: !comment.expanded } : comment
+      ));
+    } else if (activeTab === 'strengths') {
+      setStrengthsComments(strengthsComments.map(comment =>
+        comment.id === id ? { ...comment, expanded: !comment.expanded } : comment
+      ));
+    }
   };
 
   const getTabComments = (tab: TabType): Comment[] => {
-    // For now, showing the same comments for all tabs
-    // In real implementation, filter based on tab type
-    return comments;
+    switch (tab) {
+      case 'major':
+        return majorComments;
+      case 'strengths':
+        return strengthsComments;
+      case 'minor':
+      case 'figure':
+        return []; // Empty for now as per requirements
+      default:
+        return [];
+    }
   };
 
   const getTabLabel = (tab: TabType): string => {
@@ -130,33 +312,16 @@ const OverallReviewPopup: React.FC = () => {
       <div style={styles.modal}>
         {/* Header */}
         <div style={styles.header}>
-          <div style={styles.headerContent}>
-            <h1 style={styles.title}>Overall review | Wed, 29 Oct</h1>
-            <button
-              className="dismiss-button"
-              style={{
-                ...styles.dismissButton,
-                ...(loading ? styles.buttonDisabled : {})
-              }}
-              onClick={handleDismiss}
-              disabled={loading || !isReady}
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style={styles.deleteIcon}>
-                <path d="M15 3H5V5H15V3Z" fill="#ffffff"/>
-                <path d="M16 6H4V17C4 17.5523 4.44772 18 5 18H15C15.5523 18 16 17.5523 16 17V6Z" fill="#ffffff"/>
-                <path d="M8 9V15H10V9H8Z" fill="#0645B1"/>
-                <path d="M12 9V15H14V9H12Z" fill="#0645B1"/>
-              </svg>
-              Dismiss
-            </button>
-          </div>
+          <h1 style={styles.title}>
+            Overall review{apiData ? ` | ${formatReviewDate(apiData.document_created_at)}` : ''}
+          </h1>
 
           {/* Close button */}
           <button
             className="close-button"
             style={styles.closeButton}
             onClick={handleClose}
-            disabled={loading || !isReady}
+            disabled={sendLoading || !isReady}
           >
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path d="M15 5L5 15M5 5L15 15" stroke="#141413" strokeWidth="2" strokeLinecap="round"/>
@@ -193,7 +358,29 @@ const OverallReviewPopup: React.FC = () => {
 
             {/* Comments list */}
             <div style={styles.commentsList}>
-              {tabComments.map((comment) => (
+              {loading && (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyStateText}>Loading review data...</p>
+                </div>
+              )}
+
+              {error && (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyStateText}>Error: {error}</p>
+                </div>
+              )}
+
+              {!loading && !error && tabComments.length === 0 && (
+                <div style={styles.emptyState}>
+                  <p style={styles.emptyStateText}>
+                    {activeTab === 'minor' || activeTab === 'figure'
+                      ? 'No items in this category'
+                      : 'No comments available'}
+                  </p>
+                </div>
+              )}
+
+              {!loading && !error && tabComments.map((comment, index) => (
                 <div
                   key={comment.id}
                   className="comment-item"
@@ -205,7 +392,7 @@ const OverallReviewPopup: React.FC = () => {
                     onClick={() => toggleComment(comment.id)}
                   >
                     <div style={styles.commentHeaderContent}>
-                      <span style={styles.commentNumber}>{comment.id}.</span>
+                      <span style={styles.commentNumber}>{index + 1}.</span>
                       <span style={styles.commentTitle}>{comment.title}</span>
                     </div>
                     <div style={styles.expandIconContainer}>
@@ -226,7 +413,10 @@ const OverallReviewPopup: React.FC = () => {
 
                   {comment.expanded && (
                     <div style={styles.commentContent}>
-                      <p style={styles.commentText}>{comment.content}</p>
+                      <div
+                        style={styles.commentText}
+                        dangerouslySetInnerHTML={{ __html: comment.content }}
+                      />
                     </div>
                   )}
                 </div>
@@ -272,15 +462,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     padding: '40px 24px 0 24px',
     position: 'relative',
   },
-  headerContent: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '12px',
-    paddingBottom: '0',
-  },
   title: {
-    flex: 1,
     fontSize: '28px',
     fontWeight: 400,
     lineHeight: '34px',
@@ -288,26 +470,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontFamily: '"DM Sans", -apple-system, BlinkMacSystemFont, sans-serif',
     margin: 0,
     whiteSpace: 'pre-wrap',
-  },
-  dismissButton: {
-    backgroundColor: '#0645B1', // Figma: button-primary-fill
-    color: '#ffffff',
-    border: 'none',
-    borderRadius: '16px',
-    padding: '0 20px',
-    height: '48px',
-    fontSize: '16px',
-    fontWeight: 600,
-    fontFamily: '"DM Sans", -apple-system, BlinkMacSystemFont, sans-serif',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    transition: 'background-color 0.15s ease-in-out',
-    outline: 'none',
-  } as React.CSSProperties,
-  deleteIcon: {
-    flexShrink: 0,
   },
   closeButton: {
     position: 'absolute',
@@ -399,6 +561,18 @@ const styles: { [key: string]: React.CSSProperties } = {
     flexDirection: 'column',
     gap: '24px',
   },
+  emptyState: {
+    padding: '40px 24px',
+    textAlign: 'center',
+  },
+  emptyStateText: {
+    fontSize: '16px',
+    fontWeight: 400,
+    lineHeight: '20px',
+    color: '#6B6B6B',
+    fontFamily: '"DM Sans", -apple-system, BlinkMacSystemFont, sans-serif',
+    margin: 0,
+  },
   commentItem: {
     backgroundColor: '#FFFFFF', // Figma: background-white
     borderRadius: '16px',
@@ -466,21 +640,12 @@ const styles: { [key: string]: React.CSSProperties } = {
     margin: 0,
     whiteSpace: 'pre-wrap',
   },
-  buttonDisabled: {
-    backgroundColor: '#ccc',
-    cursor: 'not-allowed',
-    opacity: 0.6,
-  },
 };
 
 // Add hover styles dynamically
 if (typeof document !== 'undefined') {
   const styleElement = document.createElement('style');
   styleElement.textContent = `
-    .dismiss-button:hover:not(:disabled) {
-      background-color: #053a8f !important;
-    }
-
     .tab-button:hover:not(.active) {
       background-color: #f5f5f5 !important;
     }

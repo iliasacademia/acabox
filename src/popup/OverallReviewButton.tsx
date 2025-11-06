@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useNativeEvent, useSendMessage, useBridgeReady, getBridgeInstance } from './hooks/useBridge';
 import { logJSON } from './utils/logger';
@@ -15,12 +15,58 @@ interface OverallReviewButtonProps {
   date?: string;
 }
 
+// Helper function to format date in user's timezone
+const formatReviewDate = (dateString: string): string => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString('en-US', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short'
+  });
+};
+
 const OverallReviewButton: React.FC<OverallReviewButtonProps> = ({ date: initialDate }) => {
   const [date, setDate] = useState<string>(initialDate || 'Wed, 29 Oct');
   const { sendRequest, loading } = useSendMessage();
   const isReady = useBridgeReady();
 
   console.log('[OverallReviewButton] Render - date:', date, 'isReady:', isReady);
+
+  // Fetch review data from API
+  useEffect(() => {
+    const fetchReviewDate = async () => {
+      try {
+        console.log('[OverallReviewButton] Fetching review date...');
+
+        const response = await fetch(
+          'http://127.0.0.1:23111/proxy-api/v0/writing_agent/get_document?subdomain_param=api&document_id=257',
+          {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+
+        if (data.document_created_at) {
+          const formattedDate = formatReviewDate(data.document_created_at);
+          setDate(formattedDate);
+          console.log('[OverallReviewButton] Date updated:', formattedDate);
+        }
+      } catch (err) {
+        console.error('[OverallReviewButton] Failed to fetch review date:', err);
+        // Keep default date on error
+      }
+    };
+
+    fetchReviewDate();
+  }, []);
 
   // Listen for date updates from native
   useNativeEvent('updateDate', (msg) => {
@@ -80,8 +126,8 @@ const OverallReviewButton: React.FC<OverallReviewButtonProps> = ({ date: initial
   };
 
   const iconStyle: React.CSSProperties = {
-    width: '20px',
-    height: '20px',
+    width: '10px',
+    height: '10px',
     flexShrink: 0,
   };
 
