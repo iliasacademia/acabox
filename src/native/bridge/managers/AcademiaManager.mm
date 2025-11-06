@@ -270,12 +270,16 @@
     // Recalculate positions with new state
     NSLog(@"[AcademiaManager] Updating %lu overlays with new Word state", (unsigned long)[self registeredOverlayCount]);
 
+    NSUInteger shownCount = 0;
     for (id<OverlayWindow> overlay in _overlays) {
-        // Update position - each overlay handles its own show/hide logic
+        // Update position
         [overlay updatePositionWithWordState:state];
+        // Show overlay after position update
+        [overlay show];
+        shownCount++;
     }
 
-    NSLog(@"[AcademiaManager] Overlay positions updated and shown");
+    NSLog(@"[AcademiaManager] Showed %lu overlays", (unsigned long)shownCount);
 }
 
 - (void)wordAdapterDidActivate:(id)adapter {
