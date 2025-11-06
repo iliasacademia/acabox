@@ -473,8 +473,20 @@ function cleanupNativeResources() {
 }
 
 // Helper function for cleanup before exit
-function cleanupAndExit() {
+async function cleanupAndExit() {
   cleanupNativeResources();
+
+  // Stop HTTP server
+  if (httpServer) {
+    console.log('[APP] Stopping HTTP server...');
+    try {
+      await httpServer.stop();
+      console.log('[APP] HTTP server stopped successfully');
+    } catch (error) {
+      console.error('[APP] Error stopping HTTP server:', error);
+    }
+  }
+
   process.exit(0);
 }
 
@@ -492,6 +504,37 @@ process.on('SIGTERM', () => {
 process.on('SIGHUP', () => {
   console.log('[APP] Received SIGHUP (terminal closed) - cleaning up...');
   cleanupAndExit();
+});
+
+// Handle uncaught exceptions to ensure cleanup
+process.on('uncaughtException', async (error) => {
+  console.error('[APP] Uncaught exception:', error);
+
+  // Cleanup before exit
+  if (httpServer) {
+    try {
+      await httpServer.stop();
+    } catch (e) {
+      console.error('[APP] Failed to stop server:', e);
+    }
+  }
+
+  process.exit(1);
+});
+
+process.on('unhandledRejection', async (reason) => {
+  console.error('[APP] Unhandled rejection:', reason);
+
+  // Cleanup before exit
+  if (httpServer) {
+    try {
+      await httpServer.stop();
+    } catch (e) {
+      console.error('[APP] Failed to stop server:', e);
+    }
+  }
+
+  process.exit(1);
 });
 
 // Handle cleanup request from dev tools (for hot reload)

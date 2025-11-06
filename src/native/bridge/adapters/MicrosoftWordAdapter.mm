@@ -8,10 +8,15 @@
 #import "MicrosoftWordAdapter.h"
 
 // Configuration constants
-static const NSTimeInterval kScrollDebounceInterval = 0.3;      // 300ms
+static const NSTimeInterval kScrollDebounceInterval = 0.4;      // 400ms (increased for layout stability)
 static const NSTimeInterval kWindowMoveDebounceInterval = 0.5;  // 500ms
 static const NSTimeInterval kBoundsCacheValidityDuration = 1.0; // 1 second
-static const NSTimeInterval kScrollAreaCacheValidityDuration = 2.0; // 2 seconds
+
+// Polling configuration constants (for two-phase position stability detection)
+static const NSTimeInterval kPollingInterval = 0.1;             // 100ms polling interval
+static const NSTimeInterval kStabilityRequiredDuration = 0.5;   // 500ms stability required
+static const NSTimeInterval kMaxPollingDuration = 5.0;          // 5 second max polling duration
+static const NSInteger kStabilitySampleCount = 5;               // Number of samples for stability (500ms / 100ms)
 
 // Callback function for accessibility events
 static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElementRef element, CFStringRef notification, void* refcon);
@@ -25,14 +30,21 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     BOOL _isChanging;           // Whether Word is currently changing (scroll, move, resize)
     BOOL _isScrolling;          // Scroll in progress
     BOOL _isWindowMoving;       // Window move/resize in progress
+    BOOL _wordHasAppFocus;      // Whether Word application has system focus
 
     // Debounce timers
     NSTimer* _scrollDebounceTimer;
     NSTimer* _windowMoveDebounceTimer;
+    NSTimer* _focusChangeDebounceTimer;
 
     // Position tracking for scroll detection
     CGPoint _lastLayoutCornerPosition;
     BOOL _hasLastLayoutCornerPosition;
+
+    // Momentum scroll tracking
+    BOOL _isMomentumScrollActive;       // Whether momentum (inertial) scrolling is in progress
+    NSEventPhase _lastScrollPhase;      // Last scroll phase seen
+    NSEventPhase _lastMomentumPhase;    // Last momentum phase seen
 
     // Cached position data for performance
     CGRect _cachedWordBounds;
@@ -46,6 +58,11 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
     // Scroll event monitor
     id _scrollEventMonitor;
+
+    // Two-phase polling state
+    NSMutableArray* _textAreaBoundsHistory;  // Rolling buffer of last N TextArea bounds samples
+    NSInteger _pollingAttempts;              // Counter for safety timeout
+    NSTimer* _positionPollingTimer;          // 100ms repeating timer for polling
 }
 
 #pragma mark - Initialization
@@ -64,14 +81,28 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
         _isChanging = NO;
         _isScrolling = NO;
         _isWindowMoving = NO;
+        _wordHasAppFocus = NO;
         _lastLayoutCornerPosition = CGPointZero;
         _hasLastLayoutCornerPosition = NO;
+
+        // Initialize momentum tracking
+        _isMomentumScrollActive = NO;
+        _lastScrollPhase = NSEventPhaseNone;
+        _lastMomentumPhase = NSEventPhaseNone;
 
         // Initialize caches
         _cachedWordBounds = CGRectZero;
         _lastBoundsUpdate = 0;
         _cachedScrollAreaBounds = CGRectZero;
         _lastScrollAreaUpdate = 0;
+
+        // Initialize logging flags
+        _enableGetLayoutBoundsLogging = YES;
+
+        // Initialize polling state
+        _textAreaBoundsHistory = [NSMutableArray array];
+        _pollingAttempts = 0;
+        _positionPollingTimer = nil;
 
         NSLog(@"[MicrosoftWordAdapter] Initialized for PID: %d", pid);
     }
@@ -126,6 +157,9 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     AXObserverAddNotification(_observer, _wordApp, kAXWindowMovedNotification, (__bridge void*)self);
     AXObserverAddNotification(_observer, _wordApp, kAXWindowResizedNotification, (__bridge void*)self);
 
+    // Add focus change notification to track when focused element changes
+    AXObserverAddNotification(_observer, _wordApp, kAXFocusedUIElementChangedNotification, (__bridge void*)self);
+
     // Add observer to run loop and store the runloop for later cleanup
     _observerRunLoop = CFRunLoopGetCurrent();
     CFRetain(_observerRunLoop);  // Retain to ensure it's valid during cleanup
@@ -149,23 +183,26 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
         // Get scroll area bounds (with caching fallback)
         CGRect scrollBounds = [strongSelf getScrollAreaBounds];
+        BOOL usedCache = NO;
 
         // If bounds is empty, try to use cached bounds
         if (CGRectEqualToRect(scrollBounds, CGRectZero)) {
             scrollBounds = strongSelf->_cachedScrollAreaBounds;
+            usedCache = YES;
         }
 
         // If still empty, skip (no-op - we don't know the bounds)
         if (CGRectEqualToRect(scrollBounds, CGRectZero)) {
+            NSLog(@"[MicrosoftWordAdapter] Scroll event SKIPPED - scroll area bounds unknown (mouse: %.1f, %.1f)",
+                  mouseCGPoint.x, mouseCGPoint.y);
             return;
         }
 
         // Check if mouse is within scroll area bounds
         if (CGRectContainsPoint(scrollBounds, mouseCGPoint)) {
-            // Call handleScrollEvent on main queue
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [strongSelf handleScrollEvent];
-            });
+            NSLog(@"[MicrosoftWordAdapter] Scroll event detected in scroll area (bounds source: %@, mouse: %.1f, %.1f)",
+                  usedCache ? @"cached" : @"fresh", mouseCGPoint.x, mouseCGPoint.y);
+            [strongSelf handleScrollEvent:event];
         }
     }];
 
@@ -188,6 +225,12 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
     [_windowMoveDebounceTimer invalidate];
     _windowMoveDebounceTimer = nil;
+
+    [_focusChangeDebounceTimer invalidate];
+    _focusChangeDebounceTimer = nil;
+
+    [_positionPollingTimer invalidate];
+    _positionPollingTimer = nil;
 
     // Remove scroll event monitor
     if (_scrollEventMonitor) {
@@ -253,9 +296,26 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 #pragma mark - Event Handlers
 
 - (void)handleWordActivated {
+    NSLog(@"[MicrosoftWordAdapter] handleWordActivated: Word application activated");
+
+    // Track that Word now has application focus
+    _wordHasAppFocus = YES;
+
     // Update caches immediately on activation
     [self updateCachedWordBounds];
     [self invalidateScrollAreaCache];
+
+    NSLog(@"[MicrosoftWordAdapter] handleWordActivated: Proactively querying scroll area bounds after activation");
+
+    // Proactively query scroll area to populate cache
+    CGRect scrollAreaBounds = [self getScrollAreaBounds];
+    if (CGRectEqualToRect(scrollAreaBounds, CGRectZero)) {
+        NSLog(@"[MicrosoftWordAdapter] handleWordActivated: WARNING - Scroll area bounds still empty after activation query");
+    } else {
+        NSLog(@"[MicrosoftWordAdapter] handleWordActivated: Successfully got scroll area bounds on activation: (%.1f, %.1f, %.1f x %.1f)",
+              scrollAreaBounds.origin.x, scrollAreaBounds.origin.y,
+              scrollAreaBounds.size.width, scrollAreaBounds.size.height);
+    }
 
     // Notify delegate
     if ([_delegate respondsToSelector:@selector(wordAdapterDidActivate:)]) {
@@ -267,6 +327,9 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 }
 
 - (void)handleWordDeactivated {
+    // Track that Word no longer has application focus
+    _wordHasAppFocus = NO;
+
     // Mark as changing when Word is deactivated
     if (!_isChanging) {
         _isChanging = YES;
@@ -281,6 +344,36 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     if ([_delegate respondsToSelector:@selector(wordAdapterDidDeactivate:)]) {
         [_delegate wordAdapterDidDeactivate:self];
     }
+}
+
+- (void)handleFocusChanged {
+    NSLog(@"[MicrosoftWordAdapter] Focus changed detected");
+
+    // Check if Word has application focus - if so, this is an internal focus change
+    if (!_wordHasAppFocus) {
+        // Word doesn't have app focus - this shouldn't happen as app observers handle external focus
+        NSLog(@"[MicrosoftWordAdapter] Focus change while Word lacks app focus - ignoring");
+        return;
+    }
+
+    // Internal focus change within Word - skip "change start", only trigger "change complete"
+    NSLog(@"[MicrosoftWordAdapter] Internal focus change within Word - skipping change start");
+
+    // Cancel existing debounce timer
+    [_focusChangeDebounceTimer invalidate];
+
+    // Start new debounce timer to trigger change complete (for overlay position refresh)
+    __weak typeof(self) weakSelf = self;
+    _focusChangeDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:kScrollDebounceInterval
+                                                                 repeats:NO
+                                                                   block:^(NSTimer * _Nonnull timer) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf) {
+            NSLog(@"[MicrosoftWordAdapter] Focus change debounce timer fired - triggering change complete only");
+            [strongSelf handleChangeComplete];
+            strongSelf->_focusChangeDebounceTimer = nil;
+        }
+    }];
 }
 
 - (void)handleWindowMoveOrResize {
@@ -318,51 +411,242 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     }];
 }
 
-- (void)handleScrollEvent {
+- (void)handleScrollEvent:(NSEvent *)event {
+    // Extract phase information from the scroll event
+    NSEventPhase phase = event.phase;
+    NSEventPhase momentumPhase = event.momentumPhase;
+
+    // Track momentum state changes
+    BOOL wasMomentumActive = _isMomentumScrollActive;
+
+    // Update momentum tracking based on phases
+    if (momentumPhase == NSEventPhaseBegan) {
+        _isMomentumScrollActive = YES;
+        NSLog(@"[MicrosoftWordAdapter] Momentum scroll BEGAN");
+    } else if (momentumPhase == NSEventPhaseEnded || momentumPhase == NSEventPhaseCancelled) {
+        _isMomentumScrollActive = NO;
+        NSLog(@"[MicrosoftWordAdapter] Momentum scroll ENDED");
+    }
+
+    // Store phase information for debugging
+    _lastScrollPhase = phase;
+    _lastMomentumPhase = momentumPhase;
+
+    NSLog(@"[MicrosoftWordAdapter] Scroll event - phase: %ld, momentumPhase: %ld, isMomentumActive: %@",
+          (long)phase, (long)momentumPhase, _isMomentumScrollActive ? @"YES" : @"NO");
+
+    // === PHASE 1: DETECT SCROLL START (using event phases, not position) ===
+
+    // Check if this is the beginning of a scroll gesture
+    BOOL scrollStarting = NO;
+
+    if (phase == NSEventPhaseBegan) {
+        // Trackpad scroll started
+        scrollStarting = YES;
+        NSLog(@"[MicrosoftWordAdapter] Scroll gesture BEGAN (phase == Began)");
+    } else if (momentumPhase == NSEventPhaseBegan) {
+        // Momentum phase started (shouldn't trigger new "change start" but log it)
+        NSLog(@"[MicrosoftWordAdapter] Momentum phase BEGAN (not triggering change start)");
+    } else if (!_isScrolling && (phase == NSEventPhaseChanged || phase != NSEventPhaseNone)) {
+        // First scroll event without explicit "Began" phase (some mice/trackpads)
+        scrollStarting = YES;
+        NSLog(@"[MicrosoftWordAdapter] Scroll detected without Began phase (phase: %ld)", (long)phase);
+    }
+
+    // Trigger "change start" notification based on scroll gesture beginning
+    if (scrollStarting && !_isChanging) {
+        _isChanging = YES;
+        _isScrolling = YES;
+
+        NSLog(@"[MicrosoftWordAdapter] *** CHANGE START triggered ***");
+
+        // Notify delegate: change started
+        if (_delegate) {
+            [_delegate wordAdapterDidStartChanging:self];
+        }
+    }
+
+    // === PHASE 2: HANDLE POSITION CHANGES (for debouncing logic) ===
+
     CGPoint currentLayoutCornerPosition = [self getLayoutBounds].origin;
 
-    // Check if position actually changed
-    if (_hasLastLayoutCornerPosition &&
-        !CGPointEqualToPoint(currentLayoutCornerPosition, CGPointZero) &&
-        !CGPointEqualToPoint(currentLayoutCornerPosition, _lastLayoutCornerPosition)) {
+    // Check if position changed immediately (may not due to Word's async layout)
+    BOOL positionChangedImmediately = _hasLastLayoutCornerPosition &&
+                                      !CGPointEqualToPoint(currentLayoutCornerPosition, _lastLayoutCornerPosition);
 
-        NSLog(@"[MicrosoftWordAdapter] Scroll detected: (%.1f, %.1f) -> (%.1f, %.1f)",
+    if (positionChangedImmediately) {
+        // Position changed right away (fast scroll or Word updated quickly)
+        NSLog(@"[MicrosoftWordAdapter] Position changed immediately: (%.1f, %.1f) -> (%.1f, %.1f)",
               _lastLayoutCornerPosition.x, _lastLayoutCornerPosition.y,
               currentLayoutCornerPosition.x, currentLayoutCornerPosition.y);
 
-        // Mark as changing if not already
-        if (!_isChanging) {
-            _isChanging = YES;
-            _isScrolling = YES;
+        _lastLayoutCornerPosition = currentLayoutCornerPosition;
+        _hasLastLayoutCornerPosition = YES;
 
-            // Notify delegate: change started
-            if (_delegate) {
-                [_delegate wordAdapterDidStartChanging:self];
-            }
+    } else if (!_hasLastLayoutCornerPosition && !CGPointEqualToPoint(currentLayoutCornerPosition, CGPointZero)) {
+        // First scroll event - establish position baseline
+        _lastLayoutCornerPosition = currentLayoutCornerPosition;
+        _hasLastLayoutCornerPosition = YES;
+        NSLog(@"[MicrosoftWordAdapter] Established initial position baseline: (%.1f, %.1f)",
+              currentLayoutCornerPosition.x, currentLayoutCornerPosition.y);
+
+    } else {
+        // Position hasn't changed YET (Word's layout updating asynchronously)
+        // Trust the scroll event and start debounce timer anyway
+        // verifyPositionStableAndComplete will catch the position change later
+        NSLog(@"[MicrosoftWordAdapter] Position unchanged yet (Word layout lag), trusting scroll event");
+
+        // Special case: momentum just ended
+        if (!_isMomentumScrollActive && wasMomentumActive) {
+            NSLog(@"[MicrosoftWordAdapter] Momentum ended, triggering immediate verification");
+            [self verifyPositionStableAndComplete];
+            return;
         }
 
-        // Cancel existing scroll debounce timer
-        [_scrollDebounceTimer invalidate];
+        // Don't return early - fall through to timer logic below
+    }
 
-        // Start new debounce timer
+    // Always manage debounce timer when scroll events occur
+    [_scrollDebounceTimer invalidate];
+
+    // Only start debounce timer if not in momentum phase
+    // During momentum scrolling, we wait for momentum to end
+    if (!_isMomentumScrollActive) {
+        NSLog(@"[MicrosoftWordAdapter] Starting/resetting debounce timer (400ms + 100ms verification)");
         __weak typeof(self) weakSelf = self;
         _scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:kScrollDebounceInterval
                                                                 repeats:NO
                                                                   block:^(NSTimer * _Nonnull timer) {
             typeof(self) strongSelf = weakSelf;
             if (strongSelf) {
-                [strongSelf handleChangeComplete];
+                NSLog(@"[MicrosoftWordAdapter] Debounce timer fired, verifying position stability");
+                [strongSelf verifyPositionStableAndComplete];
                 strongSelf->_scrollDebounceTimer = nil;
-                strongSelf->_isScrolling = NO;
             }
         }];
+    } else {
+        NSLog(@"[MicrosoftWordAdapter] Momentum active - deferring debounce timer until momentum ends");
+    }
+}
+
+- (void)verifyPositionStableAndComplete {
+    NSLog(@"[MicrosoftWordAdapter] Starting two-phase polling for position stability");
+
+    // Reset polling state
+    [_textAreaBoundsHistory removeAllObjects];
+    _pollingAttempts = 0;
+
+    // Stop any existing polling timer
+    [_positionPollingTimer invalidate];
+    _positionPollingTimer = nil;
+
+    // Start Phase 1: Lightweight polling
+    [self startLightweightPolling];
+}
+
+- (void)startLightweightPolling {
+    NSLog(@"[MicrosoftWordAdapter] Phase 1: Starting lightweight TextArea bounds polling");
+
+    __weak typeof(self) weakSelf = self;
+    _positionPollingTimer = [NSTimer scheduledTimerWithTimeInterval:kPollingInterval
+                                                            repeats:YES
+                                                              block:^(NSTimer * _Nonnull timer) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) {
+            [timer invalidate];
+            return;
+        }
+
+        [strongSelf pollTextAreaBounds];
+    }];
+
+    // Fire immediately for first sample
+    [self pollTextAreaBounds];
+}
+
+- (void)pollTextAreaBounds {
+    _pollingAttempts++;
+
+    // Safety check: max polling duration exceeded
+    if (_pollingAttempts > (kMaxPollingDuration / kPollingInterval)) {
+        NSLog(@"[MicrosoftWordAdapter] WARNING: Max polling duration (%0.1fs) exceeded after %ld attempts - forcing completion",
+              kMaxPollingDuration, (long)_pollingAttempts);
+        [self stopPollingAndComplete];
+        return;
     }
 
-    // Update last position
-    if (!CGPointEqualToPoint(currentLayoutCornerPosition, CGPointZero)) {
-        _lastLayoutCornerPosition = currentLayoutCornerPosition;
-        _hasLastLayoutCornerPosition = YES;
+    // Get TextArea bounds (lightweight query)
+    CGRect textAreaBounds = [self getTextAreaBounds];
+
+    if (CGRectEqualToRect(textAreaBounds, CGRectZero)) {
+        NSLog(@"[MicrosoftWordAdapter] Poll #%ld: TextArea bounds invalid (zero) - forcing completion",
+              (long)_pollingAttempts);
+        [self stopPollingAndComplete];
+        return;
     }
+
+    NSLog(@"[MicrosoftWordAdapter] Poll #%ld: TextArea bounds = (%.1f, %.1f, %.1f x %.1f)",
+          (long)_pollingAttempts,
+          textAreaBounds.origin.x, textAreaBounds.origin.y,
+          textAreaBounds.size.width, textAreaBounds.size.height);
+
+    // Add to history
+    [_textAreaBoundsHistory addObject:[NSValue valueWithRect:NSRectFromCGRect(textAreaBounds)]];
+
+    // Keep only the required number of samples
+    if (_textAreaBoundsHistory.count > kStabilitySampleCount) {
+        [_textAreaBoundsHistory removeObjectAtIndex:0];
+    }
+
+    // Check if we have enough samples for stability check
+    if (_textAreaBoundsHistory.count < kStabilitySampleCount) {
+        NSLog(@"[MicrosoftWordAdapter] Collecting samples (%lu / %ld)",
+              (unsigned long)_textAreaBoundsHistory.count, (long)kStabilitySampleCount);
+        return;
+    }
+
+    // Check if all samples are identical (position stable)
+    BOOL allSamplesIdentical = YES;
+    CGRect firstSample = NSRectToCGRect([_textAreaBoundsHistory[0] rectValue]);
+
+    for (NSValue* sampleValue in _textAreaBoundsHistory) {
+        CGRect sample = NSRectToCGRect([sampleValue rectValue]);
+        if (!CGRectEqualToRect(sample, firstSample)) {
+            allSamplesIdentical = NO;
+            break;
+        }
+    }
+
+    if (allSamplesIdentical) {
+        NSLog(@"[MicrosoftWordAdapter] Position STABLE for %.0fms (%ld samples) - proceeding to Phase 2",
+              kStabilityRequiredDuration * 1000, (long)kStabilitySampleCount);
+        [self stopPollingAndComplete];
+    } else {
+        NSLog(@"[MicrosoftWordAdapter] Position still changing - continuing to poll");
+    }
+}
+
+- (void)stopPollingAndComplete {
+    // Stop polling timer
+    [_positionPollingTimer invalidate];
+    _positionPollingTimer = nil;
+
+    NSLog(@"[MicrosoftWordAdapter] Phase 2: TextArea stable, calculating full layout bounds");
+
+    // Phase 2: Perform expensive layout bounds calculation once
+    CGRect layoutBounds = [self getLayoutBounds];
+
+    if (!CGRectEqualToRect(layoutBounds, CGRectZero)) {
+        _lastLayoutCornerPosition = layoutBounds.origin;
+        _hasLastLayoutCornerPosition = YES;
+        NSLog(@"[MicrosoftWordAdapter] Final layout position: (%.1f, %.1f)",
+              layoutBounds.origin.x, layoutBounds.origin.y);
+    }
+
+    // Complete the change
+    NSLog(@"[MicrosoftWordAdapter] Position STABLE - completing change");
+    [self handleChangeComplete];
+    _isScrolling = NO;
 }
 
 - (void)handleChangeComplete {
@@ -435,12 +719,12 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 }
 
 - (CGRect)getScrollAreaBounds {
-    // Return cached bounds if still valid
-    NSTimeInterval now = [[NSDate date] timeIntervalSince1970];
-    if (!CGRectEqualToRect(_cachedScrollAreaBounds, CGRectZero) &&
-        (now - _lastScrollAreaUpdate) < kScrollAreaCacheValidityDuration) {
+    // Return cached bounds if still valid (only invalidated explicitly, not by duration)
+    if (!CGRectEqualToRect(_cachedScrollAreaBounds, CGRectZero)) {
         return _cachedScrollAreaBounds;
     }
+
+    NSLog(@"[MicrosoftWordAdapter] getScrollAreaBounds: CACHE MISS (cached empty) - querying fresh bounds");
 
     // Query fresh scroll area bounds
     CGRect scrollBounds = [self queryScrollAreaBounds];
@@ -448,24 +732,34 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     // Update cache
     if (!CGRectEqualToRect(scrollBounds, CGRectZero)) {
         _cachedScrollAreaBounds = scrollBounds;
-        _lastScrollAreaUpdate = now;
+        _lastScrollAreaUpdate = [[NSDate date] timeIntervalSince1970];
+        NSLog(@"[MicrosoftWordAdapter] getScrollAreaBounds: Updated cache with fresh bounds");
+    } else {
+        NSLog(@"[MicrosoftWordAdapter] getScrollAreaBounds: Query returned empty bounds, cache not updated");
     }
 
     return scrollBounds;
 }
 
 - (CGRect)queryScrollAreaBounds {
+    NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: Starting scroll area query");
+
     AXUIElementRef focusedElement = NULL;
     AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
 
     if (error != kAXErrorSuccess || !focusedElement) {
+        NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: FAILED - No focused element (error: %d)", error);
         return CGRectZero;
     }
+
+    NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: Successfully got focused element");
 
     // Walk up parent hierarchy to find AXScrollArea at level 4
     NSMutableArray* hierarchy = [NSMutableArray array];
     AXUIElementRef currentElement = focusedElement;
     CFRetain(currentElement);
+
+    NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: Walking accessibility hierarchy...");
 
     for (int i = 0; i < 20; i++) {
         // Get role
@@ -490,6 +784,10 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
             AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
             CFRelease(sizeValue);
         }
+
+        // Log this level
+        NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds:   Level %d: %@ (pos: %.1f, %.1f, size: %.1f x %.1f)",
+              i, role ?: @"Unknown", position.x, position.y, size.width, size.height);
 
         // Store this level
         [hierarchy addObject:@{
@@ -520,30 +818,67 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     }
     CFRelease(focusedElement);
 
-    // Find AXTextArea in hierarchy (should be at level 0)
-    int textAreaLevel = -1;
+    // Find AXScrollArea in hierarchy at any level
+    int scrollAreaLevel = -1;
     for (NSDictionary* item in hierarchy) {
-        if ([item[@"role"] isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
-            textAreaLevel = [item[@"level"] intValue];
-            break;
-        }
-    }
+        if ([item[@"role"] isEqualToString:(__bridge NSString*)kAXScrollAreaRole]) {
+            scrollAreaLevel = [item[@"level"] intValue];
 
-    // If we found AXTextArea at level 0, check if level 4 parent is an AXScrollArea
-    if (textAreaLevel == 0) {
-        NSUInteger scrollAreaLevel = 4;
-        if (scrollAreaLevel < hierarchy.count) {
-            NSDictionary* scrollItem = hierarchy[scrollAreaLevel];
-            NSString* scrollRole = scrollItem[@"role"];
+            // Get the bounds of the scroll area
+            CGPoint position = NSPointToCGPoint([item[@"position"] pointValue]);
+            CGSize size = NSSizeToCGSize([item[@"size"] sizeValue]);
 
-            if ([scrollRole isEqualToString:(__bridge NSString*)kAXScrollAreaRole]) {
-                CGPoint position = NSPointToCGPoint([scrollItem[@"position"] pointValue]);
-                CGSize size = NSSizeToCGSize([scrollItem[@"size"] sizeValue]);
-                return CGRectMake(position.x, position.y, size.width, size.height);
+            // Verify that the scroll area has valid (non-zero) dimensions
+            if (size.width > 0 && size.height > 0) {
+                CGRect result = CGRectMake(position.x, position.y, size.width, size.height);
+                NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: SUCCESS - Found AXScrollArea at level %d: (%.1f, %.1f, %.1f x %.1f)",
+                      scrollAreaLevel, result.origin.x, result.origin.y, result.size.width, result.size.height);
+                return result;
+            } else {
+                NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: Found AXScrollArea at level %d but it has invalid dimensions (%.1f x %.1f)",
+                      scrollAreaLevel, size.width, size.height);
             }
         }
     }
 
+    NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: No AXScrollArea found, attempting fallback strategy");
+
+    // Fallback: Find AXWindow in hierarchy and use the element directly below it
+    // This handles cases where there's no explicit AXScrollArea but the content area
+    // is represented by a split group or group element
+    int windowLevel = -1;
+    for (NSDictionary* item in hierarchy) {
+        if ([item[@"role"] isEqualToString:(__bridge NSString*)kAXWindowRole]) {
+            windowLevel = [item[@"level"] intValue];
+            NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: Found AXWindow at level %d", windowLevel);
+            break;
+        }
+    }
+
+    if (windowLevel > 0) {
+        // Get the element one level below the window (windowLevel - 1)
+        int targetLevel = windowLevel - 1;
+        for (NSDictionary* item in hierarchy) {
+            if ([item[@"level"] intValue] == targetLevel) {
+                NSString* role = item[@"role"];
+                CGPoint position = NSPointToCGPoint([item[@"position"] pointValue]);
+                CGSize size = NSSizeToCGSize([item[@"size"] sizeValue]);
+
+                if (size.width > 0 && size.height > 0) {
+                    CGRect result = CGRectMake(position.x, position.y, size.width, size.height);
+                    NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: SUCCESS (fallback) - Using %@ at level %d: (%.1f, %.1f, %.1f x %.1f)",
+                          role, targetLevel, result.origin.x, result.origin.y, result.size.width, result.size.height);
+                    return result;
+                } else {
+                    NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: Element at level %d has invalid dimensions (%.1f x %.1f)",
+                          targetLevel, size.width, size.height);
+                }
+                break;
+            }
+        }
+    }
+
+    NSLog(@"[MicrosoftWordAdapter] queryScrollAreaBounds: FAILED - No valid scroll area or fallback element found");
     return CGRectZero;
 }
 
@@ -559,7 +894,6 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     AXUIElementRef currentElement = focusedElement;
     CFRetain(currentElement);
     AXUIElementRef layoutElement = NULL;
-    int textAreaLevel = -1;
 
     // Walk up the hierarchy looking for AXTextArea
     for (int i = 0; i < 20; i++) {
@@ -570,12 +904,12 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
         // Check if this is the text area
         if ([role isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
-            textAreaLevel = i;
-            // Need to go up 2 more levels to get the layout element
-            // Continue walking to get 2 levels up
-            for (int j = 0; j < 2; j++) {
+            // Need to go up 3 more levels to get the layout element
+            // Continue walking to get 3 levels up
+            for (int j = 0; j < 3; j++) {
                 CFTypeRef parentValue = NULL;
                 error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
+
                 if (error != kAXErrorSuccess || !parentValue) {
                     break;
                 }
@@ -610,32 +944,129 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     }
     CFRelease(focusedElement);
 
-    // If we found the layout element, get its position and size
+    // If we found the layout element, find the child with smallest Y value
     if (layoutElement) {
-        CGPoint position = CGPointZero;
-        CGSize size = CGSizeZero;
+        // Get all children
+        CFTypeRef childrenValue = NULL;
+        error = AXUIElementCopyAttributeValue(layoutElement, kAXChildrenAttribute, &childrenValue);
 
-        // Get position
-        CFTypeRef positionValue = NULL;
-        error = AXUIElementCopyAttributeValue(layoutElement, kAXPositionAttribute, &positionValue);
-        if (error == kAXErrorSuccess && positionValue) {
-            AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
-            CFRelease(positionValue);
+        if (error == kAXErrorSuccess && childrenValue) {
+            NSArray* children = (__bridge_transfer NSArray*)childrenValue;
+
+            // Find child with smallest Y value
+            AXUIElementRef topChild = NULL;
+            CGFloat minY = CGFLOAT_MAX;
+            CGPoint topChildPos = CGPointZero;
+            CGSize topChildSize = CGSizeZero;
+
+            for (id childObj in children) {
+                AXUIElementRef child = (__bridge AXUIElementRef)childObj;
+
+                // Get position
+                CGPoint childPos = CGPointZero;
+                CFTypeRef childPosValue = NULL;
+                if (AXUIElementCopyAttributeValue(child, kAXPositionAttribute, &childPosValue) == kAXErrorSuccess && childPosValue) {
+                    AXValueGetValue((AXValueRef)childPosValue, kAXValueTypeCGPoint, &childPos);
+                    CFRelease(childPosValue);
+
+                    if (childPos.y < minY) {
+                        minY = childPos.y;
+                        topChild = child;
+                        topChildPos = childPos;
+
+                        // Get size
+                        CFTypeRef childSizeValue = NULL;
+                        if (AXUIElementCopyAttributeValue(child, kAXSizeAttribute, &childSizeValue) == kAXErrorSuccess && childSizeValue) {
+                            AXValueGetValue((AXValueRef)childSizeValue, kAXValueTypeCGSize, &topChildSize);
+                            CFRelease(childSizeValue);
+                        }
+                    }
+                }
+            }
+
+            CFRelease(layoutElement);
+
+            if (topChild) {
+                CGRect result = CGRectMake(topChildPos.x, topChildPos.y, topChildSize.width, topChildSize.height);
+                return result;
+            }
+        } else {
+            CFRelease(layoutElement);
         }
-
-        // Get size
-        CFTypeRef sizeValue = NULL;
-        error = AXUIElementCopyAttributeValue(layoutElement, kAXSizeAttribute, &sizeValue);
-        if (error == kAXErrorSuccess && sizeValue) {
-            AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
-            CFRelease(sizeValue);
-        }
-
-        CFRelease(layoutElement);
-        return CGRectMake(position.x, position.y, size.width, size.height);
     }
 
     return CGRectZero;
+}
+
+- (CGRect)getTextAreaBounds {
+    // Lightweight bounds query for TextArea element only
+    // Used for polling-based scroll completion detection
+    // Much faster than getLayoutBounds as it doesn't traverse the hierarchy
+
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        return CGRectZero;
+    }
+
+    // Walk up to find AXTextArea
+    AXUIElementRef currentElement = focusedElement;
+    CFRetain(currentElement);
+    CGRect textAreaBounds = CGRectZero;
+
+    for (int i = 0; i < 20; i++) {
+        // Get role
+        CFTypeRef roleValue = NULL;
+        AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute, &roleValue);
+        NSString* role = (__bridge_transfer NSString*)roleValue;
+
+        // Check if this is the text area
+        if ([role isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
+            // Get position
+            CFTypeRef positionValue = NULL;
+            error = AXUIElementCopyAttributeValue(currentElement, kAXPositionAttribute, &positionValue);
+            CGPoint position = CGPointZero;
+            if (error == kAXErrorSuccess && positionValue) {
+                AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
+                CFRelease(positionValue);
+            }
+
+            // Get size
+            CFTypeRef sizeValue = NULL;
+            error = AXUIElementCopyAttributeValue(currentElement, kAXSizeAttribute, &sizeValue);
+            CGSize size = CGSizeZero;
+            if (error == kAXErrorSuccess && sizeValue) {
+                AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+                CFRelease(sizeValue);
+            }
+
+            textAreaBounds = CGRectMake(position.x, position.y, size.width, size.height);
+            break;
+        }
+
+        // Get parent element
+        CFTypeRef parentValue = NULL;
+        error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
+
+        if (error != kAXErrorSuccess || !parentValue) {
+            break;
+        }
+
+        if (currentElement != focusedElement) {
+            CFRelease(currentElement);
+        }
+
+        currentElement = (AXUIElementRef)parentValue;
+    }
+
+    // Clean up
+    if (currentElement != focusedElement) {
+        CFRelease(currentElement);
+    }
+    CFRelease(focusedElement);
+
+    return textAreaBounds;
 }
 
 - (CGFloat)getLayoutLeftMargin {
@@ -689,6 +1120,77 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     if (error == kAXErrorSuccess && boundsValue) {
         AXValueGetValue((AXValueRef)boundsValue, (AXValueType)kAXValueTypeCGRect, &bounds);
         CFRelease(boundsValue);
+    }
+
+    CFRelease(rangeValue);
+    CFRelease(focusedElement);
+
+    return bounds;
+}
+
+- (CGRect)findTextPosition:(NSString*)searchText {
+    NSLog(@"[MicrosoftWordAdapter] Finding position for text: \"%@\"", searchText);
+
+    if (!searchText || searchText.length == 0) {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Empty search text");
+        return CGRectZero;
+    }
+
+    // Get focused element (must be AXTextArea)
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Could not get focused element (error: %d)", error);
+        return CGRectZero;
+    }
+
+    // Get the full text content
+    CFTypeRef textValue = NULL;
+    error = AXUIElementCopyAttributeValue(focusedElement, kAXValueAttribute, &textValue);
+
+    if (error != kAXErrorSuccess || !textValue) {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Could not get text value (error: %d)", error);
+        CFRelease(focusedElement);
+        return CGRectZero;
+    }
+
+    NSString* fullText = (__bridge_transfer NSString*)textValue;
+
+    // Search for the text
+    NSRange searchRange = [fullText rangeOfString:searchText options:0];
+    if (searchRange.location == NSNotFound) {
+        NSLog(@"[MicrosoftWordAdapter] Text not found: \"%@\"", searchText);
+        CFRelease(focusedElement);
+        return CGRectZero;
+    }
+
+    NSLog(@"[MicrosoftWordAdapter] Found text at character index %lu", (unsigned long)searchRange.location);
+
+    // Get bounds for this text range using AXBoundsForRangeParameterizedAttribute
+    CFRange range = CFRangeMake(searchRange.location, searchRange.length);
+    AXValueRef rangeValue = AXValueCreate(kAXValueTypeCFRange, &range);
+
+    if (!rangeValue) {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Could not create range value");
+        CFRelease(focusedElement);
+        return CGRectZero;
+    }
+
+    CFTypeRef boundsValue = NULL;
+    error = AXUIElementCopyParameterizedAttributeValue(focusedElement,
+                                                       kAXBoundsForRangeParameterizedAttribute,
+                                                       rangeValue,
+                                                       &boundsValue);
+
+    CGRect bounds = CGRectZero;
+    if (error == kAXErrorSuccess && boundsValue) {
+        AXValueGetValue((AXValueRef)boundsValue, (AXValueType)kAXValueTypeCGRect, &bounds);
+        NSLog(@"[MicrosoftWordAdapter] Text bounds: x=%.1f, y=%.1f, w=%.1f, h=%.1f",
+              bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+        CFRelease(boundsValue);
+    } else {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Could not get bounds (error: %d)", error);
     }
 
     CFRelease(rangeValue);
@@ -804,6 +1306,11 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
         // Window moved or resized
         dispatch_async(dispatch_get_main_queue(), ^{
             [adapter handleWindowMoveOrResize];
+        });
+    } else if ([notificationName isEqualToString:(__bridge NSString*)kAXFocusedUIElementChangedNotification]) {
+        // Focused element changed
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [adapter handleFocusChanged];
         });
     }
 }

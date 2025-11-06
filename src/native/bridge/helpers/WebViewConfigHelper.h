@@ -10,11 +10,13 @@
 // @param messageHandler The object that will handle WKScriptMessageHandler messages
 // @param messageHandlerNames Array of message handler names to register (e.g., @[@"bridge", @"consoleLog"])
 // @param injectScripts If YES, injects console logging and bridge compatibility scripts
+// @param showDebugBorder If YES, enables drag handle debug border (only if webview is DraggableAcceptingWebView)
 // @return Configured WKWebView instance
 + (WKWebView*)createWebViewWithFrame:(CGRect)frame
                       messageHandler:(id<WKScriptMessageHandler>)messageHandler
                  messageHandlerNames:(NSArray<NSString*>*)handlerNames
-                       injectScripts:(BOOL)injectScripts;
+                       injectScripts:(BOOL)injectScripts
+                     showDebugBorder:(BOOL)showDebugBorder;
 
 // Creates a WKWebViewConfiguration with standard settings
 // @param messageHandler The object that will handle WKScriptMessageHandler messages

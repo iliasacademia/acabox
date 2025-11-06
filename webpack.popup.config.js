@@ -13,6 +13,9 @@ module.exports = {
   entry: {
     academiaNotifications: './src/popup/AcademiaNotificationsPopup.tsx',
     overallReview: './src/popup/OverallReviewPopup.tsx',
+    overallReviewButton: './src/popup/OverallReviewButton.tsx',
+    textSideButton: './src/popup/TextSideButton.tsx',
+    textSide: './src/popup/TextSidePopup.tsx',
   },
   output: {
     path: path.resolve(__dirname, 'dist/popup'),
@@ -36,6 +39,10 @@ module.exports = {
         test: /\.css$/,
         use: ['style-loader', 'css-loader'],
       },
+      {
+        test: /\.svg$/,
+        type: 'asset/resource',
+      },
     ],
   },
   resolve: {
@@ -56,6 +63,27 @@ module.exports = {
       inject: false, // Don't inject - we manually control script loading order
       scriptLoading: 'blocking',
     }),
+    new HtmlWebpackPlugin({
+      template: './src/popup/overall-review-button.html',
+      filename: 'overallReviewButton/index.html',
+      chunks: ['overallReviewButton'],
+      inject: false, // Don't inject - we manually control script loading order
+      scriptLoading: 'blocking',
+    }),
+    new HtmlWebpackPlugin({
+      template: './src/popup/text-side-button.html',
+      filename: 'textSideButton/index.html',
+      chunks: ['textSideButton'],
+      inject: false, // Don't inject - we manually control script loading order
+      scriptLoading: 'blocking',
+    }),
+    new HtmlWebpackPlugin({
+      template: './src/popup/text-side-popup.html',
+      filename: 'textSide/index.html',
+      chunks: ['textSide'],
+      inject: false, // Don't inject - we manually control script loading order
+      scriptLoading: 'blocking',
+    }),
     new CopyWebpackPlugin({
       patterns: [
         {
@@ -65,6 +93,18 @@ module.exports = {
         {
           from: './src/popup/bridge-preload.js',
           to: 'overallReview/bridge-preload.js',
+        },
+        {
+          from: './src/popup/bridge-preload.js',
+          to: 'overallReviewButton/bridge-preload.js',
+        },
+        {
+          from: './src/popup/bridge-preload.js',
+          to: 'textSideButton/bridge-preload.js',
+        },
+        {
+          from: './src/popup/bridge-preload.js',
+          to: 'textSide/bridge-preload.js',
         },
       ],
     }),

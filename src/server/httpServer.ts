@@ -31,6 +31,7 @@ export class AcademiaHttpServer {
   private currentUserId: () => number | null;
   private actualPort: number | null = null;
   private serverStartTime: number = 0;
+  private activeConnections = new Set<any>();
 
   /**
    * Create a new HTTP server instance
@@ -125,6 +126,14 @@ export class AcademiaHttpServer {
       this.actualPort = (this.fastify.server.address() as any).port;
       this.serverStartTime = Date.now();
 
+      // Track active connections for cleanup
+      this.fastify.server.on('connection', (socket) => {
+        this.activeConnections.add(socket);
+        socket.on('close', () => {
+          this.activeConnections.delete(socket);
+        });
+      });
+
       console.log(`[HTTP Server] ✓ Server listening on ${address}`);
       console.log(`[HTTP Server] Actual port: ${this.actualPort}`);
 
@@ -146,15 +155,44 @@ export class AcademiaHttpServer {
 
     console.log('[HTTP Server] Stopping server...');
 
+    // Destroy all active connections first
+    console.log(`[HTTP Server] Destroying ${this.activeConnections.size} active connections...`);
+    for (const socket of this.activeConnections) {
+      socket.destroy();
+    }
+    this.activeConnections.clear();
+
     try {
-      await this.fastify.close();
+      // Create a timeout promise (5 seconds)
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Server close timeout after 5 seconds')), 5000);
+      });
+
+      // Race between close and timeout
+      await Promise.race([
+        this.fastify.close(),
+        timeoutPromise
+      ]);
+
       this.fastify = null;
       this.actualPort = null;
 
       console.log('[HTTP Server] ✓ Server stopped');
     } catch (error) {
       console.error('[HTTP Server] Error stopping server:', error);
-      throw error;
+
+      // Force close by accessing underlying server
+      if (this.fastify && this.fastify.server) {
+        console.log('[HTTP Server] Force closing server...');
+        this.fastify.server.close();
+        this.fastify.server.unref(); // Allow process to exit
+      }
+
+      this.fastify = null;
+      this.actualPort = null;
+
+      // Don't throw - we still cleaned up
+      console.log('[HTTP Server] ✓ Server force stopped');
     }
   }
 

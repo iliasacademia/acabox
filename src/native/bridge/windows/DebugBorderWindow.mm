@@ -94,6 +94,7 @@
     );
 
     [self setFrame:flippedBounds display:YES];
+    [self show];
 }
 
 - (void)hide {

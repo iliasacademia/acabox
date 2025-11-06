@@ -1,43 +1,29 @@
 #import <Cocoa/Cocoa.h>
+#import "BasePopupWindow.h"
 #import "OverallReviewPopup.h"
 #import "../managers/AcademiaManager.h"
 
 // Forward declaration
 @class WordAccessibilityObserver;
 
-// OverallReviewButton: Shows review count on left of first line
-// Circular button with count, shows hover popup and click popup
-@interface OverallReviewButton : NSPanel <OverlayWindow>
+// OverallReviewButton: WebView-based pill-shaped button showing "Overall review | Date"
+// Displays at top-left of first line, opens OverallReviewPopup on click
+// Uses DraggableAcceptingWebView for rich content (logo, text, date, icons)
+@interface OverallReviewButton : BasePopupWindow <OverlayWindow>
 
 // Properties
-@property (nonatomic, weak) WordAccessibilityObserver* observer;
-@property (nonatomic, strong) NSTextField* countLabel;
-@property (nonatomic, strong) NSTrackingArea* trackingArea;
-@property (nonatomic, strong) NSTrackingArea* popupTrackingArea;
-@property (nonatomic, strong) NSPanel* hoverPopup;
 @property (nonatomic, strong) OverallReviewPopup* clickPopup;
-@property (nonatomic, copy) dispatch_block_t scheduledHideBlock;
-@property (nonatomic, assign) int count;
+@property (nonatomic, copy) NSString* currentDate;
 
 // Initialization
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer;
 
-// Mouse tracking
-- (void)setupMouseTracking;
-- (void)mouseEntered:(NSEvent *)event;
-- (void)mouseExited:(NSEvent *)event;
-- (void)mouseDown:(NSEvent *)event;
-
-// Count update
-- (void)updateCount:(int)count;
+// Content update
+- (void)updateDate:(NSString*)date;
 
 // Popup management
-- (void)showHoverPopup;
-- (void)hideHoverPopup;
 - (void)showClickPopup;
 - (void)hideClickPopup;
-- (void)scheduleHidePopup;
-- (void)cancelScheduledHide;
 
 // Clipping/Masking for partial visibility
 - (void)setVisibleRect:(NSRect)visibleRect inFrame:(NSRect)fullFrame;
@@ -45,9 +31,5 @@
 
 // Cleanup
 - (void)orderOut:(id)sender;
-
-// Window behavior
-- (BOOL)canBecomeKeyWindow;
-- (BOOL)canBecomeMainWindow;
 
 @end

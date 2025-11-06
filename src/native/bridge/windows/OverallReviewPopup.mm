@@ -5,16 +5,19 @@
 
 - (instancetype)initWithCount:(int)count observer:(WordAccessibilityObserver*)observer {
     // Fixed size for popup - will contain React UI
-    CGFloat width = 500;
-    CGFloat height = 400;
+    CGFloat width = 600;
+    CGFloat height = 450;
 
     // Call base class initializer with size and window level
     self = [super initWithSize:CGSizeMake(width, height)
-                   windowLevel:NSNormalWindowLevel + 1  // Just above Word
+                   windowLevel:NSFloatingWindowLevel + 1  // Above button (NSFloatingWindowLevel)
                       observer:observer];
     if (self) {
         self.count = count;
         self.delegate = self;
+
+        // Initialize savedFrame to ensure default positioning on first open
+        self.savedFrame = NSZeroRect;
 
         // WAGENT-73: Initialize pending responses dictionary
         self.pendingResponses = [NSMutableDictionary dictionary];
@@ -125,7 +128,9 @@
                 #pragma clang diagnostic pop
                 // Clear visibility flag before hiding (user manually closed)
                 self.wasVisibleBeforeHiding = NO;
-                NSLog(@"[OverallReviewPopup] User closed popup - clearing visibility flag");
+                // Reset saved frame to restore default position and size on next open
+                self.savedFrame = NSZeroRect;
+                NSLog(@"[OverallReviewPopup] User closed popup - clearing visibility flag and resetting position");
                 [self orderOut:nil];
             }
         }
@@ -422,6 +427,7 @@
     // This method is a no-op for popup windows
 
     NSLog(@"[OverallReviewPopup] updatePositionWithWordState called - position managed by parent button");
+    [self show];
 }
 
 - (void)hide {

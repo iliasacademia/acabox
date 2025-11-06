@@ -14,7 +14,4 @@
 // Initialization
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer;
 
-// Content update
-- (void)updateContent;
-
 @end
