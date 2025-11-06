@@ -17,6 +17,7 @@ import Fastify, { FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
 import { registerNotificationRoutes } from './routes/notifications';
+import { registerProxyRoutes } from './routes/proxy';
 import { ServerConfig, HealthResponse } from './types';
 
 /**
@@ -115,6 +116,9 @@ export class AcademiaHttpServer {
       this.notificationManager,
       this.currentUserId
     );
+
+    // Register proxy routes
+    await registerProxyRoutes(this.fastify);
 
     // Start listening
     try {
