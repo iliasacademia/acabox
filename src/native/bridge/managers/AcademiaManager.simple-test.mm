@@ -357,7 +357,7 @@ void testChangeStartHidesAllOverlays() {
 }
 
 void testChangeCompleteUpdatesAndShowsOverlays() {
-    TEST_START("Change Complete Updates and Shows Overlays");
+    TEST_START("Change Complete Updates Overlays");
 
     @autoreleasepool {
         MockWordAdapter *mockAdapter = [[MockWordAdapter alloc] init];
@@ -387,8 +387,7 @@ void testChangeCompleteUpdatesAndShowsOverlays() {
         ASSERT_TRUE(overlay1.updatePositionCalled, "Overlay 1 should receive position update");
         ASSERT_TRUE(overlay2.updatePositionCalled, "Overlay 2 should receive position update");
         ASSERT_EQUAL(overlay1.lastReceivedState.windowBounds.origin.x, 100.0, "State should be passed correctly");
-        ASSERT_TRUE(overlay1.showCalled, "Overlay 1 should be shown after update");
-        ASSERT_TRUE(overlay2.showCalled, "Overlay 2 should be shown after update");
+        // Note: Overlays now control their own visibility, so show() is not called by manager
 
         TEST_PASS();
     }
@@ -419,7 +418,7 @@ void testChangeLifecycle() {
         [mockAdapter simulateChangeComplete:testState];
 
         ASSERT_TRUE(overlay.updatePositionCalled, "Overlay should receive position update");
-        ASSERT_TRUE(overlay.showCalled, "Overlay should be shown after change complete");
+        // Note: Overlays now control their own visibility, so show() is not called by manager
 
         TEST_PASS();
     }
