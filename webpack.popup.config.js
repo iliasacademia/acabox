@@ -14,6 +14,7 @@ module.exports = {
     academiaNotifications: './src/popup/AcademiaNotificationsPopup.tsx',
     overallReview: './src/popup/OverallReviewPopup.tsx',
     overallReviewButton: './src/popup/OverallReviewButton.tsx',
+    textSideButton: './src/popup/TextSideButton.tsx',
   },
   output: {
     path: path.resolve(__dirname, 'dist/popup'),
@@ -68,6 +69,13 @@ module.exports = {
       inject: false, // Don't inject - we manually control script loading order
       scriptLoading: 'blocking',
     }),
+    new HtmlWebpackPlugin({
+      template: './src/popup/text-side-button.html',
+      filename: 'textSideButton/index.html',
+      chunks: ['textSideButton'],
+      inject: false, // Don't inject - we manually control script loading order
+      scriptLoading: 'blocking',
+    }),
     new CopyWebpackPlugin({
       patterns: [
         {
@@ -81,6 +89,10 @@ module.exports = {
         {
           from: './src/popup/bridge-preload.js',
           to: 'overallReviewButton/bridge-preload.js',
+        },
+        {
+          from: './src/popup/bridge-preload.js',
+          to: 'textSideButton/bridge-preload.js',
         },
       ],
     }),

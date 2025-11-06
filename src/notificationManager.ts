@@ -40,12 +40,6 @@ class NotificationManager {
 
       console.log(`[NotificationManager] Received ${response.notifications.length} notifications from backend`);
 
-      // Log the raw response to see field names
-      if (response.notifications.length > 0) {
-        console.log('[NotificationManager] Raw first notification from backend:', JSON.stringify(response.notifications[0], null, 2));
-        console.log('[NotificationManager] Field names:', Object.keys(response.notifications[0]));
-      }
-
       // Get existing notification IDs
       const existingIds = new Set<number>();
       for (const [id, notif] of this.notifications) {
@@ -58,16 +52,6 @@ class NotificationManager {
 
       // Upsert notifications from API
       for (const notif of response.notifications) {
-        // Log each notification details
-        console.log(`[NotificationManager] Notification ${notif.id}:`, {
-          title: notif.title,
-          status: notif.status,
-          delivered_at: notif.delivered_at,
-          delivered_at_type: typeof notif.delivered_at,
-          is_null_or_undefined: notif.delivered_at == null,
-          raw_keys: Object.keys(notif),
-        });
-
         const cached: CachedNotification = {
           ...notif,
           fetched_at: fetchedAt,

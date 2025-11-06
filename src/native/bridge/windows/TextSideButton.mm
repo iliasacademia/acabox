@@ -143,10 +143,6 @@
     [self orderFront:nil];
 }
 
-- (BOOL)isVisible {
-    return [self isVisible];
-}
-
 - (NSString *)overlayIdentifier {
     return [NSString stringWithFormat:@"TextSideButton-%@", self.searchText];
 }
