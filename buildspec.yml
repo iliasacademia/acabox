@@ -1,0 +1,90 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Installing dependencies..."
+      - echo "Node version:"
+      - node --version
+      - echo "NPM version:"
+      - npm --version
+
+      - echo "Setting up code signing keychain..."
+      - security create-keychain -p temp_password build.keychain
+      - security default-keychain -s build.keychain
+      - security unlock-keychain -p temp_password build.keychain
+      - security set-keychain-settings -t 3600 -u build.keychain
+
+      - echo "Retrieving signing certificate from Secrets Manager..."
+      - aws secretsmanager get-secret-value --secret-id academia/mac-signing-certificate --region us-east-1 --query SecretBinary --output text | base64 -d > certificate.p12
+      - CERT_PASSWORD=$(aws secretsmanager get-secret-value --secret-id academia/mac-signing-password --region us-east-1 --query SecretString --output text)
+
+      - echo "Importing certificates into keychain..."
+      - security import certificate.p12 -k build.keychain -P "$CERT_PASSWORD" -T /usr/bin/codesign
+      - security import AppleWWDRCAG3.cer -k build.keychain -T /usr/bin/codesign
+
+      - echo "Setting keychain permissions for codesign..."
+      - security set-key-partition-list -S apple-tool:,apple: -s -k temp_password build.keychain
+
+      - echo "Verifying signing identity..."
+      - security find-identity -v -p codesigning build.keychain
+
+      - echo "Cleaning up certificate files..."
+      - rm -f certificate.p12
+
+  build:
+    commands:
+      - echo "Build started on `date`"
+      - echo "Installing npm dependencies..."
+      - npm ci
+
+      - echo "Building native modules..."
+      - npm run build:native
+
+      - echo "Building popup UI..."
+      - npm run build:popup
+
+      - echo "Running type check..."
+      - npm run typecheck
+
+      - echo "Packaging Electron application..."
+      - npm run package
+
+      - echo "Listing packaged files..."
+      - ls -lah out/
+
+  post_build:
+    commands:
+      - echo "Build completed on `date`"
+
+      - echo "Cleaning up keychain..."
+      - security delete-keychain build.keychain || true
+      - |
+        if [ ! -z "$ARTIFACTS_BUCKET" ]; then
+          echo "Uploading Mac artifacts to S3..."
+          BUILD_VERSION="${STAGE}-$(date +%Y%m%d-%H%M%S)-${CODEBUILD_RESOLVED_SOURCE_VERSION:0:7}"
+
+          # Find and upload Mac (darwin) artifacts
+          for darwin_dir in out/academia-electron-darwin-*; do
+            if [ -d "$darwin_dir" ]; then
+              echo "Found Mac build: $darwin_dir"
+              aws s3 sync "$darwin_dir" "s3://${ARTIFACTS_BUCKET}/mac/${BUILD_VERSION}/" --exclude "*.log"
+              echo "Mac artifacts uploaded to s3://${ARTIFACTS_BUCKET}/mac/${BUILD_VERSION}/"
+            fi
+          done
+
+          # Update latest build pointer
+          echo "${BUILD_VERSION}" > latest-build.txt
+          aws s3 cp latest-build.txt "s3://${ARTIFACTS_BUCKET}/latest-${STAGE}.txt"
+        else
+          echo "No ARTIFACTS_BUCKET specified, skipping S3 upload"
+        fi
+
+artifacts:
+  files:
+    - 'out/**/*'
+  name: academia-electron-$STAGE-$(date +%Y%m%d-%H%M%S)
+
+cache:
+  paths:
+    - 'node_modules/**/*'

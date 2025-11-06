@@ -16,6 +16,13 @@ module.exports = {
       NSAppleEventsUsageDescription: 'This app needs to send Apple Events to Microsoft Word to read document content.',
       NSAppleScriptEnabled: true,
     },
+    // Code signing for development and CI/CD
+    osxSign: {
+      identity: '6FF117CBEA6E11B14B2CCCD15B306E760831800F',
+      hardenedRuntime: true,
+      entitlements: 'entitlements.plist',
+      'entitlements-inherit': 'entitlements.plist',
+    },
   },
   rebuildConfig: {},
   makers: [
