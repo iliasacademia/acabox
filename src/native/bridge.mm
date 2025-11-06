@@ -75,7 +75,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         // Create and register overlay windows
         _notificationsButton = [[AcademiaNotificationsButton alloc] initWithObserver:self];
         _overallReviewButton = [[OverallReviewButton alloc] initWithObserver:self];
-        _textSideButton = [[TextSideButton alloc] initWithObserver:self searchText:@"My default assumption about the universe is that the universe is teeming with advanced life"];
+        _textSideButton = [[TextSideButton alloc] initWithObserver:self searchText:@"Introduction"];
 
         [_academiaManager registerOverlay:_notificationsButton];
         [_academiaManager registerOverlay:_overallReviewButton];
