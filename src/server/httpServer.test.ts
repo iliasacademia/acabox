@@ -6,6 +6,11 @@
  * @jest-environment node
  */
 
+// Mock proxy routes to avoid axios-cookiejar-support ES module issues
+jest.mock('./routes/proxy', () => ({
+  registerProxyRoutes: jest.fn(),
+}));
+
 import { AcademiaHttpServer } from './httpServer';
 
 // Mock NotificationManager for testing

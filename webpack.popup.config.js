@@ -12,6 +12,7 @@ module.exports = {
   mode: 'production',
   entry: {
     academiaNotifications: './src/popup/AcademiaNotificationsPopup.tsx',
+    academiaNotificationsButton: './src/popup/AcademiaNotificationsButton.tsx',
     overallReview: './src/popup/OverallReviewPopup.tsx',
     overallReviewButton: './src/popup/OverallReviewButton.tsx',
     textSideButton: './src/popup/TextSideButton.tsx',
@@ -57,6 +58,13 @@ module.exports = {
       scriptLoading: 'blocking',
     }),
     new HtmlWebpackPlugin({
+      template: './src/popup/academia-notifications-button.html',
+      filename: 'academiaNotificationsButton/index.html',
+      chunks: ['academiaNotificationsButton'],
+      inject: false, // Don't inject - we manually control script loading order
+      scriptLoading: 'blocking',
+    }),
+    new HtmlWebpackPlugin({
       template: './src/popup/overall-review.html',
       filename: 'overallReview/index.html',
       chunks: ['overallReview'],
@@ -89,6 +97,10 @@ module.exports = {
         {
           from: './src/popup/bridge-preload.js',
           to: 'academiaNotifications/bridge-preload.js',
+        },
+        {
+          from: './src/popup/bridge-preload.js',
+          to: 'academiaNotificationsButton/bridge-preload.js',
         },
         {
           from: './src/popup/bridge-preload.js',

@@ -95,11 +95,9 @@ void testAcademiaNotificationsButtonInitialization() {
         NSLog(@"[TEST] AcademiaNotificationsButton created: %@", window);
 
         ASSERT_NOT_NULL(window, "Window should be created");
-        NSLog(@"[TEST] Window is not null, checking button...");
-        ASSERT_NOT_NULL(window.button, "Button should be initialized");
-        NSLog(@"[TEST] Button is not null, checking title...");
-        ASSERT_TRUE([window.button.title isEqualToString:@"A"], "Button should have 'A' title");
-        NSLog(@"[TEST] Title is correct, checking panel properties...");
+        NSLog(@"[TEST] Window is not null, checking webView...");
+        ASSERT_NOT_NULL(window.webView, "WebView should be initialized");
+        NSLog(@"[TEST] WebView is not null, checking panel properties...");
         ASSERT_TRUE(window.floatingPanel, "Should be a floating panel");
         ASSERT_FALSE(window.becomesKeyOnlyIfNeeded, "Should not become key window");
 
@@ -155,24 +153,27 @@ void testWindowInitializationWithNilObserver() {
     }
 }
 
-void testAcademiaNotificationsButtonPositioning() {
-    TEST_START("AcademiaNotificationsButton Positioning");
-
-    @autoreleasepool {
-        AcademiaNotificationsButton* button = [[AcademiaNotificationsButton alloc] initWithObserver:nil];
-
-        CGPoint testPoint = CGPointMake(500, 300);
-        CGFloat testHeight = 20;
-
-        [button positionAtPoint:testPoint withHeight:testHeight];
-
-        ASSERT_EQUAL(button.frame.origin.x, testPoint.x, "Button X position should match");
-        ASSERT_EQUAL(button.frame.size.height, testHeight, "Button height should match");
-        ASSERT_EQUAL(button.frame.size.width, 30, "Button width should be 30px");
-
-        TEST_PASS();
-    }
-}
+// NOTE: testAcademiaNotificationsButtonPositioning removed - positionAtPoint:withHeight: no longer exists
+// Button now positions itself via updatePositionWithWordState: (OverlayWindow protocol)
+// Positioning is tested indirectly through integration tests
+// void testAcademiaNotificationsButtonPositioning() {
+//     TEST_START("AcademiaNotificationsButton Positioning");
+//
+//     @autoreleasepool {
+//         AcademiaNotificationsButton* button = [[AcademiaNotificationsButton alloc] initWithObserver:nil];
+//
+//         CGPoint testPoint = CGPointMake(500, 300);
+//         CGFloat testHeight = 20;
+//
+//         [button positionAtPoint:testPoint withHeight:testHeight];
+//
+//         ASSERT_EQUAL(button.frame.origin.x, testPoint.x, "Button X position should match");
+//         ASSERT_EQUAL(button.frame.size.height, testHeight, "Button height should match");
+//         ASSERT_EQUAL(button.frame.size.width, 30, "Button width should be 30px");
+//
+//         TEST_PASS();
+//     }
+// }
 
 // NOTE: Commented out - scheduleHidePopup/cancelScheduledHide methods removed in refactor
 // void testScheduleAndCancelHide() {
@@ -461,7 +462,7 @@ int main(int argc, const char * argv[]) {
         testBasePopupWindowInitialization();
         testWindowInitializationWithNilObserver();
         // testTextPopupUpdateContent();  // Removed - legacy code (WAGENT-94)
-        testAcademiaNotificationsButtonPositioning();
+        // testAcademiaNotificationsButtonPositioning();  // Removed - positionAtPoint:withHeight: no longer exists
         // testScheduleAndCancelHide();  // Commented out - methods removed in refactor
         // testMemoryDeallocation();  // Removed - TextPopupWindow dependency (WAGENT-94)
 

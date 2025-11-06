@@ -18,7 +18,7 @@ const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 
 let apiClient: AxiosInstance | null = null;
 
-const APIclient = async (): Promise<AxiosInstance> => {
+export const APIclient = async (): Promise<AxiosInstance> => {
   if (apiClient) {
     return apiClient;
   }
@@ -40,7 +40,7 @@ const APIclient = async (): Promise<AxiosInstance> => {
   return apiClient;
 };
 
-const getCsrfToken = async (): Promise<string> => {
+export const getCsrfToken = async (): Promise<string> => {
   const client = await APIclient();
   const headers = {
     Accept: '*/*',

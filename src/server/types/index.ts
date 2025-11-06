@@ -89,3 +89,22 @@ export interface HealthResponse {
   uptime: number;
   timestamp: number;
 }
+
+/**
+ * Proxy request metadata
+ */
+export interface ProxyRequest {
+  /** HTTP method */
+  method: string;
+  /** API path (without /proxy-api/ prefix) */
+  path: string;
+  /** Request body */
+  body?: any;
+  /** Query parameters */
+  query?: Record<string, any>;
+}
+
+/**
+ * Proxy response (generic, forwards Academia.edu API responses)
+ */
+export type ProxyResponse = any;
