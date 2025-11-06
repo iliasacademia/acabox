@@ -184,6 +184,15 @@ typedef struct {
 - (CGRect)getFirstLinePosition;
 
 /**
+ * Find position of specified text in the document
+ * Searches for the text in the currently focused text area and returns its bounding rectangle
+ *
+ * @param searchText The text to search for
+ * @return CGRect representing text bounds in screen coordinates, or CGRectZero if not found
+ */
+- (CGRect)findTextPosition:(NSString*)searchText;
+
+/**
  * Get currently visible character range in document
  *
  * @return CFRange representing visible text range

@@ -973,6 +973,77 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     return bounds;
 }
 
+- (CGRect)findTextPosition:(NSString*)searchText {
+    NSLog(@"[MicrosoftWordAdapter] Finding position for text: \"%@\"", searchText);
+
+    if (!searchText || searchText.length == 0) {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Empty search text");
+        return CGRectZero;
+    }
+
+    // Get focused element (must be AXTextArea)
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Could not get focused element (error: %d)", error);
+        return CGRectZero;
+    }
+
+    // Get the full text content
+    CFTypeRef textValue = NULL;
+    error = AXUIElementCopyAttributeValue(focusedElement, kAXValueAttribute, &textValue);
+
+    if (error != kAXErrorSuccess || !textValue) {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Could not get text value (error: %d)", error);
+        CFRelease(focusedElement);
+        return CGRectZero;
+    }
+
+    NSString* fullText = (__bridge_transfer NSString*)textValue;
+
+    // Search for the text
+    NSRange searchRange = [fullText rangeOfString:searchText options:0];
+    if (searchRange.location == NSNotFound) {
+        NSLog(@"[MicrosoftWordAdapter] Text not found: \"%@\"", searchText);
+        CFRelease(focusedElement);
+        return CGRectZero;
+    }
+
+    NSLog(@"[MicrosoftWordAdapter] Found text at character index %lu", (unsigned long)searchRange.location);
+
+    // Get bounds for this text range using AXBoundsForRangeParameterizedAttribute
+    CFRange range = CFRangeMake(searchRange.location, searchRange.length);
+    AXValueRef rangeValue = AXValueCreate(kAXValueTypeCFRange, &range);
+
+    if (!rangeValue) {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Could not create range value");
+        CFRelease(focusedElement);
+        return CGRectZero;
+    }
+
+    CFTypeRef boundsValue = NULL;
+    error = AXUIElementCopyParameterizedAttributeValue(focusedElement,
+                                                       kAXBoundsForRangeParameterizedAttribute,
+                                                       rangeValue,
+                                                       &boundsValue);
+
+    CGRect bounds = CGRectZero;
+    if (error == kAXErrorSuccess && boundsValue) {
+        AXValueGetValue((AXValueRef)boundsValue, (AXValueType)kAXValueTypeCGRect, &bounds);
+        NSLog(@"[MicrosoftWordAdapter] Text bounds: x=%.1f, y=%.1f, w=%.1f, h=%.1f",
+              bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
+        CFRelease(boundsValue);
+    } else {
+        NSLog(@"[MicrosoftWordAdapter] ERROR: Could not get bounds (error: %d)", error);
+    }
+
+    CFRelease(rangeValue);
+    CFRelease(focusedElement);
+
+    return bounds;
+}
+
 - (CFRange)getVisibleCharacterRange {
     AXUIElementRef focusedElement = NULL;
     AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);

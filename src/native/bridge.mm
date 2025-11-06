@@ -11,6 +11,7 @@
 #import "bridge/windows/OverallReviewPopup.h"
 #import "bridge/windows/AcademiaNotificationsButton.h"
 #import "bridge/windows/OverallReviewButton.h"
+#import "bridge/windows/TextSideButton.h"
 
 // Import new architecture components (WAGENT-94)
 #import "bridge/adapters/MicrosoftWordAdapter.h"
@@ -50,6 +51,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     // Overlay windows
     AcademiaNotificationsButton* _notificationsButton;
     OverallReviewButton* _overallReviewButton;
+    TextSideButton* _textSideButton;
 
     // Debug windows (enabled with DEBUG=1)
     DebugBorderWindow* _debugWindowBorder;     // Red border for Word window
@@ -78,9 +80,11 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         // Create and register overlay windows
         _notificationsButton = [[AcademiaNotificationsButton alloc] initWithObserver:self];
         _overallReviewButton = [[OverallReviewButton alloc] initWithObserver:self];
+        _textSideButton = [[TextSideButton alloc] initWithObserver:self searchText:@"My default assumption about the universe is that the universe is teeming with advanced life"];
 
         [_academiaManager registerOverlay:_notificationsButton];
         [_academiaManager registerOverlay:_overallReviewButton];
+        [_academiaManager registerOverlay:_textSideButton];
 
         // Check if debug mode is enabled via DEBUG=1 environment variable
         NSString* debugEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"DEBUG"];

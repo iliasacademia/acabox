@@ -37,6 +37,7 @@ typedef void (*ButtonClickCallback)(const char* text);
 
 // Accessor methods for managers
 - (id)getAcademiaManager;
+- (id)getWordAdapter;
 
 @end
 
