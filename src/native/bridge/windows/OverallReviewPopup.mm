@@ -427,6 +427,7 @@
     // This method is a no-op for popup windows
 
     NSLog(@"[OverallReviewPopup] updatePositionWithWordState called - position managed by parent button");
+    [self show];
 }
 
 - (void)hide {

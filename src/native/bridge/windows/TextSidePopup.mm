@@ -272,6 +272,7 @@
     // TextSidePopup position is managed by its parent TextSideButton
     // This method is a no-op for this popup window
     NSLog(@"[TextSidePopup] updatePositionWithWordState called - position managed by parent button");
+    [self show];
 }
 
 - (void)hide {
