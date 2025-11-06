@@ -16,6 +16,7 @@
         "bridge/windows/AcademiaNotificationsButton.mm",
         "bridge/windows/OverallReviewButton.mm",
         "bridge/windows/TextSideButton.mm",
+        "bridge/windows/TextSidePopup.mm",
         "bridge/windows/AcademiaNotificationsPopup.mm",
         "bridge/windows/DebugBorderWindow.mm",
         "bridge/windows/DebugInfoOverlay.mm",

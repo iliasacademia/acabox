@@ -57,6 +57,117 @@
     return @"TextSideButton";
 }
 
+- (void)handleConsoleLog:(NSDictionary*)logMessage {
+    // Handle console logs from WebView
+    NSString* level = logMessage[@"level"];
+    NSString* msg = logMessage[@"message"];
+    NSLog(@"[TextSideButton WebView %@] %@", level, msg);
+}
+
+- (void)handleBridgeMessage:(NSDictionary*)message {
+    NSString* action = message[@"action"];
+
+    // Handle button click
+    if ([action isEqualToString:@"buttonClicked"]) {
+        NSLog(@"[TextSideButton] Button clicked via bridge");
+        [self showClickPopup];
+
+        // Send success response
+        NSString* messageId = message[@"id"];
+        if (messageId) {
+            [self sendBridgeResponse:messageId success:YES payload:@{}];
+        }
+        return;
+    }
+
+    NSLog(@"[TextSideButton] Unknown action: %@", action);
+}
+
+- (void)sendBridgeResponse:(NSString*)messageId success:(BOOL)success payload:(NSDictionary*)payload {
+    NSDictionary* response = @{
+        @"id": messageId,
+        @"from": @"native",
+        @"to": @"popup",
+        @"type": @"response",
+        @"success": @(success),
+        @"payload": payload ?: @{},
+        @"timestamp": @([[NSDate date] timeIntervalSince1970] * 1000)
+    };
+
+    NSError* error;
+    NSData* jsonData = [NSJSONSerialization dataWithJSONObject:response options:0 error:&error];
+    if (error) {
+        NSLog(@"[TextSideButton] ERROR serializing response: %@", error);
+        return;
+    }
+
+    NSString* jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    NSString* jsCode = [NSString stringWithFormat:@"window.__bridgeReceive(%@)", jsonString];
+
+    [self.webView evaluateJavaScript:jsCode completionHandler:^(id result, NSError *error) {
+        if (error) {
+            NSLog(@"[TextSideButton] ERROR sending response: %@", error);
+        }
+    }];
+}
+
+#pragma mark - Popup Management
+
+- (void)showClickPopup {
+    BOOL isNewPopup = NO;
+    if (!self.clickPopup) {
+        // Create React-based popup window with observer
+        self.clickPopup = [[TextSidePopup alloc] initWithObserver:self.observer];
+
+        if (!self.clickPopup) {
+            NSLog(@"[TextSideButton] ERROR: Failed to create TextSidePopup!");
+            return;
+        }
+        isNewPopup = YES;
+    }
+
+    // Register window observers for new popup
+    if (isNewPopup && self.observer) {
+        // Register popup with AcademiaManager to receive activation/deactivation events
+        if ([self.observer respondsToSelector:@selector(getAcademiaManager)]) {
+            id academiaManager = [self.observer getAcademiaManager];
+            if (academiaManager && [academiaManager respondsToSelector:@selector(registerOverlay:)]) {
+                [academiaManager registerOverlay:self.clickPopup];
+                NSLog(@"[TextSideButton] Registered popup with AcademiaManager");
+            }
+        }
+    }
+
+    // Position popup: use saved position if available, otherwise calculate default
+    if (!NSEqualRects(self.clickPopup.savedFrame, NSZeroRect)) {
+        // Restore saved position and size from last time
+        [self.clickPopup setFrame:self.clickPopup.savedFrame display:YES];
+    } else {
+        // First time showing - calculate default position relative to button
+        NSRect buttonFrame = self.frame;
+        CGFloat popupWidth = 400;   // Default popup width
+        CGFloat popupHeight = 500;  // Default popup height
+        CGFloat verticalSpacing = 4;  // Space between button and popup
+
+        // Position directly below button, left-aligned
+        CGFloat popupX = buttonFrame.origin.x;
+        CGFloat popupY = buttonFrame.origin.y - popupHeight - verticalSpacing;
+
+        NSRect popupFrame = NSMakeRect(popupX, popupY, popupWidth, popupHeight);
+        [self.clickPopup setFrame:popupFrame display:YES];
+        // Save this initial position
+        self.clickPopup.savedFrame = self.clickPopup.frame;
+    }
+
+    // Set visibility flag before showing (popup is being explicitly opened)
+    self.clickPopup.wasVisibleBeforeHiding = YES;
+    NSLog(@"[TextSideButton] Setting wasVisibleBeforeHiding to YES before showing popup");
+
+    [self.clickPopup orderFront:nil];
+
+    NSLog(@"[TextSideButton] Click popup shown at level: %ld", (long)self.clickPopup.level);
+}
+
 #pragma mark - OverlayWindow Protocol
 
 - (void)updatePositionWithWordState:(WordPositionState)state {
