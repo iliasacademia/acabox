@@ -9,9 +9,14 @@
 
 // Configuration constants
 static const NSTimeInterval kScrollDebounceInterval = 0.4;      // 400ms (increased for layout stability)
-static const NSTimeInterval kPositionVerificationDelay = 0.1;   // 100ms position verification
 static const NSTimeInterval kWindowMoveDebounceInterval = 0.5;  // 500ms
 static const NSTimeInterval kBoundsCacheValidityDuration = 1.0; // 1 second
+
+// Polling configuration constants (for two-phase position stability detection)
+static const NSTimeInterval kPollingInterval = 0.1;             // 100ms polling interval
+static const NSTimeInterval kStabilityRequiredDuration = 0.5;   // 500ms stability required
+static const NSTimeInterval kMaxPollingDuration = 5.0;          // 5 second max polling duration
+static const NSInteger kStabilitySampleCount = 5;               // Number of samples for stability (500ms / 100ms)
 
 // Callback function for accessibility events
 static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElementRef element, CFStringRef notification, void* refcon);
@@ -53,6 +58,11 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
     // Scroll event monitor
     id _scrollEventMonitor;
+
+    // Two-phase polling state
+    NSMutableArray* _textAreaBoundsHistory;  // Rolling buffer of last N TextArea bounds samples
+    NSInteger _pollingAttempts;              // Counter for safety timeout
+    NSTimer* _positionPollingTimer;          // 100ms repeating timer for polling
 }
 
 #pragma mark - Initialization
@@ -88,6 +98,11 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
         // Initialize logging flags
         _enableGetLayoutBoundsLogging = YES;
+
+        // Initialize polling state
+        _textAreaBoundsHistory = [NSMutableArray array];
+        _pollingAttempts = 0;
+        _positionPollingTimer = nil;
 
         NSLog(@"[MicrosoftWordAdapter] Initialized for PID: %d", pid);
     }
@@ -213,6 +228,9 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
     [_focusChangeDebounceTimer invalidate];
     _focusChangeDebounceTimer = nil;
+
+    [_positionPollingTimer invalidate];
+    _positionPollingTimer = nil;
 
     // Remove scroll event monitor
     if (_scrollEventMonitor) {
@@ -512,57 +530,123 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 }
 
 - (void)verifyPositionStableAndComplete {
-    NSLog(@"[MicrosoftWordAdapter] Verifying position stability before completing change");
+    NSLog(@"[MicrosoftWordAdapter] Starting two-phase polling for position stability");
 
-    // Take initial position sample
-    CGPoint initialPosition = [self getLayoutBounds].origin;
+    // Reset polling state
+    [_textAreaBoundsHistory removeAllObjects];
+    _pollingAttempts = 0;
 
-    if (CGPointEqualToPoint(initialPosition, CGPointZero)) {
-        NSLog(@"[MicrosoftWordAdapter] Position verification SKIPPED - initial position is zero");
-        // Position invalid, just complete anyway
-        [self handleChangeComplete];
+    // Stop any existing polling timer
+    [_positionPollingTimer invalidate];
+    _positionPollingTimer = nil;
+
+    // Start Phase 1: Lightweight polling
+    [self startLightweightPolling];
+}
+
+- (void)startLightweightPolling {
+    NSLog(@"[MicrosoftWordAdapter] Phase 1: Starting lightweight TextArea bounds polling");
+
+    __weak typeof(self) weakSelf = self;
+    _positionPollingTimer = [NSTimer scheduledTimerWithTimeInterval:kPollingInterval
+                                                            repeats:YES
+                                                              block:^(NSTimer * _Nonnull timer) {
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) {
+            [timer invalidate];
+            return;
+        }
+
+        [strongSelf pollTextAreaBounds];
+    }];
+
+    // Fire immediately for first sample
+    [self pollTextAreaBounds];
+}
+
+- (void)pollTextAreaBounds {
+    _pollingAttempts++;
+
+    // Safety check: max polling duration exceeded
+    if (_pollingAttempts > (kMaxPollingDuration / kPollingInterval)) {
+        NSLog(@"[MicrosoftWordAdapter] WARNING: Max polling duration (%0.1fs) exceeded after %ld attempts - forcing completion",
+              kMaxPollingDuration, (long)_pollingAttempts);
+        [self stopPollingAndComplete];
         return;
     }
 
-    NSLog(@"[MicrosoftWordAdapter] Initial position sample: (%.1f, %.1f)", initialPosition.x, initialPosition.y);
+    // Get TextArea bounds (lightweight query)
+    CGRect textAreaBounds = [self getTextAreaBounds];
 
-    // Wait a short period and re-sample
-    __weak typeof(self) weakSelf = self;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kPositionVerificationDelay * NSEC_PER_SEC)),
-                   dispatch_get_main_queue(), ^{
-        typeof(self) strongSelf = weakSelf;
-        if (!strongSelf) return;
+    if (CGRectEqualToRect(textAreaBounds, CGRectZero)) {
+        NSLog(@"[MicrosoftWordAdapter] Poll #%ld: TextArea bounds invalid (zero) - forcing completion",
+              (long)_pollingAttempts);
+        [self stopPollingAndComplete];
+        return;
+    }
 
-        CGPoint verifyPosition = [strongSelf getLayoutBounds].origin;
-        NSLog(@"[MicrosoftWordAdapter] Verification position sample: (%.1f, %.1f)", verifyPosition.x, verifyPosition.y);
+    NSLog(@"[MicrosoftWordAdapter] Poll #%ld: TextArea bounds = (%.1f, %.1f, %.1f x %.1f)",
+          (long)_pollingAttempts,
+          textAreaBounds.origin.x, textAreaBounds.origin.y,
+          textAreaBounds.size.width, textAreaBounds.size.height);
 
-        // Check if position is stable (hasn't changed)
-        if (CGPointEqualToPoint(initialPosition, verifyPosition)) {
-            NSLog(@"[MicrosoftWordAdapter] Position STABLE - completing change");
-            [strongSelf handleChangeComplete];
-            strongSelf->_isScrolling = NO;
-        } else {
-            NSLog(@"[MicrosoftWordAdapter] Position STILL CHANGING - layout not stable yet, restarting debounce");
-            // Position still changing, restart the debounce cycle
-            // This simulates receiving another scroll event
-            strongSelf->_lastLayoutCornerPosition = verifyPosition;
-            strongSelf->_hasLastLayoutCornerPosition = YES;
+    // Add to history
+    [_textAreaBoundsHistory addObject:[NSValue valueWithRect:NSRectFromCGRect(textAreaBounds)]];
 
-            // Restart debounce timer
-            [strongSelf->_scrollDebounceTimer invalidate];
-            __weak typeof(strongSelf) weakSelf2 = strongSelf;
-            strongSelf->_scrollDebounceTimer = [NSTimer scheduledTimerWithTimeInterval:kScrollDebounceInterval
-                                                                                repeats:NO
-                                                                                  block:^(NSTimer * _Nonnull timer) {
-                typeof(strongSelf) strongSelf2 = weakSelf2;
-                if (strongSelf2) {
-                    NSLog(@"[MicrosoftWordAdapter] Retry debounce timer fired, verifying again");
-                    [strongSelf2 verifyPositionStableAndComplete];
-                    strongSelf2->_scrollDebounceTimer = nil;
-                }
-            }];
+    // Keep only the required number of samples
+    if (_textAreaBoundsHistory.count > kStabilitySampleCount) {
+        [_textAreaBoundsHistory removeObjectAtIndex:0];
+    }
+
+    // Check if we have enough samples for stability check
+    if (_textAreaBoundsHistory.count < kStabilitySampleCount) {
+        NSLog(@"[MicrosoftWordAdapter] Collecting samples (%lu / %ld)",
+              (unsigned long)_textAreaBoundsHistory.count, (long)kStabilitySampleCount);
+        return;
+    }
+
+    // Check if all samples are identical (position stable)
+    BOOL allSamplesIdentical = YES;
+    CGRect firstSample = NSRectToCGRect([_textAreaBoundsHistory[0] rectValue]);
+
+    for (NSValue* sampleValue in _textAreaBoundsHistory) {
+        CGRect sample = NSRectToCGRect([sampleValue rectValue]);
+        if (!CGRectEqualToRect(sample, firstSample)) {
+            allSamplesIdentical = NO;
+            break;
         }
-    });
+    }
+
+    if (allSamplesIdentical) {
+        NSLog(@"[MicrosoftWordAdapter] Position STABLE for %.0fms (%ld samples) - proceeding to Phase 2",
+              kStabilityRequiredDuration * 1000, (long)kStabilitySampleCount);
+        [self stopPollingAndComplete];
+    } else {
+        NSLog(@"[MicrosoftWordAdapter] Position still changing - continuing to poll");
+    }
+}
+
+- (void)stopPollingAndComplete {
+    // Stop polling timer
+    [_positionPollingTimer invalidate];
+    _positionPollingTimer = nil;
+
+    NSLog(@"[MicrosoftWordAdapter] Phase 2: TextArea stable, calculating full layout bounds");
+
+    // Phase 2: Perform expensive layout bounds calculation once
+    CGRect layoutBounds = [self getLayoutBounds];
+
+    if (!CGRectEqualToRect(layoutBounds, CGRectZero)) {
+        _lastLayoutCornerPosition = layoutBounds.origin;
+        _hasLastLayoutCornerPosition = YES;
+        NSLog(@"[MicrosoftWordAdapter] Final layout position: (%.1f, %.1f)",
+              layoutBounds.origin.x, layoutBounds.origin.y);
+    }
+
+    // Complete the change
+    NSLog(@"[MicrosoftWordAdapter] Position STABLE - completing change");
+    [self handleChangeComplete];
+    _isScrolling = NO;
 }
 
 - (void)handleChangeComplete {
@@ -912,6 +996,77 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     }
 
     return CGRectZero;
+}
+
+- (CGRect)getTextAreaBounds {
+    // Lightweight bounds query for TextArea element only
+    // Used for polling-based scroll completion detection
+    // Much faster than getLayoutBounds as it doesn't traverse the hierarchy
+
+    AXUIElementRef focusedElement = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXFocusedUIElementAttribute, (CFTypeRef*)&focusedElement);
+
+    if (error != kAXErrorSuccess || !focusedElement) {
+        return CGRectZero;
+    }
+
+    // Walk up to find AXTextArea
+    AXUIElementRef currentElement = focusedElement;
+    CFRetain(currentElement);
+    CGRect textAreaBounds = CGRectZero;
+
+    for (int i = 0; i < 20; i++) {
+        // Get role
+        CFTypeRef roleValue = NULL;
+        AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute, &roleValue);
+        NSString* role = (__bridge_transfer NSString*)roleValue;
+
+        // Check if this is the text area
+        if ([role isEqualToString:(__bridge NSString*)kAXTextAreaRole]) {
+            // Get position
+            CFTypeRef positionValue = NULL;
+            error = AXUIElementCopyAttributeValue(currentElement, kAXPositionAttribute, &positionValue);
+            CGPoint position = CGPointZero;
+            if (error == kAXErrorSuccess && positionValue) {
+                AXValueGetValue((AXValueRef)positionValue, kAXValueTypeCGPoint, &position);
+                CFRelease(positionValue);
+            }
+
+            // Get size
+            CFTypeRef sizeValue = NULL;
+            error = AXUIElementCopyAttributeValue(currentElement, kAXSizeAttribute, &sizeValue);
+            CGSize size = CGSizeZero;
+            if (error == kAXErrorSuccess && sizeValue) {
+                AXValueGetValue((AXValueRef)sizeValue, kAXValueTypeCGSize, &size);
+                CFRelease(sizeValue);
+            }
+
+            textAreaBounds = CGRectMake(position.x, position.y, size.width, size.height);
+            break;
+        }
+
+        // Get parent element
+        CFTypeRef parentValue = NULL;
+        error = AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute, &parentValue);
+
+        if (error != kAXErrorSuccess || !parentValue) {
+            break;
+        }
+
+        if (currentElement != focusedElement) {
+            CFRelease(currentElement);
+        }
+
+        currentElement = (AXUIElementRef)parentValue;
+    }
+
+    // Clean up
+    if (currentElement != focusedElement) {
+        CFRelease(currentElement);
+    }
+    CFRelease(focusedElement);
+
+    return textAreaBounds;
 }
 
 - (CGFloat)getLayoutLeftMargin {
