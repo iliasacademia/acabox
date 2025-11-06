@@ -358,12 +358,35 @@ npx node-gyp rebuild
 
 ### Advanced Usage
 
-See [BRIDGE_USAGE.md](./BRIDGE_USAGE.md) for comprehensive documentation including:
+See [BRIDGE_USAGE.md](./docs/BRIDGE_USAGE.md) for comprehensive documentation including:
 - Multi-client communication patterns
 - State synchronization
 - Error handling
 - Performance optimization
 - Migration guides
+
+## Documentation
+
+For detailed information about the codebase:
+
+- **[ARCHITECTURE.md](./docs/ARCHITECTURE.md)** - Complete architecture overview
+  - System component diagram
+  - Component responsibilities and relationships
+  - Communication patterns between layers
+  - Data flow examples
+  - Quick start guide for implementing new features
+  - Essential reading for new developers and AI agents
+
+- **[BRIDGE_USAGE.md](./docs/BRIDGE_USAGE.md)** - Message bridge API reference
+  - Cross-platform bridge architecture
+  - Request-response patterns
+  - React hooks API
+  - State synchronization
+
+- **[AGENTS.md](./docs/AGENTS.md)** - Native module troubleshooting
+  - Resource cleanup procedures
+  - Zombie process prevention
+  - Debug and testing guides
 
 ## Why Native WebView vs Electron BrowserWindow
 
