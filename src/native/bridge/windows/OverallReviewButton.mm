@@ -359,8 +359,6 @@
 }
 
 - (void)show {
-    NSLog(@"[OverallReviewButton] show called from:");
-    NSLog(@"%@", [NSThread callStackSymbols]);
     [self orderFront:nil];
 }
 

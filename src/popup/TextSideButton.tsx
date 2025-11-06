@@ -27,12 +27,12 @@ const TextSideButton: React.FC = () => {
   };
 
   const buttonStyle: React.CSSProperties = {
-    backgroundColor: '#0645B1',
-    border: 'none',
-    borderRadius: '8px',
-    padding: '8px 16px',
-    color: '#ffffff',
-    fontSize: '14px',
+    backgroundColor: '#ffffff',
+    border: '1px solid #141413',
+    borderRadius: '12px',
+    padding: '2px 9px',
+    color: '#141413',
+    fontSize: '16px',
     fontWeight: 600,
     fontFamily: '"DM Sans", -apple-system, BlinkMacSystemFont, sans-serif',
     cursor: 'pointer',
@@ -42,7 +42,11 @@ const TextSideButton: React.FC = () => {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    transition: 'background-color 0.15s ease-in-out',
+    width: '24px',
+    height: '24px',
+    lineHeight: '16px',
+    boxSizing: 'border-box',
+    transition: 'all 0.15s ease-in-out',
     whiteSpace: 'nowrap',
   };
 
@@ -53,16 +57,16 @@ const TextSideButton: React.FC = () => {
       disabled={!isReady || loading}
       onMouseEnter={(e) => {
         if (!e.currentTarget.disabled) {
-          e.currentTarget.style.backgroundColor = '#053a8f';
+          e.currentTarget.style.backgroundColor = '#f5f5f5';
         }
       }}
       onMouseLeave={(e) => {
         if (!e.currentTarget.disabled) {
-          e.currentTarget.style.backgroundColor = '#0645B1';
+          e.currentTarget.style.backgroundColor = '#ffffff';
         }
       }}
     >
-      View Details
+      1
     </button>
   );
 };

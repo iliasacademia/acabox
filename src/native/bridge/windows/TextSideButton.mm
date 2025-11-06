@@ -5,8 +5,8 @@
 @implementation TextSideButton
 
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer searchText:(NSString*)text {
-    CGFloat width = 200.0;
-    CGFloat height = 40.0;
+    CGFloat width = 24.0;
+    CGFloat height = 24.0;
 
     // Call base class initializer
     self = [super initWithSize:CGSizeMake(width, height)
@@ -119,9 +119,9 @@
     // Convert from Accessibility coordinates (top-left origin) to Cocoa coordinates (bottom-left origin)
     CGFloat cocoaY = primaryScreenHeight - textBounds.origin.y;
 
-    // Position button to the right of the text
-    CGFloat horizontalMargin = 10.0;
-    CGFloat buttonX = textBounds.origin.x + textBounds.size.width + horizontalMargin;
+    // Position button 8px from the left edge of the layout bounds
+    CGFloat leftOffset = 8.0;
+    CGFloat buttonX = state.layoutPosition.x + leftOffset;
     CGFloat buttonY = cocoaY - buttonHeight;
 
     NSRect newFrame = NSMakeRect(buttonX, buttonY, buttonWidth, buttonHeight);
