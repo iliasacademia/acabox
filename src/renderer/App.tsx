@@ -11,6 +11,7 @@ import PositionDebugger from './components/PositionDebugger';
 import CustomTitleBar from './components/CustomTitleBar';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
+import Projects from './components/Projects';
 import './App.css';
 
 type Page = 'positionDebugger' | 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker' | 'trayIconSwitcher';
@@ -20,6 +21,9 @@ const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('positionDebugger');
   const [userId, setUserId] = useState<number | null>(null);
   const isDevelopment = process.env.NODE_ENV === 'development';
+
+  // Detect if this is the main window (Projects UI) or dev window
+  const isMainWindow = new URLSearchParams(window.location.search).get('window') === 'main';
 
   useEffect(() => {
     checkLoginStatus();
@@ -132,6 +136,12 @@ const App: React.FC = () => {
     }
   };
 
+  // If this is the main window, render the Projects UI
+  if (isMainWindow) {
+    return <Projects />;
+  }
+
+  // Otherwise, render the development tools UI
   return (
     <div className="app">
       <CustomTitleBar />

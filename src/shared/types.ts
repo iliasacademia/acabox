@@ -7,11 +7,15 @@ export const IPC_CHANNELS = {
   LOGOUT: 'logout',
   GET_CURRENT_USER: 'get-current-user',
 
+  // API operations
+  API_CALL: 'api-call',
+
   // File operations
   SELECT_FOLDER: 'select-folder',
   UPLOAD_FILES: 'upload-files',
   SEARCH_FILES: 'search-files',
   GET_FOLDER_FILES: 'get-folder-files',
+  SCAN_FOLDER_FOR_FILES: 'scan-folder-for-files',
 
   // Notifications
   GET_NOTIFICATIONS: 'get-notifications',
@@ -44,6 +48,14 @@ export const IPC_CHANNELS = {
   FOLDER_SYNC_STATUS: 'folder-sync-status',
   INITIAL_SYNC_STATUS: 'initial-sync-status',
   INITIAL_SYNC_PROGRESS: 'initial-sync-progress',
+
+  // Project sync operations
+  START_PROJECT_FOLDER_SYNC: 'start-project-folder-sync',
+  STOP_PROJECT_FOLDER_SYNC: 'stop-project-folder-sync',
+  STOP_PROJECT_SYNC: 'stop-project-sync',
+  PROJECT_SYNC_STATUS: 'project-sync-status',
+  PROJECT_SYNC_PROGRESS: 'project-sync-progress',
+  PROJECT_FILE_SYNCED: 'project-file-synced',
 
   // Selection tracking
   START_SELECTION_TRACKING: 'start-selection-tracking',
