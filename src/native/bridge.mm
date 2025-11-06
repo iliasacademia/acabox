@@ -13,11 +13,11 @@
 #import "bridge/windows/OverallReviewButton.h"
 #import "bridge/windows/TextSideButton.h"
 
-// Import new architecture components (WAGENT-94)
+// Import architecture components
 #import "bridge/adapters/MicrosoftWordAdapter.h"
 #import "bridge/managers/AcademiaManager.h"
 
-// Import debug windows (WAGENT-94)
+// Import debug windows
 #import "bridge/windows/DebugBorderWindow.h"
 #import "bridge/windows/DebugInfoOverlay.h"
 
@@ -43,10 +43,9 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     id _spaceChangeObserver;
     id _appActivationObserver;
 
-    // WAGENT-94: New architecture components
+    // New architecture components
     MicrosoftWordAdapter* _wordAdapter;  // Handles Word state tracking
     AcademiaManager* _academiaManager;   // Coordinates overlay windows
-    BOOL _useNewArchitecture;  // Feature flag to enable/disable new architecture
 
     // Overlay windows
     AcademiaNotificationsButton* _notificationsButton;
@@ -66,10 +65,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _pid = pid;
         _wordApp = AXUIElementCreateApplication(pid);
         _observer = NULL;
-
-        // WAGENT-94: Initialize new architecture components
-        _useNewArchitecture = YES;
-        NSLog(@"[Bridge] WAGENT-94: Initializing new architecture (MicrosoftWordAdapter + AcademiaManager)");
 
         // Create Word adapter with self as delegate
         _wordAdapter = [[MicrosoftWordAdapter alloc] initWithPID:pid delegate:nil];
@@ -113,7 +108,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             NSLog(@"[Bridge] DEBUG: Created and registered 4 debug windows (3 borders + 1 info overlay)");
         }
 
-        NSLog(@"[Bridge] WAGENT-94: New architecture components initialized with %ld overlays",
+        NSLog(@"[Bridge] Architecture components initialized with %ld overlays",
               (long)[_academiaManager registeredOverlayCount]);
     }
     return self;
@@ -140,7 +135,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _debugInfoOverlay = nil;
     }
 
-    // WAGENT-94: Clean up new architecture components
+    // Clean up architecture components
     if (_academiaManager) {
         [_academiaManager stopManaging];
         _academiaManager = nil;
@@ -149,7 +144,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         [_wordAdapter stopObserving];
         _wordAdapter = nil;
     }
-    NSLog(@"[Bridge] WAGENT-94: New architecture components cleaned up");
+    NSLog(@"[Bridge] Architecture components cleaned up");
 
     if (_wordApp) {
         CFRelease(_wordApp);
@@ -203,36 +198,31 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
                        AXObserverGetRunLoopSource(_observer),
                        kCFRunLoopDefaultMode);
 
-    // WAGENT-94: Start new architecture if enabled
-    if (_useNewArchitecture) {
-        NSLog(@"[Bridge] WAGENT-94: Starting new architecture components");
+    // Start architecture components
+    NSLog(@"[Bridge] Starting architecture components");
 
-        // Start Word adapter observation
-        NSError *adapterError = nil;
-        if (![_wordAdapter startObserving:&adapterError]) {
-            NSLog(@"[Bridge] WAGENT-94: ERROR - Failed to start Word adapter: %@", adapterError);
-            if (error) {
-                *error = adapterError;
-            }
-            return NO;
+    // Start Word adapter observation
+    NSError *adapterError = nil;
+    if (![_wordAdapter startObserving:&adapterError]) {
+        NSLog(@"[Bridge] ERROR - Failed to start Word adapter: %@", adapterError);
+        if (error) {
+            *error = adapterError;
         }
-
-        // Start Academia manager
-        if (![_academiaManager startManaging]) {
-            NSLog(@"[Bridge] WAGENT-94: ERROR - Failed to start Academia manager");
-            if (error) {
-                *error = [NSError errorWithDomain:@"WordAccessibility"
-                                            code:3
-                                        userInfo:@{NSLocalizedDescriptionKey: @"Failed to start Academia manager"}];
-            }
-            return NO;
-        }
-
-        NSLog(@"[Bridge] WAGENT-94: New architecture started successfully");
-
-        // Note: With new architecture, the manager handles overlay coordination
-        // Legacy app activation observer below is still active for compatibility
+        return NO;
     }
+
+    // Start Academia manager
+    if (![_academiaManager startManaging]) {
+        NSLog(@"[Bridge] ERROR - Failed to start Academia manager");
+        if (error) {
+            *error = [NSError errorWithDomain:@"WordAccessibility"
+                                        code:3
+                                    userInfo:@{NSLocalizedDescriptionKey: @"Failed to start Academia manager"}];
+        }
+        return NO;
+    }
+
+    NSLog(@"[Bridge] Architecture started successfully");
 
     // Listen for app activation/deactivation (handled by new architecture)
     __weak typeof(self) weakSelf = self;
@@ -250,13 +240,10 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         NSLog(@"[Bridge] Active app: %@ (PID: %d)", app.localizedName, app.processIdentifier);
         NSLog(@"[Bridge] Word PID: %d", strongSelf->_pid);
 
-        // WAGENT-94: New architecture handles all overlay visibility
-        if (strongSelf->_useNewArchitecture) {
-            if (app.processIdentifier == strongSelf->_pid) {
-                NSLog(@"[Bridge] Word activated - new architecture handling overlays");
-            } else {
-                NSLog(@"[Bridge] Different app activated - new architecture handling overlays");
-            }
+        if (app.processIdentifier == strongSelf->_pid) {
+            NSLog(@"[Bridge] Word activated - architecture handling overlays");
+        } else {
+            NSLog(@"[Bridge] Different app activated - architecture handling overlays");
         }
 
         NSLog(@"[Bridge] =====================================");
@@ -276,14 +263,13 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         [strongSelf handleSpaceChange];
     }];
 
-    // WAGENT-94: New architecture handles initial overlay display
-    NSLog(@"[Bridge] startObserving completed - new architecture managing overlays");
+    NSLog(@"[Bridge] startObserving completed - architecture managing overlays");
 
     return YES;
 }
 
 - (void)stopObserving {
-    // WAGENT-94: New architecture cleanup is handled in dealloc
+    // Architecture cleanup is handled in dealloc
     NSLog(@"[Bridge] stopObserving - cleaning up observers");
 
     // Remove app activation observer
@@ -317,27 +303,11 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
 }
 
-#pragma mark - Legacy Button Methods Removed (Replaced by New Architecture)
-
 #pragma mark - Space Change Handler
 
 - (void)handleSpaceChange {
-    // WAGENT-94: New architecture handles overlay hiding via AcademiaManager
-    // This method is called by _spaceChangeObserver but new architecture
-    // handles space changes through its own mechanisms
-    NSLog(@"[Bridge] Space change detected - new architecture handling");
-}
-
-#pragma mark - Legacy Click Popup Observers (No-op in New Architecture)
-
-- (void)registerClickPopupObservers {
-    // WAGENT-94: No-op - new architecture handles popup events
-    NSLog(@"[Bridge] registerClickPopupObservers called (no-op in new architecture)");
-}
-
-- (void)unregisterClickPopupObservers {
-    // WAGENT-94: No-op - new architecture handles popup events
-    NSLog(@"[Bridge] unregisterClickPopupObservers called (no-op in new architecture)");
+    // Space change handling is managed by AcademiaManager
+    NSLog(@"[Bridge] Space change detected");
 }
 
 #pragma mark - Button Click Handlers
@@ -750,49 +720,30 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     };
 }
 
-#pragma mark - Legacy Duplicate Position Query Methods (Now Delegated to Adapter)
-// The following methods delegate to MicrosoftWordAdapter for WAGENT-94 refactoring
+#pragma mark - Position Query Methods (Delegated to Adapter)
 
 - (CGPoint)getDocumentTopLeftCorner {
-    if (_useNewArchitecture && _wordAdapter) {
-        return [_wordAdapter getLayoutBounds].origin;
-    }
-    return CGPointZero;
+    return [_wordAdapter getLayoutBounds].origin;
 }
 
 - (CGRect)getScrollAreaBounds {
-    if (_useNewArchitecture && _wordAdapter) {
-        return [_wordAdapter getScrollAreaBounds];
-    }
-    return CGRectZero;
+    return [_wordAdapter getScrollAreaBounds];
 }
 
 - (CGRect)getFirstLinePosition {
-    if (_useNewArchitecture && _wordAdapter) {
-        return [_wordAdapter getFirstLinePosition];
-    }
-    return CGRectZero;
+    return [_wordAdapter getFirstLinePosition];
 }
 
 - (CFRange)getVisibleCharacterRange {
-    if (_useNewArchitecture && _wordAdapter) {
-        return [_wordAdapter getVisibleCharacterRange];
-    }
-    return CFRangeMake(0, 0);
+    return [_wordAdapter getVisibleCharacterRange];
 }
 
 - (BOOL)isPageCornerVisible {
-    if (_useNewArchitecture && _wordAdapter) {
-        return [_wordAdapter isPageCornerVisible];
-    }
-    return NO;
+    return [_wordAdapter isPageCornerVisible];
 }
 
 - (CGRect)getWordWindowBounds {
-    if (_useNewArchitecture && _wordAdapter) {
-        return [_wordAdapter getWordWindowBounds];
-    }
-    return CGRectZero;
+    return [_wordAdapter getWordWindowBounds];
 }
 
 - (NSArray*)getParentHierarchy {
@@ -870,88 +821,36 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 #pragma mark - Button State Query (Used by N-API)
 
 - (NSDictionary*)getButtonStates {
-    // WAGENT-94: Legacy buttons removed - return null for both
-    // New architecture manages overlays through AcademiaManager
+    // Legacy buttons removed - return null for both
+    // Overlays are managed through AcademiaManager
     return @{
         @"academiaButton": [NSNull null],
         @"countButton": [NSNull null]
     };
 }
 
-#pragma mark - Legacy Scroll Detection and Badge Methods Removed
-// The following methods have been removed (replaced by new architecture):
-// - checkPositionChange (selection-based scroll detection)
-// - handleSelectionChanged (disabled notification handler)
-// - handleValueChanged (disabled notification handler)
-// - updateButtonBadge (removed - use updateBadgeCountViaManager from Objective-C)
-// - getBadgeState (removed - debug method for legacy badge system)
-
-#pragma mark - WAGENT-94: New Architecture Access Methods
-
 /**
- * Enable the new architecture (MicrosoftWordAdapter + AcademiaManager)
- * Must be called BEFORE startObserving
- *
- * @return YES if enabled successfully, NO if already observing
- */
-- (BOOL)enableNewArchitecture {
-    // Cannot enable if already observing (must be set before startObserving)
-    if (_observer != NULL) {
-        NSLog(@"[Bridge] WAGENT-94: ERROR - Cannot enable new architecture after startObserving has been called");
-        return NO;
-    }
-
-    if (_useNewArchitecture) {
-        NSLog(@"[Bridge] WAGENT-94: New architecture already enabled");
-        return YES;
-    }
-
-    NSLog(@"[Bridge] WAGENT-94: Enabling new architecture");
-    _useNewArchitecture = YES;
-
-    // Initialize components (will be started in startObserving)
-    _wordAdapter = [[MicrosoftWordAdapter alloc] initWithPID:_pid delegate:nil];
-    _academiaManager = [[AcademiaManager alloc] initWithWordAdapter:_wordAdapter];
-
-    NSLog(@"[Bridge] WAGENT-94: New architecture enabled (components will start with startObserving)");
-    return YES;
-}
-
-/**
- * Check if new architecture is enabled
- */
-- (BOOL)isUsingNewArchitecture {
-    return _useNewArchitecture;
-}
-
-/**
- * Get the Word adapter instance (WAGENT-94)
- * Returns nil if new architecture is not enabled
+ * Get the Word adapter instance
  */
 - (MicrosoftWordAdapter *)getWordAdapter {
     return _wordAdapter;
 }
 
 /**
- * Get the Academia manager instance (WAGENT-94)
- * Returns nil if new architecture is not enabled
+ * Get the Academia manager instance
  */
 - (AcademiaManager *)getAcademiaManager {
     return _academiaManager;
 }
 
 /**
- * Update badge count via new architecture manager
+ * Update badge count via manager
  *
  * @param count Badge count to display
  */
 - (void)updateBadgeCountViaManager:(NSInteger)count {
-    if (_useNewArchitecture && _academiaManager) {
-        NSLog(@"[Bridge] WAGENT-94: Updating badge count via AcademiaManager: %ld", (long)count);
-        [_academiaManager updateBadgeCount:count];
-    } else {
-        NSLog(@"[Bridge] WAGENT-94: ERROR - New architecture not initialized, cannot update badge");
-    }
+    NSLog(@"[Bridge] Updating badge count via AcademiaManager: %ld", (long)count);
+    [_academiaManager updateBadgeCount:count];
 }
 
 @end
@@ -961,13 +860,12 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     @autoreleasepool {
         NSString* notificationName = (__bridge NSString*)notification;
 
-        // WAGENT-94: Legacy notification handlers removed - new architecture handles all events
         NSLog(@"[Bridge] Received accessibility notification: %@", notificationName);
 
-        // Note: Window move/resize events are logged but handled by new architecture
+        // Note: Window move/resize events are logged but handled by architecture
         if ([notificationName isEqualToString:(__bridge NSString*)kAXWindowMovedNotification] ||
             [notificationName isEqualToString:(__bridge NSString*)kAXWindowResizedNotification]) {
-            NSLog(@"[Bridge] Window geometry change - new architecture will update overlays");
+            NSLog(@"[Bridge] Window geometry change - architecture will update overlays");
         }
     }
 }
@@ -1356,8 +1254,6 @@ Napi::Value GetScrollAreaBounds(const Napi::CallbackInfo& info) {
     return result;
 }
 
-// WAGENT-94: Legacy badge N-API functions removed - badges handled by AcademiaManager
-
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("startObserving", Napi::Function::New(env, StartObserving));
     exports.Set("stopObserving", Napi::Function::New(env, StopObserving));
@@ -1373,7 +1269,6 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getParentHierarchy", Napi::Function::New(env, GetParentHierarchy));
     exports.Set("getButtonStates", Napi::Function::New(env, GetButtonStates));
     exports.Set("getScrollAreaBounds", Napi::Function::New(env, GetScrollAreaBounds));
-    // WAGENT-94: Badge functions removed - handled by AcademiaManager
     return exports;
 }
 
