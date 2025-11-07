@@ -7,6 +7,9 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   package:
     name: Package Electron App
@@ -35,26 +38,144 @@ jobs:
       - name: Build popup
         run: npm run build:popup
 
+      - name: Setup code signing certificate
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          # Create a temporary keychain
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Create and unlock keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Decode and import certificate
+          echo "$CSC_LINK" | base64 --decode > certificate.p12
+          security import certificate.p12 \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CSC_KEY_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/productsign
+
+          # Enable codesigning from the new keychain
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Add to keychain search list
+          security list-keychain -d user -s "$KEYCHAIN_PATH" $(security list-keychain -d user | sed s/\"//g)
+
+          # Clean up certificate file
+          rm certificate.p12
+
+          # Store keychain path for cleanup
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
+
       - name: Package application
-        run: npm run package
+        run: npm run make
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
+
+      - name: Generate version and artifact name
+        id: artifact-name
+        run: |
+          # Generate timestamp version in format: YYYYMMDDHHMMSS (14 digits)
+          VERSION_TIMESTAMP=$(date -u +"%Y%m%d%H%M%S")
+
+          # Determine channel suffix based on branch
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            # Main branch = stable (no suffix)
+            VERSION_TAG="${VERSION_TIMESTAMP}"
+            CHANNEL="stable"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Version tags use the tag as-is
+            VERSION_TAG="${{ github.ref_name }}"
+            CHANNEL="stable"
+          else
+            # Feature branches = beta channel
+            VERSION_TAG="${VERSION_TIMESTAMP}-beta"
+            CHANNEL="beta"
+          fi
+
+          # Artifact name (descriptive, includes branch)
+          TIMESTAMP_READABLE=$(date -u +"%Y%m%d-%H%M%S")
+          BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
+          BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
+          ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
+
+          echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: academia-electron-macos
-          path: out/make/**/*.dmg
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: out/make/**/*.zip
           retention-days: 30
 
-      - name: Create Release
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          if [ -n "$KEYCHAIN_PATH" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+
+      - name: Create Pre-Release (Feature Branches)
+        if: "!startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/heads/main'"
+        uses: softprops/action-gh-release@v1
+        with:
+          files: out/make/**/*.zip
+          tag_name: ${{ steps.artifact-name.outputs.version }}
+          name: "Pre-release: ${{ github.ref_name }} (v${{ steps.artifact-name.outputs.version }})"
+          body: |
+            Pre-release build from branch `${{ github.ref_name }}`
+
+            **Build Information:**
+            - Version: ${{ steps.artifact-name.outputs.version }}
+            - Channel: ${{ steps.artifact-name.outputs.channel }}
+            - Branch: ${{ github.ref_name }}
+            - Commit: ${{ github.sha }}
+            - Build Date: ${{ github.event.head_commit.timestamp }}
+
+            This is an automated pre-release build for testing purposes.
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release (Main Branch)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: out/make/**/*.zip
+          tag_name: ${{ steps.artifact-name.outputs.version }}
+          name: "Release v${{ steps.artifact-name.outputs.version }}"
+          body: |
+            Production release from `main` branch
+
+            **Build Information:**
+            - Version: ${{ steps.artifact-name.outputs.version }}
+            - Channel: ${{ steps.artifact-name.outputs.channel }}
+            - Commit: ${{ github.sha }}
+            - Build Date: ${{ github.event.head_commit.timestamp }}
+
+            This is an automated release build from the main branch.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Release (Version Tags)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: out/make/**/*.dmg
+          files: out/make/**/*.zip
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
