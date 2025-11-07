@@ -77,12 +77,23 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
 
+      - name: Generate artifact name
+        id: artifact-name
+        run: |
+          TIMESTAMP=$(date -u +"%Y%m%d-%H%M%S")
+          # Sanitize branch name: replace slashes and special chars with dashes
+          BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
+          # Truncate branch name to max 40 characters to keep artifact name under limits
+          BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
+          ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP}"
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: academia-electron-macos
-          path: out/make/**/*.dmg
+          name: ${{ steps.artifact-name.outputs.name }}
+          path: out/make/**/*.zip
           retention-days: 30
 
       - name: Cleanup keychain
