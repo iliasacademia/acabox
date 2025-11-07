@@ -115,4 +115,17 @@ module.exports = {
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
     }),
   ],
+  publishers: [
+    {
+      name: '@electron-forge/publisher-github',
+      config: {
+        repository: {
+          owner: 'academia-edu',
+          name: 'academia-electron',
+        },
+        draft: false,
+        prerelease: false,
+      },
+    },
+  ],
 };

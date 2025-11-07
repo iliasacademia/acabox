@@ -116,7 +116,9 @@ jobs:
         if: always()
         with:
           name: ${{ steps.artifact-name.outputs.name }}
-          path: out/make/**/*.zip
+          path: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
           retention-days: 30
 
       - name: Cleanup keychain
@@ -130,7 +132,9 @@ jobs:
         if: "!startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/heads/main'"
         uses: softprops/action-gh-release@v1
         with:
-          files: out/make/**/*.zip
+          files: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
           tag_name: ${{ steps.artifact-name.outputs.version }}
           name: "Pre-release: ${{ github.ref_name }} (v${{ steps.artifact-name.outputs.version }})"
           body: |
@@ -153,7 +157,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
         with:
-          files: out/make/**/*.zip
+          files: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
           tag_name: ${{ steps.artifact-name.outputs.version }}
           name: "Release v${{ steps.artifact-name.outputs.version }}"
           body: |
@@ -175,7 +181,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: out/make/**/*.zip
+          files: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

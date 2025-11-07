@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 import { createCanvas } from 'canvas';
+import { autoUpdater } from 'electron-updater';
+import Store from 'electron-store';
 import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles, APIclient, getCsrfToken } from './uploader';
 import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
@@ -13,6 +15,17 @@ import { AcademiaHttpServer } from './server/httpServer';
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+// Initialize electron-store for app settings
+interface AppSettings {
+  updateChannel: 'stable' | 'beta';
+}
+
+const store = new Store<AppSettings>({
+  defaults: {
+    updateChannel: 'stable',
+  },
+});
 
 // Helper function to resolve paths for AppleScript files
 function resolveAppleScriptPath(scriptName: string): string {
@@ -439,6 +452,63 @@ const createTray = (): void => {
     );
   }
 
+  // Add update options (always present)
+  const currentChannel = store.get('updateChannel', 'stable');
+  menuItems.push(
+    { type: 'separator' },
+    {
+      label: 'Check for Updates...',
+      click: () => {
+        checkForUpdatesManually();
+      },
+    },
+    {
+      label: 'Update Channel',
+      submenu: [
+        {
+          label: 'Stable',
+          type: 'radio',
+          checked: currentChannel === 'stable',
+          click: () => {
+            store.set('updateChannel', 'stable');
+            if (app.isPackaged) {
+              autoUpdater.channel = 'stable';
+            }
+            console.log('[Auto-Updater] Switched to stable channel');
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'Channel Changed',
+              message: 'Update channel changed to Stable',
+              detail: 'You will receive stable releases. Restart the app to apply changes.',
+            });
+          },
+        },
+        {
+          label: 'Beta',
+          type: 'radio',
+          checked: currentChannel === 'beta',
+          click: () => {
+            store.set('updateChannel', 'beta');
+            if (app.isPackaged) {
+              autoUpdater.channel = 'beta';
+            }
+            console.log('[Auto-Updater] Switched to beta channel');
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'Channel Changed',
+              message: 'Update channel changed to Beta',
+              detail: 'You will receive beta releases with early features. Restart the app to apply changes.',
+            });
+          },
+        },
+      ],
+    },
+    {
+      label: `Version: ${formatTimestampVersion(app.getVersion())}`,
+      enabled: false,
+    }
+  );
+
   // Add quit option (always present)
   menuItems.push(
     { type: 'separator' },
@@ -478,6 +548,173 @@ const positionWindowMiddleRight = (): void => {
   console.log(`[WINDOW] Positioned at middle-right: x=${x}, y=${y}`);
 };
 
+// Auto-updater configuration and setup
+function setupAutoUpdater(): void {
+  // Only enable auto-updater in production (packaged app)
+  if (!app.isPackaged) {
+    console.log('[Auto-Updater] Disabled in development mode');
+    return;
+  }
+
+  // Configure electron-updater
+  autoUpdater.autoDownload = false; // Don't auto-download, ask user first
+  autoUpdater.autoInstallOnAppQuit = true; // Install update when app quits
+
+  // Set update channel from user preference (stored in electron-store)
+  const channel = store.get('updateChannel', 'stable');
+  autoUpdater.channel = channel;
+
+  console.log(`[Auto-Updater] Configured for channel: ${channel}`);
+  console.log(`[Auto-Updater] Current version: ${app.getVersion()}`);
+
+  // Configure GitHub as update server
+  autoUpdater.setFeedURL({
+    provider: 'github',
+    owner: 'academia-edu',
+    repo: 'academia-electron',
+  });
+
+  // Event: Checking for updates
+  autoUpdater.on('checking-for-update', () => {
+    console.log('[Auto-Updater] Checking for updates...');
+  });
+
+  // Event: Update available
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Auto-Updater] Update available:', info.version);
+
+    // Format timestamp version for display
+    const currentVersion = app.getVersion();
+    const newVersion = info.version;
+    const formattedNewVersion = formatTimestampVersion(newVersion);
+    const formattedCurrentVersion = formatTimestampVersion(currentVersion);
+
+    // Show dialog to user
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Available',
+      message: `A new version of Academia is available!`,
+      detail: `Current: ${formattedCurrentVersion}\nAvailable: ${formattedNewVersion}\n\nWould you like to download it now?`,
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then((result) => {
+      if (result.response === 0) {
+        // User clicked Download
+        console.log('[Auto-Updater] User approved download');
+        autoUpdater.downloadUpdate();
+      } else {
+        console.log('[Auto-Updater] User postponed update');
+      }
+    });
+  });
+
+  // Event: Update not available
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[Auto-Updater] No updates available. Current version is latest:', info.version);
+  });
+
+  // Event: Update downloaded
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Auto-Updater] Update downloaded:', info.version);
+
+    const formattedVersion = formatTimestampVersion(info.version);
+
+    // Show dialog to install now or later
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Update Ready',
+      message: 'Update has been downloaded.',
+      detail: `Version ${formattedVersion} is ready to install.\n\nThe application will restart to complete the installation.`,
+      buttons: ['Restart Now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+    }).then((result) => {
+      if (result.response === 0) {
+        // User clicked Restart Now
+        console.log('[Auto-Updater] User approved installation, restarting...');
+        autoUpdater.quitAndInstall();
+      } else {
+        console.log('[Auto-Updater] User postponed installation');
+      }
+    });
+  });
+
+  // Event: Error
+  autoUpdater.on('error', (error) => {
+    console.error('[Auto-Updater] Error:', error);
+    // Don't show error dialog to user, just log it
+    // Updates are optional and shouldn't interrupt user workflow
+  });
+
+  // Event: Download progress
+  autoUpdater.on('download-progress', (progressInfo) => {
+    const percent = Math.round(progressInfo.percent);
+    console.log(`[Auto-Updater] Download progress: ${percent}%`);
+  });
+
+  // Check for updates on startup (with delay to avoid blocking app initialization)
+  setTimeout(() => {
+    console.log('[Auto-Updater] Performing initial update check...');
+    autoUpdater.checkForUpdates().catch((err) => {
+      console.error('[Auto-Updater] Failed to check for updates:', err);
+    });
+  }, 10000); // 10 second delay
+}
+
+// Helper function to format timestamp version for display
+// Converts 20250106143022 to "Jan 6, 2025 14:30 UTC"
+// Handles versions with channel suffix like 20250106143022-beta
+function formatTimestampVersion(version: string): string {
+  // Strip channel suffix if present
+  const parts = version.split('-');
+  const timestamp = parts[0];
+  const channel = parts[1];
+
+  // Parse timestamp: YYYYMMDDHHMMSS
+  if (timestamp.length === 14) {
+    const year = timestamp.substring(0, 4);
+    const month = timestamp.substring(4, 6);
+    const day = timestamp.substring(6, 8);
+    const hour = timestamp.substring(8, 10);
+    const minute = timestamp.substring(10, 12);
+
+    // Create date string
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const monthName = monthNames[parseInt(month) - 1];
+
+    const formatted = `${monthName} ${parseInt(day)}, ${year} ${hour}:${minute} UTC`;
+    return channel ? `${formatted} (${channel})` : formatted;
+  }
+
+  // Fallback: return as-is if not timestamp format
+  return version;
+}
+
+// Function to manually check for updates (called from menu)
+function checkForUpdatesManually(): void {
+  if (!app.isPackaged) {
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'Development Mode',
+      message: 'Auto-updates are disabled in development mode.',
+    });
+    return;
+  }
+
+  console.log('[Auto-Updater] Manual update check requested');
+  autoUpdater.checkForUpdates().catch((err) => {
+    console.error('[Auto-Updater] Failed to check for updates:', err);
+    dialog.showMessageBox({
+      type: 'error',
+      title: 'Update Check Failed',
+      message: 'Failed to check for updates. Please try again later.',
+      detail: err.message,
+    });
+  });
+}
+
 app.whenReady().then(async () => {
   // Create main window (always)
   createMainWindow();
@@ -487,6 +724,9 @@ app.whenReady().then(async () => {
     createWindow();
   }
   createTray();
+
+  // Setup auto-updater
+  setupAutoUpdater();
 
   // Start HTTP server for data fetching
   console.log('[HTTP Server] Starting HTTP server...');
@@ -669,6 +909,34 @@ ipcMain.handle('dev-cleanup-native', async () => {
   console.log('[APP] Dev-mode cleanup requested');
   cleanupNativeResources();
   return { success: true };
+});
+
+// Update channel management
+ipcMain.handle('get-update-channel', async () => {
+  return store.get('updateChannel', 'stable');
+});
+
+ipcMain.handle('set-update-channel', async (_event, channel: 'stable' | 'beta') => {
+  if (channel !== 'stable' && channel !== 'beta') {
+    throw new Error('Invalid channel. Must be "stable" or "beta".');
+  }
+
+  store.set('updateChannel', channel);
+  console.log(`[Auto-Updater] Channel changed to: ${channel}`);
+
+  // Update autoUpdater channel if in packaged mode
+  if (app.isPackaged) {
+    autoUpdater.channel = channel;
+  }
+
+  return { success: true, channel };
+});
+
+ipcMain.handle('get-app-version', async () => {
+  return {
+    version: app.getVersion(),
+    formatted: formatTimestampVersion(app.getVersion()),
+  };
 });
 
 ipcMain.handle('check-login', async () => {
