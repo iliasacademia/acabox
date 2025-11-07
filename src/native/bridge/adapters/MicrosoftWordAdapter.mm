@@ -377,6 +377,12 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 }
 
 - (void)handleWindowMoveOrResize {
+    // Guard: Don't process window move/resize if Word doesn't have focus
+    if (!_wordHasAppFocus) {
+        NSLog(@"[MicrosoftWordAdapter] Window move/resize ignored - Word not active");
+        return;
+    }
+
     NSLog(@"[MicrosoftWordAdapter] Window move/resize detected");
 
     // Mark as changing if not already
@@ -412,6 +418,12 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 }
 
 - (void)handleScrollEvent:(NSEvent *)event {
+    // Guard: Don't process scroll events if Word doesn't have focus
+    if (!_wordHasAppFocus) {
+        NSLog(@"[MicrosoftWordAdapter] Scroll event ignored - Word not active");
+        return;
+    }
+
     // Extract phase information from the scroll event
     NSEventPhase phase = event.phase;
     NSEventPhase momentumPhase = event.momentumPhase;
