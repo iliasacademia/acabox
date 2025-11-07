@@ -383,13 +383,13 @@ const createTray = (): void => {
   menuItems.push(
     {
       label: 'Show Main Window',
-      click: () => {
+      click: async () => {
         if (mainWindow) {
           if (mainWindow.isMinimized()) mainWindow.restore();
           mainWindow.show();
           mainWindow.focus();
         } else {
-          createMainWindow();
+          await createMainWindow();
         }
       },
     },
@@ -409,14 +409,14 @@ const createTray = (): void => {
       { type: 'separator' },
       {
         label: 'Show Development Window',
-        click: () => {
+        click: async () => {
           if (devWindow) {
             if (devWindow.isMinimized()) devWindow.restore();
             positionWindowMiddleRight(); // Position before showing
             devWindow.show();
             devWindow.focus();
           } else {
-            createWindow();
+            await createWindow();
           }
         },
       },
@@ -444,11 +444,14 @@ const createTray = (): void => {
 
   const contextMenu = Menu.buildFromTemplate(menuItems);
 
-  // Set context menu
-  tray.setContextMenu(contextMenu);
+  // Use click handler instead of setContextMenu to work around Electron tray menu crash on macOS
+  tray.on('click', () => {
+    if (tray) tray.popUpContextMenu(contextMenu);
+  });
 
-  // Clicking the tray icon will show the context menu only
-  // Window can be shown/hidden via "Show App" and "Hide App" menu items
+  tray.on('right-click', () => {
+    if (tray) tray.popUpContextMenu(contextMenu);
+  });
 };
 
 // Helper function to position window at middle-right of screen

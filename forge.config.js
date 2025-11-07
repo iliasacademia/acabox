@@ -1,30 +1,66 @@
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
+// Check if we have a valid code signing identity
+// Use environment variable or fall back to undefined for local development
+const codeSignIdentity = process.env.APPLE_IDENTITY || undefined;
+
+const packagerConfig = {
+  asar: {
+    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*}',
+  },
+  extraResource: [
+    'src/applescripts',
+    'src/native/build/Release/word_accessibility.node',
+    'dist/popup',
+    'src/assets/icons'
+  ],
+  extendInfo: {
+    NSAppleEventsUsageDescription: 'This app needs to send Apple Events to Microsoft Word to read document content.',
+    NSAppleScriptEnabled: true,
+  },
+};
+
+// Only add code signing configuration if we have a valid identity
+if (codeSignIdentity) {
+  packagerConfig.osxSign = {
+    identity: codeSignIdentity,
+    hardenedRuntime: true,
+    entitlements: 'entitlements.plist',
+    'entitlements-inherit': 'entitlements.plist',
+  };
+
+  // Add notarization configuration if credentials are available
+  // Required for distributing apps outside the Mac App Store
+  if (process.env.APPLE_ID && process.env.APPLE_APP_SPECIFIC_PASSWORD && process.env.APPLE_TEAM_ID) {
+    packagerConfig.osxNotarize = {
+      appleId: process.env.APPLE_ID,
+      appleIdPassword: process.env.APPLE_APP_SPECIFIC_PASSWORD,
+      teamId: process.env.APPLE_TEAM_ID,
+    };
+  }
+}
+
 module.exports = {
-  packagerConfig: {
-    asar: {
-      unpack: '**/node_modules/tesseract.js/**/*',
-    },
-    extraResource: [
-      'src/applescripts',
-      'src/native/build/Release/word_accessibility.node',
-      'dist/popup',
-      'src/assets/icons'
-    ],
-    extendInfo: {
-      NSAppleEventsUsageDescription: 'This app needs to send Apple Events to Microsoft Word to read document content.',
-      NSAppleScriptEnabled: true,
-    },
-    // Code signing for development and CI/CD
-    osxSign: {
-      identity: '6FF117CBEA6E11B14B2CCCD15B306E760831800F',
-      hardenedRuntime: true,
-      entitlements: 'entitlements.plist',
-      'entitlements-inherit': 'entitlements.plist',
+  packagerConfig,
+  rebuildConfig: {},
+  hooks: {
+    packageAfterCopy: async (config, buildPath) => {
+      const fs = require('fs');
+      const path = require('path');
+
+      // Copy canvas and its dependencies to the build
+      const modulesToCopy = ['canvas'];
+      for (const module of modulesToCopy) {
+        const src = path.join(__dirname, 'node_modules', module);
+        const dest = path.join(buildPath, 'node_modules', module);
+        if (fs.existsSync(src)) {
+          fs.cpSync(src, dest, { recursive: true });
+          console.log(`Copied ${module} to package`);
+        }
+      }
     },
   },
-  rebuildConfig: {},
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
