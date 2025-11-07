@@ -77,16 +77,36 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
 
-      - name: Generate artifact name
+      - name: Generate version and artifact name
         id: artifact-name
         run: |
-          TIMESTAMP=$(date -u +"%Y%m%d-%H%M%S")
-          # Sanitize branch name: replace slashes and special chars with dashes
+          # Generate timestamp version in format: YYYYMMDDHHMMSS (14 digits)
+          VERSION_TIMESTAMP=$(date -u +"%Y%m%d%H%M%S")
+
+          # Determine channel suffix based on branch
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            # Main branch = stable (no suffix)
+            VERSION_TAG="${VERSION_TIMESTAMP}"
+            CHANNEL="stable"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Version tags use the tag as-is
+            VERSION_TAG="${{ github.ref_name }}"
+            CHANNEL="stable"
+          else
+            # Feature branches = beta channel
+            VERSION_TAG="${VERSION_TIMESTAMP}-beta"
+            CHANNEL="beta"
+          fi
+
+          # Artifact name (descriptive, includes branch)
+          TIMESTAMP_READABLE=$(date -u +"%Y%m%d-%H%M%S")
           BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
-          # Truncate branch name to max 40 characters to keep artifact name under limits
           BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
-          ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP}"
+          ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
+
+          echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -108,12 +128,14 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: out/make/**/*.zip
-          tag_name: ${{ steps.artifact-name.outputs.name }}
-          name: "Pre-release: ${{ github.ref_name }} (${{ steps.artifact-name.outputs.name }})"
+          tag_name: ${{ steps.artifact-name.outputs.version }}
+          name: "Pre-release: ${{ github.ref_name }} (v${{ steps.artifact-name.outputs.version }})"
           body: |
             Pre-release build from branch `${{ github.ref_name }}`
 
             **Build Information:**
+            - Version: ${{ steps.artifact-name.outputs.version }}
+            - Channel: ${{ steps.artifact-name.outputs.channel }}
             - Branch: ${{ github.ref_name }}
             - Commit: ${{ github.sha }}
             - Build Date: ${{ github.event.head_commit.timestamp }}
@@ -129,12 +151,14 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: out/make/**/*.zip
-          tag_name: ${{ steps.artifact-name.outputs.name }}
-          name: "Release: ${{ steps.artifact-name.outputs.name }}"
+          tag_name: ${{ steps.artifact-name.outputs.version }}
+          name: "Release v${{ steps.artifact-name.outputs.version }}"
           body: |
             Production release from `main` branch
 
             **Build Information:**
+            - Version: ${{ steps.artifact-name.outputs.version }}
+            - Channel: ${{ steps.artifact-name.outputs.channel }}
             - Commit: ${{ github.sha }}
             - Build Date: ${{ github.event.head_commit.timestamp }}
 
