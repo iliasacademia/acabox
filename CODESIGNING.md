@@ -1,6 +1,6 @@
 # Code Signing and Notarization Guide
 
-This document explains how to set up code signing and notarization for the Academia Electron app on macOS.
+This document explains how to set up code signing and notarization for this Electron app on macOS.
 
 ## Overview
 
@@ -40,10 +40,10 @@ security find-identity -v -p codesigning
 
 Look for a line like:
 ```
-1) XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX "Developer ID Application: Academia Inc (9S7A8TB597)"
+1) XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX "Developer ID Application: Your Company Name (XXXXXXXXXX)"
 ```
 
-The identity string is: `Developer ID Application: Academia Inc (9S7A8TB597)`
+The identity string is: `Developer ID Application: Your Company Name (XXXXXXXXXX)`
 
 ### 3. Create App-Specific Password
 
@@ -51,7 +51,7 @@ The identity string is: `Developer ID Application: Academia Inc (9S7A8TB597)`
 2. Sign in with your Apple ID
 3. Go to **Security** > **App-Specific Passwords**
 4. Click **Generate Password**
-5. Name it "Academia Electron Notarization"
+5. Name it something descriptive (e.g., "Electron App Notarization")
 6. Save the generated password (format: `xxxx-xxxx-xxxx-xxxx`)
 
 ### 4. Configure Local Environment
@@ -63,10 +63,10 @@ The identity string is: `Developer ID Application: Academia Inc (9S7A8TB597)`
 
 2. Edit `.env.local` with your values:
    ```bash
-   APPLE_IDENTITY="Developer ID Application: Academia Inc (9S7A8TB597)"
+   APPLE_IDENTITY="Developer ID Application: Your Company Name (XXXXXXXXXX)"
    APPLE_ID="your-apple-id@example.com"
    APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
-   APPLE_TEAM_ID="9S7A8TB597"
+   APPLE_TEAM_ID="XXXXXXXXXX"
    ```
 
 ### 5. Import Certificate to Keychain
@@ -105,8 +105,8 @@ Go to your repository **Settings > Secrets and variables > Actions** and add:
 |------------|-------------|---------------|
 | `APPLE_ID` | Your Apple Developer email | Your Apple ID email address |
 | `APPLE_APP_SPECIFIC_PASSWORD` | App-specific password | Created at appleid.apple.com (see step 3 above) |
-| `APPLE_TEAM_ID` | Your Team ID | **9S7A8TB597** (from developer.apple.com/account) |
-| `APPLE_IDENTITY` | Certificate identity name | **Developer ID Application: Academia Inc (9S7A8TB597)** |
+| `APPLE_TEAM_ID` | Your Team ID | From developer.apple.com/account (Membership Details) |
+| `APPLE_IDENTITY` | Certificate identity name | From `security find-identity -v -p codesigning` |
 | `CSC_LINK` | Base64-encoded certificate | See below |
 | `CSC_KEY_PASSWORD` | Certificate password | Password you set when exporting the .p12 |
 
