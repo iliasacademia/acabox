@@ -47,54 +47,6 @@ interface ApiResponse {
   };
 }
 
-// Model icons from Figma
-const MODEL_ICONS = {
-  chatgpt: 'https://www.figma.com/api/mcp/asset/84d4bba6-67d9-4dd7-afc6-de4f1c10f376',
-  gemini: 'https://www.figma.com/api/mcp/asset/92aaa65a-3ed2-4073-b76d-b6b23c239ff3',
-  claude: 'https://www.figma.com/api/mcp/asset/3c1b887d-304d-4726-b949-fd7415be94fe',
-  grok: 'https://www.figma.com/api/mcp/asset/1ce7e722-89c4-4bb3-b948-429e4ca6ff53'
-};
-
-// Map API model names to display info
-interface ModelInfo {
-  displayName: string;
-  icon: string;
-}
-
-function getModelInfo(modelName: string): ModelInfo {
-  const lowerModel = modelName.toLowerCase();
-
-  if (lowerModel.includes('gemini')) {
-    return { displayName: 'Gemini 2.5 Pro', icon: MODEL_ICONS.gemini };
-  } else if (lowerModel.includes('claude')) {
-    return { displayName: 'Claude Opus 4.1', icon: MODEL_ICONS.claude };
-  } else if (lowerModel.includes('grok')) {
-    return { displayName: 'Grok Heavy', icon: MODEL_ICONS.grok };
-  } else if (lowerModel.includes('gpt') || lowerModel.includes('openai')) {
-    return { displayName: 'ChatGPT 5', icon: MODEL_ICONS.chatgpt };
-  }
-
-  // Fallback
-  return { displayName: modelName, icon: '' };
-}
-
-// ModelLabel component matching Figma design
-const ModelLabel: React.FC<{ model: string }> = ({ model }) => {
-  const modelInfo = getModelInfo(model);
-
-  return (
-    <div style={styles.modelLabel}>
-      {modelInfo.icon && (
-        <img
-          src={modelInfo.icon}
-          alt={modelInfo.displayName}
-          style={styles.modelIcon}
-        />
-      )}
-      <span style={styles.modelText}>{modelInfo.displayName}</span>
-    </div>
-  );
-};
 
 const OverallReviewPopup: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('major');
