@@ -6,6 +6,13 @@
  * @jest-environment node
  */
 
+// Mock Electron's app module for testing
+jest.mock('electron', () => ({
+  app: {
+    isPackaged: false,
+  },
+}));
+
 // Mock proxy routes to avoid axios-cookiejar-support ES module issues
 jest.mock('./routes/proxy', () => ({
   registerProxyRoutes: jest.fn(),
