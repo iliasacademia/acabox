@@ -72,6 +72,42 @@ jobs:
           # Store keychain path for cleanup
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
+      - name: Generate version and artifact name
+        id: artifact-name
+        run: |
+          # Generate timestamp version in format: YYYYMMDDHHMMSS (14 digits)
+          VERSION_TIMESTAMP=$(date -u +"%Y%m%d%H%M%S")
+
+          # Determine version based on branch/tag
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            # Main branch = stable with timestamp
+            VERSION="${VERSION_TIMESTAMP}"
+            CHANNEL="stable"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Version tags use the tag as-is
+            VERSION="${{ github.ref_name }}"
+            CHANNEL="stable"
+          else
+            # Feature branches = beta channel with timestamp
+            VERSION="${VERSION_TIMESTAMP}-beta"
+            CHANNEL="beta"
+          fi
+
+          # Update package.json with the generated version
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "Updated package.json to version: $VERSION"
+
+          # Generate artifact name (descriptive, includes branch and timestamp)
+          TIMESTAMP_READABLE=$(date -u +"%Y%m%d-%H%M%S")
+          BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
+          BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
+          ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
+
+          # Output for use in subsequent steps
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
+
       - name: Package application
         run: npm run make
         env:
@@ -79,37 +115,6 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
-
-      - name: Generate version and artifact name
-        id: artifact-name
-        run: |
-          # Generate timestamp version in format: YYYYMMDDHHMMSS (14 digits)
-          VERSION_TIMESTAMP=$(date -u +"%Y%m%d%H%M%S")
-
-          # Determine channel suffix based on branch
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            # Main branch = stable (no suffix)
-            VERSION_TAG="${VERSION_TIMESTAMP}"
-            CHANNEL="stable"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            # Version tags use the tag as-is
-            VERSION_TAG="${{ github.ref_name }}"
-            CHANNEL="stable"
-          else
-            # Feature branches = beta channel
-            VERSION_TAG="${VERSION_TIMESTAMP}-beta"
-            CHANNEL="beta"
-          fi
-
-          # Artifact name (descriptive, includes branch)
-          TIMESTAMP_READABLE=$(date -u +"%Y%m%d-%H%M%S")
-          BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
-          BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
-          ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
-
-          echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
-          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
-          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
