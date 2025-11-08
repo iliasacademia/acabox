@@ -16,6 +16,7 @@
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import path from 'path';
+import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
 import { ServerConfig, HealthResponse } from './types';
@@ -91,7 +92,13 @@ export class AcademiaHttpServer {
 
     // Register static file serving for popup UI
     // Serve files from dist/popup at /ui/popup route
-    const popupDistPath = path.join(__dirname, '..', '..', 'dist', 'popup');
+    const devPopupPath = path.join(__dirname, '..', '..', 'dist', 'popup');
+    const prodPopupPath = app.isPackaged
+      ? path.join(process.resourcesPath, 'popup')
+      : devPopupPath;
+    const popupDistPath = app.isPackaged ? prodPopupPath : devPopupPath;
+
+    console.log('[HTTP Server] app.isPackaged:', app.isPackaged);
     console.log('[HTTP Server] Registering static files from:', popupDistPath);
 
     await this.fastify.register(fastifyStatic, {
