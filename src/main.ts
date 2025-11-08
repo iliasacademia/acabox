@@ -156,6 +156,14 @@ const createMainWindow = async (): Promise<void> => {
     await syncService.initialize();
   });
 
+  // Show window when ready to prevent visual flash
+  mainWindow.once('ready-to-show', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      console.log('[MAIN] Main window shown');
+    }
+  });
+
   console.log('[MAIN] Main window created');
 };
 

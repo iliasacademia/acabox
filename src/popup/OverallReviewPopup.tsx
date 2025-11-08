@@ -47,6 +47,27 @@ interface ApiResponse {
   };
 }
 
+// List documents API interfaces
+interface Document {
+  id: number;
+  title: string;
+  updated_at: string;
+  review_status: 'completed' | 'generating' | null;
+  file_type: string;
+  work_id: string | null;
+}
+
+interface ListDocumentsResponse {
+  documents: Document[];
+  pagination: {
+    current_page: number;
+    per_page: number;
+    total_count: number;
+    total_pages: number;
+    has_more: boolean;
+  };
+}
+
 
 const OverallReviewPopup: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabType>('major');
@@ -136,8 +157,10 @@ const OverallReviewPopup: React.FC = () => {
 
         console.log('[OverallReviewPopup] Starting API fetch...');
 
-        const response = await fetch(
-          'http://127.0.0.1:23111/proxy-api/v0/writing_agent/get_document?subdomain_param=api&document_id=257',
+        // Step 1: Fetch list of documents
+        console.log('[OverallReviewPopup] Fetching list of documents...');
+        const listResponse = await fetch(
+          'http://127.0.0.1:23111/proxy-api/v0/writing_agent/list_documents?subdomain_param=api&page=1&per_page=10',
           {
             method: 'GET',
             headers: {
@@ -146,7 +169,52 @@ const OverallReviewPopup: React.FC = () => {
           }
         );
 
-        console.log('[OverallReviewPopup] Response received:', response.status, response.statusText);
+        console.log('[OverallReviewPopup] List response received:', listResponse.status, listResponse.statusText);
+
+        if (!listResponse.ok) {
+          const errorText = await listResponse.text();
+          console.error('[OverallReviewPopup] Error response:', errorText);
+          throw new Error(`HTTP ${listResponse.status}: ${listResponse.statusText}`);
+        }
+
+        const listData: ListDocumentsResponse = await listResponse.json();
+        console.log('[OverallReviewPopup] List data parsed successfully', {
+          totalDocuments: listData.documents.length,
+          completedCount: listData.documents.filter(d => d.review_status === 'completed').length
+        });
+
+        // Step 2: Find the latest completed review
+        const completedDocuments = listData.documents.filter(d => d.review_status === 'completed');
+
+        if (completedDocuments.length === 0) {
+          throw new Error('No completed reviews available');
+        }
+
+        // Sort by updated_at descending to get the latest
+        completedDocuments.sort((a, b) => {
+          return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime();
+        });
+
+        const latestDocument = completedDocuments[0];
+        console.log('[OverallReviewPopup] Latest completed document:', {
+          id: latestDocument.id,
+          title: latestDocument.title,
+          updated_at: latestDocument.updated_at
+        });
+
+        // Step 3: Fetch the document details
+        console.log('[OverallReviewPopup] Fetching document details...');
+        const response = await fetch(
+          `http://127.0.0.1:23111/proxy-api/v0/writing_agent/get_document?subdomain_param=api&document_id=${latestDocument.id}`,
+          {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+            },
+          }
+        );
+
+        console.log('[OverallReviewPopup] Document response received:', response.status, response.statusText);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -164,6 +232,7 @@ const OverallReviewPopup: React.FC = () => {
         setStrengthsComments(strengths);
 
         console.log('[OverallReviewPopup] Data loaded successfully', {
+          documentId: latestDocument.id,
           majorCount: major.length,
           strengthsCount: strengths.length
         });
