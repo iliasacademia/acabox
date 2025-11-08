@@ -71,6 +71,13 @@ module.exports = {
       platforms: ['darwin'],
     },
     {
+      name: '@electron-forge/maker-dmg',
+      platforms: ['darwin'],
+      config: {
+        format: 'ULFO',
+      },
+    },
+    {
       name: '@electron-forge/maker-deb',
       config: {},
     },
