@@ -2,8 +2,18 @@ name: Build & Package
 
 on:
   workflow_dispatch:
+    inputs:
+      major:
+        description: 'Major version number'
+        required: false
+        default: ''
+        type: string
+      minor:
+        description: 'Minor version number'
+        required: false
+        default: ''
+        type: string
   push:
-    branches: [main]
     tags:
       - 'v*'
 
@@ -72,6 +82,63 @@ jobs:
           # Store keychain path for cleanup
           echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> $GITHUB_ENV
 
+      - name: Generate version and artifact name
+        id: artifact-name
+        run: |
+          # Determine version based on branch/tag
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            # Version tags use the tag as-is (remove v prefix if present)
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+            CHANNEL="stable"
+          else
+            # Get current major.minor from package.json
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+            CURRENT_MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
+            CURRENT_MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
+
+            # Use workflow inputs if provided, otherwise use current values
+            MAJOR="${{ inputs.major }}"
+            MINOR="${{ inputs.minor }}"
+
+            if [[ -z "$MAJOR" ]]; then
+              MAJOR="$CURRENT_MAJOR"
+            fi
+
+            if [[ -z "$MINOR" ]]; then
+              MINOR="$CURRENT_MINOR"
+            fi
+
+            # Generate timestamp as patch: YYYYMMDDHHMMSS
+            PATCH=$(date -u +"%Y%m%d%H%M%S")
+
+            # Build version: MAJOR.MINOR.PATCH
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+            # Determine channel and add suffix for feature branches
+            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+              CHANNEL="stable"
+            else
+              CHANNEL="beta"
+              VERSION="${VERSION}-beta"
+            fi
+          fi
+
+          # Update package.json with the generated version
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          echo "Updated package.json to version: $VERSION"
+
+          # Generate artifact name (descriptive, includes branch and timestamp)
+          TIMESTAMP_READABLE=$(date -u +"%Y%m%d-%H%M%S")
+          BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
+          BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
+          ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
+
+          # Output for use in subsequent steps
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
+
       - name: Package application
         run: npm run make
         env:
@@ -80,43 +147,14 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
 
-      - name: Generate version and artifact name
-        id: artifact-name
-        run: |
-          # Generate timestamp version in format: YYYYMMDDHHMMSS (14 digits)
-          VERSION_TIMESTAMP=$(date -u +"%Y%m%d%H%M%S")
-
-          # Determine channel suffix based on branch
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            # Main branch = stable (no suffix)
-            VERSION_TAG="${VERSION_TIMESTAMP}"
-            CHANNEL="stable"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            # Version tags use the tag as-is
-            VERSION_TAG="${{ github.ref_name }}"
-            CHANNEL="stable"
-          else
-            # Feature branches = beta channel
-            VERSION_TAG="${VERSION_TIMESTAMP}-beta"
-            CHANNEL="beta"
-          fi
-
-          # Artifact name (descriptive, includes branch)
-          TIMESTAMP_READABLE=$(date -u +"%Y%m%d-%H%M%S")
-          BRANCH_NAME=$(echo "${{ github.ref_name }}" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
-          BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
-          ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
-
-          echo "version=${VERSION_TAG}" >> $GITHUB_OUTPUT
-          echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
-          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: ${{ steps.artifact-name.outputs.name }}
-          path: out/make/**/*.zip
+          path: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
           retention-days: 30
 
       - name: Cleanup keychain
@@ -130,7 +168,9 @@ jobs:
         if: "!startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/heads/main'"
         uses: softprops/action-gh-release@v1
         with:
-          files: out/make/**/*.zip
+          files: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
           tag_name: ${{ steps.artifact-name.outputs.version }}
           name: "Pre-release: ${{ github.ref_name }} (v${{ steps.artifact-name.outputs.version }})"
           body: |
@@ -153,7 +193,9 @@ jobs:
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v1
         with:
-          files: out/make/**/*.zip
+          files: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
           tag_name: ${{ steps.artifact-name.outputs.version }}
           name: "Release v${{ steps.artifact-name.outputs.version }}"
           body: |
@@ -175,7 +217,9 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: out/make/**/*.zip
+          files: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
