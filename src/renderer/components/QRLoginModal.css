@@ -1,6 +1,6 @@
 .qrLoginForm {
-  min-width: 400px;
-  max-width: 500px;
+  min-width: 600px;
+  max-width: 700px;
   max-height: 90vh;
   overflow-y: auto;
   text-align: center;
@@ -34,11 +34,11 @@
   padding: 20px;
   background-color: #f8f9fa;
   border-radius: 8px;
-  margin: 20px 0;
+  margin: 0;
 }
 
 .qrCode {
-  max-width: 300px;
+  max-width: 180px;
   width: 100%;
   height: auto;
   display: block;
@@ -49,7 +49,7 @@
   padding: 10px 20px;
   background-color: #f8f9fa;
   border-radius: 4px;
-  margin: 10px 0;
+  margin: 0;
 }
 
 .qrInstructions p {
@@ -86,10 +86,30 @@
 }
 
 .qrFallback {
-  margin: 15px 0;
+  margin: 0 0 20px 0;
   padding: 15px;
   background-color: #f8f9fa;
   border-radius: 4px;
+}
+
+.qrMainContent {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  margin: 20px 0;
+}
+
+.qrLeftColumn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.qrRightColumn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .qrFallbackTitle {
@@ -270,11 +290,12 @@
 
 /* Verification Code Input Section */
 .verificationCodeSection {
-  margin: 25px 0;
+  margin: 0;
   padding: 20px;
   background-color: #fff;
   border: 2px solid #007bff;
   border-radius: 8px;
+  height: fit-content;
 }
 
 .verificationPrompt {

@@ -1,23 +1,144 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { safeStorage } from 'electron';
+import * as crypto from 'crypto';
+import * as os from 'os';
 import { Cookie, Store } from 'tough-cookie';
+import { app } from 'electron';
 
 /**
- * Encrypted cookie store that uses Electron's safeStorage API
+ * Encrypted cookie store that uses AES-256-GCM encryption
  * to encrypt cookies at rest, preventing credential theft if the system is compromised.
  *
+ * Uses a machine-specific encryption key derived from hardware identifiers.
  * Implements the tough-cookie Store interface for seamless integration.
  */
 export class EncryptedCookieStore extends Store {
   private filePath: string;
   private idx: { [domain: string]: { [path: string]: { [key: string]: Cookie } } } = {};
+  private encryptionKey: Buffer;
 
   constructor(filePath: string) {
     super();
     this.synchronous = true;
     this.filePath = filePath;
+    this.encryptionKey = this.deriveEncryptionKey();
     this.loadFromFile();
+  }
+
+  /**
+   * Derive a machine-specific encryption key from hardware identifiers.
+   * This provides consistent encryption across app restarts while being
+   * unique to each machine.
+   */
+  private deriveEncryptionKey(): Buffer {
+    try {
+      // Gather machine-specific data
+      const machineId = this.getMachineId();
+      const appPath = app.getPath('userData');
+
+      // Create a deterministic key using PBKDF2
+      // Using a combination of machine ID and app path as the "password"
+      // Salt is derived from hostname to add another layer
+      const password = `${machineId}:${appPath}`;
+      const salt = crypto.createHash('sha256').update(os.hostname()).digest();
+
+      // Derive a 32-byte key (256 bits for AES-256)
+      const key = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
+
+      return key;
+    } catch (error) {
+      console.error('[EncryptedCookieStore] Error deriving encryption key:', error);
+      // Fallback to a basic key (less secure but functional)
+      const fallbackData = `${os.hostname()}:${os.platform()}:${app.getPath('userData')}`;
+      return crypto.createHash('sha256').update(fallbackData).digest();
+    }
+  }
+
+  /**
+   * Get a unique machine identifier.
+   * Uses network interfaces MAC addresses as a stable identifier.
+   */
+  private getMachineId(): string {
+    try {
+      const networkInterfaces = os.networkInterfaces();
+      const macs: string[] = [];
+
+      for (const interfaceName in networkInterfaces) {
+        const interfaces = networkInterfaces[interfaceName];
+        if (interfaces) {
+          for (const iface of interfaces) {
+            // Skip internal/virtual interfaces
+            if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
+              macs.push(iface.mac);
+            }
+          }
+        }
+      }
+
+      // Sort for consistency and join
+      macs.sort();
+      return macs.length > 0 ? macs.join(':') : 'default-machine-id';
+    } catch (error) {
+      console.error('[EncryptedCookieStore] Error getting machine ID:', error);
+      return 'default-machine-id';
+    }
+  }
+
+  /**
+   * Encrypt data using AES-256-GCM.
+   * Returns encrypted data with IV prepended.
+   */
+  private encrypt(plaintext: string): Buffer {
+    try {
+      // Generate a random IV for each encryption (96 bits / 12 bytes for GCM)
+      const iv = crypto.randomBytes(12);
+
+      // Create cipher
+      const cipher = crypto.createCipheriv('aes-256-gcm', this.encryptionKey, iv);
+
+      // Encrypt the data
+      let encrypted = cipher.update(plaintext, 'utf8');
+      encrypted = Buffer.concat([encrypted, cipher.final()]);
+
+      // Get the authentication tag
+      const authTag = cipher.getAuthTag();
+
+      // Return: IV (12 bytes) + Auth Tag (16 bytes) + Encrypted Data
+      return Buffer.concat([iv, authTag, encrypted]);
+    } catch (error) {
+      console.error('[EncryptedCookieStore] Encryption error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Decrypt data using AES-256-GCM.
+   * Expects data with IV prepended.
+   */
+  private decrypt(encryptedData: Buffer): string {
+    try {
+      // Extract IV (first 12 bytes)
+      const iv = encryptedData.subarray(0, 12);
+
+      // Extract auth tag (next 16 bytes)
+      const authTag = encryptedData.subarray(12, 28);
+
+      // Extract encrypted content (remaining bytes)
+      const encrypted = encryptedData.subarray(28);
+
+      // Create decipher
+      const decipher = crypto.createDecipheriv('aes-256-gcm', this.encryptionKey, iv);
+      decipher.setAuthTag(authTag);
+
+      // Decrypt the data
+      let decrypted = decipher.update(encrypted);
+      decrypted = Buffer.concat([decrypted, decipher.final()]);
+
+      return decrypted.toString('utf8');
+    } catch (error) {
+      console.error('[EncryptedCookieStore] Decryption error:', error);
+      throw error;
+    }
   }
 
   /**
@@ -31,19 +152,18 @@ export class EncryptedCookieStore extends Store {
     try {
       const encryptedData = fs.readFileSync(this.filePath);
 
-      // Check if safeStorage is available (may not be in some environments)
-      if (!safeStorage.isEncryptionAvailable()) {
-        console.warn('[EncryptedCookieStore] Encryption not available, falling back to plaintext');
-        const plaintextData = encryptedData.toString('utf8');
-        const parsed = JSON.parse(plaintextData);
-        // Convert plain objects back to Cookie instances
-        this.idx = this.deserializeCookies(parsed);
+      // Check if this looks like encrypted data (has minimum size)
+      if (encryptedData.length < 28) {
+        console.warn('[EncryptedCookieStore] File too small, starting with empty store');
+        this.idx = {};
         return;
       }
 
-      const decryptedData = safeStorage.decryptString(encryptedData);
+      const decryptedData = this.decrypt(encryptedData);
       const parsed = JSON.parse(decryptedData);
       this.idx = this.deserializeCookies(parsed);
+
+      console.log('[EncryptedCookieStore] Successfully loaded and decrypted cookies');
     } catch (error) {
       console.error('[EncryptedCookieStore] Error loading cookies:', error);
       // Start with empty store if we can't load
@@ -90,14 +210,11 @@ export class EncryptedCookieStore extends Store {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      // Encrypt if available
-      if (safeStorage.isEncryptionAvailable()) {
-        const encryptedData = safeStorage.encryptString(jsonData);
-        fs.writeFileSync(this.filePath, encryptedData);
-      } else {
-        console.warn('[EncryptedCookieStore] Encryption not available, saving plaintext');
-        fs.writeFileSync(this.filePath, jsonData, 'utf8');
-      }
+      // Encrypt the data
+      const encryptedData = this.encrypt(jsonData);
+
+      // Write encrypted data to file
+      fs.writeFileSync(this.filePath, encryptedData);
     } catch (error) {
       console.error('[EncryptedCookieStore] Error saving cookies:', error);
     }

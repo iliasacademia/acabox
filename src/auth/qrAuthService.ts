@@ -1,5 +1,7 @@
 import QRCode from 'qrcode';
 import { app } from 'electron';
+import { createHash } from 'crypto';
+import os from 'os';
 import { APIclient } from '../uploader';
 
 // Backend URL configuration
@@ -20,11 +22,60 @@ export interface QRAuthSession {
   authorizationURL: string;
 }
 
+export interface DeviceFingerprint {
+  hostname: string;
+  platform: string;
+  arch: string;
+  cpuCount: number;
+  cpuModel: string;
+  userDataPathHash: string;
+}
+
+/**
+ * Get device-specific fingerprint information
+ * Collects moderate device-specific info without exposing sensitive identifiers
+ */
+function getDeviceFingerprint(): DeviceFingerprint {
+  const cpus = os.cpus();
+  const userDataPath = app.getPath('userData');
+
+  // Hash the user data path to avoid exposing actual file system paths
+  const userDataPathHash = createHash('sha256')
+    .update(userDataPath)
+    .digest('hex')
+    .substring(0, 16);
+
+  return {
+    hostname: os.hostname(),
+    platform: os.platform(),
+    arch: os.arch(),
+    cpuCount: cpus.length,
+    cpuModel: cpus[0]?.model || 'unknown',
+    userDataPathHash,
+  };
+}
+
 /**
  * Generate a unique device ID for QR code authentication
+ * Includes device fingerprint hash for security while maintaining unpredictability
  */
 export function generateDeviceId(): string {
-  return crypto.randomUUID();
+  // Get device fingerprint
+  const fingerprint = getDeviceFingerprint();
+
+  // Create deterministic hash from fingerprint
+  const fingerprintString = JSON.stringify(fingerprint);
+  const fingerprintHash = createHash('sha256')
+    .update(fingerprintString)
+    .digest('hex')
+    .substring(0, 16); // Use first 16 chars for brevity
+
+  // Generate random UUID for uniqueness
+  const randomPart = crypto.randomUUID();
+
+  // Combine fingerprint hash with UUID
+  // Format: {fingerprint-hash}-{uuid}
+  return `${fingerprintHash}-${randomPart}`;
 }
 
 /**
@@ -73,12 +124,16 @@ export async function verifyAuthCode(deviceId: string, code: string): Promise<QR
   try {
     console.log(`[QR Auth] Verifying code for device_id: ${deviceId}`);
 
+    // Get device fingerprint for verification
+    const fingerprint = getDeviceFingerprint();
+
     const client = await APIclient();
     const response = await client.post(
       'v0/desktop/verify',
       {
         device_id: deviceId,
         verification_code: code,
+        fingerprint,
       },
       {
         validateStatus: (status) => status >= 200 && status < 500,

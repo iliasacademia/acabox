@@ -62,12 +62,16 @@ const createWindow = async (): Promise<void> => {
       ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
       : "script-src 'self'; ";
 
+    const styleSrc = process.env.NODE_ENV === 'development'
+      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for React in development
+      : "style-src 'self' https://fonts.googleapis.com; ";
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           "default-src 'self'; " +
-          "style-src 'self' https://fonts.googleapis.com; " + // Removed unsafe-inline for security
+          styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
           scriptSrc +
@@ -113,12 +117,16 @@ const createMainWindow = async (): Promise<void> => {
       ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
       : "script-src 'self'; ";
 
+    const styleSrc = process.env.NODE_ENV === 'development'
+      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for React in development
+      : "style-src 'self' https://fonts.googleapis.com; ";
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           "default-src 'self'; " +
-          "style-src 'self' https://fonts.googleapis.com; " + // Removed unsafe-inline for security
+          styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
           scriptSrc +

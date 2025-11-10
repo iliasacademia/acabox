@@ -165,55 +165,90 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
 
         {(status === 'waiting' || status === 'verifying') && qrCodeDataURL && (
           <>
-            <div className="qrCodeContainer">
-              <img src={qrCodeDataURL} alt="QR Code" className="qrCode" />
-            </div>
-
-            <div className="qrInstructions">
-              <p>1. Open Academia on your phone or browser</p>
-              <p>2. Scan this QR code or visit the link below</p>
-              <p>3. Tap "Authorize" to complete authentication</p>
-              <p>4. You'll receive a 2-digit code</p>
-              <p>5. Enter that code below to verify</p>
-            </div>
-
-            <div className="verificationCodeSection">
-              <p className="verificationPrompt">Enter the 2-digit code shown after authorization:</p>
-              <div className="codeInputContainer">
-                <input
-                  type="text"
-                  maxLength={2}
-                  pattern="[0-9]*"
-                  inputMode="numeric"
-                  value={userInputCode}
-                  onChange={(e) => setUserInputCode(e.target.value.replace(/\D/g, ''))}
-                  onKeyPress={(e) => {
-                    if (e.key === 'Enter' && userInputCode.length === 2) {
-                      handleVerifyCode();
-                    }
-                  }}
-                  className="codeInput"
-                  placeholder="00"
-                  disabled={status === 'verifying' || attemptCount >= 5}
-                />
+            {authorizationURL && (
+              <div className="qrFallback">
+                <p className="qrFallbackTitle">Open in browser:</p>
+                <div className="qrUrlContainer">
+                  <input
+                    type="text"
+                    value={authorizationURL}
+                    readOnly
+                    className="qrUrlInput"
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(authorizationURL);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    className="qrCopyButton"
+                    title="Copy to clipboard"
+                  >
+                    {copied ? '✓ Copied!' : 'Copy'}
+                  </button>
+                </div>
+                <a href="#" onClick={() => window.electronAPI.invoke('open-external-url', authorizationURL)} className="qrLink">
+                  Click to open in browser
+                </a>
               </div>
-              <button
-                onClick={handleVerifyCode}
-                className="verifyButton"
-                disabled={userInputCode.length !== 2 || status === 'verifying' || attemptCount >= 5}
-              >
-                {status === 'verifying' ? 'Verifying...' : 'Verify'}
-              </button>
-              {attemptCount > 0 && attemptCount < 5 && (
-                <p className="attemptsRemaining">
-                  {5 - attemptCount} attempt{5 - attemptCount !== 1 ? 's' : ''} remaining
-                </p>
-              )}
-              {attemptCount >= 5 && (
-                <p className="attemptsExhausted">
-                  Too many failed attempts. Please click "Try Again" to start over.
-                </p>
-              )}
+            )}
+
+            <div className="qrMainContent">
+              <div className="qrLeftColumn">
+                <div className="qrCodeContainer">
+                  <img src={qrCodeDataURL} alt="QR Code" className="qrCode" />
+                </div>
+
+                <div className="qrInstructions">
+                  <p>1. Open Academia on your phone or browser</p>
+                  <p>2. Scan this QR code or visit the link above</p>
+                  <p>3. Tap "Authorize" to complete authentication</p>
+                  <p>4. You'll receive a 2-digit code</p>
+                  <p>5. Enter that code on the right to verify</p>
+                </div>
+              </div>
+
+              <div className="qrRightColumn">
+                <div className="verificationCodeSection">
+                  <p className="verificationPrompt">Enter the 2-digit code shown after authorization:</p>
+                  <div className="codeInputContainer">
+                    <input
+                      type="text"
+                      maxLength={2}
+                      pattern="[0-9]*"
+                      inputMode="numeric"
+                      value={userInputCode}
+                      onChange={(e) => setUserInputCode(e.target.value.replace(/\D/g, ''))}
+                      onKeyPress={(e) => {
+                        if (e.key === 'Enter' && userInputCode.length === 2) {
+                          handleVerifyCode();
+                        }
+                      }}
+                      className="codeInput"
+                      placeholder="00"
+                      disabled={status === 'verifying' || attemptCount >= 5}
+                    />
+                  </div>
+                  <button
+                    onClick={handleVerifyCode}
+                    className="verifyButton"
+                    disabled={userInputCode.length !== 2 || status === 'verifying' || attemptCount >= 5}
+                  >
+                    {status === 'verifying' ? 'Verifying...' : 'Verify'}
+                  </button>
+                  {attemptCount > 0 && attemptCount < 5 && (
+                    <p className="attemptsRemaining">
+                      {5 - attemptCount} attempt{5 - attemptCount !== 1 ? 's' : ''} remaining
+                    </p>
+                  )}
+                  {attemptCount >= 5 && (
+                    <p className="attemptsExhausted">
+                      Too many failed attempts. Please click "Try Again" to start over.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -233,35 +268,6 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
         <div className={getStatusClass()}>
           {getStatusMessage()}
         </div>
-
-        {authorizationURL && status === 'waiting' && (
-          <div className="qrFallback">
-            <p className="qrFallbackTitle">Or copy this link to your browser:</p>
-            <div className="qrUrlContainer">
-              <input
-                type="text"
-                value={authorizationURL}
-                readOnly
-                className="qrUrlInput"
-                onClick={(e) => (e.target as HTMLInputElement).select()}
-              />
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(authorizationURL);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 2000);
-                }}
-                className="qrCopyButton"
-                title="Copy to clipboard"
-              >
-                {copied ? '✓ Copied!' : 'Copy'}
-              </button>
-            </div>
-            <a href="#" onClick={() => window.electronAPI.invoke('open-external-url', authorizationURL)} className="qrLink">
-              Or click to open in browser
-            </a>
-          </div>
-        )}
 
         <div className="qrActions">
           {(status === 'error' || status === 'timeout') && (
