@@ -157,6 +157,90 @@ jobs:
             out/make/**/*.zip
           retention-days: 30
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload to S3
+        run: |
+          VERSION="${{ steps.artifact-name.outputs.version }}"
+          CHANNEL="${{ steps.artifact-name.outputs.channel }}"
+          BUCKET="${{ secrets.S3_BUCKET_NAME }}"
+
+          # TODO: Replace 'REPLACE-WITH-CLOUDFRONT-DOMAIN' with actual CloudFront domain
+          CLOUDFRONT_DOMAIN="REPLACE-WITH-CLOUDFRONT-DOMAIN.cloudfront.net"
+
+          echo "Uploading to S3: s3://${BUCKET}/${CHANNEL}/${VERSION}/"
+
+          # Upload .zip file (required for auto-updater)
+          aws s3 cp out/make/zip/darwin/x64/ \
+            s3://${BUCKET}/${CHANNEL}/${VERSION}/ \
+            --recursive \
+            --exclude "*" \
+            --include "*.zip" \
+            --include "*.blockmap"
+
+          # Upload .dmg file (for manual distribution)
+          if [ -d "out/make/dmg/darwin/x64/" ]; then
+            aws s3 cp out/make/dmg/darwin/x64/ \
+              s3://${BUCKET}/${CHANNEL}/${VERSION}/ \
+              --recursive \
+              --include "*.dmg"
+          fi
+
+          # Modify latest-mac.yml to use CloudFront URLs with versioned paths
+          MANIFEST_FILE="out/make/zip/darwin/x64/latest-mac.yml"
+          if [ -f "$MANIFEST_FILE" ]; then
+            echo "Updating manifest URLs to use CloudFront with versioned paths..."
+
+            # Read the original manifest
+            MANIFEST_CONTENT=$(cat "$MANIFEST_FILE")
+
+            # Extract the filename from the manifest (assumes line like: path: Academia-darwin-x64-VERSION.zip)
+            ORIGINAL_FILENAME=$(echo "$MANIFEST_CONTENT" | grep "^path:" | awk '{print $2}')
+
+            if [ -n "$ORIGINAL_FILENAME" ]; then
+              # Create versioned URL: https://DOMAIN/CHANNEL/VERSION/filename
+              NEW_URL="https://${CLOUDFRONT_DOMAIN}/${CHANNEL}/${VERSION}/${ORIGINAL_FILENAME}"
+
+              # Replace the path with full CloudFront URL
+              sed -i.bak "s|^path: .*|path: ${NEW_URL}|" "$MANIFEST_FILE"
+
+              # Also update the url field in the files array if it exists
+              sed -i.bak "s|- url: .*|- url: ${NEW_URL}|" "$MANIFEST_FILE"
+
+              echo "Updated manifest URLs to: ${NEW_URL}"
+              echo "Updated manifest content:"
+              cat "$MANIFEST_FILE"
+            else
+              echo "Warning: Could not extract filename from manifest"
+            fi
+          else
+            echo "Warning: Manifest file not found at $MANIFEST_FILE"
+          fi
+
+          # Upload the modified manifest to channel root (overwrites previous)
+          aws s3 cp "$MANIFEST_FILE" s3://${BUCKET}/${CHANNEL}/latest-mac.yml
+
+          echo "Upload complete!"
+          echo "Artifacts location: s3://${BUCKET}/${CHANNEL}/${VERSION}/"
+          echo "Manifest location: s3://${BUCKET}/${CHANNEL}/latest-mac.yml"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          CHANNEL="${{ steps.artifact-name.outputs.channel }}"
+          DISTRIBUTION_ID="${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}"
+
+          echo "Invalidating CloudFront cache for latest-mac.yml..."
+          aws cloudfront create-invalidation \
+            --distribution-id ${DISTRIBUTION_ID} \
+            --paths "/${CHANNEL}/latest-mac.yml"
+
+          echo "CloudFront cache invalidation initiated"
+
       - name: Cleanup keychain
         if: always()
         run: |

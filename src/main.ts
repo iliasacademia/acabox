@@ -577,11 +577,14 @@ function setupAutoUpdater(): void {
   console.log(`[Auto-Updater] Configured for channel: ${channel}`);
   console.log(`[Auto-Updater] Current version: ${app.getVersion()}`);
 
-  // Configure GitHub as update server
+  // Configure CloudFront + S3 as update server
+  // TODO: Replace 'REPLACE-WITH-CLOUDFRONT-DOMAIN' with actual CloudFront domain after AWS setup
+  // Example: 'd1234567890abc.cloudfront.net' (without https://)
+  const cloudfrontDomain = 'REPLACE-WITH-CLOUDFRONT-DOMAIN.cloudfront.net';
+
   autoUpdater.setFeedURL({
-    provider: 'github',
-    owner: 'academia-edu',
-    repo: 'academia-electron',
+    provider: 'generic',
+    url: `https://${cloudfrontDomain}/${channel}`,
   });
 
   // Event: Checking for updates

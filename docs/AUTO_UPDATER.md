@@ -4,7 +4,7 @@ This document describes the auto-updater implementation for Academia Electron Ap
 
 ## Overview
 
-The app uses `electron-updater` to automatically check for and install updates from GitHub Releases. Updates are distributed through two channels:
+The app uses `electron-updater` to automatically check for and install updates from S3 + CloudFront. Updates are distributed through two channels:
 - **Stable**: Production-ready releases
 - **Beta**: Early access releases with new features
 
@@ -13,20 +13,24 @@ The app uses `electron-updater` to automatically check for and install updates f
 ### Components
 
 1. **electron-updater**: Core library that handles update checking, downloading, and installation
-2. **GitHub Releases**: Serves as the update feed server (no custom server needed)
-3. **Timestamp-based versioning**: Versions use format `YYYYMMDDHHMMSS[-beta]`
-4. **electron-store**: Persists user's channel preference
-5. **GitHub Actions**: Automated build and release pipeline
+2. **AWS S3**: Private storage for application artifacts and update manifests
+3. **AWS CloudFront**: CDN for fast, global distribution of updates
+4. **Timestamp-based versioning**: Versions use format `MAJOR.MINOR.YYYYMMDDHHMMSS[-beta]`
+5. **electron-store**: Persists user's channel preference
+6. **GitHub Actions**: Automated build and release pipeline
+7. **GitHub Releases**: Backup distribution for manual downloads
 
 ### Version Format
 
-Versions use timestamps for guaranteed chronological ordering:
-- **Stable**: `20250106143022` (14 digits: YYYYMMDDHHMMSS)
-- **Beta**: `20250106143022-beta` (timestamp + `-beta` suffix)
+Versions use semantic versioning with timestamps for guaranteed chronological ordering:
+- **Stable**: `0.0.20250106143022` (MAJOR.MINOR.YYYYMMDDHHMMSS)
+- **Beta**: `0.0.20250106143022-beta` (MAJOR.MINOR.YYYYMMDDHHMMSS-beta)
 
 Example:
-- Version `20250106143022` = Built on January 6, 2025 at 14:30:22 UTC
+- Version `0.0.20250106143022` = Built on January 6, 2025 at 14:30:22 UTC
 - Displayed to users as: "Jan 6, 2025 14:30 UTC"
+
+The MAJOR.MINOR prefix allows for semantic versioning while the timestamp patch ensures chronological ordering.
 
 ## How It Works
 
@@ -46,7 +50,8 @@ App Launch
     ↓
 setupAutoUpdater() (10 second delay)
     ↓
-Check GitHub Releases for latest version in user's channel
+Check CloudFront for latest-mac.yml in user's channel
+(https://CLOUDFRONT-DOMAIN/stable/ or /beta/)
     ↓
 Version Available? ───NO──→ Continue normal operation
     ↓ YES
@@ -54,7 +59,7 @@ Show "Update Available" dialog to user
     ↓
 User clicks "Download"? ───NO──→ Continue normal operation
     ↓ YES
-Download update in background
+Download update from S3 via CloudFront
     ↓
 Show "Update Ready" dialog
     ↓
@@ -74,94 +79,127 @@ Users can switch channels via the tray menu:
 
 ## Creating Releases
 
-### Step 1: Create Git Tag
+### Step 1: Push to Main Branch or Feature Branch
 
-For **Stable Release**:
+**For Stable Release** (main branch):
 ```bash
-git tag v-stable-$(date -u +%Y%m%d%H%M%S)
-git push origin --tags
+git checkout main
+git pull
+# Make your changes
+git commit -m "Your changes"
+git push origin main
 ```
 
-For **Beta Release**:
+**For Beta Release** (feature branch):
 ```bash
-git tag v-beta-$(date -u +%Y%m%d%H%M%S)
-git push origin --tags
+git checkout -b feature/your-feature
+# Make your changes
+git commit -m "Your changes"
+git push origin feature/your-feature
 ```
 
 ### Step 2: GitHub Actions Workflow
 
 The workflow automatically:
-1. Generates timestamp version
-2. Detects channel from git tag (`-beta` suffix)
+1. Generates semantic version with timestamp (e.g., `0.0.20250110123456`)
+2. Detects channel from branch:
+   - `main` branch → stable channel
+   - Other branches → beta channel (adds `-beta` suffix)
 3. Updates `package.json` version
 4. Builds native modules
 5. Packages application (creates `.zip` and `.dmg`)
 6. Signs and notarizes (macOS)
-7. Publishes to GitHub Releases
+7. **Uploads to S3**:
+   - Uploads artifacts to `s3://BUCKET/CHANNEL/VERSION/`
+   - Modifies and uploads `latest-mac.yml` to `s3://BUCKET/CHANNEL/`
+8. **Invalidates CloudFront cache** for `latest-mac.yml`
+9. Creates GitHub Release (backup for manual downloads)
 
-### Step 3: Release is Published
+### Step 3: S3 Structure After Release
 
-The release is automatically created with:
-- **Title**: "Release YYYYMMDDHHMMSS" or "Beta Release YYYYMMDDHHMMSS"
-- **Assets**:
-  - `Academia-darwin-x64-YYYYMMDDHHMMSS.zip` (for auto-updater)
-  - `Academia-darwin-x64-YYYYMMDDHHMMSS.dmg` (for manual download)
-  - `latest-mac.yml` (auto-generated update manifest)
-- **Prerelease flag**: `true` for beta, `false` for stable
-- **Body**: Version, channel, and build date information
+The S3 bucket structure looks like this:
+```
+qa-academia-electron-artifacts/
+├── stable/
+│   ├── latest-mac.yml (points to latest version)
+│   ├── 0.0.20250110123456/
+│   │   ├── Academia-darwin-x64-0.0.20250110123456.zip
+│   │   ├── Academia-darwin-x64-0.0.20250110123456.dmg
+│   │   └── Academia-darwin-x64-0.0.20250110123456.zip.blockmap
+│   └── 0.0.20250109100000/
+│       └── (previous version preserved)
+└── beta/
+    ├── latest-mac.yml
+    └── 0.0.20250110123456-beta/
+        └── (artifacts)
+```
 
-## Feed Server (GitHub Releases)
+**Benefits of versioned folders:**
+- History preserved for rollback
+- Multiple versions available simultaneously
+- Easy to debug update issues
 
-### How electron-updater Uses GitHub Releases
+## Feed Server (S3 + CloudFront)
+
+### How electron-updater Uses S3 + CloudFront
 
 1. **Configuration** (in `main.ts`):
    ```typescript
+   const cloudfrontDomain = 'YOUR-CLOUDFRONT-DOMAIN.cloudfront.net';
    autoUpdater.setFeedURL({
-     provider: 'github',
-     owner: 'academia-edu',
-     repo: 'academia-electron',
+     provider: 'generic',
+     url: `https://${cloudfrontDomain}/${channel}`,
    });
-   autoUpdater.channel = 'stable'; // or 'beta'
    ```
 
 2. **Update Check**: electron-updater fetches:
    ```
-   https://github.com/academia-edu/academia-electron/releases/download/latest/latest-mac.yml
+   https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/latest-mac.yml
+   # or
+   https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/beta/latest-mac.yml
    ```
 
 3. **Manifest Contents** (`latest-mac.yml`):
    ```yaml
-   version: 20250106143022
+   version: 0.0.20250106143022
    releaseDate: '2025-01-06T14:30:22.000Z'
    files:
-     - url: Academia-darwin-x64-20250106143022.zip
+     - url: https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/0.0.20250106143022/Academia-darwin-x64-0.0.20250106143022.zip
        sha512: [checksum]
        size: 123456789
-   path: Academia-darwin-x64-20250106143022.zip
+   path: https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/0.0.20250106143022/Academia-darwin-x64-0.0.20250106143022.zip
    sha512: [checksum]
-   releaseNotes: [from GitHub release body]
+   releaseNotes: [optional]
    ```
 
-4. **Version Comparison**: Compares timestamp strings (newer timestamp = newer version)
+4. **Version Comparison**: Compares semantic version strings with timestamp patch
 
-5. **Download**: If update available, downloads `.zip` file
+5. **Download**: If update available, downloads `.zip` file from CloudFront/S3
 
 6. **Verification**: Verifies SHA512 checksum before installation
 
 ### Channel Separation
 
-- **Stable channel**: Fetches latest non-prerelease
-- **Beta channel**: Fetches latest prerelease with `-beta` tag
+- **Stable channel**: URL points to `https://CLOUDFRONT-DOMAIN/stable/latest-mac.yml`
+- **Beta channel**: URL points to `https://CLOUDFRONT-DOMAIN/beta/latest-mac.yml`
 
-GitHub Releases API automatically handles this based on the `prerelease` flag.
+Channel switching changes the URL path that electron-updater queries.
+
+### CloudFront Benefits
+
+- **Global CDN**: Fast downloads from edge locations worldwide
+- **Caching**: Artifacts cached with long TTL, manifests with short TTL (1-5 min)
+- **Security**: Private S3 bucket, only accessible via CloudFront
+- **Cost-effective**: Lower bandwidth costs compared to direct S3 access
+- **Reliability**: 99.9% uptime SLA
 
 ## Files Modified
 
-- `src/main.ts`: Auto-updater logic, event handlers, menu items, IPC handlers
-- `forge.config.js`: Added GitHub publisher configuration
-- `.github/workflows/build.yml`: Added version generation and publishing steps
-- `scripts/generate-version.sh`: Version generation script
-- `package.json`: Added `electron-updater` dependency
+- `src/main.ts`: Auto-updater logic with CloudFront URL configuration
+- `.github/workflows/build.yml`: Added S3 upload and CloudFront invalidation steps
+- `docs/AUTO_UPDATER.md`: This documentation file
+- `docs/FEED_SERVER.md`: Updated with S3 + CloudFront architecture
+- `tmp/aws-setup-guide.md`: Complete AWS setup instructions
 
 ## Configuration
 
@@ -174,12 +212,37 @@ Stored in `~/Library/Application Support/academia-electron/config.json`:
 }
 ```
 
-### Environment Variables
+### Required GitHub Secrets
 
-- `UPDATE_CHANNEL`: Override channel (optional, mainly for testing)
-- `APPLE_ID`: Apple ID for notarization (GitHub Actions secret)
-- `APPLE_ID_PASSWORD`: App-specific password (GitHub Actions secret)
-- `APPLE_TEAM_ID`: Apple Team ID (GitHub Actions secret)
+Configure these in repository Settings → Secrets and variables → Actions:
+
+**AWS Credentials:**
+- `AWS_ACCESS_KEY_ID`: IAM user access key for S3 uploads
+- `AWS_SECRET_ACCESS_KEY`: IAM user secret key
+- `S3_BUCKET_NAME`: S3 bucket name (e.g., `qa-academia-electron-artifacts`)
+- `CLOUDFRONT_DISTRIBUTION_ID`: CloudFront distribution ID (e.g., `E1234567890ABC`)
+
+**Apple Code Signing:**
+- `CSC_LINK`: Base64-encoded .p12 certificate
+- `CSC_KEY_PASSWORD`: Certificate password
+- `APPLE_ID`: Apple ID for notarization
+- `APPLE_APP_SPECIFIC_PASSWORD`: App-specific password
+- `APPLE_TEAM_ID`: Apple Developer Team ID
+- `APPLE_IDENTITY`: Code signing identity
+
+### Code Configuration
+
+**In `src/main.ts`**, update the CloudFront domain:
+```typescript
+// Replace this placeholder after AWS setup:
+const cloudfrontDomain = 'REPLACE-WITH-CLOUDFRONT-DOMAIN.cloudfront.net';
+```
+
+**In `.github/workflows/build.yml`**, update the CloudFront domain:
+```bash
+# Line ~174: Replace this placeholder after AWS setup:
+CLOUDFRONT_DOMAIN="REPLACE-WITH-CLOUDFRONT-DOMAIN.cloudfront.net"
+```
 
 ## IPC Handlers
 
@@ -232,9 +295,41 @@ const { version, formatted } = await window.electronAPI.invoke('get-app-version'
 
 1. **Check if packaged**: Auto-updater only works in packaged app (`app.isPackaged === true`)
 2. **Check logs**: Look for `[Auto-Updater]` prefix in console
-3. **Check GitHub Releases**: Verify releases exist and are published (not draft)
-4. **Check channel**: Verify correct channel is selected in tray menu
-5. **Check version**: Ensure current version is older than available version
+3. **Check CloudFront domain**: Verify placeholder was replaced with actual domain in `src/main.ts`
+4. **Check S3 bucket**: Verify files exist in S3 at correct paths:
+   ```bash
+   aws s3 ls s3://qa-academia-electron-artifacts/stable/
+   aws s3 ls s3://qa-academia-electron-artifacts/stable/latest-mac.yml
+   ```
+5. **Check CloudFront**: Test manifest URL in browser:
+   ```
+   https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/latest-mac.yml
+   ```
+6. **Check channel**: Verify correct channel is selected in tray menu
+7. **Check version**: Ensure current version is older than available version
+
+### CloudFront/S3 Specific Issues
+
+**Issue: 403 Forbidden from CloudFront**
+- **Cause**: S3 bucket policy doesn't allow CloudFront OAC access
+- **Fix**: Verify bucket policy includes CloudFront distribution ARN (see `tmp/aws-setup-guide.md`)
+
+**Issue: 404 Not Found**
+- **Cause**: File doesn't exist in S3 or wrong path
+- **Fix**: Check S3 bucket structure matches expected format
+
+**Issue: Manifest not updating**
+- **Cause**: CloudFront cache not invalidated
+- **Fix**: Verify GitHub Actions invalidation step ran successfully:
+  ```bash
+  aws cloudfront get-invalidation \
+    --distribution-id E1234567890ABC \
+    --id INVALIDATION_ID
+  ```
+
+**Issue: CORS errors**
+- **Cause**: CloudFront response headers policy missing CORS headers
+- **Fix**: Verify CORS policy is attached to cache behavior (see `tmp/aws-setup-guide.md`)
 
 ### Version Comparison Issues
 
