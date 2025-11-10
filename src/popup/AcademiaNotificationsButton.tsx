@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { useNativeEvent, useSendMessage, useBridgeReady, getBridgeInstance } from './hooks/useBridge';
 import { logJSON } from './utils/logger';
 import academiaLogos from '../assets/academia-logos.svg';
+import './AcademiaNotificationsButton.css';
 
 // Initialize bridge early
 getBridgeInstance('academia-notifications-button');
@@ -72,82 +73,22 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
     }
   };
 
-  // Container style - fill entire window and position button at bottom-left
-  const containerStyle: React.CSSProperties = {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    width: '24px',
-    height: '24px',
-  };
-
-  // Circular button style (matching Figma: black background, black stroke)
-  const buttonStyle: React.CSSProperties = {
-    width: '24px',
-    height: '24px',
-    backgroundColor: '#141413',
-    border: '1px solid #000000',
-    borderRadius: '50%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    cursor: 'pointer',
-    outline: 'none',
-    userSelect: 'none',
-    WebkitUserSelect: 'none',
-    padding: 0,
-    position: 'relative',
-  };
-
-  // Academia logo style (white logo on black background)
-  const logoStyle: React.CSSProperties = {
-    width: '13.81px',
-    height: '12.185px',
-    filter: 'brightness(0) invert(1)', // Make logo white
-  };
-
-  // Badge container style (red circle at top-right)
-  const badgeStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: '-12px',
-    right: '-12px',
-    width: '20px',
-    height: '20px',
-    backgroundColor: '#f10000',
-    border: '1.25px solid #f2f0ec',
-    borderRadius: '50%',
-    display: badgeCount > 0 ? 'flex' : 'none',
-    alignItems: 'center',
-    justifyContent: 'center',
-    pointerEvents: 'none',
-  };
-
-  // Badge text style (white text, 12px, Roboto ExtraBold)
-  const badgeTextStyle: React.CSSProperties = {
-    fontFamily: 'Roboto, sans-serif',
-    fontWeight: 800,
-    fontSize: '12px',
-    lineHeight: '12px',
-    color: '#f2f0ec',
-    textAlign: 'center',
-  };
-
   // Format badge count (show "9+" for counts > 9)
   const displayCount = badgeCount > 9 ? '9+' : badgeCount.toString();
 
   return (
-    <div style={containerStyle}>
+    <div className="button-container">
       <button
-        style={buttonStyle}
+        className="button"
         onClick={handleClick}
         disabled={!isReady || loading}
         data-node-id="549:1574"
       >
-        <img src={academiaLogos} alt="Academia" style={logoStyle} data-node-id="549:1576" />
+        <img src={academiaLogos} alt="Academia" className="logo" data-node-id="549:1576" />
       </button>
       {badgeCount > 0 && (
-        <div style={badgeStyle} data-node-id="549:1578">
-          <span style={badgeTextStyle} data-node-id="549:1579">
+        <div className="badge" data-node-id="549:1578">
+          <span className="badge-text" data-node-id="549:1579">
             {displayCount}
           </span>
         </div>

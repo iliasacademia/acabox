@@ -3,13 +3,13 @@ import axios, { AxiosInstance } from 'axios';
 import { HttpCookieAgent, HttpsCookieAgent } from 'http-cookie-agent/http';
 import { wrapper as axiosCookieJarSupport } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
-import FileCookieStore from 'tough-cookie-file-store';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'fs/promises';
 import { app } from 'electron';
 import { Notification, GetNotificationsResponse } from './types/notifications';
+import { EncryptedCookieStore } from './encryptedCookieStore';
 
 // In development mode, default to devdemia API
 const isDev = !app.isPackaged;
@@ -23,7 +23,9 @@ export const APIclient = async (): Promise<AxiosInstance> => {
     return apiClient;
   }
   axiosCookieJarSupport(axios);
-  const cookieJar = new CookieJar(new FileCookieStore(path.join(app.getPath('userData'), 'backendCookies.json')));
+  // Use encrypted cookie store instead of plaintext FileCookieStore
+  const cookieStore = new EncryptedCookieStore(path.join(app.getPath('userData'), 'backendCookies.encrypted'));
+  const cookieJar = new CookieJar(cookieStore);
   const agentArgs = {
     cookies: { jar: cookieJar },
     rejectUnauthorized: !BASE_URL.includes('devdemia'),
@@ -93,9 +95,12 @@ export const login = async (email: string, password: string) => {
     })
     .catch((error) => {
       console.error('Login error:', error);
+      // Security: Do NOT write sensitive error data to disk
+      // Previous code wrote to /tmp/wtf.html which was world-readable
       if (error.response) {
-        const data = typeof error.response.data === 'string' ? error.response.data : JSON.stringify(error.response.data, null, 2);
-        fs.writeFileSync('/tmp/wtf.html', data);
+        console.error('Login error status:', error.response.status);
+        console.error('Login error headers:', error.response.headers);
+        // Log only non-sensitive error info to console
       }
       throw error;
     });
@@ -155,11 +160,17 @@ export const searchFiles = async (searchTerm: string) => {
 
 export const logout = async () => {
   await APIclient();
-  const cookieJarPath = path.join(app.getPath('userData'), 'backendCookies.json');
+  const cookieJarPath = path.join(app.getPath('userData'), 'backendCookies.encrypted');
 
   // Clear cookies from the jar
   if (fs.existsSync(cookieJarPath)) {
     fs.unlinkSync(cookieJarPath);
+  }
+
+  // Also clean up legacy plaintext cookie file if it exists
+  const legacyCookiePath = path.join(app.getPath('userData'), 'backendCookies.json');
+  if (fs.existsSync(legacyCookiePath)) {
+    fs.unlinkSync(legacyCookiePath);
   }
 
   // Reset the API client so it creates a new cookie jar
