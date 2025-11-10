@@ -2,8 +2,18 @@ name: Build & Package
 
 on:
   workflow_dispatch:
+    inputs:
+      major:
+        description: 'Major version number'
+        required: false
+        default: ''
+        type: string
+      minor:
+        description: 'Minor version number'
+        required: false
+        default: ''
+        type: string
   push:
-    branches: [main]
     tags:
       - 'v*'
 
@@ -75,26 +85,43 @@ jobs:
       - name: Generate version and artifact name
         id: artifact-name
         run: |
-          # Generate timestamp version in semver format: YYYY.MMDD.HHMMSS
-          YEAR=$(date -u +"%Y")
-          MONTH_DAY=$(date -u +"%m%d")
-          TIME=$(date -u +"%H%M%S")
-          VERSION_TIMESTAMP="${YEAR}.${MONTH_DAY}.${TIME}"
-
           # Determine version based on branch/tag
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            # Main branch = stable with timestamp
-            VERSION="${VERSION_TIMESTAMP}"
-            CHANNEL="stable"
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             # Version tags use the tag as-is (remove v prefix if present)
             VERSION="${{ github.ref_name }}"
             VERSION="${VERSION#v}"
             CHANNEL="stable"
           else
-            # Feature branches = beta channel with timestamp
-            VERSION="${VERSION_TIMESTAMP}-beta"
-            CHANNEL="beta"
+            # Get current major.minor from package.json
+            CURRENT_VERSION=$(node -p "require('./package.json').version")
+            CURRENT_MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
+            CURRENT_MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
+
+            # Use workflow inputs if provided, otherwise use current values
+            MAJOR="${{ inputs.major }}"
+            MINOR="${{ inputs.minor }}"
+
+            if [[ -z "$MAJOR" ]]; then
+              MAJOR="$CURRENT_MAJOR"
+            fi
+
+            if [[ -z "$MINOR" ]]; then
+              MINOR="$CURRENT_MINOR"
+            fi
+
+            # Generate timestamp as patch: YYYYMMDDHHMMSS
+            PATCH=$(date -u +"%Y%m%d%H%M%S")
+
+            # Build version: MAJOR.MINOR.PATCH
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+
+            # Determine channel and add suffix for feature branches
+            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+              CHANNEL="stable"
+            else
+              CHANNEL="beta"
+              VERSION="${VERSION}-beta"
+            fi
           fi
 
           # Update package.json with the generated version
