@@ -1,0 +1,367 @@
+.qrLoginForm {
+  min-width: 400px;
+  max-width: 500px;
+  max-height: 90vh;
+  overflow-y: auto;
+  text-align: center;
+  scroll-behavior: smooth;
+  padding-bottom: 20px;
+}
+
+/* Custom scrollbar styling for webkit browsers */
+.qrLoginForm::-webkit-scrollbar {
+  width: 8px;
+}
+
+.qrLoginForm::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.qrLoginForm::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 4px;
+}
+
+.qrLoginForm::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+.qrCodeContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  margin: 20px 0;
+}
+
+.qrCode {
+  max-width: 300px;
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.qrInstructions {
+  text-align: left;
+  padding: 10px 20px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+  margin: 10px 0;
+}
+
+.qrInstructions p {
+  margin: 8px 0;
+  font-size: 14px;
+  color: #333;
+}
+
+.qrStatus {
+  padding: 10px;
+  margin: 10px 0;
+  border-radius: 4px;
+  font-size: 14px;
+  color: #666;
+}
+
+.qrStatus.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.qrStatus.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+  max-height: 150px;
+  overflow-y: auto;
+  text-align: left;
+  word-break: break-word;
+  font-family: monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
+.qrFallback {
+  margin: 15px 0;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border-radius: 4px;
+}
+
+.qrFallbackTitle {
+  margin: 0 0 10px 0;
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+}
+
+.qrUrlContainer {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.qrUrlInput {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: monospace;
+  color: #495057;
+  background-color: white;
+  cursor: text;
+}
+
+.qrUrlInput:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.1);
+}
+
+.qrCopyButton {
+  padding: 8px 16px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.2s;
+}
+
+.qrCopyButton:hover {
+  background-color: #0056b3;
+}
+
+.qrCopyButton:active {
+  background-color: #004085;
+}
+
+.qrLink {
+  display: inline-block;
+  color: #007bff;
+  text-decoration: none;
+  font-size: 13px;
+  margin-top: 5px;
+}
+
+.qrLink:hover {
+  text-decoration: underline;
+}
+
+.qrActions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 15px;
+}
+
+.qrActions button {
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  border: 1px solid #ccc;
+  background-color: white;
+  transition: background-color 0.2s;
+}
+
+.qrActions button:hover {
+  background-color: #f8f9fa;
+}
+
+.retryButton {
+  background-color: #007bff !important;
+  color: white !important;
+  border: none !important;
+}
+
+.retryButton:hover {
+  background-color: #0056b3 !important;
+}
+
+.secondaryButton {
+  background-color: white;
+  color: #333;
+}
+
+.qrLoading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 60px;
+}
+
+.spinner {
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #333;
+  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+.qrSuccess {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+}
+
+.checkmark {
+  font-size: 60px;
+  color: #28a745;
+  animation: scaleIn 0.3s ease-in-out;
+}
+
+@keyframes scaleIn {
+  0% {
+    transform: scale(0);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Verification Code Display - Shows code from backend */
+.verificationCodeDisplay {
+  margin: 20px 0;
+  padding: 15px;
+  background-color: #e7f3ff;
+  border: 2px solid #007bff;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.codeLabel {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+}
+
+.codeDisplay {
+  font-size: 48px;
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+  color: #007bff;
+  letter-spacing: 8px;
+  user-select: all;
+}
+
+/* Verification Code Input Section */
+.verificationCodeSection {
+  margin: 25px 0;
+  padding: 20px;
+  background-color: #fff;
+  border: 2px solid #007bff;
+  border-radius: 8px;
+}
+
+.verificationPrompt {
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0 0 15px 0;
+  color: #333;
+}
+
+.codeInputContainer {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 15px;
+}
+
+.codeInput {
+  width: 100px;
+  height: 70px;
+  font-size: 40px;
+  font-weight: bold;
+  text-align: center;
+  border: 2px solid #ced4da;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.codeInput:focus {
+  outline: none;
+  border-color: #007bff;
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.2);
+}
+
+.codeInput:disabled {
+  background-color: #e9ecef;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.codeInput::placeholder {
+  color: #ced4da;
+  font-weight: normal;
+}
+
+.verifyButton {
+  width: 100%;
+  padding: 12px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.verifyButton:hover:not(:disabled) {
+  background-color: #0056b3;
+}
+
+.verifyButton:active:not(:disabled) {
+  background-color: #004085;
+}
+
+.verifyButton:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.attemptsRemaining {
+  margin: 10px 0 0 0;
+  font-size: 13px;
+  color: #856404;
+  font-weight: 500;
+  text-align: center;
+}
+
+.attemptsExhausted {
+  margin: 10px 0 0 0;
+  font-size: 13px;
+  color: #721c24;
+  font-weight: 600;
+  text-align: center;
+  background-color: #f8d7da;
+  padding: 10px;
+  border-radius: 4px;
+  border: 1px solid #f5c6cb;
+}

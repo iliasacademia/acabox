@@ -102,6 +102,7 @@ export const login = async (email: string, password: string) => {
   return response;
 };
 
+
 const getTitle = async (filePath: string): Promise<string | undefined> => {
   const arrayBuffer = await readFile(filePath);
   const pdf = await PDFDocument.load(arrayBuffer);
@@ -164,6 +165,7 @@ export const logout = async () => {
   // Reset the API client so it creates a new cookie jar
   apiClient = null;
 
+  console.log('[Auth] Logged out successfully');
   return { success: true };
 };
 
@@ -376,7 +378,7 @@ export const getStatus = async (): Promise<any> => {
   console.log('[API] Calling GET /v0/sync_agent/status');
   const response = await client.get('/v0/sync_agent/status');
   console.log('[API] Response status:', response.status);
-  console.log('[API] Response data:', JSON.stringify(response.data, null, 2));
+  // console.log('[API] Response data:', JSON.stringify(response.data, null, 2));
   return response.data;
 };
 
