@@ -578,13 +578,18 @@ function setupAutoUpdater(): void {
   console.log(`[Auto-Updater] Current version: ${app.getVersion()}`);
 
   // Configure CloudFront + S3 as update server
-  // TODO: Replace 'REPLACE-WITH-CLOUDFRONT-DOMAIN' with actual CloudFront domain after AWS setup
-  // Example: 'd1234567890abc.cloudfront.net' (without https://)
-  const cloudfrontDomain = 'REPLACE-WITH-CLOUDFRONT-DOMAIN.cloudfront.net';
+  const cloudFrontDomain = process.env.CLOUDFRONT_DOMAIN;
+  if (!cloudFrontDomain) {
+    console.error('[Auto-Updater] CLOUDFRONT_DOMAIN not configured');
+    return;
+  }
+
+  const feedUrl = `https://${cloudFrontDomain}/${channel}`;
+  console.log(`[Auto-Updater] Using CloudFront feed: ${feedUrl}`);
 
   autoUpdater.setFeedURL({
     provider: 'generic',
-    url: `https://${cloudfrontDomain}/${channel}`,
+    url: feedUrl,
   });
 
   // Event: Checking for updates

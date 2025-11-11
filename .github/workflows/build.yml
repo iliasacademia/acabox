@@ -146,6 +146,7 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
+          CLOUDFRONT_DOMAIN: ${{ vars.CLOUDFRONT_DOMAIN }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -169,9 +170,7 @@ jobs:
           VERSION="${{ steps.artifact-name.outputs.version }}"
           CHANNEL="${{ steps.artifact-name.outputs.channel }}"
           BUCKET="${{ secrets.S3_BUCKET_NAME }}"
-
-          # TODO: Replace 'REPLACE-WITH-CLOUDFRONT-DOMAIN' with actual CloudFront domain
-          CLOUDFRONT_DOMAIN="REPLACE-WITH-CLOUDFRONT-DOMAIN.cloudfront.net"
+          CLOUDFRONT_DOMAIN="${{ vars.CLOUDFRONT_DOMAIN }}"
 
           echo "Uploading to S3: s3://${BUCKET}/${CHANNEL}/${VERSION}/"
 

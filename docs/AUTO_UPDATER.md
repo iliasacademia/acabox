@@ -195,11 +195,10 @@ Channel switching changes the URL path that electron-updater queries.
 
 ## Files Modified
 
-- `src/main.ts`: Auto-updater logic with CloudFront URL configuration
+- `src/main.ts`: Auto-updater logic with CloudFront URL configuration using process.env
+- `webpack.plugins.js`: Added DefinePlugin to inject CLOUDFRONT_DOMAIN at build time
 - `.github/workflows/build.yml`: Added S3 upload and CloudFront invalidation steps
 - `docs/AUTO_UPDATER.md`: This documentation file
-- `docs/FEED_SERVER.md`: Updated with S3 + CloudFront architecture
-- `tmp/aws-setup-guide.md`: Complete AWS setup instructions
 
 ## Configuration
 
@@ -212,37 +211,24 @@ Stored in `~/Library/Application Support/academia-electron/config.json`:
 }
 ```
 
-### Required GitHub Secrets
+### Required GitHub Configuration
 
 Configure these in repository Settings → Secrets and variables → Actions:
 
-**AWS Credentials:**
+**Secrets** (Settings → Secrets and variables → Actions → Secrets):
 - `AWS_ACCESS_KEY_ID`: IAM user access key for S3 uploads
 - `AWS_SECRET_ACCESS_KEY`: IAM user secret key
 - `S3_BUCKET_NAME`: S3 bucket name (e.g., `qa-academia-electron-artifacts`)
 - `CLOUDFRONT_DISTRIBUTION_ID`: CloudFront distribution ID (e.g., `E1234567890ABC`)
-
-**Apple Code Signing:**
-- `CSC_LINK`: Base64-encoded .p12 certificate
-- `CSC_KEY_PASSWORD`: Certificate password
 - `APPLE_ID`: Apple ID for notarization
 - `APPLE_APP_SPECIFIC_PASSWORD`: App-specific password
 - `APPLE_TEAM_ID`: Apple Developer Team ID
 - `APPLE_IDENTITY`: Code signing identity
 
-### Code Configuration
+**Variables** (Settings → Secrets and variables → Actions → Variables):
+- `CLOUDFRONT_DOMAIN`: CloudFront distribution domain (e.g., `d123456789abc.cloudfront.net`) - injected into app at build time
 
-**In `src/main.ts`**, update the CloudFront domain:
-```typescript
-// Replace this placeholder after AWS setup:
-const cloudfrontDomain = 'REPLACE-WITH-CLOUDFRONT-DOMAIN.cloudfront.net';
-```
-
-**In `.github/workflows/build.yml`**, update the CloudFront domain:
-```bash
-# Line ~174: Replace this placeholder after AWS setup:
-CLOUDFRONT_DOMAIN="REPLACE-WITH-CLOUDFRONT-DOMAIN.cloudfront.net"
-```
+**Note:** The `CLOUDFRONT_DOMAIN` variable is automatically injected into the application at build time via webpack DefinePlugin. No manual code changes needed.
 
 ## IPC Handlers
 
