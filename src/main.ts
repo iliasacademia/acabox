@@ -584,7 +584,7 @@ function setupAutoUpdater(): void {
     return;
   }
 
-  const feedUrl = `https://${cloudFrontDomain}/${channel}`;
+  const feedUrl = `https://${cloudFrontDomain}/${channel}/latest-mac.yml`;
   console.log(`[Auto-Updater] Using CloudFront feed: ${feedUrl}`);
 
   autoUpdater.setFeedURL({
