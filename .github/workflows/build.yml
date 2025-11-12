@@ -165,6 +165,11 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      - name: Generate update manifest
+        run: |
+          VERSION="${{ steps.artifact-name.outputs.version }}"
+          node scripts/generate-update-manifest.js "$VERSION" "arm64" "out/make/zip/darwin/arm64"
+
       - name: Upload to S3
         run: |
           VERSION="${{ steps.artifact-name.outputs.version }}"
