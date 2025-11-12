@@ -169,7 +169,7 @@ jobs:
         run: |
           VERSION="${{ steps.artifact-name.outputs.version }}"
           CHANNEL="${{ steps.artifact-name.outputs.channel }}"
-          BUCKET="${{ secrets.S3_BUCKET_NAME }}"
+          BUCKET="${{ vars.S3_BUCKET_NAME }}"
           CLOUDFRONT_DOMAIN="${{ vars.CLOUDFRONT_DOMAIN }}"
 
           echo "Uploading to S3: s3://${BUCKET}/${CHANNEL}/${VERSION}/"
