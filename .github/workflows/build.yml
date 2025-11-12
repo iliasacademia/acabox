@@ -236,7 +236,7 @@ jobs:
       - name: Invalidate CloudFront cache
         run: |
           CHANNEL="${{ steps.artifact-name.outputs.channel }}"
-          DISTRIBUTION_ID="${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}"
+          DISTRIBUTION_ID="${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}"
 
           echo "Invalidating CloudFront cache for latest-mac.yml..."
           aws cloudfront create-invalidation \
