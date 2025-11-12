@@ -175,7 +175,7 @@ jobs:
           echo "Uploading to S3: s3://${BUCKET}/${CHANNEL}/${VERSION}/"
 
           # Upload .zip file (required for auto-updater)
-          aws s3 cp out/make/zip/darwin/x64/ \
+          aws s3 cp out/make/zip/darwin/arm64/ \
             s3://${BUCKET}/${CHANNEL}/${VERSION}/ \
             --recursive \
             --exclude "*" \
@@ -183,15 +183,15 @@ jobs:
             --include "*.blockmap"
 
           # Upload .dmg file (for manual distribution)
-          if [ -d "out/make/dmg/darwin/x64/" ]; then
-            aws s3 cp out/make/dmg/darwin/x64/ \
+          if [ -d "out/make/dmg/darwin/arm64/" ]; then
+            aws s3 cp out/make/dmg/darwin/arm64/ \
               s3://${BUCKET}/${CHANNEL}/${VERSION}/ \
               --recursive \
               --include "*.dmg"
           fi
 
           # Modify latest-mac.yml to use CloudFront URLs with versioned paths
-          MANIFEST_FILE="out/make/zip/darwin/x64/latest-mac.yml"
+          MANIFEST_FILE="out/make/zip/darwin/arm64/latest-mac.yml"
           if [ -f "$MANIFEST_FILE" ]; then
             echo "Updating manifest URLs to use CloudFront with versioned paths..."
 
