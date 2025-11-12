@@ -7,11 +7,12 @@ const crypto = require('crypto');
 // Get arguments
 const args = process.argv.slice(2);
 const version = args[0];
-const arch = args[1] || 'arm64';
-const outputDir = args[2] || `out/make/zip/darwin/${arch}`;
+const channel = args[1] || 'stable';
+const arch = args[2] || 'arm64';
+const outputDir = args[3] || `out/make/zip/darwin/${arch}`;
 
 if (!version) {
-  console.error('Usage: node generate-update-manifest.js <version> [arch] [outputDir]');
+  console.error('Usage: node generate-update-manifest.js <version> <channel> [arch] [outputDir]');
   process.exit(1);
 }
 
@@ -69,10 +70,11 @@ releaseNotes: ${manifest.releaseNotes}
 `;
 
 // Write manifest file
-const manifestPath = path.join(outputDir, 'latest-mac.yml');
+const manifestPath = path.join(outputDir, `${channel}-mac.yml`);
 fs.writeFileSync(manifestPath, yaml, 'utf8');
 
 console.log(`Manifest generated at ${manifestPath}`);
+console.log(`Channel: ${channel}`);
 console.log(`Version: ${version}`);
 console.log(`File: ${zipFile}`);
 console.log(`Size: ${size} bytes`);

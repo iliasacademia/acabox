@@ -168,7 +168,8 @@ jobs:
       - name: Generate update manifest
         run: |
           VERSION="${{ steps.artifact-name.outputs.version }}"
-          node scripts/generate-update-manifest.js "$VERSION" "arm64" "out/make/zip/darwin/arm64"
+          CHANNEL="${{ steps.artifact-name.outputs.channel }}"
+          node scripts/generate-update-manifest.js "$VERSION" "$CHANNEL" "arm64" "out/make/zip/darwin/arm64"
 
       - name: Upload to S3
         run: |
@@ -195,8 +196,8 @@ jobs:
               --include "*.dmg"
           fi
 
-          # Modify latest-mac.yml to use CloudFront URLs with versioned paths
-          MANIFEST_FILE="out/make/zip/darwin/arm64/latest-mac.yml"
+          # Modify {channel}-mac.yml to use CloudFront URLs with versioned paths
+          MANIFEST_FILE="out/make/zip/darwin/arm64/${CHANNEL}-mac.yml"
           if [ -f "$MANIFEST_FILE" ]; then
             echo "Updating manifest URLs to use CloudFront with versioned paths..."
 
@@ -227,21 +228,21 @@ jobs:
           fi
 
           # Upload the modified manifest to channel root (overwrites previous)
-          aws s3 cp "$MANIFEST_FILE" s3://${BUCKET}/${CHANNEL}/latest-mac.yml
+          aws s3 cp "$MANIFEST_FILE" s3://${BUCKET}/${CHANNEL}/${CHANNEL}-mac.yml
 
           echo "Upload complete!"
           echo "Artifacts location: s3://${BUCKET}/${CHANNEL}/${VERSION}/"
-          echo "Manifest location: s3://${BUCKET}/${CHANNEL}/latest-mac.yml"
+          echo "Manifest location: s3://${BUCKET}/${CHANNEL}/${CHANNEL}-mac.yml"
 
       - name: Invalidate CloudFront cache
         run: |
           CHANNEL="${{ steps.artifact-name.outputs.channel }}"
           DISTRIBUTION_ID="${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}"
 
-          echo "Invalidating CloudFront cache for latest-mac.yml..."
+          echo "Invalidating CloudFront cache for ${CHANNEL}-mac.yml..."
           aws cloudfront create-invalidation \
             --distribution-id ${DISTRIBUTION_ID} \
-            --paths "/${CHANNEL}/latest-mac.yml"
+            --paths "/${CHANNEL}/${CHANNEL}-mac.yml"
 
           echo "CloudFront cache invalidation initiated"
 
