@@ -5,6 +5,7 @@ import { execSync } from 'child_process';
 import { createCanvas } from 'canvas';
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
+import log from 'electron-log';
 import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles, APIclient, getCsrfToken } from './uploader';
 import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
@@ -28,6 +29,13 @@ const store = new Store<AppSettings>({
     updateChannel: 'stable',
   },
 });
+
+// Configure electron-log for production logging
+log.transports.file.level = 'info';
+log.transports.console.level = 'info';
+log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB max file size
+log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
+log.info('[App] Logging initialized. Log file location:', log.transports.file.getFile().path);
 
 // Helper function to resolve paths for AppleScript files
 function resolveAppleScriptPath(scriptName: string): string {
@@ -562,7 +570,7 @@ const positionWindowMiddleRight = (): void => {
 function setupAutoUpdater(): void {
   // Only enable auto-updater in production (packaged app)
   if (!app.isPackaged) {
-    console.log('[Auto-Updater] Disabled in development mode');
+    log.info('[Auto-Updater] Disabled in development mode');
     return;
   }
 
@@ -574,18 +582,18 @@ function setupAutoUpdater(): void {
   const channel = store.get('updateChannel', 'stable');
   autoUpdater.channel = channel;
 
-  console.log(`[Auto-Updater] Configured for channel: ${channel}`);
-  console.log(`[Auto-Updater] Current version: ${app.getVersion()}`);
+  log.info(`[Auto-Updater] Configured for channel: ${channel}`);
+  log.info(`[Auto-Updater] Current version: ${app.getVersion()}`);
 
   // Configure CloudFront + S3 as update server
   const cloudFrontDomain = process.env.CLOUDFRONT_DOMAIN;
   if (!cloudFrontDomain) {
-    console.error('[Auto-Updater] CLOUDFRONT_DOMAIN not configured');
+    log.error('[Auto-Updater] CLOUDFRONT_DOMAIN not configured');
     return;
   }
 
   const feedUrl = `https://${cloudFrontDomain}/${channel}`;
-  console.log(`[Auto-Updater] Using CloudFront feed: ${feedUrl}`);
+  log.info(`[Auto-Updater] Using CloudFront feed: ${feedUrl}`);
 
   autoUpdater.setFeedURL({
     provider: 'generic',
@@ -594,12 +602,12 @@ function setupAutoUpdater(): void {
 
   // Event: Checking for updates
   autoUpdater.on('checking-for-update', () => {
-    console.log('[Auto-Updater] Checking for updates...');
+    log.info('[Auto-Updater] Checking for updates...');
   });
 
   // Event: Update available
   autoUpdater.on('update-available', (info) => {
-    console.log('[Auto-Updater] Update available:', info.version);
+    log.info('[Auto-Updater] Update available:', info.version);
 
     // Format timestamp version for display
     const currentVersion = app.getVersion();
@@ -619,22 +627,48 @@ function setupAutoUpdater(): void {
     }).then((result) => {
       if (result.response === 0) {
         // User clicked Download
-        console.log('[Auto-Updater] User approved download');
-        autoUpdater.downloadUpdate();
+        log.info('[Auto-Updater] User approved download');
+        try {
+          autoUpdater.downloadUpdate().catch((downloadError) => {
+            log.error('[Auto-Updater] Failed to download update:', downloadError);
+            log.error('[Auto-Updater] Error stack:', downloadError.stack);
+
+            // Show error dialog to user
+            dialog.showMessageBox({
+              type: 'error',
+              title: 'Update Download Failed',
+              message: 'Failed to download the update.',
+              detail: `An error occurred while downloading the update:\n\n${downloadError.message}\n\nYou can try again later by selecting "Check for Updates" from the menu.`,
+              buttons: ['OK'],
+            });
+          });
+        } catch (error) {
+          log.error('[Auto-Updater] Exception during downloadUpdate call:', error);
+          log.error('[Auto-Updater] Error stack:', (error as Error).stack);
+
+          // Show error dialog to user
+          dialog.showMessageBox({
+            type: 'error',
+            title: 'Update Download Failed',
+            message: 'Failed to start the update download.',
+            detail: `An error occurred:\n\n${(error as Error).message}\n\nYou can try again later by selecting "Check for Updates" from the menu.`,
+            buttons: ['OK'],
+          });
+        }
       } else {
-        console.log('[Auto-Updater] User postponed update');
+        log.info('[Auto-Updater] User postponed update');
       }
     });
   });
 
   // Event: Update not available
   autoUpdater.on('update-not-available', (info) => {
-    console.log('[Auto-Updater] No updates available. Current version is latest:', info.version);
+    log.info('[Auto-Updater] No updates available. Current version is latest:', info.version);
   });
 
   // Event: Update downloaded
   autoUpdater.on('update-downloaded', (info) => {
-    console.log('[Auto-Updater] Update downloaded:', info.version);
+    log.info('[Auto-Updater] Update downloaded:', info.version);
 
     const formattedVersion = formatTimestampVersion(info.version);
 
@@ -650,32 +684,47 @@ function setupAutoUpdater(): void {
     }).then((result) => {
       if (result.response === 0) {
         // User clicked Restart Now
-        console.log('[Auto-Updater] User approved installation, restarting...');
+        log.info('[Auto-Updater] User approved installation, restarting...');
         autoUpdater.quitAndInstall();
       } else {
-        console.log('[Auto-Updater] User postponed installation');
+        log.info('[Auto-Updater] User postponed installation');
       }
     });
   });
 
   // Event: Error
   autoUpdater.on('error', (error) => {
-    console.error('[Auto-Updater] Error:', error);
-    // Don't show error dialog to user, just log it
-    // Updates are optional and shouldn't interrupt user workflow
+    // Log comprehensive error information for debugging
+    log.error('[Auto-Updater] Error occurred:', {
+      message: error.message,
+      code: (error as any).code,
+      stack: error.stack,
+      name: error.name,
+    });
+
+    // Show error dialog to user with actionable information
+    dialog.showMessageBox({
+      type: 'error',
+      title: 'Auto-Update Error',
+      message: 'An error occurred during the update process.',
+      detail: `Error: ${error.message}\n\nThe update process has been interrupted. You can try checking for updates again later by selecting "Check for Updates" from the menu.\n\nIf this problem persists, please report it with the error details from the log file.`,
+      buttons: ['OK'],
+    }).then(() => {
+      log.info('[Auto-Updater] Error dialog dismissed by user');
+    });
   });
 
   // Event: Download progress
   autoUpdater.on('download-progress', (progressInfo) => {
     const percent = Math.round(progressInfo.percent);
-    console.log(`[Auto-Updater] Download progress: ${percent}%`);
+    log.info(`[Auto-Updater] Download progress: ${percent}%`);
   });
 
   // Check for updates on startup (with delay to avoid blocking app initialization)
   setTimeout(() => {
-    console.log('[Auto-Updater] Performing initial update check...');
+    log.info('[Auto-Updater] Performing initial update check...');
     autoUpdater.checkForUpdates().catch((err) => {
-      console.error('[Auto-Updater] Failed to check for updates:', err);
+      log.error('[Auto-Updater] Failed to check for updates:', err);
     });
   }, 10000); // 10 second delay
 }
