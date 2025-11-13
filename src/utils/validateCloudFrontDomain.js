@@ -19,15 +19,15 @@
  * - Must not contain protocols, paths, query parameters, or other URL components
  * - Length must be between 1 and 255 characters
  *
- * @param domain - The domain to validate
- * @returns true if the domain is a valid CloudFront domain, false otherwise
+ * @param {string | undefined} domain - The domain to validate
+ * @returns {boolean} true if the domain is a valid CloudFront domain, false otherwise
  *
  * @example
  * validateCloudFrontDomain('d111111abcdef8.cloudfront.net') // true
  * validateCloudFrontDomain('evil.com') // false
  * validateCloudFrontDomain('https://d111111abcdef8.cloudfront.net') // false
  */
-export function validateCloudFrontDomain(domain: string | undefined): boolean {
+function validateCloudFrontDomain(domain) {
   if (!domain || typeof domain !== 'string') {
     return false;
   }
@@ -48,3 +48,6 @@ export function validateCloudFrontDomain(domain: string | undefined): boolean {
 
   return cloudfrontPattern.test(trimmed);
 }
+
+// Export for both CommonJS (Node.js/webpack) and ES modules (TypeScript)
+module.exports = { validateCloudFrontDomain };
