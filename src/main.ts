@@ -14,6 +14,7 @@ import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibilit
 import { AcademiaHttpServer } from './server/httpServer';
 import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
 import { validateExternalUrl } from './utils/urlValidation';
+import { validateCloudFrontDomain } from './utils/validateCloudFrontDomain';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -556,13 +557,27 @@ function setupAutoUpdater(): void {
 
   // Configure CloudFront + S3 as update server
   const cloudFrontDomain = process.env.CLOUDFRONT_DOMAIN;
+
+  // Security validation: Ensure CLOUDFRONT_DOMAIN is configured
   if (!cloudFrontDomain) {
-    logger.error('[Auto-Updater] CLOUDFRONT_DOMAIN not configured');
+    logger.error('[Auto-Updater] CLOUDFRONT_DOMAIN not configured - auto-updates disabled');
+    return;
+  }
+
+  // Security validation: Verify domain matches CloudFront pattern
+  if (!validateCloudFrontDomain(cloudFrontDomain)) {
+    logger.error(
+      '[Auto-Updater] SECURITY ERROR: Invalid CLOUDFRONT_DOMAIN detected',
+      `Provided value: "${cloudFrontDomain}"`,
+      'Domain must match *.cloudfront.net pattern',
+      'Auto-updates have been disabled to prevent malicious update server redirection'
+    );
     return;
   }
 
   const feedUrl = `https://${cloudFrontDomain}/${channel}`;
-  logger.info(`[Auto-Updater] Using CloudFront feed: ${feedUrl}`);
+  logger.info(`[Auto-Updater] Feed URL configured: ${feedUrl}`);
+  logger.info('[Auto-Updater] Security: CloudFront domain validation passed');
 
   autoUpdater.setFeedURL({
     provider: 'generic',
