@@ -96,8 +96,8 @@ const createWindow = async (): Promise<void> => {
       : "script-src 'self'; ";
 
     const styleSrc = process.env.NODE_ENV === 'development'
-      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for React in development
-      : "style-src 'self' https://fonts.googleapis.com; ";
+      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for style-loader (webpack injects inline styles in dev)
+      : "style-src 'self' https://fonts.googleapis.com; "; // Production uses MiniCssExtractPlugin (external CSS files)
 
     callback({
       responseHeaders: {
@@ -151,8 +151,8 @@ const createMainWindow = async (): Promise<void> => {
       : "script-src 'self'; ";
 
     const styleSrc = process.env.NODE_ENV === 'development'
-      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for React in development
-      : "style-src 'self' https://fonts.googleapis.com; ";
+      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for style-loader (webpack injects inline styles in dev)
+      : "style-src 'self' https://fonts.googleapis.com; "; // Production uses MiniCssExtractPlugin (external CSS files)
 
     callback({
       responseHeaders: {
