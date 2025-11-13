@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, desktopCapturer, screen, Tray, Menu, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, desktopCapturer, screen, Tray, Menu, nativeImage, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
@@ -11,6 +11,8 @@ import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
 import { AcademiaHttpServer } from './server/httpServer';
+import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
+import { validateExternalUrl } from './utils/urlValidation';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -73,12 +75,16 @@ const createWindow = async (): Promise<void> => {
       ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
       : "script-src 'self'; ";
 
+    const styleSrc = process.env.NODE_ENV === 'development'
+      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for React in development
+      : "style-src 'self' https://fonts.googleapis.com; ";
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           "default-src 'self'; " +
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " + // unsafe-inline needed for React inline styles
+          styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
           scriptSrc +
@@ -124,12 +130,16 @@ const createMainWindow = async (): Promise<void> => {
       ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
       : "script-src 'self'; ";
 
+    const styleSrc = process.env.NODE_ENV === 'development'
+      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for React in development
+      : "style-src 'self' https://fonts.googleapis.com; ";
+
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Content-Security-Policy': [
           "default-src 'self'; " +
-          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " + // unsafe-inline needed for React inline styles
+          styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
           scriptSrc +
@@ -964,6 +974,65 @@ ipcMain.handle('logout', async () => {
   return result;
 });
 
+// QR Code Authentication IPC handlers
+ipcMain.handle('start-qr-auth', async () => {
+  try {
+    console.log('[IPC] start-qr-auth called');
+    const session = await createQRAuthSession();
+    console.log(`[IPC] QR auth session created with device_id: ${session.deviceId}`);
+    return {
+      success: true,
+      deviceId: session.deviceId,
+      qrCodeDataURL: session.qrCodeDataURL,
+      authorizationURL: session.authorizationURL,
+    };
+  } catch (error: any) {
+    console.error('[IPC] Failed to start QR auth:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to create QR auth session',
+    };
+  }
+});
+
+ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) => {
+  try {
+    console.log(`[IPC] verify-qr-code called for device_id: ${deviceId}`);
+
+    // Validate code format (must be 6 digits)
+    if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
+      return {
+        success: false,
+        error: 'Invalid code format. Please enter a 6-digit code.',
+      };
+    }
+
+    // Call verification service
+    const result = await verifyAuthCode(deviceId, code);
+
+    console.log(`[IPC] Verification result for device_id ${deviceId}: authorized=${result.authorized}`);
+
+    if (result.error) {
+      return {
+        success: false,
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      authorized: result.authorized,
+      userId: result.user_id,
+    };
+  } catch (error: any) {
+    console.error(`[IPC] QR code verification error for device_id ${deviceId}:`, error.message);
+    return {
+      success: false,
+      error: error.message || 'Verification failed',
+    };
+  }
+});
+
 // Project Sync IPC handlers
 ipcMain.handle('start-project-folder-sync', async (_event, projectId: number, folderId: number, folderPath: string, manuscriptPath?: string) => {
   try {
@@ -1008,6 +1077,24 @@ ipcMain.handle('api-call', async (event, options: { method: string; endpoint: st
   try {
     const { method, endpoint, data } = options;
     const client = await APIclient();
+
+    // Log cookie metadata without exposing token values
+    const cookieJar = (client.defaults.httpsAgent as any)?.options?.cookies?.jar;
+    if (cookieJar && process.env.NODE_ENV === 'development') {
+      const baseURL = client.defaults.baseURL || '';
+      cookieJar.getCookies(baseURL, (err: Error | null, cookies: any[]) => {
+        if (!err && cookies) {
+          const loginTokenCookies = cookies.filter((c: any) => c.key === 'login_token');
+          console.log(`[API] Request to ${endpoint} will use ${loginTokenCookies.length} login_token cookie(s)`);
+          if (loginTokenCookies.length > 0) {
+            loginTokenCookies.forEach((c: any, i: number) => {
+              // Only log metadata, never log token values (even partially)
+              console.log(`[API] Cookie ${i + 1}: domain=${c.domain}, path=${c.path}, length=${(c.value || '').length} chars`);
+            });
+          }
+        }
+      });
+    }
 
     console.log(`[API] ${method} ${endpoint}`, data ? `with data: ${JSON.stringify(data)}` : '');
 
@@ -1265,10 +1352,12 @@ ipcMain.handle('dismiss-notification', async (_event, id: number) => {
 
 ipcMain.handle('get-current-user', async () => {
   try {
+    console.log('[IPC] get-current-user called');
     const user = await getCurrentUser();
+    console.log('[IPC] get-current-user result:', user ? `user_id=${user.id}` : 'null (not logged in)');
     return user;
   } catch (error: any) {
-    console.error('Failed to get current user:', error);
+    console.error('[IPC] Failed to get current user:', error);
     return null;
   }
 });
@@ -2079,5 +2168,23 @@ ipcMain.handle('get-all-notifications', async () => {
       notifications: [],
       currentUserId: null
     };
+  }
+});
+
+ipcMain.handle('open-external-url', async (_event, url: string) => {
+  try {
+    // Validate URL against whitelist before opening
+    const validation = validateExternalUrl(url);
+    if (!validation.isValid) {
+      console.error('[Main] URL validation failed:', validation.error);
+      return { success: false, error: validation.error };
+    }
+
+    console.log('[Main] Opening validated external URL:', url);
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error: any) {
+    console.error('[Main] Error opening external URL:', error);
+    return { success: false, error: error.message };
   }
 });

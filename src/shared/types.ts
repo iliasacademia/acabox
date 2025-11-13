@@ -7,6 +7,11 @@ export const IPC_CHANNELS = {
   LOGOUT: 'logout',
   GET_CURRENT_USER: 'get-current-user',
 
+  // QR Code Authentication
+  START_QR_AUTH: 'start-qr-auth',
+  VERIFY_QR_CODE: 'verify-qr-code',
+  LOGIN_WITH_QR_TOKEN: 'login-with-qr-token',
+
   // API operations
   API_CALL: 'api-call',
 
@@ -70,6 +75,7 @@ export const IPC_CHANNELS = {
   CLOSE_WINDOW: 'close-window',
   GET_POSITION_DEBUG_INFO: 'get-position-debug-info',
   GET_ALL_NOTIFICATIONS: 'get-all-notifications',
+  OPEN_EXTERNAL_URL: 'open-external-url',
 } as const;
 
 export interface DesktopNotification {

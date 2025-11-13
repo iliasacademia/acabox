@@ -27,6 +27,12 @@ jest.mock('http-cookie-agent/http', () => ({
 // Mock tough-cookie
 jest.mock('tough-cookie', () => ({
   CookieJar: jest.fn(() => ({})),
+  Store: class Store {
+    synchronous = true;
+  },
+  Cookie: {
+    fromJSON: jest.fn((data) => data),
+  },
 }));
 
 // Mock tough-cookie-file-store

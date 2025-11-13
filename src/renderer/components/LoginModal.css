@@ -25,3 +25,35 @@
   color: red;
   margin-top: 10px;
 }
+
+.loginTabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 15px;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.loginTab {
+  flex: 1;
+  padding: 10px 20px;
+  background-color: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.2s ease;
+  margin-bottom: -2px;
+}
+
+.loginTab:hover {
+  color: #333;
+  background-color: #f8f9fa;
+}
+
+.loginTab.active {
+  color: #007bff;
+  border-bottom-color: #007bff;
+  font-weight: 600;
+}

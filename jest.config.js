@@ -10,7 +10,7 @@ module.exports = {
     '!src/**/*.test.ts',
   ],
   transformIgnorePatterns: [
-    'node_modules/(?!(axios-cookiejar-support|http-cookie-agent)/)',
+    'node_modules/(?!(axios-cookiejar-support|http-cookie-agent|tough-cookie-file-store)/)',
   ],
   globals: {
     'ts-jest': {
