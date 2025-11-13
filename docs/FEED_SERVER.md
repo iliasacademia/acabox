@@ -1,31 +1,39 @@
 # Auto-Updater Feed Server Implementation
 
-This document explains how the update feed server works using GitHub Releases as the backend.
+This document explains how the update feed server works using AWS S3 + CloudFront as the backend.
 
 ## Overview
 
-Instead of implementing a custom update feed server, this implementation leverages **GitHub Releases** as a zero-maintenance, free, and highly available update distribution system. `electron-updater` has built-in support for GitHub Releases.
+This implementation uses **AWS S3 + CloudFront** to distribute application updates. S3 provides secure, private storage for artifacts, while CloudFront serves as a global CDN for fast, reliable distribution. `electron-updater` uses the generic provider to fetch updates from CloudFront.
 
-## Why GitHub Releases?
+## Why S3 + CloudFront?
 
 ### Benefits
 
-✅ **Zero server maintenance**: No need to host, configure, or maintain a custom server
-✅ **Free hosting**: Unlimited bandwidth for public repositories
-✅ **Global CDN**: GitHub's CDN ensures fast downloads worldwide
-✅ **Built-in versioning**: Releases are inherently versioned with tags
-✅ **Automatic manifest generation**: `electron-updater` generates update manifests
-✅ **HTTPS by default**: Secure downloads without SSL certificate management
-✅ **Release management UI**: GitHub's web interface for managing releases
-✅ **API integration**: GitHub API for programmatic access
+✅ **Private repository compatible**: S3 bucket stays private, no authentication needed in app
+✅ **Global CDN**: CloudFront edge locations ensure fast downloads worldwide
+✅ **Cost-effective**: ~$8-10/month for typical usage vs $95-290/month for custom EC2 servers
+✅ **Highly available**: 99.9% uptime SLA from AWS
+✅ **Fine-grained caching**: Different cache rules for manifests (short TTL) vs artifacts (long TTL)
+✅ **Version history**: Keep multiple versions in S3 for rollback capability
+✅ **Security**: Private S3 bucket with CloudFront Origin Access Control (OAC)
+✅ **No server management**: Fully managed AWS services
 
-### Trade-offs
+### Trade-offs vs GitHub Releases
 
-❌ **Less control**: Cannot implement custom rollout strategies easily
-❌ **Public releases**: For private repos, requires authentication setup
-❌ **No A/B testing**: Cannot easily split traffic for gradual rollouts
+**S3 + CloudFront Advantages:**
+- ✅ Works with private repositories (no authentication tokens needed)
+- ✅ More control over caching and distribution
+- ✅ Version history preserved in structured folders
+- ✅ Can serve very large files without limits
+- ✅ Better for enterprise/internal tools
 
-For most applications, especially internal tools and open-source projects, the benefits far outweigh the trade-offs.
+**GitHub Releases Advantages:**
+- ✅ Zero cost (for public repos)
+- ✅ Simpler setup (no AWS configuration)
+- ✅ Built-in release UI
+
+For a **private repository** like academia-electron, S3 + CloudFront is the better choice.
 
 ## Architecture
 
@@ -35,133 +43,177 @@ For most applications, especially internal tools and open-source projects, the b
 │   (CI/CD)       │
 └────────┬────────┘
          │
-         │ Build & Sign App
+         │ Build, Sign, Package
          │ Generate Version
          │
+         ├──────────────────────────────┐
+         │                              │
+         ▼                              ▼
+┌─────────────────────────┐   ┌─────────────────┐
+│   AWS S3 (Private)      │   │ GitHub Releases │
+│                         │   │   (Backup)      │
+│  qa-academia-electron-  │   │                 │
+│  artifacts/             │   │  Manual         │
+│  ├─ stable/             │   │  downloads      │
+│  │  ├─ latest-mac.yml   │   └─────────────────┘
+│  │  ├─ 0.0.TIME/        │
+│  │  │  ├─ .zip          │
+│  │  │  ├─ .dmg          │
+│  │  │  └─ .blockmap     │
+│  │  └─ 0.0.TIME-1/      │
+│  │                      │
+│  └─ beta/               │
+│     ├─ latest-mac.yml   │
+│     └─ 0.0.TIME-beta/   │
+└────────┬────────────────┘
+         │
+         │ Origin Access Control (OAC)
+         │
          ▼
-┌─────────────────────────┐
-│   GitHub Releases       │
-│  (Update Feed Server)   │
-│                         │
-│  ├─ v20250106143022     │◄───────┐
-│  │   ├─ .zip (update)   │        │
-│  │   ├─ .dmg (manual)   │        │
-│  │   └─ latest-mac.yml  │        │ Check for updates
-│  │                       │        │
-│  └─ v20250105120000-beta│        │
-│      ├─ .zip             │        │
-│      ├─ .dmg             │        │
-│      └─ latest-mac.yml   │        │
-└─────────────────────────┘        │
-                                   │
-                          ┌────────┴────────┐
-                          │  Academia App   │
-                          │ (electron-      │
-                          │  updater)       │
-                          └─────────────────┘
+┌──────────────────────────┐
+│   AWS CloudFront         │
+│   (Global CDN)           │
+│                          │
+│  /.../latest-mac.yml     │◄───┐
+│    Cache: 1-5 min        │    │
+│                          │    │ 1. Check manifest
+│  /.../VERSION/*.zip      │    │ 2. Download update
+│    Cache: 1 year         │    │
+└──────────────────────────┘    │
+                                │
+                       ┌────────┴────────┐
+                       │  Academia App   │
+                       │ (electron-      │
+                       │  updater)       │
+                       └─────────────────┘
 ```
 
 ## How It Works
 
 ### 1. Release Creation (GitHub Actions)
 
-When a git tag is pushed (e.g., `v-stable-20250106` or `v-beta-20250106`):
+When code is pushed to main or feature branches:
 
 ```yaml
 # .github/workflows/build.yml
 
 - name: Generate version
   run: |
+    # Generate timestamp-based semantic version
     TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
-    if [[ "$TAG" == *-beta* ]]; then
-      VERSION="${TIMESTAMP}-beta"
+    VERSION="0.0.${TIMESTAMP}"
+
+    # Determine channel from branch
+    if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+      CHANNEL="stable"
     else
-      VERSION="$TIMESTAMP"
+      CHANNEL="beta"
+      VERSION="${VERSION}-beta"
     fi
+
     npm version $VERSION --no-git-tag-version
 
-- name: Create Release
-  uses: softprops/action-gh-release@v1
+- name: Configure AWS credentials
+  uses: aws-actions/configure-aws-credentials@v4
   with:
-    files: |
-      out/make/**/*.dmg
-      out/make/**/*.zip
-    draft: false
-    prerelease: ${{ contains(github.ref, 'beta') }}
+    aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+    aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+    aws-region: us-east-1
+
+- name: Upload to S3
+  run: |
+    # Upload artifacts to versioned folder
+    aws s3 cp out/make/zip/darwin/x64/ \
+      s3://${{ secrets.S3_BUCKET_NAME }}/${CHANNEL}/${VERSION}/ \
+      --recursive --include "*.zip" --include "*.blockmap"
+
+    # Upload manifest to channel root
+    aws s3 cp out/make/zip/darwin/x64/latest-mac.yml \
+      s3://${{ secrets.S3_BUCKET_NAME }}/${CHANNEL}/latest-mac.yml
+
+- name: Invalidate CloudFront cache
+  run: |
+    aws cloudfront create-invalidation \
+      --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+      --paths "/${CHANNEL}/latest-mac.yml"
 ```
 
-This creates a GitHub Release with:
-- **Tag**: `v20250106143022` or `v20250106143022-beta`
-- **Assets**: `.zip` (for updates), `.dmg` (for manual installs)
-- **Manifest**: `latest-mac.yml` (auto-generated)
+This creates artifacts in S3:
+- **Path**: `s3://BUCKET/CHANNEL/VERSION/`
+- **Assets**: `.zip` (for updates), `.dmg` (for manual installs), `.blockmap` (for delta updates)
+- **Manifest**: `latest-mac.yml` at channel root
 
-### 2. Manifest Generation
+### 2. Manifest Generation and Modification
 
-`electron-updater` automatically generates `latest-mac.yml` when you upload a `.zip` file:
+Electron Forge automatically generates `latest-mac.yml` during packaging. GitHub Actions then modifies it to use CloudFront URLs with versioned paths:
 
+**Original manifest** (generated by Electron Forge):
 ```yaml
-version: 20250106143022
+version: 0.0.20250106143022
 releaseDate: '2025-01-06T14:30:22.000Z'
 files:
-  - url: Academia-darwin-x64-20250106143022.zip
-    sha512: 7a3f8b2c9d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b
+  - url: Academia-darwin-x64-0.0.20250106143022.zip
+    sha512: 7a3f8b2c9d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a...
     size: 125829120
-path: Academia-darwin-x64-20250106143022.zip
-sha512: 7a3f8b2c9d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b
-releaseNotes: |
-  **Version:** 20250106143022
-  **Channel:** stable
-  **Build Date:** 20250106143022
-
-  Automated release from GitHub Actions.
+path: Academia-darwin-x64-0.0.20250106143022.zip
+sha512: 7a3f8b2c9d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a...
 ```
+
+**Modified manifest** (uploaded to S3):
+```yaml
+version: 0.0.20250106143022
+releaseDate: '2025-01-06T14:30:22.000Z'
+files:
+  - url: https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/0.0.20250106143022/Academia-darwin-x64-0.0.20250106143022.zip
+    sha512: 7a3f8b2c9d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a...
+    size: 125829120
+path: https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/0.0.20250106143022/Academia-darwin-x64-0.0.20250106143022.zip
+sha512: 7a3f8b2c9d1e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a...
+```
+
+The workflow modifies URLs to include the full CloudFront path with version folder.
 
 ### 3. Update Check (Client)
 
 In `src/main.ts`, the app configures electron-updater:
 
 ```typescript
+const cloudfrontDomain = 'YOUR-CLOUDFRONT-DOMAIN.cloudfront.net';
 autoUpdater.setFeedURL({
-  provider: 'github',
-  owner: 'academia-edu',
-  repo: 'academia-electron',
+  provider: 'generic',
+  url: `https://${cloudfrontDomain}/${channel}`,
 });
-autoUpdater.channel = 'stable'; // or 'beta'
 ```
 
 When `autoUpdater.checkForUpdates()` is called:
 
-1. **Fetch manifest**:
+1. **Fetch manifest from CloudFront**:
    ```
-   GET https://api.github.com/repos/academia-edu/academia-electron/releases
+   GET https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/latest-mac.yml
    ```
+   CloudFront serves from edge location (cached for 1-5 minutes)
 
-2. **Filter by channel**:
-   - Stable: Latest release where `prerelease === false`
-   - Beta: Latest release where `prerelease === true` and tag contains `-beta`
-
-3. **Download manifest**:
-   ```
-   GET https://github.com/academia-edu/academia-electron/releases/download/v20250106143022/latest-mac.yml
-   ```
-
-4. **Compare versions**:
+2. **Parse version from manifest**:
    ```typescript
-   currentVersion = "20250105120000"
-   availableVersion = "20250106143022"
+   const manifestVersion = "0.0.20250106143022"
+   const currentVersion = "0.0.20250105120000"
+   ```
 
-   // String comparison works because timestamps are lexicographically ordered
-   if (availableVersion > currentVersion) {
+3. **Compare versions** (semantic version comparison):
+   ```typescript
+   if (semver.gt(manifestVersion, currentVersion)) {
      // Update available!
    }
    ```
 
-5. **Download update** (if user approves):
+4. **Download update** (if user approves):
    ```
-   GET https://github.com/academia-edu/academia-electron/releases/download/v20250106143022/Academia-darwin-x64-20250106143022.zip
+   GET https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/0.0.20250106143022/Academia-darwin-x64-0.0.20250106143022.zip
    ```
+   CloudFront serves from edge location (cached for 1 year)
+   Actual file fetched from S3 via Origin Access Control if not cached
 
-6. **Verify checksum**:
+5. **Verify checksum**:
    ```typescript
    calculatedHash = sha512(downloadedFile)
    expectedHash = manifest.sha512
@@ -171,45 +223,47 @@ When `autoUpdater.checkForUpdates()` is called:
    }
    ```
 
-7. **Install**: On app restart, replace old app bundle with new one
+6. **Install**: On app restart, replace old app bundle with new one
 
 ## Channel Implementation
 
 ### How Channels Work
 
-GitHub Releases uses the **prerelease flag** to distinguish channels:
+S3 + CloudFront uses **folder-based separation** to distinguish channels:
 
-| Channel | Prerelease Flag | Tag Pattern | Release Type |
-|---------|----------------|-------------|--------------|
-| Stable  | `false`        | `v20250106143022` | Regular release |
-| Beta    | `true`         | `v20250106143022-beta` | Prerelease |
+| Channel | S3 Path | Version Suffix | CloudFront URL |
+|---------|---------|----------------|----------------|
+| Stable  | `s3://BUCKET/stable/` | None | `https://DOMAIN/stable/` |
+| Beta    | `s3://BUCKET/beta/` | `-beta` | `https://DOMAIN/beta/` |
 
-### API Request Flow
+### Request Flow
 
 **Stable Channel:**
 ```bash
-# electron-updater fetches releases
-GET https://api.github.com/repos/academia-edu/academia-electron/releases
+# electron-updater fetches manifest from CloudFront
+GET https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/latest-mac.yml
 
-# Filter: prerelease === false
-# Sort by date, take latest
-# Result: v20250106143022
+# CloudFront checks edge cache (TTL: 1-5 min)
+# If not cached, fetches from S3:
+GET s3://qa-academia-electron-artifacts/stable/latest-mac.yml
 
-# Download manifest
-GET https://github.com/academia-edu/academia-electron/releases/download/v20250106143022/latest-mac.yml
+# Manifest contains versioned download URL:
+# https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/0.0.20250106143022/Academia-darwin-x64-0.0.20250106143022.zip
+
+# electron-updater downloads update from CloudFront
+GET https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/stable/0.0.20250106143022/Academia-darwin-x64-0.0.20250106143022.zip
+
+# CloudFront checks edge cache (TTL: 1 year)
+# If not cached, fetches from S3 via OAC
 ```
 
 **Beta Channel:**
 ```bash
-# electron-updater fetches releases
-GET https://api.github.com/repos/academia-edu/academia-electron/releases
+# electron-updater fetches manifest from CloudFront
+GET https://YOUR-CLOUDFRONT-DOMAIN.cloudfront.net/beta/latest-mac.yml
 
-# Filter: prerelease === true AND tag contains '-beta'
-# Sort by date, take latest
-# Result: v20250106143022-beta
-
-# Download manifest
-GET https://github.com/academia-edu/academia-electron/releases/download/v20250106143022-beta/latest-mac.yml
+# Same caching and download flow as stable
+# Version includes -beta suffix: 0.0.20250106143022-beta
 ```
 
 ### Switching Channels
@@ -221,24 +275,38 @@ When user switches channels (via tray menu):
    store.set('updateChannel', 'beta');
    ```
 
-2. Update electron-updater:
+2. Update electron-updater URL:
    ```typescript
-   autoUpdater.channel = 'beta';
+   const channel = 'beta';  // or 'stable'
+   autoUpdater.setFeedURL({
+     provider: 'generic',
+     url: `https://${cloudfrontDomain}/${channel}`,
+   });
    ```
 
-3. Next update check uses new channel
+3. Next update check queries the new CloudFront path
 
-4. App finds latest release in that channel
+4. App fetches `latest-mac.yml` from the new channel
 
 ## Configuration
 
 ### GitHub Actions Secrets
 
-Required secrets in repository settings:
+Required secrets in repository Settings → Secrets and variables → Actions:
 
+**AWS Credentials:**
+- `AWS_ACCESS_KEY_ID`: IAM user access key for S3 uploads
+- `AWS_SECRET_ACCESS_KEY`: IAM user secret key
+- `S3_BUCKET_NAME`: S3 bucket name (e.g., `qa-academia-electron-artifacts`)
+- `CLOUDFRONT_DISTRIBUTION_ID`: CloudFront distribution ID
+
+**Apple Code Signing:**
+- `CSC_LINK`: Base64-encoded .p12 certificate
+- `CSC_KEY_PASSWORD`: Certificate password
 - `APPLE_ID`: Your Apple ID email
-- `APPLE_ID_PASSWORD`: App-specific password ([create here](https://appleid.apple.com/account/manage))
+- `APPLE_APP_SPECIFIC_PASSWORD`: App-specific password ([create here](https://appleid.apple.com/account/manage))
 - `APPLE_TEAM_ID`: Your Apple Developer Team ID
+- `APPLE_IDENTITY`: Code signing identity
 
 ### forge.config.js
 
@@ -476,12 +544,21 @@ This gives you analytics while keeping the simplicity of GitHub Releases.
 
 ## Summary
 
-**GitHub Releases as a feed server provides:**
+**S3 + CloudFront as a feed server provides:**
 
-✅ Production-ready solution out of the box
-✅ Zero maintenance and costs
-✅ Built-in CDN and security
-✅ Simple deployment workflow
-✅ Excellent for teams without dedicated DevOps
+✅ **Private repository support**: No authentication tokens needed in app
+✅ **Global CDN**: Fast downloads from CloudFront edge locations
+✅ **Cost-effective**: ~$8-10/month vs $95-290/month for custom servers
+✅ **Highly available**: 99.9% AWS uptime SLA
+✅ **Version history**: Keep multiple versions for rollback
+✅ **Fine-grained caching**: Short TTL for manifests, long TTL for artifacts
+✅ **Security**: Private S3 bucket with Origin Access Control
+✅ **No server maintenance**: Fully managed AWS services
 
-**Recommendation:** Start with GitHub Releases. Migrate to custom server only if you need advanced features like staged rollouts or detailed analytics.
+**Setup Requirements:**
+1. AWS account with S3 and CloudFront configured (see `tmp/aws-setup-guide.md`)
+2. GitHub Secrets configured for AWS credentials
+3. CloudFront domain replaced in code (two placeholders)
+4. Initial S3 bucket structure created
+
+**Total Implementation Time:** ~2-3 hours (including AWS setup)

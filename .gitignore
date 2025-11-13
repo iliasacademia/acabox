@@ -29,7 +29,7 @@ yarn-error.log*
 
 eng.traineddata
 
-/tmp
+tmp/*
 
 # Native addon build artifacts (node-gyp)
 src/native/build/

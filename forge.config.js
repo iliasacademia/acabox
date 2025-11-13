@@ -13,7 +13,8 @@ const packagerConfig = {
     'src/applescripts',
     'src/native/build/Release/word_accessibility.node',
     'dist/popup',
-    'src/assets/icons'
+    'src/assets/icons',
+    'app-update.yml'
   ],
   extendInfo: {
     NSAppleEventsUsageDescription: 'This app needs to send Apple Events to Microsoft Word to read document content.',
