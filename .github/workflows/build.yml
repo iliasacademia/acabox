@@ -192,9 +192,10 @@ jobs:
           aws-region: us-east-1
 
       - name: Generate update manifest
+        env:
+          VERSION: ${{ steps.artifact-name.outputs.version }}
+          CHANNEL: ${{ steps.artifact-name.outputs.channel }}
         run: |
-          VERSION="${{ steps.artifact-name.outputs.version }}"
-          CHANNEL="${{ steps.artifact-name.outputs.channel }}"
           node scripts/generate-update-manifest.js "$VERSION" "$CHANNEL" "arm64" "out/make/zip/darwin/arm64"
 
       - name: Install js-yaml for manifest modification
