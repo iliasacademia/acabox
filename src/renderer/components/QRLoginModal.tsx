@@ -58,8 +58,8 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
 
   const handleVerifyCode = async () => {
     // Validate input
-    if (!userInputCode || userInputCode.length !== 2) {
-      setError('Please enter a 2-digit code');
+    if (!userInputCode || userInputCode.length !== 6) {
+      setError('Please enter a 6-digit code');
       return;
     }
 
@@ -204,36 +204,36 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
                   <p>1. Open Academia on your phone or browser</p>
                   <p>2. Scan this QR code or visit the link above</p>
                   <p>3. Tap "Authorize" to complete authentication</p>
-                  <p>4. You'll receive a 2-digit code</p>
+                  <p>4. You'll receive a 6-digit code</p>
                   <p>5. Enter that code on the right to verify</p>
                 </div>
               </div>
 
               <div className="qrRightColumn">
                 <div className="verificationCodeSection">
-                  <p className="verificationPrompt">Enter the 2-digit code shown after authorization:</p>
+                  <p className="verificationPrompt">Enter the 6-digit code shown after authorization:</p>
                   <div className="codeInputContainer">
                     <input
                       type="text"
-                      maxLength={2}
+                      maxLength={6}
                       pattern="[0-9]*"
                       inputMode="numeric"
                       value={userInputCode}
                       onChange={(e) => setUserInputCode(e.target.value.replace(/\D/g, ''))}
                       onKeyPress={(e) => {
-                        if (e.key === 'Enter' && userInputCode.length === 2) {
+                        if (e.key === 'Enter' && userInputCode.length === 6) {
                           handleVerifyCode();
                         }
                       }}
                       className="codeInput"
-                      placeholder="00"
+                      placeholder="000000"
                       disabled={status === 'verifying' || attemptCount >= 5}
                     />
                   </div>
                   <button
                     onClick={handleVerifyCode}
                     className="verifyButton"
-                    disabled={userInputCode.length !== 2 || status === 'verifying' || attemptCount >= 5}
+                    disabled={userInputCode.length !== 6 || status === 'verifying' || attemptCount >= 5}
                   >
                     {status === 'verifying' ? 'Verifying...' : 'Verify'}
                   </button>

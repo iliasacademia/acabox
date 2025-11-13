@@ -720,11 +720,11 @@ ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) 
   try {
     console.log(`[IPC] verify-qr-code called for device_id: ${deviceId}`);
 
-    // Validate code format (must be 2 digits)
-    if (!code || code.length !== 2 || !/^\d{2}$/.test(code)) {
+    // Validate code format (must be 6 digits)
+    if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
       return {
         success: false,
-        error: 'Invalid code format. Please enter a 2-digit code.',
+        error: 'Invalid code format. Please enter a 6-digit code.',
       };
     }
 
