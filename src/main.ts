@@ -5,7 +5,7 @@ import { execSync } from 'child_process';
 import { createCanvas } from 'canvas';
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
-import log from 'electron-log';
+import { Logger } from './utils/logger';
 import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles, APIclient, getCsrfToken } from './uploader';
 import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
@@ -19,23 +19,34 @@ import { validateExternalUrl } from './utils/urlValidation';
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
-// Initialize electron-store for app settings
-interface AppSettings {
-  updateChannel: 'stable' | 'beta';
+// Initialize electron-store for app settings (empty for now, reserved for future settings)
+const store = new Store();
+
+// Helper function to detect channel from version string (defined early for Logger initialization)
+function getChannelFromVersion(): 'stable' | 'beta' {
+  const version = app.getVersion();
+  return version.includes('-beta') ? 'beta' : 'stable';
 }
 
-const store = new Store<AppSettings>({
-  defaults: {
-    updateChannel: 'stable',
-  },
-});
+// Initialize Logger
+const logger = new Logger(
+  app.isPackaged,
+  app.getVersion(),
+  getChannelFromVersion()
+);
 
-// Configure electron-log for production logging
-log.transports.file.level = 'info';
-log.transports.console.level = 'info';
-log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB max file size
-log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
-log.info('[App] Logging initialized. Log file location:', log.transports.file.getFile().path);
+if (app.isPackaged) {
+  const logFilePath = logger.getLogFilePath();
+  logger.info('[App] Logging initialized. Log file location:', logFilePath);
+} else {
+  logger.info('[App] Logging initialized in development mode (using console.log)');
+}
+
+// Clean up deprecated updateChannel preference from electron-store
+if (store.has('updateChannel')) {
+  logger.info('[App] Removing deprecated updateChannel preference from store');
+  store.delete('updateChannel');
+}
 
 // Helper function to resolve paths for AppleScript files
 function resolveAppleScriptPath(scriptName: string): string {
@@ -471,7 +482,6 @@ const createTray = (): void => {
   }
 
   // Add update options (always present)
-  const currentChannel = store.get('updateChannel', 'stable');
   menuItems.push(
     { type: 'separator' },
     {
@@ -479,47 +489,6 @@ const createTray = (): void => {
       click: () => {
         checkForUpdatesManually();
       },
-    },
-    {
-      label: 'Update Channel',
-      submenu: [
-        {
-          label: 'Stable',
-          type: 'radio',
-          checked: currentChannel === 'stable',
-          click: () => {
-            store.set('updateChannel', 'stable');
-            if (app.isPackaged) {
-              autoUpdater.channel = 'stable';
-            }
-            console.log('[Auto-Updater] Switched to stable channel');
-            dialog.showMessageBox({
-              type: 'info',
-              title: 'Channel Changed',
-              message: 'Update channel changed to Stable',
-              detail: 'You will receive stable releases. Restart the app to apply changes.',
-            });
-          },
-        },
-        {
-          label: 'Beta',
-          type: 'radio',
-          checked: currentChannel === 'beta',
-          click: () => {
-            store.set('updateChannel', 'beta');
-            if (app.isPackaged) {
-              autoUpdater.channel = 'beta';
-            }
-            console.log('[Auto-Updater] Switched to beta channel');
-            dialog.showMessageBox({
-              type: 'info',
-              title: 'Channel Changed',
-              message: 'Update channel changed to Beta',
-              detail: 'You will receive beta releases with early features. Restart the app to apply changes.',
-            });
-          },
-        },
-      ],
     },
     {
       label: `Version: ${formatTimestampVersion(app.getVersion())}`,
@@ -570,7 +539,7 @@ const positionWindowMiddleRight = (): void => {
 function setupAutoUpdater(): void {
   // Only enable auto-updater in production (packaged app)
   if (!app.isPackaged) {
-    log.info('[Auto-Updater] Disabled in development mode');
+    logger.info('[Auto-Updater] Disabled in development mode');
     return;
   }
 
@@ -578,22 +547,22 @@ function setupAutoUpdater(): void {
   autoUpdater.autoDownload = false; // Don't auto-download, ask user first
   autoUpdater.autoInstallOnAppQuit = true; // Install update when app quits
 
-  // Set update channel from user preference (stored in electron-store)
-  const channel = store.get('updateChannel', 'stable');
+  // Detect update channel from version string (stable vs beta)
+  const channel = getChannelFromVersion();
   autoUpdater.channel = channel;
 
-  log.info(`[Auto-Updater] Configured for channel: ${channel}`);
-  log.info(`[Auto-Updater] Current version: ${app.getVersion()}`);
+  logger.info(`[Auto-Updater] Configured for channel: ${channel} (detected from version)`);
+  logger.info(`[Auto-Updater] Current version: ${app.getVersion()}`);
 
   // Configure CloudFront + S3 as update server
   const cloudFrontDomain = process.env.CLOUDFRONT_DOMAIN;
   if (!cloudFrontDomain) {
-    log.error('[Auto-Updater] CLOUDFRONT_DOMAIN not configured');
+    logger.error('[Auto-Updater] CLOUDFRONT_DOMAIN not configured');
     return;
   }
 
   const feedUrl = `https://${cloudFrontDomain}/${channel}`;
-  log.info(`[Auto-Updater] Using CloudFront feed: ${feedUrl}`);
+  logger.info(`[Auto-Updater] Using CloudFront feed: ${feedUrl}`);
 
   autoUpdater.setFeedURL({
     provider: 'generic',
@@ -602,12 +571,12 @@ function setupAutoUpdater(): void {
 
   // Event: Checking for updates
   autoUpdater.on('checking-for-update', () => {
-    log.info('[Auto-Updater] Checking for updates...');
+    logger.info('[Auto-Updater] Checking for updates...');
   });
 
   // Event: Update available
   autoUpdater.on('update-available', (info) => {
-    log.info('[Auto-Updater] Update available:', info.version);
+    logger.info('[Auto-Updater] Update available:', info.version);
 
     // Format timestamp version for display
     const currentVersion = app.getVersion();
@@ -627,11 +596,11 @@ function setupAutoUpdater(): void {
     }).then((result) => {
       if (result.response === 0) {
         // User clicked Download
-        log.info('[Auto-Updater] User approved download');
+        logger.info('[Auto-Updater] User approved download');
         try {
           autoUpdater.downloadUpdate().catch((downloadError) => {
-            log.error('[Auto-Updater] Failed to download update:', downloadError);
-            log.error('[Auto-Updater] Error stack:', downloadError.stack);
+            logger.error('[Auto-Updater] Failed to download update:', downloadError);
+            logger.error('[Auto-Updater] Error stack:', downloadError.stack);
 
             // Show error dialog to user
             dialog.showMessageBox({
@@ -643,8 +612,8 @@ function setupAutoUpdater(): void {
             });
           });
         } catch (error) {
-          log.error('[Auto-Updater] Exception during downloadUpdate call:', error);
-          log.error('[Auto-Updater] Error stack:', (error as Error).stack);
+          logger.error('[Auto-Updater] Exception during downloadUpdate call:', error);
+          logger.error('[Auto-Updater] Error stack:', (error as Error).stack);
 
           // Show error dialog to user
           dialog.showMessageBox({
@@ -656,19 +625,27 @@ function setupAutoUpdater(): void {
           });
         }
       } else {
-        log.info('[Auto-Updater] User postponed update');
+        logger.info('[Auto-Updater] User postponed update');
       }
     });
   });
 
   // Event: Update not available
   autoUpdater.on('update-not-available', (info) => {
-    log.info('[Auto-Updater] No updates available. Current version is latest:', info.version);
+    logger.info('[Auto-Updater] No updates available. Current version is latest:', info.version);
+
+    // Show info dialog to user
+    dialog.showMessageBox({
+      type: 'info',
+      title: 'No Updates Available',
+      message: `Current version is latest: ${info.version}`,
+      buttons: ['OK'],
+    });
   });
 
   // Event: Update downloaded
   autoUpdater.on('update-downloaded', (info) => {
-    log.info('[Auto-Updater] Update downloaded:', info.version);
+    logger.info('[Auto-Updater] Update downloaded:', info.version);
 
     const formattedVersion = formatTimestampVersion(info.version);
 
@@ -684,10 +661,10 @@ function setupAutoUpdater(): void {
     }).then((result) => {
       if (result.response === 0) {
         // User clicked Restart Now
-        log.info('[Auto-Updater] User approved installation, restarting...');
+        logger.info('[Auto-Updater] User approved installation, restarting...');
         autoUpdater.quitAndInstall();
       } else {
-        log.info('[Auto-Updater] User postponed installation');
+        logger.info('[Auto-Updater] User postponed installation');
       }
     });
   });
@@ -695,7 +672,7 @@ function setupAutoUpdater(): void {
   // Event: Error
   autoUpdater.on('error', (error) => {
     // Log comprehensive error information for debugging
-    log.error('[Auto-Updater] Error occurred:', {
+    logger.error('[Auto-Updater] Error occurred:', {
       message: error.message,
       code: (error as any).code,
       stack: error.stack,
@@ -710,23 +687,23 @@ function setupAutoUpdater(): void {
       detail: `Error: ${error.message}\n\nThe update process has been interrupted. You can try checking for updates again later by selecting "Check for Updates" from the menu.\n\nIf this problem persists, please report it with the error details from the log file.`,
       buttons: ['OK'],
     }).then(() => {
-      log.info('[Auto-Updater] Error dialog dismissed by user');
+      logger.info('[Auto-Updater] Error dialog dismissed by user');
     });
   });
 
   // Event: Download progress
   autoUpdater.on('download-progress', (progressInfo) => {
     const percent = Math.round(progressInfo.percent);
-    log.info(`[Auto-Updater] Download progress: ${percent}%`);
+    logger.info(`[Auto-Updater] Download progress: ${percent}%`);
   });
 
   // Check for updates on startup (with delay to avoid blocking app initialization)
   setTimeout(() => {
-    log.info('[Auto-Updater] Performing initial update check...');
+    logger.info('[Auto-Updater] Performing initial update check...');
     autoUpdater.checkForUpdates().catch((err) => {
-      log.error('[Auto-Updater] Failed to check for updates:', err);
+      logger.error('[Auto-Updater] Failed to check for updates:', err);
     });
-  }, 10000); // 10 second delay
+  }, 3000); // 3 second delay
 }
 
 // Helper function to format timestamp version for display
@@ -976,27 +953,6 @@ ipcMain.handle('dev-cleanup-native', async () => {
   console.log('[APP] Dev-mode cleanup requested');
   cleanupNativeResources();
   return { success: true };
-});
-
-// Update channel management
-ipcMain.handle('get-update-channel', async () => {
-  return store.get('updateChannel', 'stable');
-});
-
-ipcMain.handle('set-update-channel', async (_event, channel: 'stable' | 'beta') => {
-  if (channel !== 'stable' && channel !== 'beta') {
-    throw new Error('Invalid channel. Must be "stable" or "beta".');
-  }
-
-  store.set('updateChannel', channel);
-  console.log(`[Auto-Updater] Channel changed to: ${channel}`);
-
-  // Update autoUpdater channel if in packaged mode
-  if (app.isPackaged) {
-    autoUpdater.channel = channel;
-  }
-
-  return { success: true, channel };
 });
 
 ipcMain.handle('get-app-version', async () => {
