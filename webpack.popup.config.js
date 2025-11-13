@@ -1,6 +1,7 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 const CopyWebpackPlugin = require('copy-webpack-plugin');
+const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 
 // IMPORTANT: Popup uses production mode to prevent hot-reload issues
 // During development:
@@ -38,7 +39,7 @@ module.exports = {
       },
       {
         test: /\.css$/,
-        use: ['style-loader', 'css-loader'],
+        use: [MiniCssExtractPlugin.loader, 'css-loader'],
       },
       {
         test: /\.svg$/,
@@ -119,6 +120,9 @@ module.exports = {
           to: 'textSide/bridge-preload.js',
         },
       ],
+    }),
+    new MiniCssExtractPlugin({
+      filename: '[name]/styles.css', // Use predictable filename for manual HTML injection
     }),
   ],
   optimization: {
