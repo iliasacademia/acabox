@@ -2,7 +2,6 @@ import * as chokidar from 'chokidar';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
-import axios from 'axios';
 import { APIclient, getCsrfToken } from './uploader';
 import FormData from 'form-data';
 
@@ -307,7 +306,7 @@ class ProjectSyncService {
 
     // Upload file
     const response = await client.post(
-      `/v0/co_scientist/projects/${projectId}/files`,
+      `v0/co_scientist/projects/${projectId}/files`,
       formData,
       {
         headers: {
@@ -336,6 +335,7 @@ class ProjectSyncService {
       const manuscriptPath = watchedFolder?.manuscriptPath;
 
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
+
       this.sendToRenderer('project-file-synced', {
         projectId,
         folderId,
@@ -358,6 +358,7 @@ class ProjectSyncService {
       const manuscriptPath = watchedFolder?.manuscriptPath;
 
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
+
       this.sendToRenderer('project-file-synced', {
         projectId,
         folderId,

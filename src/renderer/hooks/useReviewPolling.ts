@@ -69,8 +69,11 @@ export function useReviewPolling(): UseReviewPollingResult {
       setAgentRun(run);
 
       // Check if completed
-      if (run.status === 'completed' && run.running_jobs_count === 0) {
+      // Note: Only stop when status is 'completed'. The backend auto-updates this when jobs are done.
+      // If status is still 'processing', it means we don't have full data yet.
+      if (run.status === 'completed') {
         console.log('[ReviewPolling] Reviews completed:', run.review_data?.suggestions?.length);
+        console.log('[ReviewPolling] Running jobs count:', run.running_jobs_count);
         stopPolling();
       }
 
