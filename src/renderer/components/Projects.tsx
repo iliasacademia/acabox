@@ -16,6 +16,8 @@ import {
   addFolderToProject,
   addCollaborator,
 } from '../services/projectsApi';
+import { FEATURES } from '../../shared/types';
+import { ConversationsPage } from './conversations/ConversationsPage';
 import './Projects.css';
 
 type View = 'list' | 'detail';
@@ -43,6 +45,7 @@ const Projects: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('list');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [showCreateWizard, setShowCreateWizard] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const [dialog, setDialog] = useState<DialogState>({
     type: null,
     title: '',
@@ -90,6 +93,24 @@ const Projects: React.FC = () => {
       loadProjects();
     }
   }, [isLoggedIn]);
+
+  // Close user menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (showUserMenu && !target.closest('.projectsUserMenu')) {
+        setShowUserMenu(false);
+      }
+    };
+
+    if (showUserMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showUserMenu]);
 
   const checkLoginStatus = async () => {
     try {
@@ -188,6 +209,7 @@ const Projects: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    setShowUserMenu(false);
     try {
       const result = await window.electronAPI.invoke('logout');
       if (result.success) {
@@ -356,31 +378,55 @@ const Projects: React.FC = () => {
     <div className="projectsContainer">
       {/* Header with logo and avatar */}
       <div className="projectsHeader">
-        <div className="projectsLogo">
-          <span className="logoText">A</span>
-        </div>
+        {currentView === 'detail' && selectedProject ? (
+          <button className="projectsBackButton" onClick={handleBackToList}>
+            <span className="backArrow">←</span>
+            <span>Back</span>
+          </button>
+        ) : (
+          <div className="projectsLogo">
+            <span className="logoText">A</span>
+          </div>
+        )}
         <div className="projectsUserMenu">
-          <div className="userAvatar" onClick={handleLogout} title="Logout">
+          <div className="userAvatar" onClick={() => setShowUserMenu(!showUserMenu)}>
             <span className="avatarInitial">
               {userName ? userName.charAt(0).toUpperCase() : (userId ? userId.toString()[0] : 'U')}
             </span>
           </div>
+          {showUserMenu && (
+            <div className="userMenuDropdown">
+              <div className="userMenuHeader">
+                <div className="userMenuName">{userName || `User ${userId}`}</div>
+              </div>
+              <div className="userMenuDivider"></div>
+              <button className="userMenuItem" onClick={handleLogout}>
+                <span>Logout</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Main Content */}
       <div className="projectsMain">
-        {currentView === 'list' ? (
-          <ProjectsList
-            projects={projects}
-            loading={loading}
-            onCreateProject={handleCreateProject}
-            onSelectProject={handleSelectProject}
-            onDeleteProject={handleDeleteProject}
-          />
-        ) : currentView === 'detail' && selectedProject ? (
-          <ProjectDetail project={selectedProject} onBack={handleBackToList} />
-        ) : null}
+        <>
+          {currentView === 'list' ? (
+            <ProjectsList
+              projects={projects}
+              loading={loading}
+              onCreateProject={handleCreateProject}
+              onSelectProject={handleSelectProject}
+              onDeleteProject={handleDeleteProject}
+            />
+          ) : currentView === 'detail' && selectedProject ? (
+            FEATURES.CONVERSATIONS_ENABLED ? (
+              <ConversationsPage selectedProject={selectedProject} />
+            ) : (
+              <ProjectDetail project={selectedProject} onBack={handleBackToList} />
+            )
+          ) : null}
+        </>
       </div>
 
       {/* Create Project Wizard Modal */}

@@ -8,7 +8,6 @@ import WordReader from './components/WordReader';
 import SelectionTracker from './components/SelectionTracker';
 import TrayIconSwitcher from './components/TrayIconSwitcher';
 import PositionDebugger from './components/PositionDebugger';
-import CustomTitleBar from './components/CustomTitleBar';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
 import Projects from './components/Projects';
@@ -144,7 +143,7 @@ const App: React.FC = () => {
   // Otherwise, render the development tools UI
   return (
     <div className="app">
-      <CustomTitleBar />
+      <div className="titleBarDragRegion" />
       {isDevelopment && (
         <div className="devBanner">
           🔧 DEVELOPMENT MODE

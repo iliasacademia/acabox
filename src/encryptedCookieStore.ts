@@ -9,7 +9,7 @@ import { app } from 'electron';
  * Encrypted cookie store that uses AES-256-GCM encryption
  * to encrypt cookies at rest, preventing credential theft if the system is compromised.
  *
- * Uses a machine-specific encryption key derived from hardware identifiers.
+ * Uses a machine-specific encryption key derived from a persistent UUID.
  * Implements the tough-cookie Store interface for seamless integration.
  */
 export class EncryptedCookieStore extends Store {
@@ -26,14 +26,14 @@ export class EncryptedCookieStore extends Store {
   }
 
   /**
-   * Derive a machine-specific encryption key from hardware identifiers.
+   * Derive a machine-specific encryption key from a persistent UUID.
    * This provides consistent encryption across app restarts while being
-   * unique to each machine.
+   * unique to each machine installation.
    */
   private deriveEncryptionKey(): Buffer {
     try {
       // Gather machine-specific data
-      const machineId = this.getMachineId();
+      const machineId = this.getOrCreateMachineId();
       const appPath = app.getPath('userData');
 
       // Create a deterministic key using PBKDF2
@@ -55,32 +55,40 @@ export class EncryptedCookieStore extends Store {
   }
 
   /**
-   * Get a unique machine identifier.
-   * Uses network interfaces MAC addresses as a stable identifier.
+   * Get or create a persistent machine identifier.
+   * Uses a UUID stored in the userData directory for stable identification
+   * across app restarts, regardless of network configuration changes.
    */
-  private getMachineId(): string {
+  private getOrCreateMachineId(): string {
     try {
-      const networkInterfaces = os.networkInterfaces();
-      const macs: string[] = [];
+      const machineIdPath = path.join(app.getPath('userData'), '.machine-id');
 
-      for (const interfaceName in networkInterfaces) {
-        const interfaces = networkInterfaces[interfaceName];
-        if (interfaces) {
-          for (const iface of interfaces) {
-            // Skip internal/virtual interfaces
-            if (!iface.internal && iface.mac && iface.mac !== '00:00:00:00:00:00') {
-              macs.push(iface.mac);
-            }
-          }
+      // Try to read existing machine ID
+      if (fs.existsSync(machineIdPath)) {
+        const existingId = fs.readFileSync(machineIdPath, 'utf8').trim();
+        if (existingId && existingId.length > 0) {
+          return existingId;
         }
       }
 
-      // Sort for consistency and join
-      macs.sort();
-      return macs.length > 0 ? macs.join(':') : 'default-machine-id';
+      // Generate new UUID if file doesn't exist or is invalid
+      const newId = crypto.randomUUID();
+
+      // Ensure directory exists
+      const dir = path.dirname(machineIdPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      // Save the new ID
+      fs.writeFileSync(machineIdPath, newId, 'utf8');
+      console.log('[EncryptedCookieStore] Generated new machine ID');
+
+      return newId;
     } catch (error) {
-      console.error('[EncryptedCookieStore] Error getting machine ID:', error);
-      return 'default-machine-id';
+      console.error('[EncryptedCookieStore] Error managing machine ID:', error);
+      // Fallback to hostname-based ID if file operations fail
+      return `fallback-${os.hostname()}`;
     }
   }
 
@@ -146,6 +154,7 @@ export class EncryptedCookieStore extends Store {
    */
   private loadFromFile(): void {
     if (!fs.existsSync(this.filePath)) {
+      console.log('[EncryptedCookieStore] No existing cookie file found, starting fresh');
       return;
     }
 
@@ -154,7 +163,7 @@ export class EncryptedCookieStore extends Store {
 
       // Check if this looks like encrypted data (has minimum size)
       if (encryptedData.length < 28) {
-        console.warn('[EncryptedCookieStore] File too small, starting with empty store');
+        console.warn('[EncryptedCookieStore] Cookie file too small to be valid, starting with empty store');
         this.idx = {};
         return;
       }
@@ -165,7 +174,15 @@ export class EncryptedCookieStore extends Store {
 
       console.log('[EncryptedCookieStore] Successfully loaded and decrypted cookies');
     } catch (error) {
-      console.error('[EncryptedCookieStore] Error loading cookies:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      if (errorMessage.includes('unable to authenticate data') || errorMessage.includes('Unsupported state')) {
+        console.warn('[EncryptedCookieStore] Cookie decryption failed - encryption key mismatch');
+        console.warn('[EncryptedCookieStore] This is expected after app updates. Please log in again.');
+      } else {
+        console.error('[EncryptedCookieStore] Unexpected error loading cookies:', error);
+      }
+
       // Start with empty store if we can't load
       this.idx = {};
     }

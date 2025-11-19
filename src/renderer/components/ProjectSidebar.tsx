@@ -1,5 +1,6 @@
 import React from 'react';
 import { ProjectFile, ProjectFolder, Collaborator } from '../services/projectsApi';
+import MSWordIcon from '../../assets/images/MSWordIcon.png';
 
 interface ProjectSidebarProps {
   manuscript: ProjectFile | null;
@@ -25,7 +26,9 @@ const ProjectSidebar: React.FC<ProjectSidebarProps> = ({
         </div>
         {manuscript ? (
           <div className="sidebarItem">
-            <div className="sidebarItemIcon">📄</div>
+            <div className="sidebarItemIcon">
+              <img src={MSWordIcon} alt="Word document" />
+            </div>
             <div className="sidebarItemContent">
               <div className="sidebarItemName">{manuscript.file_name}</div>
               {manuscript.is_primary_manuscript && (

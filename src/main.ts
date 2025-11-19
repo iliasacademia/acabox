@@ -15,6 +15,7 @@ import { AcademiaHttpServer } from './server/httpServer';
 import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
 import { validateExternalUrl } from './utils/urlValidation';
 import { validateCloudFrontDomain } from './utils/validateCloudFrontDomain';
+import { FEATURES } from './shared/types';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -77,7 +78,8 @@ const createWindow = async (): Promise<void> => {
   devWindow = new BrowserWindow({
     width: 800,
     height: 600,
-    frame: false, // Remove title bar and window decorations
+    frame: true, // Use native title bar with window controls
+    titleBarStyle: 'hidden', // Hide title bar but show traffic lights
     show: false, // Hidden on startup
     transparent: false, // Opaque background
     hasShadow: true, // Add shadow for visual separation
@@ -132,7 +134,8 @@ const createMainWindow = async (): Promise<void> => {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    frame: false, // Remove title bar and window decorations
+    frame: true, // Use native title bar with window controls
+    titleBarStyle: 'hidden', // Hide title bar but show traffic lights
     show: false, // Hidden on startup
     transparent: false, // Opaque background
     hasShadow: true, // Add shadow for visual separation
@@ -812,48 +815,17 @@ app.whenReady().then(async () => {
     console.error('[HTTP Server] ✗ Failed to start server:', error);
   }
 
-  // Auto-start Word button tracking if Word is running
-  try {
-    const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
-    if (wordPIDResult) {
-      const wordPID = parseInt(wordPIDResult);
-      console.log('[WORD-BUTTON] MS Word detected (PID:', wordPID, ') - starting automatic button tracking');
-
-      // Check accessibility permission
-      if (wordAccessibility.checkPermission()) {
-        // Start observing with event callback
-        wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
-          if (event.type === 'buttonClicked') {
-            if (event.text === 'academia-button-clicked') {
-              console.log('[WORD-BUTTON] ✨ MS Word Academia main button clicked!');
-            }
-          }
-        });
-        isSelectionTrackingActive = true;
-        console.log('[WORD-BUTTON] ✅ Automatic button tracking started successfully');
-      } else {
-        console.log('[WORD-BUTTON] ⚠️ Accessibility permission not granted - button will not show');
-      }
-    } else {
-      console.log('[WORD-BUTTON] MS Word not running - button will auto-start when Word launches');
-    }
-  } catch (error) {
-    console.log('[WORD-BUTTON] MS Word not running - button will auto-start when Word launches');
-  }
-
-  // Periodically check if Word launches (check every 5 seconds)
-  wordCheckInterval = setInterval(() => {
-    if (isSelectionTrackingActive) {
-      return; // Already tracking
-    }
-
+  if (FEATURES.MS_WORD_INTEGRATION_ENABLED) {
+    // Auto-start Word button tracking if Word is running
     try {
       const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
       if (wordPIDResult) {
         const wordPID = parseInt(wordPIDResult);
-        console.log('[WORD-BUTTON] MS Word launched (PID:', wordPID, ') - starting automatic button tracking');
+        console.log('[WORD-BUTTON] MS Word detected (PID:', wordPID, ') - starting automatic button tracking');
 
+        // Check accessibility permission
         if (wordAccessibility.checkPermission()) {
+          // Start observing with event callback
           wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
             if (event.type === 'buttonClicked') {
               if (event.text === 'academia-button-clicked') {
@@ -863,12 +835,45 @@ app.whenReady().then(async () => {
           });
           isSelectionTrackingActive = true;
           console.log('[WORD-BUTTON] ✅ Automatic button tracking started successfully');
+        } else {
+          console.log('[WORD-BUTTON] ⚠️ Accessibility permission not granted - button will not show');
         }
+      } else {
+        console.log('[WORD-BUTTON] MS Word not running - button will auto-start when Word launches');
       }
     } catch (error) {
-      // Word not running yet
+      console.log('[WORD-BUTTON] MS Word not running - button will auto-start when Word launches');
     }
-  }, 5000);
+
+    // Periodically check if Word launches (check every 5 seconds)
+    wordCheckInterval = setInterval(() => {
+      if (isSelectionTrackingActive) {
+        return; // Already tracking
+      }
+
+      try {
+        const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
+        if (wordPIDResult) {
+          const wordPID = parseInt(wordPIDResult);
+          console.log('[WORD-BUTTON] MS Word launched (PID:', wordPID, ') - starting automatic button tracking');
+
+          if (wordAccessibility.checkPermission()) {
+            wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
+              if (event.type === 'buttonClicked') {
+                if (event.text === 'academia-button-clicked') {
+                  console.log('[WORD-BUTTON] ✨ MS Word Academia main button clicked!');
+                }
+              }
+            });
+            isSelectionTrackingActive = true;
+            console.log('[WORD-BUTTON] ✅ Automatic button tracking started successfully');
+          }
+        }
+      } catch (error) {
+        // Word not running yet
+      }
+    }, 5000);
+  }
 });
 
 app.on('window-all-closed', () => {
@@ -2096,25 +2101,6 @@ ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
   }
 });
 
-// Handle window minimize
-ipcMain.handle('minimize-window', async () => {
-  if (devWindow) {
-    devWindow.minimize();
-    console.log('[WINDOW] Window minimized');
-    return { success: true };
-  }
-  return { success: false, error: 'Window not found' };
-});
-
-// Handle window close (hide instead of quit)
-ipcMain.handle('close-window', async () => {
-  if (devWindow) {
-    devWindow.hide();
-    console.log('[WINDOW] Window hidden');
-    return { success: true };
-  }
-  return { success: false, error: 'Window not found' };
-});
 
 // Handle position debug info request
 ipcMain.handle('get-position-debug-info', async () => {
