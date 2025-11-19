@@ -17,6 +17,7 @@
   align-items: center;
   padding: 24px 156px;
   border-bottom: 1px solid #e0e0e0;
+  -webkit-app-region: drag; /* Make header draggable */
 }
 
 .projectsLogo {
@@ -39,6 +40,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
+  -webkit-app-region: no-drag; /* Allow interaction with menu items */
 }
 
 .userAvatar {

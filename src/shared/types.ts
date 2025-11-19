@@ -78,6 +78,12 @@ export const IPC_CHANNELS = {
   OPEN_EXTERNAL_URL: 'open-external-url',
 } as const;
 
+// Feature flags
+export const FEATURES = {
+  CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
+  MS_WORD_INTEGRATION_ENABLED: false, // Toggle MS Word integration
+} as const;
+
 export interface DesktopNotification {
   id: number;
   title: string;

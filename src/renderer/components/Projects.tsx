@@ -16,6 +16,8 @@ import {
   addFolderToProject,
   addCollaborator,
 } from '../services/projectsApi';
+import { FEATURES } from '../../shared/types';
+import { ConversationsPage } from './conversations/ConversationsPage';
 import './Projects.css';
 
 type View = 'list' | 'detail';
@@ -370,17 +372,23 @@ const Projects: React.FC = () => {
 
       {/* Main Content */}
       <div className="projectsMain">
-        {currentView === 'list' ? (
-          <ProjectsList
-            projects={projects}
-            loading={loading}
-            onCreateProject={handleCreateProject}
-            onSelectProject={handleSelectProject}
-            onDeleteProject={handleDeleteProject}
-          />
-        ) : currentView === 'detail' && selectedProject ? (
-          <ProjectDetail project={selectedProject} onBack={handleBackToList} />
-        ) : null}
+        <>
+          {currentView === 'list' ? (
+            <ProjectsList
+              projects={projects}
+              loading={loading}
+              onCreateProject={handleCreateProject}
+              onSelectProject={handleSelectProject}
+              onDeleteProject={handleDeleteProject}
+            />
+          ) : currentView === 'detail' && selectedProject ? (
+            FEATURES.CONVERSATIONS_ENABLED ? (
+              <ConversationsPage selectedProject={selectedProject} />
+            ) : (
+              <ProjectDetail project={selectedProject} onBack={handleBackToList} />
+            )
+          ) : null}
+        </>
       </div>
 
       {/* Create Project Wizard Modal */}
