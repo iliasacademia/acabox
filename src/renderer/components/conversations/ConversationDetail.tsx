@@ -6,6 +6,7 @@ import { ToolMessageAccordion } from './ToolMessageAccordion';
 import { DateDivider } from './DateDivider';
 import { formatConversationTitle } from './utils';
 import { DraftConversation } from './ConversationsPage';
+import DiffModal from './DiffModal';
 
 interface ConversationDetailProps {
   conversation: Conversation | DraftConversation | null;
@@ -23,9 +24,38 @@ export function ConversationDetail({
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [showDiffModal, setShowDiffModal] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+
+  // Mock unified diff data (output from `diff -u file1.txt file2.txt`)
+  const mockDiffString = `--- ./tmp/v1.txt        2025-11-18 21:27:07
++++ ./tmp/v2.txt        2025-11-18 21:26:03
+@@ -9,6 +9,17 @@
+ ©  The Author Journal compilation ©  The Editors of The Philosophical Quarterly
+ Published by Blackwell Publishing,  Garsington Road, Oxford  , UK, and  Main Street, Malden,  , USA 
+  
++ASPECT-SWITCHING AND VISUAL PHENOMENAL CHARACTER  
++In this paper, I argue that one can explain well known cases of aspect- switching without having to assume that visual experience represents rich properties (i.e., properties other than colour, shape, position and size). Furthermore, I shall argue that even if my arguments are unsound, and cases of aspect-switching do require that visual experience represents rich properties, there is a reason to think that these rich properties do not include natural-kind properties such as the property of being a tomato. 
++In this paper, instead of using the terminology of what properties visual experience represents, I define a kind of looking, phenomenal looking, which is individuated in terms of differences in visual phenomenal character. I identify phenomenal looking by arguing for a constraint on it, that is, a condition necessary for a kind of looking. My methodology is similar to that of someone who wishes to identify, say, a particular kind of justification, and does so by identifying a constraint on a particular kind of justification. 
++The following principle is a preliminary formulation of the constraint: 
++Restricted phenomenal character principle. Necessarily, for all objects x, y and z and all properties F and G, if x looks F to z, y does not look F to z, and y looks G to z, then there is a visual phenomenal difference between the ways x and y look to z. 
++I intend to apply the constraint diachronically and across worlds. Therefore the full constraint, the phenomenal character principle, quantifies over times and worlds, and is as follows: 
++Phenomenal character principle. Necessarily, for all objects x, y and z, all properties F and G, all times t1 and t2 and all worlds w1 and w2, if x looks F to z at t1 at w1, y does not look F to z at t2 at w2, and y looks G to z at t2 at w2, then there is a visual phenomenal difference between the way x looks to z at t1 at w1 and the way y looks to z at t2 at w2. 
++I assume that only one kind of looking satisfies the phenomenal character principle, and I call it phenomenal looking. What it means to say that there is a visual phenomenal difference between the ways two objects a and b look to S is that what it is visually like for S for a to look the way it does to S is different from what it is visually like for S for b to look the way it does to S. 
++The phenomenal character principle is phrased in terms of how things look to a particular subject. Sometimes I refer to the properties that objects phenomenally look to have, and leave it implicit that there is some parti- cular subject to whom these objects phenomenally look to have the proper- ties in question. 
++The phenomenal character principle uses the locution ‘an object looks F’, where ‘F’ is to be replaced by an adjective. In English, some properties can 
++©  The Author Journal compilation ©  The Editors of The Philosophical Quarterly 
+  
+  RICHARD PRICE 
+ be expressed by predicates of the form ‘is + adjective’. For instance, the property of being red can be expressed by the predicate ‘is red’. However, some properties, for instance, the property of being a tomato, are not expressed by predicates of the form ‘is + adjective’. There is no predicate ‘is tomatoey’ which expresses the property of being a tomato. 
+@@ -111,3 +122,5 @@
+  RICHARD PRICE
+ that those properties will not include natural-kind properties such as being a 
+ tomato. 
++VI. CONCLUSION 
++I have argued that aspect switching cases, such as the duck/rabbit, do not require that the properties which objects phenomenally look to have (or the properties which are represented by visual experience, to use Siegel’s and Searle’s terminology) must be richer than properties such as colour, shape, position and size. I have argued that aspect-switching cases can be explained by changes in patterns of attention, cognitive shifts and shifts in visual imagination. In the final section I argued that even if aspect-switching cases are taken to show that objects phenomenally look to have a richer range of properties than colour, shape, position and size, there is reason to think that those richer properties do not include natural-kind properties such as being a tomato.5 `;
 
   const { messages, isPolling, isLoading, error, startPolling, stopPolling, refetch } =
     useConversationPolling();
@@ -204,14 +234,22 @@ export function ConversationDetail({
       {/* Header */}
       <div className="conversationHeader">
         <div className="conversationHeaderContent">
-          <h2 className="conversationTitle">
-            {currentIsDraft
-              ? conversation.title
-              : conversation.title
-                ? formatConversationTitle(conversation.title, conversation.created_at)
-                : 'New Conversation'
-            }
-          </h2>
+          <div className="conversationTitleRow">
+            <h2 className="conversationTitle">
+              {currentIsDraft
+                ? conversation.title
+                : conversation.title
+                  ? formatConversationTitle(conversation.title, conversation.created_at)
+                  : 'New Conversation'
+              }
+            </h2>
+            <button
+              className="showDiffButton"
+              onClick={() => setShowDiffModal(true)}
+            >
+              Show Diff
+            </button>
+          </div>
           {conversation.summary && (
             <p className="conversationSummary">{conversation.summary}</p>
           )}
@@ -295,6 +333,14 @@ export function ConversationDetail({
           </div>
         </form>
       </div>
+
+      {/* Diff Modal */}
+      {showDiffModal && (
+        <DiffModal
+          diffString={mockDiffString}
+          onClose={() => setShowDiffModal(false)}
+        />
+      )}
     </div>
   );
 }

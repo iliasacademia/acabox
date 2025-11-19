@@ -83,6 +83,29 @@
   color: #666666;
 }
 
+.showDiffButton {
+  padding: 8px 16px;
+  background-color: #ffffff;
+  color: #141413;
+  border: 1px solid #dddde2;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.showDiffButton:hover {
+  background-color: #f9f7f4;
+  border-color: #141413;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
 /* Manuscript Version Card */
 .manuscriptVersionContainer {
   background-color: var(--background-light-blue);
@@ -115,6 +138,7 @@
   border: 1px solid var(--stroke-grey);
   border-radius: var(--radius-sm);
   padding: var(--spacing-sm);
+  width: max-content;
 }
 
 .manuscriptFileRow {
@@ -409,8 +433,15 @@
   flex: 1;
 }
 
+.conversationTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
 .conversationTitle {
-  margin: 0 0 4px 0;
+  margin: 0;
   font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
@@ -1053,4 +1084,93 @@
 
 .errorIcon {
   font-size: 16px;
+}
+
+/* ============================================================================
+   DIFF MODAL
+   ============================================================================ */
+
+.diffModal {
+  background-color: #ffffff;
+  border-radius: 12px;
+  width: 90vw;
+  max-width: 1200px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  position: relative;
+  overflow: scroll;
+}
+
+.diffContainer {
+  overflow-y: auto;
+  flex: 1;
+  padding: 24px;
+  background-color: #f6f8fa;
+}
+
+.diffFileSection {
+  margin-bottom: 24px;
+  background-color: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.diffFileName {
+  padding: 12px 16px;
+  background-color: #f6f8fa;
+  border-bottom: 1px solid #d0d7de;
+  font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', 'Oxygen Mono', 'Ubuntu Monospace', 'Source Code Pro', 'Fira Mono', 'Droid Sans Mono', 'Courier New', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: #24292f;
+}
+
+.diffFileNameOld {
+  color: #cf222e;
+}
+
+.diffFileNameNew {
+  color: #1a7f37;
+}
+
+.diffEmptyState {
+  text-align: center;
+  padding: 40px;
+  color: #666666;
+  font-size: 16px;
+}
+
+/* Override react-diff-view default styles for better GitHub-like appearance */
+.diffContainer .diff {
+  font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', 'Oxygen Mono', 'Ubuntu Monospace', 'Source Code Pro', 'Fira Mono', 'Droid Sans Mono', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diffContainer .diff td {
+  border: none;
+}
+
+.diffContainer .diff-gutter-col {
+  width: 50px;
+  min-width: 50px;
+}
+
+.diffContainer .diff-code-insert {
+  background-color: #e6ffec;
+}
+
+.diffContainer .diff-code-delete {
+  background-color: #ffebe9;
+}
+
+.diffContainer .diff-gutter-insert {
+  background-color: #ccffd8;
+}
+
+.diffContainer .diff-gutter-delete {
+  background-color: #ffd7d5;
 }

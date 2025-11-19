@@ -1041,12 +1041,12 @@
   font-weight: 600;
   color: #141413;
   margin: 0;
+  padding: 24px;
 }
 
 .wizardForm {
   display: flex;
   flex-direction: column;
-  gap: 24px;
 }
 
 .formGroup {
