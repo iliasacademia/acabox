@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { IPC_CHANNELS } from '../../shared/types';
+import MSWordIcon from '../../assets/images/MSWordIcon.png';
 
 interface CreateProjectWizardProps {
   onClose: () => void;
@@ -299,7 +300,9 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
                     }`}
                     onClick={() => setSelectedManuscriptPath(file.path)}
                   >
-                    <span className="fileIcon">📄</span>
+                    <span className="fileIcon">
+                      <img src={MSWordIcon} alt="Word document" />
+                    </span>
                     <div className="fileName">
                       <span>{file.name}</span>
                       <span className="fileRelPath">{file.relativePath}</span>

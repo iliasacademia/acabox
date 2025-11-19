@@ -1,63 +1,79 @@
-import React, { useState } from 'react';
-import { Conversation, createConversation } from '../../services/conversationsApi';
-import { Project } from '../../services/projectsApi';
+import React, { useState, useEffect } from 'react';
+import { Conversation } from '../../services/conversationsApi';
+import { Project, ProjectFile, getProjectFiles } from '../../services/projectsApi';
 import { ConversationsSidebar } from './ConversationsSidebar';
 import { ConversationDetail } from './ConversationDetail';
+import { generateDailyFeedbackTitle } from './utils';
+import ManuscriptVersionCard from './ManuscriptVersionCard';
 import './Conversations.css';
 
 interface ConversationsPageProps {
   selectedProject: Project | null;
 }
 
+// Extended conversation type to support draft conversations
+export interface DraftConversation extends Conversation {
+  isDraft: true;
+}
+
 export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
   const [selectedConversation, setSelectedConversation] =
-    useState<Conversation | null>(null);
-  const [isDraftMode, setIsDraftMode] = useState(false);
-  const [draftContent, setDraftContent] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
+    useState<Conversation | DraftConversation | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+
+  // Fetch project files when selectedProject changes
+  useEffect(() => {
+    const fetchManuscript = async () => {
+      if (!selectedProject) {
+        setManuscriptFile(null);
+        return;
+      }
+
+      setIsLoadingFiles(true);
+      try {
+        const files = await getProjectFiles(selectedProject.id);
+        // Find the primary manuscript
+        const primaryManuscript = files.find(file => file.is_primary_manuscript);
+        setManuscriptFile(primaryManuscript || null);
+      } catch (error) {
+        console.error('Failed to fetch project files:', error);
+        setManuscriptFile(null);
+      } finally {
+        setIsLoadingFiles(false);
+      }
+    };
+
+    fetchManuscript();
+  }, [selectedProject]);
 
   const handleSelectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation);
-    setIsDraftMode(false);
-    setDraftContent('');
-    setCreateError(null);
   };
 
   const handleNewConversation = () => {
-    setIsDraftMode(true);
-    setSelectedConversation(null);
-    setDraftContent('');
-    setCreateError(null);
+    // Create a draft conversation object that will be created on first message
+    const draftConversation: DraftConversation = {
+      id: -1, // Temporary ID to indicate draft
+      agent_name: 'co_scientist',
+      title: generateDailyFeedbackTitle(),
+      summary: null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      parent_id: selectedProject?.id || null,
+      parent_type: 'Project',
+      isDraft: true,
+    };
+
+    setSelectedConversation(draftConversation);
   };
 
-  const handleCreateConversation = async (content: string) => {
-    if (!selectedProject || !content.trim()) return;
-
-    setIsCreating(true);
-    setCreateError(null);
-
-    try {
-      const newConversation = await createConversation(
-        content.trim(),
-        'co_scientist', // Default agent name
-        selectedProject.id
-      );
-
-      // Switch to the new conversation
-      setSelectedConversation(newConversation);
-      setIsDraftMode(false);
-      setDraftContent('');
-
-      // Trigger sidebar refresh
-      setRefreshTrigger((prev) => prev + 1);
-    } catch (err: any) {
-      console.error('Failed to create conversation:', err);
-      setCreateError(err.message || 'Failed to create conversation');
-    } finally {
-      setIsCreating(false);
-    }
+  const handleConversationCreated = (newConversation: Conversation) => {
+    // Replace draft with the real conversation
+    setSelectedConversation(newConversation);
+    // Trigger sidebar refresh
+    setRefreshTrigger((prev) => prev + 1);
   };
 
   const handleConversationUpdate = () => {
@@ -82,7 +98,6 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
       {/* Project Context Banner */}
       <div className="projectBanner">
         <div className="projectBannerContent">
-          <span className="projectBannerIcon">📁</span>
           <div className="projectBannerInfo">
             <h3 className="projectBannerTitle">{selectedProject.name}</h3>
             {selectedProject.description && (
@@ -93,6 +108,14 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
           </div>
         </div>
       </div>
+
+      {/* Manuscript Version Card */}
+      {(manuscriptFile || isLoadingFiles) && (
+        <ManuscriptVersionCard
+          fileName={manuscriptFile?.file_name || ''}
+          isLoading={isLoadingFiles}
+        />
+      )}
 
       {/* Main Content */}
       <div className="conversationsContent">
@@ -106,61 +129,12 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
         />
 
         {/* Detail Panel */}
-        {isDraftMode ? (
-          <div className="conversationDraft">
-            <div className="draftHeader">
-              <h2>New Conversation</h2>
-              <button className="draftCancelButton" onClick={() => setIsDraftMode(false)}>
-                Cancel
-              </button>
-            </div>
-
-            <div className="draftContent">
-              <p className="draftInstructions">
-                Start a conversation with Co-Scientist. Ask questions about your
-                project, request help with analysis, or explore your research.
-              </p>
-
-              {createError && (
-                <div className="draftError">
-                  <span className="errorIcon">⚠️</span>
-                  <span>{createError}</span>
-                </div>
-              )}
-
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  handleCreateConversation(draftContent);
-                }}
-              >
-                <textarea
-                  className="draftInput"
-                  value={draftContent}
-                  onChange={(e) => setDraftContent(e.target.value)}
-                  placeholder="What would you like to know or work on?"
-                  rows={6}
-                  disabled={isCreating}
-                  autoFocus
-                />
-
-                <button
-                  type="submit"
-                  className="draftSubmitButton"
-                  disabled={!draftContent.trim() || isCreating}
-                >
-                  {isCreating ? 'Creating...' : 'Start Conversation'}
-                </button>
-              </form>
-            </div>
-          </div>
-        ) : (
-          <ConversationDetail
-            conversation={selectedConversation}
-            projectId={selectedProject.id}
-            onConversationUpdate={handleConversationUpdate}
-          />
-        )}
+        <ConversationDetail
+          conversation={selectedConversation}
+          projectId={selectedProject.id}
+          onConversationCreated={handleConversationCreated}
+          onConversationUpdate={handleConversationUpdate}
+        />
       </div>
     </div>
   );

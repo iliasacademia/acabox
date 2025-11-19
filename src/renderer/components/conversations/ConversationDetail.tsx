@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, createMessage, Conversation } from '../../services/conversationsApi';
+import { Message, createMessage, createConversation, Conversation } from '../../services/conversationsApi';
 import { useConversationPolling } from '../../hooks/useConversationPolling';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
 import { DateDivider } from './DateDivider';
 import { formatConversationTitle } from './utils';
+import { DraftConversation } from './ConversationsPage';
 
 interface ConversationDetailProps {
-  conversation: Conversation | null;
+  conversation: Conversation | DraftConversation | null;
   projectId: number;
+  onConversationCreated?: (conversation: Conversation) => void;
   onConversationUpdate?: () => void;
 }
 
 export function ConversationDetail({
   conversation,
   projectId,
+  onConversationCreated,
   onConversationUpdate,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState('');
@@ -27,9 +30,14 @@ export function ConversationDetail({
   const { messages, isPolling, isLoading, error, startPolling, stopPolling, refetch } =
     useConversationPolling();
 
-  // Start polling when conversation changes
+  // Helper to check if conversation is a draft
+  const isDraft = (conv: Conversation | DraftConversation | null): conv is DraftConversation => {
+    return conv !== null && 'isDraft' in conv && conv.isDraft === true;
+  };
+
+  // Start polling when conversation changes (but not for drafts)
   useEffect(() => {
-    if (conversation) {
+    if (conversation && !isDraft(conversation)) {
       startPolling(conversation.id, projectId);
     } else {
       stopPolling();
@@ -58,17 +66,32 @@ export function ConversationDetail({
     setSendError(null);
 
     try {
-      // Send message (optimistic UI handled by re-fetch)
-      await createMessage(conversation.id, content, projectId);
+      if (isDraft(conversation)) {
+        // First message: create conversation with the message
+        const newConversation = await createConversation(
+          content,
+          conversation.agent_name,
+          projectId
+        );
 
-      // Immediately refetch to show user's message
-      await refetch();
+        // Notify parent to replace draft with real conversation
+        onConversationCreated?.(newConversation);
 
-      // Notify parent to update conversation list
-      onConversationUpdate?.();
+        // Start polling for AI response
+        startPolling(newConversation.id, projectId);
+      } else {
+        // Existing conversation: send message normally
+        await createMessage(conversation.id, content, projectId);
 
-      // Restart polling to get AI response
-      startPolling(conversation.id, projectId);
+        // Immediately refetch to show user's message
+        await refetch();
+
+        // Notify parent to update conversation list
+        onConversationUpdate?.();
+
+        // Restart polling to get AI response
+        startPolling(conversation.id, projectId);
+      }
     } catch (err: any) {
       console.error('Failed to send message:', err);
       setSendError(err.message || 'Failed to send message. Please try again.');
@@ -174,13 +197,20 @@ export function ConversationDetail({
     );
   }
 
+  const currentIsDraft = isDraft(conversation);
+
   return (
     <div className="conversationDetail">
       {/* Header */}
       <div className="conversationHeader">
         <div className="conversationHeaderContent">
           <h2 className="conversationTitle">
-            {conversation.title ? formatConversationTitle(conversation.title, conversation.created_at) : 'New Conversation'}
+            {currentIsDraft
+              ? conversation.title
+              : conversation.title
+                ? formatConversationTitle(conversation.title, conversation.created_at)
+                : 'New Conversation'
+            }
           </h2>
           {conversation.summary && (
             <p className="conversationSummary">{conversation.summary}</p>
@@ -203,7 +233,11 @@ export function ConversationDetail({
           </div>
         )}
 
-        {isLoading && groupedMessages.length === 0 ? (
+        {currentIsDraft ? (
+          <div className="noMessages">
+            <p>Start your conversation below</p>
+          </div>
+        ) : isLoading && groupedMessages.length === 0 ? (
           <div className="noMessages">
             <p>Loading messages...</p>
           </div>

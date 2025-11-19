@@ -15,7 +15,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px 156px;
+  padding: 24px 24px;
   border-bottom: 1px solid #e0e0e0;
   -webkit-app-region: drag; /* Make header draggable */
 }
@@ -89,7 +89,6 @@
 .projectsMain {
   flex: 1;
   overflow-y: auto;
-  padding: 0 156px;
 }
 
 /* ============================================================================
@@ -97,7 +96,7 @@
    ============================================================================ */
 
 .projectsList {
-  padding: 112px 0 60px 0;
+  padding: 112px 24px 60px 24px;
 }
 
 .projectsListHeader {
@@ -376,6 +375,15 @@
 
 .sidebarItemIcon {
   font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebarItemIcon img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
 }
 
 .sidebarItemContent {
@@ -1237,6 +1245,15 @@
 .fileIcon {
   font-size: 20px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fileIcon img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
 }
 
 .fileName {

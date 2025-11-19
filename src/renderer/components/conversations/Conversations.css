@@ -10,6 +10,7 @@
   --background-white: #ffffff;
   --background-beige: #f9f7f4;
   --background-blue: #e6ecf7;
+  --background-light-blue: #eef2f9;
   --stroke-grey: #dddde2;
 
   /* Typography */
@@ -18,12 +19,15 @@
   --type-line-height: 20px;
   --type-body-sm: 14px;
   --type-body-sm-line-height: 20px;
+  --type-body-lg: 20px;
+  --type-body-lg-line-height: 32px;
 
   /* Spacing */
   --spacing-xs: 8px;
   --spacing-sm: 16px;
   --spacing-md: 40px;
   --spacing-lg: 80px;
+  --spacing-xl: 32px;
 
   /* Border Radius */
   --radius-sm: 8px;
@@ -51,8 +55,6 @@
 /* Project Banner */
 .projectBanner {
   padding: 16px 24px;
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #e0e0e0;
 }
 
 .projectBannerContent {
@@ -61,19 +63,18 @@
   gap: 12px;
 }
 
-.projectBannerIcon {
-  font-size: 24px;
-}
-
 .projectBannerInfo {
   flex: 1;
 }
 
 .projectBannerTitle {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #1a1a1a;
+  font-family: 'Gupter', serif;
+  font-size: 58px;
+  font-weight: 400;
+  line-height: 58px;
+  letter-spacing: -1.5px;
+  color: #141413;
 }
 
 .projectBannerDescription {
@@ -82,11 +83,81 @@
   color: #666666;
 }
 
+/* Manuscript Version Card */
+.manuscriptVersionContainer {
+  background-color: var(--background-light-blue);
+  padding: 24px;
+  margin: 12px 24px;
+  border-radius: 16px;
+}
+
+.manuscriptVersionContent {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.manuscriptVersionHeader {
+  padding-bottom: var(--spacing-sm);
+}
+
+.manuscriptVersionTitle {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  font-size: var(--type-body-lg);
+  font-weight: 600;
+  line-height: var(--type-body-lg-line-height);
+  color: var(--text-primary);
+}
+
+.manuscriptVersionCard {
+  background-color: var(--background-white);
+  border: 1px solid var(--stroke-grey);
+  border-radius: var(--radius-sm);
+  padding: var(--spacing-sm);
+}
+
+.manuscriptFileRow {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.manuscriptFileIcon {
+  font-size: 20px;
+  line-height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.manuscriptFileIcon img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.manuscriptFileName {
+  font-family: var(--font-family-sans);
+  font-size: var(--type-body-sm);
+  font-weight: 400;
+  line-height: var(--type-body-sm-line-height);
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.manuscriptFileLoading {
+  font-family: var(--font-family-sans);
+  font-size: var(--type-body-sm);
+  color: var(--text-secondary);
+}
+
 /* Main Content Layout */
 .conversationsContent {
   flex: 1;
   display: flex;
   overflow: hidden;
+  border-top: 1px solid var(--stroke-grey);
 }
 
 /* ============================================================================
@@ -109,6 +180,7 @@
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid #e0e0e0;
+  height: 30px;
 }
 
 .sidebarHeader h2 {

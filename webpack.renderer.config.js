@@ -14,6 +14,11 @@ rules.push({
   ],
 });
 
+rules.push({
+  test: /\.(png|jpg|jpeg|gif|svg)$/,
+  type: 'asset/resource',
+});
+
 // Add MiniCssExtractPlugin to plugins array for production builds
 if (!isDevelopment) {
   plugins.push(
