@@ -36,7 +36,32 @@
   font-weight: bold;
 }
 
+.projectsBackButton {
+  background: none;
+  border: none;
+  font-size: 16px;
+  color: #0645b1;
+  cursor: pointer;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: opacity 0.2s;
+  -webkit-app-region: no-drag; /* Allow interaction */
+  font-weight: 500;
+}
+
+.projectsBackButton:hover {
+  opacity: 0.7;
+}
+
+.backArrow {
+  font-size: 20px;
+  font-weight: bold;
+}
+
 .projectsUserMenu {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -74,8 +99,73 @@
   width: 100%;
   height: 100%;
   display: flex;
+}
+
+.userMenuDropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
+  min-width: 200px;
+  z-index: 1000;
+  overflow: hidden;
+  animation: dropdownFadeIn 0.15s ease-out;
+}
+
+@keyframes dropdownFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.userMenuHeader {
+  padding: 12px 16px;
+  background: #f8f9fa;
+}
+
+.userMenuName {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1a1a1a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.userMenuDivider {
+  height: 1px;
+  background: #e5e7eb;
+  margin: 0;
+}
+
+.userMenuItem {
+  width: 100%;
+  padding: 12px 16px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-size: 14px;
+  color: #4b5563;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 12px;
+}
+
+.userMenuItem:hover {
+  background-color: #f3f4f6;
+}
+
+.userMenuItem:active {
+  background-color: #e5e7eb;
 }
 
 .avatarImg {
