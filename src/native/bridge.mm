@@ -152,7 +152,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 }
 
 - (BOOL)checkAccessibilityPermission {
-    NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @YES};
+    NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @NO};
     return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
 }
 
@@ -1031,7 +1031,7 @@ Napi::Value GetFirstTextAreaInfo(const Napi::CallbackInfo& info) {
 Napi::Value CheckPermission(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
-    NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @YES};
+    NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @NO};
     BOOL hasPermission = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
 
     return Napi::Boolean::New(env, hasPermission);
