@@ -122,7 +122,7 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 #pragma mark - Observation Control
 
 - (BOOL)checkAccessibilityPermission {
-    NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @YES};
+    NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @NO};
     return AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
 }
 
