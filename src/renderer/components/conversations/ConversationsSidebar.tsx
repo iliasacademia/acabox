@@ -26,17 +26,21 @@ export function ConversationsSidebar({
 
   const listContainerRef = useRef<HTMLDivElement>(null);
   const isLoadingMore = useRef(false);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const ITEMS_PER_PAGE = 20;
+  const POLL_INTERVAL = 5000; // Poll every 5 seconds
 
   // Load initial conversations
-  const loadConversations = async (reset: boolean = false) => {
+  const loadConversations = async (reset: boolean = false, silent: boolean = false) => {
     if (isLoadingMore.current) return;
 
     const newOffset = reset ? 0 : offset;
 
-    setIsLoading(reset);
-    setError(null);
+    if (!silent) {
+      setIsLoading(reset);
+      setError(null);
+    }
     isLoadingMore.current = true;
 
     try {
@@ -59,12 +63,39 @@ export function ConversationsSidebar({
     }
   };
 
+  // Start polling for new conversations
+  const startPolling = () => {
+    // Stop any existing polling
+    stopPolling();
+
+    // Set up new polling interval
+    pollIntervalRef.current = setInterval(() => {
+      loadConversations(true, true); // Silent reload to check for new conversations
+    }, POLL_INTERVAL);
+  };
+
+  // Stop polling
+  const stopPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+  };
+
   // Load conversations on mount and when projectId changes
   useEffect(() => {
     setConversations([]);
     setOffset(0);
     setHasMore(true);
     loadConversations(true);
+
+    // Start polling for new conversations
+    startPolling();
+
+    return () => {
+      // Clean up polling on unmount or when projectId changes
+      stopPolling();
+    };
   }, [projectId]);
 
   // Refresh conversations when refreshTrigger changes
@@ -110,19 +141,26 @@ export function ConversationsSidebar({
     return title.includes(query) || summary.includes(query);
   });
 
-  // Format date
-  const formatDate = (timestamp: string) => {
+  // Format date with time
+  const formatDateTime = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffHours = Math.floor(diffMs / 3600000);
 
+    // Format time as HH:MM AM/PM
+    const timeString = date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+
     if (diffHours < 24) {
-      return 'Today';
+      return timeString; // Just show time for today
     }
 
     const diffDays = Math.floor(diffHours / 24);
-    if (diffDays === 1) return 'Yesterday';
+    if (diffDays === 1) return `Yesterday ${timeString}`;
     if (diffDays < 7) return `${diffDays} days ago`;
 
     return date.toLocaleDateString();
@@ -182,6 +220,9 @@ export function ConversationsSidebar({
                   <h4 className="conversationItemTitle">
                     {formatConversationTitle(conversation.title, conversation.created_at) || 'Untitled Conversation'}
                   </h4>
+                  <span className="conversationItemDate">
+                    {formatDateTime(conversation.created_at)}
+                  </span>
                 </div>
                 {conversation.summary && (
                   <p className="conversationItemSummary">

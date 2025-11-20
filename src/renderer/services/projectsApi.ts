@@ -331,3 +331,18 @@ export async function updateReviewStatus(
     throw error;
   }
 }
+
+/**
+ * Get file diff (current version vs previous version)
+ * GET /v0/co_scientist/projects/:projectId/files/:fileId/diff
+ */
+export async function getFileDiff(
+  projectId: number,
+  fileId: number
+): Promise<string> {
+  const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
+    method: 'GET',
+    endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff`,
+  });
+  return response.diff || '';
+}
