@@ -5,6 +5,7 @@ import MSWordIcon from '../../assets/images/MSWordIcon.png';
 interface CreateProjectWizardProps {
   onClose: () => void;
   onComplete: (data: ProjectCreationData) => void;
+  isCreating?: boolean;
 }
 
 export interface ProjectCreationData {
@@ -25,6 +26,7 @@ interface LocalFile {
 const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   onClose,
   onComplete,
+  isCreating = false,
 }) => {
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
@@ -172,9 +174,14 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   };
 
   return (
-    <div className="wizardOverlay" onClick={onClose}>
+    <div className="wizardOverlay" onClick={isCreating ? undefined : onClose}>
       <div className="wizardModal" onClick={(e) => e.stopPropagation()}>
-        <button className="wizardClose" onClick={onClose}>
+        <button
+          className="wizardClose"
+          onClick={onClose}
+          disabled={isCreating}
+          style={{ opacity: isCreating ? 0.5 : 1, cursor: isCreating ? 'not-allowed' : 'pointer' }}
+        >
           ×
         </button>
 
@@ -206,14 +213,6 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
                   placeholder="Enter project description"
                   rows={3}
                 />
-              </div>
-              <div className="wizardSection">
-                <p className="wizardSectionTitle">
-                  Add folders your project will read from
-                </p>
-                <button className="wizardAddButton" onClick={handleNext}>
-                  + Select folders
-                </button>
               </div>
             </div>
             {error && <div className="wizardError">{error}</div>}
@@ -351,10 +350,12 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
                     onChange={(e) => setCollaboratorEmail(e.target.value)}
                     placeholder="Enter email address"
                     onKeyPress={handleKeyPress}
+                    disabled={isCreating}
                   />
                   <button
                     className="wizardAddButton"
                     onClick={handleAddCollaborator}
+                    disabled={isCreating}
                   >
                     + Add collaborator
                   </button>
@@ -367,6 +368,7 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
                         <button
                           className="collaboratorRemove"
                           onClick={() => handleRemoveCollaborator(email)}
+                          disabled={isCreating}
                         >
                           ×
                         </button>
@@ -376,15 +378,16 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
                 )}
               </div>
             </div>
+            {isCreating && <div className="wizardLoading">Creating your project...</div>}
             <div className="wizardActions">
-              <button className="wizardButtonSecondary" onClick={handleBack}>
+              <button className="wizardButtonSecondary" onClick={handleBack} disabled={isCreating}>
                 Back
               </button>
-              <button className="wizardButtonText" onClick={handleSkip}>
+              <button className="wizardButtonText" onClick={handleSkip} disabled={isCreating}>
                 Skip
               </button>
-              <button className="wizardButtonPrimary" onClick={handleComplete}>
-                Create Project
+              <button className="wizardButtonPrimary" onClick={handleComplete} disabled={isCreating}>
+                {isCreating ? 'Creating...' : 'Create Project'}
               </button>
             </div>
           </div>

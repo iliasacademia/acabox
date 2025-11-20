@@ -132,6 +132,7 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
         <ConversationDetail
           conversation={selectedConversation}
           projectId={selectedProject.id}
+          primaryManuscriptId={manuscriptFile?.id}
           onConversationCreated={handleConversationCreated}
           onConversationUpdate={handleConversationUpdate}
         />

@@ -1249,8 +1249,10 @@ ipcMain.handle('scan-folder-for-files', async (_event, folderPaths: string[]) =>
           const items = fs.readdirSync(dirPath);
 
           for (const item of items) {
-            // Skip hidden files/folders
+            // Skip hidden files/folders and temporary files
             if (item.startsWith('.')) continue;
+            // Skip Word temporary lock files (~$filename.docx)
+            if (item.startsWith('~$')) continue;
 
             const fullPath = path.join(dirPath, item);
             const stat = fs.statSync(fullPath);

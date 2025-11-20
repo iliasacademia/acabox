@@ -73,6 +73,8 @@ class SyncService {
         const basename = path.basename(filePath);
         // Ignore hidden files (starting with .)
         if (basename.startsWith('.')) return true;
+        // Ignore Word temporary lock files (starting with ~$)
+        if (basename.startsWith('~$')) return true;
         // Ignore directories (we only want files)
         if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
           return false; // Don't ignore directories, we need to traverse them
@@ -390,6 +392,8 @@ class SyncService {
 
         // Skip hidden files and folders
         if (entry.name.startsWith('.')) continue;
+        // Skip Word temporary lock files (~$filename.docx)
+        if (entry.name.startsWith('~$')) continue;
 
         if (entry.isDirectory()) {
           scanDirectory(fullPath);

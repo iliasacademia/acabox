@@ -5,9 +5,11 @@ import 'react-diff-view/style/index.css';
 interface DiffModalProps {
   diffString: string;
   onClose: () => void;
+  isLoading?: boolean;
+  error?: string | null;
 }
 
-const DiffModal: React.FC<DiffModalProps> = ({ diffString, onClose }) => {
+const DiffModal: React.FC<DiffModalProps> = ({ diffString, onClose, isLoading = false, error = null }) => {
   const files = useMemo(() => {
     try {
       return parseDiff(diffString);
@@ -28,23 +30,18 @@ const DiffModal: React.FC<DiffModalProps> = ({ diffString, onClose }) => {
         </button>
 
         <div className="wizardContent">
-          <h2 className="wizardTitle">Differences (Mock Data)</h2>
+          <h2 className="wizardTitle">Manuscript Changes</h2>
 
           <div className="diffContainer">
-            {files.length === 0 ? (
+            {isLoading ? (
+              <div className="wizardLoading">Loading diff...</div>
+            ) : error ? (
+              <div className="wizardError">{error}</div>
+            ) : files.length === 0 ? (
               <p className="diffEmptyState">No changes to display</p>
             ) : (
               files.map((file, index) => (
                 <div key={index} className="diffFileSection">
-                  <div className="diffFileName">
-                    <span className="diffFileNameOld">{file.oldPath}</span>
-                    {file.oldPath !== file.newPath && (
-                      <>
-                        {' → '}
-                        <span className="diffFileNameNew">{file.newPath}</span>
-                      </>
-                    )}
-                  </div>
                   <Diff
                     viewType="split"
                     diffType={file.type}

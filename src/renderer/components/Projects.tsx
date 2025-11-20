@@ -45,6 +45,7 @@ const Projects: React.FC = () => {
   const [currentView, setCurrentView] = useState<View>('list');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [showCreateWizard, setShowCreateWizard] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [dialog, setDialog] = useState<DialogState>({
     type: null,
@@ -231,6 +232,7 @@ const Projects: React.FC = () => {
   };
 
   const handleWizardComplete = async (data: ProjectCreationData) => {
+    setCreatingProject(true);
     try {
       console.log('[Projects] Creating project with data:', data);
 
@@ -325,6 +327,8 @@ const Projects: React.FC = () => {
         title: 'Error',
         message: 'Failed to create project. Please try again.',
       });
+    } finally {
+      setCreatingProject(false);
     }
   };
 
@@ -432,8 +436,9 @@ const Projects: React.FC = () => {
       {/* Create Project Wizard Modal */}
       {showCreateWizard && (
         <CreateProjectWizard
-          onClose={() => setShowCreateWizard(false)}
+          onClose={() => !creatingProject && setShowCreateWizard(false)}
           onComplete={handleWizardComplete}
+          isCreating={creatingProject}
         />
       )}
 
