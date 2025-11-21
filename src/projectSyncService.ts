@@ -6,6 +6,16 @@ import { APIclient, getCsrfToken } from './uploader';
 import { IPC_CHANNELS } from './shared/types';
 import FormData from 'form-data';
 
+/**
+ * Validates that a file path is within the allowed base directory
+ * Prevents path traversal attacks
+ */
+function validatePath(basePath: string, targetPath: string): boolean {
+  const resolvedBase = path.resolve(basePath);
+  const resolvedTarget = path.resolve(targetPath);
+  return resolvedTarget.startsWith(resolvedBase + path.sep) || resolvedTarget === resolvedBase;
+}
+
 interface WatchedProjectFolder {
   projectId: number;
   folderId: number;
@@ -79,6 +89,12 @@ class ProjectSyncService {
       ignoreInitial: true, // We already synced existing files
       followSymlinks: true,
       ignored: (filePath: string) => {
+        // Validate path to prevent traversal attacks
+        if (!validatePath(folderPath, filePath)) {
+          console.warn(`[ProjectSync] Path traversal attempt detected: ${filePath}`);
+          return true;
+        }
+
         const basename = path.basename(filePath);
         // Ignore hidden files (starting with .)
         if (basename.startsWith('.')) return true;
@@ -259,6 +275,13 @@ class ProjectSyncService {
           if (item.startsWith('.')) continue;
 
           const fullPath = path.join(currentPath, item);
+
+          // Validate path to prevent traversal attacks
+          if (!validatePath(folderPath, fullPath)) {
+            console.warn(`[ProjectSync] Path traversal attempt detected during file enumeration: ${fullPath}`);
+            continue;
+          }
+
           const stat = fs.statSync(fullPath);
 
           if (stat.isDirectory()) {
