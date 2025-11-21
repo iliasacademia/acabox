@@ -41,12 +41,23 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
     }
   };
 
-  // Poll for review completion
+  // Poll for review completion with exponential backoff
   const startPolling = (manuscriptId: number) => {
     console.log('[ConversationsPage] Starting review status polling for manuscript:', manuscriptId);
     setIsReviewInProgress(true);
 
-    const interval = setInterval(async () => {
+    let pollCount = 0;
+    const MAX_POLLS = 100; // Maximum 100 polls (~5 minutes with backoff)
+    let currentDelay = 3000; // Start with 3 seconds
+
+    const poll = async () => {
+      if (pollCount >= MAX_POLLS) {
+        console.log('[ConversationsPage] Max poll attempts reached, stopping');
+        setPollInterval(null);
+        setIsReviewInProgress(false);
+        return;
+      }
+
       try {
         const status = await getProjectStatus(selectedProject!.id, 'science_agent', manuscriptId);
         console.log('[ConversationsPage] Poll result:', status);
@@ -60,7 +71,6 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
 
         if (recentRuns.length === 0) {
           console.log('[ConversationsPage] No recent runs found, stopping poll');
-          clearInterval(interval);
           setPollInterval(null);
           setIsReviewInProgress(false);
           return;
@@ -72,7 +82,6 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
         if (processingRuns.length === 0) {
           // All recent runs are completed or failed
           console.log('[ConversationsPage] All recent runs completed');
-          clearInterval(interval);
           setPollInterval(null);
           setIsReviewInProgress(false);
 
@@ -83,20 +92,33 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
           setRefreshTrigger(prev => prev + 1);
         } else {
           console.log('[ConversationsPage] Still processing:', processingRuns.length, 'runs');
+
+          // Schedule next poll with exponential backoff
+          pollCount++;
+          currentDelay = Math.min(currentDelay * 1.5, 10000); // Max 10 seconds
+          const timeoutId = setTimeout(poll, currentDelay);
+          setPollInterval(timeoutId as any);
         }
       } catch (error) {
         console.error('[ConversationsPage] Error polling review status:', error);
-      }
-    }, 3000); // Poll every 3 seconds
 
-    setPollInterval(interval);
+        // On error, retry with backoff
+        pollCount++;
+        currentDelay = Math.min(currentDelay * 2, 10000);
+        const timeoutId = setTimeout(poll, currentDelay);
+        setPollInterval(timeoutId as any);
+      }
+    };
+
+    // Start first poll
+    poll();
   };
 
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
       if (pollInterval) {
-        clearInterval(pollInterval);
+        clearTimeout(pollInterval);
       }
     };
   }, [pollInterval]);

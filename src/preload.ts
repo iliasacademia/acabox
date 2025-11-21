@@ -15,6 +15,42 @@ const VALID_EVENT_CHANNELS: string[] = [
   IPC_CHANNELS.NOTIFICATION_UPDATED,
 ];
 
+/**
+ * Deep sanitization to prevent prototype pollution
+ * Recursively creates clean objects without dangerous properties
+ */
+function deepSanitize(obj: any, depth: number = 0): any {
+  // Prevent infinite recursion
+  if (depth > 10) {
+    return null;
+  }
+
+  // Handle primitives
+  if (obj === null || typeof obj !== 'object') {
+    return obj;
+  }
+
+  // Handle arrays
+  if (Array.isArray(obj)) {
+    return obj.map(item => deepSanitize(item, depth + 1));
+  }
+
+  // Create clean object without prototype
+  const clean = Object.create(null);
+
+  for (const key of Object.keys(obj)) {
+    // Skip dangerous keys
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+      continue;
+    }
+
+    // Recursively sanitize nested objects
+    clean[key] = deepSanitize(obj[key], depth + 1);
+  }
+
+  return clean;
+}
+
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 contextBridge.exposeInMainWorld('electronAPI', {
@@ -25,23 +61,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return Promise.reject(new Error('Invalid channel'));
     }
 
-    // Validate and sanitize arguments
-    const sanitizedArgs = args.map(arg => {
-      // Prevent prototype pollution
-      if (arg && typeof arg === 'object') {
-        // Create clean object without prototype
-        const clean = Object.create(null);
-        for (const key of Object.keys(arg)) {
-          // Skip dangerous keys
-          if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
-            continue;
-          }
-          clean[key] = arg[key];
-        }
-        return clean;
-      }
-      return arg;
-    });
+    // Deep sanitize arguments to prevent prototype pollution
+    const sanitizedArgs = args.map(arg => deepSanitize(arg));
 
     return ipcRenderer.invoke(channel, ...sanitizedArgs);
   },

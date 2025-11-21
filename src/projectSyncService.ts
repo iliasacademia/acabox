@@ -8,12 +8,16 @@ import FormData from 'form-data';
 
 /**
  * Validates that a file path is within the allowed base directory
- * Prevents path traversal attacks
+ * Prevents path traversal attacks including sibling directory access
  */
 function validatePath(basePath: string, targetPath: string): boolean {
   const resolvedBase = path.resolve(basePath);
   const resolvedTarget = path.resolve(targetPath);
-  return resolvedTarget.startsWith(resolvedBase + path.sep) || resolvedTarget === resolvedBase;
+  const relativePath = path.relative(resolvedBase, resolvedTarget);
+
+  // Reject if path starts with '..' (parent directory) or is absolute
+  // This prevents both parent and sibling directory traversal
+  return !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
 }
 
 interface WatchedProjectFolder {
@@ -312,28 +316,52 @@ class ProjectSyncService {
     const client = await APIclient();
     const csrfToken = await getCsrfToken();
 
+    // Validate path before processing
+    if (!validatePath(folderPath, filePath)) {
+      throw new Error('Invalid file path: traversal attempt detected');
+    }
+
     // Get relative path
     const relativePath = path.relative(folderPath, filePath);
+
+    // Validate relative path doesn't contain dangerous characters
+    if (/[<>"|?*\x00-\x1f]/.test(relativePath)) {
+      throw new Error('Invalid file path: contains illegal characters');
+    }
 
     // Get file stats
     const stats = fs.statSync(filePath);
     const size = stats.size;
 
+    // Validate file size (e.g., max 500MB)
+    const MAX_FILE_SIZE = 500 * 1024 * 1024;
+    if (size > MAX_FILE_SIZE) {
+      throw new Error(`File too large: ${size} bytes exceeds ${MAX_FILE_SIZE} bytes`);
+    }
+
     // Determine MIME type
     const ext = path.extname(filePath).toLowerCase();
     const mimeType = this.getMimeType(ext);
 
+    // Validate MIME type is from allowed list
+    const allowedMimeTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'text/markdown',
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'application/zip',
+      'application/octet-stream',
+    ];
+    if (!allowedMimeTypes.includes(mimeType)) {
+      throw new Error(`Invalid MIME type: ${mimeType}`);
+    }
+
     // Check if this file is the manuscript
     const isManuscript = manuscriptPath && filePath === manuscriptPath;
-
-    console.log(`[ProjectSync] Syncing file: ${filePath}`);
-    console.log(`[ProjectSync]   Manuscript path: ${manuscriptPath || 'none'}`);
-    console.log(`[ProjectSync]   Is manuscript: ${isManuscript}`);
-    console.log(`[ProjectSync]   File path matches: ${filePath === manuscriptPath}`);
-
-    if (isManuscript) {
-      console.log(`[ProjectSync] ✓ TAGGING FILE AS MANUSCRIPT: ${filePath}`);
-    }
 
     // Create form data
     const formData = new FormData();
