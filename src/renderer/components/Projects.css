@@ -15,14 +15,14 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 24px 24px;
+  padding: 14px 24px;
   border-bottom: 1px solid #e0e0e0;
   -webkit-app-region: drag; /* Make header draggable */
 }
 
 .projectsLogo {
-  width: 36px;
-  height: 32px;
+  width: 32px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -32,20 +32,20 @@
 
 .logoText {
   color: #ffffff;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: bold;
 }
 
 .projectsBackButton {
   background: none;
   border: none;
-  font-size: 16px;
+  font-size: 15px;
   color: #0645b1;
   cursor: pointer;
-  padding: 8px 12px;
+  padding: 6px 10px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   transition: opacity 0.2s;
   -webkit-app-region: no-drag; /* Allow interaction */
   font-weight: 500;
@@ -56,7 +56,7 @@
 }
 
 .backArrow {
-  font-size: 20px;
+  font-size: 18px;
   font-weight: bold;
 }
 
@@ -69,8 +69,8 @@
 }
 
 .userAvatar {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   display: flex;
@@ -89,7 +89,7 @@
 
 .avatarInitial {
   color: #ffffff;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 600;
   text-transform: uppercase;
   user-select: none;

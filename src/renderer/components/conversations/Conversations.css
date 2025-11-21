@@ -54,13 +54,13 @@
 
 /* Project Banner */
 .projectBanner {
-  padding: 16px 24px;
+  padding: 12px 24px;
 }
 
 .projectBannerContent {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .projectBannerInfo {
@@ -70,16 +70,16 @@
 .projectBannerTitle {
   margin: 0;
   font-family: 'Gupter', serif;
-  font-size: 58px;
+  font-size: 42px;
   font-weight: 400;
-  line-height: 58px;
-  letter-spacing: -1.5px;
+  line-height: 42px;
+  letter-spacing: -1.2px;
   color: #141413;
 }
 
 .projectBannerDescription {
-  margin: 4px 0 0 0;
-  font-size: 14px;
+  margin: 2px 0 0 0;
+  font-size: 13px;
   color: #666666;
 }
 
@@ -109,9 +109,9 @@
 /* Manuscript Version Card */
 .manuscriptVersionContainer {
   background-color: var(--background-light-blue);
-  padding: 24px;
-  margin: 12px 24px;
-  border-radius: 16px;
+  padding: 16px 24px;
+  margin: 8px 24px;
+  border-radius: 12px;
 }
 
 .manuscriptVersionContent {
@@ -121,30 +121,83 @@
 }
 
 .manuscriptVersionHeader {
-  padding-bottom: var(--spacing-sm);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.manuscriptVersionLeft {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.manuscriptVersionInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .manuscriptVersionTitle {
   margin: 0;
   font-family: var(--font-family-sans);
-  font-size: var(--type-body-lg);
+  font-size: 16px;
   font-weight: 600;
-  line-height: var(--type-body-lg-line-height);
+  line-height: 20px;
   color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.manuscriptLastReview {
+  margin: 0;
+  font-family: var(--font-family-sans);
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.reviewChangesButton {
+  padding: 8px 16px;
+  background-color: #000000;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.reviewChangesButton:hover:not(:disabled) {
+  background-color: #333333;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.reviewChangesButton:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .manuscriptVersionCard {
   background-color: var(--background-white);
   border: 1px solid var(--stroke-grey);
   border-radius: var(--radius-sm);
-  padding: var(--spacing-sm);
+  padding: 10px 12px;
   width: max-content;
 }
 
 .manuscriptFileRow {
   display: flex;
   align-items: center;
-  gap: var(--spacing-xs);
+  gap: 8px;
 }
 
 .manuscriptFileIcon {
@@ -153,6 +206,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .manuscriptFileIcon img {
@@ -161,18 +215,65 @@
   object-fit: contain;
 }
 
+.manuscriptFileInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+}
+
 .manuscriptFileName {
   font-family: var(--font-family-sans);
   font-size: var(--type-body-sm);
   font-weight: 400;
   line-height: var(--type-body-sm-line-height);
   color: var(--text-primary);
-  flex: 1;
+}
+
+.manuscriptReviewMeta {
+  font-family: var(--font-family-sans);
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-secondary);
 }
 
 .manuscriptFileLoading {
   font-family: var(--font-family-sans);
   font-size: var(--type-body-sm);
+  color: var(--text-secondary);
+}
+
+/* Reviewing Indicator */
+.reviewingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px;
+  margin: -8px 24px 8px 24px;
+  color: var(--text-secondary);
+}
+
+.reviewingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #4a90e2;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+.reviewingText {
+  font-family: var(--font-family-sans);
+  font-size: 13px;
+  line-height: 16px;
   color: var(--text-secondary);
 }
 
@@ -195,6 +296,53 @@
   flex-direction: column;
   border-right: 1px solid #e0e0e0;
   background-color: #fafafa;
+  position: relative;
+  transition: width 0.3s ease;
+}
+
+.conversationsSidebar.collapsed {
+  width: 60px;
+  min-width: 60px;
+}
+
+/* Hamburger Menu Button */
+.hamburgerMenuButton {
+  background: none;
+  border: none;
+  padding: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.hamburgerMenuButton:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+}
+
+.hamburgerIcon {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 18px;
+}
+
+.hamburgerLine {
+  width: 100%;
+  height: 2px;
+  background-color: #333333;
+  border-radius: 2px;
+  transition: all 0.3s;
+}
+
+/* Collapsed state header */
+.sidebarCollapsedHeader {
+  padding: 20px 12px;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: center;
 }
 
 /* Sidebar Header */
@@ -205,6 +353,12 @@
   align-items: center;
   border-bottom: 1px solid #e0e0e0;
   height: 30px;
+}
+
+.sidebarHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .sidebarHeader h2 {
@@ -422,7 +576,7 @@
 
 /* Header */
 .conversationHeader {
-  padding: 20px var(--spacing-md);
+  padding: 14px var(--spacing-md);
   border-bottom: 1px solid var(--stroke-grey);
   display: flex;
   justify-content: space-between;
@@ -431,26 +585,29 @@
 
 .conversationHeaderContent {
   flex: 1;
+  min-height: 0;
 }
 
 .conversationTitleRow {
   display: flex;
   align-items: center;
   gap: 16px;
-  margin-bottom: 4px;
+  margin-bottom: 0;
 }
 
 .conversationTitle {
   margin: 0;
-  font-size: 20px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
+  line-height: 1.2;
 }
 
 .conversationSummary {
-  margin: 0;
-  font-size: var(--type-body-sm);
+  margin: 2px 0 0 0;
+  font-size: 12px;
   color: var(--text-secondary);
+  line-height: 1.3;
 }
 
 .pollingIndicator {
@@ -490,7 +647,7 @@
 .conversationMessages {
   flex: 1;
   overflow-y: auto;
-  padding: 32px var(--spacing-md);
+  padding: 20px var(--spacing-md);
 }
 
 .conversationError {
@@ -515,7 +672,7 @@
 
 /* Message */
 .conversationMessage {
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: 12px;
   max-width: 100%;
 }
 
@@ -530,7 +687,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .messageRole {
@@ -549,7 +706,7 @@
 }
 
 .messageContent {
-  padding: var(--spacing-sm);
+  padding: 12px;
   background-color: var(--background-beige);
   border-radius: var(--radius-lg);
   font-size: var(--type-body-md);
@@ -562,7 +719,7 @@
 }
 
 .messageContent p {
-  margin: 0 0 12px 0;
+  margin: 0 0 8px 0;
 }
 
 .messageContent p:last-child {
@@ -574,7 +731,7 @@
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
-  margin: var(--spacing-md) 0;
+  margin: 20px 0;
 }
 
 .dateDividerLine {
@@ -704,7 +861,7 @@
 
 /* Tool Message Accordion */
 .toolMessageAccordion {
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: 12px;
   border: 1px solid var(--stroke-grey);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -713,12 +870,12 @@
 
 .accordionHeader {
   width: 100%;
-  padding: 16px;
+  padding: 10px 12px;
   background-color: #fef9e7;
   border: none;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   cursor: pointer;
   transition: background-color 0.2s;
 }
@@ -754,13 +911,13 @@
 }
 
 .accordionContent {
-  padding: 16px;
+  padding: 12px;
   background-color: #ffffff;
 }
 
 .toolMessage {
-  margin-bottom: 16px;
-  padding-bottom: 16px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
   border-bottom: 1px solid #f0f0f0;
 }
 

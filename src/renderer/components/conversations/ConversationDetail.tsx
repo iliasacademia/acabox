@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, createMessage, createConversation, Conversation, getConversation } from '../../services/conversationsApi';
-import { getFileDiff } from '../../services/projectsApi';
+import { getFileDiff, ProjectFile } from '../../services/projectsApi';
 import { useConversationPolling } from '../../hooks/useConversationPolling';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
@@ -13,6 +13,7 @@ interface ConversationDetailProps {
   conversation: Conversation | DraftConversation | null;
   projectId: number;
   primaryManuscriptId?: number;
+  manuscriptFile?: ProjectFile | null;
   onConversationCreated?: (conversation: Conversation) => void;
   onConversationUpdate?: () => void;
 }
@@ -21,6 +22,7 @@ export function ConversationDetail({
   conversation,
   projectId,
   primaryManuscriptId,
+  manuscriptFile,
   onConversationCreated,
   onConversationUpdate,
 }: ConversationDetailProps) {
@@ -38,6 +40,28 @@ export function ConversationDetail({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
+  // Validate diff content format and size
+  const validateDiff = (diff: string): { valid: boolean; error?: string } => {
+    // Check if diff is a string
+    if (typeof diff !== 'string') {
+      return { valid: false, error: 'Invalid diff format' };
+    }
+
+    // Check maximum size (5MB)
+    const MAX_DIFF_SIZE = 5 * 1024 * 1024;
+    if (diff.length > MAX_DIFF_SIZE) {
+      return { valid: false, error: 'Diff content too large' };
+    }
+
+    // Basic validation: unified diff should start with --- or +++
+    // or be empty (no changes)
+    if (diff.length > 0 && !diff.match(/^(---|\+\+\+|diff)/m)) {
+      return { valid: false, error: 'Invalid diff format' };
+    }
+
+    return { valid: true };
+  };
+
   // Fetch diff when Show Diff is clicked
   const handleShowDiff = async () => {
     if (!primaryManuscriptId) {
@@ -52,42 +76,25 @@ export function ConversationDetail({
 
     try {
       const diff = await getFileDiff(projectId, primaryManuscriptId);
+
+      // Validate diff content before displaying
+      const validation = validateDiff(diff);
+      if (!validation.valid) {
+        setDiffError(validation.error || 'Invalid diff content');
+        setDiffString('');
+        return;
+      }
+
       setDiffString(diff);
     } catch (error: any) {
-      console.error('Failed to fetch diff:', error);
-      setDiffError(error.message || 'Failed to load diff');
+      // Sanitize error message
+      const errorMsg = String(error.message || 'Failed to load diff').substring(0, 200);
+      setDiffError(errorMsg);
     } finally {
       setIsDiffLoading(false);
     }
   };
 
-  // Mock unified diff data (output from `diff -u file1.txt file2.txt`)
-  const mockDiffString = `--- ./tmp/v1.txt        2025-11-18 21:27:07
-+++ ./tmp/v2.txt        2025-11-18 21:26:03
-@@ -9,6 +9,17 @@
- ©  The Author Journal compilation ©  The Editors of The Philosophical Quarterly
- Published by Blackwell Publishing,  Garsington Road, Oxford  , UK, and  Main Street, Malden,  , USA 
-  
-+ASPECT-SWITCHING AND VISUAL PHENOMENAL CHARACTER  
-+In this paper, I argue that one can explain well known cases of aspect- switching without having to assume that visual experience represents rich properties (i.e., properties other than colour, shape, position and size). Furthermore, I shall argue that even if my arguments are unsound, and cases of aspect-switching do require that visual experience represents rich properties, there is a reason to think that these rich properties do not include natural-kind properties such as the property of being a tomato. 
-+In this paper, instead of using the terminology of what properties visual experience represents, I define a kind of looking, phenomenal looking, which is individuated in terms of differences in visual phenomenal character. I identify phenomenal looking by arguing for a constraint on it, that is, a condition necessary for a kind of looking. My methodology is similar to that of someone who wishes to identify, say, a particular kind of justification, and does so by identifying a constraint on a particular kind of justification. 
-+The following principle is a preliminary formulation of the constraint: 
-+Restricted phenomenal character principle. Necessarily, for all objects x, y and z and all properties F and G, if x looks F to z, y does not look F to z, and y looks G to z, then there is a visual phenomenal difference between the ways x and y look to z. 
-+I intend to apply the constraint diachronically and across worlds. Therefore the full constraint, the phenomenal character principle, quantifies over times and worlds, and is as follows: 
-+Phenomenal character principle. Necessarily, for all objects x, y and z, all properties F and G, all times t1 and t2 and all worlds w1 and w2, if x looks F to z at t1 at w1, y does not look F to z at t2 at w2, and y looks G to z at t2 at w2, then there is a visual phenomenal difference between the way x looks to z at t1 at w1 and the way y looks to z at t2 at w2. 
-+I assume that only one kind of looking satisfies the phenomenal character principle, and I call it phenomenal looking. What it means to say that there is a visual phenomenal difference between the ways two objects a and b look to S is that what it is visually like for S for a to look the way it does to S is different from what it is visually like for S for b to look the way it does to S. 
-+The phenomenal character principle is phrased in terms of how things look to a particular subject. Sometimes I refer to the properties that objects phenomenally look to have, and leave it implicit that there is some parti- cular subject to whom these objects phenomenally look to have the proper- ties in question. 
-+The phenomenal character principle uses the locution ‘an object looks F’, where ‘F’ is to be replaced by an adjective. In English, some properties can 
-+©  The Author Journal compilation ©  The Editors of The Philosophical Quarterly 
-  
-  RICHARD PRICE 
- be expressed by predicates of the form ‘is + adjective’. For instance, the property of being red can be expressed by the predicate ‘is red’. However, some properties, for instance, the property of being a tomato, are not expressed by predicates of the form ‘is + adjective’. There is no predicate ‘is tomatoey’ which expresses the property of being a tomato. 
-@@ -111,3 +122,5 @@
-  RICHARD PRICE
- that those properties will not include natural-kind properties such as being a 
- tomato. 
-+VI. CONCLUSION 
-+I have argued that aspect switching cases, such as the duck/rabbit, do not require that the properties which objects phenomenally look to have (or the properties which are represented by visual experience, to use Siegel’s and Searle’s terminology) must be richer than properties such as colour, shape, position and size. I have argued that aspect-switching cases can be explained by changes in patterns of attention, cognitive shifts and shifts in visual imagination. In the final section I argued that even if aspect-switching cases are taken to show that objects phenomenally look to have a richer range of properties than colour, shape, position and size, there is reason to think that those richer properties do not include natural-kind properties such as being a tomato.5 `;
 
   const { messages, isPolling, isLoading, error, startPolling, stopPolling, refetch } =
     useConversationPolling();
@@ -114,7 +121,6 @@ export function ConversationDetail({
           setInitialMessages(conv.messages || []);
         }
       } catch (err: any) {
-        console.error('Failed to load conversation:', err);
         setLoadError(err.message || 'Failed to load messages');
       } finally {
         setIsLoadingInitial(false);
@@ -174,7 +180,6 @@ export function ConversationDetail({
         startPolling(conversation.id, projectId);
       }
     } catch (err: any) {
-      console.error('Failed to send message:', err);
       setSendError(err.message || 'Failed to send message. Please try again.');
       // Restore input value on error
       setInputValue(content);
@@ -216,38 +221,14 @@ export function ConversationDetail({
   const displayLoading = isPolling ? isLoading : isLoadingInitial;
   const displayError = isPolling ? error : loadError;
 
-  // Group consecutive tool messages and add date dividers
-  const groupedMessages: Array<{ type: 'message' | 'toolGroup' | 'dateDivider'; data: any }> = [];
+  // Group consecutive tool messages (no date dividers)
+  const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: any }> = [];
   let currentToolGroup: Message[] = [];
-  let lastDateString: string | null = null;
 
-  displayMessages.forEach((message, index) => {
-    const messageDateString = getDateString(message.created_at);
-
+  displayMessages.forEach((message) => {
     if (message.role === 'tool') {
       currentToolGroup.push(message);
     } else {
-      // Check if we need a date divider
-      if (messageDateString !== lastDateString) {
-        // Flush any pending tool group first
-        if (currentToolGroup.length > 0) {
-          groupedMessages.push({
-            type: 'toolGroup',
-            data: currentToolGroup,
-          });
-          currentToolGroup = [];
-        }
-
-        // Add date divider (but skip "Today")
-        if (messageDateString !== 'Today') {
-          groupedMessages.push({
-            type: 'dateDivider',
-            data: messageDateString,
-          });
-        }
-        lastDateString = messageDateString;
-      }
-
       // If we have accumulated tool messages, add them as a group
       if (currentToolGroup.length > 0) {
         groupedMessages.push({
@@ -301,13 +282,15 @@ export function ConversationDetail({
                   : 'New Conversation'
               }
             </h2>
-            <button
-              className="showDiffButton"
-              onClick={handleShowDiff}
-              disabled={!primaryManuscriptId}
-            >
-              Show Diff
-            </button>
+            {manuscriptFile?.last_review?.review_type === 'diff_review' && (
+              <button
+                className="showDiffButton"
+                onClick={handleShowDiff}
+                disabled={!primaryManuscriptId}
+              >
+                Show Diff
+              </button>
+            )}
           </div>
           {conversation.summary && (
             <p className="conversationSummary">{conversation.summary}</p>
@@ -348,10 +331,8 @@ export function ConversationDetail({
               <React.Fragment key={index}>
                 {item.type === 'message' ? (
                   <ConversationMessage message={item.data} />
-                ) : item.type === 'toolGroup' ? (
-                  <ToolMessageAccordion messages={item.data} />
                 ) : (
-                  <DateDivider date={item.data} />
+                  <ToolMessageAccordion messages={item.data} />
                 )}
               </React.Fragment>
             ))}

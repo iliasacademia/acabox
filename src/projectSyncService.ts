@@ -3,7 +3,22 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
 import { APIclient, getCsrfToken } from './uploader';
+import { IPC_CHANNELS } from './shared/types';
 import FormData from 'form-data';
+
+/**
+ * Validates that a file path is within the allowed base directory
+ * Prevents path traversal attacks including sibling directory access
+ */
+function validatePath(basePath: string, targetPath: string): boolean {
+  const resolvedBase = path.resolve(basePath);
+  const resolvedTarget = path.resolve(targetPath);
+  const relativePath = path.relative(resolvedBase, resolvedTarget);
+
+  // Reject if path starts with '..' (parent directory) or is absolute
+  // This prevents both parent and sibling directory traversal
+  return !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+}
 
 interface WatchedProjectFolder {
   projectId: number;
@@ -78,6 +93,12 @@ class ProjectSyncService {
       ignoreInitial: true, // We already synced existing files
       followSymlinks: true,
       ignored: (filePath: string) => {
+        // Validate path to prevent traversal attacks
+        if (!validatePath(folderPath, filePath)) {
+          console.warn(`[ProjectSync] Path traversal attempt detected: ${filePath}`);
+          return true;
+        }
+
         const basename = path.basename(filePath);
         // Ignore hidden files (starting with .)
         if (basename.startsWith('.')) return true;
@@ -215,6 +236,24 @@ class ProjectSyncService {
       }
 
       console.log(`[ProjectSync] Initial sync complete: ${syncedCount} synced, ${errorCount} errors`);
+
+      // After initial sync, if we synced a manuscript file, notify the renderer
+      // so it can start polling for the automatic review
+      if (manuscriptPath) {
+        const relativePath = path.relative(folderPath, manuscriptPath);
+        console.log(`[ProjectSync] Initial sync complete - notifying renderer about manuscript: ${relativePath}`);
+        const eventData = {
+          projectId,
+          folderId,
+          filePath: relativePath,
+          action: 'initial-sync',
+        };
+        console.log(`[ProjectSync] Sending initial-sync event:`, JSON.stringify(eventData, null, 2));
+        this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, eventData);
+        console.log(`[ProjectSync] ✓ Initial-sync event sent to renderer`);
+      } else {
+        console.log(`[ProjectSync] ⚠ No manuscriptPath provided - not sending initial-sync event`);
+      }
     } catch (error) {
       console.error(`[ProjectSync] Initial sync failed:`, error);
       if (watchedFolder) {
@@ -240,6 +279,13 @@ class ProjectSyncService {
           if (item.startsWith('.')) continue;
 
           const fullPath = path.join(currentPath, item);
+
+          // Validate path to prevent traversal attacks
+          if (!validatePath(folderPath, fullPath)) {
+            console.warn(`[ProjectSync] Path traversal attempt detected during file enumeration: ${fullPath}`);
+            continue;
+          }
+
           const stat = fs.statSync(fullPath);
 
           if (stat.isDirectory()) {
@@ -270,28 +316,52 @@ class ProjectSyncService {
     const client = await APIclient();
     const csrfToken = await getCsrfToken();
 
+    // Validate path before processing
+    if (!validatePath(folderPath, filePath)) {
+      throw new Error('Invalid file path: traversal attempt detected');
+    }
+
     // Get relative path
     const relativePath = path.relative(folderPath, filePath);
+
+    // Validate relative path doesn't contain dangerous characters
+    if (/[<>"|?*\x00-\x1f]/.test(relativePath)) {
+      throw new Error('Invalid file path: contains illegal characters');
+    }
 
     // Get file stats
     const stats = fs.statSync(filePath);
     const size = stats.size;
 
+    // Validate file size (e.g., max 500MB)
+    const MAX_FILE_SIZE = 500 * 1024 * 1024;
+    if (size > MAX_FILE_SIZE) {
+      throw new Error(`File too large: ${size} bytes exceeds ${MAX_FILE_SIZE} bytes`);
+    }
+
     // Determine MIME type
     const ext = path.extname(filePath).toLowerCase();
     const mimeType = this.getMimeType(ext);
 
+    // Validate MIME type is from allowed list
+    const allowedMimeTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain',
+      'text/markdown',
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'application/zip',
+      'application/octet-stream',
+    ];
+    if (!allowedMimeTypes.includes(mimeType)) {
+      throw new Error(`Invalid MIME type: ${mimeType}`);
+    }
+
     // Check if this file is the manuscript
     const isManuscript = manuscriptPath && filePath === manuscriptPath;
-
-    console.log(`[ProjectSync] Syncing file: ${filePath}`);
-    console.log(`[ProjectSync]   Manuscript path: ${manuscriptPath || 'none'}`);
-    console.log(`[ProjectSync]   Is manuscript: ${isManuscript}`);
-    console.log(`[ProjectSync]   File path matches: ${filePath === manuscriptPath}`);
-
-    if (isManuscript) {
-      console.log(`[ProjectSync] ✓ TAGGING FILE AS MANUSCRIPT: ${filePath}`);
-    }
 
     // Create form data
     const formData = new FormData();
@@ -336,7 +406,7 @@ class ProjectSyncService {
 
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
 
-      this.sendToRenderer('project-file-synced', {
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
         projectId,
         folderId,
         filePath: path.relative(folderPath, filePath),
@@ -351,23 +421,41 @@ class ProjectSyncService {
    * Handle file changed
    */
   private async handleFileChanged(projectId: number, folderId: number, folderPath: string, filePath: string) {
-    console.log(`[ProjectSync] File changed: ${filePath}`);
+    console.log('========================================');
+    console.log(`[ProjectSync] File changed event detected`);
+    console.log(`[ProjectSync]   Full path: ${filePath}`);
+    console.log(`[ProjectSync]   Project ID: ${projectId}`);
+    console.log(`[ProjectSync]   Folder ID: ${folderId}`);
+    console.log(`[ProjectSync]   Base folder: ${folderPath}`);
+
     try {
       const key = `${projectId}-${folderId}`;
       const watchedFolder = this.watchedFolders.get(key);
       const manuscriptPath = watchedFolder?.manuscriptPath;
+      const relativePath = path.relative(folderPath, filePath);
 
+      console.log(`[ProjectSync]   Relative path: ${relativePath}`);
+      console.log(`[ProjectSync]   Manuscript path: ${manuscriptPath || 'none'}`);
+      console.log(`[ProjectSync]   Is manuscript: ${filePath === manuscriptPath}`);
+
+      console.log(`[ProjectSync] Syncing file to backend...`);
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
+      console.log(`[ProjectSync] ✓ File synced successfully to backend`);
 
-      this.sendToRenderer('project-file-synced', {
+      const eventData = {
         projectId,
         folderId,
-        filePath: path.relative(folderPath, filePath),
+        filePath: relativePath,
         action: 'changed',
-      });
+      };
+
+      console.log(`[ProjectSync] Sending IPC_CHANNELS.PROJECT_FILE_SYNCED event to renderer:`, eventData);
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, eventData);
+      console.log(`[ProjectSync] ✓ Event sent to renderer`);
     } catch (error) {
-      console.error(`[ProjectSync] Failed to sync changed file:`, error);
+      console.error(`[ProjectSync] ✗ Failed to sync changed file:`, error);
     }
+    console.log('========================================');
   }
 
   /**
@@ -377,7 +465,7 @@ class ProjectSyncService {
     console.log(`[ProjectSync] File deleted: ${filePath}`);
     // Note: We'd need to track file IDs to delete them
     // For now, we'll just log it
-    this.sendToRenderer('project-file-synced', {
+    this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
       projectId,
       folderId,
       filePath: path.relative(folderPath, filePath),
