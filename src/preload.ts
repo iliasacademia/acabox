@@ -21,10 +21,29 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // IPC handlers
   invoke: (channel: string, ...args: any[]) => {
     const validChannels = Object.values(IPC_CHANNELS) as string[];
-    if (validChannels.includes(channel)) {
-      return ipcRenderer.invoke(channel, ...args);
+    if (!validChannels.includes(channel)) {
+      return Promise.reject(new Error('Invalid channel'));
     }
-    return Promise.reject(new Error('Invalid channel'));
+
+    // Validate and sanitize arguments
+    const sanitizedArgs = args.map(arg => {
+      // Prevent prototype pollution
+      if (arg && typeof arg === 'object') {
+        // Create clean object without prototype
+        const clean = Object.create(null);
+        for (const key of Object.keys(arg)) {
+          // Skip dangerous keys
+          if (key === '__proto__' || key === 'constructor' || key === 'prototype') {
+            continue;
+          }
+          clean[key] = arg[key];
+        }
+        return clean;
+      }
+      return arg;
+    });
+
+    return ipcRenderer.invoke(channel, ...sanitizedArgs);
   },
 
   // Event listeners

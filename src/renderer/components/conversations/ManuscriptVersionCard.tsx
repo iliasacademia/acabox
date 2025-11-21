@@ -36,18 +36,6 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
   const [agentRunId, setAgentRunId] = useState<number | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
 
-  // Debug: Log props when they change
-  useEffect(() => {
-    console.log('========================================');
-    console.log('[ManuscriptVersionCard] Props updated:');
-    console.log('  - fileName:', fileName);
-    console.log('  - manuscriptId:', manuscriptId);
-    console.log('  - fileUpdatedAt:', fileUpdatedAt);
-    console.log('  - lastReview:', lastReview);
-    console.log('  - projectId:', projectId);
-    console.log('========================================');
-  }, [fileName, manuscriptId, fileUpdatedAt, lastReview, projectId]);
-
   // Cleanup polling on unmount
   useEffect(() => {
     return () => {
@@ -72,7 +60,6 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
             setPollInterval(null);
             setIsReviewing(false);
             setAgentRunId(null);
-            console.log('Review completed successfully');
 
             // Refresh manuscript file data to get updated last_review timestamp
             if (onReviewComplete) {
@@ -87,7 +74,7 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
           }
         }
       } catch (error) {
-        console.error('Error polling review status:', error);
+        // Silent fail - polling will retry
       }
     }, 3000); // Poll every 3 seconds
 
@@ -106,13 +93,11 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
     try {
       const response = await triggerDiffReview(projectId, manuscriptId);
       setAgentRunId(response.agent_run_id);
-      console.log('Diff review started, agent_run_id:', response.agent_run_id);
 
       // Start polling for completion
       startPolling(response.agent_run_id);
 
     } catch (error: any) {
-      console.error('Failed to trigger diff review:', error);
 
       // Handle specific error cases
       if (error.status === 422) {
@@ -153,52 +138,22 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
 
   // Check if file has changes since last review
   const hasChangesSinceReview = () => {
-    console.log('========================================');
-    console.log('[ManuscriptVersionCard] hasChangesSinceReview() called');
-    console.log('[ManuscriptVersionCard] Input values:');
-    console.log('  - lastReview:', lastReview);
-    console.log('  - fileUpdatedAt:', fileUpdatedAt);
-
     if (!lastReview) {
       // No previous review - can't do diff review, hide button
       // (Full review will be triggered automatically on next upload)
-      console.log('[ManuscriptVersionCard] ✗ Decision: HIDE button (no last review - need full review first)');
-      console.log('========================================');
       return false;
     }
 
     if (!fileUpdatedAt) {
       // No file update timestamp, assume file might have changes
-      console.log('[ManuscriptVersionCard] ⚠ Warning: No fileUpdatedAt');
-      console.log('[ManuscriptVersionCard] ✓ Decision: SHOW button (to be safe)');
-      console.log('========================================');
       return true;
     }
 
     const reviewDate = new Date(lastReview.reviewed_at);
     const fileUpdateDate = new Date(fileUpdatedAt);
 
-    console.log('[ManuscriptVersionCard] Date comparison:');
-    console.log('  - reviewDate (raw):', lastReview.reviewed_at);
-    console.log('  - reviewDate (parsed):', reviewDate.toISOString());
-    console.log('  - fileUpdateDate (raw):', fileUpdatedAt);
-    console.log('  - fileUpdateDate (parsed):', fileUpdateDate.toISOString());
-    console.log('  - reviewDate timestamp:', reviewDate.getTime());
-    console.log('  - fileUpdateDate timestamp:', fileUpdateDate.getTime());
-    console.log('  - Difference (ms):', fileUpdateDate.getTime() - reviewDate.getTime());
-
-    const fileIsNewer = fileUpdateDate > reviewDate;
-    console.log('  - File is newer than review:', fileIsNewer);
-
-    if (fileIsNewer) {
-      console.log('[ManuscriptVersionCard] ✓ Decision: SHOW button (file updated after review)');
-    } else {
-      console.log('[ManuscriptVersionCard] ✗ Decision: HIDE button (file is up to date)');
-    }
-    console.log('========================================');
-
     // Show Review Changes only if file was updated after the last review
-    return fileIsNewer;
+    return fileUpdateDate > reviewDate;
   };
 
   if (isLoading) {
@@ -257,7 +212,8 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
       {/* Review Error */}
       {reviewError && (
         <div style={{ padding: '8px 24px', color: '#d32f2f', fontSize: '13px' }}>
-          {reviewError}
+          {/* Sanitized error message - rendered as text only, truncated to prevent injection */}
+          {String(reviewError).substring(0, 200)}
         </div>
       )}
     </>
