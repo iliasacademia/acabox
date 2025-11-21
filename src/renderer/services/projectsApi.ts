@@ -24,6 +24,12 @@ export interface Project {
   primary_manuscript_id?: number;
 }
 
+export interface LastReview {
+  reviewed_version_id: string;
+  reviewed_at: string;
+  review_type: 'diff_review' | 'full_review';
+}
+
 export interface ProjectFile {
   id: number;
   project_id: number;
@@ -34,6 +40,7 @@ export interface ProjectFile {
   created_at: string;
   updated_at: string;
   is_primary_manuscript: boolean;
+  last_review: LastReview | null;
 }
 
 export interface ProjectFolder {
@@ -345,4 +352,19 @@ export async function getFileDiff(
     endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff`,
   });
   return response.diff || '';
+}
+
+/**
+ * Trigger diff review for a file
+ * POST /v0/co_scientist/projects/:projectId/files/:fileId/trigger_diff_review
+ */
+export async function triggerDiffReview(
+  projectId: number,
+  fileId: number
+): Promise<{ agent_run_id: number }> {
+  const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
+    method: 'POST',
+    endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_diff_review`,
+  });
+  return response;
 }

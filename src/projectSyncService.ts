@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
 import { APIclient, getCsrfToken } from './uploader';
+import { IPC_CHANNELS } from './shared/types';
 import FormData from 'form-data';
 
 interface WatchedProjectFolder {
@@ -215,6 +216,24 @@ class ProjectSyncService {
       }
 
       console.log(`[ProjectSync] Initial sync complete: ${syncedCount} synced, ${errorCount} errors`);
+
+      // After initial sync, if we synced a manuscript file, notify the renderer
+      // so it can start polling for the automatic review
+      if (manuscriptPath) {
+        const relativePath = path.relative(folderPath, manuscriptPath);
+        console.log(`[ProjectSync] Initial sync complete - notifying renderer about manuscript: ${relativePath}`);
+        const eventData = {
+          projectId,
+          folderId,
+          filePath: relativePath,
+          action: 'initial-sync',
+        };
+        console.log(`[ProjectSync] Sending initial-sync event:`, JSON.stringify(eventData, null, 2));
+        this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, eventData);
+        console.log(`[ProjectSync] ✓ Initial-sync event sent to renderer`);
+      } else {
+        console.log(`[ProjectSync] ⚠ No manuscriptPath provided - not sending initial-sync event`);
+      }
     } catch (error) {
       console.error(`[ProjectSync] Initial sync failed:`, error);
       if (watchedFolder) {
@@ -336,7 +355,7 @@ class ProjectSyncService {
 
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
 
-      this.sendToRenderer('project-file-synced', {
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
         projectId,
         folderId,
         filePath: path.relative(folderPath, filePath),
@@ -351,23 +370,41 @@ class ProjectSyncService {
    * Handle file changed
    */
   private async handleFileChanged(projectId: number, folderId: number, folderPath: string, filePath: string) {
-    console.log(`[ProjectSync] File changed: ${filePath}`);
+    console.log('========================================');
+    console.log(`[ProjectSync] File changed event detected`);
+    console.log(`[ProjectSync]   Full path: ${filePath}`);
+    console.log(`[ProjectSync]   Project ID: ${projectId}`);
+    console.log(`[ProjectSync]   Folder ID: ${folderId}`);
+    console.log(`[ProjectSync]   Base folder: ${folderPath}`);
+
     try {
       const key = `${projectId}-${folderId}`;
       const watchedFolder = this.watchedFolders.get(key);
       const manuscriptPath = watchedFolder?.manuscriptPath;
+      const relativePath = path.relative(folderPath, filePath);
 
+      console.log(`[ProjectSync]   Relative path: ${relativePath}`);
+      console.log(`[ProjectSync]   Manuscript path: ${manuscriptPath || 'none'}`);
+      console.log(`[ProjectSync]   Is manuscript: ${filePath === manuscriptPath}`);
+
+      console.log(`[ProjectSync] Syncing file to backend...`);
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
+      console.log(`[ProjectSync] ✓ File synced successfully to backend`);
 
-      this.sendToRenderer('project-file-synced', {
+      const eventData = {
         projectId,
         folderId,
-        filePath: path.relative(folderPath, filePath),
+        filePath: relativePath,
         action: 'changed',
-      });
+      };
+
+      console.log(`[ProjectSync] Sending IPC_CHANNELS.PROJECT_FILE_SYNCED event to renderer:`, eventData);
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, eventData);
+      console.log(`[ProjectSync] ✓ Event sent to renderer`);
     } catch (error) {
-      console.error(`[ProjectSync] Failed to sync changed file:`, error);
+      console.error(`[ProjectSync] ✗ Failed to sync changed file:`, error);
     }
+    console.log('========================================');
   }
 
   /**
@@ -377,7 +414,7 @@ class ProjectSyncService {
     console.log(`[ProjectSync] File deleted: ${filePath}`);
     // Note: We'd need to track file IDs to delete them
     // For now, we'll just log it
-    this.sendToRenderer('project-file-synced', {
+    this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
       projectId,
       folderId,
       filePath: path.relative(folderPath, filePath),

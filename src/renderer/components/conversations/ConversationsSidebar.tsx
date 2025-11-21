@@ -23,6 +23,7 @@ export function ConversationsSidebar({
   const [searchQuery, setSearchQuery] = useState('');
   const [hasMore, setHasMore] = useState(true);
   const [offset, setOffset] = useState(0);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const listContainerRef = useRef<HTMLDivElement>(null);
   const isLoadingMore = useRef(false);
@@ -167,15 +168,31 @@ export function ConversationsSidebar({
   };
 
   return (
-    <div className="conversationsSidebar">
-      {/* Header */}
-      <div className="sidebarHeader">
-        <h2>Conversations</h2>
-        <button className="newConversationButton" onClick={onNewConversation}>
-          <span className="buttonIcon">+</span>
-          New
-        </button>
-      </div>
+    <div className={`conversationsSidebar ${isCollapsed ? 'collapsed' : ''}`}>
+      {!isCollapsed && (
+        <>
+          {/* Header */}
+          <div className="sidebarHeader">
+            <div className="sidebarHeaderLeft">
+              <button
+                className="hamburgerMenuButton"
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                aria-label="Collapse sidebar"
+              >
+                <span className="hamburgerIcon">
+                  <span className="hamburgerLine"></span>
+                  <span className="hamburgerLine"></span>
+                  <span className="hamburgerLine"></span>
+                </span>
+              </button>
+              <h2>Conversations</h2>
+            </div>
+            {/* Hide new button for now */}
+            {/* <button className="newConversationButton" onClick={onNewConversation}>
+              <span className="buttonIcon">+</span>
+              New
+            </button> */}
+          </div>
 
       {/* Conversations List */}
       <div className="conversationsList" ref={listContainerRef}>
@@ -248,6 +265,25 @@ export function ConversationsSidebar({
           </>
         )}
       </div>
+        </>
+      )}
+
+      {/* Collapsed state - just show hamburger */}
+      {isCollapsed && (
+        <div className="sidebarCollapsedHeader">
+          <button
+            className="hamburgerMenuButton"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            aria-label="Expand sidebar"
+          >
+            <span className="hamburgerIcon">
+              <span className="hamburgerLine"></span>
+              <span className="hamburgerLine"></span>
+              <span className="hamburgerLine"></span>
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

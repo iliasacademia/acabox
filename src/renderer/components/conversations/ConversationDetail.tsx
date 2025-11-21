@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, createMessage, createConversation, Conversation, getConversation } from '../../services/conversationsApi';
-import { getFileDiff } from '../../services/projectsApi';
+import { getFileDiff, ProjectFile } from '../../services/projectsApi';
 import { useConversationPolling } from '../../hooks/useConversationPolling';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
@@ -13,6 +13,7 @@ interface ConversationDetailProps {
   conversation: Conversation | DraftConversation | null;
   projectId: number;
   primaryManuscriptId?: number;
+  manuscriptFile?: ProjectFile | null;
   onConversationCreated?: (conversation: Conversation) => void;
   onConversationUpdate?: () => void;
 }
@@ -21,6 +22,7 @@ export function ConversationDetail({
   conversation,
   projectId,
   primaryManuscriptId,
+  manuscriptFile,
   onConversationCreated,
   onConversationUpdate,
 }: ConversationDetailProps) {
@@ -216,38 +218,14 @@ export function ConversationDetail({
   const displayLoading = isPolling ? isLoading : isLoadingInitial;
   const displayError = isPolling ? error : loadError;
 
-  // Group consecutive tool messages and add date dividers
-  const groupedMessages: Array<{ type: 'message' | 'toolGroup' | 'dateDivider'; data: any }> = [];
+  // Group consecutive tool messages (no date dividers)
+  const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: any }> = [];
   let currentToolGroup: Message[] = [];
-  let lastDateString: string | null = null;
 
-  displayMessages.forEach((message, index) => {
-    const messageDateString = getDateString(message.created_at);
-
+  displayMessages.forEach((message) => {
     if (message.role === 'tool') {
       currentToolGroup.push(message);
     } else {
-      // Check if we need a date divider
-      if (messageDateString !== lastDateString) {
-        // Flush any pending tool group first
-        if (currentToolGroup.length > 0) {
-          groupedMessages.push({
-            type: 'toolGroup',
-            data: currentToolGroup,
-          });
-          currentToolGroup = [];
-        }
-
-        // Add date divider (but skip "Today")
-        if (messageDateString !== 'Today') {
-          groupedMessages.push({
-            type: 'dateDivider',
-            data: messageDateString,
-          });
-        }
-        lastDateString = messageDateString;
-      }
-
       // If we have accumulated tool messages, add them as a group
       if (currentToolGroup.length > 0) {
         groupedMessages.push({
@@ -301,13 +279,15 @@ export function ConversationDetail({
                   : 'New Conversation'
               }
             </h2>
-            <button
-              className="showDiffButton"
-              onClick={handleShowDiff}
-              disabled={!primaryManuscriptId}
-            >
-              Show Diff
-            </button>
+            {manuscriptFile?.last_review?.review_type === 'diff_review' && (
+              <button
+                className="showDiffButton"
+                onClick={handleShowDiff}
+                disabled={!primaryManuscriptId}
+              >
+                Show Diff
+              </button>
+            )}
           </div>
           {conversation.summary && (
             <p className="conversationSummary">{conversation.summary}</p>
@@ -348,10 +328,8 @@ export function ConversationDetail({
               <React.Fragment key={index}>
                 {item.type === 'message' ? (
                   <ConversationMessage message={item.data} />
-                ) : item.type === 'toolGroup' ? (
-                  <ToolMessageAccordion messages={item.data} />
                 ) : (
-                  <DateDivider date={item.data} />
+                  <ToolMessageAccordion messages={item.data} />
                 )}
               </React.Fragment>
             ))}
