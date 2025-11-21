@@ -102,7 +102,7 @@ export interface AgentRun {
   agent_name: string;
   file_id: number;
   file_name: string;
-  status: 'processing' | 'completed' | 'failed';
+  status: 'pending' | 'processing' | 'completed' | 'failed';
   running_jobs_count: number;
   created_at: string;
   review_data: ReviewData | null;

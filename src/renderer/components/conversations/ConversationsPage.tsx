@@ -76,10 +76,12 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
           return;
         }
 
-        // Check if any runs are still processing
-        const processingRuns = recentRuns.filter(run => run.status === 'processing');
+        // Check if any runs are still in progress (pending or processing)
+        const inProgressRuns = recentRuns.filter(run =>
+          run.status === 'pending' || run.status === 'processing'
+        );
 
-        if (processingRuns.length === 0) {
+        if (inProgressRuns.length === 0) {
           // All recent runs are completed or failed
           console.log('[ConversationsPage] All recent runs completed');
           setPollInterval(null);
@@ -91,7 +93,8 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
           // Refresh conversation list to show new review conversation
           setRefreshTrigger(prev => prev + 1);
         } else {
-          console.log('[ConversationsPage] Still processing:', processingRuns.length, 'runs');
+          console.log('[ConversationsPage] Still in progress:', inProgressRuns.length, 'runs',
+            inProgressRuns.map(r => ({ status: r.status, running_jobs: r.running_jobs_count })));
 
           // Schedule next poll with exponential backoff
           pollCount++;
@@ -148,6 +151,15 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
           console.log('  - File name:', primaryManuscript.file_name);
           console.log('  - Updated at:', primaryManuscript.updated_at);
           console.log('  - Last review:', primaryManuscript.last_review);
+
+          // Check if this is a newly synced manuscript with no review yet
+          // If so, start polling immediately (backend auto-triggered review on first sync)
+          if (!primaryManuscript.last_review) {
+            console.log('[ConversationsPage] ✓ New manuscript detected (no last_review) - starting polling');
+            startPolling(primaryManuscript.id);
+          } else {
+            console.log('[ConversationsPage] Manuscript already has a review - no polling needed');
+          }
         }
 
         setManuscriptFile(primaryManuscript || null);
