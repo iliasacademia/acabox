@@ -14,7 +14,7 @@ const DiffModal: React.FC<DiffModalProps> = ({ diffString, onClose, isLoading = 
     try {
       return parseDiff(diffString);
     } catch (error) {
-      console.error('Error parsing diff:', error);
+      // Silent fail - return empty array to display "No changes" message
       return [];
     }
   }, [diffString]);
