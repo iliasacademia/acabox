@@ -11,6 +11,8 @@ interface UseConversationPollingResult {
   startPolling: (conversationId: number, projectId: number) => void;
   stopPolling: () => void;
   refetch: () => Promise<void>;
+  initializeMessages: (conversationId: number, projectId: number) => Promise<void>;
+  addOptimisticMessage: (message: Message) => void;
 }
 
 export function useConversationPolling(): UseConversationPollingResult {
@@ -22,6 +24,7 @@ export function useConversationPolling(): UseConversationPollingResult {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const conversationIdRef = useRef<number | null>(null);
   const projectIdRef = useRef<number | null>(null);
+  const shouldKeepMessages = useRef<boolean>(false);
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {
@@ -29,6 +32,8 @@ export function useConversationPolling(): UseConversationPollingResult {
       intervalRef.current = null;
     }
     setIsPolling(false);
+    // Note: We keep messages intact when polling stops naturally (AI response complete)
+    // Messages are only cleared when conversation changes
   }, []);
 
   const fetchMessages = useCallback(async () => {
@@ -114,6 +119,43 @@ export function useConversationPolling(): UseConversationPollingResult {
     await fetchMessages();
   }, [fetchMessages]);
 
+  // Initialize messages for a conversation (used when switching conversations)
+  const initializeMessages = useCallback(
+    async (conversationId: number, projectId: number) => {
+      // Stop any active polling
+      stopPolling();
+
+      // Clear messages and store IDs
+      setMessages([]);
+      conversationIdRef.current = conversationId;
+      projectIdRef.current = projectId;
+
+      // Load initial messages
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        console.log('[ConversationPolling] Initializing messages for conversation:', conversationId);
+        const conversation = await getConversation(conversationId, projectId);
+
+        if (conversation && conversation.messages) {
+          setMessages(conversation.messages);
+        }
+      } catch (err: any) {
+        console.error('[ConversationPolling] Failed to initialize messages:', err);
+        setError(err.message || 'Failed to load messages');
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [stopPolling]
+  );
+
+  // Add a message optimistically (before API confirms it)
+  const addOptimisticMessage = useCallback((message: Message) => {
+    setMessages((prev) => [...prev, message]);
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -129,5 +171,7 @@ export function useConversationPolling(): UseConversationPollingResult {
     startPolling,
     stopPolling,
     refetch,
+    initializeMessages,
+    addOptimisticMessage,
   };
 }

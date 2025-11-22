@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, createMessage, createConversation, Conversation, getConversation } from '../../services/conversationsApi';
+import { Message, createMessage, createConversation, Conversation } from '../../services/conversationsApi';
 import { getFileDiff, ProjectFile } from '../../services/projectsApi';
 import { useConversationPolling } from '../../hooks/useConversationPolling';
 import { ConversationMessage } from './ConversationMessage';
@@ -33,9 +33,6 @@ export function ConversationDetail({
   const [diffString, setDiffString] = useState<string>('');
   const [isDiffLoading, setIsDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
-  const [initialMessages, setInitialMessages] = useState<Message[]>([]);
-  const [isLoadingInitial, setIsLoadingInitial] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -96,7 +93,7 @@ export function ConversationDetail({
   };
 
 
-  const { messages, isPolling, isLoading, error, startPolling, stopPolling, refetch } =
+  const { messages, isPolling, isLoading, error, startPolling, stopPolling, initializeMessages, addOptimisticMessage } =
     useConversationPolling();
 
   // Helper to check if conversation is a draft
@@ -106,41 +103,22 @@ export function ConversationDetail({
 
   // Load messages when conversation changes (but not for drafts)
   useEffect(() => {
-    const loadInitialMessages = async () => {
-      if (!conversation || isDraft(conversation)) {
-        setInitialMessages([]);
-        return;
-      }
-
-      setIsLoadingInitial(true);
-      setLoadError(null);
-
-      try {
-        const conv = await getConversation(conversation.id, projectId);
-        if (conv) {
-          setInitialMessages(conv.messages || []);
-        }
-      } catch (err: any) {
-        setLoadError(err.message || 'Failed to load messages');
-      } finally {
-        setIsLoadingInitial(false);
-      }
-    };
-
-    loadInitialMessages();
-
-    return () => {
-      // Stop any active polling when switching conversations
+    if (!conversation || isDraft(conversation)) {
+      // For drafts or no conversation, stop polling and clear messages
       stopPolling();
-    };
-  }, [conversation?.id, projectId]);
+      return;
+    }
+
+    // Load initial messages for the selected conversation
+    initializeMessages(conversation.id, projectId);
+  }, [conversation?.id, projectId, initializeMessages, stopPolling]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, initialMessages]);
+  }, [messages]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -164,19 +142,27 @@ export function ConversationDetail({
         // Notify parent to replace draft with real conversation
         onConversationCreated?.(newConversation);
 
-        // Start polling for AI response
+        // Start polling for AI response (which will also fetch the user message)
         startPolling(newConversation.id, projectId);
       } else {
-        // Existing conversation: send message normally
-        await createMessage(conversation.id, content, projectId);
+        // Add user message optimistically to UI
+        const optimisticMessage: Message = {
+          id: Date.now(), // Temporary ID
+          role: 'user',
+          content,
+          data: null,
+          contexts: [],
+          created_at: new Date().toISOString(),
+        };
+        addOptimisticMessage(optimisticMessage);
 
-        // Immediately refetch to show user's message
-        await refetch();
+        // Send message to backend
+        await createMessage(conversation.id, content, projectId);
 
         // Notify parent to update conversation list
         onConversationUpdate?.();
 
-        // Restart polling to get AI response
+        // Start polling to get AI response and sync messages
         startPolling(conversation.id, projectId);
       }
     } catch (err: any) {
@@ -216,16 +202,11 @@ export function ConversationDetail({
     }
   };
 
-  // Use polling messages when active, otherwise use initial messages
-  const displayMessages = isPolling ? messages : initialMessages;
-  const displayLoading = isPolling ? isLoading : isLoadingInitial;
-  const displayError = isPolling ? error : loadError;
-
   // Group consecutive tool messages (no date dividers)
   const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: any }> = [];
   let currentToolGroup: Message[] = [];
 
-  displayMessages.forEach((message) => {
+  messages.forEach((message) => {
     if (message.role === 'tool') {
       currentToolGroup.push(message);
     } else {
@@ -296,7 +277,7 @@ export function ConversationDetail({
             <p className="conversationSummary">{conversation.summary}</p>
           )}
         </div>
-        {isPolling && !isLoadingInitial && (
+        {isPolling && (
           <div className="pollingIndicator">
             <span className="pollingDot"></span>
             <span className="pollingText">AI is thinking...</span>
@@ -306,10 +287,10 @@ export function ConversationDetail({
 
       {/* Messages */}
       <div className="conversationMessages" ref={messagesContainerRef}>
-        {displayError && (
+        {error && (
           <div className="conversationError">
             <span className="errorIcon">⚠️</span>
-            <span>{displayError}</span>
+            <span>{error}</span>
           </div>
         )}
 
@@ -317,7 +298,7 @@ export function ConversationDetail({
           <div className="noMessages">
             <p>Start your conversation below</p>
           </div>
-        ) : displayLoading && groupedMessages.length === 0 ? (
+        ) : isLoading && groupedMessages.length === 0 ? (
           <div className="noMessages">
             <p>Loading messages...</p>
           </div>
