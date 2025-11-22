@@ -23,6 +23,7 @@ export interface Message {
   id: number;
   role: string; // 'user' | 'assistant' | 'tool'
   content: string;
+  format?: 'markdown' | 'html'; // Content format, defaults to markdown if not specified
   data: Record<string, any> | null; // tool_call data, final flag, etc.
   created_at: string;
   contexts: MessageContext[];

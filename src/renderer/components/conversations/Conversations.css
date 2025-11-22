@@ -726,6 +726,25 @@
   margin-bottom: 0;
 }
 
+/* HTML Content Spacing */
+.htmlContent p {
+  margin: 0 0 16px 0;
+}
+
+.htmlContent p:last-child {
+  margin-bottom: 0;
+}
+
+.htmlContent .critique,
+.htmlContent .framework_to_address {
+  margin-bottom: 24px;
+}
+
+.htmlContent .critique:last-child,
+.htmlContent .framework_to_address:last-child {
+  margin-bottom: 0;
+}
+
 /* Date Divider */
 .dateDivider {
   display: flex;
