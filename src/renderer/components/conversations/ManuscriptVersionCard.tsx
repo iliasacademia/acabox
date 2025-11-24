@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import MSWordIcon from '../../../assets/images/MSWordIcon.png';
-import { triggerDiffReview, getProjectStatus } from '../../services/projectsApi';
+import { triggerDiffReview, triggerFullReview, getProjectStatus } from '../../services/projectsApi';
 import DiffModal from './DiffModal';
 
 /**
  * ManuscriptVersionCard Component
  *
  * Displays the primary manuscript file for a project in a styled card.
- * Shows the document icon, filename, last review info, and a button to review changes.
+ * Shows the document icon, filename, last review info, and buttons to review changes or trigger full review.
  */
 
 import { ProjectFile, LastReview } from '../../services/projectsApi';
@@ -32,8 +32,10 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
   onReviewComplete,
 }) => {
   const [isReviewing, setIsReviewing] = useState(false);
+  const [isFullReviewing, setIsFullReviewing] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [agentRunId, setAgentRunId] = useState<number | null>(null);
+  const [fullReviewAgentRunId, setFullReviewAgentRunId] = useState<number | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
 
   // Cleanup polling on unmount
@@ -46,7 +48,7 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
   }, [pollInterval]);
 
   // Poll for review completion
-  const startPolling = (runId: number) => {
+  const startPolling = (runId: number, isFullReview = false) => {
     const interval = setInterval(async () => {
       try {
         const status = await getProjectStatus(projectId!, undefined, manuscriptId);
@@ -58,8 +60,13 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
           if (run.status === 'completed') {
             clearInterval(interval);
             setPollInterval(null);
-            setIsReviewing(false);
-            setAgentRunId(null);
+            if (isFullReview) {
+              setIsFullReviewing(false);
+              setFullReviewAgentRunId(null);
+            } else {
+              setIsReviewing(false);
+              setAgentRunId(null);
+            }
 
             // Refresh manuscript file data to get updated last_review timestamp
             if (onReviewComplete) {
@@ -68,8 +75,13 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
           } else if (run.status === 'failed') {
             clearInterval(interval);
             setPollInterval(null);
-            setIsReviewing(false);
-            setAgentRunId(null);
+            if (isFullReview) {
+              setIsFullReviewing(false);
+              setFullReviewAgentRunId(null);
+            } else {
+              setIsReviewing(false);
+              setAgentRunId(null);
+            }
             setReviewError('Review failed');
           }
         }
@@ -95,7 +107,7 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
       setAgentRunId(response.agent_run_id);
 
       // Start polling for completion
-      startPolling(response.agent_run_id);
+      startPolling(response.agent_run_id, false);
 
     } catch (error: any) {
 
@@ -117,6 +129,52 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
       }
 
       setIsReviewing(false);
+    }
+  };
+
+  const handleFullReview = async () => {
+    if (!projectId || !manuscriptId) {
+      setReviewError('No manuscript file found');
+      return;
+    }
+
+    setIsFullReviewing(true);
+    setReviewError(null);
+
+    try {
+      const response = await triggerFullReview(projectId, manuscriptId);
+      setFullReviewAgentRunId(response.agent_run_id);
+
+      // Start polling for completion
+      startPolling(response.agent_run_id, true);
+
+    } catch (error: any) {
+
+      // Handle specific error cases
+      if (error.status === 422) {
+        const errorMsg = error.data?.error || error.message;
+
+        if (errorMsg.includes('Full review only available for manuscript files')) {
+          setReviewError('Full review is only available for manuscript files.');
+        } else if (errorMsg.includes('S3 versioning not enabled')) {
+          setReviewError('S3 versioning is not enabled for this file.');
+        } else {
+          setReviewError(errorMsg);
+        }
+      } else if (error.status === 403) {
+        setReviewError('You must be the project owner to trigger a full review.');
+      } else if (error.status === 500) {
+        const errorMsg = error.data?.error || error.message;
+        if (errorMsg.includes('S3 service error')) {
+          setReviewError('S3 service error occurred. Please try again later.');
+        } else {
+          setReviewError('Failed to trigger full review. Please try again.');
+        }
+      } else {
+        setReviewError(error.message || 'Failed to trigger full review');
+      }
+
+      setIsFullReviewing(false);
     }
   };
 
@@ -178,33 +236,31 @@ const ManuscriptVersionCard: React.FC<ManuscriptVersionCardProps> = ({
       <div className="manuscriptVersionContainer">
         <div className="manuscriptVersionContent">
           <div className="manuscriptVersionHeader">
-            <div className="manuscriptVersionLeft">
-              <p className="manuscriptVersionTitle">Latest manuscript version</p>
-              <div className="manuscriptVersionCard">
-                <div className="manuscriptFileRow">
-                  <div className="manuscriptFileIcon">
-                    <img src={MSWordIcon} alt="Word document" />
-                  </div>
-                  <div className="manuscriptFileInfo">
-                    <span className="manuscriptFileName">{fileName}</span>
-                    {lastReview && (
-                      <span className="manuscriptReviewMeta">
-                        Reviewed: {formatReviewTimestamp()}
-                      </span>
-                    )}
-                  </div>
-                </div>
+            <div className="manuscriptHeaderLeft">
+              <span className="manuscriptLabel">Manuscript:</span>
+              <div className="manuscriptFileIcon">
+                <img src={MSWordIcon} alt="Word document" />
               </div>
+              <span className="manuscriptFileName">{fileName}</span>
             </div>
-            {hasChangesSinceReview() && (
+            <div className="manuscriptActionButtons">
+              {hasChangesSinceReview() && (
+                <button
+                  className="reviewChangesButton"
+                  onClick={handleReviewChanges}
+                  disabled={!manuscriptId || isReviewing || isFullReviewing}
+                >
+                  {isReviewing ? 'Reviewing...' : 'Review Changes'}
+                </button>
+              )}
               <button
-                className="reviewChangesButton"
-                onClick={handleReviewChanges}
-                disabled={!manuscriptId || isReviewing}
+                className="fullReviewButton"
+                onClick={handleFullReview}
+                disabled={!manuscriptId || isFullReviewing || isReviewing}
               >
-                {isReviewing ? 'Reviewing...' : 'Review Changes'}
+                {isFullReviewing ? 'Reviewing...' : 'Trigger Full Review'}
               </button>
-            )}
+            </div>
           </div>
         </div>
       </div>

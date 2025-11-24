@@ -368,3 +368,18 @@ export async function triggerDiffReview(
   });
   return response;
 }
+
+/**
+ * Trigger full review for a manuscript file
+ * POST /v0/co_scientist/projects/:projectId/files/:fileId/trigger_full_review
+ */
+export async function triggerFullReview(
+  projectId: number,
+  fileId: number
+): Promise<{ agent_run_id: number; status: string; current_version_id: string }> {
+  const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
+    method: 'POST',
+    endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_full_review`,
+  });
+  return response;
+}

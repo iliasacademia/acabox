@@ -5,7 +5,6 @@ import { useConversationPolling } from '../../hooks/useConversationPolling';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
 import { DateDivider } from './DateDivider';
-import { formatConversationTitle } from './utils';
 import { DraftConversation } from './ConversationsPage';
 import DiffModal from './DiffModal';
 
@@ -255,13 +254,16 @@ export function ConversationDetail({
       <div className="conversationHeader">
         <div className="conversationHeaderContent">
           <div className="conversationTitleRow">
+            {!currentIsDraft && conversation.created_at && (
+              <p className="conversationDate">
+                {new Date(conversation.created_at).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric'
+                })}
+              </p>
+            )}
             <h2 className="conversationTitle">
-              {currentIsDraft
-                ? conversation.title
-                : conversation.title
-                  ? formatConversationTitle(conversation.title, conversation.created_at)
-                  : 'New Conversation'
-              }
+              {conversation.title || 'New Conversation'}
             </h2>
             {manuscriptFile?.last_review?.review_type === 'diff_review' && (
               <button

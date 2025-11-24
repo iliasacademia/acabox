@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Conversation, listConversations } from '../../services/conversationsApi';
-import { formatConversationTitle } from './utils';
 
 interface ConversationsSidebarProps {
   projectId: number;
@@ -8,6 +7,7 @@ interface ConversationsSidebarProps {
   onSelectConversation: (conversation: Conversation) => void;
   onNewConversation: () => void;
   refreshTrigger?: number; // Used to trigger refresh from parent
+  onConversationsLoaded?: (conversations: Conversation[]) => void;
 }
 
 export function ConversationsSidebar({
@@ -16,6 +16,7 @@ export function ConversationsSidebar({
   onSelectConversation,
   onNewConversation,
   refreshTrigger,
+  onConversationsLoaded,
 }: ConversationsSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,6 +50,10 @@ export function ConversationsSidebar({
 
       if (reset) {
         setConversations(response.conversations);
+        // Notify parent when conversations are loaded for the first time
+        if (onConversationsLoaded && response.conversations.length > 0) {
+          onConversationsLoaded(response.conversations);
+        }
       } else {
         setConversations((prev) => [...prev, ...response.conversations]);
       }
@@ -168,32 +173,7 @@ export function ConversationsSidebar({
   };
 
   return (
-    <div className={`conversationsSidebar ${isCollapsed ? 'collapsed' : ''}`}>
-      {!isCollapsed && (
-        <>
-          {/* Header */}
-          <div className="sidebarHeader">
-            <div className="sidebarHeaderLeft">
-              <button
-                className="hamburgerMenuButton"
-                onClick={() => setIsCollapsed(!isCollapsed)}
-                aria-label="Collapse sidebar"
-              >
-                <span className="hamburgerIcon">
-                  <span className="hamburgerLine"></span>
-                  <span className="hamburgerLine"></span>
-                  <span className="hamburgerLine"></span>
-                </span>
-              </button>
-              <h2>Conversations</h2>
-            </div>
-            {/* Hide new button for now */}
-            {/* <button className="newConversationButton" onClick={onNewConversation}>
-              <span className="buttonIcon">+</span>
-              New
-            </button> */}
-          </div>
-
+    <div className="conversationsSidebar">
       {/* Conversations List */}
       <div className="conversationsList" ref={listContainerRef}>
         {error && (
@@ -207,20 +187,20 @@ export function ConversationsSidebar({
         {isLoading && conversations.length === 0 ? (
           <div className="sidebarLoading">
             <div className="loadingSpinner"></div>
-            <p>Loading conversations...</p>
+            <p>Loading feedback...</p>
           </div>
         ) : filteredConversations.length === 0 ? (
           <div className="sidebarEmpty">
             <div className="emptyIcon">💬</div>
             <h3>
               {searchQuery
-                ? 'No conversations found'
-                : 'No conversations yet'}
+                ? 'No feedback found'
+                : 'No feedback yet'}
             </h3>
             <p>
               {searchQuery
                 ? 'Try a different search term'
-                : 'Start a new conversation with Co-Scientist'}
+                : 'Upload your manuscript to get started'}
             </p>
           </div>
         ) : (
@@ -235,7 +215,7 @@ export function ConversationsSidebar({
               >
                 <div className="conversationItemHeader">
                   <h4 className="conversationItemTitle">
-                    {formatConversationTitle(conversation.title, conversation.created_at) || 'Untitled Conversation'}
+                    {conversation.title || 'Untitled Conversation'}
                   </h4>
                   <span className="conversationItemDate">
                     {formatDateTime(conversation.created_at)}
@@ -265,25 +245,6 @@ export function ConversationsSidebar({
           </>
         )}
       </div>
-        </>
-      )}
-
-      {/* Collapsed state - just show hamburger */}
-      {isCollapsed && (
-        <div className="sidebarCollapsedHeader">
-          <button
-            className="hamburgerMenuButton"
-            onClick={() => setIsCollapsed(!isCollapsed)}
-            aria-label="Expand sidebar"
-          >
-            <span className="hamburgerIcon">
-              <span className="hamburgerLine"></span>
-              <span className="hamburgerLine"></span>
-              <span className="hamburgerLine"></span>
-            </span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }

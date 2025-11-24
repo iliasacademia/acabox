@@ -10,6 +10,7 @@ import './Conversations.css';
 
 interface ConversationsPageProps {
   selectedProject: Project | null;
+  onBack?: () => void;
 }
 
 // Extended conversation type to support draft conversations
@@ -17,7 +18,7 @@ export interface DraftConversation extends Conversation {
   isDraft: true;
 }
 
-export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
+export function ConversationsPage({ selectedProject, onBack }: ConversationsPageProps) {
   const [selectedConversation, setSelectedConversation] =
     useState<Conversation | DraftConversation | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -25,6 +26,7 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const [hasAutoSelected, setHasAutoSelected] = useState(false);
 
   // Refresh manuscript file data
   const refreshManuscriptFile = async () => {
@@ -134,6 +136,10 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
         return;
       }
 
+      // Reset auto-selection flag when project changes
+      setHasAutoSelected(false);
+      setSelectedConversation(null);
+
       console.log('========================================');
       console.log('[ConversationsPage] Initial fetch for project:', selectedProject.id);
       setIsLoadingFiles(true);
@@ -203,6 +209,15 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
             console.log('  - File name:', primaryManuscript.file_name);
             console.log('  - Updated at:', primaryManuscript.updated_at);
             console.log('  - Last review:', primaryManuscript.last_review);
+
+            // Compare timestamps to check if button should show
+            if (primaryManuscript.last_review && primaryManuscript.updated_at) {
+              const reviewDate = new Date(primaryManuscript.last_review.reviewed_at);
+              const fileUpdateDate = new Date(primaryManuscript.updated_at);
+              console.log('[ConversationsPage] Review date:', reviewDate.toISOString());
+              console.log('[ConversationsPage] File update date:', fileUpdateDate.toISOString());
+              console.log('[ConversationsPage] File updated after review?', fileUpdateDate > reviewDate);
+            }
 
             // Check if the synced file is the manuscript
             const syncedFilePath = data.filePath;
@@ -279,6 +294,14 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
     setRefreshTrigger((prev) => prev + 1);
   };
 
+  const handleConversationsLoaded = (conversations: Conversation[]) => {
+    // Auto-select the first conversation only once when conversations are first loaded
+    if (!hasAutoSelected && conversations.length > 0 && !selectedConversation) {
+      setSelectedConversation(conversations[0]);
+      setHasAutoSelected(true);
+    }
+  };
+
   if (!selectedProject) {
     return (
       <div className="conversationsPage empty">
@@ -296,6 +319,11 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
       {/* Project Context Banner */}
       <div className="projectBanner">
         <div className="projectBannerContent">
+          <button className="backButton" onClick={onBack}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
           <div className="projectBannerInfo">
             <h3 className="projectBannerTitle">{selectedProject.name}</h3>
             {selectedProject.description && (
@@ -305,49 +333,54 @@ export function ConversationsPage({ selectedProject }: ConversationsPageProps) {
             )}
           </div>
         </div>
+
+        {/* Manuscript Version Card */}
+        {(manuscriptFile || isLoadingFiles) && (
+          <>
+            <ManuscriptVersionCard
+              fileName={manuscriptFile?.file_name || ''}
+              isLoading={isLoadingFiles}
+              projectId={selectedProject.id}
+              manuscriptId={manuscriptFile?.id}
+              lastReview={manuscriptFile?.last_review}
+              fileUpdatedAt={manuscriptFile?.updated_at}
+              onReviewComplete={refreshManuscriptFile}
+            />
+            {isReviewInProgress && (
+              <div className="reviewingIndicator">
+                <span className="reviewingDot"></span>
+                <span className="reviewingText">Reviewing manuscript...</span>
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Manuscript Version Card */}
-      {(manuscriptFile || isLoadingFiles) && (
-        <>
-          <ManuscriptVersionCard
-            fileName={manuscriptFile?.file_name || ''}
-            isLoading={isLoadingFiles}
+      {/* Manuscript Feedback Section */}
+      <div className="manuscriptFeedbackSection">
+        <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
+
+        <div className="conversationsContent">
+          {/* Sidebar */}
+          <ConversationsSidebar
             projectId={selectedProject.id}
-            manuscriptId={manuscriptFile?.id}
-            lastReview={manuscriptFile?.last_review}
-            fileUpdatedAt={manuscriptFile?.updated_at}
-            onReviewComplete={refreshManuscriptFile}
+            selectedConversationId={selectedConversation?.id || null}
+            onSelectConversation={handleSelectConversation}
+            onNewConversation={handleNewConversation}
+            refreshTrigger={refreshTrigger}
+            onConversationsLoaded={handleConversationsLoaded}
           />
-          {isReviewInProgress && (
-            <div className="reviewingIndicator">
-              <span className="reviewingDot"></span>
-              <span className="reviewingText">Reviewing manuscript...</span>
-            </div>
-          )}
-        </>
-      )}
 
-      {/* Main Content */}
-      <div className="conversationsContent">
-        {/* Sidebar */}
-        <ConversationsSidebar
-          projectId={selectedProject.id}
-          selectedConversationId={selectedConversation?.id || null}
-          onSelectConversation={handleSelectConversation}
-          onNewConversation={handleNewConversation}
-          refreshTrigger={refreshTrigger}
-        />
-
-        {/* Detail Panel */}
-        <ConversationDetail
-          conversation={selectedConversation}
-          projectId={selectedProject.id}
-          primaryManuscriptId={manuscriptFile?.id}
-          manuscriptFile={manuscriptFile}
-          onConversationCreated={handleConversationCreated}
-          onConversationUpdate={handleConversationUpdate}
-        />
+          {/* Detail Panel */}
+          <ConversationDetail
+            conversation={selectedConversation}
+            projectId={selectedProject.id}
+            primaryManuscriptId={manuscriptFile?.id}
+            manuscriptFile={manuscriptFile}
+            onConversationCreated={handleConversationCreated}
+            onConversationUpdate={handleConversationUpdate}
+          />
+        </div>
       </div>
     </div>
   );
