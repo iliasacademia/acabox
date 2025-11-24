@@ -382,16 +382,9 @@ const Projects: React.FC = () => {
     <div className="projectsContainer">
       {/* Header with logo and avatar */}
       <div className="projectsHeader">
-        {currentView === 'detail' && selectedProject ? (
-          <button className="projectsBackButton" onClick={handleBackToList}>
-            <span className="backArrow">←</span>
-            <span>Back</span>
-          </button>
-        ) : (
-          <div className="projectsLogo">
-            <span className="logoText">A</span>
-          </div>
-        )}
+        <div className="projectsLogo">
+          <span className="logoText">A</span>
+        </div>
         <div className="projectsUserMenu">
           <div className="userAvatar" onClick={() => setShowUserMenu(!showUserMenu)}>
             <span className="avatarInitial">
@@ -425,7 +418,7 @@ const Projects: React.FC = () => {
             />
           ) : currentView === 'detail' && selectedProject ? (
             FEATURES.CONVERSATIONS_ENABLED ? (
-              <ConversationsPage selectedProject={selectedProject} />
+              <ConversationsPage selectedProject={selectedProject} onBack={handleBackToList} />
             ) : (
               <ProjectDetail project={selectedProject} onBack={handleBackToList} />
             )
