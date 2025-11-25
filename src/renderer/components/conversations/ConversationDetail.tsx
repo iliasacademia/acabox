@@ -31,7 +31,7 @@ export function ConversationDetail({
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showDiffModal, setShowDiffModal] = useState(false);
-  const [diffData, setDiffData] = useState<string>('');
+  const [diffData, setDiffData] = useState<any>(null);
   const [isDiffLoading, setIsDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
 
