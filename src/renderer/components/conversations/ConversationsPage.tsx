@@ -27,6 +27,7 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [hasAutoSelected, setHasAutoSelected] = useState(false);
+  const [hasConversations, setHasConversations] = useState(false);
 
   // Refresh manuscript file data
   const refreshManuscriptFile = async () => {
@@ -295,6 +296,9 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
   };
 
   const handleConversationsLoaded = (conversations: Conversation[]) => {
+    // Track if there are any conversations
+    setHasConversations(conversations.length > 0);
+
     // Auto-select the first conversation only once when conversations are first loaded
     if (!hasAutoSelected && conversations.length > 0 && !selectedConversation) {
       setSelectedConversation(conversations[0]);
@@ -356,32 +360,46 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
         )}
       </div>
 
-      {/* Manuscript Feedback Section */}
-      <div className="manuscriptFeedbackSection">
-        <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
+      {/* Manuscript Feedback Section - Hide when review is in progress with no conversations */}
+      {!(isReviewInProgress && !hasConversations) && (
+        <div className="manuscriptFeedbackSection">
+          <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
 
-        <div className="conversationsContent">
-          {/* Sidebar */}
-          <ConversationsSidebar
-            projectId={selectedProject.id}
-            selectedConversationId={selectedConversation?.id || null}
-            onSelectConversation={handleSelectConversation}
-            onNewConversation={handleNewConversation}
-            refreshTrigger={refreshTrigger}
-            onConversationsLoaded={handleConversationsLoaded}
-          />
+          <div className="conversationsContent">
+            {/* Sidebar */}
+            <ConversationsSidebar
+              projectId={selectedProject.id}
+              selectedConversationId={selectedConversation?.id || null}
+              onSelectConversation={handleSelectConversation}
+              onNewConversation={handleNewConversation}
+              refreshTrigger={refreshTrigger}
+              onConversationsLoaded={handleConversationsLoaded}
+            />
 
-          {/* Detail Panel */}
-          <ConversationDetail
-            conversation={selectedConversation}
-            projectId={selectedProject.id}
-            primaryManuscriptId={manuscriptFile?.id}
-            manuscriptFile={manuscriptFile}
-            onConversationCreated={handleConversationCreated}
-            onConversationUpdate={handleConversationUpdate}
-          />
+            {/* Detail Panel */}
+            <ConversationDetail
+              conversation={selectedConversation}
+              projectId={selectedProject.id}
+              primaryManuscriptId={manuscriptFile?.id}
+              manuscriptFile={manuscriptFile}
+              onConversationCreated={handleConversationCreated}
+              onConversationUpdate={handleConversationUpdate}
+              isReviewInProgress={isReviewInProgress}
+            />
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* Show review in progress message when no conversations exist */}
+      {isReviewInProgress && !hasConversations && (
+        <div className="emptyStateContainer">
+          <div className="emptyState">
+            <div className="emptyStateIcon">⏳</div>
+            <h3>Review in progress</h3>
+            <p>Your manuscript is being reviewed. This may take a few minutes.</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

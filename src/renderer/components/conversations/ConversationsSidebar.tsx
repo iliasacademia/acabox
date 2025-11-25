@@ -213,14 +213,12 @@ export function ConversationsSidebar({
                 }`}
                 onClick={() => onSelectConversation(conversation)}
               >
-                <div className="conversationItemHeader">
-                  <h4 className="conversationItemTitle">
-                    {conversation.title || 'Untitled Conversation'}
-                  </h4>
-                  <span className="conversationItemDate">
-                    {formatDateTime(conversation.created_at)}
-                  </span>
-                </div>
+                <h4 className="conversationItemTitle">
+                  {conversation.title || 'Untitled Conversation'}
+                </h4>
+                <span className="conversationItemDate">
+                  {formatDateTime(conversation.created_at)}
+                </span>
                 {conversation.summary && (
                   <p className="conversationItemSummary">
                     {conversation.summary}
