@@ -1,61 +1,124 @@
-import React, { useMemo } from 'react';
-import { parseDiff, Diff, Hunk } from 'react-diff-view';
-import 'react-diff-view/style/index.css';
+import React from 'react';
+import DOMPurify from 'isomorphic-dompurify';
+import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 
 interface DiffModalProps {
-  diffString: string;
+  diffData: any; // Will be the new JSON format from backend
   onClose: () => void;
   isLoading?: boolean;
   error?: string | null;
 }
 
-const DiffModal: React.FC<DiffModalProps> = ({ diffString, onClose, isLoading = false, error = null }) => {
-  const files = useMemo(() => {
-    try {
-      return parseDiff(diffString);
-    } catch (error) {
-      // Silent fail - return empty array to display "No changes" message
-      return [];
-    }
-  }, [diffString]);
+interface DiffSection {
+  section: string;
+  original: string;
+  edited: string;
+}
+
+const DiffModal: React.FC<DiffModalProps> = ({ diffData, onClose, isLoading = false, error = null }) => {
+  // Debug logging
+  console.log('[DiffModal] Received diffData:', diffData);
+  if (diffData?.sections?.[0]) {
+    console.log('[DiffModal] First section:', diffData.sections[0]);
+    console.log('[DiffModal] First section edited text:', diffData.sections[0].edited);
+    console.log('[DiffModal] Contains {+:', diffData.sections[0].edited?.includes('{+'));
+  }
+
+  // Helper to render text with word-level highlights
+  const renderHighlightedText = (text: string) => {
+    if (!text) return '';
+
+    console.log('[DiffModal] Rendering text:', text.substring(0, 200));
+
+    // Replace {+added text+} with highlighted spans
+    let highlighted = text.replace(/\{\+([^}]+)\+\}/g, '<span class="diff-word-added">$1</span>');
+
+    console.log('[DiffModal] Highlighted text:', highlighted.substring(0, 200));
+
+    return DOMPurify.sanitize(highlighted, {
+      ALLOWED_TAGS: ['span'],
+      ALLOWED_ATTR: ['class'],
+    });
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-US', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric'
+    });
+  };
 
   return (
-    <div className="wizardOverlay" onClick={onClose}>
+    <div className="diffModalOverlay" onClick={onClose}>
       <div
-        className="diffModal"
+        className="diffModalContainer"
         onClick={(e) => e.stopPropagation()}
       >
-        <button className="wizardClose" onClick={onClose}>
+        <button className="diffModalClose" onClick={onClose}>
           ×
         </button>
 
-        <div className="wizardContent">
-          <h2 className="wizardTitle">Manuscript Changes</h2>
+        <div className="diffModalContent">
+          {/* Title */}
+          <h1 className="diffModalTitle">
+            {diffData?.title || `Manuscript edits on ${diffData?.date ? formatDate(diffData.date) : 'Unknown'}`}
+          </h1>
 
-          <div className="diffContainer">
-            {isLoading ? (
-              <div className="wizardLoading">Loading diff...</div>
-            ) : error ? (
-              <div className="wizardError">{error}</div>
-            ) : files.length === 0 ? (
-              <p className="diffEmptyState">No changes to display</p>
-            ) : (
-              files.map((file, index) => (
-                <div key={index} className="diffFileSection">
-                  <Diff
-                    viewType="split"
-                    diffType={file.type}
-                    hunks={file.hunks || []}
-                  >
-                    {(hunks) =>
-                      hunks.map((hunk) => (
-                        <Hunk key={hunk.content} hunk={hunk} />
-                      ))
-                    }
-                  </Diff>
+          {/* Manuscript file info */}
+          {diffData?.manuscript_name && (
+            <div className="diffManuscriptInfo">
+              <span className="diffManuscriptLabel">Draft manuscript:</span>
+              <img src={MSWordIcon} alt="Word" className="diffManuscriptIcon" />
+              <span className="diffManuscriptName">{diffData.manuscript_name}</span>
+            </div>
+          )}
+
+          {/* Loading/Error states */}
+          {isLoading ? (
+            <div className="diffLoadingState">Loading changes...</div>
+          ) : error ? (
+            <div className="diffErrorState">{error}</div>
+          ) : !diffData || !diffData.sections || diffData.sections.length === 0 ? (
+            <div className="diffEmptyState">No changes to display</div>
+          ) : (
+            /* Sections */
+            <div className="diffSections">
+              {diffData.sections.map((section: DiffSection, idx: number) => (
+                <div key={idx} className="diffSection">
+                  <h2 className="diffSectionTitle">{section.section}</h2>
+
+                  <div className="diffSectionContent">
+                    {/* Original text column */}
+                    <div className="diffColumn diffColumnOriginal">
+                      <div className="diffColumnHeader">Original text</div>
+                      <div className="diffColumnText diffColumnTextOriginal">
+                        {section.original}
+                      </div>
+                    </div>
+
+                    {/* Edited text column */}
+                    <div className="diffColumn diffColumnEdited">
+                      <div className="diffColumnHeader">Edits</div>
+                      <div
+                        className="diffColumnText diffColumnTextEdited"
+                        dangerouslySetInnerHTML={{
+                          __html: renderHighlightedText(section.edited)
+                        }}
+                      />
+                    </div>
+                  </div>
                 </div>
-              ))
-            )}
+              ))}
+            </div>
+          )}
+
+          {/* Close button */}
+          <div className="diffModalFooter">
+            <button className="diffModalCloseButton" onClick={onClose}>
+              Close
+            </button>
           </div>
         </div>
       </div>

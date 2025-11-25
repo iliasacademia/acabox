@@ -15,6 +15,7 @@ interface ConversationDetailProps {
   manuscriptFile?: ProjectFile | null;
   onConversationCreated?: (conversation: Conversation) => void;
   onConversationUpdate?: () => void;
+  isReviewInProgress?: boolean;
 }
 
 export function ConversationDetail({
@@ -24,39 +25,18 @@ export function ConversationDetail({
   manuscriptFile,
   onConversationCreated,
   onConversationUpdate,
+  isReviewInProgress,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showDiffModal, setShowDiffModal] = useState(false);
-  const [diffString, setDiffString] = useState<string>('');
+  const [diffData, setDiffData] = useState<any>(null);
   const [isDiffLoading, setIsDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-
-  // Validate diff content format and size
-  const validateDiff = (diff: string): { valid: boolean; error?: string } => {
-    // Check if diff is a string
-    if (typeof diff !== 'string') {
-      return { valid: false, error: 'Invalid diff format' };
-    }
-
-    // Check maximum size (5MB)
-    const MAX_DIFF_SIZE = 5 * 1024 * 1024;
-    if (diff.length > MAX_DIFF_SIZE) {
-      return { valid: false, error: 'Diff content too large' };
-    }
-
-    // Basic validation: unified diff should start with --- or +++
-    // or be empty (no changes)
-    if (diff.length > 0 && !diff.match(/^(---|\+\+\+|diff)/m)) {
-      return { valid: false, error: 'Invalid diff format' };
-    }
-
-    return { valid: true };
-  };
 
   // Fetch diff when Show Diff is clicked
   const handleShowDiff = async () => {
@@ -72,16 +52,7 @@ export function ConversationDetail({
 
     try {
       const diff = await getFileDiff(projectId, primaryManuscriptId);
-
-      // Validate diff content before displaying
-      const validation = validateDiff(diff);
-      if (!validation.valid) {
-        setDiffError(validation.error || 'Invalid diff content');
-        setDiffString('');
-        return;
-      }
-
-      setDiffString(diff);
+      setDiffData(diff);
     } catch (error: any) {
       // Sanitize error message
       const errorMsg = String(error.message || 'Failed to load diff').substring(0, 200);
@@ -238,9 +209,19 @@ export function ConversationDetail({
     return (
       <div className="conversationDetail empty">
         <div className="emptyState">
-          <div className="emptyStateIcon">💬</div>
-          <h3>No conversation selected</h3>
-          <p>Select a conversation from the sidebar or create a new one.</p>
+          {isReviewInProgress ? (
+            <>
+              <div className="emptyStateIcon">⏳</div>
+              <h3>Review in progress</h3>
+              <p>Your manuscript is being reviewed. This may take a few minutes.</p>
+            </>
+          ) : (
+            <>
+              <div className="emptyStateIcon">📄</div>
+              <h3>No feedback yet</h3>
+              <p>Upload and sync your manuscript to receive AI-powered feedback.</p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -265,15 +246,6 @@ export function ConversationDetail({
             <h2 className="conversationTitle">
               {conversation.title || 'New Conversation'}
             </h2>
-            {manuscriptFile?.last_review?.review_type === 'diff_review' && (
-              <button
-                className="showDiffButton"
-                onClick={handleShowDiff}
-                disabled={!primaryManuscriptId}
-              >
-                Show Diff
-              </button>
-            )}
           </div>
           {conversation.summary && (
             <p className="conversationSummary">{conversation.summary}</p>
@@ -313,7 +285,11 @@ export function ConversationDetail({
             {groupedMessages.map((item, index) => (
               <React.Fragment key={index}>
                 {item.type === 'message' ? (
-                  <ConversationMessage message={item.data} />
+                  <ConversationMessage
+                    message={item.data}
+                    isPolling={isPolling}
+                    onShowDiff={handleShowDiff}
+                  />
                 ) : (
                   <ToolMessageAccordion messages={item.data} />
                 )}
@@ -360,7 +336,7 @@ export function ConversationDetail({
       {/* Diff Modal */}
       {showDiffModal && (
         <DiffModal
-          diffString={diffString}
+          diffData={diffData}
           isLoading={isDiffLoading}
           error={diffError}
           onClose={() => setShowDiffModal(false)}

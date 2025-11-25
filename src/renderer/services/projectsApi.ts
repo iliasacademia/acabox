@@ -346,12 +346,12 @@ export async function updateReviewStatus(
 export async function getFileDiff(
   projectId: number,
   fileId: number
-): Promise<string> {
+): Promise<any> {
   const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
     method: 'GET',
     endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff`,
   });
-  return response.diff || '';
+  return response;
 }
 
 /**

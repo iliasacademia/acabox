@@ -5,9 +5,11 @@ import { Message } from '../../services/conversationsApi';
 
 interface ConversationMessageProps {
   message: Message;
+  isPolling?: boolean;
+  onShowDiff?: () => void;
 }
 
-export function ConversationMessage({ message }: ConversationMessageProps) {
+export function ConversationMessage({ message, isPolling, onShowDiff }: ConversationMessageProps) {
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
   const isTool = message.role === 'tool';
@@ -36,6 +38,18 @@ export function ConversationMessage({ message }: ConversationMessageProps) {
     return null;
   }
 
+  // Handle clicks on links in HTML content
+  const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'A') {
+      const href = target.getAttribute('href');
+      if (href === '#show-diff' && onShowDiff) {
+        e.preventDefault();
+        onShowDiff();
+      }
+    }
+  };
+
   return (
     <div className={`conversationMessage ${message.role}`}>
       <div className="messageContent">
@@ -44,6 +58,7 @@ export function ConversationMessage({ message }: ConversationMessageProps) {
             // Render as sanitized HTML
             <div
               className="htmlContent"
+              onClick={handleHtmlClick}
               dangerouslySetInnerHTML={{
                 __html: DOMPurify.sanitize(message.content, {
                   ALLOWED_TAGS: [
@@ -81,16 +96,30 @@ export function ConversationMessage({ message }: ConversationMessageProps) {
                   },
                   // Style links
                   a: {
-                    component: ({ children, href }) => (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="messageLink"
-                      >
-                        {children}
-                      </a>
-                    ),
+                    component: ({ children, href }) => {
+                      // Check if this is a diff link
+                      if (href === '#show-diff' && onShowDiff) {
+                        return (
+                          <button
+                            type="button"
+                            onClick={onShowDiff}
+                            className="messageLinkButton"
+                          >
+                            {children}
+                          </button>
+                        );
+                      }
+                      return (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="messageLink"
+                        >
+                          {children}
+                        </a>
+                      );
+                    },
                   },
                 },
               }}
@@ -119,8 +148,8 @@ export function ConversationMessage({ message }: ConversationMessageProps) {
         </div>
       )}
 
-      {/* Show loading indicator for incomplete assistant messages */}
-      {isAssistant && message.data?.final !== true && (
+      {/* Show loading indicator only when actively polling for response */}
+      {isAssistant && message.data?.final !== true && isPolling && (
         <div className="messageLoading">
           <span className="loadingDot"></span>
           <span className="loadingDot"></span>

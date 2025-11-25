@@ -52,6 +52,14 @@
   justify-content: center;
 }
 
+.emptyStateContainer {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+}
+
 /* Project Banner */
 .projectBanner {
   padding: 4px 40px 24px 32px;
@@ -553,6 +561,9 @@
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .conversationItem:hover {
@@ -563,21 +574,12 @@
   background-color: #eef2f9;
 }
 
-.conversationItemHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 2px;
-  gap: 8px;
-}
-
 .conversationItemTitle {
   margin: 0;
   font-size: 16px;
   font-weight: 400;
   line-height: 20px;
   color: #141413;
-  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -587,8 +589,7 @@
   font-size: 14px;
   line-height: 20px;
   color: #535366;
-  white-space: nowrap;
-  flex-shrink: 0;
+  display: block;
 }
 
 .conversationItemSummary {
@@ -846,7 +847,7 @@
 
 .messageContent {
   padding: 16px;
-  background-color: #f9f9fb;
+  background-color: transparent;
   border-radius: 8px;
   font-size: 15px;
   line-height: 24px;
@@ -954,6 +955,22 @@
 
 .messageLink:hover {
   color: #5568d3;
+}
+
+.messageLinkButton {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  display: inline;
+}
+
+.messageLinkButton:hover {
+  opacity: 0.8;
 }
 
 .emptyMessage {
@@ -1491,4 +1508,292 @@
 
 .diffContainer .diff-gutter-delete {
   background-color: #ffd7d5;
+}
+
+/* Custom CoScientist diff view styles */
+.customDiffView {
+  background-color: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Segoe UI Mono', monospace;
+  font-size: 12px;
+}
+
+.diffHeaders {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px 1fr;
+  background-color: #f6f8fa;
+  border-bottom: 2px solid #d0d7de;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.diffHeader {
+  padding: 12px 16px;
+  text-align: center;
+  color: #24292f;
+  border-right: 1px solid #d0d7de;
+}
+
+.diffHeaderLeft {
+  grid-column: 1 / 3;
+}
+
+.diffHeaderRight {
+  grid-column: 3 / 5;
+  border-right: none;
+}
+
+.diffSideBySide {
+  overflow-x: auto;
+}
+
+.diffRow {
+  display: grid;
+  grid-template-columns: 40px 1fr 40px 1fr;
+  border-bottom: 1px solid #d0d7de;
+}
+
+.diffRow:last-child {
+  border-bottom: none;
+}
+
+.diffRowChanged {
+  background-color: #fff8e6;
+}
+
+.diffLineNumber {
+  padding: 4px 8px;
+  text-align: right;
+  color: #57606a;
+  background-color: #f6f8fa;
+  border-right: 1px solid #d0d7de;
+  user-select: none;
+  min-width: 40px;
+}
+
+.diffCell {
+  padding: 4px 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  min-height: 24px;
+}
+
+.diffCellLeft {
+  border-right: 1px solid #d0d7de;
+  background-color: #ffffff;
+}
+
+.diffCellRight {
+  background-color: #ffffff;
+}
+
+.diffRowChanged .diffCellLeft,
+.diffRowChanged .diffCellRight {
+  background-color: #fffef0;
+}
+
+/* Word-level change highlighting */
+.diff-deleted {
+  background-color: #ffd7d5;
+  text-decoration: line-through;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+.diff-added {
+  background-color: #d1f0d1;
+  padding: 2px 4px;
+  border-radius: 3px;
+}
+
+/* New section-based diff modal styles */
+.diffModalOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  padding: 40px;
+}
+
+.diffModalContainer {
+  background: white;
+  border-radius: 12px;
+  max-width: 1200px;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.diffModalClose {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: none;
+  border: none;
+  font-size: 32px;
+  color: #666;
+  cursor: pointer;
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.diffModalClose:hover {
+  color: #333;
+}
+
+.diffModalContent {
+  padding: 40px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.diffModalTitle {
+  font-size: 32px;
+  font-weight: 500;
+  margin: 0 0 24px 0;
+  color: #1a1a1a;
+}
+
+.diffManuscriptInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.diffManuscriptLabel {
+  font-size: 15px;
+  color: #666;
+}
+
+.diffManuscriptIcon {
+  width: 20px;
+  height: 20px;
+}
+
+.diffManuscriptName {
+  font-size: 15px;
+  color: #1a1a1a;
+}
+
+.diffLoadingState,
+.diffErrorState,
+.diffEmptyState {
+  text-align: center;
+  padding: 60px 20px;
+  color: #666;
+  font-size: 16px;
+}
+
+.diffErrorState {
+  color: #d32f2f;
+}
+
+.diffSections {
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+
+.diffSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.diffSectionTitle {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0;
+  color: #1a1a1a;
+}
+
+.diffSectionContent {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+.diffColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diffColumnHeader {
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 4px;
+}
+
+.diffColumnText {
+  padding: 16px;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diffColumnTextOriginal {
+  background-color: #fff5f5;
+  border-left: 3px solid #ff6b6b;
+  color: #333;
+}
+
+.diffColumnTextEdited {
+  background-color: #f0fff4;
+  border-left: 3px solid #51cf66;
+  color: #333;
+}
+
+.diff-word-added {
+  background-color: #a3e2b0;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.diffModalFooter {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #e5e5e5;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.diffModalCloseButton {
+  background-color: #4263eb;
+  color: white;
+  border: none;
+  padding: 12px 32px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.diffModalCloseButton:hover {
+  background-color: #3651d4;
 }
