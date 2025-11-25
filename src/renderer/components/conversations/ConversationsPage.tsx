@@ -26,7 +26,6 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
-  const [hasAutoSelected, setHasAutoSelected] = useState(false);
   const [hasConversations, setHasConversations] = useState(false);
 
   // Refresh manuscript file data
@@ -137,8 +136,7 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
         return;
       }
 
-      // Reset auto-selection flag when project changes
-      setHasAutoSelected(false);
+      // Reset selected conversation when project changes
       setSelectedConversation(null);
 
       console.log('========================================');
@@ -298,12 +296,6 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
   const handleConversationsLoaded = (conversations: Conversation[]) => {
     // Track if there are any conversations
     setHasConversations(conversations.length > 0);
-
-    // Auto-select the first conversation only once when conversations are first loaded
-    if (!hasAutoSelected && conversations.length > 0 && !selectedConversation) {
-      setSelectedConversation(conversations[0]);
-      setHasAutoSelected(true);
-    }
   };
 
   if (!selectedProject) {
