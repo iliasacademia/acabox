@@ -1774,6 +1774,14 @@
   font-weight: 500;
 }
 
+.diff-word-deleted {
+  background-color: #ffc9c9;
+  padding: 2px 4px;
+  border-radius: 3px;
+  text-decoration: line-through;
+  color: #c92a2a;
+}
+
 .diffModalFooter {
   margin-top: 32px;
   padding-top: 24px;

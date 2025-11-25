@@ -28,17 +28,18 @@ const DiffModal: React.FC<DiffModalProps> = ({ diffData, onClose, isLoading = fa
   const renderHighlightedText = (text: string) => {
     if (!text) return '';
 
-    console.log('[DiffModal] Rendering text:', text.substring(0, 200));
-
-    // Replace {+added text+} with highlighted spans
+    // Replace {+added text+} with green highlighted spans
     let highlighted = text.replace(/\{\+([^}]+)\+\}/g, '<span class="diff-word-added">$1</span>');
 
-    console.log('[DiffModal] Highlighted text:', highlighted.substring(0, 200));
+    // Replace [-deleted text-] with red strikethrough spans
+    highlighted = highlighted.replace(/\[-([^\]]+)-\]/g, '<span class="diff-word-deleted">$1</span>');
 
-    return DOMPurify.sanitize(highlighted, {
+    const sanitized = DOMPurify.sanitize(highlighted, {
       ALLOWED_TAGS: ['span'],
       ALLOWED_ATTR: ['class'],
     });
+
+    return sanitized;
   };
 
   const formatDate = (dateString: string) => {
