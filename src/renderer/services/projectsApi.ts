@@ -342,16 +342,18 @@ export async function updateReviewStatus(
 /**
  * Get file diff (current version vs previous version)
  * GET /v0/co_scientist/projects/:projectId/files/:fileId/diff
+ * Returns standard git diff format as a string
  */
 export async function getFileDiff(
   projectId: number,
   fileId: number
-): Promise<any> {
+): Promise<string> {
   const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
     method: 'GET',
     endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff`,
   });
-  return response;
+  // Backend returns git diff as a string
+  return response.diff || response;
 }
 
 /**

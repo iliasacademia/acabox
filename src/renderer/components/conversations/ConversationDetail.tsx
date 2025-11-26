@@ -317,7 +317,7 @@ export function ConversationDetail({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Reply or ask anything..."
+              placeholder="Or ask anything..."
               rows={3}
               disabled={isSending}
             />

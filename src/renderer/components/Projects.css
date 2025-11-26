@@ -15,7 +15,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 24px;
+  padding: 32px 24px 18px 24px;
   border-bottom: 1px solid #e0e0e0;
   -webkit-app-region: drag; /* Make header draggable */
 }
@@ -229,6 +229,28 @@
 
 /* Projects Grid */
 .projectsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+}
+
+/* Projects Section (with categorization) */
+.projectsSection {
+  margin-bottom: 48px;
+}
+
+.projectsSectionHeader {
+  font-size: 14px;
+  font-weight: 600;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 16px 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.projectsSectionGrid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 24px;

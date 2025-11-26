@@ -147,29 +147,39 @@ export function ConversationsSidebar({
     return title.includes(query) || summary.includes(query);
   });
 
-  // Format date with time
+  // Format date with time to match Figma design (e.g., "Nov 12, 10am")
   const formatDateTime = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffHours = Math.floor(diffMs / 3600000);
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const diffMs = today.getTime() - dateOnly.getTime();
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
 
-    // Format time as HH:MM AM/PM
+    // Format time as "10am" or "2pm"
     const timeString = date.toLocaleTimeString('en-US', {
       hour: 'numeric',
-      minute: '2-digit',
       hour12: true
+    }).toLowerCase().replace(' ', '');
+
+    // Format date as "Nov 12"
+    const dateString = date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric'
     });
 
-    if (diffHours < 24) {
-      return timeString; // Just show time for today
+    if (diffDays === 0) {
+      // Today - show date and time
+      return `${dateString}, ${timeString}`;
+    } else if (diffDays === 1) {
+      return `Yesterday`;
+    } else if (diffDays < 7) {
+      // Within a week - just show date
+      return dateString;
+    } else {
+      // Older - just show date
+      return dateString;
     }
-
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays === 1) return `Yesterday ${timeString}`;
-    if (diffDays < 7) return `${diffDays} days ago`;
-
-    return date.toLocaleDateString();
   };
 
   return (

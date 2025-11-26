@@ -1,5 +1,6 @@
 import React from 'react';
 import { Project } from '../services/projectsApi';
+import { formatProjectDate } from '../utils/dateUtils';
 
 interface ProjectCardProps {
   project: Project;
@@ -8,13 +9,6 @@ interface ProjectCardProps {
 }
 
 const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onDelete }) => {
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
-  };
 
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
@@ -53,7 +47,7 @@ const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onDelete })
           )}
         </div>
         <div className="projectCardDate">
-          Created: {formatDate(project.created_at)}
+          Updated: {formatProjectDate(project.updated_at)}
         </div>
       </div>
     </div>

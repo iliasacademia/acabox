@@ -6,6 +6,7 @@ import { ConversationDetail } from './ConversationDetail';
 import { generateDailyFeedbackTitle } from './utils';
 import ManuscriptVersionCard from './ManuscriptVersionCard';
 import { IPC_CHANNELS } from '../../../shared/types';
+import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 import './Conversations.css';
 
 interface ConversationsPageProps {
@@ -312,43 +313,24 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
 
   return (
     <div className="conversationsPage">
-      {/* Project Context Banner */}
-      <div className="projectBanner">
-        <div className="projectBannerContent">
+      {/* New Header Layout */}
+      <div className="conversationsHeader">
+        <div className="headerLeft">
           <button className="backButton" onClick={onBack}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           </button>
-          <div className="projectBannerInfo">
-            <h3 className="projectBannerTitle">{selectedProject.name}</h3>
-            {selectedProject.description && (
-              <p className="projectBannerDescription">
-                {selectedProject.description}
-              </p>
-            )}
-          </div>
+          <h1 className="projectTitle">{selectedProject.name}</h1>
         </div>
-
-        {/* Manuscript Version Card */}
-        {(manuscriptFile || isLoadingFiles) && (
-          <>
-            <ManuscriptVersionCard
-              fileName={manuscriptFile?.file_name || ''}
-              isLoading={isLoadingFiles}
-              projectId={selectedProject.id}
-              manuscriptId={manuscriptFile?.id}
-              lastReview={manuscriptFile?.last_review}
-              fileUpdatedAt={manuscriptFile?.updated_at}
-              onReviewComplete={refreshManuscriptFile}
-            />
-            {isReviewInProgress && (
-              <div className="reviewingIndicator">
-                <span className="reviewingDot"></span>
-                <span className="reviewingText">Reviewing manuscript...</span>
-              </div>
-            )}
-          </>
+        {manuscriptFile && (
+          <div className="headerManuscriptInfo">
+            <span className="manuscriptLabel">Manuscript:</span>
+            <div className="manuscriptFileIcon">
+              <img src={MSWordIcon} alt="Word document" />
+            </div>
+            <span className="manuscriptFileName">{manuscriptFile.file_name}</span>
+          </div>
         )}
       </div>
 

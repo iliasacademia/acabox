@@ -1,6 +1,7 @@
 import React from 'react';
 import { Project } from '../services/projectsApi';
 import ProjectCard from './ProjectCard';
+import { categorizeProjects, getCategoryOrder } from '../utils/dateUtils';
 
 interface ProjectsListProps {
   projects: Project[];
@@ -17,6 +18,9 @@ const ProjectsList: React.FC<ProjectsListProps> = ({
   onSelectProject,
   onDeleteProject,
 }) => {
+  // Categorize and sort projects
+  const categorizedProjects = categorizeProjects(projects);
+  const categoryOrder = getCategoryOrder();
   return (
     <div className="projectsList">
       {/* Header Section */}
@@ -39,16 +43,30 @@ const ProjectsList: React.FC<ProjectsListProps> = ({
             </p>
           </div>
         ) : (
-          <div className="projectsGrid">
-            {projects.map((project) => (
-              <ProjectCard
-                key={project.id}
-                project={project}
-                onClick={() => onSelectProject(project)}
-                onDelete={() => onDeleteProject(project)}
-              />
-            ))}
-          </div>
+          <>
+            {categoryOrder.map((category) => {
+              const categoryProjects = categorizedProjects[category];
+
+              // Skip empty categories
+              if (categoryProjects.length === 0) return null;
+
+              return (
+                <div className="projectsSection" key={category}>
+                  <h2 className="projectsSectionHeader">{category}</h2>
+                  <div className="projectsSectionGrid">
+                    {categoryProjects.map((project) => (
+                      <ProjectCard
+                        key={project.id}
+                        project={project}
+                        onClick={() => onSelectProject(project)}
+                        onDelete={() => onDeleteProject(project)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </>
         )}
       </div>
     </div>
