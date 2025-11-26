@@ -23,7 +23,21 @@ permissions:
   contents: write
 
 jobs:
+  generate-timestamp:
+    name: Generate Build Timestamp
+    runs-on: ubuntu-latest
+    outputs:
+      patch: ${{ steps.timestamp.outputs.patch }}
+      timestamp_readable: ${{ steps.timestamp.outputs.timestamp_readable }}
+    steps:
+      - name: Generate timestamps
+        id: timestamp
+        run: |
+          echo "patch=$(date -u +"%m%d%H%M")" >> $GITHUB_OUTPUT
+          echo "timestamp_readable=$(date -u +"%Y%m%d-%H%M")" >> $GITHUB_OUTPUT
+
   package:
+    needs: generate-timestamp
     name: Package Electron App (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
 
@@ -169,7 +183,7 @@ jobs:
 
             # Generate timestamp as patch: MMDDHHMM (without year for NuGet/Squirrel Int32 compatibility)
             # NOTE: Increment minor version annually to avoid version conflicts across years
-            PATCH=$(date -u +"%m%d%H%M")
+            PATCH="${{ needs.generate-timestamp.outputs.patch }}"
 
             # Build version: MAJOR.MINOR.PATCH
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
@@ -188,7 +202,7 @@ jobs:
           echo "Updated package.json to version: $VERSION"
 
           # Generate artifact name (descriptive, includes branch and timestamp)
-          TIMESTAMP_READABLE=$(date -u +"%Y%m%d-%H%M%S")
+          TIMESTAMP_READABLE="${{ needs.generate-timestamp.outputs.timestamp_readable }}"
           # Use environment variable instead of direct interpolation to prevent command injection
           BRANCH_NAME=$(echo "$REF_NAME" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
           BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
