@@ -46,6 +46,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate input for command injection
+        shell: bash
         env:
           REF_NAME: ${{ github.ref_name }}
         run: |
