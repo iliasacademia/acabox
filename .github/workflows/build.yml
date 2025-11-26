@@ -317,6 +317,7 @@ jobs:
 
       - name: Invalidate CloudFront cache
         shell: bash
+        continue-on-error: true
         run: |
           CHANNEL="${{ steps.artifact-name.outputs.channel }}"
           PLATFORM="${{ steps.artifact-name.outputs.platform }}"
