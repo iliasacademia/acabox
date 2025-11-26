@@ -31,13 +31,14 @@ if (platform === 'darwin') {
   updateFile = zipFiles[0];
   updatePath = path.join(outputDir, updateFile);
 } else {
-  // Windows uses .nupkg files
-  const nupkgFiles = fs.readdirSync(outputDir).filter(f => f.endsWith('.nupkg') && !f.includes('-full.nupkg'));
+  // Windows uses .nupkg files (typically -full.nupkg for initial releases)
+  const nupkgFiles = fs.readdirSync(outputDir).filter(f => f.endsWith('.nupkg'));
   if (nupkgFiles.length === 0) {
     console.error(`No .nupkg file found in ${outputDir}`);
     process.exit(1);
   }
-  updateFile = nupkgFiles[0];
+  // Prefer -full.nupkg if available, otherwise use any .nupkg
+  updateFile = nupkgFiles.find(f => f.includes('-full.nupkg')) || nupkgFiles[0];
   updatePath = path.join(outputDir, updateFile);
 }
 
