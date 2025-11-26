@@ -230,6 +230,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      - name: Debug - List output files
+        shell: bash
+        run: |
+          echo "Listing out/make directory structure:"
+          find out/make -type f || true
+          ls -R out/make || true
+
       - name: Generate update manifest
         shell: bash
         env:
