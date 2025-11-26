@@ -6,12 +6,12 @@ on:
       major:
         description: 'Major version number'
         required: false
-        default: ''
+        default: '0'
         type: string
       minor:
         description: 'Minor version number'
         required: false
-        default: ''
+        default: '1'
         type: string
   push:
     branches:
