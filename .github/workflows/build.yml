@@ -166,8 +166,9 @@ jobs:
               MINOR="$CURRENT_MINOR"
             fi
 
-            # Generate timestamp as patch: YYYYMMDDHHMM (without seconds for NuGet/Squirrel compatibility)
-            PATCH=$(date -u +"%Y%m%d%H%M")
+            # Generate timestamp as patch: MMDDHHMM (without year for NuGet/Squirrel Int32 compatibility)
+            # NOTE: Increment minor version annually to avoid version conflicts across years
+            PATCH=$(date -u +"%m%d%H%M")
 
             # Build version: MAJOR.MINOR.PATCH
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
