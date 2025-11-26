@@ -358,6 +358,9 @@ jobs:
           files: |
             out/make/**/*.dmg
             out/make/**/*.zip
+            out/make/**/*.exe
+            out/make/**/*.nupkg
+            out/make/**/RELEASES
           tag_name: ${{ steps.artifact-name.outputs.version }}
           name: "Pre-release: ${{ github.ref_name }} (v${{ steps.artifact-name.outputs.version }})"
           body: |
@@ -383,6 +386,9 @@ jobs:
           files: |
             out/make/**/*.dmg
             out/make/**/*.zip
+            out/make/**/*.exe
+            out/make/**/*.nupkg
+            out/make/**/RELEASES
           tag_name: ${{ steps.artifact-name.outputs.version }}
           name: "Release v${{ steps.artifact-name.outputs.version }}"
           body: |
@@ -407,6 +413,9 @@ jobs:
           files: |
             out/make/**/*.dmg
             out/make/**/*.zip
+            out/make/**/*.exe
+            out/make/**/*.nupkg
+            out/make/**/RELEASES
           draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
