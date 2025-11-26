@@ -86,7 +86,7 @@ releaseNotes: ${manifest.releaseNotes}
 `;
 
 // Write manifest file with platform-specific name
-const manifestName = platform === 'darwin' ? `${channel}-mac.yml` : `${channel}-win.yml`;
+const manifestName = platform === 'darwin' ? `${channel}-mac.yml` : `${channel}.yml`;
 const manifestPath = path.join(outputDir, manifestName);
 fs.writeFileSync(manifestPath, yaml, 'utf8');
 

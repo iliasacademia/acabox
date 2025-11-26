@@ -290,7 +290,7 @@ jobs:
               --include "RELEASES"
 
             MANIFEST_FILE="out/make/squirrel.windows/${ARCH}/${CHANNEL}.yml"
-            MANIFEST_S3_NAME="${CHANNEL}-win.yml"
+            MANIFEST_S3_NAME="${CHANNEL}.yml"
           fi
 
           # Update manifest with CloudFront URLs
@@ -325,7 +325,7 @@ jobs:
           if [[ "$PLATFORM" == "darwin" ]]; then
             MANIFEST_PATH="/${CHANNEL}/${CHANNEL}-mac.yml"
           else
-            MANIFEST_PATH="/${CHANNEL}/${CHANNEL}-win.yml"
+            MANIFEST_PATH="/${CHANNEL}/${CHANNEL}.yml"
           fi
 
           echo "Invalidating CloudFront cache for ${MANIFEST_PATH}..."
