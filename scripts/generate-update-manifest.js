@@ -19,26 +19,38 @@ if (!version) {
   process.exit(1);
 }
 
-// Find the .zip file
-const zipFiles = fs.readdirSync(outputDir).filter(f => f.endsWith('.zip'));
-if (zipFiles.length === 0) {
-  console.error(`No .zip file found in ${outputDir}`);
-  process.exit(1);
+// Find the update file based on platform
+let updateFile, updatePath;
+if (platform === 'darwin') {
+  // macOS uses .zip files
+  const zipFiles = fs.readdirSync(outputDir).filter(f => f.endsWith('.zip'));
+  if (zipFiles.length === 0) {
+    console.error(`No .zip file found in ${outputDir}`);
+    process.exit(1);
+  }
+  updateFile = zipFiles[0];
+  updatePath = path.join(outputDir, updateFile);
+} else {
+  // Windows uses .nupkg files
+  const nupkgFiles = fs.readdirSync(outputDir).filter(f => f.endsWith('.nupkg') && !f.includes('-full.nupkg'));
+  if (nupkgFiles.length === 0) {
+    console.error(`No .nupkg file found in ${outputDir}`);
+    process.exit(1);
+  }
+  updateFile = nupkgFiles[0];
+  updatePath = path.join(outputDir, updateFile);
 }
 
-const zipFile = zipFiles[0];
-const zipPath = path.join(outputDir, zipFile);
-
-console.log(`Generating manifest for ${zipFile}...`);
+console.log(`Generating manifest for ${updateFile}...`);
 
 // Calculate SHA512
-const fileBuffer = fs.readFileSync(zipPath);
+const fileBuffer = fs.readFileSync(updatePath);
 const hash = crypto.createHash('sha512');
 hash.update(fileBuffer);
 const sha512 = hash.digest('base64');
 
 // Get file size
-const stats = fs.statSync(zipPath);
+const stats = fs.statSync(updatePath);
 const size = stats.size;
 
 // Get release date (current time)
@@ -50,12 +62,12 @@ const manifest = {
   releaseDate: releaseDate,
   files: [
     {
-      url: zipFile,
+      url: updateFile,
       sha512: sha512,
       size: size
     }
   ],
-  path: zipFile,
+  path: updateFile,
   sha512: sha512,
   releaseNotes: `Release version ${version}`
 };
@@ -81,6 +93,6 @@ console.log(`Manifest generated at ${manifestPath}`);
 console.log(`Platform: ${platform}`);
 console.log(`Channel: ${channel}`);
 console.log(`Version: ${version}`);
-console.log(`File: ${zipFile}`);
+console.log(`File: ${updateFile}`);
 console.log(`Size: ${size} bytes`);
 console.log(`SHA512: ${sha512.substring(0, 32)}...`);
