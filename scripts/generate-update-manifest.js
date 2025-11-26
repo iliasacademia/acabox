@@ -9,10 +9,13 @@ const args = process.argv.slice(2);
 const version = args[0];
 const channel = args[1] || 'stable';
 const arch = args[2] || 'arm64';
-const outputDir = args[3] || `out/make/zip/darwin/${arch}`;
+const platform = args[3] || 'darwin';
+const outputDir = platform === 'darwin'
+  ? `out/make/zip/${platform}/${arch}`
+  : `out/make/squirrel.windows/${arch}`;
 
 if (!version) {
-  console.error('Usage: node generate-update-manifest.js <version> <channel> [arch] [outputDir]');
+  console.error('Usage: node generate-update-manifest.js <version> <channel> [arch] [platform]');
   process.exit(1);
 }
 
@@ -69,11 +72,13 @@ sha512: ${manifest.sha512}
 releaseNotes: ${manifest.releaseNotes}
 `;
 
-// Write manifest file
-const manifestPath = path.join(outputDir, `${channel}-mac.yml`);
+// Write manifest file with platform-specific name
+const manifestName = platform === 'darwin' ? `${channel}-mac.yml` : `${channel}-win.yml`;
+const manifestPath = path.join(outputDir, manifestName);
 fs.writeFileSync(manifestPath, yaml, 'utf8');
 
 console.log(`Manifest generated at ${manifestPath}`);
+console.log(`Platform: ${platform}`);
 console.log(`Channel: ${channel}`);
 console.log(`Version: ${version}`);
 console.log(`File: ${zipFile}`);

@@ -4,7 +4,7 @@
   "description": "Demo Academia Electron App",
   "main": ".webpack/main",
   "scripts": {
-    "build:native": "cd src/native && npx node-gyp rebuild",
+    "build:native": "node scripts/build-native-safe.js",
     "build:popup": "webpack --config webpack.popup.config.js",
     "build:popup:watch": "webpack --config webpack.popup.config.js --watch",
     "prestart": "npm run build:native && npm run build:popup",
