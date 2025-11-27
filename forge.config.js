@@ -1,25 +1,33 @@
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
+const os = require('os');
 
 // Check if we have a valid code signing identity
 // Use environment variable or fall back to undefined for local development
 const codeSignIdentity = process.env.APPLE_IDENTITY || undefined;
+
+// Platform detection for conditional resource bundling
+const platform = os.platform();
 
 const packagerConfig = {
   asar: {
     unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*}',
   },
   extraResource: [
-    'src/applescripts',
-    'src/native/build/Release/word_accessibility.node',
+    ...(platform === 'darwin' ? [
+      'src/applescripts',
+      'src/native/build/Release/word_accessibility.node',
+    ] : []),
     'dist/popup',
     'src/assets/icons',
     'app-update.yml'
   ],
-  extendInfo: {
-    NSAppleEventsUsageDescription: 'This app needs to send Apple Events to Microsoft Word to read document content.',
-    NSAppleScriptEnabled: true,
-  },
+  ...(platform === 'darwin' ? {
+    extendInfo: {
+      NSAppleEventsUsageDescription: 'This app needs to send Apple Events to Microsoft Word to read document content.',
+      NSAppleScriptEnabled: true,
+    },
+  } : {}),
 };
 
 // Only add code signing configuration if we have a valid identity
@@ -65,7 +73,13 @@ module.exports = {
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
-      config: {},
+      config: {
+        name: 'AcademiaElectron',
+        authors: 'Academia.edu',
+        description: 'Academia Electron Application',
+        certificateFile: process.env.WINDOWS_CERTIFICATE_FILE,
+        certificatePassword: process.env.WINDOWS_CERTIFICATE_PASSWORD,
+      },
     },
     {
       name: '@electron-forge/maker-zip',

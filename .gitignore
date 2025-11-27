@@ -46,3 +46,5 @@ src/native/build/
 .deps/
 
 src/native/build/SimpleTests
+
+.claude/settings.local.json

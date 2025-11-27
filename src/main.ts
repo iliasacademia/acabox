@@ -79,7 +79,7 @@ const createWindow = async (): Promise<void> => {
     width: 800,
     height: 600,
     frame: true, // Use native title bar with window controls
-    titleBarStyle: 'hidden', // Hide title bar but show traffic lights
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' } : {}), // Hide title bar but show traffic lights (macOS only)
     show: false, // Hidden on startup
     transparent: false, // Opaque background
     hasShadow: true, // Add shadow for visual separation
@@ -135,7 +135,7 @@ const createMainWindow = async (): Promise<void> => {
     width: 1440,
     height: 900,
     frame: true, // Use native title bar with window controls
-    titleBarStyle: 'hidden', // Hide title bar but show traffic lights
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' } : {}), // Hide title bar but show traffic lights (macOS only)
     show: false, // Hidden on startup
     transparent: false, // Opaque background
     hasShadow: true, // Add shadow for visual separation
@@ -578,7 +578,11 @@ function setupAutoUpdater(): void {
     return;
   }
 
+  // electron-updater will automatically append platform-specific manifest:
+  // - macOS: {channel}-mac.yml
+  // - Windows: {channel}.yml (Squirrel.Windows)
   const feedUrl = `https://${cloudFrontDomain}/${channel}`;
+  logger.info(`[Auto-Updater] Platform: ${process.platform}`);
   logger.info(`[Auto-Updater] Feed URL configured: ${feedUrl}`);
   logger.info('[Auto-Updater] Security: CloudFront domain validation passed');
 
