@@ -1,11 +1,68 @@
 import { BrowserWindow } from 'electron';
-import { getNotifications, updateNotification } from './uploader';
-import { Notification } from './types/notifications';
+import { APIclient, getCsrfToken } from './apiClient';
+import { Notification, GetNotificationsResponse } from './types/notifications';
 
 export interface CachedNotification extends Notification {
   fetched_at: number;
   synced_to_backend: boolean;
 }
+
+// Desktop Notifications API
+export const getNotifications = async (): Promise<GetNotificationsResponse> => {
+  const client = await APIclient();
+  const response = await client.get('/v0/desktop_notifications/get_notifications');
+  return response.data;
+};
+
+export const updateNotification = async (
+  id: number,
+  status: 'unread' | 'read' | 'dismissed',
+  readAt?: number | null,
+  dismissedAt?: number | null,
+  deliveredAt?: number | null
+): Promise<void> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+
+  const requestPayload = {
+    id,
+    status,
+    read_at: readAt,
+    dismissed_at: dismissedAt,
+    delivered_at: deliveredAt,
+  };
+
+  console.log('[API] updateNotification request:', {
+    endpoint: '/v0/desktop_notifications/update_notification',
+    method: 'PATCH',
+    payload: requestPayload,
+    delivered_at_type: typeof deliveredAt,
+    delivered_at_value: deliveredAt,
+  });
+
+  try {
+    const response = await client.patch(
+      '/v0/desktop_notifications/update_notification',
+      requestPayload,
+      {
+        headers: { 'x-csrf-token': csrfToken },
+      }
+    );
+
+    console.log('[API] updateNotification response:', {
+      status: response.status,
+      statusText: response.statusText,
+      data: response.data,
+    });
+  } catch (error: any) {
+    console.error('[API] updateNotification error:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+    });
+    throw error;
+  }
+};
 
 class NotificationManager {
   private notifications: Map<number, CachedNotification> = new Map();
@@ -56,6 +113,10 @@ class NotificationManager {
           ...notif,
           fetched_at: fetchedAt,
           synced_to_backend: true,
+          // If delivered_at is missing and notification is already processed,
+          // set it to current time (consider it "delivered" when we first learn about it)
+          delivered_at: notif.delivered_at ??
+            (notif.status !== 'unread' ? fetchedAt : undefined),
         };
 
         // Check if this is a new notification (not yet delivered)
@@ -82,8 +143,26 @@ class NotificationManager {
         console.log(`[NotificationManager] Sending popups for ${newNotifications.length} notifications`);
         for (const notif of newNotifications) {
           console.log(`[NotificationManager] Sending popup for notification ${notif.id}: "${notif.title}"`);
+
+          // Validate window before sending
+          if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+            console.error(`[NotificationManager] Cannot send notification ${notif.id}: mainWindow is null or destroyed`);
+            continue; // Skip marking as delivered
+          }
+
+          if (!this.mainWindow.webContents || this.mainWindow.webContents.isDestroyed()) {
+            console.error(`[NotificationManager] Cannot send notification ${notif.id}: webContents is null or destroyed`);
+            continue;
+          }
+
           // Send popup event
-          this.mainWindow.webContents.send('new-notification', notif);
+          try {
+            console.log(`[NotificationManager] Sending IPC 'new-notification' for ${notif.id}`);
+            this.mainWindow.webContents.send('new-notification', notif);
+          } catch (error) {
+            console.error(`[NotificationManager] Failed to send IPC for notification ${notif.id}:`, error);
+            continue; // Don't mark as delivered if send failed
+          }
 
           // Mark as delivered immediately
           try {

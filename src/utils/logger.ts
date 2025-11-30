@@ -1,4 +1,17 @@
 import log from 'electron-log';
+import { BrowserWindow, app } from 'electron';
+
+// Development logging configuration
+export const DEV_LOGGING_CONFIG = {
+  devToolsLogging: true,   // Send logs to renderer DevTools console
+  terminalLogging: true,   // Output logs to terminal
+};
+
+// Helper function to detect channel from version string
+export function getChannelFromVersion(): 'stable' | 'beta' {
+  const version = app.getVersion();
+  return version.includes('-beta') ? 'beta' : 'stable';
+}
 
 /**
  * Logger class that switches between console.log (development) and electron-log (production)
@@ -10,6 +23,7 @@ export class Logger {
   private isPackaged: boolean;
   private version: string;
   private channel: 'stable' | 'beta';
+  private mainWindow: BrowserWindow | null = null;
 
   constructor(isPackaged: boolean, version: string, channel: 'stable' | 'beta') {
     this.isPackaged = isPackaged;
@@ -50,13 +64,44 @@ export class Logger {
   }
 
   /**
+   * Set the main window reference for sending logs to renderer
+   */
+  setMainWindow(window: BrowserWindow | null): void {
+    this.mainWindow = window;
+  }
+
+  /**
+   * Send log to renderer DevTools (development only)
+   */
+  private sendToRenderer(level: string, args: any[]): void {
+    if (!DEV_LOGGING_CONFIG.devToolsLogging) {
+      return; // DevTools logging disabled
+    }
+
+    if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
+      try {
+        this.mainWindow.webContents.send('api-log', {
+          type: level,
+          message: args,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        // Silently fail - don't want logging to break the app
+      }
+    }
+  }
+
+  /**
    * Log an info message
    */
   info(...args: any[]): void {
     if (this.isPackaged) {
       log.info(...args);
     } else {
-      console.log(...args);
+      if (DEV_LOGGING_CONFIG.terminalLogging) {
+        console.log(...args);
+      }
+      this.sendToRenderer('info', args);
     }
   }
 
@@ -67,7 +112,10 @@ export class Logger {
     if (this.isPackaged) {
       log.error(...args);
     } else {
-      console.error(...args);
+      if (DEV_LOGGING_CONFIG.terminalLogging) {
+        console.error(...args);
+      }
+      this.sendToRenderer('error', args);
     }
   }
 
@@ -78,7 +126,10 @@ export class Logger {
     if (this.isPackaged) {
       log.warn(...args);
     } else {
-      console.warn(...args);
+      if (DEV_LOGGING_CONFIG.terminalLogging) {
+        console.warn(...args);
+      }
+      this.sendToRenderer('warn', args);
     }
   }
 
@@ -89,7 +140,94 @@ export class Logger {
     if (this.isPackaged) {
       log.debug(...args);
     } else {
-      console.debug(...args);
+      if (DEV_LOGGING_CONFIG.terminalLogging) {
+        console.debug(...args);
+      }
+      this.sendToRenderer('debug', args);
+    }
+  }
+
+  /**
+   * Log an API request
+   */
+  apiRequest(method: string, endpoint: string, data?: any): void {
+    if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
+      try {
+        this.mainWindow.webContents.send('api-log', {
+          type: 'request',
+          method,
+          endpoint,
+          data,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        // Silently fail
+        console.error('Error sending API request log to renderer:', error);
+      }
+    }
+
+    // Also log to terminal if enabled
+    if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
+      console.log(`[API REQUEST] ${method} ${endpoint}`, data || '');
+    }
+  }
+
+  /**
+   * Log an API response
+   */
+  apiResponse(method: string, endpoint: string, status: number, statusText: string, data?: any): void {
+    if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
+      try {
+        this.mainWindow.webContents.send('api-log', {
+          type: 'response',
+          method,
+          endpoint,
+          status,
+          statusText,
+          data,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        // Silently fail
+        console.error('Error sending API response log to renderer:', error);
+      }
+    }
+
+    if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
+      console.log(`[API RESPONSE] ${method} ${endpoint} - ${status} ${statusText}`, JSON.stringify(data) || '');
+    }
+  }
+
+  /**
+   * Log an API error
+   */
+  apiError(method: string, endpoint: string, url: string, message: string, status?: number, data?: any): void {
+    if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
+      try {
+        this.mainWindow.webContents.send('api-log', {
+          type: 'error',
+          method,
+          endpoint,
+          url,
+          message,
+          status,
+          data,
+          timestamp: new Date().toISOString(),
+        });
+      } catch (error) {
+        // Silently fail
+      }
+    }
+
+    if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
+      console.error(`[API ERROR] ${method} ${endpoint}`, { url, message, status, data });
     }
   }
 }
+
+// Default logger instance for use throughout the application
+export const defaultLogger = new Logger(
+  app.isPackaged,
+  app.getVersion(),
+  getChannelFromVersion()
+);

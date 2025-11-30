@@ -43,6 +43,13 @@ export interface Notification {
 
   /** Timestamp when the notification was created */
   created_at: number;
+
+  /** Additional data associated with the notification */
+  data?: {
+    agent_name?: string;
+    conversation_id?: number;
+    conversation_title?: string;
+  };
 }
 
 /**
