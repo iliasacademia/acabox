@@ -112,7 +112,7 @@ describe('Notification API Client', () => {
 
       const result = await getNotifications();
 
-      expect(mockClient.get).toHaveBeenCalledWith('/v0/desktop_notifications/get_notifications');
+      expect(mockClient.get).toHaveBeenCalledWith('/v0/desktop_notifications/get_notifications', { params: {} });
       expect(result).toEqual({ notifications: mockNotifications });
       expect(result.notifications).toHaveLength(2);
       expect(result.notifications[0].id).toBe(1);

@@ -8,9 +8,10 @@ export interface CachedNotification extends Notification {
 }
 
 // Desktop Notifications API
-export const getNotifications = async (): Promise<GetNotificationsResponse> => {
+export const getNotifications = async (after?: string): Promise<GetNotificationsResponse> => {
   const client = await APIclient();
-  const response = await client.get('/v0/desktop_notifications/get_notifications');
+  const params = after ? { after } : {};
+  const response = await client.get('/v0/desktop_notifications/get_notifications', { params });
   return response.data;
 };
 
@@ -81,6 +82,20 @@ class NotificationManager {
   }
 
   /**
+   * Get the latest created_at timestamp from cached notifications
+   * Used for incremental syncing with the backend API
+   */
+  private getLatestCreatedAt(): number | null {
+    let latest: number | null = null;
+    for (const notif of this.notifications.values()) {
+      if (latest === null || notif.created_at > latest) {
+        latest = notif.created_at;
+      }
+    }
+    return latest;
+  }
+
+  /**
    * Sync notifications from backend API and merge into memory
    */
   async syncWithBackend(userId: number): Promise<void> {
@@ -91,8 +106,14 @@ class NotificationManager {
 
     this.isSyncing = true;
     try {
-      console.log('Syncing notifications from backend...');
-      const response = await getNotifications();
+      // Get latest timestamp from cache for incremental sync
+      const latestCreatedAt = this.getLatestCreatedAt();
+      const afterParam = latestCreatedAt
+        ? new Date(latestCreatedAt).toISOString()
+        : undefined;
+
+      console.log(`Syncing notifications from backend...${afterParam ? ` (after: ${afterParam})` : ' (full sync)'}`);
+      const response = await getNotifications(afterParam);
       const fetchedAt = Date.now();
 
       console.log(`[NotificationManager] Received ${response.notifications.length} notifications from backend`);
