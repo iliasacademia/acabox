@@ -33,14 +33,6 @@ export const updateNotification = async (
     delivered_at: deliveredAt,
   };
 
-  console.log('[API] updateNotification request:', {
-    endpoint: '/v0/desktop_notifications/update_notification',
-    method: 'PATCH',
-    payload: requestPayload,
-    delivered_at_type: typeof deliveredAt,
-    delivered_at_value: deliveredAt,
-  });
-
   try {
     const response = await client.patch(
       '/v0/desktop_notifications/update_notification',
@@ -49,12 +41,6 @@ export const updateNotification = async (
         headers: { 'x-csrf-token': csrfToken },
       }
     );
-
-    console.log('[API] updateNotification response:', {
-      status: response.status,
-      statusText: response.statusText,
-      data: response.data,
-    });
   } catch (error: any) {
     console.error('[API] updateNotification error:', {
       message: error.message,
@@ -116,8 +102,6 @@ class NotificationManager {
       const response = await getNotifications(afterParam);
       const fetchedAt = Date.now();
 
-      console.log(`[NotificationManager] Received ${response.notifications.length} notifications from backend`);
-
       // Get existing notification IDs
       const existingIds = new Set<number>();
       for (const [id, notif] of this.notifications) {
@@ -143,8 +127,6 @@ class NotificationManager {
         // Check if this is a new notification (not yet delivered)
         // Use == null to check for both null and undefined explicitly
         const shouldShowPopup = notif.status === 'unread' && notif.delivered_at == null;
-        console.log(`[NotificationManager] Notification ${notif.id} should show popup: ${shouldShowPopup} (status=${notif.status}, delivered_at=${notif.delivered_at})`);
-
         if (shouldShowPopup) {
           newNotifications.push(notif);
         }
@@ -156,15 +138,9 @@ class NotificationManager {
       // Sync local changes to backend
       await this.syncLocalChangesToBackend();
 
-      console.log(`[NotificationManager] ${newNotifications.length} notifications will trigger popups`);
-      console.log(`[NotificationManager] MainWindow available: ${!!this.mainWindow}`);
-
       // Notify renderer about new notifications and mark as delivered
       if (newNotifications.length > 0 && this.mainWindow) {
-        console.log(`[NotificationManager] Sending popups for ${newNotifications.length} notifications`);
         for (const notif of newNotifications) {
-          console.log(`[NotificationManager] Sending popup for notification ${notif.id}: "${notif.title}"`);
-
           // Validate window before sending
           if (!this.mainWindow || this.mainWindow.isDestroyed()) {
             console.error(`[NotificationManager] Cannot send notification ${notif.id}: mainWindow is null or destroyed`);
@@ -178,7 +154,6 @@ class NotificationManager {
 
           // Send popup event
           try {
-            console.log(`[NotificationManager] Sending IPC 'new-notification' for ${notif.id}`);
             this.mainWindow.webContents.send('new-notification', notif);
           } catch (error) {
             console.error(`[NotificationManager] Failed to send IPC for notification ${notif.id}:`, error);
@@ -196,14 +171,11 @@ class NotificationManager {
               deliveredAt
             );
 
-            console.log(`[NotificationManager] Successfully marked notification ${notif.id} as delivered at ${deliveredAt}`);
-
             // Update in memory
             const cached = this.notifications.get(notif.id);
             if (cached) {
               cached.delivered_at = deliveredAt;
               this.notifications.set(notif.id, cached);
-              console.log(`[NotificationManager] Updated in-memory cache for notification ${notif.id} with delivered_at=${deliveredAt}`);
             } else {
               console.warn(`[NotificationManager] Could not find notification ${notif.id} in cache to update delivered_at`);
             }
@@ -218,12 +190,8 @@ class NotificationManager {
       console.log(`Synced ${response.notifications.length} notifications, ${newNotifications.length} new`);
 
       // Notify listeners that sync is complete (for badge updates, etc.)
-      const syncCompleteTime = Date.now();
-      console.log(`[NotificationManager] Sync complete at ${syncCompleteTime}, invoking onSyncComplete callback`);
       if (this.onSyncComplete) {
-        console.log(`[NotificationManager] Calling onSyncComplete callback with userId=${userId}`);
         this.onSyncComplete(userId);
-        console.log(`[NotificationManager] onSyncComplete callback completed at ${Date.now()} (took ${Date.now() - syncCompleteTime}ms)`);
       } else {
         console.warn(`[NotificationManager] onSyncComplete callback is NOT set!`);
       }

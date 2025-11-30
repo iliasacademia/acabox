@@ -11,7 +11,7 @@ import { defaultLogger as logger } from './utils/logger';
 
 // In development mode, default to devdemia API
 export const isDev = !app.isPackaged;
-export const DEFAULT_URL = isDev ? 'https://api.devdemia.com/' : 'https://api.academia.edu/';
+export const DEFAULT_URL = isDev ? 'https://api.devdemia.com' : 'https://api.academia.edu';
 export const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 
 let apiClient: AxiosInstance | null = null;
@@ -140,7 +140,7 @@ export const getCsrfToken = async (): Promise<string> => {
 
 export const checkLogin = async (): Promise<boolean> => {
   const client = await APIclient();
-  const response = await client.get('v0/user', {
+  const response = await client.get('/v0/user', {
     validateStatus: (status) => {
       return (status >= 200 && status < 300) || status === 401;
     },
@@ -150,7 +150,7 @@ export const checkLogin = async (): Promise<boolean> => {
 
 export const getCurrentUser = async (): Promise<{ id: number } | null> => {
   const client = await APIclient();
-  const response = await client.get('v0/user', {
+  const response = await client.get('/v0/user', {
     validateStatus: (status) => {
       return (status >= 200 && status < 300) || status === 401;
     },
@@ -168,7 +168,7 @@ export const login = async (email: string, password: string) => {
   formData.append('password', password);
   formData.append('remember_me', 'true');
   const response = await client
-    .post('v0/login', formData, {
+    .post('/v0/login', formData, {
       headers: { 'x-csrf-token': await getCsrfToken(), ...formData.getHeaders() },
     })
     .catch((error) => {

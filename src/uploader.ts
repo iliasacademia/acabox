@@ -4,7 +4,7 @@ import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'fs/promises';
 import { APIclient, getCsrfToken } from './apiClient';
-import { SyncFolder, SyncedFile, SyncAgentFolder, GetLatestResponse } from './types/api';
+import { GetLatestResponse } from './types/api';
 
 const getTitle = async (filePath: string): Promise<string | undefined> => {
   const arrayBuffer = await readFile(filePath);
@@ -38,7 +38,7 @@ export const uploadFile = async (filePath: string, basePath: string) => {
   const csrfToken = await getCsrfToken();
   formData.append('title', title);
   formData.append('file', fs.createReadStream(filePath));
-  const response = await client.post('v0/private_papers', formData, {
+  const response = await client.post('/v0/private_papers', formData, {
     headers: { 'x-csrf-token': csrfToken, ...formData.getHeaders() },
     validateStatus: () => {
       // Allow everything so we can give the user feedback on the error
@@ -50,7 +50,7 @@ export const uploadFile = async (filePath: string, basePath: string) => {
 
 export const searchFiles = async (searchTerm: string) => {
   const client = await APIclient();
-  const response = await client.get('v0/private_papers/', {
+  const response = await client.get('/v0/private_papers/', {
     params: { search: searchTerm },
   });
   return response.data;

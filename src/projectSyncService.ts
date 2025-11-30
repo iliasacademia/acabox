@@ -376,7 +376,7 @@ class ProjectSyncService {
 
     // Upload file
     const response = await client.post(
-      `v0/co_scientist/projects/${projectId}/files`,
+      `/v0/co_scientist/projects/${projectId}/files`,
       formData,
       {
         headers: {

@@ -7,7 +7,7 @@ import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
 import { defaultLogger as logger, getChannelFromVersion } from './utils/logger';
 import { login, logout, checkLogin, getCurrentUser, APIclient, getCsrfToken } from './apiClient';
-import { uploadFile, searchFiles, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles } from './uploader';
+import { uploadFile, searchFiles, getStatus, addFolder, removeFolder, listFiles } from './uploader';
 import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
@@ -1114,33 +1114,11 @@ ipcMain.handle('api-call', async (event, options: { method: string; endpoint: st
   try {
     const { method, endpoint, data } = options;
     const client = await APIclient();
-
-    // Log cookie metadata without exposing token values
-    const cookieJar = (client.defaults.httpsAgent as any)?.options?.cookies?.jar;
-    if (cookieJar && process.env.NODE_ENV === 'development') {
-      const baseURL = client.defaults.baseURL || '';
-      cookieJar.getCookies(baseURL, (err: Error | null, cookies: any[]) => {
-        if (!err && cookies) {
-          const loginTokenCookies = cookies.filter((c: any) => c.key === 'login_token');
-          console.log(`[API] Request to ${endpoint} will use ${loginTokenCookies.length} login_token cookie(s)`);
-          if (loginTokenCookies.length > 0) {
-            loginTokenCookies.forEach((c: any, i: number) => {
-              // Only log metadata, never log token values (even partially)
-              console.log(`[API] Cookie ${i + 1}: domain=${c.domain}, path=${c.path}, length=${(c.value || '').length} chars`);
-            });
-          }
-        }
-      });
-    }
-
-    console.log(`[API] ${method} ${endpoint}`, data ? `with data: ${JSON.stringify(data)}` : '');
-
     // Get CSRF token for non-GET requests
     const headers: any = {};
     if (method.toUpperCase() !== 'GET') {
       const csrfToken = await getCsrfToken();
       headers['x-csrf-token'] = csrfToken;
-      console.log(`[API] Including CSRF token for ${method} request`);
     }
 
     let response;
@@ -1160,8 +1138,6 @@ ipcMain.handle('api-call', async (event, options: { method: string; endpoint: st
       default:
         throw new Error(`Unsupported HTTP method: ${method}`);
     }
-
-    console.log(`[API] ${method} ${endpoint} - Success:`, response.status);
 
     return response.data;
   } catch (error: any) {
