@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import LoginModal from './LoginModal';
 import ProjectsList from './ProjectsList';
 import ProjectDetail from './ProjectDetail';
 import CreateProjectWizard, {
@@ -16,7 +15,7 @@ import {
   addFolderToProject,
   addCollaborator,
 } from '../services/projectsApi';
-import { FEATURES } from '../../shared/types';
+import { FEATURES, NavigateToPagePayload } from '../../shared/types';
 import { ConversationsPage } from './conversations/ConversationsPage';
 import './Projects.css';
 
@@ -35,11 +34,16 @@ interface UserData {
   name?: string;
 }
 
-const Projects: React.FC = () => {
-  const [showLogin, setShowLogin] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [userId, setUserId] = useState<number | null>(null);
-  const [userName, setUserName] = useState<string | null>(null);
+interface ProjectsProps {
+  userId: number | null;
+  userName: string | null;
+  onLogout: () => void;
+  onLoginRequired: () => void;
+  pendingNavigation: NavigateToPagePayload | null;
+  onNavigationHandled: () => void;
+}
+
+const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLoginRequired, pendingNavigation, onNavigationHandled }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<View>('list');
@@ -52,46 +56,19 @@ const Projects: React.FC = () => {
     title: '',
     message: '',
   });
+  const [pendingConversationId, setPendingConversationId] = useState<number | null>(null);
 
-  useEffect(() => {
-    checkLoginStatus();
+  // Derive isLoggedIn from userId prop
+  const isLoggedIn = !!userId;
 
-    // Listen for API logs from main process
-    const handleApiLog = (_event: any, logData: any) => {
-      if (logData.type === 'request') {
-        console.log(
-          `%c[API REQUEST] ${logData.method} ${logData.endpoint}`,
-          'color: #0645b1; font-weight: bold',
-          logData.data || ''
-        );
-      } else if (logData.type === 'response') {
-        console.log(
-          `%c[API RESPONSE] ${logData.method} ${logData.endpoint} - ${logData.status} ${logData.statusText}`,
-          'color: #28a745; font-weight: bold'
-        );
-      } else if (logData.type === 'error') {
-        console.error(
-          `%c[API ERROR] ${logData.method} ${logData.endpoint} - ${logData.status || 'No status'}`,
-          'color: #dc3545; font-weight: bold',
-          {
-            url: logData.url,
-            message: logData.message,
-            data: logData.data,
-          }
-        );
-      }
-    };
-
-    window.electronAPI.on('api-log', handleApiLog);
-
-    return () => {
-      window.electronAPI.removeListener('api-log', handleApiLog);
-    };
-  }, []);
-
+  // Load projects when logged in
   useEffect(() => {
     if (isLoggedIn) {
       loadProjects();
+    } else {
+      // Clear state when logged out
+      setProjects([]);
+      setLoading(false);
     }
   }, [isLoggedIn]);
 
@@ -113,54 +90,39 @@ const Projects: React.FC = () => {
     };
   }, [showUserMenu]);
 
-  const checkLoginStatus = async () => {
-    try {
-      const loggedIn = await window.electronAPI.invoke('check-login');
+  // Handle navigation from App (triggered by notification clicks)
+  useEffect(() => {
+    if (!pendingNavigation) return;
 
-      // Validate response
-      if (typeof loggedIn !== 'boolean') {
-        throw new Error('Invalid login status response');
-      }
+    console.log('[Projects] Handling pending navigation:', pendingNavigation);
 
-      setIsLoggedIn(loggedIn);
-      if (!loggedIn) {
-        setShowLogin(true);
-        setUserId(null);
-        setUserName(null);
+    if (pendingNavigation.page === 'conversation') {
+      // Find the project in our local state
+      const targetProject = projects.find(p => p.id === pendingNavigation.projectId);
+
+      if (targetProject) {
+        console.log('[Projects] Navigating to project:', targetProject.name, 'conversation:', pendingNavigation.conversationId);
+        setSelectedProject(targetProject);
+        setCurrentView('detail');
+        setPendingConversationId(pendingNavigation.conversationId);
+        onNavigationHandled();
       } else {
-        // Get current user with validation
-        const user = await window.electronAPI.invoke('get-current-user');
-
-        // Validate user object
-        if (!user || typeof user !== 'object') {
-          throw new Error('Invalid user data received');
-        }
-
-        if (typeof user.id !== 'number') {
-          throw new Error('Invalid user ID');
-        }
-
-        setUserId(user.id);
-        setUserName(user.first_name || user.name || null);
+        console.warn('[Projects] Project not found for navigation:', pendingNavigation.projectId);
+        // Project might not be loaded yet, try to reload projects
+        loadProjects().then(() => {
+          const project = projects.find(p => p.id === pendingNavigation.projectId);
+          if (project) {
+            setSelectedProject(project);
+            setCurrentView('detail');
+            setPendingConversationId(pendingNavigation.conversationId);
+          }
+          onNavigationHandled();
+        });
       }
-    } catch (error) {
-      console.error('Error checking login status:', error);
-      // Force logout on authentication errors
-      setIsLoggedIn(false);
-      setShowLogin(true);
-      setUserId(null);
-      setUserName(null);
-
-      // Show error to user
-      setDialog({
-        type: 'alert',
-        title: 'Authentication Error',
-        message: 'Unable to verify login status. Please log in again.',
-      });
-    } finally {
-      setLoading(false);
+    } else {
+      onNavigationHandled();
     }
-  };
+  }, [pendingNavigation, projects, onNavigationHandled]);
 
   const loadProjects = async () => {
     try {
@@ -174,57 +136,12 @@ const Projects: React.FC = () => {
     }
   };
 
-  const handleLoginSuccess = async () => {
-    setShowLogin(false);
-    setIsLoggedIn(true);
-
-    // Get user ID after successful login with validation
-    try {
-      const user = await window.electronAPI.invoke('get-current-user');
-
-      // Validate user object
-      if (!user || typeof user !== 'object') {
-        throw new Error('Invalid user data received after login');
-      }
-
-      if (typeof user.id !== 'number') {
-        throw new Error('Invalid user ID received after login');
-      }
-
-      setUserId(user.id);
-      setUserName(user.first_name || user.name || null);
-    } catch (error) {
-      console.error('Error getting current user:', error);
-      // Reset authentication state on error
-      setIsLoggedIn(false);
-      setShowLogin(true);
-      setUserId(null);
-      setUserName(null);
-
-      setDialog({
-        type: 'alert',
-        title: 'Login Error',
-        message: 'Login succeeded but failed to retrieve user information. Please try again.',
-      });
-    }
-  };
-
-  const handleLogout = async () => {
+  const handleLogoutClick = () => {
     setShowUserMenu(false);
-    try {
-      const result = await window.electronAPI.invoke('logout');
-      if (result.success) {
-        setIsLoggedIn(false);
-        setShowLogin(true);
-        setUserId(null);
-        setUserName(null);
-        setProjects([]);
-        setCurrentView('list');
-        setSelectedProject(null);
-      }
-    } catch (error) {
-      console.error('Error logging out:', error);
-    }
+    setProjects([]);
+    setCurrentView('list');
+    setSelectedProject(null);
+    onLogout();
   };
 
   const handleCreateProject = () => {
@@ -370,12 +287,20 @@ const Projects: React.FC = () => {
   const handleBackToList = () => {
     setCurrentView('list');
     setSelectedProject(null);
+    setPendingConversationId(null);
   };
 
-  // Show login modal if not logged in
-  if (showLogin) {
-    return <LoginModal onSuccess={handleLoginSuccess} />;
-  }
+  // Clear pending conversation ID after it's been used by ConversationsPage
+  const handleConversationNavigated = () => {
+    setPendingConversationId(null);
+  };
+
+  // Request login if not logged in
+  useEffect(() => {
+    if (!isLoggedIn) {
+      onLoginRequired();
+    }
+  }, [isLoggedIn, onLoginRequired]);
 
   // Main projects UI
   return (
@@ -397,7 +322,7 @@ const Projects: React.FC = () => {
                 <div className="userMenuName">{userName || `User ${userId}`}</div>
               </div>
               <div className="userMenuDivider"></div>
-              <button className="userMenuItem" onClick={handleLogout}>
+              <button className="userMenuItem" onClick={handleLogoutClick}>
                 <span>Logout</span>
               </button>
             </div>
@@ -418,7 +343,12 @@ const Projects: React.FC = () => {
             />
           ) : currentView === 'detail' && selectedProject ? (
             FEATURES.CONVERSATIONS_ENABLED ? (
-              <ConversationsPage selectedProject={selectedProject} onBack={handleBackToList} />
+              <ConversationsPage
+                selectedProject={selectedProject}
+                onBack={handleBackToList}
+                initialConversationId={pendingConversationId}
+                onConversationNavigated={handleConversationNavigated}
+              />
             ) : (
               <ProjectDetail project={selectedProject} onBack={handleBackToList} />
             )

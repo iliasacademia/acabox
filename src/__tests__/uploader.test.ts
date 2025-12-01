@@ -45,16 +45,22 @@ jest.mock('pdf-lib', () => ({
   },
 }));
 
-// Import after mocking
-import { getNotifications, updateNotification } from '../uploader';
-import { Notification } from '../types/notifications';
-
 // Create a mock axios instance
 const mockClient: any = {
   get: jest.fn(),
   patch: jest.fn(),
   post: jest.fn(),
 };
+
+// Mock apiClient module
+jest.mock('../apiClient', () => ({
+  APIclient: jest.fn(async () => mockClient),
+  getCsrfToken: jest.fn(async () => 'mock-csrf-token'),
+}));
+
+// Import after mocking
+import { getNotifications, updateNotification } from '../notificationManager';
+import { Notification } from '../types/notifications';
 
 // Mock axios.create to return our mock client (called once when module loads)
 mockedAxios.create = jest.fn(() => mockClient);
@@ -106,7 +112,7 @@ describe('Notification API Client', () => {
 
       const result = await getNotifications();
 
-      expect(mockClient.get).toHaveBeenCalledWith('/v0/desktop_notifications/get_notifications');
+      expect(mockClient.get).toHaveBeenCalledWith('/v0/desktop_notifications/get_notifications', { params: {} });
       expect(result).toEqual({ notifications: mockNotifications });
       expect(result.notifications).toHaveLength(2);
       expect(result.notifications[0].id).toBe(1);
@@ -142,21 +148,11 @@ describe('Notification API Client', () => {
       const notificationId = 1;
       const readAt = Date.now();
 
-      mockClient.post.mockResolvedValue({ data: 'mock-csrf-token' });
       mockClient.patch.mockResolvedValue({ status: 200 });
 
       await updateNotification(notificationId, 'read', readAt, null);
 
-      // First call is for CSRF token
-      expect(mockClient.post).toHaveBeenCalledWith(
-        'csrf_meta',
-        {},
-        expect.objectContaining({
-          headers: expect.any(Object),
-        })
-      );
-
-      // Second call is the actual update
+      // Check that the update was called (getCsrfToken is mocked in apiClient)
       expect(mockClient.patch).toHaveBeenCalledWith(
         '/v0/desktop_notifications/update_notification',
         {

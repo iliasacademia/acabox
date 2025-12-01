@@ -1,25 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import LoginModal from './components/LoginModal';
-import UploadSection from './components/UploadSection';
-import SearchSection from './components/SearchSection';
-import ScreenReader from './components/ScreenReader';
-import SyncSection from './components/SyncSection';
-import WordReader from './components/WordReader';
-import SelectionTracker from './components/SelectionTracker';
-import TrayIconSwitcher from './components/TrayIconSwitcher';
-import PositionDebugger from './components/PositionDebugger';
+import DevTools from './components/DevTools';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
+import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
 import Projects from './components/Projects';
 import './App.css';
 
-type Page = 'positionDebugger' | 'uploader' | 'notifications' | 'screenReader' | 'sync' | 'wordReader' | 'selectionTracker' | 'trayIconSwitcher';
-
 const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
-  const [currentPage, setCurrentPage] = useState<Page>('positionDebugger');
   const [userId, setUserId] = useState<number | null>(null);
-  const isDevelopment = process.env.NODE_ENV === 'development';
+  const [userName, setUserName] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [pendingNavigation, setPendingNavigation] = useState<NavigateToPagePayload | null>(null);
 
   // Detect if this is the main window (Projects UI) or dev window
   const isMainWindow = new URLSearchParams(window.location.search).get('window') === 'main';
@@ -27,25 +20,38 @@ const App: React.FC = () => {
   useEffect(() => {
     checkLoginStatus();
 
-    // Listen for button actions from the native popup
-    const handleButtonAction = (_event: any, data: { action: string; text: string }) => {
-      console.log('[App] Button action received:', data.action);
-
-      if (data.action === 'copy') {
-        // Show success notification
-        new Notification('Copied Successfully', {
-          body: 'Text has been copied to clipboard',
-        });
-      } else if (data.action === 'lookup') {
-        // Switch to Selection Tracker page to show the lookup
-        setCurrentPage('selectionTracker');
+    // Listen for API logs from main process
+    const handleApiLog = (_event: any, logData: any) => {
+      const timestamp = logData.timestamp || new Date().toISOString();
+      if (logData.type === 'request') {
+        console.log(
+          `%c[${timestamp}] [API REQUEST] ${logData.method} ${logData.endpoint}`,
+          'color: #0645b1; font-weight: bold',
+          logData.data || ''
+        );
+      } else if (logData.type === 'response') {
+        console.log(
+          `%c[${timestamp}] [API RESPONSE] ${logData.method} ${logData.endpoint} - ${logData.status} ${logData.statusText}`,
+          'color: #28a745; font-weight: bold',
+          logData.data || ''
+        );
+      } else if (logData.type === 'error') {
+        console.error(
+          `%c[${timestamp}] [API ERROR] ${logData.method} ${logData.endpoint} - ${logData.status || 'No status'}`,
+          'color: #dc3545; font-weight: bold',
+          {
+            url: logData.url,
+            message: logData.message,
+            data: logData.data,
+          }
+        );
       }
     };
 
-    window.electronAPI.on('button-action', handleButtonAction);
+    window.electronAPI.on('api-log', handleApiLog);
 
     return () => {
-      window.electronAPI.removeListener('button-action', handleButtonAction);
+      window.electronAPI.removeListener('api-log', handleApiLog);
     };
   }, []);
 
@@ -80,17 +86,42 @@ const App: React.FC = () => {
     }
   }, [userId]);
 
+  // Listen for navigation events from main process (triggered by notification clicks)
+  useEffect(() => {
+    const handleNavigateToPage = (_event: any, payload: NavigateToPagePayload) => {
+      console.log('[App] Navigate to page event received:', payload);
+      setPendingNavigation(payload);
+    };
+
+    window.electronAPI.on(IPC_CHANNELS.NAVIGATE_TO_PAGE, handleNavigateToPage);
+    console.log('[App] navigate-to-page event listener registered');
+
+    return () => {
+      window.electronAPI.removeListener(IPC_CHANNELS.NAVIGATE_TO_PAGE, handleNavigateToPage);
+    };
+  }, []);
+
+  const handleNavigationHandled = () => {
+    setPendingNavigation(null);
+  };
+
   const checkLoginStatus = async () => {
-    const isLoggedIn = await window.electronAPI.invoke('check-login');
-    if (!isLoggedIn) {
-      setShowLogin(true);
-      setUserId(null);
-    } else {
-      // Get current user ID
-      const user = await window.electronAPI.invoke('get-current-user');
-      if (user) {
-        setUserId(user.id);
+    try {
+      const isLoggedIn = await window.electronAPI.invoke('check-login');
+      if (!isLoggedIn) {
+        setShowLogin(true);
+        setUserId(null);
+        setUserName(null);
+      } else {
+        // Get current user info
+        const user = await window.electronAPI.invoke('get-current-user');
+        if (user) {
+          setUserId(user.id);
+          setUserName(user.first_name || user.name || null);
+        }
       }
+    } finally {
+      setAuthLoading(false);
     }
   };
 
@@ -108,6 +139,19 @@ const App: React.FC = () => {
 
       osNotification.onclick = () => {
         console.log(`[Renderer] Notification ${notif.id} clicked`);
+
+        // Navigate to conversation if notification has the required data
+        if (notif.data?.conversation_id && notif.project_id) {
+          console.log(`[Renderer] Navigating to conversation ${notif.data.conversation_id} in project ${notif.project_id}`);
+          window.electronAPI.invoke(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+            page: 'conversation',
+            projectId: notif.project_id,
+            conversationId: notif.data.conversation_id,
+          } as NavigateToPagePayload);
+        }
+
+        // Mark as read
+        window.electronAPI.invoke('mark-notification-read', notif.id);
       };
 
       osNotification.onerror = (error) => {
@@ -120,10 +164,11 @@ const App: React.FC = () => {
 
   const handleLoginSuccess = async () => {
     setShowLogin(false);
-    // Get user ID after successful login
+    // Get user info after successful login
     const user = await window.electronAPI.invoke('get-current-user');
     if (user) {
       setUserId(user.id);
+      setUserName(user.first_name || user.name || null);
     }
   };
 
@@ -132,112 +177,37 @@ const App: React.FC = () => {
     if (result.success) {
       setShowLogin(true);
       setUserId(null);
+      setUserName(null);
     }
   };
 
   // If this is the main window, render the Projects UI
   if (isMainWindow) {
-    return <Projects />;
+    // Wait for auth check to complete before rendering Projects
+    if (authLoading) {
+      return null; // Or a loading spinner
+    }
+    return (
+      <>
+        <Projects
+          userId={userId}
+          userName={userName}
+          onLogout={handleLogout}
+          onLoginRequired={() => setShowLogin(true)}
+          pendingNavigation={pendingNavigation}
+          onNavigationHandled={handleNavigationHandled}
+        />
+        {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
+      </>
+    );
   }
 
   // Otherwise, render the development tools UI
   return (
-    <div className="app">
-      <div className="titleBarDragRegion" />
-      {isDevelopment && (
-        <div className="devBanner">
-          🔧 DEVELOPMENT MODE
-        </div>
-      )}
-      <div className="app-body">
-        <div className="sidebar">
-        <nav className="sidebarNav">
-          <button
-            className={`menuItem ${currentPage === 'positionDebugger' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('positionDebugger')}
-          >
-            Position Debugger
-          </button>
-          <button
-            className={`menuItem ${currentPage === 'uploader' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('uploader')}
-          >
-            Uploader
-          </button>
-          <button
-            className={`menuItem ${currentPage === 'notifications' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('notifications')}
-          >
-            Notifications
-          </button>
-          <button
-            className={`menuItem ${currentPage === 'screenReader' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('screenReader')}
-          >
-            Screen Reader
-          </button>
-          <button
-            className={`menuItem ${currentPage === 'sync' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('sync')}
-          >
-            Sync Agent
-          </button>
-          <button
-            className={`menuItem ${currentPage === 'wordReader' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('wordReader')}
-          >
-            Word Reader
-          </button>
-          <button
-            className={`menuItem ${currentPage === 'selectionTracker' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('selectionTracker')}
-          >
-            Selection Tracker
-          </button>
-          <button
-            className={`menuItem ${currentPage === 'trayIconSwitcher' ? 'active' : ''}`}
-            onClick={() => setCurrentPage('trayIconSwitcher')}
-          >
-            Tray Icon
-          </button>
-        </nav>
-        <button id="logoutButton" onClick={handleLogout}>
-          Logout
-        </button>
-      </div>
-      <div className="mainContent">
-        {currentPage === 'positionDebugger' && <PositionDebugger />}
-        {currentPage === 'uploader' && (
-          <>
-            <h1>Select Folder to Upload</h1>
-            <UploadSection />
-            <hr />
-            <SearchSection />
-          </>
-        )}
-        {currentPage === 'notifications' && (
-          <>
-            <h1>Notifications</h1>
-            <p>Notifications page coming soon...</p>
-            <button onClick={() => {
-              new Notification('Test Notification', {
-                body: 'This is a test notification from your Academia Uploader app!',
-                tag: 'test-notification'
-              });
-            }}>
-              Test Notification
-            </button>
-          </>
-        )}
-        {currentPage === 'screenReader' && <ScreenReader />}
-        {currentPage === 'sync' && <SyncSection />}
-        {currentPage === 'wordReader' && <WordReader />}
-        {currentPage === 'selectionTracker' && <SelectionTracker />}
-        {currentPage === 'trayIconSwitcher' && <TrayIconSwitcher />}
-      </div>
-      </div>
+    <>
+      <DevTools onLogout={handleLogout} />
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
-    </div>
+    </>
   );
 };
 

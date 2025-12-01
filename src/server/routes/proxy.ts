@@ -9,7 +9,7 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { APIclient, getCsrfToken } from '../../uploader';
+import { APIclient, getCsrfToken } from '../../apiClient';
 import { AxiosError } from 'axios';
 
 /**
