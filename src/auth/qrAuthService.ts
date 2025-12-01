@@ -84,7 +84,7 @@ export async function createQRAuthSession(): Promise<QRAuthSession> {
     const deviceId = generateDeviceId();
 
     // Construct authorization URL
-    const authorizationURL = `${WEB_URL}desktop/authorize?device_id=${deviceId}`;
+    const authorizationURL = `${WEB_URL}/desktop/authorize?device_id=${deviceId}`;
 
     // Generate QR code from authorization URL
     const qrCodeDataURL = await QRCode.toDataURL(authorizationURL, {
