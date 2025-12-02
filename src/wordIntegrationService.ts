@@ -32,6 +32,9 @@ class WordIntegrationService {
   private activePID: number | null = null;
   private readonly MAX_PIDS = 3;  // Prioritizes first-opened PIDs
 
+  // Navigation handler callback (set by main.ts)
+  private navigationHandler: ((payload: { page: string; projectId: number; conversationId: number }) => void) | null = null;
+
   /**
    * Initialize Word integration.
    * - Sets feature flags for native components
@@ -71,6 +74,15 @@ class WordIntegrationService {
       console.error('[WORD-INTEGRATION] Failed to set server URL for native popups');
     }
     return success;
+  }
+
+  /**
+   * Set the navigation handler callback for popup-to-main-window navigation.
+   * Called by main.ts to provide navigation functionality.
+   */
+  setNavigationHandler(handler: (payload: { page: string; projectId: number; conversationId: number }) => void): void {
+    this.navigationHandler = handler;
+    console.log('[WORD-INTEGRATION] Navigation handler set');
   }
 
   /**
@@ -215,6 +227,23 @@ class WordIntegrationService {
       // Handle events from this PID
       if (event.type === 'buttonClicked' && event.text === 'academia-button-clicked') {
         console.log(`[WORD-BUTTON] Academia button clicked on PID ${pid}`);
+      }
+
+      // Handle navigation requests from popup (format: "navigateToPage|{json}")
+      if (event.type === 'buttonClicked' && event.text?.startsWith('navigateToPage|')) {
+        try {
+          const jsonPayload = event.text.substring('navigateToPage|'.length);
+          const payload = JSON.parse(jsonPayload);
+          console.log(`[WORD-INTEGRATION] Navigate to page from popup:`, payload);
+
+          if (this.navigationHandler) {
+            this.navigationHandler(payload);
+          } else {
+            console.warn('[WORD-INTEGRATION] Navigation handler not set');
+          }
+        } catch (err) {
+          console.error('[WORD-INTEGRATION] Error parsing navigateToPage payload:', err);
+        }
       }
     });
 

@@ -814,6 +814,30 @@ app.whenReady().then(async () => {
     // Initialize Word integration without server URL
     wordIntegrationService.initialize();
   }
+
+  // Set up navigation handler for popup-to-main-window navigation
+  wordIntegrationService.setNavigationHandler((payload) => {
+    console.log('[Main] Navigate to page from Word popup:', payload);
+
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      console.warn('[Main] Main window not available for navigation');
+      return;
+    }
+
+    // Show and focus the main window
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+
+    // Send navigation event to renderer
+    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+      page: payload.page,
+      projectId: payload.projectId,
+      conversationId: payload.conversationId,
+    } as NavigateToPagePayload);
+  });
 });
 
 app.on('window-all-closed', () => {

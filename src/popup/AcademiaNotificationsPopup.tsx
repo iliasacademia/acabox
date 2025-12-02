@@ -10,7 +10,7 @@ console.log('[AcademiaNotificationsPopup] Platform:', window.__messageBridge?.ge
 
 // Height constants matching native window sizes
 const POPUP_HEIGHT_DEFAULT = 280;      // 2 sections (short + full review)
-const POPUP_HEIGHT_WITH_NOTIF = 376;   // 3 sections (new review + short + full)
+const POPUP_HEIGHT_WITH_NOTIF = 400;   // 3 sections (new review + short + full)
 
 // Arrow Forward Icon component
 const ArrowForwardIcon: React.FC = () => (
@@ -44,8 +44,13 @@ interface ProjectStatusResponse {
 type ReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
 
 const AcademiaNotificationsPopup: React.FC = () => {
-  // State for unread review - will be connected to real API later
+  // State for unread review notification
   const [hasUnreadReview, setHasUnreadReview] = useState<boolean>(false);
+  const [currentNotification, setCurrentNotification] = useState<{
+    id: number;
+    project_id: number;
+    conversation_id: number;
+  } | null>(null);
   const { sendRequest } = useSendMessage();
 
   // State for project file info (fetched from /word/:pid/project_file)
@@ -222,31 +227,94 @@ const AcademiaNotificationsPopup: React.FC = () => {
     fetchProjectFile();
   }, []);
 
-  // Check for unread review on mount and resize window if needed
+  // Check for unread review notifications after fileId is available
   useEffect(() => {
     const checkForUnreadReview = async () => {
-      try {
-        // TODO: Replace with actual API call to check for unread reviews
-        const hasUnread = false; // Mock: set to true to test 3-section layout
+      // Wait for fileId to be available
+      if (fileId === null) return;
 
-        if (hasUnread) {
-          setHasUnreadReview(true);
-          // Request native window resize to accommodate 3 sections
-          console.log('[AcademiaNotificationsPopup] Unread review found, resizing window');
-          await sendRequest('resizeWindow', { height: POPUP_HEIGHT_WITH_NOTIF });
-          console.log('[AcademiaNotificationsPopup] Window resized to', POPUP_HEIGHT_WITH_NOTIF);
+      try {
+        console.log(`[AcademiaNotificationsPopup] Checking notifications for file ${fileId}`);
+
+        const response = await fetch(
+          `http://127.0.0.1:23111/api/notifications/count?project_file_id=${fileId}`
+        );
+
+        if (!response.ok) {
+          console.error('[AcademiaNotificationsPopup] Failed to fetch notifications:', response.status);
+          return;
+        }
+
+        const data = await response.json();
+        console.log('[AcademiaNotificationsPopup] Notifications response:', data);
+
+        // Check for undismissed notifications with conversation_id
+        if (data.notifications && data.notifications.length > 0) {
+          // Find first notification with conversation_id
+          const notification = data.notifications.find(
+            (n: { data?: { conversation_id?: number } }) => n.data?.conversation_id != null
+          );
+
+          if (notification) {
+            console.log('[AcademiaNotificationsPopup] Found notification with conversation:', notification);
+            setCurrentNotification({
+              id: notification.id,
+              project_id: notification.project_id,
+              conversation_id: notification.data.conversation_id,
+            });
+            setHasUnreadReview(true);
+
+            // Resize window for 3-section layout
+            console.log('[AcademiaNotificationsPopup] Resizing window for notification');
+            await sendRequest('resizeWindow', { height: POPUP_HEIGHT_WITH_NOTIF });
+          }
         }
       } catch (err) {
-        console.error('[AcademiaNotificationsPopup] Error checking for unread review:', err);
+        console.error('[AcademiaNotificationsPopup] Error checking notifications:', err);
       }
     };
 
     checkForUnreadReview();
-  }, [sendRequest]);
+  }, [fileId, sendRequest]);
 
-  const handleSeeNewReview = () => {
-    console.log('[AcademiaNotificationsPopup] See new review clicked');
-    // TODO: Navigate to review
+  const handleSeeNewReview = async () => {
+    if (!currentNotification) {
+      console.error('[AcademiaNotificationsPopup] No notification to navigate to');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopup] See new review clicked:', currentNotification);
+
+    try {
+      // 1. Dismiss the notification via PATCH
+      const patchResponse = await fetch(
+        `http://127.0.0.1:23111/api/notifications/${currentNotification.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'dismissed' }),
+        }
+      );
+
+      if (!patchResponse.ok) {
+        console.error('[AcademiaNotificationsPopup] Failed to dismiss notification:', patchResponse.status);
+        // Continue anyway - navigation is more important than dismissal
+      } else {
+        console.log('[AcademiaNotificationsPopup] Notification dismissed');
+      }
+
+      // 2. Navigate to conversation via native bridge
+      await sendRequest('navigateToPage', {
+        page: 'conversation',
+        projectId: currentNotification.project_id,
+        conversationId: currentNotification.conversation_id,
+      });
+
+      // 3. Close the popup after navigation request
+      await sendRequest('closeWindow', {});
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error in handleSeeNewReview:', err);
+    }
   };
 
   const handleGenerateShortReview = async () => {
@@ -445,7 +513,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     background: '#F9F8F6', // Figma: background-beige-light
     borderRadius: '16px', // Figma: corner-radius/radius-lg
     border: '1px solid #CCC9BC', // Figma: stroke-beige-light
-    boxShadow: '0 4px 12px 0 rgba(0, 0, 0, 0.25)',
+    boxShadow: 'none',
     position: 'relative',
     padding: '24px', // Figma: spacing/sm-24
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',

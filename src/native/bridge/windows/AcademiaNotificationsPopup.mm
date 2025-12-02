@@ -1,5 +1,6 @@
 #import "AcademiaNotificationsPopup.h"
 #import "AcademiaNotificationsButton.h"
+#import "../../bridge.h"  // For WordAccessibilityObserver full interface
 
 @implementation AcademiaNotificationsPopup
 
@@ -33,9 +34,17 @@
 - (void)loadPopupHTML {
     // Set HTML subpath BEFORE loading (called by base class init)
     self.htmlSubpath = @"academiaNotifications";
-    NSLog(@"[AcademiaNotificationsPopup] Loading with subpath: %@", self.htmlSubpath);
 
-    // Call parent implementation which will use the subpath
+    // Get PID from observer and pass as query param for notification filtering
+    if (self.observer) {
+        pid_t wordPID = [self.observer getWordPID];
+        self.queryParams = @{@"pid": [NSString stringWithFormat:@"%d", wordPID]};
+        NSLog(@"[AcademiaNotificationsPopup] Loading with subpath: %@, pid: %d", self.htmlSubpath, wordPID);
+    } else {
+        NSLog(@"[AcademiaNotificationsPopup] Loading with subpath: %@ (no observer, no PID)", self.htmlSubpath);
+    }
+
+    // Call parent implementation which will use the subpath and queryParams
     [super loadPopupHTML];
 }
 
@@ -133,6 +142,47 @@
 
         // Close the window
         [self orderOut:nil];
+        return;
+    }
+
+    // Handle navigateToPage action
+    if ([action isEqualToString:@"navigateToPage"]) {
+        NSDictionary* payload = message[@"payload"];
+        NSLog(@"[AcademiaNotificationsPopup] Navigate to page: %@", payload);
+
+        // Forward to observer's button click callback
+        // Format: "navigateToPage|{json_payload}"
+        NSError* jsonError = nil;
+        NSData* jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&jsonError];
+        if (jsonData && self.observer) {
+            NSString* jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+            [self.observer handleButtonClickWithAction:@"navigateToPage" text:jsonString];
+        } else if (jsonError) {
+            NSLog(@"[AcademiaNotificationsPopup] Error serializing payload: %@", jsonError);
+        }
+
+        // Send response back to JavaScript
+        NSString* messageId = message[@"id"];
+        if (messageId) {
+            NSString* responseJS = [NSString stringWithFormat:@
+                "window.__bridgeReceive({"
+                "  id: '%@',"
+                "  from: 'native',"
+                "  to: 'notifications-popup',"
+                "  type: 'response',"
+                "  action: 'navigateToPage',"
+                "  payload: {success: true},"
+                "  timestamp: Date.now()"
+                "});",
+                messageId];
+
+            [self.webView evaluateJavaScript:responseJS completionHandler:^(id result, NSError *error) {
+                if (error) {
+                    NSLog(@"[AcademiaNotificationsPopup] ERROR sending navigateToPage response: %@", error);
+                }
+            }];
+        }
+
         return;
     }
 
