@@ -4,9 +4,10 @@
 @implementation AcademiaNotificationsPopup
 
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer {
-    // Size for notification popover - 700x600 to match design
+    // Size for notification popover - default height for 2 sections
+    // Height will be resized by React if there's a pending notification (3 sections)
     CGFloat width = 370;
-    CGFloat height = 460;
+    CGFloat height = 280;  // Default: 2 sections (use 376 for 3 sections)
 
     // Call base class initializer with size and window level
     self = [super initWithSize:CGSizeMake(width, height)
@@ -58,6 +59,49 @@
     // Handle bridge-ready signal
     if ([action isEqualToString:@"bridge-ready"]) {
         NSLog(@"[Bridge] JavaScript bridge is ready!");
+        return;
+    }
+
+    // Handle resizeWindow action
+    if ([action isEqualToString:@"resizeWindow"]) {
+        NSDictionary* payload = message[@"payload"];
+        NSNumber* heightNum = payload[@"height"];
+
+        if (heightNum) {
+            CGFloat newHeight = [heightNum floatValue];
+            NSRect frame = self.frame;
+
+            // Adjust origin.y to keep top-left fixed (macOS coords go up from bottom)
+            CGFloat heightDelta = newHeight - frame.size.height;
+            frame.origin.y -= heightDelta;
+            frame.size.height = newHeight;
+
+            [self setFrame:frame display:YES animate:YES];
+            NSLog(@"[AcademiaNotificationsPopup] Resized to height: %.0f", newHeight);
+        }
+
+        // Send response back to JavaScript
+        NSString* messageId = message[@"id"];
+        if (messageId) {
+            NSString* responseJS = [NSString stringWithFormat:@
+                "window.__bridgeReceive({"
+                "  id: '%@',"
+                "  from: 'native',"
+                "  to: 'notifications-popup',"
+                "  type: 'response',"
+                "  action: 'resizeWindow',"
+                "  payload: {success: true},"
+                "  timestamp: Date.now()"
+                "});",
+                messageId];
+
+            [self.webView evaluateJavaScript:responseJS completionHandler:^(id result, NSError *error) {
+                if (error) {
+                    NSLog(@"[AcademiaNotificationsPopup] ERROR sending resize response: %@", error);
+                }
+            }];
+        }
+
         return;
     }
 

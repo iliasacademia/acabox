@@ -2,21 +2,39 @@ import { execSync } from 'child_process';
 import { screen } from 'electron';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
 import { FEATURES } from './shared/types';
+import { wordIntegrationDataStore } from './wordIntegrationDataStore';
+
+/**
+ * Represents a tracked Word process with its manuscript file.
+ */
+interface TrackedPID {
+  pid: number;
+  filePath: string;
+  isActive: boolean;
+}
 
 /**
  * WordIntegrationService handles all MS Word integration functionality:
- * - Auto-detection of Word process
+ * - Auto-detection of Word processes (supports multiple PIDs)
  * - Accessibility observer management
  * - Position/debug info retrieval
+ *
+ * Phase 2: Multi-PID support - tracks all Word processes with manuscripts,
+ * but only shows overlays on the active/focused Word window.
  */
 class WordIntegrationService {
   private wordCheckInterval: NodeJS.Timeout | null = null;
-  private isSelectionTrackingActive = false;
   private serverBaseUrl: string | null = null;
   private manuscriptPaths: string[] = [];
 
+  // Multi-PID tracking (Phase 2)
+  private trackedPIDs: Map<number, TrackedPID> = new Map();
+  private activePID: number | null = null;
+  private readonly MAX_PIDS = 3;  // Prioritizes first-opened PIDs
+
   /**
    * Initialize Word integration.
+   * - Sets feature flags for native components
    * - Sets server base URL for native popups
    * - Tracking starts when setManuscriptPaths() is called
    */
@@ -30,6 +48,13 @@ class WordIntegrationService {
       console.log('[WORD-INTEGRATION] MS Word integration is disabled');
       return;
     }
+
+    // Set native feature flags BEFORE any PID observation starts
+    // (buttons are created during observer initialization)
+    wordAccessibility.setFeatureFlags({
+      textSideButtonEnabled: FEATURES.TEXT_SIDE_BUTTON_ENABLED,
+      overallReviewButtonEnabled: FEATURES.OVERALL_REVIEW_BUTTON_ENABLED,
+    });
 
     console.log('[WORD-INTEGRATION] Initialized. Call setManuscriptPaths() to start tracking.');
   }
@@ -100,27 +125,19 @@ class WordIntegrationService {
 
   /**
    * Set or update the manuscript paths and start tracking.
-   * Phase 1: Logs all matching PIDs, tracks only the first one.
+   * Phase 2: Tracks ALL matching PIDs, shows overlays only on active/focused Word.
    */
   setManuscriptPaths(filePaths: string[]): void {
     this.manuscriptPaths = filePaths;
     console.log('[WORD-INTEGRATION] Manuscript paths set:', filePaths);
 
-    if (!FEATURES.MS_WORD_INTEGRATION_ENABLED) {
-      console.log('[WORD-INTEGRATION] MS Word integration is disabled');
-      return;
-    }
-
     if (filePaths.length === 0) {
-      console.log('[WORD-INTEGRATION] No manuscript paths - stopping tracking');
-      if (this.isSelectionTrackingActive) {
-        wordAccessibility.stopObserving();
-        this.isSelectionTrackingActive = false;
-      }
+      console.log('[WORD-INTEGRATION] No manuscript paths - stopping all tracking');
+      this.stopAllTracking();
       return;
     }
 
-    // Find and log all matches, track first one
+    // Find and track all matching PIDs
     this.checkAndTrackManuscripts();
 
     // Start polling if not already running
@@ -128,23 +145,145 @@ class WordIntegrationService {
   }
 
   /**
-   * Check for manuscripts and track the first matching PID.
-   * Logs ALL matches for verification even though we only track one (Phase 1).
+   * Stop tracking all PIDs and clean up.
+   */
+  private stopAllTracking(): void {
+    if (this.trackedPIDs.size > 0) {
+      console.log(`[WORD-INTEGRATION] Stopping tracking of ${this.trackedPIDs.size} PID(s)`);
+      wordAccessibility.stopAllObserving();
+      this.trackedPIDs.clear();
+      wordIntegrationDataStore.clearTrackedPIDs();
+      this.activePID = null;
+    }
+  }
+
+  /**
+   * Check for manuscripts and track ALL matching PIDs.
+   * Phase 2: Manages adding new PIDs and removing stale ones.
    */
   private checkAndTrackManuscripts(): void {
     const matches = this.findWordPIDsWithFiles(this.manuscriptPaths);
 
-    if (matches.length > 0 && !this.isSelectionTrackingActive) {
-      // Track first match only (Phase 1 limitation)
-      const { pid, filePath } = matches[0];
-      console.log(`[WORD-INTEGRATION] Tracking PID ${pid} (${filePath})`);
+    // Get current and new PID sets
+    const currentPIDs = new Set(this.trackedPIDs.keys());
+    const newPIDs = new Set(matches.map(m => m.pid));
 
-      if (matches.length > 1) {
-        console.log(`[WORD-INTEGRATION] NOTE: ${matches.length - 1} other Word process(es) also have manuscripts (Phase 2 will track all)`);
+    // Add new PIDs (in matches but not currently tracked)
+    // Note: First-opened PIDs are prioritized - we won't replace them with newer ones
+    for (const { pid, filePath } of matches) {
+      if (!this.trackedPIDs.has(pid)) {
+        if (this.trackedPIDs.size >= this.MAX_PIDS) {
+          console.log(`[WORD-INTEGRATION] Max PIDs (${this.MAX_PIDS}) reached, keeping first-opened. Skipping newer PID ${pid}`);
+          continue;
+        }
+        this.startTrackingPID(pid, filePath);
+      }
+    }
+
+    // Remove stale PIDs (tracked but no longer in matches)
+    for (const pid of currentPIDs) {
+      if (!newPIDs.has(pid)) {
+        this.stopTrackingPID(pid);
+      }
+    }
+
+    // Log current state
+    if (this.trackedPIDs.size > 0) {
+      console.log(`[WORD-INTEGRATION] Tracking ${this.trackedPIDs.size} PID(s), active: ${this.activePID ?? 'none'}`);
+    }
+  }
+
+  /**
+   * Start tracking a specific PID.
+   */
+  private startTrackingPID(pid: number, filePath: string): void {
+    if (!FEATURES.MS_WORD_INTEGRATION_ENABLED) {
+      console.log('[WORD-INTEGRATION] Native tracking disabled (feature flag off)');
+      return;
+    }
+
+    if (!wordAccessibility.checkPermission()) {
+      console.log('[WORD-INTEGRATION] Accessibility permission not granted');
+      return;
+    }
+
+    if (this.trackedPIDs.has(pid)) {
+      return;
+    }
+
+    const success = wordAccessibility.startObservingPID(pid, (event: AccessibilityEvent) => {
+      // Handle events from this PID
+      if (event.type === 'buttonClicked' && event.text === 'academia-button-clicked') {
+        console.log(`[WORD-BUTTON] Academia button clicked on PID ${pid}`);
+      }
+    });
+
+    if (success) {
+      const isActive = this.trackedPIDs.size === 0; // First PID is active by default
+      const trackedInfo = { pid, filePath, isActive };
+      this.trackedPIDs.set(pid, trackedInfo);
+      wordIntegrationDataStore.setTrackedPID(pid, trackedInfo);
+
+      if (isActive) {
+        this.activePID = pid;
       }
 
-      this.startObservingPID(pid);
+      console.log(`[WORD-INTEGRATION] Started tracking PID ${pid} (${filePath}), active: ${isActive}`);
+    } else {
+      console.error(`[WORD-INTEGRATION] Failed to start tracking PID ${pid}`);
     }
+  }
+
+  /**
+   * Stop tracking a specific PID.
+   */
+  private stopTrackingPID(pid: number): void {
+    if (!this.trackedPIDs.has(pid)) {
+      return;
+    }
+
+    wordAccessibility.stopObservingPID(pid);
+    this.trackedPIDs.delete(pid);
+    wordIntegrationDataStore.deleteTrackedPID(pid);
+
+    console.log(`[WORD-INTEGRATION] Stopped tracking PID ${pid}`);
+
+    // If we removed the active PID, activate the next available one
+    if (this.activePID === pid) {
+      this.activePID = null;
+      const nextPID = this.trackedPIDs.keys().next().value;
+      if (nextPID !== undefined) {
+        this.activePID = nextPID;
+        wordAccessibility.setActivePID(nextPID);
+        const tracked = this.trackedPIDs.get(nextPID);
+        if (tracked) {
+          tracked.isActive = true;
+        }
+        console.log(`[WORD-INTEGRATION] Activated next PID: ${nextPID}`);
+      }
+    }
+  }
+
+  /**
+   * Log all current PID → manuscriptPath mappings for verification.
+   * Called every poll cycle regardless of tracking state.
+   */
+  private logCurrentPIDMappings(): void {
+    const matches = this.findWordPIDsWithFiles(this.manuscriptPaths);
+
+    console.log('[WORD-INTEGRATION] === PID Mapping Check ===');
+    console.log(`[WORD-INTEGRATION] Tracked: ${this.trackedPIDs.size}, Active: ${this.activePID ?? 'none'}`);
+    if (matches.length === 0) {
+      console.log('[WORD-INTEGRATION] No Word processes have manuscripts open');
+    } else {
+      console.log('[WORD-INTEGRATION] Current mappings:');
+      for (const { pid, filePath } of matches) {
+        const tracked = this.trackedPIDs.has(pid) ? ' [TRACKED]' : '';
+        const active = this.activePID === pid ? ' [ACTIVE]' : '';
+        console.log(`[WORD-INTEGRATION]   PID ${pid} → ${filePath}${tracked}${active}`);
+      }
+    }
+    console.log('[WORD-INTEGRATION] ========================');
   }
 
   /**
@@ -155,30 +294,13 @@ class WordIntegrationService {
 
     this.wordCheckInterval = setInterval(() => {
       if (this.manuscriptPaths.length === 0) return;
-      if (this.isSelectionTrackingActive) return; // Already tracking (Phase 1)
 
+      // Always log current PID mappings for verification
+      this.logCurrentPIDMappings();
+
+      // Always check and sync tracked PIDs (adds new, removes stale)
       this.checkAndTrackManuscripts();
     }, 5000);
-  }
-
-  /**
-   * Start observing a specific Word PID.
-   * Uses existing single-PID bridge (no changes to bridge.mm).
-   */
-  private startObservingPID(pid: number): void {
-    if (!wordAccessibility.checkPermission()) {
-      console.log('[WORD-BUTTON] Accessibility permission not granted');
-      return;
-    }
-
-    wordAccessibility.startObserving(pid, (event: AccessibilityEvent) => {
-      if (event.type === 'buttonClicked' && event.text === 'academia-button-clicked') {
-        console.log('[WORD-BUTTON] Academia button clicked');
-      }
-    });
-
-    this.isSelectionTrackingActive = true;
-    console.log('[WORD-BUTTON] Tracking started for PID:', pid);
   }
 
   /**
@@ -194,23 +316,47 @@ class WordIntegrationService {
       this.wordCheckInterval = null;
     }
 
-    // Stop selection tracking
-    if (this.isSelectionTrackingActive) {
+    // Stop all observers
+    if (this.trackedPIDs.size > 0) {
       try {
-        wordAccessibility.stopObserving();
-        this.isSelectionTrackingActive = false;
-        console.log('[WORD-INTEGRATION] Selection tracking stopped successfully');
+        console.log(`[WORD-INTEGRATION] Stopping ${this.trackedPIDs.size} observer(s)...`);
+        wordAccessibility.stopAllObserving();
+        this.trackedPIDs.clear();
+        wordIntegrationDataStore.clearTrackedPIDs();
+        this.activePID = null;
+        console.log('[WORD-INTEGRATION] All observers stopped successfully');
       } catch (error) {
-        console.error('[WORD-INTEGRATION] Error stopping observer:', error);
+        console.error('[WORD-INTEGRATION] Error stopping observers:', error);
       }
     }
   }
 
   /**
-   * Check if Word tracking is currently active
+   * Check if Word tracking is currently active (any PIDs being tracked)
    */
   isActive(): boolean {
-    return this.isSelectionTrackingActive;
+    return this.trackedPIDs.size > 0;
+  }
+
+  /**
+   * Get the number of PIDs currently being tracked
+   */
+  getTrackedPIDCount(): number {
+    return this.trackedPIDs.size;
+  }
+
+  /**
+   * Get the currently active PID
+   */
+  getActivePID(): number | null {
+    return this.activePID;
+  }
+
+  /**
+   * Get all tracked PIDs with their file paths
+   */
+  getTrackedPIDs(): Array<{ pid: number; filePath: string; isActive: boolean }> {
+    return Array.from(this.trackedPIDs.values());
   }
 
   /**

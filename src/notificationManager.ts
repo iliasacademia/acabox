@@ -187,8 +187,6 @@ class NotificationManager {
         console.warn(`[NotificationManager] Have ${newNotifications.length} new notifications but mainWindow is not set!`);
       }
 
-      console.log(`Synced ${response.notifications.length} notifications, ${newNotifications.length} new`);
-
       // Notify listeners that sync is complete (for badge updates, etc.)
       if (this.onSyncComplete) {
         this.onSyncComplete(userId);

@@ -86,7 +86,9 @@ export const IPC_CHANNELS = {
 // Feature flags
 export const FEATURES = {
   CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
-  MS_WORD_INTEGRATION_ENABLED: false, // Toggle MS Word integration
+  MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
+  TEXT_SIDE_BUTTON_ENABLED: false, // Toggle TextSideButton/Popup in Word overlay
+  OVERALL_REVIEW_BUTTON_ENABLED: false, // Toggle OverallReviewButton/Popup in Word overlay
 } as const;
 
 export interface DesktopNotification {

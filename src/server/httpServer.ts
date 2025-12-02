@@ -19,6 +19,7 @@ import path from 'path';
 import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
+import { registerWordRoutes } from './routes/word';
 import { ServerConfig, HealthResponse } from './types';
 
 /**
@@ -126,6 +127,9 @@ export class AcademiaHttpServer {
 
     // Register proxy routes
     await registerProxyRoutes(this.fastify);
+
+    // Register Word integration routes
+    await registerWordRoutes(this.fastify);
 
     // Start listening
     try {

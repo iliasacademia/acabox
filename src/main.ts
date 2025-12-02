@@ -11,6 +11,7 @@ import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
 import { wordIntegrationService } from './wordIntegrationService';
+import { wordIntegrationDataStore, ProjectFileInfo } from './wordIntegrationDataStore';
 import { AcademiaHttpServer } from './server/httpServer';
 import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
 import { validateExternalUrl } from './utils/urlValidation';
@@ -829,7 +830,7 @@ app.on('activate', () => {
 
 /**
  * Fetches all projects and their files, extracts manuscript paths,
- * and passes them to wordIntegrationService.
+ * and passes them to wordIntegrationService and wordIntegrationDataStore.
  */
 async function refreshManuscriptPaths(): Promise<void> {
   try {
@@ -843,15 +844,18 @@ async function refreshManuscriptPaths(): Promise<void> {
     if (projects.length === 0) {
       console.log('[MANUSCRIPT-PATHS] No projects found');
       wordIntegrationService.setManuscriptPaths([]);
+      wordIntegrationDataStore.setProjectFileCache(new Map());
       return;
     }
 
-    // Fetch files for each project in parallel
+    // Fetch files for each project in parallel, attaching project_id to each file
     console.log(`[MANUSCRIPT-PATHS] Fetching files for ${projects.length} projects...`);
     const filesPromises = projects.map(async (project: { id: number }) => {
       try {
         const filesResponse = await client.get(`/v0/co_scientist/projects/${project.id}/files`);
-        return filesResponse.data?.files || [];
+        const files = filesResponse.data?.files || [];
+        // Attach project_id to each file for building the cache
+        return files.map((file: any) => ({ ...file, project_id: project.id }));
       } catch (error) {
         console.error(`[MANUSCRIPT-PATHS] Failed to fetch files for project ${project.id}:`, error);
         return [];
@@ -861,19 +865,31 @@ async function refreshManuscriptPaths(): Promise<void> {
     const allFilesArrays = await Promise.all(filesPromises);
     const allFiles = allFilesArrays.flat();
 
-    // Filter for manuscript files, extract paths, and deduplicate
-    const manuscriptPaths = [...new Set(
-      allFiles
-        .filter((file: { file_type: string; file_path: string; is_primary_manuscript: boolean }) => file.is_primary_manuscript)
-        .map((file: { file_path: string }) => file.file_path)
-    )];
+    // Filter for primary manuscript files
+    const manuscriptFiles = allFiles.filter(
+      (file: { is_primary_manuscript: boolean }) => file.is_primary_manuscript
+    );
+
+    // Build project file cache: filePath → { project_id, project_file_id }
+    const projectFileCache = new Map<string, ProjectFileInfo>();
+    for (const file of manuscriptFiles) {
+      projectFileCache.set(file.file_path, {
+        project_id: file.project_id,
+        project_file_id: file.id,  // file.id is the project_file_id
+      });
+    }
+
+    // Extract unique paths for tracking
+    const manuscriptPaths = [...new Set(manuscriptFiles.map((f: { file_path: string }) => f.file_path))];
 
     console.log(`[MANUSCRIPT-PATHS] Found ${manuscriptPaths.length} manuscript files`);
     wordIntegrationService.setManuscriptPaths(manuscriptPaths);
+    wordIntegrationDataStore.setProjectFileCache(projectFileCache);
 
   } catch (error) {
     console.error('[MANUSCRIPT-PATHS] Error refreshing manuscript paths:', error);
     wordIntegrationService.setManuscriptPaths([]);
+    wordIntegrationDataStore.setProjectFileCache(new Map());
   }
 }
 

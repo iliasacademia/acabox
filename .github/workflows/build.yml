@@ -345,9 +345,7 @@ jobs:
           fi
 
           echo "Invalidating CloudFront cache for ${MANIFEST_PATH}..."
-          aws cloudfront create-invalidation \
-            --distribution-id ${DISTRIBUTION_ID} \
-            --paths '${MANIFEST_PATH}'
+          aws cloudfront create-invalidation --distribution-id ${DISTRIBUTION_ID} --paths "${MANIFEST_PATH}"
 
           echo "CloudFront cache invalidation initiated"
 

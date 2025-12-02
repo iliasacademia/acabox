@@ -133,10 +133,8 @@
         NSLog(@"[AcademiaNotificationsButton] Created new popup window");
     }
 
-    // Position popup above the button
+    // Position popup above the button (preserve popup's own size)
     NSRect buttonFrame = self.frame;
-    CGFloat popupWidth = 370;  // From AcademiaNotificationsPopup.mm
-    CGFloat popupHeight = 460; // From AcademiaNotificationsPopup.mm
     CGFloat margin = 8.0;  // Space between button and popup
 
     // In Cocoa coordinates (bottom-left origin):
@@ -146,7 +144,8 @@
     CGFloat popupX = buttonFrame.origin.x;  // Align left edges
     CGFloat popupY = buttonFrame.origin.y + buttonFrame.size.height + margin;  // Above button with margin
 
-    [self.popup setFrame:NSMakeRect(popupX, popupY, popupWidth, popupHeight) display:YES];
+    // Only update position, keep popup's own configured width/height
+    [self.popup setFrameOrigin:NSMakePoint(popupX, popupY)];
     [self.popup orderFront:nil];
     self.popupWasVisible = YES;  // Mark popup as visible for Word state tracking
 
@@ -278,16 +277,15 @@
     if (self.popupWasVisible && self.popup) {
         NSLog(@"[AcademiaNotificationsButton] Re-showing popup after Word state change");
 
-        // Recalculate popup position based on button's new position
+        // Recalculate popup position based on button's new position (preserve popup's own size)
         NSRect buttonFrame = self.frame;
-        CGFloat popupWidth = 370;
-        CGFloat popupHeight = 460;
         CGFloat margin = 8.0;
 
         CGFloat popupX = buttonFrame.origin.x;
         CGFloat popupY = buttonFrame.origin.y + buttonFrame.size.height + margin;
 
-        [self.popup setFrame:NSMakeRect(popupX, popupY, popupWidth, popupHeight) display:YES];
+        // Only update position, keep popup's own configured width/height
+        [self.popup setFrameOrigin:NSMakePoint(popupX, popupY)];
         [self.popup orderFront:nil];
     }
 }
