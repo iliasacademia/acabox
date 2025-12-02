@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
 
@@ -22,6 +22,27 @@ const ArrowForwardIcon: React.FC = () => (
   </svg>
 );
 
+// Type definitions for project status API
+type AgentRunStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+interface AgentRun {
+  agent_run_id: number;
+  agent_name: string;
+  file_id: number;
+  file_name: string;
+  status: AgentRunStatus;
+  running_jobs_count: number;
+  created_at: string;
+  review_data: unknown | null;
+}
+
+interface ProjectStatusResponse {
+  project_id: number;
+  agent_runs: AgentRun[];
+}
+
+type ReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
+
 const AcademiaNotificationsPopup: React.FC = () => {
   // State for unread review - will be connected to real API later
   const [hasUnreadReview, setHasUnreadReview] = useState<boolean>(false);
@@ -32,6 +53,123 @@ const AcademiaNotificationsPopup: React.FC = () => {
   const [fileId, setFileId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+
+  // State for review status
+  const [reviewState, setReviewState] = useState<ReviewState>('idle');
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch project status to determine review state
+  const fetchProjectStatus = async (projId: number, fId: number): Promise<void> => {
+    try {
+      console.log(`[AcademiaNotificationsPopup] Fetching project status for project ${projId}, file ${fId}`);
+
+      const response = await fetch(
+        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`
+      );
+
+      if (!response.ok) {
+        console.error('[AcademiaNotificationsPopup] Failed to fetch project status:', response.status);
+        return;
+      }
+
+      const data: ProjectStatusResponse = await response.json();
+      console.log('[AcademiaNotificationsPopup] Project status:', data);
+
+      // Find the latest agent run by created_at timestamp
+      if (data.agent_runs.length === 0) {
+        setReviewState('idle');
+        return;
+      }
+
+      // Sort by created_at descending to get the latest
+      const sortedRuns = [...data.agent_runs].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+      const latest = sortedRuns[0];
+
+      // Map API status to UI state
+      switch (latest.status) {
+        case 'pending':
+        case 'processing':
+          setReviewState('reviewing');
+          break;
+        case 'completed':
+          setReviewState('completed');
+          break;
+        case 'failed':
+          setReviewState('failed');
+          break;
+        default:
+          setReviewState('idle');
+      }
+
+      console.log(`[AcademiaNotificationsPopup] Review state set to: ${latest.status}`);
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error fetching project status:', err);
+      // Don't update state on error - keep previous state
+    }
+  };
+
+  // Poll for status updates after triggering a review
+  const startStatusPolling = (projId: number, fId: number) => {
+    // Clear any existing polling
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    setReviewState('reviewing');
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(
+          `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`
+        );
+
+        if (!response.ok) return;
+
+        const data: ProjectStatusResponse = await response.json();
+
+        if (data.agent_runs.length === 0) return;
+
+        const sortedRuns = [...data.agent_runs].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        const latest = sortedRuns[0];
+
+        // Stop polling when status is terminal
+        if (latest.status === 'completed' || latest.status === 'failed') {
+          clearInterval(pollInterval);
+          pollingIntervalRef.current = null;
+          setReviewState(latest.status === 'completed' ? 'completed' : 'failed');
+          console.log(`[AcademiaNotificationsPopup] Polling stopped - status: ${latest.status}`);
+        }
+      } catch (err) {
+        console.error('[AcademiaNotificationsPopup] Polling error:', err);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    pollingIntervalRef.current = pollInterval;
+
+    // Cleanup after 5 minutes max
+    setTimeout(() => {
+      if (pollingIntervalRef.current === pollInterval) {
+        clearInterval(pollInterval);
+        pollingIntervalRef.current = null;
+        console.log('[AcademiaNotificationsPopup] Polling stopped - max duration reached');
+      }
+    }, 5 * 60 * 1000);
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Fetch project file info on mount
   useEffect(() => {
@@ -66,6 +204,10 @@ const AcademiaNotificationsPopup: React.FC = () => {
         console.log('[AcademiaNotificationsPopup] Project file fetched:', data);
         setProjectId(data.project_id);
         setFileId(data.project_file_id);
+
+        // Fetch project status to check if a review is in progress
+        await fetchProjectStatus(data.project_id, data.project_file_id);
+
         setIsLoading(false);
       } catch (err) {
         console.error('[AcademiaNotificationsPopup] Error fetching project file:', err);
@@ -112,6 +254,9 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
     console.log('[AcademiaNotificationsPopup] Triggering diff review...');
 
+    // Optimistically set reviewing state
+    setReviewState('reviewing');
+
     try {
       const response = await fetch(
         `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_diff_review`,
@@ -128,9 +273,12 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
       const data = await response.json();
       console.log('[AcademiaNotificationsPopup] Diff review triggered:', data);
-      // TODO: Handle success (show confirmation, close popup, etc.)
+
+      // Start polling for status updates
+      startStatusPolling(projectId, fileId);
     } catch (err) {
       console.error('[AcademiaNotificationsPopup] Failed to trigger diff review:', err);
+      setReviewState('failed');
     }
   };
 
@@ -141,6 +289,9 @@ const AcademiaNotificationsPopup: React.FC = () => {
     }
 
     console.log('[AcademiaNotificationsPopup] Triggering full review...');
+
+    // Optimistically set reviewing state
+    setReviewState('reviewing');
 
     try {
       const response = await fetch(
@@ -158,9 +309,12 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
       const data = await response.json();
       console.log('[AcademiaNotificationsPopup] Full review triggered:', data);
-      // TODO: Handle success (show confirmation, close popup, etc.)
+
+      // Start polling for status updates
+      startStatusPolling(projectId, fileId);
     } catch (err) {
       console.error('[AcademiaNotificationsPopup] Failed to trigger full review:', err);
+      setReviewState('failed');
     }
   };
 
@@ -175,6 +329,11 @@ const AcademiaNotificationsPopup: React.FC = () => {
     }
   };
 
+  // Compute UI state
+  const isReviewing = reviewState === 'reviewing';
+  const showFailedMessage = reviewState === 'failed';
+  const buttonsDisabled = isLoading || !projectId || !fileId || isReviewing;
+
   return (
     <div style={styles.container}>
       <div style={styles.modal}>
@@ -187,6 +346,13 @@ const AcademiaNotificationsPopup: React.FC = () => {
         >
           ×
         </button>
+
+        {/* Status Messages */}
+        {showFailedMessage && (
+          <div style={styles.errorMessage}>
+            <p style={styles.errorText}>The last review failed. Please try again.</p>
+          </div>
+        )}
 
         {/* Content */}
         <div style={styles.content}>
@@ -211,12 +377,23 @@ const AcademiaNotificationsPopup: React.FC = () => {
               Generate a short review based on your last changes
             </p>
             <button
-              style={styles.actionButton}
+              style={{
+                ...styles.actionButton,
+                ...(buttonsDisabled ? styles.actionButtonDisabled : {}),
+              }}
               className="action-button"
               onClick={handleGenerateShortReview}
+              disabled={buttonsDisabled}
             >
-              <span style={styles.buttonText}>Generate short review</span>
-              <ArrowForwardIcon />
+              <span
+                style={{
+                  ...styles.buttonText,
+                  ...(buttonsDisabled ? styles.buttonTextDisabled : {}),
+                }}
+              >
+                {isReviewing ? 'Reviewing...' : 'Generate short review'}
+              </span>
+              {!isReviewing && <ArrowForwardIcon />}
             </button>
           </div>
 
@@ -226,12 +403,23 @@ const AcademiaNotificationsPopup: React.FC = () => {
               Generate a full review of your entire document
             </p>
             <button
-              style={styles.actionButton}
+              style={{
+                ...styles.actionButton,
+                ...(buttonsDisabled ? styles.actionButtonDisabled : {}),
+              }}
               className="action-button"
               onClick={handleGenerateFullReview}
+              disabled={buttonsDisabled}
             >
-              <span style={styles.buttonText}>Generate full review</span>
-              <ArrowForwardIcon />
+              <span
+                style={{
+                  ...styles.buttonText,
+                  ...(buttonsDisabled ? styles.buttonTextDisabled : {}),
+                }}
+              >
+                {isReviewing ? 'Reviewing...' : 'Generate full review'}
+              </span>
+              {!isReviewing && <ArrowForwardIcon />}
             </button>
           </div>
         </div>
@@ -326,14 +514,40 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '20px', // Figma: type/body/sm/line-height
     textAlign: 'center',
   },
+  errorMessage: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: '8px',
+    padding: '12px 16px',
+    marginBottom: '8px',
+  },
+  errorText: {
+    fontSize: '14px',
+    fontWeight: 500,
+    color: '#DC2626',
+    lineHeight: '18px',
+    margin: 0,
+    textAlign: 'center' as const,
+  },
+  actionButtonDisabled: {
+    backgroundColor: '#E5E5E5',
+    borderColor: '#CCCCCC',
+    cursor: 'not-allowed',
+    opacity: 0.6,
+  },
+  buttonTextDisabled: {
+    color: '#999999',
+  },
 };
 
 // Add hover styles
 if (typeof document !== 'undefined') {
   const styleElement = document.createElement('style');
   styleElement.textContent = `
-    .action-button:hover {
+    .action-button:hover:not(:disabled) {
       background-color: #f5f5f5 !important;
+    }
+    .action-button:disabled {
+      cursor: not-allowed !important;
     }
     button[aria-label="Close"]:hover {
       background-color: rgba(0, 0, 0, 0.05) !important;
