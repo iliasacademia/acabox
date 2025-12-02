@@ -1,112 +1,10 @@
 import FormData from 'form-data';
-import axios, { AxiosInstance } from 'axios';
-import { HttpCookieAgent, HttpsCookieAgent } from 'http-cookie-agent/http';
-import { wrapper as axiosCookieJarSupport } from 'axios-cookiejar-support';
-import { CookieJar } from 'tough-cookie';
 import * as fs from 'fs';
 import * as path from 'path';
 import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'fs/promises';
-import { app } from 'electron';
-import { Notification, GetNotificationsResponse } from './types/notifications';
-import { EncryptedCookieStore } from './encryptedCookieStore';
-
-// In development mode, default to devdemia API
-const isDev = !app.isPackaged;
-const DEFAULT_URL = isDev ? 'https://api.devdemia.com/' : 'https://api.academia.edu/';
-const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
-
-let apiClient: AxiosInstance | null = null;
-
-export const APIclient = async (): Promise<AxiosInstance> => {
-  if (apiClient) {
-    return apiClient;
-  }
-  axiosCookieJarSupport(axios);
-  // Use encrypted cookie store instead of plaintext FileCookieStore
-  const cookieStore = new EncryptedCookieStore(path.join(app.getPath('userData'), 'backendCookies.encrypted'));
-  const cookieJar = new CookieJar(cookieStore);
-  const agentArgs = {
-    cookies: { jar: cookieJar },
-    rejectUnauthorized: !BASE_URL.includes('devdemia'),
-  };
-  apiClient = axios.create({
-    baseURL: BASE_URL,
-    withCredentials: false,
-    httpsAgent: new HttpsCookieAgent(agentArgs),
-    httpAgent: new HttpCookieAgent(agentArgs),
-    headers: {
-      Accept: 'application/json',
-    },
-  });
-  return apiClient;
-};
-
-export const getCsrfToken = async (): Promise<string> => {
-  const client = await APIclient();
-  const headers = {
-    Accept: '*/*',
-    'User-Agent': 'curl/8.4.0',
-    'Content-Type': 'application/x-www-form-urlencoded',
-    'Content-Length': 0,
-    'Accept-Encoding': 'gzip, deflate, br',
-    Connection: 'keep-alive',
-  };
-  const transitional = {
-    silentJSONParsing: false,
-    forcedJSONParsing: false,
-  };
-  const csrfResponse = await client.post('csrf_meta', {}, { headers, transitional, maxRedirects: 0, transformResponse: (x) => x });
-  return csrfResponse.data;
-};
-
-export const checkLogin = async (): Promise<boolean> => {
-  const client = await APIclient();
-  const response = await client.get('v0/user', {
-    validateStatus: (status) => {
-      return (status >= 200 && status < 300) || status === 401;
-    },
-  });
-  return response.status !== 401;
-};
-
-export const getCurrentUser = async (): Promise<{ id: number } | null> => {
-  const client = await APIclient();
-  const response = await client.get('v0/user', {
-    validateStatus: (status) => {
-      return (status >= 200 && status < 300) || status === 401;
-    },
-  });
-  if (response.status === 401) {
-    return null;
-  }
-  return response.data;
-};
-
-export const login = async (email: string, password: string) => {
-  const client = await APIclient();
-  const formData = new FormData();
-  formData.append('login_email', email);
-  formData.append('password', password);
-  formData.append('remember_me', 'true');
-  const response = await client
-    .post('v0/login', formData, {
-      headers: { 'x-csrf-token': await getCsrfToken(), ...formData.getHeaders() },
-    })
-    .catch((error) => {
-      console.error('Login error:', error);
-      // Security: Do NOT write sensitive error data to disk
-      // Previous code wrote to /tmp/wtf.html which was world-readable
-      if (error.response) {
-        console.error('Login error status:', error.response.status);
-        console.error('Login error headers:', error.response.headers);
-        // Log only non-sensitive error info to console
-      }
-      throw error;
-    });
-  return response;
-};
-
+import { APIclient, getCsrfToken } from './apiClient';
+import { GetLatestResponse } from './types/api';
 
 const getTitle = async (filePath: string): Promise<string | undefined> => {
   const arrayBuffer = await readFile(filePath);
@@ -140,7 +38,7 @@ export const uploadFile = async (filePath: string, basePath: string) => {
   const csrfToken = await getCsrfToken();
   formData.append('title', title);
   formData.append('file', fs.createReadStream(filePath));
-  const response = await client.post('v0/private_papers', formData, {
+  const response = await client.post('/v0/private_papers', formData, {
     headers: { 'x-csrf-token': csrfToken, ...formData.getHeaders() },
     validateStatus: () => {
       // Allow everything so we can give the user feedback on the error
@@ -152,107 +50,11 @@ export const uploadFile = async (filePath: string, basePath: string) => {
 
 export const searchFiles = async (searchTerm: string) => {
   const client = await APIclient();
-  const response = await client.get('v0/private_papers/', {
+  const response = await client.get('/v0/private_papers/', {
     params: { search: searchTerm },
   });
   return response.data;
 };
-
-export const logout = async () => {
-  await APIclient();
-  const cookieJarPath = path.join(app.getPath('userData'), 'backendCookies.encrypted');
-
-  // Clear cookies from the jar
-  if (fs.existsSync(cookieJarPath)) {
-    fs.unlinkSync(cookieJarPath);
-  }
-
-  // Also clean up legacy plaintext cookie file if it exists
-  const legacyCookiePath = path.join(app.getPath('userData'), 'backendCookies.json');
-  if (fs.existsSync(legacyCookiePath)) {
-    fs.unlinkSync(legacyCookiePath);
-  }
-
-  // Reset the API client so it creates a new cookie jar
-  apiClient = null;
-
-  console.log('[Auth] Logged out successfully');
-  return { success: true };
-};
-
-// Desktop Notifications API
-export const getNotifications = async (): Promise<GetNotificationsResponse> => {
-  const client = await APIclient();
-  const response = await client.get('/v0/desktop_notifications/get_notifications');
-  return response.data;
-};
-
-export const updateNotification = async (
-  id: number,
-  status: 'unread' | 'read' | 'dismissed',
-  readAt?: number | null,
-  dismissedAt?: number | null,
-  deliveredAt?: number | null
-): Promise<void> => {
-  const client = await APIclient();
-  const csrfToken = await getCsrfToken();
-
-  const requestPayload = {
-    id,
-    status,
-    read_at: readAt,
-    dismissed_at: dismissedAt,
-    delivered_at: deliveredAt,
-  };
-
-  console.log('[API] updateNotification request:', {
-    endpoint: '/v0/desktop_notifications/update_notification',
-    method: 'PATCH',
-    payload: requestPayload,
-    delivered_at_type: typeof deliveredAt,
-    delivered_at_value: deliveredAt,
-  });
-
-  try {
-    const response = await client.patch(
-      '/v0/desktop_notifications/update_notification',
-      requestPayload,
-      {
-        headers: { 'x-csrf-token': csrfToken },
-      }
-    );
-
-    console.log('[API] updateNotification response:', {
-      status: response.status,
-      statusText: response.statusText,
-      data: response.data,
-    });
-  } catch (error: any) {
-    console.error('[API] updateNotification error:', {
-      message: error.message,
-      response: error.response?.data,
-      status: error.response?.status,
-    });
-    throw error;
-  }
-};
-
-// Sync Folder API
-export interface SyncFolder {
-  folder_name: string;
-  path: string;
-  user_id: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface SyncedFile {
-  key: string;
-  file_name: string;
-  relative_path: string;
-  size: number;
-  last_modified: string;
-}
 
 export const downloadFileFromS3 = async (folderName: string, fileKey: string, relativePath: string): Promise<Buffer> => {
   const client = await APIclient();
@@ -268,28 +70,6 @@ export const downloadFileFromS3 = async (folderName: string, fileKey: string, re
   );
   return Buffer.from(response.data);
 };
-
-// New Sync Agent API
-
-export interface SyncAgentFolder {
-  folder_name: string;
-  folder_path: string;
-  created_at: string;
-  updated_at: string;
-  files: Array<{
-    file_name: string;
-    relative_path: string;
-    size: number;
-    last_modified: string;
-    key: string;
-  }>;
-}
-
-export interface GetLatestResponse {
-  folders: SyncAgentFolder[];
-  total_folders: number;
-  total_files: number;
-}
 
 export const getLatestFiles = async (): Promise<GetLatestResponse> => {
   const client = await APIclient();

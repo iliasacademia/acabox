@@ -5,8 +5,9 @@ import { execSync } from 'child_process';
 import { createCanvas } from 'canvas';
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
-import { Logger } from './utils/logger';
-import { login, logout, uploadFile, searchFiles, checkLogin, getCurrentUser, downloadFileFromS3, getLatestFiles, addSyncAgentFolder, removeSyncAgentFolder, getStatus, addFolder, removeFolder, listFiles, APIclient, getCsrfToken } from './uploader';
+import { defaultLogger as logger, getChannelFromVersion } from './utils/logger';
+import { login, logout, checkLogin, getCurrentUser, APIclient, getCsrfToken } from './apiClient';
+import { uploadFile, searchFiles, getStatus, addFolder, removeFolder, listFiles } from './uploader';
 import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
@@ -15,7 +16,7 @@ import { AcademiaHttpServer } from './server/httpServer';
 import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
 import { validateExternalUrl } from './utils/urlValidation';
 import { validateCloudFrontDomain } from './utils/validateCloudFrontDomain';
-import { FEATURES } from './shared/types';
+import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from './shared/types';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -23,19 +24,6 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 // Initialize electron-store for app settings (empty for now, reserved for future settings)
 const store = new Store();
-
-// Helper function to detect channel from version string (defined early for Logger initialization)
-function getChannelFromVersion(): 'stable' | 'beta' {
-  const version = app.getVersion();
-  return version.includes('-beta') ? 'beta' : 'stable';
-}
-
-// Initialize Logger
-const logger = new Logger(
-  app.isPackaged,
-  app.getVersion(),
-  getChannelFromVersion()
-);
 
 if (app.isPackaged) {
   const logFilePath = logger.getLogFilePath();
@@ -124,6 +112,18 @@ const createWindow = async (): Promise<void> => {
   if (process.env.NODE_ENV === 'development') {
     devWindow.webContents.openDevTools();
   }
+
+  // Connect logger to devWindow for sending logs to renderer DevTools
+  devWindow.webContents.once('did-finish-load', () => {
+    logger.setMainWindow(devWindow);
+    logger.info('[App] Logger connected to renderer window');
+  });
+
+  // Handle window destruction
+  devWindow.on('closed', () => {
+    logger.setMainWindow(null);
+    devWindow = null;
+  });
 
   // Dev window is now just for development/debugging
   // Sync functionality is handled by the main window (Projects UI)
@@ -1114,44 +1114,11 @@ ipcMain.handle('api-call', async (event, options: { method: string; endpoint: st
   try {
     const { method, endpoint, data } = options;
     const client = await APIclient();
-
-    // Log cookie metadata without exposing token values
-    const cookieJar = (client.defaults.httpsAgent as any)?.options?.cookies?.jar;
-    if (cookieJar && process.env.NODE_ENV === 'development') {
-      const baseURL = client.defaults.baseURL || '';
-      cookieJar.getCookies(baseURL, (err: Error | null, cookies: any[]) => {
-        if (!err && cookies) {
-          const loginTokenCookies = cookies.filter((c: any) => c.key === 'login_token');
-          console.log(`[API] Request to ${endpoint} will use ${loginTokenCookies.length} login_token cookie(s)`);
-          if (loginTokenCookies.length > 0) {
-            loginTokenCookies.forEach((c: any, i: number) => {
-              // Only log metadata, never log token values (even partially)
-              console.log(`[API] Cookie ${i + 1}: domain=${c.domain}, path=${c.path}, length=${(c.value || '').length} chars`);
-            });
-          }
-        }
-      });
-    }
-
-    console.log(`[API] ${method} ${endpoint}`, data ? `with data: ${JSON.stringify(data)}` : '');
-
-    // Send log to renderer for DevTools console
-    if (senderWindow && !senderWindow.isDestroyed()) {
-      senderWindow.webContents.send('api-log', {
-        type: 'request',
-        method,
-        endpoint,
-        data,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
     // Get CSRF token for non-GET requests
     const headers: any = {};
     if (method.toUpperCase() !== 'GET') {
       const csrfToken = await getCsrfToken();
       headers['x-csrf-token'] = csrfToken;
-      console.log(`[API] Including CSRF token for ${method} request`);
     }
 
     let response;
@@ -1172,20 +1139,6 @@ ipcMain.handle('api-call', async (event, options: { method: string; endpoint: st
         throw new Error(`Unsupported HTTP method: ${method}`);
     }
 
-    console.log(`[API] ${method} ${endpoint} - Success:`, response.status);
-
-    // Send success log to renderer
-    if (senderWindow && !senderWindow.isDestroyed()) {
-      senderWindow.webContents.send('api-log', {
-        type: 'response',
-        method,
-        endpoint,
-        status: response.status,
-        statusText: response.statusText,
-        timestamp: new Date().toISOString(),
-      });
-    }
-
     return response.data;
   } catch (error: any) {
     const fullUrl = error.config?.baseURL + error.config?.url;
@@ -1196,21 +1149,6 @@ ipcMain.handle('api-call', async (event, options: { method: string; endpoint: st
       message: error.message,
       data: error.response?.data,
     });
-
-    // Send error log to renderer
-    if (senderWindow && !senderWindow.isDestroyed()) {
-      senderWindow.webContents.send('api-log', {
-        type: 'error',
-        method: options.method,
-        endpoint: options.endpoint,
-        url: fullUrl,
-        status: error.response?.status,
-        statusText: error.response?.statusText,
-        message: error.message,
-        data: error.response?.data,
-        timestamp: new Date().toISOString(),
-      });
-    }
 
     // Re-throw with response data if available
     if (error.response) {
@@ -2205,6 +2143,33 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
     return { success: true };
   } catch (error: any) {
     console.error('[Main] Error opening external URL:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Navigation handler - focus main window and relay navigation event
+ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO_PAGE, async (_event, payload: NavigateToPagePayload) => {
+  try {
+    console.log('[Main] Navigate to page:', payload);
+
+    if (!mainWindow) {
+      console.warn('[Main] Main window not available for navigation');
+      return { success: false, error: 'Main window not available' };
+    }
+
+    // Focus/show the main window
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
+
+    // Send navigation event to renderer
+    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, payload);
+
+    return { success: true };
+  } catch (error: any) {
+    console.error('[Main] Error navigating to page:', error);
     return { success: false, error: error.message };
   }
 });

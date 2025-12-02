@@ -2,14 +2,14 @@
  * Unit tests for NotificationManager
  */
 
-// Mock the uploader module BEFORE importing anything
-jest.mock('../uploader', () => ({
-  getNotifications: jest.fn(),
-  updateNotification: jest.fn(),
+// Mock the apiClient module that notificationManager depends on BEFORE importing anything
+jest.mock('../apiClient', () => ({
+  APIclient: jest.fn(),
+  getCsrfToken: jest.fn(),
 }));
 
 import { notificationManager } from '../notificationManager';
-import * as uploader from '../uploader';
+import * as notificationManagerModule from '../notificationManager';
 import { BrowserWindow } from 'electron';
 
 // Mock Electron's BrowserWindow
@@ -31,12 +31,14 @@ describe('NotificationManager', () => {
     mockWindow = {
       webContents: {
         send: jest.fn(),
+        isDestroyed: jest.fn().mockReturnValue(false),
       },
+      isDestroyed: jest.fn().mockReturnValue(false),
     };
 
     // Setup mocks for API calls
-    mockGetNotifications = jest.spyOn(uploader, 'getNotifications');
-    mockUpdateNotification = jest.spyOn(uploader, 'updateNotification');
+    mockGetNotifications = jest.spyOn(notificationManagerModule, 'getNotifications');
+    mockUpdateNotification = jest.spyOn(notificationManagerModule, 'updateNotification');
   });
 
   afterEach(() => {

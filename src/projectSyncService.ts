@@ -2,7 +2,7 @@ import * as chokidar from 'chokidar';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
-import { APIclient, getCsrfToken } from './uploader';
+import { APIclient, getCsrfToken } from './apiClient';
 import { IPC_CHANNELS } from './shared/types';
 import FormData from 'form-data';
 
@@ -397,7 +397,7 @@ class ProjectSyncService {
 
     // Upload file
     const response = await client.post(
-      `v0/co_scientist/projects/${projectId}/files`,
+      `/v0/co_scientist/projects/${projectId}/files`,
       formData,
       {
         headers: {

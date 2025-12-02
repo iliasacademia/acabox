@@ -40,6 +40,10 @@ export interface Conversation {
   parent_type?: string | null;
 }
 
+export interface ConversationResponse {
+  conversation: Conversation;
+  messages: Message[];
+}
 export interface ConversationDetail extends Conversation {
   messages: Message[];
 }
@@ -104,7 +108,7 @@ export async function listConversations(
 export async function getConversation(
   conversationId: number,
   projectId: number
-): Promise<ConversationDetail | null> {
+): Promise<ConversationResponse | null> {
   try {
     const params = new URLSearchParams({
       conversation_id: conversationId.toString(),

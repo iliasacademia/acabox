@@ -2,12 +2,8 @@ import QRCode from 'qrcode';
 import { app } from 'electron';
 import { createHash } from 'crypto';
 import os from 'os';
-import { APIclient } from '../uploader';
+import { APIclient, BASE_URL } from '../apiClient';
 
-// Backend URL configuration
-const isDev = !app.isPackaged;
-const DEFAULT_URL = isDev ? 'https://api.devdemia.com/' : 'https://api.academia.edu/';
-const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 const WEB_URL = BASE_URL.replace('api.', ''); // Convert api.academia.edu to academia.edu
 
 export interface QRAuthResult {
@@ -88,7 +84,7 @@ export async function createQRAuthSession(): Promise<QRAuthSession> {
     const deviceId = generateDeviceId();
 
     // Construct authorization URL
-    const authorizationURL = `${WEB_URL}desktop/authorize?device_id=${deviceId}`;
+    const authorizationURL = `${WEB_URL}/desktop/authorize?device_id=${deviceId}`;
 
     // Generate QR code from authorization URL
     const qrCodeDataURL = await QRCode.toDataURL(authorizationURL, {

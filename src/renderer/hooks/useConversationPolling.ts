@@ -56,7 +56,7 @@ export function useConversationPolling(): UseConversationPollingResult {
       }
 
       console.log('[ConversationPolling] Received conversation:', {
-        id: conversation.id,
+        id: conversation.conversation.id,
         messageCount: conversation.messages?.length || 0,
         messages: conversation.messages,
       });

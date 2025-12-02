@@ -14,6 +14,7 @@ export const IPC_CHANNELS = {
 
   // API operations
   API_CALL: 'api-call',
+  API_LOG: 'api-log',
 
   // File operations
   SELECT_FOLDER: 'select-folder',
@@ -76,6 +77,9 @@ export const IPC_CHANNELS = {
   GET_POSITION_DEBUG_INFO: 'get-position-debug-info',
   GET_ALL_NOTIFICATIONS: 'get-all-notifications',
   OPEN_EXTERNAL_URL: 'open-external-url',
+
+  // Navigation
+  NAVIGATE_TO_PAGE: 'navigate-to-page',
 } as const;
 
 // Feature flags
@@ -100,4 +104,11 @@ export interface DesktopNotification {
 
 export interface GetNotificationsResponse {
   notifications: DesktopNotification[];
+}
+
+// Navigation payload for navigate-to-page IPC
+export interface NavigateToPagePayload {
+  page: 'conversation';  // Extensible: 'project' | 'settings' | etc.
+  projectId: number;
+  conversationId: number;
 }

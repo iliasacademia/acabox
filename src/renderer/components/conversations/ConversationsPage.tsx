@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Conversation } from '../../services/conversationsApi';
 import { Project, ProjectFile, getProjectFiles, getProjectStatus, triggerFullReview, triggerDiffReview } from '../../services/projectsApi';
+import { Conversation, getConversation, ConversationResponse } from '../../services/conversationsApi';
 import { ConversationsSidebar } from './ConversationsSidebar';
 import { ConversationDetail } from './ConversationDetail';
 import { generateDailyFeedbackTitle } from './utils';
@@ -11,6 +12,8 @@ import './Conversations.css';
 interface ConversationsPageProps {
   selectedProject: Project | null;
   onBack?: () => void;
+  initialConversationId?: number | null;
+  onConversationNavigated?: () => void;
 }
 
 // Extended conversation type to support draft conversations
@@ -18,7 +21,7 @@ export interface DraftConversation extends Conversation {
   isDraft: true;
 }
 
-export function ConversationsPage({ selectedProject, onBack }: ConversationsPageProps) {
+export function ConversationsPage({ selectedProject, onBack, initialConversationId, onConversationNavigated }: ConversationsPageProps) {
   const [selectedConversation, setSelectedConversation] =
     useState<Conversation | DraftConversation | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
@@ -335,6 +338,38 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
       window.electronAPI.removeListener(IPC_CHANNELS.PROJECT_FILE_SYNCED, handleFileSynced);
     };
   }, [selectedProject]);
+
+  // Handle initial conversation navigation from notification click
+  useEffect(() => {
+    if (!initialConversationId || !selectedProject) return;
+
+    console.log('[ConversationsPage] Initial conversation ID provided:', initialConversationId);
+
+    const fetchAndSelectConversation = async () => {
+      try {
+        console.log('[ConversationsPage] Fetching conversation for navigation:', initialConversationId, selectedProject.id);
+        const conversationDetail = await getConversation(initialConversationId, selectedProject.id);
+        console.log('[ConversationsPage] Fetched conversation:', conversationDetail);
+        if (conversationDetail) {
+          console.log('[ConversationsPage] Fetched conversation for navigation:', conversationDetail.conversation.id, conversationDetail.conversation.title);
+          // Convert to Conversation type (getConversation returns ConversationDetail which has messages)
+          const { conversation } = conversationDetail;
+          setSelectedConversation(conversation);
+        } else {
+          console.warn('[ConversationsPage] Conversation not found:', initialConversationId);
+        }
+      } catch (error) {
+        console.error('[ConversationsPage] Error fetching conversation for navigation:', error);
+      } finally {
+        // Clear the pending navigation after handling
+        if (onConversationNavigated) {
+          onConversationNavigated();
+        }
+      }
+    };
+
+    fetchAndSelectConversation();
+  }, [initialConversationId, selectedProject, onConversationNavigated]);
 
   const handleSelectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation);

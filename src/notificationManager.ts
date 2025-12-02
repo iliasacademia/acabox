@@ -1,11 +1,55 @@
 import { BrowserWindow } from 'electron';
-import { getNotifications, updateNotification } from './uploader';
-import { Notification } from './types/notifications';
+import { APIclient, getCsrfToken } from './apiClient';
+import { Notification, GetNotificationsResponse } from './types/notifications';
 
 export interface CachedNotification extends Notification {
   fetched_at: number;
   synced_to_backend: boolean;
 }
+
+// Desktop Notifications API
+export const getNotifications = async (after?: string): Promise<GetNotificationsResponse> => {
+  const client = await APIclient();
+  const params = after ? { after } : {};
+  const response = await client.get('/v0/desktop_notifications/get_notifications', { params });
+  return response.data;
+};
+
+export const updateNotification = async (
+  id: number,
+  status: 'unread' | 'read' | 'dismissed',
+  readAt?: number | null,
+  dismissedAt?: number | null,
+  deliveredAt?: number | null
+): Promise<void> => {
+  const client = await APIclient();
+  const csrfToken = await getCsrfToken();
+
+  const requestPayload = {
+    id,
+    status,
+    read_at: readAt,
+    dismissed_at: dismissedAt,
+    delivered_at: deliveredAt,
+  };
+
+  try {
+    const response = await client.patch(
+      '/v0/desktop_notifications/update_notification',
+      requestPayload,
+      {
+        headers: { 'x-csrf-token': csrfToken },
+      }
+    );
+  } catch (error: any) {
+    console.error('[API] updateNotification error:', {
+      message: error.message,
+      response: error.response?.data,
+      status: error.response?.status,
+    });
+    throw error;
+  }
+};
 
 class NotificationManager {
   private notifications: Map<number, CachedNotification> = new Map();
@@ -24,6 +68,20 @@ class NotificationManager {
   }
 
   /**
+   * Get the latest created_at timestamp from cached notifications
+   * Used for incremental syncing with the backend API
+   */
+  private getLatestCreatedAt(): number | null {
+    let latest: number | null = null;
+    for (const notif of this.notifications.values()) {
+      if (latest === null || notif.created_at > latest) {
+        latest = notif.created_at;
+      }
+    }
+    return latest;
+  }
+
+  /**
    * Sync notifications from backend API and merge into memory
    */
   async syncWithBackend(userId: number): Promise<void> {
@@ -34,11 +92,15 @@ class NotificationManager {
 
     this.isSyncing = true;
     try {
-      console.log('Syncing notifications from backend...');
-      const response = await getNotifications();
-      const fetchedAt = Date.now();
+      // Get latest timestamp from cache for incremental sync
+      const latestCreatedAt = this.getLatestCreatedAt();
+      const afterParam = latestCreatedAt
+        ? new Date(latestCreatedAt).toISOString()
+        : undefined;
 
-      console.log(`[NotificationManager] Received ${response.notifications.length} notifications from backend`);
+      console.log(`Syncing notifications from backend...${afterParam ? ` (after: ${afterParam})` : ' (full sync)'}`);
+      const response = await getNotifications(afterParam);
+      const fetchedAt = Date.now();
 
       // Get existing notification IDs
       const existingIds = new Set<number>();
@@ -56,13 +118,15 @@ class NotificationManager {
           ...notif,
           fetched_at: fetchedAt,
           synced_to_backend: true,
+          // If delivered_at is missing and notification is already processed,
+          // set it to current time (consider it "delivered" when we first learn about it)
+          delivered_at: notif.delivered_at ??
+            (notif.status !== 'unread' ? fetchedAt : undefined),
         };
 
         // Check if this is a new notification (not yet delivered)
         // Use == null to check for both null and undefined explicitly
         const shouldShowPopup = notif.status === 'unread' && notif.delivered_at == null;
-        console.log(`[NotificationManager] Notification ${notif.id} should show popup: ${shouldShowPopup} (status=${notif.status}, delivered_at=${notif.delivered_at})`);
-
         if (shouldShowPopup) {
           newNotifications.push(notif);
         }
@@ -74,16 +138,27 @@ class NotificationManager {
       // Sync local changes to backend
       await this.syncLocalChangesToBackend();
 
-      console.log(`[NotificationManager] ${newNotifications.length} notifications will trigger popups`);
-      console.log(`[NotificationManager] MainWindow available: ${!!this.mainWindow}`);
-
       // Notify renderer about new notifications and mark as delivered
       if (newNotifications.length > 0 && this.mainWindow) {
-        console.log(`[NotificationManager] Sending popups for ${newNotifications.length} notifications`);
         for (const notif of newNotifications) {
-          console.log(`[NotificationManager] Sending popup for notification ${notif.id}: "${notif.title}"`);
+          // Validate window before sending
+          if (!this.mainWindow || this.mainWindow.isDestroyed()) {
+            console.error(`[NotificationManager] Cannot send notification ${notif.id}: mainWindow is null or destroyed`);
+            continue; // Skip marking as delivered
+          }
+
+          if (!this.mainWindow.webContents || this.mainWindow.webContents.isDestroyed()) {
+            console.error(`[NotificationManager] Cannot send notification ${notif.id}: webContents is null or destroyed`);
+            continue;
+          }
+
           // Send popup event
-          this.mainWindow.webContents.send('new-notification', notif);
+          try {
+            this.mainWindow.webContents.send('new-notification', notif);
+          } catch (error) {
+            console.error(`[NotificationManager] Failed to send IPC for notification ${notif.id}:`, error);
+            continue; // Don't mark as delivered if send failed
+          }
 
           // Mark as delivered immediately
           try {
@@ -96,14 +171,11 @@ class NotificationManager {
               deliveredAt
             );
 
-            console.log(`[NotificationManager] Successfully marked notification ${notif.id} as delivered at ${deliveredAt}`);
-
             // Update in memory
             const cached = this.notifications.get(notif.id);
             if (cached) {
               cached.delivered_at = deliveredAt;
               this.notifications.set(notif.id, cached);
-              console.log(`[NotificationManager] Updated in-memory cache for notification ${notif.id} with delivered_at=${deliveredAt}`);
             } else {
               console.warn(`[NotificationManager] Could not find notification ${notif.id} in cache to update delivered_at`);
             }
@@ -118,12 +190,8 @@ class NotificationManager {
       console.log(`Synced ${response.notifications.length} notifications, ${newNotifications.length} new`);
 
       // Notify listeners that sync is complete (for badge updates, etc.)
-      const syncCompleteTime = Date.now();
-      console.log(`[NotificationManager] Sync complete at ${syncCompleteTime}, invoking onSyncComplete callback`);
       if (this.onSyncComplete) {
-        console.log(`[NotificationManager] Calling onSyncComplete callback with userId=${userId}`);
         this.onSyncComplete(userId);
-        console.log(`[NotificationManager] onSyncComplete callback completed at ${Date.now()} (took ${Date.now() - syncCompleteTime}ms)`);
       } else {
         console.warn(`[NotificationManager] onSyncComplete callback is NOT set!`);
       }
