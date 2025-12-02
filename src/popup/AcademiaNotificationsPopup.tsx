@@ -88,11 +88,14 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
       const latest = sortedRuns[0];
 
-      // Map API status to UI state
+      // Map API status to UI state and start polling if in progress
       switch (latest.status) {
         case 'pending':
         case 'processing':
           setReviewState('reviewing');
+          // Start polling since a review is already in progress
+          console.log('[AcademiaNotificationsPopup] Review in progress on load, starting polling');
+          startStatusPolling(projId, fId);
           break;
         case 'completed':
           setReviewState('completed');

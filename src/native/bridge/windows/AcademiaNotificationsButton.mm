@@ -47,9 +47,17 @@
 - (void)loadPopupHTML {
     // Set HTML subpath BEFORE loading (called by base class init)
     self.htmlSubpath = @"academiaNotificationsButton";
-    NSLog(@"[AcademiaNotificationsButton] Loading with subpath: %@", self.htmlSubpath);
 
-    // Call parent implementation which will use the subpath
+    // Get PID from observer and pass as query param for notification filtering
+    if (self.observer) {
+        pid_t wordPID = [self.observer getWordPID];
+        self.queryParams = @{@"pid": [NSString stringWithFormat:@"%d", wordPID]};
+        NSLog(@"[AcademiaNotificationsButton] Loading with subpath: %@, pid: %d", self.htmlSubpath, wordPID);
+    } else {
+        NSLog(@"[AcademiaNotificationsButton] Loading with subpath: %@ (no observer, no PID)", self.htmlSubpath);
+    }
+
+    // Call parent implementation which will use the subpath and queryParams
     [super loadPopupHTML];
 }
 

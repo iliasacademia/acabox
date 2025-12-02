@@ -24,6 +24,18 @@
                       globalPath:(NSString*)globalPath
                          subpath:(NSString*)subpath;
 
+// Loads popup HTML with subpath and query parameters support
+// @param webView The WKWebView to load HTML into
+// @param windowName Name for logging
+// @param globalPath Optional custom base path
+// @param subpath Subdirectory under the popup path (e.g., "academiaNotifications")
+// @param queryParams Dictionary of query parameters to append to URL (e.g., @{@"pid": @"1234"})
++ (void)loadPopupHTMLIntoWebView:(WKWebView*)webView
+                      windowName:(NSString*)windowName
+                      globalPath:(NSString*)globalPath
+                         subpath:(NSString*)subpath
+                     queryParams:(NSDictionary<NSString*, NSString*>*)queryParams;
+
 // Returns array of possible HTML file paths to try
 // @param globalPath Optional custom path (prepended if non-nil)
 + (NSArray<NSString*>*)possibleHTMLPathsWithGlobalPath:(NSString*)globalPath;

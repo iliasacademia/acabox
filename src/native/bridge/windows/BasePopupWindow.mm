@@ -81,7 +81,8 @@ extern NSString* globalPopupPath;
     [HTMLLoader loadPopupHTMLIntoWebView:self.webView
                               windowName:[self windowNameForLogging]
                               globalPath:globalPopupPath
-                                 subpath:self.htmlSubpath];
+                                 subpath:self.htmlSubpath
+                             queryParams:self.queryParams];
 }
 
 - (NSString*)windowNameForLogging {
