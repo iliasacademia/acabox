@@ -43,6 +43,7 @@ export const IPC_CHANNELS = {
   GET_WORD_TEXT: 'get-word-text',
   PROCESS_SCREEN_OCR: 'process-screen-ocr',
   PROCESS_WORD_WINDOW: 'process-word-window',
+  REFRESH_MANUSCRIPT_PATHS: 'refresh-manuscript-paths',
 
   // Sync operations
   GET_SYNC_FOLDERS: 'get-sync-folders',
