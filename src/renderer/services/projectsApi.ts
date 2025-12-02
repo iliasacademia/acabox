@@ -95,6 +95,7 @@ export interface ReviewSuggestion {
 export interface ReviewData {
   suggestions: ReviewSuggestion[];
   summary: string;
+  triggered_by?: string; // 'auto_scheduler' for auto reviews, other values for manual
 }
 
 export interface AgentRun {
@@ -357,21 +358,6 @@ export async function getFileDiff(
 }
 
 /**
- * Trigger diff review for a file
- * POST /v0/co_scientist/projects/:projectId/files/:fileId/trigger_diff_review
- */
-export async function triggerDiffReview(
-  projectId: number,
-  fileId: number
-): Promise<{ agent_run_id: number }> {
-  const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
-    method: 'POST',
-    endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_diff_review`,
-  });
-  return response;
-}
-
-/**
  * Trigger full review for a manuscript file
  * POST /v0/co_scientist/projects/:projectId/files/:fileId/trigger_full_review
  */
@@ -385,3 +371,19 @@ export async function triggerFullReview(
   });
   return response;
 }
+
+/**
+ * Trigger diff review for a manuscript file (reviews only changes since last review)
+ * POST /v0/co_scientist/projects/:projectId/files/:fileId/trigger_diff_review
+ */
+export async function triggerDiffReview(
+  projectId: number,
+  fileId: number
+): Promise<{ agent_run_id: number; status: string; current_version_id: string }> {
+  const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
+    method: 'POST',
+    endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_diff_review`,
+  });
+  return response;
+}
+
