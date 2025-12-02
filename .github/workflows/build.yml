@@ -390,9 +390,11 @@ jobs:
           fi
 
           echo "Invalidating CloudFront cache for ${MANIFEST_PATH}..."
+
+          # Use JSON input to avoid shell escaping issues on Windows
           aws cloudfront create-invalidation \
-            --distribution-id ${DISTRIBUTION_ID} \
-            --paths '${MANIFEST_PATH}'
+            --distribution-id "${DISTRIBUTION_ID}" \
+            --invalidation-batch "{\"Paths\":{\"Quantity\":1,\"Items\":[\"${MANIFEST_PATH}\"]},\"CallerReference\":\"$(date +%s)\"}"
 
           echo "CloudFront cache invalidation initiated"
 
