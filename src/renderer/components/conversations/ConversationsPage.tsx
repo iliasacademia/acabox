@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Conversation } from '../../services/conversationsApi';
-import { Project, ProjectFile, getProjectFiles, getProjectStatus, triggerFullReview, triggerDiffReview } from '../../services/projectsApi';
 import { Conversation, getConversation, ConversationResponse } from '../../services/conversationsApi';
+import { Project, ProjectFile, getProjectFiles, getProjectStatus, triggerFullReview, triggerDiffReview } from '../../services/projectsApi';
 import { ConversationsSidebar } from './ConversationsSidebar';
 import { ConversationDetail } from './ConversationDetail';
 import { generateDailyFeedbackTitle } from './utils';
