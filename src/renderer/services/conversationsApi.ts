@@ -75,10 +75,12 @@ export interface CreateMessageRequest {
  */
 export async function listConversations(
   offset: number = 0,
-  projectId: number
+  projectId: number,
+  limit: number = 20
 ): Promise<ListConversationsResponse> {
   const params = new URLSearchParams({
     offset: offset.toString(),
+    limit: limit.toString(),
     parent_id: projectId.toString(),
     parent_type: 'Project',
   });

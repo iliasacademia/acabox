@@ -90,11 +90,20 @@
 .headerManuscriptInfo {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 16px;
   background-color: var(--background-beige);
   padding: 0 16px;
-  height: 56px;
+  min-height: 56px;
   border-radius: var(--radius-sm);
+}
+
+.headerManuscriptInfo .manuscriptInfoLeft {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
 }
 
 .headerManuscriptInfo .manuscriptLabel {
@@ -112,6 +121,7 @@
   justify-content: center;
   width: 28px;
   height: 28px;
+  flex-shrink: 0;
 }
 
 .headerManuscriptInfo .manuscriptFileIcon img {
@@ -120,15 +130,66 @@
   object-fit: contain;
 }
 
+.headerManuscriptInfo .manuscriptFileDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
 .headerManuscriptInfo .manuscriptFileName {
   font-family: var(--font-family-sans);
   font-size: 20px;
   font-weight: 400;
-  line-height: 32px;
+  line-height: 28px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.headerManuscriptInfo .manuscriptTimestamp {
+  font-family: var(--font-family-sans);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.triggerFullReviewButton {
+  font-family: var(--font-family-sans);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+  color: white;
+  background-color: #0645b1;
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 16px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.2s;
+}
+
+.triggerFullReviewButton:hover:not(:disabled) {
+  background-color: #0530a0;
+}
+
+.triggerFullReviewButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.reviewErrorMessage {
+  padding: 12px 24px;
+  background-color: #ffebee;
+  color: #c62828;
+  font-family: var(--font-family-sans);
+  font-size: 14px;
+  line-height: 20px;
+  border-left: 4px solid #c62828;
+  margin: 0 24px;
 }
 
 .headerManuscriptInfo .editLink {
@@ -308,30 +369,50 @@
 
 .reviewChangesButton {
   padding: 8px 16px;
-  background-color: #000000;
+  background-color: #0645b1;
   color: #ffffff;
   border: none;
-  border-radius: 6px;
-  font-size: 14px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-family-sans);
+  font-size: 16px;
   font-weight: 500;
+  line-height: 24px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 6px;
   transition: all 0.2s;
   white-space: nowrap;
+  position: relative;
 }
 
 .reviewChangesButton:hover:not(:disabled) {
-  background-color: #333333;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  background-color: #0530a0;
 }
 
 .reviewChangesButton:disabled {
-  background-color: #cccccc;
+  opacity: 0.6;
   cursor: not-allowed;
-  opacity: 0.5;
+}
+
+.reviewChangesButton .sync-indicator {
+  width: 8px;
+  height: 8px;
+  background-color: #4ade80;
+  border-radius: 50%;
+  animation: pulse-sync 1.5s ease-in-out infinite;
+  margin-left: 2px;
+}
+
+@keyframes pulse-sync {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.1);
+  }
 }
 
 .fullReviewButton {

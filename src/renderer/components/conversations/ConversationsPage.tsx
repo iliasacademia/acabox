@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Conversation } from '../../services/conversationsApi';
-import { Project, ProjectFile, getProjectFiles, getProjectStatus } from '../../services/projectsApi';
+import { Project, ProjectFile, getProjectFiles, getProjectStatus, triggerFullReview, triggerDiffReview } from '../../services/projectsApi';
 import { ConversationsSidebar } from './ConversationsSidebar';
 import { ConversationDetail } from './ConversationDetail';
 import { generateDailyFeedbackTitle } from './utils';
-import ManuscriptVersionCard from './ManuscriptVersionCard';
 import { IPC_CHANNELS } from '../../../shared/types';
 import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 import './Conversations.css';
@@ -28,6 +27,11 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [hasConversations, setHasConversations] = useState(false);
+  const [isFullReviewing, setIsFullReviewing] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [recentlySynced, setRecentlySynced] = useState(false);
+  const [syncIndicatorTimeout, setSyncIndicatorTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [isAutoReviewInProgress, setIsAutoReviewInProgress] = useState(false);
 
   // Refresh manuscript file data
   const refreshManuscriptFile = async () => {
@@ -44,6 +48,39 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
     }
   };
 
+  // Check if there are diffs since last review
+  const hasDiffsSinceLastReview = (): boolean => {
+    if (!manuscriptFile?.last_review) {
+      console.log('[ConversationsPage] hasDiffsSinceLastReview: false (no last_review)');
+      return false;
+    }
+    const fileUpdate = new Date(manuscriptFile.updated_at);
+    const lastReview = new Date(manuscriptFile.last_review.reviewed_at);
+    const hasDiffs = fileUpdate > lastReview;
+    console.log('[ConversationsPage] hasDiffsSinceLastReview:', hasDiffs, {
+      fileUpdate: fileUpdate.toISOString(),
+      lastReview: lastReview.toISOString()
+    });
+    return hasDiffs;
+  };
+
+  // Check if review changes button should be shown
+  const shouldShowReviewChangesButton = (): boolean => {
+    console.log('[ConversationsPage] shouldShowReviewChangesButton check:', {
+      isAutoReviewInProgress,
+      isReviewInProgress,
+      isFullReviewing,
+      hasDiffs: hasDiffsSinceLastReview()
+    });
+
+    // Hide if any review is in progress (auto or manual)
+    // This covers pending/processing status before review_data is populated
+    if (isReviewInProgress || isFullReviewing) return false;
+
+    // Show only if there are diffs
+    return hasDiffsSinceLastReview();
+  };
+
   // Poll for review completion with exponential backoff
   const startPolling = (manuscriptId: number) => {
     console.log('[ConversationsPage] Starting review status polling for manuscript:', manuscriptId);
@@ -58,6 +95,7 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
         console.log('[ConversationsPage] Max poll attempts reached, stopping');
         setPollInterval(null);
         setIsReviewInProgress(false);
+        setIsFullReviewing(false); // Reset button state
         return;
       }
 
@@ -76,6 +114,7 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
           console.log('[ConversationsPage] No recent runs found, stopping poll');
           setPollInterval(null);
           setIsReviewInProgress(false);
+          setIsFullReviewing(false); // Reset button state
           return;
         }
 
@@ -84,11 +123,20 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
           run.status === 'pending' || run.status === 'processing'
         );
 
+        // Check if any in-progress runs are auto-scheduled
+        const autoScheduledInProgress = inProgressRuns.some(run =>
+          run.review_data?.triggered_by === 'auto_scheduler'
+        );
+        setIsAutoReviewInProgress(autoScheduledInProgress);
+        console.log('[ConversationsPage] Auto-scheduled review in progress:', autoScheduledInProgress);
+
         if (inProgressRuns.length === 0) {
           // All recent runs are completed or failed
           console.log('[ConversationsPage] All recent runs completed');
           setPollInterval(null);
           setIsReviewInProgress(false);
+          setIsFullReviewing(false); // Reset button state
+          setIsAutoReviewInProgress(false); // Reset auto review state
 
           // Refresh manuscript file data to get updated last_review
           await refreshManuscriptFile();
@@ -128,6 +176,15 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
       }
     };
   }, [pollInterval]);
+
+  // Cleanup sync indicator timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (syncIndicatorTimeout) {
+        clearTimeout(syncIndicatorTimeout);
+      }
+    };
+  }, [syncIndicatorTimeout]);
 
   // Fetch project files when selectedProject changes
   useEffect(() => {
@@ -236,6 +293,24 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
               // - First time sync (no last_review): full review
               // - Subsequent syncs (has last_review): full review (we let backend decide)
               startPolling(primaryManuscript.id);
+
+              // Set recently synced indicator
+              // Clear any existing timeout
+              if (syncIndicatorTimeout) {
+                clearTimeout(syncIndicatorTimeout);
+              }
+
+              setRecentlySynced(true);
+              console.log('[ConversationsPage] ✓ Recently synced indicator set');
+
+              // Clear indicator after 5 seconds
+              const timeoutId = setTimeout(() => {
+                setRecentlySynced(false);
+                setSyncIndicatorTimeout(null);
+                console.log('[ConversationsPage] Recently synced indicator cleared after timeout');
+              }, 5000);
+
+              setSyncIndicatorTimeout(timeoutId);
             } else {
               console.log('[ConversationsPage] Synced file is not the manuscript');
             }
@@ -297,6 +372,79 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
   const handleConversationsLoaded = (conversations: Conversation[]) => {
     // Track if there are any conversations
     setHasConversations(conversations.length > 0);
+
+    // Auto-select the first conversation if none is selected
+    if (conversations.length > 0 && !selectedConversation) {
+      setSelectedConversation(conversations[0]);
+    }
+  };
+
+  const handleFullReview = async () => {
+    if (!selectedProject || !manuscriptFile) {
+      setReviewError('No manuscript file found');
+      return;
+    }
+
+    console.log('[ConversationsPage] 🔄 Starting full review...');
+    setIsFullReviewing(true);
+    setIsReviewInProgress(true);
+    setReviewError(null);
+    console.log('[ConversationsPage] State updated: isFullReviewing=true, isReviewInProgress=true');
+
+    try {
+      const response = await triggerFullReview(selectedProject.id, manuscriptFile.id);
+      console.log('[ConversationsPage] ✅ Full review triggered:', response);
+
+      // Start polling for completion
+      startPolling(manuscriptFile.id);
+
+    } catch (error: any) {
+      console.error('[ConversationsPage] ❌ Error triggering full review:', error);
+      const errorMsg = error.message || 'Failed to trigger full review';
+      setReviewError(errorMsg);
+      setIsFullReviewing(false);
+      setIsReviewInProgress(false);
+    }
+  };
+
+  const handleDiffReview = async () => {
+    if (!selectedProject || !manuscriptFile) {
+      setReviewError('No manuscript file found');
+      return;
+    }
+
+    console.log('[ConversationsPage] 🔄 Starting diff review...');
+    setIsFullReviewing(true);
+    setIsReviewInProgress(true);
+    setReviewError(null);
+    console.log('[ConversationsPage] State updated: isFullReviewing=true, isReviewInProgress=true');
+
+    try {
+      const response = await triggerDiffReview(selectedProject.id, manuscriptFile.id);
+      console.log('[ConversationsPage] ✅ Diff review triggered:', response);
+
+      // Start polling for completion
+      startPolling(manuscriptFile.id);
+
+    } catch (error: any) {
+      console.error('[ConversationsPage] ❌ Error triggering diff review:', error);
+      const errorMsg = error.message || 'Failed to trigger diff review';
+      setReviewError(errorMsg);
+      setIsFullReviewing(false);
+      setIsReviewInProgress(false);
+    }
+  };
+
+  // Format manuscript update timestamp
+  const formatManuscriptTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   if (!selectedProject) {
@@ -325,14 +473,45 @@ export function ConversationsPage({ selectedProject, onBack }: ConversationsPage
         </div>
         {manuscriptFile && (
           <div className="headerManuscriptInfo">
-            <span className="manuscriptLabel">Manuscript:</span>
-            <div className="manuscriptFileIcon">
-              <img src={MSWordIcon} alt="Word document" />
+            <div className="manuscriptInfoLeft">
+              <span className="manuscriptLabel">Manuscript:</span>
+              <div className="manuscriptFileIcon">
+                <img src={MSWordIcon} alt="Word document" />
+              </div>
+              <div className="manuscriptFileDetails">
+                <span className="manuscriptFileName">{manuscriptFile.file_name}</span>
+                <span className="manuscriptTimestamp">
+                  Last updated: {formatManuscriptTimestamp(manuscriptFile.updated_at)}
+                </span>
+              </div>
             </div>
-            <span className="manuscriptFileName">{manuscriptFile.file_name}</span>
+            <button
+              className="triggerFullReviewButton"
+              onClick={handleFullReview}
+              disabled={isFullReviewing || isReviewInProgress}
+            >
+              {isFullReviewing ? 'Reviewing...' : 'Trigger Full Review'}
+            </button>
+            {shouldShowReviewChangesButton() && (
+              <button
+                className={`reviewChangesButton ${recentlySynced ? 'recently-synced' : ''}`}
+                onClick={handleDiffReview}
+                disabled={isFullReviewing || isReviewInProgress}
+              >
+                {isFullReviewing || isReviewInProgress ? 'Reviewing...' : 'Review Changes'}
+                {recentlySynced && !isFullReviewing && !isReviewInProgress && <span className="sync-indicator"></span>}
+              </button>
+            )}
           </div>
         )}
       </div>
+
+      {/* Review Error */}
+      {reviewError && (
+        <div className="reviewErrorMessage">
+          {reviewError}
+        </div>
+      )}
 
       {/* Manuscript Feedback Section - Hide when review is in progress with no conversations */}
       {!(isReviewInProgress && !hasConversations) && (

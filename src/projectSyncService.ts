@@ -88,6 +88,11 @@ class ProjectSyncService {
     await this.performInitialSync(projectId, folderId, folderPath, manuscriptPath);
 
     // Create watcher
+    console.log(`[ProjectSync] Creating chokidar watcher with config:`);
+    console.log(`[ProjectSync]   - Folder: ${folderPath}`);
+    console.log(`[ProjectSync]   - Manuscript: ${manuscriptPath || 'none'}`);
+    console.log(`[ProjectSync]   - awaitWriteFinish: 2000ms stability`);
+
     const watcher = chokidar.watch(folderPath, {
       persistent: true,
       ignoreInitial: true, // We already synced existing files
@@ -101,7 +106,10 @@ class ProjectSyncService {
 
         const basename = path.basename(filePath);
         // Ignore hidden files (starting with .)
-        if (basename.startsWith('.')) return true;
+        if (basename.startsWith('.')) {
+          console.log(`[ProjectSync] Ignoring hidden file: ${filePath}`);
+          return true;
+        }
         // Ignore directories
         if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
           return false;
@@ -129,17 +137,30 @@ class ProjectSyncService {
     this.watchedFolders.set(key, watchedFolder);
 
     // Set up event handlers
-    watcher.on('add', (filePath: string) => this.handleFileAdded(projectId, folderId, folderPath, filePath));
-    watcher.on('change', (filePath: string) => this.handleFileChanged(projectId, folderId, folderPath, filePath));
-    watcher.on('unlink', (filePath: string) => this.handleFileDeleted(projectId, folderId, folderPath, filePath));
+    watcher.on('add', (filePath: string) => {
+      console.log(`[ProjectSync] 🔵 Watcher detected 'add' event: ${filePath}`);
+      this.handleFileAdded(projectId, folderId, folderPath, filePath);
+    });
+    watcher.on('change', (filePath: string) => {
+      console.log(`[ProjectSync] 🟡 Watcher detected 'change' event: ${filePath}`);
+      this.handleFileChanged(projectId, folderId, folderPath, filePath);
+    });
+    watcher.on('unlink', (filePath: string) => {
+      console.log(`[ProjectSync] 🔴 Watcher detected 'unlink' event: ${filePath}`);
+      this.handleFileDeleted(projectId, folderId, folderPath, filePath);
+    });
+    watcher.on('ready', () => {
+      console.log(`[ProjectSync] ✅ Watcher is ready and actively watching: ${folderPath}`);
+      console.log(`[ProjectSync] Watched paths:`, watcher.getWatched());
+    });
 
     watcher.on('error', (error) => {
-      console.error(`[ProjectSync] Watcher error for ${folderPath}:`, error);
+      console.error(`[ProjectSync] ❌ Watcher error for ${folderPath}:`, error);
       watchedFolder.status = 'error';
       this.sendSyncStatus(projectId, folderId, folderPath);
     });
 
-    console.log(`[ProjectSync] Watcher started for ${folderPath}`);
+    console.log(`[ProjectSync] Watcher events registered for ${folderPath}`);
   }
 
   /**

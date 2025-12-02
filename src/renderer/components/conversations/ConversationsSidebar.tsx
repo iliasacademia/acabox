@@ -22,50 +22,52 @@ export function ConversationsSidebar({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [hasMore, setHasMore] = useState(true);
-  const [offset, setOffset] = useState(0);
-  const [isCollapsed, setIsCollapsed] = useState(false);
 
-  const listContainerRef = useRef<HTMLDivElement>(null);
-  const isLoadingMore = useRef(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const ITEMS_PER_PAGE = 20;
   const POLL_INTERVAL = 5000; // Poll every 5 seconds
 
-  // Load initial conversations
-  const loadConversations = async (reset: boolean = false, silent: boolean = false) => {
-    if (isLoadingMore.current) return;
-
-    const newOffset = reset ? 0 : offset;
-
-    if (!silent) {
-      setIsLoading(reset);
-      setError(null);
-    }
-    isLoadingMore.current = true;
+  // Load all conversations by fetching in batches if needed
+  const loadConversations = async (isInitialLoad: boolean = false) => {
+    setIsLoading(true);
+    setError(null);
 
     try {
-      const response = await listConversations(newOffset, projectId);
+      let allConversations: Conversation[] = [];
+      let offset = 0;
+      let hasMore = true;
+      const batchSize = 100; // Fetch 100 at a time
 
-      if (reset) {
-        setConversations(response.conversations);
-        // Notify parent when conversations are loaded for the first time
-        if (onConversationsLoaded && response.conversations.length > 0) {
-          onConversationsLoaded(response.conversations);
+      console.log('[ConversationsSidebar] Starting to load all conversations');
+
+      // Keep fetching until we have all conversations
+      while (hasMore) {
+        const response = await listConversations(offset, projectId, batchSize);
+        console.log(`[ConversationsSidebar] Batch at offset ${offset}:`, response.conversations.length, 'conversations, has_more:', response.has_more);
+
+        allConversations = [...allConversations, ...response.conversations];
+        hasMore = response.has_more;
+        offset += response.conversations.length;
+
+        // Safety check to prevent infinite loops
+        if (offset > 10000) {
+          console.warn('[ConversationsSidebar] Safety limit reached, stopping fetch');
+          break;
         }
-      } else {
-        setConversations((prev) => [...prev, ...response.conversations]);
       }
 
-      setHasMore(response.has_more);
-      setOffset(newOffset + response.conversations.length);
+      console.log('[ConversationsSidebar] Total conversations loaded:', allConversations.length);
+      setConversations(allConversations);
+
+      // Only notify parent on initial load (not on polling refreshes)
+      if (onConversationsLoaded && allConversations.length > 0 && isInitialLoad) {
+        onConversationsLoaded(allConversations);
+      }
     } catch (err: any) {
       console.error('Failed to load conversations:', err);
       setError(err.message || 'Failed to load conversations');
     } finally {
       setIsLoading(false);
-      isLoadingMore.current = false;
     }
   };
 
@@ -75,8 +77,34 @@ export function ConversationsSidebar({
     stopPolling();
 
     // Set up new polling interval
-    pollIntervalRef.current = setInterval(() => {
-      loadConversations(true, true); // Silent reload to check for new conversations
+    pollIntervalRef.current = setInterval(async () => {
+      // Only check for new conversations at the top, don't reset the entire list
+      try {
+        const response = await listConversations(0, projectId, 20);
+
+        // Check if there are any new conversations by comparing the first conversation ID
+        if (response.conversations.length > 0 && conversations.length > 0) {
+          const newestPolledId = response.conversations[0].id;
+          const currentNewestId = conversations[0].id;
+
+          // If there's a newer conversation, prepend only the new ones
+          if (newestPolledId !== currentNewestId) {
+            const newConversations = response.conversations.filter(
+              conv => !conversations.some(existing => existing.id === conv.id)
+            );
+
+            if (newConversations.length > 0) {
+              setConversations(prev => [...newConversations, ...prev]);
+            }
+          }
+        } else if (response.conversations.length > 0 && conversations.length === 0) {
+          // If we had no conversations before and now we do, add them
+          setConversations(response.conversations);
+        }
+      } catch (error) {
+        // Silent fail for polling
+        console.error('Polling error:', error);
+      }
     }, POLL_INTERVAL);
   };
 
@@ -91,9 +119,7 @@ export function ConversationsSidebar({
   // Load conversations on mount and when projectId changes
   useEffect(() => {
     setConversations([]);
-    setOffset(0);
-    setHasMore(true);
-    loadConversations(true);
+    loadConversations(true); // Initial load
 
     // Start polling for new conversations
     startPolling();
@@ -108,33 +134,9 @@ export function ConversationsSidebar({
   useEffect(() => {
     if (refreshTrigger !== undefined && refreshTrigger > 0) {
       setConversations([]);
-      setOffset(0);
-      setHasMore(true);
-      loadConversations(true);
+      loadConversations(true); // Treat as initial load to auto-select new conversation
     }
   }, [refreshTrigger]);
-
-  // Infinite scroll handler
-  const handleScroll = () => {
-    if (!listContainerRef.current || !hasMore || isLoadingMore.current) return;
-
-    const container = listContainerRef.current;
-    const scrollBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight;
-
-    // Load more when within 100px of bottom
-    if (scrollBottom < 100) {
-      loadConversations(false);
-    }
-  };
-
-  useEffect(() => {
-    const container = listContainerRef.current;
-    if (container) {
-      container.addEventListener('scroll', handleScroll);
-      return () => container.removeEventListener('scroll', handleScroll);
-    }
-  }, [hasMore, offset]);
 
   // Filter conversations by search query
   const filteredConversations = conversations.filter((conv) => {
@@ -147,45 +149,22 @@ export function ConversationsSidebar({
     return title.includes(query) || summary.includes(query);
   });
 
-  // Format date with time to match Figma design (e.g., "Nov 12, 10am")
+  // Format date with time in expanded format (e.g., "Nov 12, 2024, 10:30 AM")
   const formatDateTime = (timestamp: string) => {
     const date = new Date(timestamp);
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const diffMs = today.getTime() - dateOnly.getTime();
-    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
-
-    // Format time as "10am" or "2pm"
-    const timeString = date.toLocaleTimeString('en-US', {
-      hour: 'numeric',
-      hour12: true
-    }).toLowerCase().replace(' ', '');
-
-    // Format date as "Nov 12"
-    const dateString = date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString('en-US', {
       month: 'short',
-      day: 'numeric'
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
     });
-
-    if (diffDays === 0) {
-      // Today - show date and time
-      return `${dateString}, ${timeString}`;
-    } else if (diffDays === 1) {
-      return `Yesterday`;
-    } else if (diffDays < 7) {
-      // Within a week - just show date
-      return dateString;
-    } else {
-      // Older - just show date
-      return dateString;
-    }
   };
 
   return (
     <div className="conversationsSidebar">
       {/* Conversations List */}
-      <div className="conversationsList" ref={listContainerRef}>
+      <div className="conversationsList">
         {error && (
           <div className="sidebarError">
             <span className="errorIcon">⚠️</span>
@@ -236,20 +215,6 @@ export function ConversationsSidebar({
                 )}
               </div>
             ))}
-
-            {/* Load more indicator */}
-            {hasMore && !isLoading && (
-              <div className="loadMoreIndicator">
-                <p>Scroll for more...</p>
-              </div>
-            )}
-
-            {/* Loading more */}
-            {isLoadingMore.current && (
-              <div className="loadingMore">
-                <div className="loadingSpinner small"></div>
-              </div>
-            )}
           </>
         )}
       </div>
