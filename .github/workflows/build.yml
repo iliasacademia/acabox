@@ -3,16 +3,15 @@ name: Build & Package
 on:
   workflow_dispatch:
     inputs:
-      major:
-        description: 'Major version number'
-        required: false
-        default: '0'
-        type: string
-      minor:
-        description: 'Minor version number'
-        required: false
-        default: '1'
-        type: string
+      bump_type:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - major
+          - minor
+          - patch
   push:
     branches:
       - main
@@ -23,21 +22,113 @@ permissions:
   contents: write
 
 jobs:
-  generate-timestamp:
-    name: Generate Build Timestamp
+  calculate-version:
+    name: Calculate Version
     runs-on: ubuntu-latest
     outputs:
-      patch: ${{ steps.timestamp.outputs.patch }}
-      timestamp_readable: ${{ steps.timestamp.outputs.timestamp_readable }}
+      version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.version.outputs.channel }}
+      timestamp_readable: ${{ steps.version.outputs.timestamp_readable }}
     steps:
-      - name: Generate timestamps
-        id: timestamp
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Calculate semantic version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BUMP_TYPE: ${{ inputs.bump_type || 'patch' }}
         run: |
-          echo "patch=$(date -u +"%m%d%H%M")" >> $GITHUB_OUTPUT
-          echo "timestamp_readable=$(date -u +"%Y%m%d-%H%M")" >> $GITHUB_OUTPUT
+          set -e
+
+          # Generate timestamp for artifact naming
+          TIMESTAMP_READABLE=$(date -u +"%Y%m%d-%H%M")
+          echo "timestamp_readable=${TIMESTAMP_READABLE}" >> $GITHUB_OUTPUT
+
+          # Handle tag releases - use exact version from tag
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+            echo "version=${VERSION}" >> $GITHUB_OUTPUT
+            echo "channel=stable" >> $GITHUB_OUTPUT
+            echo "Tag release: using version ${VERSION}"
+            exit 0
+          fi
+
+          # Determine channel based on branch
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            CHANNEL="stable"
+          else
+            CHANNEL="beta"
+          fi
+
+          # Fetch latest stable release version (non-prerelease)
+          LATEST_STABLE=$(gh release list --exclude-pre-releases --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null || echo "")
+          echo "Latest stable release: ${LATEST_STABLE:-none}"
+
+          # Default starting version (will become 0.2.0 after first increment)
+          if [ -z "$LATEST_STABLE" ]; then
+            echo "No prior releases found, using default base version"
+            MAJOR=0; MINOR=1; PATCH=0
+          else
+            LATEST_STABLE="${LATEST_STABLE#v}"
+            # Parse version - handle old timestamp format by checking if patch > 999999
+            if [[ "$LATEST_STABLE" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+) ]]; then
+              MAJOR="${BASH_REMATCH[1]}"
+              MINOR="${BASH_REMATCH[2]}"
+              PATCH="${BASH_REMATCH[3]}"
+              # If patch is timestamp-like (>999999), treat as legacy and use default
+              if [ "$PATCH" -gt 999999 ]; then
+                echo "Detected legacy timestamp version, using default base version"
+                MAJOR=0; MINOR=1; PATCH=0
+              fi
+            else
+              echo "Could not parse version, using default base version"
+              MAJOR=0; MINOR=1; PATCH=0
+            fi
+          fi
+
+          echo "Current version base: ${MAJOR}.${MINOR}.${PATCH}"
+          echo "Bump type: ${BUMP_TYPE}"
+
+          if [ "$CHANNEL" == "stable" ]; then
+            # Increment based on bump type
+            case "$BUMP_TYPE" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              patch) PATCH=$((PATCH + 1)) ;;
+            esac
+            VERSION="${MAJOR}.${MINOR}.${PATCH}"
+          else
+            # Beta: calculate what the next stable version would be
+            case "$BUMP_TYPE" in
+              major) NEXT_MAJOR=$((MAJOR + 1)); NEXT_MINOR=0; NEXT_PATCH=0 ;;
+              minor) NEXT_MAJOR=$MAJOR; NEXT_MINOR=$((MINOR + 1)); NEXT_PATCH=0 ;;
+              patch) NEXT_MAJOR=$MAJOR; NEXT_MINOR=$MINOR; NEXT_PATCH=$((PATCH + 1)) ;;
+            esac
+            BASE_VERSION="${NEXT_MAJOR}.${NEXT_MINOR}.${NEXT_PATCH}"
+
+            # Find existing beta releases for this base version
+            echo "Checking for existing beta releases of ${BASE_VERSION}..."
+            BETA_RELEASES=$(gh release list --limit 100 --json tagName -q ".[].tagName" 2>/dev/null | grep "^${BASE_VERSION}-beta\." || echo "")
+
+            if [ -z "$BETA_RELEASES" ]; then
+              BETA_NUM=1
+            else
+              echo "Found existing beta releases: ${BETA_RELEASES}"
+              MAX_BETA=$(echo "$BETA_RELEASES" | sed 's/.*-beta\.//' | sort -n | tail -1)
+              BETA_NUM=$((MAX_BETA + 1))
+            fi
+
+            VERSION="${BASE_VERSION}-beta.${BETA_NUM}"
+          fi
+
+          echo "Calculated version: ${VERSION} (channel: ${CHANNEL})"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
 
   package:
-    needs: generate-timestamp
+    needs: calculate-version
     name: Package Electron App (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
 
@@ -144,66 +235,16 @@ jobs:
         shell: bash
         env:
           REF_NAME: ${{ github.ref_name }}
-          REF_FULL: ${{ github.ref }}
-          INPUT_MAJOR: ${{ inputs.major }}
-          INPUT_MINOR: ${{ inputs.minor }}
+          VERSION: ${{ needs.calculate-version.outputs.version }}
+          CHANNEL: ${{ needs.calculate-version.outputs.channel }}
+          TIMESTAMP_READABLE: ${{ needs.calculate-version.outputs.timestamp_readable }}
           PLATFORM: ${{ matrix.platform }}
         run: |
-          # Determine version based on branch/tag
-          if [[ "$REF_FULL" == refs/tags/v* ]]; then
-            # Version tags use the tag as-is (remove v prefix if present)
-            VERSION="$REF_NAME"
-            VERSION="${VERSION#v}"
-
-            # Validate version format (semver)
-            if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
-              echo "Error: Invalid version format: $VERSION"
-              echo "Expected semver format: MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-prerelease"
-              exit 1
-            fi
-
-            CHANNEL="stable"
-          else
-            # Get current major.minor from package.json
-            CURRENT_VERSION=$(node -p "require('./package.json').version")
-            CURRENT_MAJOR=$(echo "$CURRENT_VERSION" | cut -d. -f1)
-            CURRENT_MINOR=$(echo "$CURRENT_VERSION" | cut -d. -f2)
-
-            # Use workflow inputs if provided, otherwise use current values
-            MAJOR="$INPUT_MAJOR"
-            MINOR="$INPUT_MINOR"
-
-            if [[ -z "$MAJOR" ]]; then
-              MAJOR="$CURRENT_MAJOR"
-            fi
-
-            if [[ -z "$MINOR" ]]; then
-              MINOR="$CURRENT_MINOR"
-            fi
-
-            # Generate timestamp as patch: MMDDHHMM (without year for NuGet/Squirrel Int32 compatibility)
-            # NOTE: Increment minor version annually to avoid version conflicts across years
-            PATCH="${{ needs.generate-timestamp.outputs.patch }}"
-
-            # Build version: MAJOR.MINOR.PATCH
-            VERSION="${MAJOR}.${MINOR}.${PATCH}"
-
-            # Determine channel and add suffix for feature branches
-            if [[ "$REF_FULL" == "refs/heads/main" ]]; then
-              CHANNEL="stable"
-            else
-              CHANNEL="beta"
-              VERSION="${VERSION}-beta"
-            fi
-          fi
-
-          # Update package.json with the generated version
+          # Update package.json with the calculated version
           npm version "$VERSION" --no-git-tag-version --allow-same-version
           echo "Updated package.json to version: $VERSION"
 
           # Generate artifact name (descriptive, includes branch and timestamp)
-          TIMESTAMP_READABLE="${{ needs.generate-timestamp.outputs.timestamp_readable }}"
-          # Use environment variable instead of direct interpolation to prevent command injection
           BRANCH_NAME=$(echo "$REF_NAME" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
           BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
 
@@ -367,7 +408,7 @@ jobs:
           fi
 
       - name: Create Pre-Release (Feature Branches)
-        if: "!startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/heads/main'"
+        if: "!startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch'"
         uses: softprops/action-gh-release@v1
         with:
           files: |
@@ -377,18 +418,17 @@ jobs:
             out/make/**/*.nupkg
             out/make/**/RELEASES
           tag_name: ${{ steps.artifact-name.outputs.version }}
-          name: "Pre-release: ${{ github.ref_name }} (v${{ steps.artifact-name.outputs.version }})"
+          name: "Beta v${{ steps.artifact-name.outputs.version }}"
           body: |
-            Pre-release build from branch `${{ github.ref_name }}`
+            Beta release from branch `${{ github.ref_name }}`
 
             **Build Information:**
             - Version: ${{ steps.artifact-name.outputs.version }}
             - Channel: ${{ steps.artifact-name.outputs.channel }}
             - Branch: ${{ github.ref_name }}
             - Commit: ${{ github.sha }}
-            - Build Date: ${{ github.event.head_commit.timestamp }}
 
-            This is an automated pre-release build for testing purposes.
+            This is a beta build for testing purposes.
           draft: false
           prerelease: true
         env:
@@ -405,17 +445,13 @@ jobs:
             out/make/**/*.nupkg
             out/make/**/RELEASES
           tag_name: ${{ steps.artifact-name.outputs.version }}
-          name: "Release v${{ steps.artifact-name.outputs.version }}"
+          name: "v${{ steps.artifact-name.outputs.version }}"
           body: |
-            Production release from `main` branch
+            Release from `main` branch
 
             **Build Information:**
             - Version: ${{ steps.artifact-name.outputs.version }}
-            - Channel: ${{ steps.artifact-name.outputs.channel }}
             - Commit: ${{ github.sha }}
-            - Build Date: ${{ github.event.head_commit.timestamp }}
-
-            This is an automated release build from the main branch.
           draft: false
           prerelease: false
         env:
