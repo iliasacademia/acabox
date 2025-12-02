@@ -15,6 +15,7 @@
 
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
+import cors from '@fastify/cors';
 import path from 'path';
 import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
@@ -89,6 +90,15 @@ export class AcademiaHttpServer {
         message: error.message || 'An unexpected error occurred',
         statusCode: error.statusCode || 500,
       });
+    });
+
+    // Register CORS - allows popups (served from /ui/popup/) to fetch from API endpoints
+    // Safe because server only listens on localhost (127.0.0.1)
+    await this.fastify.register(cors, {
+      origin: true, // Reflect request origin (safe for localhost-only server)
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Accept'],
+      credentials: true,
     });
 
     // Register static file serving for popup UI

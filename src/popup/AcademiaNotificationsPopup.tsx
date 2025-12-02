@@ -27,6 +27,56 @@ const AcademiaNotificationsPopup: React.FC = () => {
   const [hasUnreadReview, setHasUnreadReview] = useState<boolean>(false);
   const { sendRequest } = useSendMessage();
 
+  // State for project file info (fetched from /word/:pid/project_file)
+  const [projectId, setProjectId] = useState<number | null>(null);
+  const [fileId, setFileId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch project file info on mount
+  useEffect(() => {
+    const fetchProjectFile = async () => {
+      try {
+        // Extract PID from URL query params
+        const urlParams = new URLSearchParams(window.location.search);
+        const pid = urlParams.get('pid');
+
+        if (!pid) {
+          console.error('[AcademiaNotificationsPopup] No PID provided in URL');
+          setError('No PID provided');
+          setIsLoading(false);
+          return;
+        }
+
+        console.log(`[AcademiaNotificationsPopup] Fetching project file for PID: ${pid}`);
+
+        // Fetch project file info from HTTP server
+        const response = await fetch(`http://127.0.0.1:23111/word/${pid}/project_file`);
+        console.log('[AcademiaNotificationsPopup] Project file response:', response);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('[AcademiaNotificationsPopup] Failed to fetch project file:', errorData);
+          setError(errorData.message || 'Failed to fetch project file');
+          setIsLoading(false);
+          return;
+        }
+
+        const data = await response.json();
+        console.log('[AcademiaNotificationsPopup] Project file fetched:', data);
+        setProjectId(data.project_id);
+        setFileId(data.project_file_id);
+        setIsLoading(false);
+      } catch (err) {
+        console.error('[AcademiaNotificationsPopup] Error fetching project file:', err);
+        setError('Failed to connect to server');
+        setIsLoading(false);
+      }
+    };
+
+    fetchProjectFile();
+  }, []);
+
   // Check for unread review on mount and resize window if needed
   useEffect(() => {
     const checkForUnreadReview = async () => {
@@ -54,14 +104,64 @@ const AcademiaNotificationsPopup: React.FC = () => {
     // TODO: Navigate to review
   };
 
-  const handleGenerateShortReview = () => {
-    console.log('[AcademiaNotificationsPopup] Generate short review clicked');
-    // TODO: Implement API call
+  const handleGenerateShortReview = async () => {
+    if (!projectId || !fileId) {
+      console.error('[AcademiaNotificationsPopup] Missing project or file ID');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopup] Triggering diff review...');
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_diff_review`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[AcademiaNotificationsPopup] Diff review triggered:', data);
+      // TODO: Handle success (show confirmation, close popup, etc.)
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Failed to trigger diff review:', err);
+    }
   };
 
-  const handleGenerateFullReview = () => {
-    console.log('[AcademiaNotificationsPopup] Generate full review clicked');
-    // TODO: Implement API call
+  const handleGenerateFullReview = async () => {
+    if (!projectId || !fileId) {
+      console.error('[AcademiaNotificationsPopup] Missing project or file ID');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopup] Triggering full review...');
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_full_review`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[AcademiaNotificationsPopup] Full review triggered:', data);
+      // TODO: Handle success (show confirmation, close popup, etc.)
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Failed to trigger full review:', err);
+    }
   };
 
   const handleClose = async () => {
