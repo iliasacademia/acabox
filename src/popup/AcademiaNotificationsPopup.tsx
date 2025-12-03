@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
 
@@ -227,55 +227,79 @@ const AcademiaNotificationsPopup: React.FC = () => {
     fetchProjectFile();
   }, []);
 
-  // Check for unread review notifications after fileId is available
-  useEffect(() => {
-    const checkForUnreadReview = async () => {
-      // Wait for fileId to be available
-      if (fileId === null) return;
+  // Reusable callback to check for unread review notifications
+  const checkForUnreadReview = useCallback(async () => {
+    // Wait for fileId to be available
+    if (fileId === null) return;
 
-      try {
-        console.log(`[AcademiaNotificationsPopup] Checking notifications for file ${fileId}`);
+    try {
+      console.log(`[AcademiaNotificationsPopup] Checking notifications for file ${fileId}`);
 
-        const response = await fetch(
-          `http://127.0.0.1:23111/api/notifications/count?project_file_id=${fileId}`
+      const response = await fetch(
+        `http://127.0.0.1:23111/api/notifications/count?project_file_id=${fileId}`
+      );
+
+      if (!response.ok) {
+        console.error('[AcademiaNotificationsPopup] Failed to fetch notifications:', response.status);
+        return;
+      }
+
+      const data = await response.json();
+      console.log('[AcademiaNotificationsPopup] Notifications response:', data);
+
+      // Check for undismissed notifications with conversation_id
+      if (data.notifications && data.notifications.length > 0) {
+        // Find first notification with conversation_id
+        const notification = data.notifications.find(
+          (n: { data?: { conversation_id?: number } }) => n.data?.conversation_id != null
         );
 
-        if (!response.ok) {
-          console.error('[AcademiaNotificationsPopup] Failed to fetch notifications:', response.status);
-          return;
+        // Only update state if we found a notification and don't already have one displayed
+        if (notification && !hasUnreadReview) {
+          console.log('[AcademiaNotificationsPopup] Found NEW notification with conversation:', notification);
+          setCurrentNotification({
+            id: notification.id,
+            project_id: notification.project_id,
+            conversation_id: notification.data.conversation_id,
+          });
+          setHasUnreadReview(true);
+
+          // Resize window for 3-section layout
+          console.log('[AcademiaNotificationsPopup] Resizing window for notification');
+          await sendRequest('resizeWindow', { height: POPUP_HEIGHT_WITH_NOTIF });
         }
+      } else if (currentNotification) {
+        // Notifications were cleared (e.g., dismissed from main app) - reset UI
+        console.log('[AcademiaNotificationsPopup] Notifications cleared, resetting UI');
+        setCurrentNotification(null);
+        setHasUnreadReview(false);
 
-        const data = await response.json();
-        console.log('[AcademiaNotificationsPopup] Notifications response:', data);
-
-        // Check for undismissed notifications with conversation_id
-        if (data.notifications && data.notifications.length > 0) {
-          // Find first notification with conversation_id
-          const notification = data.notifications.find(
-            (n: { data?: { conversation_id?: number } }) => n.data?.conversation_id != null
-          );
-
-          if (notification) {
-            console.log('[AcademiaNotificationsPopup] Found notification with conversation:', notification);
-            setCurrentNotification({
-              id: notification.id,
-              project_id: notification.project_id,
-              conversation_id: notification.data.conversation_id,
-            });
-            setHasUnreadReview(true);
-
-            // Resize window for 3-section layout
-            console.log('[AcademiaNotificationsPopup] Resizing window for notification');
-            await sendRequest('resizeWindow', { height: POPUP_HEIGHT_WITH_NOTIF });
-          }
-        }
-      } catch (err) {
-        console.error('[AcademiaNotificationsPopup] Error checking notifications:', err);
+        // Resize window back to default (2-section layout)
+        await sendRequest('resizeWindow', { height: POPUP_HEIGHT_DEFAULT });
       }
-    };
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error checking notifications:', err);
+    }
+  }, [fileId, hasUnreadReview, currentNotification, sendRequest]);
 
+  // Initial check for unread review notifications after fileId is available
+  useEffect(() => {
     checkForUnreadReview();
-  }, [fileId, sendRequest]);
+  }, [checkForUnreadReview]);
+
+  // Poll for new notifications every 10 seconds
+  useEffect(() => {
+    if (fileId === null) return;
+
+    const pollInterval = setInterval(() => {
+      console.log('[AcademiaNotificationsPopup] Polling for new notifications...');
+      checkForUnreadReview();
+    }, 10000);
+
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [fileId, checkForUnreadReview]);
 
   const handleSeeNewReview = async () => {
     if (!currentNotification) {
