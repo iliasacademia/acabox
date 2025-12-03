@@ -80,13 +80,12 @@
             CGFloat newHeight = [heightNum floatValue];
             NSRect frame = self.frame;
 
-            // Adjust origin.y to keep top-left fixed (macOS coords go up from bottom)
-            CGFloat heightDelta = newHeight - frame.size.height;
-            frame.origin.y -= heightDelta;
+            // Keep bottom-left fixed, grow upward (don't adjust origin.y)
+            // macOS coordinate system has origin at bottom-left, y increases upward
             frame.size.height = newHeight;
 
             [self setFrame:frame display:YES animate:YES];
-            NSLog(@"[AcademiaNotificationsPopup] Resized to height: %.0f", newHeight);
+            NSLog(@"[AcademiaNotificationsPopup] Resized to height: %.0f (growing upward)", newHeight);
         }
 
         // Send response back to JavaScript
