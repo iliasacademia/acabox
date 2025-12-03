@@ -13,7 +13,7 @@ export interface ProjectCreationData {
   description?: string;
   folders: string[];
   primaryManuscriptPath?: string;
-  collaboratorEmails: string[];
+  collaboratorEmails?: string[];
 }
 
 interface LocalFile {
@@ -34,8 +34,6 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   const [selectedFolderPaths, setSelectedFolderPaths] = useState<string[]>([]);
   const [availableFiles, setAvailableFiles] = useState<LocalFile[]>([]);
   const [selectedManuscriptPath, setSelectedManuscriptPath] = useState<string | null>(null);
-  const [collaboratorEmail, setCollaboratorEmail] = useState('');
-  const [collaboratorEmails, setCollaboratorEmails] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -107,7 +105,7 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
         setError('Please select a primary manuscript');
         return;
       }
-      setStep(4);
+      handleComplete();
     }
   };
 
@@ -121,9 +119,7 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   const handleSkip = () => {
     setError('');
     if (step === 3) {
-      // Skip manuscript selection
-      setStep(4);
-    } else if (step === 4) {
+      // Skip manuscript selection and complete
       handleComplete();
     }
   };
@@ -134,7 +130,7 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
       description: projectDescription,
       folders: selectedFolderPaths,
       primaryManuscriptPath: selectedManuscriptPath || undefined,
-      collaboratorEmails,
+      collaboratorEmails: [],
     });
   };
 
@@ -146,30 +142,9 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
     }
   };
 
-  const handleAddCollaborator = () => {
-    // RFC-compliant email validation regex
-    const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
-    const trimmedEmail = collaboratorEmail.trim();
-
-    if (trimmedEmail &&
-        trimmedEmail.length <= 254 &&
-        emailRegex.test(trimmedEmail)) {
-      setCollaboratorEmails([...collaboratorEmails, trimmedEmail]);
-      setCollaboratorEmail('');
-    }
-  };
-
-  const handleRemoveCollaborator = (email: string) => {
-    setCollaboratorEmails(collaboratorEmails.filter((e) => e !== email));
-  };
-
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      if (step === 4) {
-        handleAddCollaborator();
-      } else {
-        handleNext();
-      }
+      handleNext();
     }
   };
 
@@ -316,68 +291,6 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
               </div>
             </div>
             {error && <div className="wizardError">{error}</div>}
-            <div className="wizardActions">
-              <button className="wizardButtonSecondary" onClick={handleBack}>
-                Back
-              </button>
-              <button className="wizardButtonText" onClick={handleSkip}>
-                Skip
-              </button>
-              <button
-                className="wizardButtonPrimary"
-                onClick={handleNext}
-                disabled={!selectedManuscriptPath}
-              >
-                Next
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Step 4: Invite Collaborators */}
-        {step === 4 && (
-          <div className="wizardContent">
-            <h2 className="wizardTitle">Last step: Invite collaborators</h2>
-            <div className="wizardForm">
-              <div className="wizardSection">
-                <p className="wizardSectionTitle">
-                  Add collaborators to your project (optional)
-                </p>
-                <div className="collaboratorInput">
-                  <input
-                    type="email"
-                    value={collaboratorEmail}
-                    onChange={(e) => setCollaboratorEmail(e.target.value)}
-                    placeholder="Enter email address"
-                    onKeyPress={handleKeyPress}
-                    disabled={isCreating}
-                  />
-                  <button
-                    className="wizardAddButton"
-                    onClick={handleAddCollaborator}
-                    disabled={isCreating}
-                  >
-                    + Add collaborator
-                  </button>
-                </div>
-                {collaboratorEmails.length > 0 && (
-                  <div className="collaboratorsList">
-                    {collaboratorEmails.map((email, index) => (
-                      <div key={index} className="collaboratorItem">
-                        <span className="collaboratorEmail">{email}</span>
-                        <button
-                          className="collaboratorRemove"
-                          onClick={() => handleRemoveCollaborator(email)}
-                          disabled={isCreating}
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
             {isCreating && <div className="wizardLoading">Creating your project...</div>}
             <div className="wizardActions">
               <button className="wizardButtonSecondary" onClick={handleBack} disabled={isCreating}>
@@ -386,12 +299,17 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
               <button className="wizardButtonText" onClick={handleSkip} disabled={isCreating}>
                 Skip
               </button>
-              <button className="wizardButtonPrimary" onClick={handleComplete} disabled={isCreating}>
+              <button
+                className="wizardButtonPrimary"
+                onClick={handleNext}
+                disabled={!selectedManuscriptPath || isCreating}
+              >
                 {isCreating ? 'Creating...' : 'Create Project'}
               </button>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
