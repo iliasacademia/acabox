@@ -12,6 +12,7 @@ import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
 import { wordIntegrationService } from './wordIntegrationService';
 import { wordIntegrationDataStore, ProjectFileInfo } from './wordIntegrationDataStore';
+import { wordAccessibility } from './native/wordAccessibility';
 import { AcademiaHttpServer } from './server/httpServer';
 import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
 import { validateExternalUrl } from './utils/urlValidation';
@@ -748,6 +749,23 @@ app.whenReady().then(async () => {
     // Initialize Word integration with server URL
     if (baseUrl) {
       wordIntegrationService.initialize(baseUrl);
+    }
+
+    // Set server base URL and auth token for native popups
+    const authToken = httpServer.getAuthToken();
+    if (baseUrl && authToken) {
+      const urlSuccess = wordAccessibility.setServerBaseUrl(baseUrl);
+      const tokenSuccess = wordAccessibility.setAuthToken(authToken);
+      if (urlSuccess && tokenSuccess) {
+        console.log('[HTTP Server] ✓ Server URL and auth token set for native popups');
+      } else {
+        console.error('[HTTP Server] ✗ Failed to set server URL or auth token for native popups');
+      }
+    } else if (baseUrl) {
+      const success = wordAccessibility.setServerBaseUrl(baseUrl);
+      if (success) {
+        console.log('[HTTP Server] ✓ Server URL set for native popups (no auth token)');
+      }
     }
   } catch (error) {
     console.error('[HTTP Server] ✗ Failed to start server:', error);

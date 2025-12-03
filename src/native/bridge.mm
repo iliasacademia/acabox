@@ -33,6 +33,9 @@ NSString* globalServerBaseUrl = nil;
 static BOOL featureTextSideButtonEnabled = YES;      // Default: enabled
 static BOOL featureOverallReviewButtonEnabled = YES; // Default: enabled
 
+// Global variable for HTTP server auth token
+NSString* globalAuthToken = nil;
+
 // Implementations
 
 // Callback function for accessibility events
@@ -1400,6 +1403,23 @@ Napi::Value SetServerBaseUrl(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+Napi::Value SetAuthToken(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsString()) {
+        Napi::TypeError::New(env, "Expected (token: string)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::string tokenStr = info[0].As<Napi::String>().Utf8Value();
+    // globalAuthToken is accessible here because it's declared at file scope
+    ::globalAuthToken = [NSString stringWithUTF8String:tokenStr.c_str()];
+
+    NSLog(@"[Native] Auth token set (length: %lu)", (unsigned long)[::globalAuthToken length]);
+
+    return Napi::Boolean::New(env, true);
+}
+
 Napi::Value GetDocumentTopLeftCorner(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1634,6 +1654,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("checkPermission", Napi::Function::New(env, CheckPermission));
     exports.Set("setPopupPath", Napi::Function::New(env, SetPopupPath));
     exports.Set("setServerBaseUrl", Napi::Function::New(env, SetServerBaseUrl));
+    exports.Set("setAuthToken", Napi::Function::New(env, SetAuthToken));
     exports.Set("getDocumentTopLeftCorner", Napi::Function::New(env, GetDocumentTopLeftCorner));
     exports.Set("getWordWindowBounds", Napi::Function::New(env, GetWordWindowBounds));
     exports.Set("getFirstLinePosition", Napi::Function::New(env, GetFirstLinePosition));

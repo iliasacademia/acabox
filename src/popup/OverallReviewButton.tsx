@@ -11,6 +11,10 @@ getBridgeInstance('overall-review-button');
 console.log('[OverallReviewButton] Initializing...');
 console.log('[OverallReviewButton] Platform:', window.__messageBridge?.getPlatform());
 
+// Parse serverUrl from query params (passed by native bridge)
+const urlParams = new URLSearchParams(window.location.search);
+const serverUrl = urlParams.get('serverUrl') || 'http://127.0.0.1:23111';
+
 interface OverallReviewButtonProps {
   date?: string;
 }
@@ -39,7 +43,7 @@ const OverallReviewButton: React.FC<OverallReviewButtonProps> = ({ date: initial
         console.log('[OverallReviewButton] Fetching review date...');
 
         const response = await fetch(
-          'http://127.0.0.1:23111/proxy-api/v0/writing_agent/get_document?subdomain_param=api&document_id=257',
+          `${serverUrl}/proxy-api/v0/writing_agent/get_document?subdomain_param=api&document_id=257`,
           {
             method: 'GET',
             headers: {

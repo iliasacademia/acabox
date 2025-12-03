@@ -22,6 +22,7 @@ import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
 import { registerWordRoutes } from './routes/word';
 import { ServerConfig, HealthResponse } from './types';
+import { TokenManager, createAuthMiddleware } from './middleware/auth';
 
 /**
  * Academia HTTP Server
@@ -36,6 +37,8 @@ export class AcademiaHttpServer {
   private actualPort: number | null = null;
   private serverStartTime: number = 0;
   private activeConnections = new Set<any>();
+  private tokenManager: TokenManager;
+  private authToken: string | null = null;
 
   /**
    * Create a new HTTP server instance
@@ -51,6 +54,7 @@ export class AcademiaHttpServer {
   ) {
     this.notificationManager = notificationManager;
     this.currentUserId = currentUserId;
+    this.tokenManager = new TokenManager();
 
     // Default config: listen on port 23111 on localhost
     this.config = {
@@ -97,8 +101,19 @@ export class AcademiaHttpServer {
     await this.fastify.register(cors, {
       origin: true, // Reflect request origin (safe for localhost-only server)
       methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Accept'],
+      allowedHeaders: ['Content-Type', 'Accept', 'Authorization'],
       credentials: true,
+    });
+
+    // Generate auth token and register auth middleware
+    const tokenMetadata = this.tokenManager.generateToken('word-overlay');
+    this.authToken = tokenMetadata.token;
+
+    const authMiddleware = createAuthMiddleware(this.tokenManager);
+    this.fastify.addHook('preHandler', async (request, reply) => {
+      if (request.url.startsWith('/api/') || request.url.startsWith('/proxy-api/')) {
+        await authMiddleware(request, reply);
+      }
     });
 
     // Register static file serving for popup UI
@@ -141,32 +156,49 @@ export class AcademiaHttpServer {
     // Register Word integration routes
     await registerWordRoutes(this.fastify);
 
-    // Start listening
-    try {
-      const address = await this.fastify.listen({
-        port: this.config.port,
-        host: this.config.host,
-      });
+    // Start listening - try ports in range (default 23111-23120)
+    const startPort = this.config.port;
+    const maxAttempts = 10;
+    let lastError: Error | null = null;
 
-      this.actualPort = (this.fastify.server.address() as any).port;
-      this.serverStartTime = Date.now();
-
-      // Track active connections for cleanup
-      this.fastify.server.on('connection', (socket) => {
-        this.activeConnections.add(socket);
-        socket.on('close', () => {
-          this.activeConnections.delete(socket);
+    for (let i = 0; i < maxAttempts; i++) {
+      const port = startPort + i;
+      try {
+        const address = await this.fastify.listen({
+          port,
+          host: this.config.host,
         });
-      });
 
-      console.log(`[HTTP Server] ✓ Server listening on ${address}`);
-      console.log(`[HTTP Server] Actual port: ${this.actualPort}`);
+        this.actualPort = (this.fastify.server.address() as any).port;
+        this.serverStartTime = Date.now();
 
-      return this.actualPort!; // Non-null assertion: actualPort is set on line 125
-    } catch (error) {
-      console.error('[HTTP Server] Failed to start server:', error);
-      throw error;
+        // Track active connections for cleanup
+        this.fastify.server.on('connection', (socket) => {
+          this.activeConnections.add(socket);
+          socket.on('close', () => {
+            this.activeConnections.delete(socket);
+          });
+        });
+
+        console.log(`[HTTP Server] ✓ Server listening on ${address}`);
+        console.log(`[HTTP Server] Actual port: ${this.actualPort}`);
+
+        return this.actualPort!;
+      } catch (error: any) {
+        lastError = error;
+        if (error.code === 'EADDRINUSE') {
+          console.log(`[HTTP Server] Port ${port} in use, trying next port...`);
+          continue;
+        }
+        // For non-port-in-use errors, throw immediately
+        console.error('[HTTP Server] Failed to start server:', error);
+        throw error;
+      }
     }
+
+    // All ports exhausted
+    console.error(`[HTTP Server] Failed to start server: All ports ${startPort}-${startPort + maxAttempts - 1} are in use`);
+    throw lastError || new Error(`No available ports in range ${startPort}-${startPort + maxAttempts - 1}`);
   }
 
   /**
@@ -251,6 +283,16 @@ export class AcademiaHttpServer {
       return null;
     }
     return `http://${this.config.host}:${this.actualPort}`;
+  }
+
+  /**
+   * Get the authentication token for API access
+   * Pass this to clients that need to make API requests
+   *
+   * @returns Auth token or null if server not running
+   */
+  getAuthToken(): string | null {
+    return this.authToken;
   }
 }
 

@@ -8,6 +8,10 @@ getBridgeInstance('notifications-popup');
 console.log('[AcademiaNotificationsPopup] Initializing...');
 console.log('[AcademiaNotificationsPopup] Platform:', window.__messageBridge?.getPlatform());
 
+// Parse serverUrl from query params (passed by native bridge)
+const urlParams = new URLSearchParams(window.location.search);
+const serverUrl = urlParams.get('serverUrl') || 'http://127.0.0.1:23111';
+
 // Height constants matching native window sizes
 const POPUP_HEIGHT_DEFAULT = 280;      // 2 sections (short + full review)
 const POPUP_HEIGHT_WITH_NOTIF = 400;   // 3 sections (new review + short + full)
@@ -63,13 +67,22 @@ const AcademiaNotificationsPopup: React.FC = () => {
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Auth token from URL
+  const [authToken, setAuthToken] = useState<string | null>(null);
+
   // Fetch project status to determine review state
-  const fetchProjectStatus = async (projId: number, fId: number): Promise<void> => {
+  const fetchProjectStatus = async (projId: number, fId: number, token: string | null): Promise<void> => {
     try {
       console.log(`[AcademiaNotificationsPopup] Fetching project status for project ${projId}, file ${fId}`);
 
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(
-        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`
+        `${serverUrl}/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`,
+        { headers }
       );
 
       if (!response.ok) {
@@ -100,7 +113,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
           setReviewState('reviewing');
           // Start polling since a review is already in progress
           console.log('[AcademiaNotificationsPopup] Review in progress on load, starting polling');
-          startStatusPolling(projId, fId);
+          startStatusPolling(projId, fId, token);
           break;
         case 'completed':
           setReviewState('completed');
@@ -120,7 +133,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
   };
 
   // Poll for status updates after triggering a review
-  const startStatusPolling = (projId: number, fId: number) => {
+  const startStatusPolling = (projId: number, fId: number, token: string | null) => {
     // Clear any existing polling
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
@@ -128,10 +141,16 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
     setReviewState('reviewing');
 
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     const pollInterval = setInterval(async () => {
       try {
         const response = await fetch(
-          `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`
+          `${serverUrl}/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`,
+          { headers }
         );
 
         if (!response.ok) return;
@@ -183,9 +202,14 @@ const AcademiaNotificationsPopup: React.FC = () => {
   useEffect(() => {
     const fetchProjectFile = async () => {
       try {
-        // Extract PID from URL query params
+        // Extract PID and token from URL query params
         const urlParams = new URLSearchParams(window.location.search);
         const pid = urlParams.get('pid');
+        const token = urlParams.get('token');
+
+        if (token) {
+          setAuthToken(token);
+        }
 
         if (!pid) {
           console.error('[AcademiaNotificationsPopup] No PID provided in URL');
@@ -196,8 +220,8 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
         console.log(`[AcademiaNotificationsPopup] Fetching project file for PID: ${pid}`);
 
-        // Fetch project file info from HTTP server
-        const response = await fetch(`http://127.0.0.1:23111/word/${pid}/project_file`);
+        // Fetch project file info from HTTP server (no auth needed for /word/ routes)
+        const response = await fetch(`${serverUrl}/word/${pid}/project_file`);
         console.log('[AcademiaNotificationsPopup] Project file response:', response);
 
         if (!response.ok) {
@@ -214,7 +238,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
         setFileId(data.project_file_id);
 
         // Fetch project status to check if a review is in progress
-        await fetchProjectStatus(data.project_id, data.project_file_id);
+        await fetchProjectStatus(data.project_id, data.project_file_id, token);
 
         setIsLoading(false);
       } catch (err) {
@@ -235,8 +259,14 @@ const AcademiaNotificationsPopup: React.FC = () => {
     try {
       console.log(`[AcademiaNotificationsPopup] Checking notifications for file ${fileId}`);
 
+      const headers: Record<string, string> = {};
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const response = await fetch(
-        `http://127.0.0.1:23111/api/notifications/count?project_file_id=${fileId}`
+        `${serverUrl}/api/notifications/count?project_file_id=${fileId}`,
+        { headers }
       );
 
       if (!response.ok) {
@@ -280,7 +310,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
     } catch (err) {
       console.error('[AcademiaNotificationsPopup] Error checking notifications:', err);
     }
-  }, [fileId, hasUnreadReview, currentNotification, sendRequest]);
+  }, [fileId, hasUnreadReview, currentNotification, sendRequest, authToken]);
 
   // Initial check for unread review notifications after fileId is available
   useEffect(() => {
@@ -311,11 +341,16 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
     try {
       // 1. Dismiss the notification via PATCH
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const patchResponse = await fetch(
-        `http://127.0.0.1:23111/api/notifications/${currentNotification.id}`,
+        `${serverUrl}/api/notifications/${currentNotification.id}`,
         {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({ status: 'dismissed' }),
         }
       );
@@ -353,11 +388,16 @@ const AcademiaNotificationsPopup: React.FC = () => {
     setReviewState('reviewing');
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const response = await fetch(
-        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_diff_review`,
+        `${serverUrl}/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_diff_review`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({}),
         }
       );
@@ -370,7 +410,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
       console.log('[AcademiaNotificationsPopup] Diff review triggered:', data);
 
       // Start polling for status updates
-      startStatusPolling(projectId, fileId);
+      startStatusPolling(projectId, fileId, authToken);
     } catch (err) {
       console.error('[AcademiaNotificationsPopup] Failed to trigger diff review:', err);
       setReviewState('failed');
@@ -389,11 +429,16 @@ const AcademiaNotificationsPopup: React.FC = () => {
     setReviewState('reviewing');
 
     try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
       const response = await fetch(
-        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_full_review`,
+        `${serverUrl}/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_full_review`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers,
           body: JSON.stringify({}),
         }
       );
@@ -406,7 +451,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
       console.log('[AcademiaNotificationsPopup] Full review triggered:', data);
 
       // Start polling for status updates
-      startStatusPolling(projectId, fileId);
+      startStatusPolling(projectId, fileId, authToken);
     } catch (err) {
       console.error('[AcademiaNotificationsPopup] Failed to trigger full review:', err);
       setReviewState('failed');
