@@ -15,7 +15,7 @@ import {
   addFolderToProject,
   addCollaborator,
 } from '../services/projectsApi';
-import { FEATURES, NavigateToPagePayload } from '../../shared/types';
+import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { ConversationsPage } from './conversations/ConversationsPage';
 import './Projects.css';
 
@@ -233,6 +233,9 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
 
       setProjects([newProject, ...projects]);
       setShowCreateWizard(false);
+
+      // Refresh manuscript paths to include new project's manuscripts
+      await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
 
       // Navigate to the new project
       setSelectedProject(newProject);

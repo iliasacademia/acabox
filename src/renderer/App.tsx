@@ -178,6 +178,8 @@ const App: React.FC = () => {
           setUserId(user.id);
           setUserName(user.first_name || user.name || null);
         }
+        // Refresh manuscript paths for Word integration tracking on app startup
+        await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
       }
     } finally {
       setAuthLoading(false);
@@ -229,6 +231,8 @@ const App: React.FC = () => {
       setUserId(user.id);
       setUserName(user.first_name || user.name || null);
     }
+    // Refresh manuscript paths for Word integration tracking
+    await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
   };
 
   const handleLogout = async () => {

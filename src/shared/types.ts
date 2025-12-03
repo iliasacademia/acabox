@@ -43,6 +43,7 @@ export const IPC_CHANNELS = {
   GET_WORD_TEXT: 'get-word-text',
   PROCESS_SCREEN_OCR: 'process-screen-ocr',
   PROCESS_WORD_WINDOW: 'process-word-window',
+  REFRESH_MANUSCRIPT_PATHS: 'refresh-manuscript-paths',
 
   // Sync operations
   GET_SYNC_FOLDERS: 'get-sync-folders',
@@ -92,7 +93,9 @@ export const IPC_CHANNELS = {
 // Feature flags
 export const FEATURES = {
   CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
-  MS_WORD_INTEGRATION_ENABLED: false, // Toggle MS Word integration
+  MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
+  TEXT_SIDE_BUTTON_ENABLED: false, // Toggle TextSideButton/Popup in Word overlay
+  OVERALL_REVIEW_BUTTON_ENABLED: false, // Toggle OverallReviewButton/Popup in Word overlay
 } as const;
 
 export interface DesktopNotification {

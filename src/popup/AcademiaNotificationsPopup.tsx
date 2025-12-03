@@ -1,13 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Notification } from '../types/notifications';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
-import {
-  initializeNotificationsApi,
-  fetchNotifications,
-  markNotificationAsRead as apiMarkAsRead,
-  dismissNotification as apiDismiss,
-} from './api/notifications';
 
 // Initialize bridge early
 getBridgeInstance('notifications-popup');
@@ -15,109 +8,409 @@ getBridgeInstance('notifications-popup');
 console.log('[AcademiaNotificationsPopup] Initializing...');
 console.log('[AcademiaNotificationsPopup] Platform:', window.__messageBridge?.getPlatform());
 
-// Initialize API client with server base URL from window.location
-// The popup is loaded from http://127.0.0.1:{port}/ui/popup/academiaNotifications/
-// We need to extract the base URL
-const getBaseUrl = (): string => {
-  const { protocol, hostname, port } = window.location;
-  return `${protocol}//${hostname}:${port}`;
-};
+// Height constants matching native window sizes
+const POPUP_HEIGHT_DEFAULT = 280;      // 2 sections (short + full review)
+const POPUP_HEIGHT_WITH_NOTIF = 400;   // 3 sections (new review + short + full)
 
-const baseUrl = getBaseUrl();
-console.log('[AcademiaNotificationsPopup] Initializing API client with base URL:', baseUrl);
-initializeNotificationsApi(baseUrl);
+// Arrow Forward Icon component
+const ArrowForwardIcon: React.FC = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M12 4L10.59 5.41L16.17 11H4V13H16.17L10.59 18.59L12 20L20 12L12 4Z"
+      fill="#141413"
+    />
+  </svg>
+);
+
+// Type definitions for project status API
+type AgentRunStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+interface AgentRun {
+  agent_run_id: number;
+  agent_name: string;
+  file_id: number;
+  file_name: string;
+  status: AgentRunStatus;
+  running_jobs_count: number;
+  created_at: string;
+  review_data: unknown | null;
+}
+
+interface ProjectStatusResponse {
+  project_id: number;
+  agent_runs: AgentRun[];
+}
+
+type ReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
 
 const AcademiaNotificationsPopup: React.FC = () => {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // State for unread review notification
+  const [hasUnreadReview, setHasUnreadReview] = useState<boolean>(false);
+  const [currentNotification, setCurrentNotification] = useState<{
+    id: number;
+    project_id: number;
+    conversation_id: number;
+  } | null>(null);
   const { sendRequest } = useSendMessage();
 
-  useEffect(() => {
-    // Load notifications from HTTP API
-    const loadNotifications = async () => {
+  // State for project file info (fetched from /word/:pid/project_file)
+  const [projectId, setProjectId] = useState<number | null>(null);
+  const [fileId, setFileId] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // State for review status
+  const [reviewState, setReviewState] = useState<ReviewState>('idle');
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch project status to determine review state
+  const fetchProjectStatus = async (projId: number, fId: number): Promise<void> => {
+    try {
+      console.log(`[AcademiaNotificationsPopup] Fetching project status for project ${projId}, file ${fId}`);
+
+      const response = await fetch(
+        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`
+      );
+
+      if (!response.ok) {
+        console.error('[AcademiaNotificationsPopup] Failed to fetch project status:', response.status);
+        return;
+      }
+
+      const data: ProjectStatusResponse = await response.json();
+      console.log('[AcademiaNotificationsPopup] Project status:', data);
+
+      // Find the latest agent run by created_at timestamp
+      if (data.agent_runs.length === 0) {
+        setReviewState('idle');
+        return;
+      }
+
+      // Sort by created_at descending to get the latest
+      const sortedRuns = [...data.agent_runs].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      );
+
+      const latest = sortedRuns[0];
+
+      // Map API status to UI state and start polling if in progress
+      switch (latest.status) {
+        case 'pending':
+        case 'processing':
+          setReviewState('reviewing');
+          // Start polling since a review is already in progress
+          console.log('[AcademiaNotificationsPopup] Review in progress on load, starting polling');
+          startStatusPolling(projId, fId);
+          break;
+        case 'completed':
+          setReviewState('completed');
+          break;
+        case 'failed':
+          setReviewState('failed');
+          break;
+        default:
+          setReviewState('idle');
+      }
+
+      console.log(`[AcademiaNotificationsPopup] Review state set to: ${latest.status}`);
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error fetching project status:', err);
+      // Don't update state on error - keep previous state
+    }
+  };
+
+  // Poll for status updates after triggering a review
+  const startStatusPolling = (projId: number, fId: number) => {
+    // Clear any existing polling
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+
+    setReviewState('reviewing');
+
+    const pollInterval = setInterval(async () => {
       try {
-        console.log('[AcademiaNotificationsPopup] Loading notifications from API...');
+        const response = await fetch(
+          `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`
+        );
 
-        // Fetch notifications from the HTTP server
-        const fetchedNotifications = await fetchNotifications();
+        if (!response.ok) return;
 
-        console.log(`[AcademiaNotificationsPopup] Loaded ${fetchedNotifications.length} notifications`);
-        setNotifications(fetchedNotifications);
-        setLoading(false);
-      } catch (err: any) {
-        console.error('[AcademiaNotificationsPopup] Error loading notifications:', err);
-        setError(err.message || 'Failed to load notifications');
-        setLoading(false);
+        const data: ProjectStatusResponse = await response.json();
+
+        if (data.agent_runs.length === 0) return;
+
+        const sortedRuns = [...data.agent_runs].sort(
+          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        const latest = sortedRuns[0];
+
+        // Stop polling when status is terminal
+        if (latest.status === 'completed' || latest.status === 'failed') {
+          clearInterval(pollInterval);
+          pollingIntervalRef.current = null;
+          setReviewState(latest.status === 'completed' ? 'completed' : 'failed');
+          console.log(`[AcademiaNotificationsPopup] Polling stopped - status: ${latest.status}`);
+        }
+      } catch (err) {
+        console.error('[AcademiaNotificationsPopup] Polling error:', err);
+      }
+    }, 3000); // Poll every 3 seconds
+
+    pollingIntervalRef.current = pollInterval;
+
+    // Cleanup after 5 minutes max
+    setTimeout(() => {
+      if (pollingIntervalRef.current === pollInterval) {
+        clearInterval(pollInterval);
+        pollingIntervalRef.current = null;
+        console.log('[AcademiaNotificationsPopup] Polling stopped - max duration reached');
+      }
+    }, 5 * 60 * 1000);
+  };
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
+  // Fetch project file info on mount
+  useEffect(() => {
+    const fetchProjectFile = async () => {
+      try {
+        // Extract PID from URL query params
+        const urlParams = new URLSearchParams(window.location.search);
+        const pid = urlParams.get('pid');
+
+        if (!pid) {
+          console.error('[AcademiaNotificationsPopup] No PID provided in URL');
+          setError('No PID provided');
+          setIsLoading(false);
+          return;
+        }
+
+        console.log(`[AcademiaNotificationsPopup] Fetching project file for PID: ${pid}`);
+
+        // Fetch project file info from HTTP server
+        const response = await fetch(`http://127.0.0.1:23111/word/${pid}/project_file`);
+        console.log('[AcademiaNotificationsPopup] Project file response:', response);
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('[AcademiaNotificationsPopup] Failed to fetch project file:', errorData);
+          setError(errorData.message || 'Failed to fetch project file');
+          setIsLoading(false);
+          return;
+        }
+
+        const data = await response.json();
+        console.log('[AcademiaNotificationsPopup] Project file fetched:', data);
+        setProjectId(data.project_id);
+        setFileId(data.project_file_id);
+
+        // Fetch project status to check if a review is in progress
+        await fetchProjectStatus(data.project_id, data.project_file_id);
+
+        setIsLoading(false);
+      } catch (err) {
+        console.error('[AcademiaNotificationsPopup] Error fetching project file:', err);
+        setError('Failed to connect to server');
+        setIsLoading(false);
       }
     };
 
-    loadNotifications();
+    fetchProjectFile();
   }, []);
 
-  const formatTimestamp = (timestamp: number): string => {
-    const now = Date.now();
-    const diff = now - timestamp;
-    const dayInMs = 86400000;
-
-    if (diff < dayInMs) {
-      return 'Today';
-    } else if (diff < dayInMs * 2) {
-      return 'Yesterday';
-    } else {
-      const date = new Date(timestamp);
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    }
-  };
-
-  const handleNotificationClick = async (notification: Notification) => {
-    console.log('[AcademiaNotificationsPopup] Notification clicked:', notification.id);
+  // Reusable callback to check for unread review notifications
+  const checkForUnreadReview = useCallback(async () => {
+    // Wait for fileId to be available
+    if (fileId === null) return;
 
     try {
-      // Mark as read if currently unread
-      if (notification.status === 'unread') {
-        console.log('[AcademiaNotificationsPopup] Marking notification', notification.id, 'as read');
+      console.log(`[AcademiaNotificationsPopup] Checking notifications for file ${fileId}`);
 
-        // Call API to mark notification as read
-        const updatedNotification = await apiMarkAsRead(notification.id);
+      const response = await fetch(
+        `http://127.0.0.1:23111/api/notifications/count?project_file_id=${fileId}`
+      );
 
-        // Update local state to reflect the change
-        if (updatedNotification) {
-          setNotifications((prev) =>
-            prev.map((n) =>
-              n.id === notification.id ? updatedNotification : n
-            )
-          );
-        }
-
-        console.log('[AcademiaNotificationsPopup] Notification marked as read');
+      if (!response.ok) {
+        console.error('[AcademiaNotificationsPopup] Failed to fetch notifications:', response.status);
+        return;
       }
 
-      // TODO: Navigate to notification content (e.g., open document location)
-    } catch (err: any) {
-      console.error('[AcademiaNotificationsPopup] Error marking notification as read:', err);
-      setError(`Failed to mark notification as read: ${err.message}`);
+      const data = await response.json();
+      console.log('[AcademiaNotificationsPopup] Notifications response:', data);
+
+      // Check for undismissed notifications with conversation_id
+      if (data.notifications && data.notifications.length > 0) {
+        // Find first notification with conversation_id
+        const notification = data.notifications.find(
+          (n: { data?: { conversation_id?: number } }) => n.data?.conversation_id != null
+        );
+
+        // Only update state if we found a notification and don't already have one displayed
+        if (notification && !hasUnreadReview) {
+          console.log('[AcademiaNotificationsPopup] Found NEW notification with conversation:', notification);
+          setCurrentNotification({
+            id: notification.id,
+            project_id: notification.project_id,
+            conversation_id: notification.data.conversation_id,
+          });
+          setHasUnreadReview(true);
+
+          // Resize window for 3-section layout
+          console.log('[AcademiaNotificationsPopup] Resizing window for notification');
+          await sendRequest('resizeWindow', { height: POPUP_HEIGHT_WITH_NOTIF });
+        }
+      } else if (currentNotification) {
+        // Notifications were cleared (e.g., dismissed from main app) - reset UI
+        console.log('[AcademiaNotificationsPopup] Notifications cleared, resetting UI');
+        setCurrentNotification(null);
+        setHasUnreadReview(false);
+
+        // Resize window back to default (2-section layout)
+        await sendRequest('resizeWindow', { height: POPUP_HEIGHT_DEFAULT });
+      }
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error checking notifications:', err);
+    }
+  }, [fileId, hasUnreadReview, currentNotification, sendRequest]);
+
+  // Initial check for unread review notifications after fileId is available
+  useEffect(() => {
+    checkForUnreadReview();
+  }, [checkForUnreadReview]);
+
+  // Poll for new notifications every 3 seconds
+  useEffect(() => {
+    if (fileId === null) return;
+
+    const pollInterval = setInterval(() => {
+      console.log('[AcademiaNotificationsPopup] Polling for new notifications...');
+      checkForUnreadReview();
+    }, 3000);
+
+    return () => {
+      clearInterval(pollInterval);
+    };
+  }, [fileId, checkForUnreadReview]);
+
+  const handleSeeNewReview = async () => {
+    if (!currentNotification) {
+      console.error('[AcademiaNotificationsPopup] No notification to navigate to');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopup] See new review clicked:', currentNotification);
+
+    try {
+      // 1. Dismiss the notification via PATCH
+      const patchResponse = await fetch(
+        `http://127.0.0.1:23111/api/notifications/${currentNotification.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'dismissed' }),
+        }
+      );
+
+      if (!patchResponse.ok) {
+        console.error('[AcademiaNotificationsPopup] Failed to dismiss notification:', patchResponse.status);
+        // Continue anyway - navigation is more important than dismissal
+      } else {
+        console.log('[AcademiaNotificationsPopup] Notification dismissed');
+      }
+
+      // 2. Navigate to conversation via native bridge
+      await sendRequest('navigateToPage', {
+        page: 'conversation',
+        projectId: currentNotification.project_id,
+        conversationId: currentNotification.conversation_id,
+      });
+
+      // 3. Close the popup after navigation request
+      await sendRequest('closeWindow', {});
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error in handleSeeNewReview:', err);
     }
   };
 
-  // Note: Individual dismiss functionality removed to match Figma design
-  // Keeping function for potential future use
-  // const handleDismiss = async (notificationId: number, event: React.MouseEvent) => {
-  //   event.stopPropagation();
-  //   console.log('[AcademiaNotificationsPopup] Dismissing notification:', notificationId);
-  //   try {
-  //     await apiDismiss(notificationId);
-  //     setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
-  //     console.log('[AcademiaNotificationsPopup] Notification dismissed');
-  //   } catch (err: any) {
-  //     console.error('[AcademiaNotificationsPopup] Error dismissing notification:', err);
-  //     setError(`Failed to dismiss notification: ${err.message}`);
-  //   }
-  // };
+  const handleGenerateShortReview = async () => {
+    if (!projectId || !fileId) {
+      console.error('[AcademiaNotificationsPopup] Missing project or file ID');
+      return;
+    }
 
-  const handleSeeMore = () => {
-    console.log('[AcademiaNotificationsPopup] See previous notifications clicked');
-    // TODO: Show all notifications including dismissed, or open full view
+    console.log('[AcademiaNotificationsPopup] Triggering diff review...');
+
+    // Optimistically set reviewing state
+    setReviewState('reviewing');
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_diff_review`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[AcademiaNotificationsPopup] Diff review triggered:', data);
+
+      // Start polling for status updates
+      startStatusPolling(projectId, fileId);
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Failed to trigger diff review:', err);
+      setReviewState('failed');
+    }
+  };
+
+  const handleGenerateFullReview = async () => {
+    if (!projectId || !fileId) {
+      console.error('[AcademiaNotificationsPopup] Missing project or file ID');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopup] Triggering full review...');
+
+    // Optimistically set reviewing state
+    setReviewState('reviewing');
+
+    try {
+      const response = await fetch(
+        `http://127.0.0.1:23111/proxy-api/v0/co_scientist/projects/${projectId}/files/${fileId}/trigger_full_review`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('[AcademiaNotificationsPopup] Full review triggered:', data);
+
+      // Start polling for status updates
+      startStatusPolling(projectId, fileId);
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Failed to trigger full review:', err);
+      setReviewState('failed');
+    }
   };
 
   const handleClose = async () => {
@@ -131,91 +424,99 @@ const AcademiaNotificationsPopup: React.FC = () => {
     }
   };
 
+  // Compute UI state
+  const isReviewing = reviewState === 'reviewing';
+  const showFailedMessage = reviewState === 'failed';
+  const buttonsDisabled = isLoading || !projectId || !fileId || isReviewing;
+
   return (
     <div style={styles.container}>
       <div style={styles.modal}>
-        {/* Header */}
-        <div style={styles.header}>
-          <h1 style={styles.title}>Notifications</h1>
-          <button
-            style={styles.closeButton}
-            onClick={handleClose}
-            aria-label="Close"
-            title="Close"
-          >
-            ×
-          </button>
-        </div>
+        {/* Close Button */}
+        <button
+          style={styles.closeButton}
+          onClick={handleClose}
+          aria-label="Close"
+          title="Close"
+        >
+          ×
+        </button>
 
-        {/* Error Message */}
-        {error && (
-          <div style={styles.errorBanner}>
-            <span style={styles.errorText}>{error}</span>
-            <button
-              style={styles.errorDismiss}
-              onClick={() => setError(null)}
-              aria-label="Dismiss error"
-            >
-              ×
-            </button>
+        {/* Status Messages */}
+        {showFailedMessage && (
+          <div style={styles.errorMessage}>
+            <p style={styles.errorText}>The last review failed. Please try again.</p>
           </div>
         )}
 
-        {/* Notifications List */}
-        <div style={styles.notificationsList}>
-          {loading ? (
-            <div style={styles.loadingContainer}>
-              <p style={styles.loadingText}>Loading notifications...</p>
-            </div>
-          ) : notifications.length === 0 ? (
-            <div style={styles.emptyContainer}>
-              <p style={styles.emptyText}>No notifications</p>
-            </div>
-          ) : (
-            <div style={styles.notificationsContainer}>
-              {notifications.map((notification) => (
-                <div
-                  key={notification.id}
-                  style={styles.notificationItem}
-                  className="notification-item"
-                  onClick={() => handleNotificationClick(notification)}
-                >
-                  {/* Content: blue dot + text */}
-                  <div style={styles.notificationContent}>
-                    {/* Blue dot indicator for unread */}
-                    {notification.status === 'unread' && (
-                      <div style={styles.unreadDot} />
-                    )}
-                    <div style={styles.notificationText}>
-                      <div style={styles.notificationTitle}>{notification.title}</div>
-                      {notification.body_html && (
-                        <div
-                          style={styles.notificationLocation}
-                          dangerouslySetInnerHTML={{
-                            __html: notification.body_html
-                          }}
-                        />
-                      )}
-                    </div>
-                  </div>
-                  {/* Timestamp on the right */}
-                  <div style={styles.notificationTimestamp}>
-                    {formatTimestamp(notification.created_at)}
-                  </div>
-                </div>
-              ))}
+        {/* Content */}
+        <div style={styles.content}>
+          {/* New Review Ready Section - Conditional */}
+          {hasUnreadReview && (
+            <div style={styles.sectionWithBorder}>
+              <p style={styles.sectionText}>A new review is ready</p>
+              <button
+                style={styles.actionButton}
+                className="action-button"
+                onClick={handleSeeNewReview}
+              >
+                <span style={styles.buttonText}>See new review</span>
+                <ArrowForwardIcon />
+              </button>
             </div>
           )}
-        </div>
 
-        {/* Footer */}
-        <div style={styles.footer}>
-          <button
-            style={styles.seeMoreButton}
-            onClick={handleSeeMore}
-          >
-            See previous notifications
-          </button>
+          {/* Generate Short Review Section */}
+          <div style={styles.sectionWithBorder}>
+            <p style={styles.sectionText}>
+              Generate a short review based on your last changes
+            </p>
+            <button
+              style={{
+                ...styles.actionButton,
+                ...(buttonsDisabled ? styles.actionButtonDisabled : {}),
+              }}
+              className="action-button"
+              onClick={handleGenerateShortReview}
+              disabled={buttonsDisabled}
+            >
+              <span
+                style={{
+                  ...styles.buttonText,
+                  ...(buttonsDisabled ? styles.buttonTextDisabled : {}),
+                }}
+              >
+                {isReviewing ? 'Reviewing...' : 'Generate short review'}
+              </span>
+              {!isReviewing && <ArrowForwardIcon />}
+            </button>
+          </div>
+
+          {/* Generate Full Review Section */}
+          <div style={styles.section}>
+            <p style={styles.sectionText}>
+              Generate a full review of your entire document
+            </p>
+            <button
+              style={{
+                ...styles.actionButton,
+                ...(buttonsDisabled ? styles.actionButtonDisabled : {}),
+              }}
+              className="action-button"
+              onClick={handleGenerateFullReview}
+              disabled={buttonsDisabled}
+            >
+              <span
+                style={{
+                  ...styles.buttonText,
+                  ...(buttonsDisabled ? styles.buttonTextDisabled : {}),
+                }}
+              >
+                {isReviewing ? 'Reviewing...' : 'Generate full review'}
+              </span>
+              {!isReviewing && <ArrowForwardIcon />}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -227,38 +528,25 @@ const styles: { [key: string]: React.CSSProperties } = {
     width: '100%',
     height: '100%',
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
   modal: {
     width: '370px',
-    height: '460px',
     background: '#F9F8F6', // Figma: background-beige-light
-    borderRadius: '16px',
+    borderRadius: '16px', // Figma: corner-radius/radius-lg
     border: '1px solid #CCC9BC', // Figma: stroke-beige-light
-    boxShadow: '0 4px 12px 0 rgba(0, 0, 0, 0.25)',
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
+    boxShadow: 'none',
+    position: 'relative',
+    padding: '24px', // Figma: spacing/sm-24
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '24px 24px 0 24px', // Adjusted padding
-    paddingBottom: '4px', // Reduced bottom padding
-    position: 'relative', // For absolute positioned close button
-  },
-  title: {
-    fontSize: '20px', // Figma: body/lg size
-    fontWeight: 400, // Figma: regular weight
-    color: '#000000',
-    margin: 0,
-    lineHeight: '32px', // Figma: body/lg line-height
+    overflow: 'hidden',
   },
   closeButton: {
+    position: 'absolute',
+    top: '11px',
+    right: '15px',
     width: '20px',
     height: '20px',
     border: 'none',
@@ -274,156 +562,87 @@ const styles: { [key: string]: React.CSSProperties } = {
     transition: 'background-color 0.2s ease',
     padding: 0,
     lineHeight: 1,
-    position: 'absolute',
-    top: '12px',
-    right: '16px',
   },
-  notificationsList: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '16px 24px 0 24px', // Top padding only
-  },
-  notificationsContainer: {
-    border: '1px solid #CCC9BC', // Figma: stroke-beige-light
-    borderRadius: '16px', // Figma: corner-radius/radius-lg
-    overflow: 'hidden',
-    backgroundColor: '#ffffff', // White background for container
-  },
-  loadingContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '48px 24px',
-  },
-  loadingText: {
-    fontSize: '16px',
-    color: '#535366', // Figma: text-secondary
-  },
-  emptyContainer: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '48px 24px',
-  },
-  emptyText: {
-    fontSize: '16px',
-    color: '#535366', // Figma: text-secondary
-  },
-  notificationItem: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '16px',
-    padding: '16px 16px 16px 12px', // Figma: 12px left, 16px right
-    height: '80px', // Figma: fixed height
-    backgroundColor: '#ffffff', // Figma: background-white
-    borderBottom: '1px solid #DDDDE2', // Figma: stroke-grey-light
-    cursor: 'pointer',
-    transition: 'background-color 0.15s ease',
-    boxSizing: 'border-box',
-  },
-  notificationContent: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px', // Figma: spacing/xs-12
-    flex: 1,
-    minWidth: 0,
-  },
-  unreadDot: {
-    width: '12px', // Figma: 12px size
-    height: '12px',
-    borderRadius: '50%',
-    backgroundColor: '#386AC1', // Figma: rgba(56, 106, 193, 1)
-    flexShrink: 0,
-  },
-  notificationText: {
-    flex: 1,
+  content: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '0', // No gap between lines
-    minWidth: 0,
+    gap: '24px', // Figma: spacing/sm-24
   },
-  notificationTitle: {
-    fontSize: '16px', // Figma: body/md size
-    fontWeight: 600, // Figma: semibold-600
+  section: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px', // Figma: spacing/xs-16
+  },
+  sectionWithBorder: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '16px', // Figma: spacing/xs-16
+    paddingBottom: '24px', // Figma: spacing/sm-24
+    borderBottom: '1px solid #CCC9BC', // Figma: stroke-beige-light
+  },
+  sectionText: {
+    fontSize: '16px', // Figma: type/body/md/size
+    fontWeight: 600, // Figma: type/weights/semibold-600
     color: '#141413', // Figma: text-primary
-    lineHeight: '20px', // Figma: body/md line-height
+    lineHeight: '20px', // Figma: type/body/md/line-height
+    margin: 0,
   },
-  notificationLocation: {
-    fontSize: '16px', // Figma: body/md size
-    fontWeight: 400, // Figma: regular
-    color: '#535366', // Figma: text-secondary
-    lineHeight: '20px', // Figma: body/md line-height
-  },
-  notificationTimestamp: {
-    fontSize: '12px', // Figma: body/xs size
-    fontWeight: 400, // Figma: regular
-    color: '#535366', // Figma: text-secondary
-    lineHeight: '16px', // Figma: body/xs line-height
-    flexShrink: 0,
-    paddingTop: '8px', // Align to top
-  },
-  errorBanner: {
+  actionButton: {
+    width: '100%',
+    height: '32px', // Figma: button xs height
+    backgroundColor: '#ffffff', // Figma: buttons/button-style/extra-small/button-xs-fill
+    border: '1px solid #141413', // Figma: buttons/button-style/extra-small/button-xs-stroke
+    borderRadius: '8px', // Figma: buttons/extra-small-buttons/corner-radius
+    cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '12px 24px',
-    backgroundColor: '#ffebee',
-    borderBottom: '1px solid #ffcdd2',
+    justifyContent: 'center',
+    gap: '4px', // Figma: buttons/extra-small-buttons/gap
+    padding: '4px 8px', // Figma: button/xs padding
+    transition: 'background-color 0.15s ease',
+    fontFamily: 'inherit',
+  },
+  buttonText: {
+    fontSize: '14px', // Figma: type/body/sm/size
+    fontWeight: 400, // Figma: type/body/sm/font-weight
+    color: '#141413', // Figma: buttons/button-style/extra-small/button-xs-text
+    lineHeight: '20px', // Figma: type/body/sm/line-height
+    textAlign: 'center',
+  },
+  errorMessage: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: '8px',
+    padding: '12px 16px',
+    marginBottom: '8px',
   },
   errorText: {
     fontSize: '14px',
-    color: '#c62828',
-    flex: 1,
+    fontWeight: 500,
+    color: '#DC2626',
+    lineHeight: '18px',
+    margin: 0,
+    textAlign: 'center' as const,
   },
-  errorDismiss: {
-    width: '24px',
-    height: '24px',
-    border: 'none',
-    backgroundColor: 'transparent',
-    fontSize: '24px',
-    fontWeight: 300,
-    color: '#c62828',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: '50%',
-    padding: 0,
-    lineHeight: 1,
+  actionButtonDisabled: {
+    backgroundColor: '#E5E5E5',
+    borderColor: '#CCCCCC',
+    cursor: 'not-allowed',
+    opacity: 0.6,
   },
-  footer: {
-    padding: '16px 24px', // Adjusted padding
-  },
-  seeMoreButton: {
-    width: '100%',
-    padding: '4px 8px', // Figma: button/xs padding
-    height: '32px', // Figma: button xs height
-    fontSize: '14px', // Figma: body/sm size
-    fontWeight: 400, // Figma: regular
-    color: '#141413', // Figma: text-primary
-    backgroundColor: '#ffffff', // Figma: button-xs-fill
-    border: '1px solid #141413', // Figma: button-xs-stroke
-    borderRadius: '8px', // Figma: extra-small-buttons/corner-radius
-    cursor: 'pointer',
-    transition: 'background-color 0.15s ease, border-color 0.15s ease',
-    fontFamily: 'inherit',
-    lineHeight: '20px', // Figma: body/sm line-height
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
+  buttonTextDisabled: {
+    color: '#999999',
   },
 };
 
-// Add hover styles using CSS-in-JS workaround
+// Add hover styles
 if (typeof document !== 'undefined') {
   const styleElement = document.createElement('style');
   styleElement.textContent = `
-    .notification-item:hover {
+    .action-button:hover:not(:disabled) {
       background-color: #f5f5f5 !important;
     }
-    button[aria-label="Dismiss error"]:hover {
-      background-color: rgba(0, 0, 0, 0.1) !important;
+    .action-button:disabled {
+      cursor: not-allowed !important;
     }
     button[aria-label="Close"]:hover {
       background-color: rgba(0, 0, 0, 0.05) !important;

@@ -1,7 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, desktopCapturer, screen, Tray, Menu, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { execSync } from 'child_process';
 import { createCanvas } from 'canvas';
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
@@ -11,12 +10,13 @@ import { uploadFile, searchFiles, getStatus, addFolder, removeFolder, listFiles 
 import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
-import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
+import { wordIntegrationService } from './wordIntegrationService';
+import { wordIntegrationDataStore, ProjectFileInfo } from './wordIntegrationDataStore';
 import { AcademiaHttpServer } from './server/httpServer';
 import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
 import { validateExternalUrl } from './utils/urlValidation';
 import { validateCloudFrontDomain } from './utils/validateCloudFrontDomain';
-import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from './shared/types';
+import { IPC_CHANNELS, NavigateToPagePayload } from './shared/types';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -60,7 +60,6 @@ let devWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let httpServer: AcademiaHttpServer | null = null;
-let wordCheckInterval: NodeJS.Timeout | null = null;
 
 const createWindow = async (): Promise<void> => {
   devWindow = new BrowserWindow({
@@ -746,78 +745,39 @@ app.whenReady().then(async () => {
     const baseUrl = httpServer.getBaseUrl();
     console.log(`[HTTP Server] Base URL: ${baseUrl}`);
 
-    // Set server base URL for native popups
+    // Initialize Word integration with server URL
     if (baseUrl) {
-      const success = wordAccessibility.setServerBaseUrl(baseUrl);
-      if (success) {
-        console.log('[HTTP Server] ✓ Server URL set for native popups');
-      } else {
-        console.error('[HTTP Server] ✗ Failed to set server URL for native popups');
-      }
+      wordIntegrationService.initialize(baseUrl);
     }
   } catch (error) {
     console.error('[HTTP Server] ✗ Failed to start server:', error);
+    // Initialize Word integration without server URL
+    wordIntegrationService.initialize();
   }
 
-  if (FEATURES.MS_WORD_INTEGRATION_ENABLED) {
-    // Auto-start Word button tracking if Word is running
-    try {
-      const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
-      if (wordPIDResult) {
-        const wordPID = parseInt(wordPIDResult);
-        console.log('[WORD-BUTTON] MS Word detected (PID:', wordPID, ') - starting automatic button tracking');
+  // Set up navigation handler for popup-to-main-window navigation
+  wordIntegrationService.setNavigationHandler((payload) => {
+    console.log('[Main] Navigate to page from Word popup:', payload);
 
-        // Check accessibility permission
-        if (wordAccessibility.checkPermission()) {
-          // Start observing with event callback
-          wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
-            if (event.type === 'buttonClicked') {
-              if (event.text === 'academia-button-clicked') {
-                console.log('[WORD-BUTTON] ✨ MS Word Academia main button clicked!');
-              }
-            }
-          });
-          isSelectionTrackingActive = true;
-          console.log('[WORD-BUTTON] ✅ Automatic button tracking started successfully');
-        } else {
-          console.log('[WORD-BUTTON] ⚠️ Accessibility permission not granted - button will not show');
-        }
-      } else {
-        console.log('[WORD-BUTTON] MS Word not running - button will auto-start when Word launches');
-      }
-    } catch (error) {
-      console.log('[WORD-BUTTON] MS Word not running - button will auto-start when Word launches');
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      console.warn('[Main] Main window not available for navigation');
+      return;
     }
 
-    // Periodically check if Word launches (check every 5 seconds)
-    wordCheckInterval = setInterval(() => {
-      if (isSelectionTrackingActive) {
-        return; // Already tracking
-      }
+    // Show and focus the main window
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    mainWindow.show();
+    mainWindow.focus();
 
-      try {
-        const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
-        if (wordPIDResult) {
-          const wordPID = parseInt(wordPIDResult);
-          console.log('[WORD-BUTTON] MS Word launched (PID:', wordPID, ') - starting automatic button tracking');
-
-          if (wordAccessibility.checkPermission()) {
-            wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
-              if (event.type === 'buttonClicked') {
-                if (event.text === 'academia-button-clicked') {
-                  console.log('[WORD-BUTTON] ✨ MS Word Academia main button clicked!');
-                }
-              }
-            });
-            isSelectionTrackingActive = true;
-            console.log('[WORD-BUTTON] ✅ Automatic button tracking started successfully');
-          }
-        }
-      } catch (error) {
-        // Word not running yet
-      }
-    }, 5000);
-  }
+    // Send navigation event to renderer
+    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+      page: payload.page,
+      projectId: payload.projectId,
+      conversationId: payload.conversationId,
+    } as NavigateToPagePayload);
+  });
 });
 
 app.on('window-all-closed', () => {
@@ -832,19 +792,74 @@ app.on('activate', () => {
   }
 });
 
+/**
+ * Fetches all projects and their files, extracts manuscript paths,
+ * and passes them to wordIntegrationService and wordIntegrationDataStore.
+ */
+async function refreshManuscriptPaths(): Promise<void> {
+  try {
+    const client = await APIclient();
+
+    // Fetch all projects
+    console.log('[MANUSCRIPT-PATHS] Fetching projects...');
+    const projectsResponse = await client.get('/v0/co_scientist/projects');
+    const projects = projectsResponse.data?.projects || [];
+
+    if (projects.length === 0) {
+      console.log('[MANUSCRIPT-PATHS] No projects found');
+      wordIntegrationService.setManuscriptPaths([]);
+      wordIntegrationDataStore.setProjectFileCache(new Map());
+      return;
+    }
+
+    // Fetch files for each project in parallel, attaching project_id to each file
+    console.log(`[MANUSCRIPT-PATHS] Fetching files for ${projects.length} projects...`);
+    const filesPromises = projects.map(async (project: { id: number }) => {
+      try {
+        const filesResponse = await client.get(`/v0/co_scientist/projects/${project.id}/files`);
+        const files = filesResponse.data?.files || [];
+        // Attach project_id to each file for building the cache
+        return files.map((file: any) => ({ ...file, project_id: project.id }));
+      } catch (error) {
+        console.error(`[MANUSCRIPT-PATHS] Failed to fetch files for project ${project.id}:`, error);
+        return [];
+      }
+    });
+
+    const allFilesArrays = await Promise.all(filesPromises);
+    const allFiles = allFilesArrays.flat();
+
+    // Filter for primary manuscript files
+    const manuscriptFiles = allFiles.filter(
+      (file: { is_primary_manuscript: boolean }) => file.is_primary_manuscript
+    );
+
+    // Build project file cache: filePath → { project_id, project_file_id }
+    const projectFileCache = new Map<string, ProjectFileInfo>();
+    for (const file of manuscriptFiles) {
+      projectFileCache.set(file.file_path, {
+        project_id: file.project_id,
+        project_file_id: file.id,  // file.id is the project_file_id
+      });
+    }
+
+    // Extract unique paths for tracking
+    const manuscriptPaths = [...new Set(manuscriptFiles.map((f: { file_path: string }) => f.file_path))];
+
+    console.log(`[MANUSCRIPT-PATHS] Found ${manuscriptPaths.length} manuscript files`);
+    wordIntegrationService.setManuscriptPaths(manuscriptPaths);
+    wordIntegrationDataStore.setProjectFileCache(projectFileCache);
+
+  } catch (error) {
+    console.error('[MANUSCRIPT-PATHS] Error refreshing manuscript paths:', error);
+    wordIntegrationService.setManuscriptPaths([]);
+    wordIntegrationDataStore.setProjectFileCache(new Map());
+  }
+}
+
 // Helper function for cleanup
 function cleanupNativeResources() {
-  console.log('[APP] Cleaning up native resources...');
-
-  if (isSelectionTrackingActive) {
-    try {
-      wordAccessibility.stopObserving();
-      isSelectionTrackingActive = false;
-      console.log('[APP] Selection tracking stopped successfully');
-    } catch (error) {
-      console.error('[APP] Error stopping observer:', error);
-    }
-  }
+  wordIntegrationService.cleanup();
 }
 
 // Helper function for cleanup before exit
@@ -960,6 +975,17 @@ ipcMain.handle('login', async (_event, email: string, password: string) => {
 ipcMain.handle('logout', async () => {
   const result = await logout();
   return result;
+});
+
+// Manuscript paths refresh IPC handler
+ipcMain.handle(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS, async () => {
+  try {
+    await refreshManuscriptPaths();
+    return { success: true };
+  } catch (error: any) {
+    console.error('[IPC] Failed to refresh manuscript paths:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 // QR Code Authentication IPC handlers
@@ -1312,24 +1338,8 @@ ipcMain.handle('get-http-server-info', async () => {
 app.on('before-quit', async () => {
   console.log('[APP] Application quitting - cleaning up resources...');
 
-  // Stop Word check interval
-  if (wordCheckInterval) {
-    console.log('[APP] Stopping Word check interval...');
-    clearInterval(wordCheckInterval);
-    wordCheckInterval = null;
-  }
-
-  // Stop selection tracking first (synchronous cleanup of native resources)
-  if (isSelectionTrackingActive) {
-    console.log('[APP] Stopping selection tracking...');
-    try {
-      wordAccessibility.stopObserving();
-      isSelectionTrackingActive = false;
-      console.log('[APP] Selection tracking stopped successfully');
-    } catch (error) {
-      console.error('[APP] Error stopping selection tracking:', error);
-    }
-  }
+  // Stop Word integration (intervals and native observers)
+  wordIntegrationService.cleanup();
 
   // Stop all sync watchers
   console.log('[APP] Stopping sync watchers...');
@@ -1351,238 +1361,6 @@ app.on('before-quit', async () => {
   }
 
   console.log('[APP] Cleanup complete');
-});
-
-// Test Microsoft Word's AppleScript object model
-ipcMain.handle('test-word-api', async () => {
-  try {
-    const scriptPath = resolveAppleScriptPath('test-word-api.applescript');
-    const result = execSync(`osascript "${scriptPath}"`, {
-      encoding: 'utf8',
-      timeout: 10000,
-    }).trim();
-
-    console.log('Word API test result:');
-    console.log(result);
-
-    return { success: true, result };
-  } catch (error: any) {
-    console.error('Word API test failed:', error);
-    return {
-      success: false,
-      error: error.message,
-      result: ''
-    };
-  }
-});
-
-// Check if Microsoft Word window is frontmost
-ipcMain.handle('check-word-frontmost', async () => {
-  try {
-    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
-    const result = execSync(`osascript "${scriptPath}"`, {
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim();
-
-    console.log('Word frontmost check result:', result);
-    const parts = result.split(',');
-    const isFrontmost = parts[0] === 'true';
-
-    if (isFrontmost && parts.length >= 5) {
-      const x = parseInt(parts[1]);
-      const y = parseInt(parts[2]);
-      const width = parseInt(parts[3]);
-      const height = parseInt(parts[4]);
-      const title = parts.slice(5).join(','); // In case title contains commas
-
-      return {
-        success: true,
-        isFrontmost: true,
-        windowBounds: { x, y, width, height },
-        title
-      };
-    } else {
-      return {
-        success: true,
-        isFrontmost: false,
-        reason: parts.slice(5).join(',')
-      };
-    }
-  } catch (error: any) {
-    console.error('Failed to check Word frontmost:', error);
-    return {
-      success: false,
-      isFrontmost: false,
-      error: error.message
-    };
-  }
-});
-
-// Get content from Microsoft Word document and find "Academia" with positions
-ipcMain.handle('get-word-content', async () => {
-  try {
-    // First, check if Word is frontmost
-    const scriptPath = resolveAppleScriptPath('check-word-frontmost.applescript');
-    const frontmostResult = execSync(`osascript "${scriptPath}"`, {
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim();
-
-    console.log('Word frontmost check:', frontmostResult);
-    const parts = frontmostResult.split(',');
-    const isFrontmost = parts[0] === 'true';
-
-    if (!isFrontmost) {
-      return {
-        success: false,
-        error: 'Microsoft Word is not the frontmost window',
-        content: '',
-        windowBounds: null,
-        isFrontmost: false
-      };
-    }
-
-    // Get window bounds from the frontmost check result
-    const x = parseInt(parts[1]);
-    const y = parseInt(parts[2]);
-    const width = parseInt(parts[3]);
-    const height = parseInt(parts[4]);
-    const windowBounds = { x, y, width, height };
-    console.log('Word window bounds:', windowBounds);
-
-    // Now get the content
-    const contentScript = `
-      tell application "Microsoft Word"
-        if it is running then
-          if (count of documents) > 0 then
-            set docContent to content of text object of active document
-            return docContent
-          else
-            error "No documents are open"
-          end if
-        else
-          error "Microsoft Word is not running"
-        end if
-      end tell
-    `;
-
-    const content = execSync(`osascript -e '${contentScript.replace(/'/g, "'\\''")}'`, {
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim();
-
-    return { success: true, content, windowBounds, isFrontmost: true };
-  } catch (error: any) {
-    console.error('Failed to get Word content:', error);
-    return {
-      success: false,
-      error: error.message,
-      content: '',
-      windowBounds: null,
-      isFrontmost: false
-    };
-  }
-});
-
-// Capture Word window and process with OCR to find and highlight text
-ipcMain.handle('process-word-window', async (_event, imageData: string, windowBounds: { x: number; y: number; width: number; height: number }, videoDimensions: { width: number; height: number }) => {
-  try {
-    // Validate image data
-    if (!imageData || !imageData.includes('base64')) {
-      throw new Error('Invalid image data provided');
-    }
-
-    // Remove data URL prefix
-    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    console.log('Processing Word window, buffer size:', buffer.length, 'bytes');
-    console.log('Window bounds:', windowBounds);
-    console.log('Video dimensions:', videoDimensions);
-
-    // OCR functionality removed - mac-system-ocr package no longer used
-    const matches: Array<{
-      text: string;
-      bbox: { x0: number; y0: number; x1: number; y1: number };
-    }> = [];
-
-    console.log('OCR disabled - no matches returned');
-
-    return { matches };
-  } catch (error: any) {
-    console.error('Word window OCR error:', error);
-    return { matches: [], error: error.message };
-  }
-});
-
-// Vision Framework doesn't require initialization or cleanup
-
-// Screen Reader IPC handlers
-ipcMain.handle('get-screen-sources', async () => {
-  try {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: { width: 1920, height: 1080 },
-    });
-    return sources;
-  } catch (error: any) {
-    console.error('Failed to get screen sources:', error);
-    return [];
-  }
-});
-
-// Get all available screen and window sources
-ipcMain.handle('get-all-sources', async () => {
-  try {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
-      thumbnailSize: { width: 300, height: 200 },
-    });
-    return sources;
-  } catch (error: any) {
-    console.error('Failed to get all sources:', error);
-    return [];
-  }
-});
-
-ipcMain.handle('process-screen-ocr', async (_event, imageData: string, videoDimensions: { width: number; height: number; offsetX?: number; offsetY?: number }) => {
-  try {
-    // Validate image data
-    if (!imageData || !imageData.includes('base64')) {
-      throw new Error('Invalid image data provided');
-    }
-
-    // Remove data URL prefix
-    const base64Data = imageData.replace(/^data:image\/\w+;base64,/, '');
-
-    // Validate base64 data exists
-    if (!base64Data || base64Data.length === 0) {
-      throw new Error('Empty base64 data after prefix removal');
-    }
-
-    const buffer = Buffer.from(base64Data, 'base64');
-
-    // Validate buffer size
-    if (buffer.length === 0) {
-      throw new Error('Empty buffer created from base64 data');
-    }
-
-    console.log('Image buffer size:', buffer.length, 'bytes');
-
-    // OCR functionality removed - mac-system-ocr package no longer used
-    const matches: Array<{
-      text: string;
-      bbox: { x0: number; y0: number; x1: number; y1: number };
-    }> = [];
-
-    console.log('OCR disabled - no matches returned');
-
-    return { matches };
-  } catch (error: any) {
-    console.error('OCR processing error:', error);
-    return { matches: [], error: error.message };
-  }
 });
 
 // Sync Folder IPC handlers
@@ -1713,264 +1491,6 @@ ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
   }
 });
 
-// Get Word document scroll position
-ipcMain.handle('get-word-scroll-position', async () => {
-  try {
-    const scriptPath = resolveAppleScriptPath('get-word-scroll-position.applescript');
-    const result = execSync(`osascript "${scriptPath}"`, {
-      encoding: 'utf8',
-      timeout: 2000,
-    }).trim();
-
-    const scrollPosition = parseInt(result) || 0;
-    return { success: true, scrollPosition };
-  } catch (error: any) {
-    console.error('Failed to get Word scroll position:', error);
-    return { success: false, scrollPosition: 0 };
-  }
-});
-
-// Get all text content from Microsoft Word document
-ipcMain.handle('get-word-text', async () => {
-  try {
-    const scriptPath = resolveAppleScriptPath('get-word-text.applescript');
-    console.log('Executing AppleScript at:', scriptPath);
-    console.log('File exists:', fs.existsSync(scriptPath));
-
-    if (!fs.existsSync(scriptPath)) {
-      return {
-        success: false,
-        error: `AppleScript file not found at: ${scriptPath}`,
-        content: '',
-        isFrontmost: false,
-        isRunning: false
-      };
-    }
-
-    const result = execSync(`osascript "${scriptPath}"`, {
-      encoding: 'utf8',
-      timeout: 5000,
-    }).trim();
-
-    console.log('Raw AppleScript result:', result);
-    console.log('Result length:', result.length);
-
-    // Parse the result: format is "status,isFrontmost,documents"
-    const firstComma = result.indexOf(',');
-    const secondComma = result.indexOf(',', firstComma + 1);
-
-    console.log('First comma at:', firstComma, 'Second comma at:', secondComma);
-
-    if (firstComma === -1 || secondComma === -1) {
-      console.error('Invalid format - missing commas');
-      return {
-        success: false,
-        error: 'Invalid response format',
-        content: '',
-        documents: [],
-        isFrontmost: false,
-        isRunning: false,
-        rawResult: result
-      };
-    }
-
-    const status = result.substring(0, firstComma);
-    const isFrontmost = result.substring(firstComma + 1, secondComma) === 'true';
-    const documentsData = result.substring(secondComma + 1);
-
-    console.log('Parsed - status:', status, 'isFrontmost:', isFrontmost, 'documents data length:', documentsData.length);
-
-    if (status === 'error') {
-      console.log('Status is error, content:', documentsData);
-      return {
-        success: false,
-        error: documentsData,
-        content: '',
-        documents: [],
-        isFrontmost: false,
-        isRunning: documentsData.includes('not running') ? false : true,
-        rawResult: result
-      };
-    }
-
-    // Parse multiple documents from the format:
-    // ==DOC_START==\ndocName\n==CONTENT==\ndocContent\n==DOC_END==
-    const documents: Array<{ name: string; content: string }> = [];
-    const docParts = documentsData.split('==DOC_START==');
-
-    for (const part of docParts) {
-      if (part.trim().length === 0) continue;
-
-      const contentSplit = part.split('==CONTENT==');
-      if (contentSplit.length < 2) continue;
-
-      const docName = contentSplit[0].replace('==DOC_END==', '').trim();
-      const docContent = contentSplit[1].split('==DOC_END==')[0].trim();
-
-      documents.push({
-        name: docName,
-        content: docContent
-      });
-    }
-
-    console.log('Parsed documents:', documents.length);
-
-    // For backward compatibility, set content to first document's content
-    const firstDocContent = documents.length > 0 ? documents[0].content : '';
-
-    return {
-      success: true,
-      content: firstDocContent,
-      documents: documents,
-      isFrontmost: isFrontmost,
-      isRunning: true
-    };
-  } catch (error: any) {
-    console.error('Failed to get Word text - exception caught:', error);
-    console.error('Error message:', error.message);
-    console.error('Error stderr:', error.stderr);
-    console.error('Error stdout:', error.stdout);
-
-    // Check for automation permission errors
-    let errorMessage = error.message || 'Unknown error';
-    if (error.stderr) {
-      errorMessage = error.stderr;
-    }
-
-    // Collect all available error information
-    const rawResult = [
-      error.stdout ? `stdout: ${error.stdout}` : '',
-      error.stderr ? `stderr: ${error.stderr}` : '',
-      error.message ? `message: ${error.message}` : ''
-    ].filter(Boolean).join('\n');
-
-    // Detect common permission-related errors
-    const isPermissionError =
-      errorMessage.includes('not authorized') ||
-      errorMessage.includes('not allowed') ||
-      errorMessage.includes('-1743') ||
-      errorMessage.includes('Apple Event') ||
-      errorMessage.includes('permission');
-
-    return {
-      success: false,
-      error: errorMessage,
-      content: '',
-      documents: [],
-      isFrontmost: false,
-      isRunning: false,
-      isPermissionError: isPermissionError,
-      rawResult: rawResult
-    };
-  }
-});
-
-// Native selection tracking handlers
-let isSelectionTrackingActive = false;
-
-ipcMain.handle('start-selection-tracking', async () => {
-  try {
-    // Check if Word is running
-    const wordPIDResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
-    if (!wordPIDResult) {
-      return { success: false, error: 'Microsoft Word is not running' };
-    }
-
-    const wordPID = parseInt(wordPIDResult);
-    console.log('[SELECTION-TRACKER] Starting observer for Word PID:', wordPID);
-
-    // Check permission first
-    if (!wordAccessibility.checkPermission()) {
-      return {
-        success: false,
-        error: 'Accessibility permission not granted. Please enable in System Settings > Privacy & Security > Accessibility.'
-      };
-    }
-
-    // Start observing with event callback
-    wordAccessibility.startObserving(wordPID, (event: AccessibilityEvent) => {
-      console.log('[SELECTION-TRACKER] Received event:', event.type);
-
-      if (event.type === 'selectionChanged') {
-        console.log('[SELECTION-TRACKER] Selection changed:', event.text.substring(0, 50));
-
-        // Send to main window to update UI
-        if (devWindow) {
-          devWindow.webContents.send('selection-updated', event.text);
-        }
-        // Note: Button is now rendered natively, no IPC needed!
-      } else if (event.type === 'scrollStarted') {
-        console.log('[SELECTION-TRACKER] Scroll started');
-        // Note: Button is now hidden natively, no IPC needed!
-      } else if (event.type === 'scrollEnded') {
-        console.log('[SELECTION-TRACKER] Scroll ended');
-        // Note: Button is now shown natively at new position, no IPC needed!
-      } else if (event.type === 'buttonClicked') {
-        // Handle Academia button click
-        if (event.text === 'academia-button-clicked') {
-          console.log('[WORD-BUTTON] ✨ MS Word Academia main button clicked!');
-        } else {
-          // Legacy: Parse action and text from the message format "action|text"
-          const parts = event.text.split('|');
-          const action = parts.length > 0 ? parts[0] : 'unknown';
-          const text = parts.length > 1 ? parts.slice(1).join('|') : event.text;
-
-          console.log('[SELECTION-TRACKER] Button clicked:', action, 'for text:', text.substring(0, 50));
-
-          // Handle specific actions
-          if (action === 'seeMore') {
-            console.log('[SUGGESTIONS] 🔍 See more clicked:', text);
-          } else if (action === 'dismiss') {
-            console.log('[SUGGESTIONS] ❌ Dismiss clicked:', text);
-          }
-
-          // Send to main window with action information
-          if (devWindow) {
-            devWindow.webContents.send('button-action', { action, text });
-
-            // Also send selection-updated for backward compatibility
-            if (action === 'lookup') {
-              devWindow.webContents.send('selection-updated', text);
-            }
-          }
-        }
-      }
-    });
-
-    isSelectionTrackingActive = true;
-    return { success: true };
-  } catch (error: any) {
-    console.error('[SELECTION-TRACKER] Error starting tracking:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-ipcMain.handle('stop-selection-tracking', async () => {
-  try {
-    console.log('[SELECTION-TRACKER] Stopping observer');
-    wordAccessibility.stopObserving();
-    // Note: Native button is automatically hidden when observer stops
-
-    isSelectionTrackingActive = false;
-    return { success: true };
-  } catch (error: any) {
-    console.error('[SELECTION-TRACKER] Error stopping tracking:', error);
-    return { success: false, error: error.message };
-  }
-});
-
-// Handle button click from overlay
-ipcMain.handle('selection-button-clicked', async (_event, selectedText: string) => {
-  console.log('[SELECTION-TRACKER] Button clicked for text:', selectedText.substring(0, 50));
-
-  // Send to main window to show in UI
-  if (devWindow) {
-    devWindow.webContents.send('selection-updated', selectedText);
-  }
-
-  return { success: true };
-});
-
 // Handle tray icon change
 ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
   console.log('[TRAY] Changing icon to type:', iconType);
@@ -1999,46 +1519,7 @@ ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
 
 // Handle position debug info request
 ipcMain.handle('get-position-debug-info', async () => {
-  try {
-    // Get position data from native bridge
-    const documentTopLeftCorner = wordAccessibility.getDocumentTopLeftCorner();
-    const wordWindowBounds = wordAccessibility.getWordWindowBounds();
-    const firstLinePosition = wordAccessibility.getFirstLinePosition();
-    const pageCornerVisibility = wordAccessibility.getPageCornerVisibility();
-    const parentHierarchy = wordAccessibility.getParentHierarchy();
-    const buttonStates = wordAccessibility.getButtonStates();
-    const scrollAreaBounds = wordAccessibility.getScrollAreaBounds();
-    const firstTextAreaInfo = wordAccessibility.getFirstTextAreaInfo();
-    // WAGENT-94: badgeState removed - badges handled by new architecture
-
-    // Get screen height for coordinate conversion
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const screenHeight = primaryDisplay.bounds.height;
-
-    return {
-      success: true,
-      data: {
-        documentTopLeftCorner,
-        wordWindowBounds,
-        firstLinePosition,
-        pageCornerVisibility,
-        parentHierarchy,
-        buttonStates,
-        scrollAreaBounds,
-        firstTextAreaInfo,
-        // badgeState removed - WAGENT-94
-        screenHeight,
-        timestamp: Date.now()
-      }
-    };
-  } catch (error: any) {
-    console.error('[POSITION-DEBUG] Error getting position info:', error);
-    return {
-      success: false,
-      error: error.message,
-      data: null
-    };
-  }
+  return wordIntegrationService.getPositionDebugInfo();
 });
 
 // Handle get all notifications request for debugging

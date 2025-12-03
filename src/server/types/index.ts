@@ -108,3 +108,13 @@ export interface ProxyRequest {
  * Proxy response (generic, forwards Academia.edu API responses)
  */
 export type ProxyResponse = any;
+
+/**
+ * Response for GET /word/:pid/project_file
+ */
+export interface WordProjectFileResponse {
+  /** Project ID */
+  project_id: number;
+  /** Project file ID */
+  project_file_id: number;
+}

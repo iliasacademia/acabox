@@ -15,10 +15,12 @@
 
 import Fastify, { FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
+import cors from '@fastify/cors';
 import path from 'path';
 import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
+import { registerWordRoutes } from './routes/word';
 import { ServerConfig, HealthResponse } from './types';
 
 /**
@@ -90,6 +92,15 @@ export class AcademiaHttpServer {
       });
     });
 
+    // Register CORS - allows popups (served from /ui/popup/) to fetch from API endpoints
+    // Safe because server only listens on localhost (127.0.0.1)
+    await this.fastify.register(cors, {
+      origin: true, // Reflect request origin (safe for localhost-only server)
+      methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+      allowedHeaders: ['Content-Type', 'Accept'],
+      credentials: true,
+    });
+
     // Register static file serving for popup UI
     // Serve files from dist/popup at /ui/popup route
     const devPopupPath = path.join(__dirname, '..', '..', 'dist', 'popup');
@@ -126,6 +137,9 @@ export class AcademiaHttpServer {
 
     // Register proxy routes
     await registerProxyRoutes(this.fastify);
+
+    // Register Word integration routes
+    await registerWordRoutes(this.fastify);
 
     // Start listening
     try {

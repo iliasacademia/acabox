@@ -19,6 +19,19 @@ NSString* globalServerBaseUrl __attribute__((weak)) = nil;
                       windowName:(NSString*)windowName
                       globalPath:(NSString*)globalPath
                          subpath:(NSString*)subpath {
+    // Forward to the queryParams version with nil
+    [self loadPopupHTMLIntoWebView:webView
+                        windowName:windowName
+                        globalPath:globalPath
+                           subpath:subpath
+                       queryParams:nil];
+}
+
++ (void)loadPopupHTMLIntoWebView:(WKWebView*)webView
+                      windowName:(NSString*)windowName
+                      globalPath:(NSString*)globalPath
+                         subpath:(NSString*)subpath
+                     queryParams:(NSDictionary<NSString*, NSString*>*)queryParams {
     // Load from HTTP server only (no file:// fallback for testing)
     if (globalServerBaseUrl && [globalServerBaseUrl length] > 0) {
         // Construct HTTP URL: http://127.0.0.1:{port}/ui/popup/{subpath}/
@@ -28,6 +41,19 @@ NSString* globalServerBaseUrl __attribute__((weak)) = nil;
         }
 
         NSString* fullUrlString = [globalServerBaseUrl stringByAppendingString:urlPath];
+
+        // Append query parameters if provided
+        if (queryParams && [queryParams count] > 0) {
+            NSMutableArray* queryPairs = [NSMutableArray array];
+            for (NSString* key in queryParams) {
+                NSString* value = queryParams[key];
+                // URL-encode the value
+                NSString* encodedValue = [value stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
+                [queryPairs addObject:[NSString stringWithFormat:@"%@=%@", key, encodedValue]];
+            }
+            fullUrlString = [fullUrlString stringByAppendingFormat:@"?%@", [queryPairs componentsJoinedByString:@"&"]];
+        }
+
         NSURL* httpURL = [NSURL URLWithString:fullUrlString];
 
         if (httpURL) {

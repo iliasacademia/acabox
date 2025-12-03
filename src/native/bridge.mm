@@ -28,6 +28,11 @@ NSString* globalPopupPath = nil;
 // Global variable for HTTP server base URL (e.g., "http://127.0.0.1:23111")
 NSString* globalServerBaseUrl = nil;
 
+// Feature flags (set from TypeScript via setFeatureFlags)
+// Declared at file scope for accessibility from both Obj-C implementation and C++ namespace
+static BOOL featureTextSideButtonEnabled = YES;      // Default: enabled
+static BOOL featureOverallReviewButtonEnabled = YES; // Default: enabled
+
 // Implementations
 
 // Callback function for accessibility events
@@ -73,13 +78,27 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _academiaManager = [[AcademiaManager alloc] initWithWordAdapter:_wordAdapter];
 
         // Create and register overlay windows
+        // Notifications button is always enabled
         _notificationsButton = [[AcademiaNotificationsButton alloc] initWithObserver:self];
-        _overallReviewButton = [[OverallReviewButton alloc] initWithObserver:self];
-        _textSideButton = [[TextSideButton alloc] initWithObserver:self searchText:@"Introduction"];
-
         [_academiaManager registerOverlay:_notificationsButton];
-        [_academiaManager registerOverlay:_overallReviewButton];
-        [_academiaManager registerOverlay:_textSideButton];
+
+        // OverallReviewButton - conditionally created based on feature flag
+        if (featureOverallReviewButtonEnabled) {
+            _overallReviewButton = [[OverallReviewButton alloc] initWithObserver:self];
+            [_academiaManager registerOverlay:_overallReviewButton];
+        } else {
+            NSLog(@"[Bridge] OverallReviewButton disabled by feature flag");
+            _overallReviewButton = nil;
+        }
+
+        // TextSideButton - conditionally created based on feature flag
+        if (featureTextSideButtonEnabled) {
+            _textSideButton = [[TextSideButton alloc] initWithObserver:self searchText:@"Introduction"];
+            [_academiaManager registerOverlay:_textSideButton];
+        } else {
+            NSLog(@"[Bridge] TextSideButton disabled by feature flag");
+            _textSideButton = nil;
+        }
 
         // Check if debug mode is enabled via DEBUG=1 environment variable
         NSString* debugEnv = [[[NSProcessInfo processInfo] environment] objectForKey:@"DEBUG"];
@@ -135,16 +154,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         _debugInfoOverlay = nil;
     }
 
-    // Clean up architecture components
-    if (_academiaManager) {
-        [_academiaManager stopManaging];
-        _academiaManager = nil;
-    }
-    if (_wordAdapter) {
-        [_wordAdapter stopObserving];
-        _wordAdapter = nil;
-    }
-    NSLog(@"[Bridge] Architecture components cleaned up");
+    // Note: Architecture components are cleaned up in stopObserving (called above)
 
     if (_wordApp) {
         CFRelease(_wordApp);
@@ -269,8 +279,18 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 }
 
 - (void)stopObserving {
-    // Architecture cleanup is handled in dealloc
     NSLog(@"[Bridge] stopObserving - cleaning up observers");
+
+    // Clean up architecture components FIRST (synchronous cleanup)
+    if (_academiaManager) {
+        [_academiaManager stopManaging];
+        _academiaManager = nil;
+    }
+    if (_wordAdapter) {
+        [_wordAdapter stopObserving];
+        _wordAdapter = nil;
+    }
+    NSLog(@"[Bridge] Architecture components cleaned up");
 
     // Remove app activation observer
     if (_appActivationObserver) {
@@ -879,8 +899,90 @@ struct CallbackData {
     Napi::ThreadSafeFunction buttonClickTsfn;
 };
 
+// Multi-PID observer registry (Phase 2 implementation)
+NSMutableDictionary<NSNumber*, WordAccessibilityObserver*>* observerRegistry = nil;
+NSNumber* activePID = nil;  // Currently focused Word PID
+CallbackData* globalCallbackData = nullptr;  // Shared across all observers
+static const NSInteger kMaxObservers = 3;  // Prioritizes first-opened PIDs
+static id appActivationObserver = nil;  // Focus monitor observer
+
+// Legacy single-observer support (deprecated)
 WordAccessibilityObserver* globalObserver = nil;
-CallbackData* globalCallbackData = nullptr;
+
+// Registry helper functions
+static void initializeRegistry() {
+    if (!observerRegistry) {
+        observerRegistry = [[NSMutableDictionary alloc] init];
+    }
+}
+
+static WordAccessibilityObserver* getObserverForPID(pid_t pid) {
+    initializeRegistry();
+    return observerRegistry[@(pid)];
+}
+
+static void setActiveObserver(pid_t pid) {
+    initializeRegistry();
+    NSNumber* pidKey = @(pid);
+
+    // Only proceed if this PID is in our registry
+    if (!observerRegistry[pidKey]) {
+        return;
+    }
+
+    activePID = pidKey;
+    NSLog(@"[Bridge] Active PID changed to: %d", pid);
+
+    // Hide overlays on all other observers, show on active
+    for (NSNumber* key in observerRegistry) {
+        WordAccessibilityObserver* observer = observerRegistry[key];
+        AcademiaManager* manager = [observer getAcademiaManager];
+        if ([key isEqualToNumber:activePID]) {
+            [manager showAllOverlays];
+        } else {
+            [manager hideAllOverlays];
+        }
+    }
+}
+
+static void setupGlobalFocusMonitor() {
+    if (appActivationObserver) return;
+
+    appActivationObserver = [[NSWorkspace sharedWorkspace].notificationCenter
+        addObserverForName:NSWorkspaceDidActivateApplicationNotification
+                    object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *notification) {
+        NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
+        pid_t activatedPID = app.processIdentifier;
+
+        initializeRegistry();
+
+        // Check if activated app is one of our tracked Word processes
+        NSNumber* activatedKey = @(activatedPID);
+
+        if (observerRegistry[activatedKey]) {
+            // One of our Word processes activated
+            setActiveObserver(activatedPID);
+        } else {
+            // Different app activated - hide all Word overlays
+            for (WordAccessibilityObserver* observer in observerRegistry.allValues) {
+                AcademiaManager* manager = [observer getAcademiaManager];
+                [manager hideAllOverlays];
+            }
+        }
+    }];
+
+    NSLog(@"[Bridge] Global focus monitor initialized");
+}
+
+static void teardownGlobalFocusMonitor() {
+    if (appActivationObserver) {
+        [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:appActivationObserver];
+        appActivationObserver = nil;
+        NSLog(@"[Bridge] Global focus monitor removed");
+    }
+}
 
 void SelectionChangedCallbackBridge(const char* text, CGRect bounds) {
     if (globalCallbackData && globalCallbackData->selectionTsfn) {
@@ -921,8 +1023,11 @@ void ButtonClickCallbackBridge(const char* text) {
     }
 }
 
+// DEPRECATED: Use StartObservingPID instead for multi-PID support
 Napi::Value StartObserving(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+
+    NSLog(@"[Bridge] WARNING: startObserving() is deprecated. Use startObservingPID() for multi-PID support.");
 
     if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsFunction()) {
         Napi::TypeError::New(env, "Expected (pid: number, callback: function)").ThrowAsJavaScriptException();
@@ -964,8 +1069,11 @@ Napi::Value StartObserving(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+// DEPRECATED: Use StopObservingPID or StopAllObserving instead for multi-PID support
 Napi::Value StopObserving(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
+
+    NSLog(@"[Bridge] WARNING: stopObserving() is deprecated. Use stopObservingPID() or stopAllObserving() for multi-PID support.");
 
     if (globalObserver) {
         [globalObserver stopObserving];
@@ -982,6 +1090,227 @@ Napi::Value StopObserving(const Napi::CallbackInfo& info) {
 
     return env.Null();
 }
+
+// ============================================================================
+// Multi-PID Observer API (Phase 2)
+// ============================================================================
+
+Napi::Value StartObservingPID(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsFunction()) {
+        Napi::TypeError::New(env, "Expected (pid: number, callback: function)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    initializeRegistry();
+
+    // Check max observer limit
+    if ((NSInteger)observerRegistry.count >= kMaxObservers) {
+        Napi::Error::New(env, "Maximum observer limit (10) reached").ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+
+    int32_t pid = info[0].As<Napi::Number>().Int32Value();
+    NSNumber* pidKey = @(pid);
+
+    // Check if already observing this PID
+    if (observerRegistry[pidKey]) {
+        NSLog(@"[Bridge] Already observing PID %d", pid);
+        return Napi::Boolean::New(env, true);
+    }
+
+    Napi::Function callback = info[1].As<Napi::Function>();
+
+    // Create/update thread-safe callback (shared across all observers)
+    if (!globalCallbackData) {
+        globalCallbackData = new CallbackData{
+            Napi::ThreadSafeFunction::New(env, callback, "SelectionCallback", 0, 1),
+            Napi::ThreadSafeFunction::New(env, callback, "ScrollCallback", 0, 1),
+            Napi::ThreadSafeFunction::New(env, callback, "ButtonClickCallback", 0, 1)
+        };
+    }
+
+    // Create new observer for this PID
+    WordAccessibilityObserver* observer = [[WordAccessibilityObserver alloc] initWithPID:pid];
+
+    NSError* error = nil;
+    BOOL success = [observer startObserving:SelectionChangedCallbackBridge
+                              scrollCallback:ScrollEventCallbackBridge
+                           buttonClickCallback:ButtonClickCallbackBridge
+                                        error:&error];
+
+    if (!success) {
+        NSLog(@"[Bridge] Failed to start observing PID %d: %@", pid, error.localizedDescription);
+        Napi::Error::New(env, error.localizedDescription.UTF8String).ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+
+    // Add to registry
+    observerRegistry[pidKey] = observer;
+
+    // Setup focus monitor if this is the first observer
+    if (observerRegistry.count == 1) {
+        setupGlobalFocusMonitor();
+        activePID = pidKey;  // First observer is active by default
+    } else {
+        // Hide overlays for non-active observers
+        if (![pidKey isEqualToNumber:activePID]) {
+            [[observer getAcademiaManager] hideAllOverlays];
+        }
+    }
+
+    NSLog(@"[Bridge] Started observing PID %d (total: %lu)", pid, (unsigned long)observerRegistry.count);
+
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value StopObservingPID(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber()) {
+        Napi::TypeError::New(env, "Expected (pid: number)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int32_t pid = info[0].As<Napi::Number>().Int32Value();
+    NSNumber* pidKey = @(pid);
+
+    initializeRegistry();
+
+    WordAccessibilityObserver* observer = observerRegistry[pidKey];
+    if (!observer) {
+        NSLog(@"[Bridge] PID %d not being observed", pid);
+        return Napi::Boolean::New(env, false);
+    }
+
+    // Stop and remove observer
+    [observer stopObserving];
+    [observerRegistry removeObjectForKey:pidKey];
+
+    NSLog(@"[Bridge] Stopped observing PID %d (remaining: %lu)", pid, (unsigned long)observerRegistry.count);
+
+    // If we removed the active PID, activate the next available one
+    if ([pidKey isEqualToNumber:activePID]) {
+        activePID = nil;
+        NSNumber* nextPID = observerRegistry.allKeys.firstObject;
+        if (nextPID) {
+            setActiveObserver(nextPID.intValue);
+        }
+    }
+
+    // Teardown focus monitor if no more observers
+    if (observerRegistry.count == 0) {
+        teardownGlobalFocusMonitor();
+
+        // Also release shared callback data
+        if (globalCallbackData) {
+            globalCallbackData->selectionTsfn.Release();
+            globalCallbackData->scrollTsfn.Release();
+            globalCallbackData->buttonClickTsfn.Release();
+            delete globalCallbackData;
+            globalCallbackData = nullptr;
+        }
+    }
+
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value StopAllObserving(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    initializeRegistry();
+
+    NSLog(@"[Bridge] Stopping all %lu observers", (unsigned long)observerRegistry.count);
+
+    // Stop all observers
+    for (WordAccessibilityObserver* observer in observerRegistry.allValues) {
+        [observer stopObserving];
+    }
+    [observerRegistry removeAllObjects];
+    activePID = nil;
+
+    // Teardown focus monitor
+    teardownGlobalFocusMonitor();
+
+    // Release shared callback data
+    if (globalCallbackData) {
+        globalCallbackData->selectionTsfn.Release();
+        globalCallbackData->scrollTsfn.Release();
+        globalCallbackData->buttonClickTsfn.Release();
+        delete globalCallbackData;
+        globalCallbackData = nullptr;
+    }
+
+    NSLog(@"[Bridge] All observers stopped");
+
+    return env.Null();
+}
+
+Napi::Value SetActivePID(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber()) {
+        Napi::TypeError::New(env, "Expected (pid: number)").ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+
+    int32_t pid = info[0].As<Napi::Number>().Int32Value();
+
+    initializeRegistry();
+
+    if (!observerRegistry[@(pid)]) {
+        NSLog(@"[Bridge] Cannot set active PID %d - not being observed", pid);
+        return Napi::Boolean::New(env, false);
+    }
+
+    setActiveObserver(pid);
+    return Napi::Boolean::New(env, true);
+}
+
+Napi::Value GetActivePID(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (!activePID) {
+        return env.Null();
+    }
+
+    return Napi::Number::New(env, activePID.intValue);
+}
+
+Napi::Value GetObservedPIDs(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    initializeRegistry();
+
+    Napi::Array result = Napi::Array::New(env, observerRegistry.count);
+    NSUInteger index = 0;
+    for (NSNumber* pidKey in observerRegistry) {
+        result.Set(index++, Napi::Number::New(env, pidKey.intValue));
+    }
+
+    return result;
+}
+
+Napi::Value IsObservingPID(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber()) {
+        Napi::TypeError::New(env, "Expected (pid: number)").ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+
+    int32_t pid = info[0].As<Napi::Number>().Int32Value();
+
+    initializeRegistry();
+
+    BOOL isObserving = observerRegistry[@(pid)] != nil;
+    return Napi::Boolean::New(env, isObserving);
+}
+
+// ============================================================================
+// Legacy Single-Observer API (getter functions use globalObserver for backward compat)
+// ============================================================================
 
 Napi::Value GetSelectedText(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
@@ -1254,9 +1583,52 @@ Napi::Value GetScrollAreaBounds(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// ============================================================================
+// Feature Flag Configuration
+// ============================================================================
+
+Napi::Value SetFeatureFlags(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsObject()) {
+        Napi::TypeError::New(env, "Expected (flags: object)").ThrowAsJavaScriptException();
+        return Napi::Boolean::New(env, false);
+    }
+
+    Napi::Object flags = info[0].As<Napi::Object>();
+
+    if (flags.Has("textSideButtonEnabled")) {
+        featureTextSideButtonEnabled = flags.Get("textSideButtonEnabled").As<Napi::Boolean>().Value();
+    }
+    if (flags.Has("overallReviewButtonEnabled")) {
+        featureOverallReviewButtonEnabled = flags.Get("overallReviewButtonEnabled").As<Napi::Boolean>().Value();
+    }
+
+    NSLog(@"[Bridge] Feature flags set - TextSide: %@, OverallReview: %@",
+          featureTextSideButtonEnabled ? @"ON" : @"OFF",
+          featureOverallReviewButtonEnabled ? @"ON" : @"OFF");
+
+    return Napi::Boolean::New(env, true);
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
+    // Legacy single-observer API (deprecated but still functional)
     exports.Set("startObserving", Napi::Function::New(env, StartObserving));
     exports.Set("stopObserving", Napi::Function::New(env, StopObserving));
+
+    // Multi-PID observer API (Phase 2)
+    exports.Set("startObservingPID", Napi::Function::New(env, StartObservingPID));
+    exports.Set("stopObservingPID", Napi::Function::New(env, StopObservingPID));
+    exports.Set("stopAllObserving", Napi::Function::New(env, StopAllObserving));
+    exports.Set("setActivePID", Napi::Function::New(env, SetActivePID));
+    exports.Set("getActivePID", Napi::Function::New(env, GetActivePID));
+    exports.Set("getObservedPIDs", Napi::Function::New(env, GetObservedPIDs));
+    exports.Set("isObservingPID", Napi::Function::New(env, IsObservingPID));
+
+    // Configuration
+    exports.Set("setFeatureFlags", Napi::Function::New(env, SetFeatureFlags));
+
+    // Utility functions
     exports.Set("getSelectedText", Napi::Function::New(env, GetSelectedText));
     exports.Set("getFirstTextAreaInfo", Napi::Function::New(env, GetFirstTextAreaInfo));
     exports.Set("checkPermission", Napi::Function::New(env, CheckPermission));

@@ -91,8 +91,25 @@ export interface BadgeState {
 }
 
 interface NativeModule {
+  // Legacy single-observer API (deprecated - use multi-PID API instead)
+  /** @deprecated Use startObservingPID instead */
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean;
+  /** @deprecated Use stopObservingPID or stopAllObserving instead */
   stopObserving(): void;
+
+  // Multi-PID observer API (Phase 2)
+  startObservingPID(pid: number, callback: (event: AccessibilityEvent) => void): boolean;
+  stopObservingPID(pid: number): boolean;
+  stopAllObserving(): void;
+  setActivePID(pid: number): boolean;
+  getActivePID(): number | null;
+  getObservedPIDs(): number[];
+  isObservingPID(pid: number): boolean;
+
+  // Configuration
+  setFeatureFlags(flags: { textSideButtonEnabled?: boolean; overallReviewButtonEnabled?: boolean }): boolean;
+
+  // Utility functions
   getSelectedText(): SelectedText | null;
   getFirstTextAreaInfo(): FirstTextAreaInfo | null;
   checkPermission(): boolean;
@@ -185,8 +202,12 @@ try {
 }
 
 export class WordAccessibilityBridge {
+  // Legacy single-PID tracking (deprecated)
   private callback: ((event: AccessibilityEvent) => void) | null = null;
   private pid: number | null = null;
+
+  // Multi-PID tracking
+  private sharedCallback: ((event: AccessibilityEvent) => void) | null = null;
 
   checkPermission(): boolean {
     if (!nativeModule) {
@@ -195,7 +216,14 @@ export class WordAccessibilityBridge {
     return nativeModule.checkPermission();
   }
 
+  // ============================================================================
+  // Legacy Single-Observer API (deprecated)
+  // ============================================================================
+
+  /** @deprecated Use startObservingPID instead */
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean {
+    console.warn('[WordAccessibility] WARNING: startObserving() is deprecated. Use startObservingPID() for multi-PID support.');
+
     if (!nativeModule) {
       throw new Error('Native module not loaded');
     }
@@ -215,7 +243,10 @@ export class WordAccessibilityBridge {
     }
   }
 
+  /** @deprecated Use stopObservingPID or stopAllObserving instead */
   stopObserving(): void {
+    console.warn('[WordAccessibility] WARNING: stopObserving() is deprecated. Use stopObservingPID() or stopAllObserving() for multi-PID support.');
+
     if (!nativeModule) {
       return;
     }
@@ -228,6 +259,166 @@ export class WordAccessibilityBridge {
       console.error('Failed to stop observing:', error);
     }
   }
+
+  // ============================================================================
+  // Multi-PID Observer API (Phase 2)
+  // ============================================================================
+
+  /**
+   * Start observing a specific PID. Can observe multiple PIDs simultaneously.
+   * @param pid The process ID to observe
+   * @param callback Callback for accessibility events (shared across all PIDs)
+   * @returns true if observation started successfully
+   */
+  startObservingPID(pid: number, callback: (event: AccessibilityEvent) => void): boolean {
+    if (!nativeModule) {
+      throw new Error('Native module not loaded');
+    }
+
+    if (!this.checkPermission()) {
+      throw new Error('Accessibility permission not granted. Please grant permission in System Settings.');
+    }
+
+    // Store shared callback
+    this.sharedCallback = callback;
+
+    try {
+      return nativeModule.startObservingPID(pid, callback);
+    } catch (error) {
+      console.error(`Failed to start observing PID ${pid}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Stop observing a specific PID.
+   * @param pid The process ID to stop observing
+   * @returns true if observation was stopped
+   */
+  stopObservingPID(pid: number): boolean {
+    if (!nativeModule) {
+      return false;
+    }
+
+    try {
+      return nativeModule.stopObservingPID(pid);
+    } catch (error) {
+      console.error(`Failed to stop observing PID ${pid}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Stop observing all PIDs and clean up resources.
+   */
+  stopAllObserving(): void {
+    if (!nativeModule) {
+      return;
+    }
+
+    try {
+      nativeModule.stopAllObserving();
+      this.sharedCallback = null;
+    } catch (error) {
+      console.error('Failed to stop all observers:', error);
+    }
+  }
+
+  /**
+   * Set which PID's overlays should be visible.
+   * @param pid The process ID to make active
+   * @returns true if the PID was successfully set as active
+   */
+  setActivePID(pid: number): boolean {
+    if (!nativeModule) {
+      return false;
+    }
+
+    try {
+      return nativeModule.setActivePID(pid);
+    } catch (error) {
+      console.error(`Failed to set active PID ${pid}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Get the currently active PID (whose overlays are visible).
+   * @returns The active PID or null if none
+   */
+  getActivePID(): number | null {
+    if (!nativeModule) {
+      return null;
+    }
+
+    try {
+      return nativeModule.getActivePID();
+    } catch (error) {
+      console.error('Failed to get active PID:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get list of all PIDs currently being observed.
+   * @returns Array of observed PIDs
+   */
+  getObservedPIDs(): number[] {
+    if (!nativeModule) {
+      return [];
+    }
+
+    try {
+      return nativeModule.getObservedPIDs();
+    } catch (error) {
+      console.error('Failed to get observed PIDs:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Check if a specific PID is currently being observed.
+   * @param pid The process ID to check
+   * @returns true if the PID is being observed
+   */
+  isObservingPID(pid: number): boolean {
+    if (!nativeModule) {
+      return false;
+    }
+
+    try {
+      return nativeModule.isObservingPID(pid);
+    } catch (error) {
+      console.error(`Failed to check if observing PID ${pid}:`, error);
+      return false;
+    }
+  }
+
+  // ============================================================================
+  // Configuration Methods
+  // ============================================================================
+
+  /**
+   * Set feature flags for native components.
+   * Must be called BEFORE startObservingPID() since buttons are created during observer initialization.
+   */
+  setFeatureFlags(flags: { textSideButtonEnabled?: boolean; overallReviewButtonEnabled?: boolean }): boolean {
+    if (!nativeModule) {
+      console.error('Failed to set feature flags: Native module not loaded');
+      return false;
+    }
+
+    try {
+      return nativeModule.setFeatureFlags(flags);
+    } catch (error) {
+      console.error('Failed to set feature flags:', error);
+      return false;
+    }
+  }
+
+  // ============================================================================
+  // Utility Methods
+  // ============================================================================
 
   getSelectedText(): SelectedText | null {
     if (!nativeModule) {

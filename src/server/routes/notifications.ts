@@ -128,9 +128,21 @@ export async function registerNotificationRoutes(
    *   read: number        // Read (but not dismissed) notifications
    * }
    */
-  fastify.get(
+  fastify.get<{
+    Querystring: { project_file_id?: string };
+  }>(
     '/api/notifications/count',
-    async (request: FastifyRequest, reply: FastifyReply) => {
+    {
+      schema: {
+        querystring: {
+          type: 'object',
+          properties: {
+            project_file_id: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (request: FastifyRequest<{ Querystring: { project_file_id?: string } }>, reply: FastifyReply) => {
       const userId = currentUserId();
 
       if (!userId) {
@@ -142,23 +154,35 @@ export async function registerNotificationRoutes(
         return;
       }
 
-      console.log(`[Notifications API] GET /api/notifications/count - userId=${userId}`);
+      const { project_file_id } = request.query;
+      const projectFileIdNum = project_file_id ? parseInt(project_file_id, 10) : undefined;
+
+      console.log(`[Notifications API] GET /api/notifications/count - userId=${userId}, project_file_id=${projectFileIdNum ?? 'all'}`);
 
       try {
         // Get undismissed notifications (both unread and read)
-        const undismissed = notificationManager.getUndismissedNotifications(userId);
+        let undismissed = notificationManager.getUndismissedNotifications(userId);
+
+        // Filter by project_file_id if provided
+        if (projectFileIdNum !== undefined && !isNaN(projectFileIdNum)) {
+          undismissed = undismissed.filter(
+            (n: CachedNotification) => n.project_file_id === projectFileIdNum
+          );
+        }
 
         // Count by status
         const unreadCount = undismissed.filter((n: CachedNotification) => n.status === 'unread').length;
         const readCount = undismissed.filter((n: CachedNotification) => n.status === 'read').length;
 
-        const response: NotificationCountResponse = {
+        // Return full notification data along with counts for verification
+        const response = {
+          notifications: undismissed,
           total: undismissed.length,
           unread: unreadCount,
           read: readCount,
         };
 
-        console.log(`[Notifications API] Returning counts - total: ${response.total}, unread: ${response.unread}, read: ${response.read}`);
+        console.log(`[Notifications API] Returning ${undismissed.length} notifications - total: ${response.total}, unread: ${response.unread}, read: ${response.read}${projectFileIdNum !== undefined ? ` (filtered by project_file_id=${projectFileIdNum})` : ''}`);
 
         reply.send(response);
       } catch (error) {
