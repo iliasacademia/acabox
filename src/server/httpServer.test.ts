@@ -98,6 +98,13 @@ describe('AcademiaHttpServer', () => {
   let server: AcademiaHttpServer;
   let mockNotificationManager: MockNotificationManager;
   let baseUrl: string;
+  let authToken: string;
+
+  // Helper to create headers with auth token
+  const authHeaders = (additionalHeaders: Record<string, string> = {}) => ({
+    Authorization: `Bearer ${authToken}`,
+    ...additionalHeaders,
+  });
 
   beforeAll(async () => {
     // Create mock notification manager
@@ -113,6 +120,7 @@ describe('AcademiaHttpServer', () => {
     // Start server
     const port = await server.start();
     baseUrl = `http://127.0.0.1:${port}`;
+    authToken = server.getAuthToken()!;
 
     console.log(`[Test] Server started at ${baseUrl}`);
   });
@@ -135,7 +143,9 @@ describe('AcademiaHttpServer', () => {
 
   describe('GET /api/health', () => {
     it('should return health status', async () => {
-      const response = await fetch(`${baseUrl}/api/health`);
+      const response = await fetch(`${baseUrl}/api/health`, {
+        headers: authHeaders(),
+      });
 
       expect(response.status).toBe(200);
 
@@ -144,11 +154,18 @@ describe('AcademiaHttpServer', () => {
       expect(data.uptime).toBeGreaterThanOrEqual(0);
       expect(data.timestamp).toBeGreaterThan(0);
     });
+
+    it('should reject requests without auth token', async () => {
+      const response = await fetch(`${baseUrl}/api/health`);
+      expect(response.status).toBe(401);
+    });
   });
 
   describe('GET /api/notifications', () => {
     it('should return all undismissed notifications', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications`);
+      const response = await fetch(`${baseUrl}/api/notifications`, {
+        headers: authHeaders(),
+      });
 
       expect(response.status).toBe(200);
 
@@ -159,7 +176,9 @@ describe('AcademiaHttpServer', () => {
     });
 
     it('should filter notifications by status=unread', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications?status=unread`);
+      const response = await fetch(`${baseUrl}/api/notifications?status=unread`, {
+        headers: authHeaders(),
+      });
 
       expect(response.status).toBe(200);
 
@@ -170,7 +189,9 @@ describe('AcademiaHttpServer', () => {
     });
 
     it('should filter notifications by status=read', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications?status=read`);
+      const response = await fetch(`${baseUrl}/api/notifications?status=read`, {
+        headers: authHeaders(),
+      });
 
       expect(response.status).toBe(200);
 
@@ -181,7 +202,9 @@ describe('AcademiaHttpServer', () => {
     });
 
     it('should respect limit parameter', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications?limit=1`);
+      const response = await fetch(`${baseUrl}/api/notifications?limit=1`, {
+        headers: authHeaders(),
+      });
 
       expect(response.status).toBe(200);
 
@@ -193,7 +216,9 @@ describe('AcademiaHttpServer', () => {
 
   describe('GET /api/notifications/count', () => {
     it('should return notification counts', async () => {
-      const response = await fetch(`${baseUrl}/api/notifications/count`);
+      const response = await fetch(`${baseUrl}/api/notifications/count`, {
+        headers: authHeaders(),
+      });
 
       expect(response.status).toBe(200);
 
@@ -208,9 +233,7 @@ describe('AcademiaHttpServer', () => {
     it('should mark notification as read', async () => {
       const response = await fetch(`${baseUrl}/api/notifications/1`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ status: 'read' }),
       });
 
@@ -226,9 +249,7 @@ describe('AcademiaHttpServer', () => {
     it('should dismiss notification', async () => {
       const response = await fetch(`${baseUrl}/api/notifications/2`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ status: 'dismissed' }),
       });
 
@@ -244,9 +265,7 @@ describe('AcademiaHttpServer', () => {
     it('should reject invalid status values', async () => {
       const response = await fetch(`${baseUrl}/api/notifications/1`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ status: 'invalid' }),
       });
 
@@ -259,9 +278,7 @@ describe('AcademiaHttpServer', () => {
     it('should reject invalid notification ID', async () => {
       const response = await fetch(`${baseUrl}/api/notifications/abc`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ status: 'read' }),
       });
 
@@ -277,9 +294,7 @@ describe('AcademiaHttpServer', () => {
     it('should handle malformed JSON in request body', async () => {
       const response = await fetch(`${baseUrl}/api/notifications/1`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: '{invalid json}',
       });
 
@@ -289,9 +304,7 @@ describe('AcademiaHttpServer', () => {
     it('should handle missing request body', async () => {
       const response = await fetch(`${baseUrl}/api/notifications/1`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
       });
 
       expect(response.status).toBe(400);
