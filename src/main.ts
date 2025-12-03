@@ -481,6 +481,16 @@ const createTray = (): void => {
             devWindow.hide();
           }
         },
+      },
+      {
+        label: 'Open Dev Popup UI',
+        click: () => {
+          const baseUrl = httpServer?.getBaseUrl();
+          const token = httpServer?.getAuthToken();
+          if (baseUrl && token) {
+            shell.openExternal(`${baseUrl}/dev?token=${token}`);
+          }
+        },
       }
     );
   }

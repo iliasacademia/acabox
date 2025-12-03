@@ -21,6 +21,7 @@ import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
 import { registerWordRoutes } from './routes/word';
+import { wordIntegrationDataStore } from '../wordIntegrationDataStore';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
 
@@ -142,6 +143,31 @@ export class AcademiaHttpServer {
       };
       reply.send(response);
     });
+
+    // Dev endpoint - only registered in development mode
+    if (!app.isPackaged) {
+      this.fastify.get('/dev', async (request, reply) => {
+        const trackedPIDs = wordIntegrationDataStore.getTrackedPIDs();
+        const token = this.authToken || '';
+        const baseUrl = this.getBaseUrl() || '';
+
+        const response = {
+          token,
+          baseUrl,
+          trackedPIDs: trackedPIDs.map(pidInfo => ({
+            pid: pidInfo.pid,
+            filePath: pidInfo.filePath,
+            isActive: pidInfo.isActive,
+            popupUrls: {
+              academiaNotifications: `${baseUrl}/ui/popup/academiaNotifications/?pid=${pidInfo.pid}&token=${token}`,
+              academiaNotificationsButton: `${baseUrl}/ui/popup/academiaNotificationsButton/?pid=${pidInfo.pid}&token=${token}`,
+            },
+          })),
+        };
+
+        reply.send(response);
+      });
+    }
 
     // Register notification routes
     await registerNotificationRoutes(
