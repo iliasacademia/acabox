@@ -115,6 +115,7 @@ interface NativeModule {
   checkPermission(): boolean;
   setPopupPath(path: string): boolean;
   setServerBaseUrl(url: string): boolean;
+  setAuthToken(token: string): boolean;
   getDocumentTopLeftCorner(): Position | null;
   getWordWindowBounds(): Bounds | null;
   getFirstLinePosition(): Bounds | null;
@@ -552,6 +553,20 @@ export class WordAccessibilityBridge {
       return nativeModule.setServerBaseUrl(url);
     } catch (error) {
       console.error('Failed to set server base URL:', error);
+      return false;
+    }
+  }
+
+  setAuthToken(token: string): boolean {
+    if (!nativeModule) {
+      console.error('Failed to set auth token: Native module not loaded');
+      return false;
+    }
+
+    try {
+      return nativeModule.setAuthToken(token);
+    } catch (error) {
+      console.error('Failed to set auth token:', error);
       return false;
     }
   }

@@ -3,9 +3,11 @@
 // External references to global variables (defined in bridge.mm)
 // Use weak linkage so this can work in tests without bridge.mm
 extern NSString* globalServerBaseUrl __attribute__((weak));
+extern NSString* globalAuthToken __attribute__((weak));
 
-// Define a weak default if not defined elsewhere (for standalone compilation)
+// Define weak defaults if not defined elsewhere (for standalone compilation)
 NSString* globalServerBaseUrl __attribute__((weak)) = nil;
+NSString* globalAuthToken __attribute__((weak)) = nil;
 
 @implementation HTMLLoader
 
@@ -42,15 +44,26 @@ NSString* globalServerBaseUrl __attribute__((weak)) = nil;
 
         NSString* fullUrlString = [globalServerBaseUrl stringByAppendingString:urlPath];
 
-        // Append query parameters if provided
+        // Build query parameters
+        NSMutableArray* queryPairs = [NSMutableArray array];
+
+        // Add auth token first if available
+        if (globalAuthToken && [globalAuthToken length] > 0) {
+            [queryPairs addObject:[NSString stringWithFormat:@"token=%@", globalAuthToken]];
+        }
+
+        // Append additional query parameters if provided
         if (queryParams && [queryParams count] > 0) {
-            NSMutableArray* queryPairs = [NSMutableArray array];
             for (NSString* key in queryParams) {
                 NSString* value = queryParams[key];
                 // URL-encode the value
                 NSString* encodedValue = [value stringByAddingPercentEncodingWithAllowedCharacters:[NSCharacterSet URLQueryAllowedCharacterSet]];
                 [queryPairs addObject:[NSString stringWithFormat:@"%@=%@", key, encodedValue]];
             }
+        }
+
+        // Append query string if we have any parameters
+        if ([queryPairs count] > 0) {
             fullUrlString = [fullUrlString stringByAppendingFormat:@"?%@", [queryPairs componentsJoinedByString:@"&"]];
         }
 

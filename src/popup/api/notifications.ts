@@ -18,19 +18,34 @@ import { Notification } from '../../types/notifications';
  */
 interface ApiConfig {
   baseUrl: string;
+  authToken: string | null;
 }
 
 let apiConfig: ApiConfig | null = null;
+
+/**
+ * Extract auth token from URL query parameter
+ * The token is passed via ?token=xxx when the popup is loaded
+ */
+function getTokenFromUrl(): string | null {
+  if (typeof window === 'undefined' || !window.location) {
+    return null;
+  }
+  const params = new URLSearchParams(window.location.search);
+  return params.get('token');
+}
 
 /**
  * Initialize the API client with server info
  * Must be called before making any API requests
  *
  * @param baseUrl Base URL of the HTTP server (e.g., http://127.0.0.1:23111)
+ * @param authToken Optional auth token (if not provided, will try to extract from URL)
  */
-export function initializeNotificationsApi(baseUrl: string): void {
-  apiConfig = { baseUrl };
-  console.log(`[Notifications API] Initialized with baseUrl: ${baseUrl}`);
+export function initializeNotificationsApi(baseUrl: string, authToken?: string): void {
+  const token = authToken ?? getTokenFromUrl();
+  apiConfig = { baseUrl, authToken: token };
+  console.log(`[Notifications API] Initialized with baseUrl: ${baseUrl}, hasToken: ${!!token}`);
 }
 
 /**
@@ -68,6 +83,11 @@ async function apiFetch<T>(
 
   const headers = new Headers(options.headers);
   headers.set('Content-Type', 'application/json');
+
+  // Add Authorization header if we have a token
+  if (config.authToken) {
+    headers.set('Authorization', `Bearer ${config.authToken}`);
+  }
 
   const response = await fetch(url, {
     ...options,
@@ -197,7 +217,12 @@ export async function healthCheck(): Promise<{
   const config = getConfig();
   const url = `${config.baseUrl}/api/health`;
 
-  const response = await fetch(url);
+  const headers: HeadersInit = {};
+  if (config.authToken) {
+    headers['Authorization'] = `Bearer ${config.authToken}`;
+  }
+
+  const response = await fetch(url, { headers });
 
   if (!response.ok) {
     throw new Error(`Health check failed: ${response.status}`);

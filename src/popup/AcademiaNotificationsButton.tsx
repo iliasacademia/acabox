@@ -11,16 +11,21 @@ getBridgeInstance('academia-notifications-button');
 console.log('[AcademiaNotificationsButton] Initializing...');
 console.log('[AcademiaNotificationsButton] Platform:', window.__messageBridge?.getPlatform());
 
+// Parse serverUrl from query params (passed by native bridge)
+const urlParams = new URLSearchParams(window.location.search);
+const serverUrl = urlParams.get('serverUrl') || 'http://127.0.0.1:23111';
+
 interface AcademiaNotificationsButtonProps {
   apiBaseUrl?: string;
 }
 
 const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = ({
-  apiBaseUrl = 'http://127.0.0.1:23111'
+  apiBaseUrl = serverUrl
 }) => {
   const [badgeCount, setBadgeCount] = useState<number>(0);
   const [projectFileId, setProjectFileId] = useState<number | null>(null);
   const [isInitialized, setIsInitialized] = useState<boolean>(false);
+  const [authToken, setAuthToken] = useState<string | null>(null);
   const { sendRequest, loading } = useSendMessage();
   const isReady = useBridgeReady();
 
@@ -30,9 +35,14 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
   useEffect(() => {
     const fetchProjectFileId = async () => {
       try {
-        // Extract PID from URL query params
+        // Extract PID and token from URL query params
         const urlParams = new URLSearchParams(window.location.search);
         const pid = urlParams.get('pid');
+        const token = urlParams.get('token');
+
+        if (token) {
+          setAuthToken(token);
+        }
 
         if (!pid) {
           console.warn('[AcademiaNotificationsButton] No PID in URL query params - badge will be hidden');
@@ -84,11 +94,16 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
         // Include project_file_id filter in the request
         const url = `${apiBaseUrl}/api/notifications/count?project_file_id=${projectFileId}`;
 
+        const headers: Record<string, string> = {
+          'Accept': 'application/json',
+        };
+        if (authToken) {
+          headers['Authorization'] = `Bearer ${authToken}`;
+        }
+
         const response = await fetch(url, {
           method: 'GET',
-          headers: {
-            'Accept': 'application/json',
-          },
+          headers,
         });
 
         if (!response.ok) {
@@ -125,7 +140,7 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
     return () => {
       clearInterval(intervalId);
     };
-  }, [apiBaseUrl, projectFileId, isInitialized]);
+  }, [apiBaseUrl, projectFileId, isInitialized, authToken]);
 
   const handleClick = async () => {
     console.log('[AcademiaNotificationsButton] Button clicked');

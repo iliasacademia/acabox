@@ -9,6 +9,10 @@ getBridgeInstance('overall-review-popup');
 console.log('[OverallReviewPopup] Initializing...');
 console.log('[OverallReviewPopup] Platform:', window.__messageBridge?.getPlatform());
 
+// Parse serverUrl from query params (passed by native bridge)
+const urlParams = new URLSearchParams(window.location.search);
+const serverUrl = urlParams.get('serverUrl') || 'http://127.0.0.1:23111';
+
 interface Comment {
   id: string;
   title: string;
@@ -160,7 +164,7 @@ const OverallReviewPopup: React.FC = () => {
         // Step 1: Fetch list of documents
         console.log('[OverallReviewPopup] Fetching list of documents...');
         const listResponse = await fetch(
-          'http://127.0.0.1:23111/proxy-api/v0/writing_agent/list_documents?subdomain_param=api&page=1&per_page=10',
+          `${serverUrl}/proxy-api/v0/writing_agent/list_documents?subdomain_param=api&page=1&per_page=10`,
           {
             method: 'GET',
             headers: {
@@ -205,7 +209,7 @@ const OverallReviewPopup: React.FC = () => {
         // Step 3: Fetch the document details
         console.log('[OverallReviewPopup] Fetching document details...');
         const response = await fetch(
-          `http://127.0.0.1:23111/proxy-api/v0/writing_agent/get_document?subdomain_param=api&document_id=${latestDocument.id}`,
+          `${serverUrl}/proxy-api/v0/writing_agent/get_document?subdomain_param=api&document_id=${latestDocument.id}`,
           {
             method: 'GET',
             headers: {
