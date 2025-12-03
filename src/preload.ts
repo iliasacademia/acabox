@@ -15,6 +15,11 @@ const VALID_EVENT_CHANNELS: string[] = [
   IPC_CHANNELS.NOTIFICATION_UPDATED,
   IPC_CHANNELS.API_LOG,
   IPC_CHANNELS.NAVIGATE_TO_PAGE,
+  // Auto-update events
+  IPC_CHANNELS.UPDATE_AVAILABLE,
+  IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS,
+  IPC_CHANNELS.UPDATE_DOWNLOADED,
+  IPC_CHANNELS.UPDATE_ERROR,
 ];
 
 /**
@@ -78,6 +83,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Remove specific event listener
   removeListener: (channel: string, callback: (event: IpcRendererEvent, ...args: any[]) => void) => {
+    if (VALID_EVENT_CHANNELS.includes(channel)) {
+      ipcRenderer.removeListener(channel as any, callback);
+    }
+  },
+
+  // Alias for removeListener (common API convention)
+  off: (channel: string, callback: (event: IpcRendererEvent, ...args: any[]) => void) => {
     if (VALID_EVENT_CHANNELS.includes(channel)) {
       ipcRenderer.removeListener(channel as any, callback);
     }

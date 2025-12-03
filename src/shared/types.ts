@@ -81,6 +81,13 @@ export const IPC_CHANNELS = {
 
   // Navigation
   NAVIGATE_TO_PAGE: 'navigate-to-page',
+
+  // Auto-update
+  UPDATE_AVAILABLE: 'update-available',
+  UPDATE_DOWNLOAD_PROGRESS: 'update-download-progress',
+  UPDATE_DOWNLOADED: 'update-downloaded',
+  UPDATE_ERROR: 'update-error',
+  DOWNLOAD_UPDATE: 'download-update',
 } as const;
 
 // Feature flags

@@ -595,102 +595,40 @@ function setupAutoUpdater(): void {
     logger.info('[Auto-Updater] Checking for updates...');
   });
 
-  // Event: Update available
+  // Event: Update available - send to renderer for banner display
   autoUpdater.on('update-available', (info) => {
     logger.info('[Auto-Updater] Update available:', info.version);
 
-    // Format timestamp version for display
-    const currentVersion = app.getVersion();
-    const newVersion = info.version;
-    const formattedNewVersion = formatTimestampVersion(newVersion);
-    const formattedCurrentVersion = formatTimestampVersion(currentVersion);
+    const formattedVersion = formatTimestampVersion(info.version);
 
-    // Show dialog to user
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update Available',
-      message: `A new version of Academia is available!`,
-      detail: `Current: ${formattedCurrentVersion}\nAvailable: ${formattedNewVersion}\n\nWould you like to download it now?`,
-      buttons: ['Download', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    }).then((result) => {
-      if (result.response === 0) {
-        // User clicked Download
-        logger.info('[Auto-Updater] User approved download');
-        try {
-          autoUpdater.downloadUpdate().catch((downloadError) => {
-            logger.error('[Auto-Updater] Failed to download update:', downloadError);
-            logger.error('[Auto-Updater] Error stack:', downloadError.stack);
-
-            // Show error dialog to user
-            dialog.showMessageBox({
-              type: 'error',
-              title: 'Update Download Failed',
-              message: 'Failed to download the update.',
-              detail: `An error occurred while downloading the update:\n\n${downloadError.message}\n\nYou can try again later by selecting "Check for Updates" from the menu.`,
-              buttons: ['OK'],
-            });
-          });
-        } catch (error) {
-          logger.error('[Auto-Updater] Exception during downloadUpdate call:', error);
-          logger.error('[Auto-Updater] Error stack:', (error as Error).stack);
-
-          // Show error dialog to user
-          dialog.showMessageBox({
-            type: 'error',
-            title: 'Update Download Failed',
-            message: 'Failed to start the update download.',
-            detail: `An error occurred:\n\n${(error as Error).message}\n\nYou can try again later by selecting "Check for Updates" from the menu.`,
-            buttons: ['OK'],
-          });
-        }
-      } else {
-        logger.info('[Auto-Updater] User postponed update');
-      }
+    // Send to renderer to show banner (non-disruptive)
+    mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_AVAILABLE, {
+      version: info.version,
+      formattedVersion: formattedVersion,
     });
   });
 
-  // Event: Update not available
+  // Event: Update not available - silent, just log
   autoUpdater.on('update-not-available', (info) => {
     logger.info('[Auto-Updater] No updates available. Current version is latest:', info.version);
-
-    // Show info dialog to user
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'No Updates Available',
-      message: `Current version is latest: ${info.version}`,
-      buttons: ['OK'],
-    });
+    // Silent - no dialog, no banner when already on latest version
   });
 
-  // Event: Update downloaded
+  // Event: Update downloaded - notify renderer and auto-restart
   autoUpdater.on('update-downloaded', (info) => {
     logger.info('[Auto-Updater] Update downloaded:', info.version);
 
-    const formattedVersion = formatTimestampVersion(info.version);
+    // Notify renderer that download is complete
+    mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_DOWNLOADED);
 
-    // Show dialog to install now or later
-    dialog.showMessageBox({
-      type: 'info',
-      title: 'Update Ready',
-      message: 'Update has been downloaded.',
-      detail: `Version ${formattedVersion} is ready to install.\n\nThe application will restart to complete the installation.`,
-      buttons: ['Restart Now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    }).then((result) => {
-      if (result.response === 0) {
-        // User clicked Restart Now
-        logger.info('[Auto-Updater] User approved installation, restarting...');
-        autoUpdater.quitAndInstall();
-      } else {
-        logger.info('[Auto-Updater] User postponed installation');
-      }
-    });
+    // Auto-restart after short delay to show completion state in banner
+    setTimeout(() => {
+      logger.info('[Auto-Updater] Auto-restarting to install update...');
+      autoUpdater.quitAndInstall();
+    }, 1500);
   });
 
-  // Event: Error
+  // Event: Error - send to renderer for banner display
   autoUpdater.on('error', (error) => {
     // Log comprehensive error information for debugging
     logger.error('[Auto-Updater] Error occurred:', {
@@ -700,22 +638,21 @@ function setupAutoUpdater(): void {
       name: error.name,
     });
 
-    // Show error dialog to user with actionable information
-    dialog.showMessageBox({
-      type: 'error',
-      title: 'Auto-Update Error',
-      message: 'An error occurred during the update process.',
-      detail: `Error: ${error.message}\n\nThe update process has been interrupted. You can try checking for updates again later by selecting "Check for Updates" from the menu.\n\nIf this problem persists, please report it with the error details from the log file.`,
-      buttons: ['OK'],
-    }).then(() => {
-      logger.info('[Auto-Updater] Error dialog dismissed by user');
+    // Send to renderer to show error in banner
+    mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_ERROR, {
+      message: error.message || 'Download failed',
     });
   });
 
-  // Event: Download progress
+  // Event: Download progress - send to renderer for banner display
   autoUpdater.on('download-progress', (progressInfo) => {
     const percent = Math.round(progressInfo.percent);
     logger.info(`[Auto-Updater] Download progress: ${percent}%`);
+
+    // Send progress to renderer for banner
+    mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS, {
+      percent: percent,
+    });
   });
 
   // Check for updates on startup (with delay to avoid blocking app initialization)
@@ -725,6 +662,14 @@ function setupAutoUpdater(): void {
       logger.error('[Auto-Updater] Failed to check for updates:', err);
     });
   }, 3000); // 3 second delay
+
+  // Check for updates every hour (3600000ms = 1 hour)
+  setInterval(() => {
+    logger.info('[Auto-Updater] Performing hourly update check...');
+    autoUpdater.checkForUpdates().catch((err) => {
+      logger.error('[Auto-Updater] Hourly check failed:', err);
+    });
+  }, 3600000);
 }
 
 // Helper function to format timestamp version for display
@@ -768,15 +713,10 @@ function checkForUpdatesManually(): void {
     return;
   }
 
-  console.log('[Auto-Updater] Manual update check requested');
+  logger.info('[Auto-Updater] Manual update check requested');
   autoUpdater.checkForUpdates().catch((err) => {
-    console.error('[Auto-Updater] Failed to check for updates:', err);
-    dialog.showMessageBox({
-      type: 'error',
-      title: 'Update Check Failed',
-      message: 'Failed to check for updates. Please try again later.',
-      detail: err.message,
-    });
+    logger.error('[Auto-Updater] Failed to check for updates:', err);
+    // Error will be sent to renderer via the error event handler
   });
 }
 
@@ -999,6 +939,17 @@ ipcMain.handle('get-app-version', async () => {
     version: app.getVersion(),
     formatted: formatTimestampVersion(app.getVersion()),
   };
+});
+
+// Handle download-update request from renderer (triggered by banner click)
+ipcMain.handle(IPC_CHANNELS.DOWNLOAD_UPDATE, async () => {
+  logger.info('[Auto-Updater] User initiated download from banner');
+  try {
+    await autoUpdater.downloadUpdate();
+  } catch (error) {
+    logger.error('[Auto-Updater] Download failed:', error);
+    throw error;
+  }
 });
 
 ipcMain.handle('check-login', async () => {

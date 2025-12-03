@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import LoginModal from './components/LoginModal';
 import DevTools from './components/DevTools';
+import { UpdateBanner } from './components/UpdateBanner';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
@@ -13,6 +14,15 @@ const App: React.FC = () => {
   const [userName, setUserName] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [pendingNavigation, setPendingNavigation] = useState<NavigateToPagePayload | null>(null);
+
+  // Auto-update banner state
+  const [updateState, setUpdateState] = useState<{
+    show: boolean;
+    status: 'available' | 'downloading' | 'downloaded' | 'error';
+    version?: string;
+    progress?: number;
+    errorMessage?: string;
+  }>({ show: false, status: 'available' });
 
   // Detect if this is the main window (Projects UI) or dev window
   const isMainWindow = new URLSearchParams(window.location.search).get('window') === 'main';
@@ -101,6 +111,55 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Listen for auto-update events from main process
+  useEffect(() => {
+    const handleUpdateAvailable = (_event: any, data: { version: string; formattedVersion: string }) => {
+      console.log('[App] Update available:', data.formattedVersion);
+      setUpdateState({
+        show: true,
+        status: 'available',
+        version: data.formattedVersion,
+      });
+    };
+
+    const handleDownloadProgress = (_event: any, data: { percent: number }) => {
+      setUpdateState(prev => ({
+        ...prev,
+        status: 'downloading',
+        progress: data.percent,
+      }));
+    };
+
+    const handleUpdateDownloaded = () => {
+      console.log('[App] Update downloaded, restarting soon...');
+      setUpdateState(prev => ({
+        ...prev,
+        status: 'downloaded',
+      }));
+    };
+
+    const handleUpdateError = (_event: any, data: { message: string }) => {
+      console.error('[App] Update error:', data.message);
+      setUpdateState(prev => ({
+        ...prev,
+        status: 'error',
+        errorMessage: data.message,
+      }));
+    };
+
+    window.electronAPI.on(IPC_CHANNELS.UPDATE_AVAILABLE, handleUpdateAvailable);
+    window.electronAPI.on(IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS, handleDownloadProgress);
+    window.electronAPI.on(IPC_CHANNELS.UPDATE_DOWNLOADED, handleUpdateDownloaded);
+    window.electronAPI.on(IPC_CHANNELS.UPDATE_ERROR, handleUpdateError);
+
+    return () => {
+      window.electronAPI.off(IPC_CHANNELS.UPDATE_AVAILABLE, handleUpdateAvailable);
+      window.electronAPI.off(IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS, handleDownloadProgress);
+      window.electronAPI.off(IPC_CHANNELS.UPDATE_DOWNLOADED, handleUpdateDownloaded);
+      window.electronAPI.off(IPC_CHANNELS.UPDATE_ERROR, handleUpdateError);
+    };
+  }, []);
+
   const handleNavigationHandled = () => {
     setPendingNavigation(null);
   };
@@ -185,6 +244,29 @@ const App: React.FC = () => {
     }
   };
 
+  // Auto-update handlers
+  const handleDownloadUpdate = async () => {
+    console.log('[App] User clicked download update');
+    setUpdateState(prev => ({ ...prev, status: 'downloading', progress: 0 }));
+    try {
+      await window.electronAPI.invoke(IPC_CHANNELS.DOWNLOAD_UPDATE);
+    } catch (error) {
+      console.error('[App] Download update failed:', error);
+      // Error will be handled by UPDATE_ERROR event
+    }
+  };
+
+  const handleRetryUpdate = async () => {
+    console.log('[App] User clicked retry update');
+    setUpdateState(prev => ({ ...prev, status: 'downloading', progress: 0, errorMessage: undefined }));
+    try {
+      await window.electronAPI.invoke(IPC_CHANNELS.DOWNLOAD_UPDATE);
+    } catch (error) {
+      console.error('[App] Retry update failed:', error);
+      // Error will be handled by UPDATE_ERROR event
+    }
+  };
+
   // If this is the main window, render the Projects UI
   if (isMainWindow) {
     // Wait for auth check to complete before rendering Projects
@@ -202,6 +284,16 @@ const App: React.FC = () => {
           onNavigationHandled={handleNavigationHandled}
         />
         {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
+        {updateState.show && (
+          <UpdateBanner
+            status={updateState.status}
+            version={updateState.version}
+            progress={updateState.progress}
+            errorMessage={updateState.errorMessage}
+            onDownloadClick={handleDownloadUpdate}
+            onRetryClick={handleRetryUpdate}
+          />
+        )}
       </>
     );
   }
@@ -211,6 +303,16 @@ const App: React.FC = () => {
     <>
       <DevTools onLogout={handleLogout} />
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
+      {updateState.show && (
+        <UpdateBanner
+          status={updateState.status}
+          version={updateState.version}
+          progress={updateState.progress}
+          errorMessage={updateState.errorMessage}
+          onDownloadClick={handleDownloadUpdate}
+          onRetryClick={handleRetryUpdate}
+        />
+      )}
     </>
   );
 };
