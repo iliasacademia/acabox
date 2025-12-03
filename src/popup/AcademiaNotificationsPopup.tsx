@@ -287,14 +287,14 @@ const AcademiaNotificationsPopup: React.FC = () => {
     checkForUnreadReview();
   }, [checkForUnreadReview]);
 
-  // Poll for new notifications every 10 seconds
+  // Poll for new notifications every 3 seconds
   useEffect(() => {
     if (fileId === null) return;
 
     const pollInterval = setInterval(() => {
       console.log('[AcademiaNotificationsPopup] Polling for new notifications...');
       checkForUnreadReview();
-    }, 10000);
+    }, 3000);
 
     return () => {
       clearInterval(pollInterval);
