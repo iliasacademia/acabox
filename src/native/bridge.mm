@@ -90,7 +90,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             _overallReviewButton = [[OverallReviewButton alloc] initWithObserver:self];
             [_academiaManager registerOverlay:_overallReviewButton];
         } else {
-            NSLog(@"[Bridge] OverallReviewButton disabled by feature flag");
             _overallReviewButton = nil;
         }
 
@@ -99,7 +98,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             _textSideButton = [[TextSideButton alloc] initWithObserver:self searchText:@"Introduction"];
             [_academiaManager registerOverlay:_textSideButton];
         } else {
-            NSLog(@"[Bridge] TextSideButton disabled by feature flag");
             _textSideButton = nil;
         }
 
@@ -108,8 +106,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         BOOL isDebugMode = [debugEnv isEqualToString:@"1"];
 
         if (isDebugMode) {
-            NSLog(@"[Bridge] DEBUG: Debug mode enabled, creating debug windows");
-
             // Create debug border windows with appropriate colors
             _debugWindowBorder = [[DebugBorderWindow alloc] initWithBorderType:DebugBorderTypeWordWindow
                                                                          color:[NSColor redColor]];
@@ -126,12 +122,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             [_academiaManager registerOverlay:_debugScrollBorder];
             [_academiaManager registerOverlay:_debugDocumentBorder];
             [_academiaManager registerOverlay:_debugInfoOverlay];
-
-            NSLog(@"[Bridge] DEBUG: Created and registered 4 debug windows (3 borders + 1 info overlay)");
         }
-
-        NSLog(@"[Bridge] Architecture components initialized with %ld overlays",
-              (long)[_academiaManager registeredOverlayCount]);
     }
     return self;
 }
@@ -212,12 +203,11 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
                        kCFRunLoopDefaultMode);
 
     // Start architecture components
-    NSLog(@"[Bridge] Starting architecture components");
 
     // Start Word adapter observation
     NSError *adapterError = nil;
     if (![_wordAdapter startObserving:&adapterError]) {
-        NSLog(@"[Bridge] ERROR - Failed to start Word adapter: %@", adapterError);
+        NSLog(@"[Bridge] ERROR: Failed to start Word adapter: %@", adapterError);
         if (error) {
             *error = adapterError;
         }
@@ -226,7 +216,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
     // Start Academia manager
     if (![_academiaManager startManaging]) {
-        NSLog(@"[Bridge] ERROR - Failed to start Academia manager");
+        NSLog(@"[Bridge] ERROR: Failed to start Academia manager");
         if (error) {
             *error = [NSError errorWithDomain:@"WordAccessibility"
                                         code:3
@@ -234,8 +224,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         }
         return NO;
     }
-
-    NSLog(@"[Bridge] Architecture started successfully");
 
     // Listen for app activation/deactivation (handled by new architecture)
     __weak typeof(self) weakSelf = self;
@@ -247,19 +235,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         typeof(self) strongSelf = weakSelf;
         if (!strongSelf) return;
 
-        NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
-
-        NSLog(@"[Bridge] ===== APP ACTIVATION =====");
-        NSLog(@"[Bridge] Active app: %@ (PID: %d)", app.localizedName, app.processIdentifier);
-        NSLog(@"[Bridge] Word PID: %d", strongSelf->_pid);
-
-        if (app.processIdentifier == strongSelf->_pid) {
-            NSLog(@"[Bridge] Word activated - architecture handling overlays");
-        } else {
-            NSLog(@"[Bridge] Different app activated - architecture handling overlays");
-        }
-
-        NSLog(@"[Bridge] =====================================");
+        // App activation is handled by architecture - no action needed here
     }];
 
     // Listen for space/desktop changes to hide overlays immediately
@@ -276,14 +252,10 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         [strongSelf handleSpaceChange];
     }];
 
-    NSLog(@"[Bridge] startObserving completed - architecture managing overlays");
-
     return YES;
 }
 
 - (void)stopObserving {
-    NSLog(@"[Bridge] stopObserving - cleaning up observers");
-
     // Clean up architecture components FIRST (synchronous cleanup)
     if (_academiaManager) {
         [_academiaManager stopManaging];
@@ -293,7 +265,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         [_wordAdapter stopObserving];
         _wordAdapter = nil;
     }
-    NSLog(@"[Bridge] Architecture components cleaned up");
 
     // Remove app activation observer
     if (_appActivationObserver) {
@@ -330,7 +301,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
 - (void)handleSpaceChange {
     // Space change handling is managed by AcademiaManager
-    NSLog(@"[Bridge] Space change detected");
 }
 
 #pragma mark - Button Click Handlers
@@ -476,8 +446,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 }
 
 - (BOOL)focusDocument {
-    NSLog(@"[Bridge] ===== focusDocument START =====");
-
     // Get the frontmost window of Word
     CFTypeRef windowsRef = NULL;
     AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXWindowsAttribute, &windowsRef);
@@ -506,8 +474,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 
     // Retain frontWindow since it's a borrowed reference we're storing
     CFRetain(frontWindow);
-
-    NSLog(@"[Bridge] Got frontmost Word window");
 
     // Use iterative approach with a queue to avoid block retain cycle
     AXUIElementRef textAreaElement = NULL;
@@ -555,7 +521,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
             NSString* role = (__bridge_transfer NSString*)roleValue;
 
             if ([role isEqualToString:@"AXTextArea"]) {
-                NSLog(@"[Bridge] Found AXTextArea at depth %d", depth);
                 textAreaElement = element;
                 CFRetain(textAreaElement);
                 break;
@@ -626,8 +591,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         return NO;
     }
 
-    NSLog(@"[Bridge] Attempting to set focus on AXTextArea...");
-
     // Try to set focus on the text area
     error = AXUIElementSetAttributeValue(textAreaElement, kAXFocusedAttribute, kCFBooleanTrue);
 
@@ -639,15 +602,11 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         return NO;
     }
 
-    NSLog(@"[Bridge] Successfully set focus on document");
     CFRelease(windowsRef);
     return YES;
 }
 
 - (NSDictionary*)findTextPosition:(NSString*)searchText {
-    NSLog(@"[Bridge] ===== findTextPosition START =====");
-    NSLog(@"[Bridge] Searching for: \"%@\"", searchText);
-
     if (!searchText || searchText.length == 0) {
         NSLog(@"[Bridge] ERROR: Empty search text");
         return @{@"found": @NO};
@@ -660,13 +619,11 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
         NSLog(@"[Bridge] ERROR: Could not get focused element (error: %d)", error);
         return @{@"found": @NO};
     }
-    NSLog(@"[Bridge] Got focused element successfully");
 
     // Verify this is a text area
     CFTypeRef roleValue = NULL;
     AXUIElementCopyAttributeValue(focusedElement, kAXRoleAttribute, &roleValue);
     NSString* role = (__bridge_transfer NSString*)roleValue;
-    NSLog(@"[Bridge] Focused element role: %@", role);
 
     if (![role isEqualToString:@"AXTextArea"]) {
         NSLog(@"[Bridge] ERROR: Focused element is not AXTextArea (got %@)", role);
@@ -685,30 +642,19 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     }
 
     NSString* fullText = (__bridge_transfer NSString*)textValue;
-    NSLog(@"[Bridge] Document text length: %lu characters", (unsigned long)[fullText length]);
-    if ([fullText length] > 0) {
-        NSUInteger previewLength = MIN((NSUInteger)200, [fullText length]);
-        NSLog(@"[Bridge] Document text preview (first %lu chars): \"%@\"",
-              (unsigned long)previewLength, [fullText substringToIndex:previewLength]);
-    }
 
     // Search for the text (case-insensitive)
-    NSLog(@"[Bridge] Performing case-insensitive search...");
     NSRange searchRange = [fullText rangeOfString:searchText options:NSCaseInsensitiveSearch];
 
     if (searchRange.location == NSNotFound) {
-        NSLog(@"[Bridge] NOT FOUND: \"%@\" not found in document", searchText);
         CFRelease(focusedElement);
         return @{
             @"found": @NO,
             @"text": searchText
         };
     }
-    NSLog(@"[Bridge] FOUND: \"%@\" at character index %lu (length %lu)",
-          searchText, (unsigned long)searchRange.location, (unsigned long)searchRange.length);
 
     // Found! Now get the bounds for this text range
-    NSLog(@"[Bridge] Getting bounds for text range...");
     CFRange range = CFRangeMake(searchRange.location, searchRange.length);
     AXValueRef rangeValue = AXValueCreate(kAXValueTypeCFRange, &range);
 
@@ -721,8 +667,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     CGRect bounds = CGRectZero;
     if (error == kAXErrorSuccess && boundsValue) {
         AXValueGetValue((AXValueRef)boundsValue, (AXValueType)kAXValueTypeCGRect, &bounds);
-        NSLog(@"[Bridge] Bounds retrieved: x=%.1f, y=%.1f, w=%.1f, h=%.1f",
-              bounds.origin.x, bounds.origin.y, bounds.size.width, bounds.size.height);
         CFRelease(boundsValue);
     } else {
         NSLog(@"[Bridge] WARNING: Could not get bounds (error: %d)", error);
@@ -731,7 +675,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
     CFRelease(rangeValue);
     CFRelease(focusedElement);
 
-    NSLog(@"[Bridge] ===== findTextPosition END (SUCCESS) =====");
     return @{
         @"found": @YES,
         @"text": searchText,
@@ -872,7 +815,6 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
  * @param count Badge count to display
  */
 - (void)updateBadgeCountViaManager:(NSInteger)count {
-    NSLog(@"[Bridge] Updating badge count via AcademiaManager: %ld", (long)count);
     [_academiaManager updateBadgeCount:count];
 }
 
@@ -881,15 +823,7 @@ static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element
 // Accessibility callback function
 static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element, CFStringRef notification, void* refcon) {
     @autoreleasepool {
-        NSString* notificationName = (__bridge NSString*)notification;
-
-        NSLog(@"[Bridge] Received accessibility notification: %@", notificationName);
-
-        // Note: Window move/resize events are logged but handled by architecture
-        if ([notificationName isEqualToString:(__bridge NSString*)kAXWindowMovedNotification] ||
-            [notificationName isEqualToString:(__bridge NSString*)kAXWindowResizedNotification]) {
-            NSLog(@"[Bridge] Window geometry change - architecture will update overlays");
-        }
+        // Window move/resize events are handled by architecture
     }
 }
 
@@ -934,7 +868,6 @@ static void setActiveObserver(pid_t pid) {
     }
 
     activePID = pidKey;
-    NSLog(@"[Bridge] Active PID changed to: %d", pid);
 
     // Hide overlays on all other observers, show on active
     for (NSNumber* key in observerRegistry) {
@@ -975,15 +908,12 @@ static void setupGlobalFocusMonitor() {
             }
         }
     }];
-
-    NSLog(@"[Bridge] Global focus monitor initialized");
 }
 
 static void teardownGlobalFocusMonitor() {
     if (appActivationObserver) {
         [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:appActivationObserver];
         appActivationObserver = nil;
-        NSLog(@"[Bridge] Global focus monitor removed");
     }
 }
 
@@ -1119,7 +1049,6 @@ Napi::Value StartObservingPID(const Napi::CallbackInfo& info) {
 
     // Check if already observing this PID
     if (observerRegistry[pidKey]) {
-        NSLog(@"[Bridge] Already observing PID %d", pid);
         return Napi::Boolean::New(env, true);
     }
 
@@ -1144,7 +1073,6 @@ Napi::Value StartObservingPID(const Napi::CallbackInfo& info) {
                                         error:&error];
 
     if (!success) {
-        NSLog(@"[Bridge] Failed to start observing PID %d: %@", pid, error.localizedDescription);
         Napi::Error::New(env, error.localizedDescription.UTF8String).ThrowAsJavaScriptException();
         return Napi::Boolean::New(env, false);
     }
@@ -1162,8 +1090,6 @@ Napi::Value StartObservingPID(const Napi::CallbackInfo& info) {
             [[observer getAcademiaManager] hideAllOverlays];
         }
     }
-
-    NSLog(@"[Bridge] Started observing PID %d (total: %lu)", pid, (unsigned long)observerRegistry.count);
 
     return Napi::Boolean::New(env, true);
 }
@@ -1183,15 +1109,12 @@ Napi::Value StopObservingPID(const Napi::CallbackInfo& info) {
 
     WordAccessibilityObserver* observer = observerRegistry[pidKey];
     if (!observer) {
-        NSLog(@"[Bridge] PID %d not being observed", pid);
         return Napi::Boolean::New(env, false);
     }
 
     // Stop and remove observer
     [observer stopObserving];
     [observerRegistry removeObjectForKey:pidKey];
-
-    NSLog(@"[Bridge] Stopped observing PID %d (remaining: %lu)", pid, (unsigned long)observerRegistry.count);
 
     // If we removed the active PID, activate the next available one
     if ([pidKey isEqualToNumber:activePID]) {
@@ -1224,8 +1147,6 @@ Napi::Value StopAllObserving(const Napi::CallbackInfo& info) {
 
     initializeRegistry();
 
-    NSLog(@"[Bridge] Stopping all %lu observers", (unsigned long)observerRegistry.count);
-
     // Stop all observers
     for (WordAccessibilityObserver* observer in observerRegistry.allValues) {
         [observer stopObserving];
@@ -1245,8 +1166,6 @@ Napi::Value StopAllObserving(const Napi::CallbackInfo& info) {
         globalCallbackData = nullptr;
     }
 
-    NSLog(@"[Bridge] All observers stopped");
-
     return env.Null();
 }
 
@@ -1263,7 +1182,6 @@ Napi::Value SetActivePID(const Napi::CallbackInfo& info) {
     initializeRegistry();
 
     if (!observerRegistry[@(pid)]) {
-        NSLog(@"[Bridge] Cannot set active PID %d - not being observed", pid);
         return Napi::Boolean::New(env, false);
     }
 
@@ -1381,8 +1299,6 @@ Napi::Value SetPopupPath(const Napi::CallbackInfo& info) {
     // globalPopupPath is accessible here because it's declared at file scope
     ::globalPopupPath = [NSString stringWithUTF8String:pathStr.c_str()];
 
-    NSLog(@"[Native] Popup path set to: %@", ::globalPopupPath);
-
     return Napi::Boolean::New(env, true);
 }
 
@@ -1398,8 +1314,6 @@ Napi::Value SetServerBaseUrl(const Napi::CallbackInfo& info) {
     // globalServerBaseUrl is accessible here because it's declared at file scope
     ::globalServerBaseUrl = [NSString stringWithUTF8String:urlStr.c_str()];
 
-    NSLog(@"[Native] Server base URL set to: %@", ::globalServerBaseUrl);
-
     return Napi::Boolean::New(env, true);
 }
 
@@ -1414,8 +1328,6 @@ Napi::Value SetAuthToken(const Napi::CallbackInfo& info) {
     std::string tokenStr = info[0].As<Napi::String>().Utf8Value();
     // globalAuthToken is accessible here because it's declared at file scope
     ::globalAuthToken = [NSString stringWithUTF8String:tokenStr.c_str()];
-
-    NSLog(@"[Native] Auth token set (length: %lu)", (unsigned long)[::globalAuthToken length]);
 
     return Napi::Boolean::New(env, true);
 }
@@ -1623,10 +1535,6 @@ Napi::Value SetFeatureFlags(const Napi::CallbackInfo& info) {
     if (flags.Has("overallReviewButtonEnabled")) {
         featureOverallReviewButtonEnabled = flags.Get("overallReviewButtonEnabled").As<Napi::Boolean>().Value();
     }
-
-    NSLog(@"[Bridge] Feature flags set - TextSide: %@, OverallReview: %@",
-          featureTextSideButtonEnabled ? @"ON" : @"OFF",
-          featureOverallReviewButtonEnabled ? @"ON" : @"OFF");
 
     return Napi::Boolean::New(env, true);
 }

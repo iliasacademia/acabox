@@ -67,28 +67,17 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (userId) {
-      console.log(`[Renderer] Starting notification polling for user ${userId}`);
       // Start polling in main process
       window.electronAPI.invoke('start-notification-polling', userId)
-        .then(() => console.log('[Renderer] Notification polling started successfully'))
         .catch((error) => console.error('[Renderer] Failed to start notification polling:', error));
 
       // Listen for new notifications
       const handleNewNotification = (_event: any, notif: NotificationType) => {
-        console.log('[Renderer] Received new-notification event:', {
-          id: notif.id,
-          title: notif.title,
-          status: notif.status,
-          delivered_at: notif.delivered_at,
-        });
         showDesktopNotification(notif);
       };
       window.electronAPI.on('new-notification', handleNewNotification);
 
-      console.log('[Renderer] new-notification event listener registered');
-
       return () => {
-        console.log('[Renderer] Cleaning up notification listeners and stopping polling');
         window.electronAPI.removeListener('new-notification', handleNewNotification);
         // Stop polling on cleanup
         window.electronAPI.invoke('stop-notification-polling');
@@ -99,12 +88,10 @@ const App: React.FC = () => {
   // Listen for navigation events from main process (triggered by notification clicks)
   useEffect(() => {
     const handleNavigateToPage = (_event: any, payload: NavigateToPagePayload) => {
-      console.log('[App] Navigate to page event received:', payload);
       setPendingNavigation(payload);
     };
 
     window.electronAPI.on(IPC_CHANNELS.NAVIGATE_TO_PAGE, handleNavigateToPage);
-    console.log('[App] navigate-to-page event listener registered');
 
     return () => {
       window.electronAPI.removeListener(IPC_CHANNELS.NAVIGATE_TO_PAGE, handleNavigateToPage);
@@ -114,7 +101,6 @@ const App: React.FC = () => {
   // Listen for auto-update events from main process
   useEffect(() => {
     const handleUpdateAvailable = (_event: any, data: { version: string; formattedVersion: string }) => {
-      console.log('[App] Update available:', data.formattedVersion);
       setUpdateState({
         show: true,
         status: 'available',
@@ -131,7 +117,6 @@ const App: React.FC = () => {
     };
 
     const handleUpdateDownloaded = () => {
-      console.log('[App] Update downloaded, restarting soon...');
       setUpdateState(prev => ({
         ...prev,
         status: 'downloaded',
@@ -187,8 +172,6 @@ const App: React.FC = () => {
   };
 
   const showDesktopNotification = (notif: NotificationType) => {
-    console.log(`[Renderer] Showing OS notification for ${notif.id}: "${notif.title}"`);
-
     try {
       // Show native OS notification with HTML stripped from body
       const osNotification = new Notification(notif.title, {
@@ -196,14 +179,9 @@ const App: React.FC = () => {
         tag: notif.id.toString(), // Use id for deduplication
       });
 
-      console.log(`[Renderer] OS notification created successfully for ${notif.id}`);
-
       osNotification.onclick = () => {
-        console.log(`[Renderer] Notification ${notif.id} clicked`);
-
         // Navigate to conversation if notification has the required data
         if (notif.data?.conversation_id && notif.project_id) {
-          console.log(`[Renderer] Navigating to conversation ${notif.data.conversation_id} in project ${notif.project_id}`);
           window.electronAPI.invoke(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
             page: 'conversation',
             projectId: notif.project_id,
@@ -246,7 +224,6 @@ const App: React.FC = () => {
 
   // Auto-update handlers
   const handleDownloadUpdate = async () => {
-    console.log('[App] User clicked download update');
     setUpdateState(prev => ({ ...prev, status: 'downloading', progress: 0 }));
     try {
       await window.electronAPI.invoke(IPC_CHANNELS.DOWNLOAD_UPDATE);
@@ -257,7 +234,6 @@ const App: React.FC = () => {
   };
 
   const handleRetryUpdate = async () => {
-    console.log('[App] User clicked retry update');
     setUpdateState(prev => ({ ...prev, status: 'downloading', progress: 0, errorMessage: undefined }));
     try {
       await window.electronAPI.invoke(IPC_CHANNELS.DOWNLOAD_UPDATE);

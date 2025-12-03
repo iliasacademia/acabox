@@ -86,7 +86,6 @@ class NotificationManager {
    */
   async syncWithBackend(userId: number): Promise<void> {
     if (this.isSyncing) {
-      console.log('Sync already in progress, skipping...');
       return;
     }
 
@@ -98,7 +97,6 @@ class NotificationManager {
         ? new Date(latestCreatedAt).toISOString()
         : undefined;
 
-      console.log(`Syncing notifications from backend...${afterParam ? ` (after: ${afterParam})` : ' (full sync)'}`);
       const response = await getNotifications(afterParam);
       const fetchedAt = Date.now();
 
@@ -367,8 +365,6 @@ class NotificationManager {
         this.syncWithBackend(this.currentUserId);
       }
     }, interval);
-
-    console.log(`Started notification polling for user ${userId} with ${interval}ms interval`);
   }
 
   /**

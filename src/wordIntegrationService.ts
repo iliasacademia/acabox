@@ -48,7 +48,6 @@ class WordIntegrationService {
     }
 
     if (!FEATURES.MS_WORD_INTEGRATION_ENABLED) {
-      console.log('[WORD-INTEGRATION] MS Word integration is disabled');
       return;
     }
 
@@ -58,8 +57,6 @@ class WordIntegrationService {
       textSideButtonEnabled: FEATURES.TEXT_SIDE_BUTTON_ENABLED,
       overallReviewButtonEnabled: FEATURES.OVERALL_REVIEW_BUTTON_ENABLED,
     });
-
-    console.log('[WORD-INTEGRATION] Initialized. Call setManuscriptPaths() to start tracking.');
   }
 
   /**
@@ -68,9 +65,7 @@ class WordIntegrationService {
   setServerBaseUrl(url: string): boolean {
     this.serverBaseUrl = url;
     const success = wordAccessibility.setServerBaseUrl(url);
-    if (success) {
-      console.log('[WORD-INTEGRATION] Server URL set for native popups');
-    } else {
+    if (!success) {
       console.error('[WORD-INTEGRATION] Failed to set server URL for native popups');
     }
     return success;
@@ -82,12 +77,11 @@ class WordIntegrationService {
    */
   setNavigationHandler(handler: (payload: { page: string; projectId: number; conversationId: number }) => void): void {
     this.navigationHandler = handler;
-    console.log('[WORD-INTEGRATION] Navigation handler set');
   }
 
   /**
    * Find all Word PIDs that have any of the specified files open using lsof.
-   * Logs all matches for verification. Returns array of {pid, filePath} pairs.
+   * Returns array of {pid, filePath} pairs.
    */
   private findWordPIDsWithFiles(filePaths: string[]): Array<{pid: number, filePath: string}> {
     if (filePaths.length === 0) return [];
@@ -97,12 +91,10 @@ class WordIntegrationService {
     try {
       const pidsResult = execSync("pgrep 'Microsoft Word'", { encoding: 'utf8' }).trim();
       if (!pidsResult) {
-        console.log('[WORD-INTEGRATION] No Microsoft Word processes found');
         return [];
       }
 
       const pids = pidsResult.split('\n').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
-      console.log(`[WORD-INTEGRATION] Found ${pids.length} Word process(es):`, pids);
 
       for (const pid of pids) {
         try {
@@ -110,26 +102,17 @@ class WordIntegrationService {
 
           for (const filePath of filePaths) {
             if (lsofResult.includes(filePath)) {
-              console.log(`[WORD-INTEGRATION] ✓ PID ${pid} has manuscript: ${filePath}`);
               matches.push({ pid, filePath });
               break; // One match per PID is enough
             }
           }
         } catch {
-          console.log(`[WORD-INTEGRATION] Could not check PID ${pid}`);
+          // Could not check PID
         }
       }
 
-      // Summary log
-      if (matches.length === 0) {
-        console.log('[WORD-INTEGRATION] No Word processes have manuscripts open');
-        console.log('[WORD-INTEGRATION] Looking for:', filePaths);
-      } else {
-        console.log(`[WORD-INTEGRATION] Found ${matches.length} Word process(es) with manuscripts`);
-      }
-
     } catch {
-      console.log('[WORD-INTEGRATION] pgrep failed - Word not running');
+      // pgrep failed - Word not running
     }
 
     return matches;
@@ -141,10 +124,8 @@ class WordIntegrationService {
    */
   setManuscriptPaths(filePaths: string[]): void {
     this.manuscriptPaths = filePaths;
-    console.log('[WORD-INTEGRATION] Manuscript paths set:', filePaths);
 
     if (filePaths.length === 0) {
-      console.log('[WORD-INTEGRATION] No manuscript paths - stopping all tracking');
       this.stopAllTracking();
       return;
     }
@@ -161,7 +142,6 @@ class WordIntegrationService {
    */
   private stopAllTracking(): void {
     if (this.trackedPIDs.size > 0) {
-      console.log(`[WORD-INTEGRATION] Stopping tracking of ${this.trackedPIDs.size} PID(s)`);
       wordAccessibility.stopAllObserving();
       this.trackedPIDs.clear();
       wordIntegrationDataStore.clearTrackedPIDs();
@@ -185,7 +165,6 @@ class WordIntegrationService {
     for (const { pid, filePath } of matches) {
       if (!this.trackedPIDs.has(pid)) {
         if (this.trackedPIDs.size >= this.MAX_PIDS) {
-          console.log(`[WORD-INTEGRATION] Max PIDs (${this.MAX_PIDS}) reached, keeping first-opened. Skipping newer PID ${pid}`);
           continue;
         }
         this.startTrackingPID(pid, filePath);
@@ -198,11 +177,6 @@ class WordIntegrationService {
         this.stopTrackingPID(pid);
       }
     }
-
-    // Log current state
-    if (this.trackedPIDs.size > 0) {
-      console.log(`[WORD-INTEGRATION] Tracking ${this.trackedPIDs.size} PID(s), active: ${this.activePID ?? 'none'}`);
-    }
   }
 
   /**
@@ -210,12 +184,10 @@ class WordIntegrationService {
    */
   private startTrackingPID(pid: number, filePath: string): void {
     if (!FEATURES.MS_WORD_INTEGRATION_ENABLED) {
-      console.log('[WORD-INTEGRATION] Native tracking disabled (feature flag off)');
       return;
     }
 
     if (!wordAccessibility.checkPermission()) {
-      console.log('[WORD-INTEGRATION] Accessibility permission not granted');
       return;
     }
 
@@ -224,17 +196,11 @@ class WordIntegrationService {
     }
 
     const success = wordAccessibility.startObservingPID(pid, (event: AccessibilityEvent) => {
-      // Handle events from this PID
-      if (event.type === 'buttonClicked' && event.text === 'academia-button-clicked') {
-        console.log(`[WORD-BUTTON] Academia button clicked on PID ${pid}`);
-      }
-
       // Handle navigation requests from popup (format: "navigateToPage|{json}")
       if (event.type === 'buttonClicked' && event.text?.startsWith('navigateToPage|')) {
         try {
           const jsonPayload = event.text.substring('navigateToPage|'.length);
           const payload = JSON.parse(jsonPayload);
-          console.log(`[WORD-INTEGRATION] Navigate to page from popup:`, payload);
 
           if (this.navigationHandler) {
             this.navigationHandler(payload);
@@ -256,8 +222,6 @@ class WordIntegrationService {
       if (isActive) {
         this.activePID = pid;
       }
-
-      console.log(`[WORD-INTEGRATION] Started tracking PID ${pid} (${filePath}), active: ${isActive}`);
     } else {
       console.error(`[WORD-INTEGRATION] Failed to start tracking PID ${pid}`);
     }
@@ -275,8 +239,6 @@ class WordIntegrationService {
     this.trackedPIDs.delete(pid);
     wordIntegrationDataStore.deleteTrackedPID(pid);
 
-    console.log(`[WORD-INTEGRATION] Stopped tracking PID ${pid}`);
-
     // If we removed the active PID, activate the next available one
     if (this.activePID === pid) {
       this.activePID = null;
@@ -288,31 +250,8 @@ class WordIntegrationService {
         if (tracked) {
           tracked.isActive = true;
         }
-        console.log(`[WORD-INTEGRATION] Activated next PID: ${nextPID}`);
       }
     }
-  }
-
-  /**
-   * Log all current PID → manuscriptPath mappings for verification.
-   * Called every poll cycle regardless of tracking state.
-   */
-  private logCurrentPIDMappings(): void {
-    const matches = this.findWordPIDsWithFiles(this.manuscriptPaths);
-
-    console.log('[WORD-INTEGRATION] === PID Mapping Check ===');
-    console.log(`[WORD-INTEGRATION] Tracked: ${this.trackedPIDs.size}, Active: ${this.activePID ?? 'none'}`);
-    if (matches.length === 0) {
-      console.log('[WORD-INTEGRATION] No Word processes have manuscripts open');
-    } else {
-      console.log('[WORD-INTEGRATION] Current mappings:');
-      for (const { pid, filePath } of matches) {
-        const tracked = this.trackedPIDs.has(pid) ? ' [TRACKED]' : '';
-        const active = this.activePID === pid ? ' [ACTIVE]' : '';
-        console.log(`[WORD-INTEGRATION]   PID ${pid} → ${filePath}${tracked}${active}`);
-      }
-    }
-    console.log('[WORD-INTEGRATION] ========================');
   }
 
   /**
@@ -324,10 +263,7 @@ class WordIntegrationService {
     this.wordCheckInterval = setInterval(() => {
       if (this.manuscriptPaths.length === 0) return;
 
-      // Always log current PID mappings for verification
-      this.logCurrentPIDMappings();
-
-      // Always check and sync tracked PIDs (adds new, removes stale)
+      // Check and sync tracked PIDs (adds new, removes stale)
       this.checkAndTrackManuscripts();
     }, 5000);
   }
@@ -336,11 +272,8 @@ class WordIntegrationService {
    * Clean up all Word integration resources
    */
   cleanup(): void {
-    console.log('[WORD-INTEGRATION] Cleaning up native resources...');
-
     // Stop Word check interval
     if (this.wordCheckInterval) {
-      console.log('[WORD-INTEGRATION] Stopping Word check interval...');
       clearInterval(this.wordCheckInterval);
       this.wordCheckInterval = null;
     }
@@ -348,12 +281,10 @@ class WordIntegrationService {
     // Stop all observers
     if (this.trackedPIDs.size > 0) {
       try {
-        console.log(`[WORD-INTEGRATION] Stopping ${this.trackedPIDs.size} observer(s)...`);
         wordAccessibility.stopAllObserving();
         this.trackedPIDs.clear();
         wordIntegrationDataStore.clearTrackedPIDs();
         this.activePID = null;
-        console.log('[WORD-INTEGRATION] All observers stopped successfully');
       } catch (error) {
         console.error('[WORD-INTEGRATION] Error stopping observers:', error);
       }

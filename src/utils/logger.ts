@@ -4,7 +4,7 @@ import { BrowserWindow, app } from 'electron';
 // Development logging configuration
 export const DEV_LOGGING_CONFIG = {
   devToolsLogging: true,   // Send logs to renderer DevTools console
-  terminalLogging: true,   // Output logs to terminal
+  terminalLogging: false,   // Output logs to terminal
 };
 
 // Helper function to detect channel from version string

@@ -45,7 +45,6 @@ function getTokenFromUrl(): string | null {
 export function initializeNotificationsApi(baseUrl: string, authToken?: string): void {
   const token = authToken ?? getTokenFromUrl();
   apiConfig = { baseUrl, authToken: token };
-  console.log(`[Notifications API] Initialized with baseUrl: ${baseUrl}, hasToken: ${!!token}`);
 }
 
 /**
@@ -127,14 +126,10 @@ export async function fetchNotifications(options?: {
   const query = params.toString();
   const endpoint = `/api/notifications${query ? `?${query}` : ''}`;
 
-  console.log(`[Notifications API] Fetching notifications: ${endpoint}`);
-
   const response = await apiFetch<{
     notifications: Notification[];
     count: number;
   }>(endpoint);
-
-  console.log(`[Notifications API] Received ${response.count} notifications`);
 
   return response.notifications;
 }
@@ -156,8 +151,6 @@ export async function fetchUnreadNotifications(): Promise<Notification[]> {
 export async function markNotificationAsRead(
   notificationId: number
 ): Promise<Notification | null> {
-  console.log(`[Notifications API] Marking notification ${notificationId} as read`);
-
   const response = await apiFetch<{
     success: boolean;
     notification: Notification | null;
@@ -169,8 +162,6 @@ export async function markNotificationAsRead(
   if (!response.success) {
     throw new Error('Failed to mark notification as read');
   }
-
-  console.log(`[Notifications API] Notification ${notificationId} marked as read`);
 
   return response.notification;
 }
@@ -184,8 +175,6 @@ export async function markNotificationAsRead(
 export async function dismissNotification(
   notificationId: number
 ): Promise<Notification | null> {
-  console.log(`[Notifications API] Dismissing notification ${notificationId}`);
-
   const response = await apiFetch<{
     success: boolean;
     notification: Notification | null;
@@ -197,8 +186,6 @@ export async function dismissNotification(
   if (!response.success) {
     throw new Error('Failed to dismiss notification');
   }
-
-  console.log(`[Notifications API] Notification ${notificationId} dismissed`);
 
   return response.notification;
 }
@@ -237,5 +224,4 @@ export async function healthCheck(): Promise<{
  */
 export function resetNotificationsApi(): void {
   apiConfig = null;
-  console.log('[Notifications API] Reset');
 }

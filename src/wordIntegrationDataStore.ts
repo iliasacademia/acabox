@@ -37,7 +37,6 @@ class WordIntegrationDataStore {
    */
   setProjectFileCache(cache: Map<string, ProjectFileInfo>): void {
     this.projectFileCache = cache;
-    console.log(`[WORD-DATA-STORE] Project file cache set with ${cache.size} entries`);
   }
 
   /**
@@ -73,13 +72,11 @@ class WordIntegrationDataStore {
   getProjectFileForPID(pid: number): ProjectFileInfo | null {
     const tracked = this.trackedPIDs.get(pid);
     if (!tracked) {
-      console.log(`[WORD-DATA-STORE] PID ${pid} not tracked`);
       return null;
     }
 
     const projectFile = this.projectFileCache.get(tracked.filePath);
     if (!projectFile) {
-      console.log(`[WORD-DATA-STORE] No project file info for path: ${tracked.filePath}`);
       return null;
     }
 

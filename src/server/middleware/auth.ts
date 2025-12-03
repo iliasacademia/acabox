@@ -121,7 +121,6 @@ export function createAuthMiddleware(tokenManager: TokenManager) {
 
     // Check for Authorization header
     if (!authHeader) {
-      console.log(`[Auth] Request to ${request.method} ${request.url} missing Authorization header`);
       reply.code(401).send({
         error: 'Unauthorized',
         message: 'Missing Authorization header',
@@ -133,7 +132,6 @@ export function createAuthMiddleware(tokenManager: TokenManager) {
     // Parse Bearer token
     const parts = authHeader.split(' ');
     if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      console.log(`[Auth] Request to ${request.method} ${request.url} has malformed Authorization header`);
       reply.code(401).send({
         error: 'Unauthorized',
         message: 'Malformed Authorization header. Expected: Bearer <token>',
@@ -146,7 +144,6 @@ export function createAuthMiddleware(tokenManager: TokenManager) {
 
     // Validate token
     if (!tokenManager.isValidToken(token)) {
-      console.log(`[Auth] Request to ${request.method} ${request.url} has invalid token: ${token.substring(0, 16)}...`);
       reply.code(401).send({
         error: 'Unauthorized',
         message: 'Invalid or expired token',
@@ -155,12 +152,7 @@ export function createAuthMiddleware(tokenManager: TokenManager) {
       return;
     }
 
-    // Token is valid, log and continue
-    const metadata = tokenManager.getTokenMetadata(token);
-    const identifier = metadata?.identifier || 'unknown';
-    console.log(`[Auth] ✓ Request to ${request.method} ${request.url} authenticated (${identifier})`);
-
-    // Request is authenticated, proceed
+    // Token is valid, proceed
   };
 }
 

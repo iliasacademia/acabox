@@ -34,10 +34,7 @@
         if ([self.webView isKindOfClass:[DraggableAcceptingWebView class]]) {
             DraggableAcceptingWebView* draggableWebView = (DraggableAcceptingWebView*)self.webView;
             draggableWebView.dragHandleHeight = 0.0;
-            NSLog(@"[AcademiaNotificationsButton] Disabled dragging by setting dragHandleHeight to 0");
         }
-
-        NSLog(@"[AcademiaNotificationsButton] Initialized with size: %.1fx%.1f", width, height);
     }
     return self;
 }
@@ -52,9 +49,6 @@
     if (self.observer) {
         pid_t wordPID = [self.observer getWordPID];
         self.queryParams = @{@"pid": [NSString stringWithFormat:@"%d", wordPID]};
-        NSLog(@"[AcademiaNotificationsButton] Loading with subpath: %@, pid: %d", self.htmlSubpath, wordPID);
-    } else {
-        NSLog(@"[AcademiaNotificationsButton] Loading with subpath: %@ (no observer, no PID)", self.htmlSubpath);
     }
 
     // Call parent implementation which will use the subpath and queryParams
@@ -77,7 +71,6 @@
 
     // Handle button click
     if ([action isEqualToString:@"buttonClicked"]) {
-        NSLog(@"[AcademiaNotificationsButton] Button clicked via bridge");
         [self showPopup];
 
         // Send success response
@@ -87,8 +80,6 @@
         }
         return;
     }
-
-    NSLog(@"[AcademiaNotificationsButton] Unknown action: %@", action);
 }
 
 - (void)sendBridgeResponse:(NSString*)messageId success:(BOOL)success payload:(NSDictionary*)payload {
@@ -124,7 +115,6 @@
 - (void)showPopup {
     // Toggle popup visibility if it already exists and is visible
     if (self.popup && [self.popup isVisible]) {
-        NSLog(@"[AcademiaNotificationsButton] Popup is visible, hiding it (toggle off)");
         [self hidePopup];
         self.popupWasVisible = NO;
         return;
@@ -138,7 +128,6 @@
             NSLog(@"[AcademiaNotificationsButton] ERROR: Failed to create AcademiaNotificationsPopup!");
             return;
         }
-        NSLog(@"[AcademiaNotificationsButton] Created new popup window");
     }
 
     // Position popup above the button (preserve popup's own size)
@@ -156,14 +145,11 @@
     [self.popup setFrameOrigin:NSMakePoint(popupX, popupY)];
     [self.popup orderFront:nil];
     self.popupWasVisible = YES;  // Mark popup as visible for Word state tracking
-
-    NSLog(@"[AcademiaNotificationsButton] Popup shown above button at position (%.1f, %.1f)", popupX, popupY);
 }
 
 - (void)hidePopup {
     if (self.popup) {
         [self.popup orderOut:nil];
-        NSLog(@"[AcademiaNotificationsButton] Popup hidden");
     }
 }
 
@@ -190,9 +176,6 @@
 
     // Apply mask to content view
     self.contentView.layer.mask = maskLayer;
-
-    NSLog(@"[AcademiaNotificationsButton] Applied clipping mask - local visible rect: (%.1f, %.1f, %.1f, %.1f)",
-          localVisible.origin.x, localVisible.origin.y, localVisible.size.width, localVisible.size.height);
 }
 
 - (void)clearVisibleRectMask {
@@ -215,7 +198,6 @@
 
     // If scrollAreaBounds is empty, hide the button
     if (CGRectIsEmpty(state.scrollAreaBounds)) {
-        NSLog(@"[AcademiaNotificationsButton] Cannot position - scrollAreaBounds is empty, hiding button");
         [self hide];
         return;
     }
@@ -251,11 +233,6 @@
     NSRect newFrame = NSMakeRect(buttonX, buttonY, windowWidth, windowHeight);
     [self setFrame:newFrame display:YES];
 
-    NSLog(@"[AcademiaNotificationsButton] Positioned at (%.1f, %.1f) based on scroll area at (%.1f, %.1f, %.1f, %.1f)",
-          buttonX, buttonY,
-          state.scrollAreaBounds.origin.x, state.scrollAreaBounds.origin.y,
-          state.scrollAreaBounds.size.width, state.scrollAreaBounds.size.height);
-
     // Show the button if it was previously hidden
     if (![self isVisible]) {
         [self show];
@@ -263,11 +240,8 @@
 }
 
 - (void)hide {
-    NSLog(@"[AcademiaNotificationsButton] hide called");
-
     // Track popup visibility state before hiding
     if (self.popup && [self.popup isVisible]) {
-        NSLog(@"[AcademiaNotificationsButton] Popup is visible, hiding it and marking for re-show");
         self.popupWasVisible = YES;
         [self.popup orderOut:nil];
     } else {
@@ -278,13 +252,10 @@
 }
 
 - (void)show {
-    NSLog(@"[AcademiaNotificationsButton] show called");
     [self orderFront:nil];
 
     // Re-show popup if it was visible before Word state changed
     if (self.popupWasVisible && self.popup) {
-        NSLog(@"[AcademiaNotificationsButton] Re-showing popup after Word state change");
-
         // Recalculate popup position based on button's new position (preserve popup's own size)
         NSRect buttonFrame = self.frame;
         CGFloat margin = 8.0;

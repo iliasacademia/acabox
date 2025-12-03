@@ -205,8 +205,5 @@ export const logout = async () => {
   // Reset the API client so it creates a new cookie jar
   apiClient = null;
 
-  if (logger) {
-    logger.info('[Auth] Logged out successfully');
-  }
   return { success: true };
 };

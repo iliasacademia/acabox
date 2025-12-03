@@ -26,16 +26,9 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 // Initialize electron-store for app settings (empty for now, reserved for future settings)
 const store = new Store();
 
-if (app.isPackaged) {
-  const logFilePath = logger.getLogFilePath();
-  logger.info('[App] Logging initialized. Log file location:', logFilePath);
-} else {
-  logger.info('[App] Logging initialized in development mode (using console.log)');
-}
 
 // Clean up deprecated updateChannel preference from electron-store
 if (store.has('updateChannel')) {
-  logger.info('[App] Removing deprecated updateChannel preference from store');
   store.delete('updateChannel');
 }
 
@@ -116,7 +109,6 @@ const createWindow = async (): Promise<void> => {
   // Connect logger to devWindow for sending logs to renderer DevTools
   devWindow.webContents.once('did-finish-load', () => {
     logger.setMainWindow(devWindow);
-    logger.info('[App] Logger connected to renderer window');
   });
 
   // Handle window destruction
@@ -198,7 +190,6 @@ const createMainWindow = async (): Promise<void> => {
 
   // Wait for window to be ready, then initialize
   mainWindow.webContents.once('did-finish-load', async () => {
-    console.log('[MAIN] Main window loaded, initializing sync service...');
     await syncService.initialize();
   });
 
@@ -206,17 +197,12 @@ const createMainWindow = async (): Promise<void> => {
   mainWindow.once('ready-to-show', () => {
     if (mainWindow) {
       mainWindow.show();
-      console.log('[MAIN] Main window shown');
     }
   });
-
-  console.log('[MAIN] Main window created');
 };
 
 // Helper function to create text-based icon
 const createTextIcon = (letter: string): Electron.NativeImage | null => {
-  console.log('[TRAY] Creating text icon with letter:', letter);
-
   try {
     // Render at 3x resolution for crisp, anti-aliased text
     // Then resize down to 18x18 for the final icon
@@ -244,23 +230,8 @@ const createTextIcon = (letter: string): Electron.NativeImage | null => {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    console.log('[TRAY] ===== TEXT ICON DETAILS =====');
-    console.log('[TRAY] Render size:', renderSize, 'x', renderSize);
-    console.log('[TRAY] Final target size:', finalSize, 'x', finalSize);
-    console.log('[TRAY] Font size:', fontSize, 'px');
-    console.log('[TRAY] Font string:', ctx.font);
-
     // Measure the actual text dimensions
     const letterToRender = letter.toUpperCase();
-    const metrics = ctx.measureText(letterToRender);
-    console.log('[TRAY] Text to render:', letterToRender);
-    console.log('[TRAY] Text metrics.width:', metrics.width);
-    console.log('[TRAY] Text metrics.actualBoundingBoxAscent:', metrics.actualBoundingBoxAscent);
-    console.log('[TRAY] Text metrics.actualBoundingBoxDescent:', metrics.actualBoundingBoxDescent);
-    const textHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
-    console.log('[TRAY] Calculated text height:', textHeight);
-    console.log('[TRAY] Text width as % of canvas:', ((metrics.width / renderSize) * 100).toFixed(1) + '%');
-    console.log('[TRAY] Text height as % of canvas:', ((textHeight / renderSize) * 100).toFixed(1) + '%');
 
     // Draw the letter centered
     ctx.fillText(letterToRender, renderSize / 2, renderSize / 2);
@@ -269,27 +240,11 @@ const createTextIcon = (letter: string): Electron.NativeImage | null => {
     const imageData = ctx.getImageData(0, 0, renderSize, renderSize);
     const buffer = Buffer.from(imageData.data);
 
-    console.log('[TRAY] Text icon rendered at:', renderSize, 'x', renderSize);
-    console.log('[TRAY] Text icon buffer size:', buffer.length, 'bytes');
-
-    // Save debug image of the high-res canvas
-    try {
-      const debugPath = path.join(app.getPath('userData'), 'debug-text-icon-highres.png');
-      const pngBuffer = canvas.toBuffer('image/png');
-      fs.writeFileSync(debugPath, pngBuffer);
-      console.log('[TRAY] Debug high-res image saved to:', debugPath);
-    } catch (err) {
-      console.error('[TRAY] Failed to save debug image:', err);
-    }
-
     // Create NativeImage from high-resolution bitmap
     let icon = nativeImage.createFromBitmap(buffer, {
       width: renderSize,
       height: renderSize
     });
-
-    console.log('[TRAY] High-res icon created - isEmpty():', icon.isEmpty());
-    console.log('[TRAY] High-res icon size:', icon.getSize());
 
     if (icon.isEmpty()) {
       console.error('[TRAY] Text icon is empty after creation');
@@ -297,25 +252,11 @@ const createTextIcon = (letter: string): Electron.NativeImage | null => {
     }
 
     // Resize down to final size for sharp, anti-aliased result
-    console.log('[TRAY] Resizing from', icon.getSize(), 'to', finalSize, 'x', finalSize);
     icon = icon.resize({
       width: finalSize,
       height: finalSize,
       quality: 'best'
     });
-
-    console.log('[TRAY] Final resized icon size:', icon.getSize());
-    console.log('[TRAY] Final icon isEmpty():', icon.isEmpty());
-
-    // Save debug image of the resized icon
-    try {
-      const debugPath = path.join(app.getPath('userData'), 'debug-text-icon-final.png');
-      const pngBuffer = icon.toPNG();
-      fs.writeFileSync(debugPath, pngBuffer);
-      console.log('[TRAY] Debug final image saved to:', debugPath);
-    } catch (err) {
-      console.error('[TRAY] Failed to save debug final image:', err);
-    }
 
     // Set as template image for proper dark mode support
     icon.setTemplateImage(true);
@@ -343,8 +284,6 @@ const createTextIcon = (letter: string): Electron.NativeImage | null => {
 type TrayIconType = 'dot' | 'gear' | 'bookmark' | 'lock' | 'unlock' | 'add' | 'remove' | 'refresh' | 'text';
 
 const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => {
-  console.log('[TRAY] Creating icon of type:', iconType);
-
   let icon: Electron.NativeImage;
 
   // Handle text icon separately
@@ -370,12 +309,9 @@ const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => 
   };
 
   const systemIconName = iconNameMap[iconType as Exclude<TrayIconType, 'text'>];
-  console.log('[TRAY] Using system template:', systemIconName);
 
   try {
     icon = nativeImage.createFromNamedImage(systemIconName);
-    console.log('[TRAY] Icon created from named image');
-    console.log('[TRAY] Original icon size:', icon.getSize());
   } catch (error) {
     console.error('[TRAY] ERROR creating icon from named image:', error);
     console.error('[TRAY] Error stack:', (error as Error).stack);
@@ -386,7 +322,6 @@ const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => 
   // macOS menu bar icons are typically 18x18 points
   try {
     icon = icon.resize({ width: 18, height: 18 });
-    console.log('[TRAY] Resized icon to:', icon.getSize());
   } catch (error) {
     console.error('[TRAY] ERROR resizing icon:', error);
   }
@@ -394,15 +329,9 @@ const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => 
   // Set as template image for proper dark mode support
   try {
     icon.setTemplateImage(true);
-    console.log('[TRAY] Set as template image successfully');
   } catch (error) {
     console.error('[TRAY] ERROR setting template image:', error);
   }
-
-  // Log final icon properties
-  console.log('[TRAY] Final icon isEmpty():', icon.isEmpty());
-  console.log('[TRAY] Final icon size:', icon.getSize());
-  console.log('[TRAY] Final icon aspect ratio:', icon.getAspectRatio());
 
   return icon;
 };
@@ -417,7 +346,6 @@ const createTray = (): void => {
   // Create tray
   try {
     tray = new Tray(icon);
-    console.log('[TRAY] Tray created successfully');
   } catch (error) {
     console.error('[TRAY] ERROR creating tray:', error);
     console.error('[TRAY] Error message:', (error as Error).message);
@@ -785,8 +713,6 @@ app.whenReady().then(async () => {
 
   // Set up navigation handler for popup-to-main-window navigation
   wordIntegrationService.setNavigationHandler((payload) => {
-    console.log('[Main] Navigate to page from Word popup:', payload);
-
     if (!mainWindow || mainWindow.isDestroyed()) {
       console.warn('[Main] Main window not available for navigation');
       return;
@@ -829,19 +755,16 @@ async function refreshManuscriptPaths(): Promise<void> {
     const client = await APIclient();
 
     // Fetch all projects
-    console.log('[MANUSCRIPT-PATHS] Fetching projects...');
     const projectsResponse = await client.get('/v0/co_scientist/projects');
     const projects = projectsResponse.data?.projects || [];
 
     if (projects.length === 0) {
-      console.log('[MANUSCRIPT-PATHS] No projects found');
       wordIntegrationService.setManuscriptPaths([]);
       wordIntegrationDataStore.setProjectFileCache(new Map());
       return;
     }
 
     // Fetch files for each project in parallel, attaching project_id to each file
-    console.log(`[MANUSCRIPT-PATHS] Fetching files for ${projects.length} projects...`);
     const filesPromises = projects.map(async (project: { id: number }) => {
       try {
         const filesResponse = await client.get(`/v0/co_scientist/projects/${project.id}/files`);
@@ -874,7 +797,6 @@ async function refreshManuscriptPaths(): Promise<void> {
     // Extract unique paths for tracking
     const manuscriptPaths = [...new Set(manuscriptFiles.map((f: { file_path: string }) => f.file_path))];
 
-    console.log(`[MANUSCRIPT-PATHS] Found ${manuscriptPaths.length} manuscript files`);
     wordIntegrationService.setManuscriptPaths(manuscriptPaths);
     wordIntegrationDataStore.setProjectFileCache(projectFileCache);
 
@@ -1019,9 +941,7 @@ ipcMain.handle(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS, async () => {
 // QR Code Authentication IPC handlers
 ipcMain.handle('start-qr-auth', async () => {
   try {
-    console.log('[IPC] start-qr-auth called');
     const session = await createQRAuthSession();
-    console.log(`[IPC] QR auth session created with device_id: ${session.deviceId}`);
     return {
       success: true,
       deviceId: session.deviceId,
@@ -1039,8 +959,6 @@ ipcMain.handle('start-qr-auth', async () => {
 
 ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) => {
   try {
-    console.log(`[IPC] verify-qr-code called for device_id: ${deviceId}`);
-
     // Validate code format (must be 6 digits)
     if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
       return {
@@ -1051,8 +969,6 @@ ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) 
 
     // Call verification service
     const result = await verifyAuthCode(deviceId, code);
-
-    console.log(`[IPC] Verification result for device_id ${deviceId}: authorized=${result.authorized}`);
 
     if (result.error) {
       return {
@@ -1078,10 +994,6 @@ ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) 
 // Project Sync IPC handlers
 ipcMain.handle('start-project-folder-sync', async (_event, projectId: number, folderId: number, folderPath: string, manuscriptPath?: string) => {
   try {
-    console.log(`[IPC] Starting project folder sync for project ${projectId}, folder ${folderId}: ${folderPath}`);
-    if (manuscriptPath) {
-      console.log(`[IPC] Manuscript file will be tagged: ${manuscriptPath}`);
-    }
     await projectSyncService.startWatching(projectId, folderId, folderPath, manuscriptPath);
     return { success: true };
   } catch (error: any) {
@@ -1092,7 +1004,6 @@ ipcMain.handle('start-project-folder-sync', async (_event, projectId: number, fo
 
 ipcMain.handle('stop-project-folder-sync', async (_event, projectId: number, folderId: number) => {
   try {
-    console.log(`[IPC] Stopping project folder sync for project ${projectId}, folder ${folderId}`);
     await projectSyncService.stopWatching(projectId, folderId);
     return { success: true };
   } catch (error: any) {
@@ -1103,7 +1014,6 @@ ipcMain.handle('stop-project-folder-sync', async (_event, projectId: number, fol
 
 ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
   try {
-    console.log(`[IPC] Stopping all folder syncs for project ${projectId}`);
     await projectSyncService.stopWatchingProject(projectId);
     return { success: true };
   } catch (error: any) {
@@ -1276,14 +1186,8 @@ ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread'
 // WAGENT-94: Badge update function removed - new architecture handles badges automatically
 
 ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
-  console.log(`[Main] Received start-notification-polling request for user ${userId}`);
   try {
     notificationManager.startPolling(userId, 30000); // 30 second interval
-    console.log(`[Main] Successfully started notification polling for user ${userId}`);
-
-    // Note: Badge is now updated via onSyncComplete callback after each sync
-    // No need for separate badge update interval
-
     return { success: true };
   } catch (error: any) {
     console.error('[Main] Failed to start notification polling:', error);
@@ -1292,13 +1196,8 @@ ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
 });
 
 ipcMain.handle('stop-notification-polling', async () => {
-  console.log('[Main] Received stop-notification-polling request');
   try {
     notificationManager.stopPolling();
-
-    // WAGENT-94: Badge clearing handled by new architecture
-
-    console.log('[Main] Successfully stopped notification polling');
     return { success: true };
   } catch (error: any) {
     console.error('[Main] Failed to stop notification polling:', error);
@@ -1334,9 +1233,7 @@ ipcMain.handle('dismiss-notification', async (_event, id: number) => {
 
 ipcMain.handle('get-current-user', async () => {
   try {
-    console.log('[IPC] get-current-user called');
     const user = await getCurrentUser();
-    console.log('[IPC] get-current-user result:', user ? `user_id=${user.id}` : 'null (not logged in)');
     return user;
   } catch (error: any) {
     console.error('[IPC] Failed to get current user:', error);
@@ -1521,8 +1418,6 @@ ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
 
 // Handle tray icon change
 ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
-  console.log('[TRAY] Changing icon to type:', iconType);
-
   if (!tray) {
     console.error('[TRAY] Tray not initialized, cannot change icon');
     return { success: false, error: 'Tray not initialized' };
@@ -1536,7 +1431,6 @@ ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
     }
 
     tray.setImage(newIcon);
-    console.log('[TRAY] Icon changed successfully');
     return { success: true };
   } catch (error) {
     console.error('[TRAY] ERROR changing icon:', error);
@@ -1598,7 +1492,6 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
       return { success: false, error: validation.error };
     }
 
-    console.log('[Main] Opening validated external URL:', url);
     await shell.openExternal(url);
     return { success: true };
   } catch (error: any) {
@@ -1610,8 +1503,6 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
 // Navigation handler - focus main window and relay navigation event
 ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO_PAGE, async (_event, payload: NavigateToPagePayload) => {
   try {
-    console.log('[Main] Navigate to page:', payload);
-
     if (!mainWindow) {
       console.warn('[Main] Main window not available for navigation');
       return { success: false, error: 'Main window not available' };

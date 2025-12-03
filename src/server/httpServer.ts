@@ -63,7 +63,6 @@ export class AcademiaHttpServer {
       host: config.host ?? '127.0.0.1',
     };
 
-    console.log('[HTTP Server] Initialized with config:', this.config);
   }
 
   /**
@@ -73,7 +72,6 @@ export class AcademiaHttpServer {
    */
   async start(): Promise<number> {
     if (this.fastify) {
-      console.log('[HTTP Server] Server already running');
       return this.actualPort!;
     }
 
@@ -124,9 +122,6 @@ export class AcademiaHttpServer {
       ? path.join(process.resourcesPath, 'popup')
       : devPopupPath;
     const popupDistPath = app.isPackaged ? prodPopupPath : devPopupPath;
-
-    console.log('[HTTP Server] app.isPackaged:', app.isPackaged);
-    console.log('[HTTP Server] Registering static files from:', popupDistPath);
 
     await this.fastify.register(fastifyStatic, {
       root: popupDistPath,
@@ -232,14 +227,12 @@ export class AcademiaHttpServer {
    */
   async stop(): Promise<void> {
     if (!this.fastify) {
-      console.log('[HTTP Server] Server not running');
       return;
     }
 
     console.log('[HTTP Server] Stopping server...');
 
     // Destroy all active connections first
-    console.log(`[HTTP Server] Destroying ${this.activeConnections.size} active connections...`);
     for (const socket of this.activeConnections) {
       socket.destroy();
     }

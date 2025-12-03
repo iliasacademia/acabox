@@ -27,14 +27,11 @@
 
         // Create weak hash table for overlays (won't retain them)
         _overlays = [NSHashTable weakObjectsHashTable];
-
-        NSLog(@"[AcademiaManager] Initialized with Word adapter (PID: %d)", adapter.wordPID);
     }
     return self;
 }
 
 - (void)dealloc {
-    NSLog(@"[AcademiaManager] Deallocating manager");
     [self stopManaging];
 }
 
@@ -42,7 +39,6 @@
 
 - (BOOL)startManaging {
     if (_isManaging) {
-        NSLog(@"[AcademiaManager] Already managing overlays");
         return YES;
     }
 
@@ -64,7 +60,6 @@
     }
 
     _isManaging = YES;
-    NSLog(@"[AcademiaManager] Started managing %lu overlays", (unsigned long)[self registeredOverlayCount]);
 
     // Initial position calculation
     [self recalculateAllPositions];
@@ -76,8 +71,6 @@
     if (!_isManaging) {
         return;
     }
-
-    NSLog(@"[AcademiaManager] Stopping management of overlays");
 
     // Remove ourselves as delegate
     if (_wordAdapter.delegate == self) {
@@ -100,14 +93,6 @@
 
     [_overlays addObject:overlay];
 
-    NSString *identifier = @"Unknown";
-    if ([overlay respondsToSelector:@selector(overlayIdentifier)]) {
-        identifier = [overlay overlayIdentifier];
-    }
-
-    NSLog(@"[AcademiaManager] Registered overlay: %@ (total: %lu)",
-          identifier, (unsigned long)[self registeredOverlayCount]);
-
     // If already managing, update this overlay's position
     if (_isManaging && !_isChanging) {
         WordPositionState state = [_wordAdapter getCurrentState];
@@ -125,19 +110,10 @@
         return;
     }
 
-    NSString *identifier = @"Unknown";
-    if ([overlay respondsToSelector:@selector(overlayIdentifier)]) {
-        identifier = [overlay overlayIdentifier];
-    }
-
     [_overlays removeObject:overlay];
-
-    NSLog(@"[AcademiaManager] Unregistered overlay: %@ (remaining: %lu)",
-          identifier, (unsigned long)[self registeredOverlayCount]);
 }
 
 - (void)unregisterAllOverlays {
-    NSLog(@"[AcademiaManager] Unregistering all %lu overlays", (unsigned long)[self registeredOverlayCount]);
     [_overlays removeAllObjects];
 }
 
@@ -152,33 +128,22 @@
         return;  // No change
     }
 
-    NSLog(@"[AcademiaManager] Updating badge count: %ld -> %ld", (long)_badgeCount, (long)count);
     _badgeCount = count;
 
     // Propagate to all badge-capable overlays
-    NSUInteger updatedCount = 0;
     for (id<OverlayWindow> overlay in _overlays) {
         if ([overlay respondsToSelector:@selector(updateBadgeCount:)]) {
             [overlay updateBadgeCount:count];
-            updatedCount++;
         }
     }
-
-    NSLog(@"[AcademiaManager] Updated badge count on %lu overlays", (unsigned long)updatedCount);
 }
 
 - (void)hideAllOverlays {
-    NSLog(@"[AcademiaManager] Hiding all %lu overlays", (unsigned long)[self registeredOverlayCount]);
-
-    NSUInteger hiddenCount = 0;
     for (id<OverlayWindow> overlay in _overlays) {
         if ([overlay isVisible]) {
             [overlay hide];
-            hiddenCount++;
         }
     }
-
-    NSLog(@"[AcademiaManager] Hid %lu overlays", (unsigned long)hiddenCount);
 }
 
 - (void)showAllOverlays {
@@ -187,21 +152,15 @@
         return;
     }
 
-    NSLog(@"[AcademiaManager] Showing all overlays (after recalculating positions)");
-
     // First recalculate positions
     [self recalculateAllPositions];
 
     // Then show each overlay
-    NSUInteger shownCount = 0;
     for (id<OverlayWindow> overlay in _overlays) {
         if (![overlay isVisible]) {
             [overlay show];
-            shownCount++;
         }
     }
-
-    NSLog(@"[AcademiaManager] Showed %lu overlays", (unsigned long)shownCount);
 }
 
 - (void)recalculateAllPositions {
@@ -211,15 +170,6 @@
     }
 
     WordPositionState state = [_wordAdapter getCurrentState];
-
-    NSLog(@"[AcademiaManager] Recalculating positions for %lu overlays", (unsigned long)[self registeredOverlayCount]);
-    NSLog(@"[AcademiaManager] Word state - window: (%.1f, %.1f, %.1f, %.1f), scroll: (%.1f, %.1f, %.1f, %.1f), layout: (%.1f, %.1f, %.1f, %.1f)",
-          state.windowBounds.origin.x, state.windowBounds.origin.y,
-          state.windowBounds.size.width, state.windowBounds.size.height,
-          state.scrollAreaBounds.origin.x, state.scrollAreaBounds.origin.y,
-          state.scrollAreaBounds.size.width, state.scrollAreaBounds.size.height,
-          state.layoutPosition.x, state.layoutPosition.y,
-          state.layoutSize.width, state.layoutSize.height);
 
     for (id<OverlayWindow> overlay in _overlays) {
         [overlay updatePositionWithWordState:state];
@@ -256,7 +206,6 @@
 #pragma mark - MicrosoftWordAdapterDelegate
 
 - (void)wordAdapterDidStartChanging:(id)adapter {
-    NSLog(@"[AcademiaManager] ===== Word Change START =====");
     _isChanging = YES;
 
     // Hide all overlays immediately when Word starts changing
@@ -264,30 +213,21 @@
 }
 
 - (void)wordAdapterDidCompleteChanging:(id)adapter withState:(WordPositionState)state {
-    NSLog(@"[AcademiaManager] ===== Word Change COMPLETE =====");
     _isChanging = NO;
 
     // Recalculate positions with new state
-    NSLog(@"[AcademiaManager] Updating %lu overlays with new Word state", (unsigned long)[self registeredOverlayCount]);
-
     for (id<OverlayWindow> overlay in _overlays) {
         // Update position - each overlay will decide whether to show/hide itself
         [overlay updatePositionWithWordState:state];
     }
-
-    NSLog(@"[AcademiaManager] Updated positions for %lu overlays", (unsigned long)[self registeredOverlayCount]);
 }
 
 - (void)wordAdapterDidActivate:(id)adapter {
-    NSLog(@"[AcademiaManager] Word activated - showing overlays");
-
     // Show all overlays when Word becomes active
     [self showAllOverlays];
 }
 
 - (void)wordAdapterDidDeactivate:(id)adapter {
-    NSLog(@"[AcademiaManager] Word deactivated - hiding overlays");
-
     // Hide all overlays when Word is deactivated
     [self hideAllOverlays];
 }

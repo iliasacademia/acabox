@@ -82,8 +82,6 @@ export class MessageBridge {
     this.instanceId = `${clientId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     this.platform = this.detectPlatform();
 
-    console.log(`[MessageBridge] Creating new instance: ${this.instanceId}`);
-
     // Store reference to old instance before overwriting (for hot-reload support)
     const oldBridge = window.__messageBridge;
 
@@ -118,8 +116,6 @@ export class MessageBridge {
     this.processPreloadQueue();
 
     this.setupNativeInterface();
-
-    console.log(`[MessageBridge] Initialized for client: ${clientId}, platform: ${this.platform}, instance: ${this.instanceId}`);
   }
 
   // ========== Queue Processing ==========
@@ -130,12 +126,10 @@ export class MessageBridge {
    */
   private processPreloadQueue() {
     if (window.__pendingResponses && window.__pendingResponses.length > 0) {
-      console.log(`[MessageBridge] Processing ${window.__pendingResponses.length} queued responses (WAGENT-68)`);
       const pendingResponses = window.__pendingResponses;
       window.__pendingResponses = []; // Clear the queue
 
       for (const response of pendingResponses) {
-        console.log(`[MessageBridge] Processing queued response: ${response.action}`);
         this.handleNativeMessage(response);
       }
     }
@@ -169,16 +163,12 @@ export class MessageBridge {
           return;
         }
 
-        console.log('[MessageBridge] WebKit bridge functions now available');
-
         // Process any responses that arrived before MessageBridge was initialized
         if (window.__pendingResponses && window.__pendingResponses.length > 0) {
-          console.log(`[MessageBridge] Processing ${window.__pendingResponses.length} queued responses`);
           const pendingResponses = window.__pendingResponses;
           window.__pendingResponses = []; // Clear the queue
 
           for (const response of pendingResponses) {
-            console.log(`[MessageBridge] Processing queued response: ${response.action}`);
             this.handleNativeMessage(response);
           }
         }
@@ -227,8 +217,6 @@ export class MessageBridge {
 
     // Process any queued messages
     this.processQueue();
-
-    console.log('[MessageBridge] Ready signal sent to native');
   }
 
   // ========== Message Sending ==========
@@ -301,17 +289,9 @@ export class MessageBridge {
 
       this.pendingRequests.set(msgId, { resolve, reject, timeoutId });
 
-      // Debug logging - Maps don't JSON.stringify properly, so use Array.from
-      console.log(`[MessageBridge ${this.instanceId}] pendingRequests size:`, this.pendingRequests.size);
-      console.log(`[MessageBridge ${this.instanceId}] pendingRequests keys:`, Array.from(this.pendingRequests.keys()));
-      console.log(`[MessageBridge ${this.instanceId}] This instance ID:`, this.instanceId);
-      console.log(`[MessageBridge ${this.instanceId}] Global instance ID:`, (window.__messageBridge as any)?.instanceId);
-      console.log(`[MessageBridge ${this.instanceId}] Same instance?`, this === window.__messageBridge);
-
       // WAGENT-73: Send ACK immediately after registering pending request
       // This eliminates the race condition that required a 10ms delay on native side
       this.sendEvent(to, 'request-registered', { requestId: msgId });
-      console.log(`[MessageBridge] Sent ACK for request: ${msgId}`);
 
       const msg: Message = {
         id: msgId,
@@ -329,8 +309,6 @@ export class MessageBridge {
       } else {
         this.sendToNative(msg);
       }
-
-      console.log(`[MessageBridge] Request sent: ${action} (id: ${msgId})`);
     });
   }
 
@@ -349,36 +327,26 @@ export class MessageBridge {
     };
 
     this.sendToNative(msg);
-    console.log(`[MessageBridge] Response sent for: ${originalMsg.action}`);
   }
 
   // ========== Message Receiving ==========
 
   public handleNativeMessage(msg: Message) {
-    console.log(`[MessageBridge ${this.instanceId}] Received from native: ${msg.action} (type: ${msg.type})`);
-
     // Handle responses to pending requests
     if (msg.type === 'response' || msg.type === 'error') {
-      console.log(`[MessageBridge ${this.instanceId}] Response received with ID: ${msg.id}`);
-      console.log(`[MessageBridge ${this.instanceId}] Current pending requests:`, Array.from(this.pendingRequests.keys()));
-      console.log(`[MessageBridge ${this.instanceId}] pendingRequests size:`, this.pendingRequests.size);
-
       // FIRST: Check if THIS instance has the pending request
       let pending = this.pendingRequests.get(msg.id);
       let foundInInstance: MessageBridge | null = null;
 
       if (pending) {
         foundInInstance = this;
-        console.log(`[MessageBridge] Found matching pending request in current instance for ID: ${msg.id}`);
       }
       // SECOND: If not found, check if there's a different global instance with this request
       // This handles the case where a new instance was created after the request was sent
       else if (window.__messageBridge && window.__messageBridge !== this) {
-        console.log(`[MessageBridge] Checking global instance (different from current)`);
         pending = window.__messageBridge.pendingRequests.get(msg.id);
         if (pending) {
           foundInInstance = window.__messageBridge;
-          console.log(`[MessageBridge] Found matching pending request in global instance for ID: ${msg.id}`);
         }
       }
 
@@ -445,8 +413,6 @@ export class MessageBridge {
       window.__bridgeHandlers = {};
     }
     window.__bridgeHandlers[action] = handler;
-
-    console.log(`[MessageBridge] Handler registered: ${action}`);
   }
 
   /**
@@ -459,8 +425,6 @@ export class MessageBridge {
     if (window.__bridgeHandlers && window.__bridgeHandlers[action]) {
       delete window.__bridgeHandlers[action];
     }
-
-    console.log(`[MessageBridge] Handler unregistered: ${action}`);
   }
 
   // ========== Queue Management ==========
@@ -469,8 +433,6 @@ export class MessageBridge {
     if (!this.isReady || this.messageQueue.length === 0) {
       return;
     }
-
-    console.log(`[MessageBridge] Processing ${this.messageQueue.length} queued messages`);
 
     while (this.messageQueue.length > 0) {
       const msg = this.messageQueue.shift();
@@ -503,8 +465,6 @@ export class MessageBridge {
    * Cleans up pending requests, handlers, and global references
    */
   public destroy(): void {
-    console.log('[MessageBridge] Destroying bridge instance');
-
     // Remove WebView2 event listener if present
     if (this.webview2MessageListener && this.platform === 'webview2') {
       try {
@@ -535,8 +495,6 @@ export class MessageBridge {
     if (window.__messageBridge === this) {
       delete window.__messageBridge;
     }
-
-    console.log('[MessageBridge] Bridge instance destroyed');
   }
 }
 

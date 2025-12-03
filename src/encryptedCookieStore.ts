@@ -82,7 +82,6 @@ export class EncryptedCookieStore extends Store {
 
       // Save the new ID
       fs.writeFileSync(machineIdPath, newId, 'utf8');
-      console.log('[EncryptedCookieStore] Generated new machine ID');
 
       return newId;
     } catch (error) {
@@ -154,7 +153,6 @@ export class EncryptedCookieStore extends Store {
    */
   private loadFromFile(): void {
     if (!fs.existsSync(this.filePath)) {
-      console.log('[EncryptedCookieStore] No existing cookie file found, starting fresh');
       return;
     }
 
@@ -172,7 +170,6 @@ export class EncryptedCookieStore extends Store {
       const parsed = JSON.parse(decryptedData);
       this.idx = this.deserializeCookies(parsed);
 
-      console.log('[EncryptedCookieStore] Successfully loaded and decrypted cookies');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
