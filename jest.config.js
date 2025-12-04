@@ -22,5 +22,6 @@ module.exports = {
   },
   moduleNameMapper: {
     '^serialize-error$': '<rootDir>/src/__mocks__/serialize-error.ts',
+    '^(\\.\\./)+deviceId$': '<rootDir>/src/__mocks__/deviceId.ts',
   },
 };

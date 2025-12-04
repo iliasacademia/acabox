@@ -1,4 +1,5 @@
 import { app } from 'electron';
+import { getDeviceId } from '../deviceId';
 
 // Helper function to detect channel from version string
 export function getChannelFromVersion(): 'stable' | 'beta' {
@@ -44,6 +45,7 @@ export const LOGGING_CONFIG = {
     platform: process.platform,
     arch: process.arch,
     isPackaged: app.isPackaged,
+    deviceId: getDeviceId(),
   }),
 };
 
