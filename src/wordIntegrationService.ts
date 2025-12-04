@@ -82,6 +82,57 @@ class WordIntegrationService {
   }
 
   /**
+   * Unescape lsof output that contains \xNN escape sequences.
+   * lsof escapes non-ASCII bytes as \xNN, we need to decode them as UTF-8.
+   * e.g., 'ž' (U+017E) in NFD is z + combining caron (U+030C), UTF-8: 0xCC 0x8C
+   * lsof shows as: z\xcc\x8c
+   */
+  private unescapeLsofOutput(input: string): string {
+    // Find all \xNN sequences and collect bytes
+    const parts: (string | number[])[] = [];
+    let lastIndex = 0;
+    const regex = /\\x([0-9a-fA-F]{2})/g;
+    let match;
+
+    while ((match = regex.exec(input)) !== null) {
+      // Add text before this escape sequence
+      if (match.index > lastIndex) {
+        parts.push(input.substring(lastIndex, match.index));
+      }
+
+      // Collect consecutive \xNN sequences as byte array
+      const bytes: number[] = [];
+      let currentIndex = match.index;
+      while (currentIndex < input.length) {
+        const nextMatch = input.substring(currentIndex).match(/^\\x([0-9a-fA-F]{2})/);
+        if (nextMatch) {
+          bytes.push(parseInt(nextMatch[1], 16));
+          currentIndex += 4; // \xNN is 4 characters
+        } else {
+          break;
+        }
+      }
+      parts.push(bytes);
+      lastIndex = currentIndex;
+      regex.lastIndex = currentIndex;
+    }
+
+    // Add remaining text
+    if (lastIndex < input.length) {
+      parts.push(input.substring(lastIndex));
+    }
+
+    // Decode byte arrays as UTF-8 and concatenate
+    const decoder = new TextDecoder('utf-8');
+    return parts.map(part => {
+      if (typeof part === 'string') {
+        return part;
+      }
+      return decoder.decode(new Uint8Array(part));
+    }).join('');
+  }
+
+  /**
    * Find all Word PIDs that have any of the specified files open using lsof.
    * Returns array of {pid, filePath} pairs.
    */
@@ -103,7 +154,19 @@ class WordIntegrationService {
           const lsofResult = execSync(`lsof -p ${pid} 2>/dev/null`, { encoding: 'utf8' });
 
           for (const filePath of filePaths) {
-            if (lsofResult.includes(filePath)) {
+            // Extract just the filename for matching (lsof may not show full path)
+            const fileName = filePath.split('/').pop() || filePath;
+
+            // lsof escapes non-ASCII bytes as \xNN - we need to decode them as UTF-8
+            // e.g., 'ž' in NFD = z + combining caron (U+030C), UTF-8: 0xCC 0x8C
+            // lsof shows as: z\xcc\x8c (literal escape sequences)
+            const unescapedLsof = this.unescapeLsofOutput(lsofResult);
+
+            // Now normalize both to NFD for comparison
+            const normalizedFileName = fileName.normalize('NFD');
+            const normalizedLsof = unescapedLsof.normalize('NFD');
+
+            if (normalizedLsof.includes(normalizedFileName)) {
               matches.push({ pid, filePath });
               break; // One match per PID is enough
             }
@@ -196,7 +259,6 @@ class WordIntegrationService {
     if (this.trackedPIDs.has(pid)) {
       return;
     }
-
     const success = wordAccessibility.startObservingPID(pid, (event: AccessibilityEvent) => {
       // Handle navigation requests from popup (format: "navigateToPage|{json}")
       if (event.type === 'buttonClicked' && event.text?.startsWith('navigateToPage|')) {
@@ -225,7 +287,7 @@ class WordIntegrationService {
         this.activePID = pid;
       }
     } else {
-      logger.error(`[WORD-INTEGRATION] Failed to start tracking PID ${pid}`);
+      logger.error('[WORD-INTEGRATION] Failed to start native observer', { pid, filePath });
     }
   }
 

@@ -24,7 +24,9 @@
     "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - {} \\;",
     "package:sign": "npm run package && npm run codesign",
     "make": "electron-forge make",
-    "logs:watch": "tail -f ~/Library/Logs/academia-electron/main-dev.log"
+    "logs:dev:watch": "tail -f ~/Library/Logs/academia-electron/main-dev.log",
+    "logs:stable:watch": "tail -f ~/Library/Logs/academia-electron/main-stable.log",
+    "logs:beta:watch": "tail -f ~/Library/Logs/academia-electron/main-beta.log"
   },
   "author": "Academia.edu",
   "license": "UNLICENSED",
