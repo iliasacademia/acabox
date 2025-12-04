@@ -5,6 +5,9 @@ import { DevToolsLogPayload, ApiLogData, GeneralLogData } from '../../shared/typ
  * Hook that listens for devtools-log events from the main process
  * and outputs them to the browser DevTools console with styled formatting.
  *
+ * Note: Main process logs are sent directly to Datadog via HTTP transport,
+ * so this hook only handles DevTools console output for development debugging.
+ *
  * Supports two log categories:
  * - 'api': API request/response/error logs with method, endpoint, status
  * - 'general': General info/warn/error/debug logs
