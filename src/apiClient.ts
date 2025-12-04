@@ -17,13 +17,40 @@ export const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 
 let apiClient: AxiosInstance | null = null;
 
+// Helper to sanitize data for logging (avoid circular refs and non-serializable objects)
+function sanitizeForLogging(data: any): any {
+  if (!data) return data;
+
+  // If it's FormData, don't try to serialize it
+  if (typeof FormData !== 'undefined' && data instanceof FormData) {
+    return '[FormData - file upload]';
+  }
+
+  // If it's a stream or buffer, don't serialize
+  if (data?.pipe || Buffer.isBuffer(data)) {
+    return '[Stream/Buffer]';
+  }
+
+  // For objects, try to stringify to detect circular refs
+  if (typeof data === 'object') {
+    try {
+      JSON.stringify(data);
+      return data;
+    } catch {
+      return '[Complex Object - cannot serialize]';
+    }
+  }
+
+  return data;
+}
+
 // API logging functions (only used by interceptors in this file)
 function logApiRequest(method: string, endpoint: string, data?: any): void {
   const logData: ApiLogData = {
     type: 'request',
     method,
     endpoint,
-    requestData: data,
+    requestData: sanitizeForLogging(data),
   };
   logger.sendToDevTools('api', 'info', logData);
 }
@@ -36,7 +63,7 @@ function logApiResponse(method: string, endpoint: string, status: number, status
     endpoint,
     status,
     statusText,
-    requestData: data,
+    requestData: sanitizeForLogging(data),
   };
   logger.sendToDevTools('api', level, logData);
 }
@@ -49,7 +76,7 @@ function logApiError(method: string, endpoint: string, url: string, message: str
     url,
     message,
     status,
-    requestData: data,
+    requestData: sanitizeForLogging(data),
   };
   logger.sendToDevTools('api', 'error', logData);
 }

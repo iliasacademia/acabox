@@ -56,6 +56,14 @@ export const IPC_CHANNELS = {
   INITIAL_SYNC_STATUS: 'initial-sync-status',
   INITIAL_SYNC_PROGRESS: 'initial-sync-progress',
 
+  // Startup sync operations
+  STARTUP_SYNC_BEGIN: 'startup-sync-begin',
+  STARTUP_SYNC_PROGRESS: 'startup-sync-progress',
+  STARTUP_SYNC_COMPLETE: 'startup-sync-complete',
+  SYNC_PROGRESS: 'sync-progress',
+  SYNC_COMPLETE: 'sync-complete',
+  FILE_SYNC_ERROR: 'file-sync-error',
+
   // Project sync operations
   START_PROJECT_FOLDER_SYNC: 'start-project-folder-sync',
   STOP_PROJECT_FOLDER_SYNC: 'stop-project-folder-sync',

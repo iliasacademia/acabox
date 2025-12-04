@@ -2,7 +2,7 @@ import * as chokidar from 'chokidar';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
-import { downloadFileFromS3, getLatestFiles, createFile, deleteFile, getStatus } from './uploader';
+import { downloadFileFromS3, getLatestFiles, createFile, deleteFile, getStatus, listFiles } from './uploader';
 import { calculateChecksum } from './utils/checksum';
 import Store from 'electron-store';
 import { defaultLogger as logger } from './utils/logger';
@@ -27,6 +27,7 @@ class SyncService {
   private watchedFolders: Map<string, WatchedFolder> = new Map();
   private mainWindow: BrowserWindow | null = null;
   private store = new Store<SyncState>({ name: 'sync-state' });
+  private syncInProgress = new Set<string>(); // Track files currently being synced to prevent double-syncing
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -38,145 +39,34 @@ class SyncService {
     }
   }
 
+  /**
+   * Start watching a folder and optionally perform initial S3 sync
+   * Used when user adds a new folder via UI
+   * @param folderName - Name of the folder
+   * @param folderPath - Absolute path to folder
+   * @param performInitialSync - Whether to download files from S3 (default: true)
+   */
   async startWatching(folderName: string, folderPath: string, performInitialSync: boolean = true) {
-    // Check if folder exists
+    // Validate folder exists
     if (!fs.existsSync(folderPath)) {
       throw new Error('Folder does not exist');
     }
 
     // Check if already watching
     if (this.watchedFolders.has(folderName)) {
-      logger.debug(`Already watching folder ${folderName}`);
+      logger.debug(`[WATCH] Already watching folder ${folderName}`);
       return;
     }
 
-    logger.debug(`Starting to watch folder: ${folderPath}`);
+    logger.debug(`[WATCH] Starting to watch folder: ${folderPath}`);
 
-    // Perform initial sync from S3 if requested
+    // Start watcher first (captures changes during sync)
+    await this.startWatchingOnly(folderName, folderPath);
+
+    // Then perform initial sync from S3 if requested (when user adds new folder)
     if (performInitialSync) {
       await this.performInitialSync(folderName, folderPath);
     }
-
-    // First, scan and count all files in the folder
-    const existingFiles = this.getAllFiles(folderPath);
-    logger.debug(`Found ${existingFiles.length} files in folder ${folderPath}`);
-    if (existingFiles.length > 0) {
-      logger.debug('Files found:', existingFiles);
-    }
-
-    // Create watcher with options optimized for different OS
-    const watcher = chokidar.watch(folderPath, {
-      persistent: true,
-      ignoreInitial: false, // Process existing files
-      followSymlinks: true,
-      // Ignore hidden files and directories
-      ignored: (filePath: string) => {
-        const basename = path.basename(filePath);
-        // Ignore hidden files (starting with .)
-        if (basename.startsWith('.')) return true;
-        // Ignore Word temporary lock files (starting with ~$)
-        if (basename.startsWith('~$')) return true;
-        // Ignore directories (we only want files)
-        if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-          return false; // Don't ignore directories, we need to traverse them
-        }
-        return false; // Accept all files
-      },
-      // Polling is more reliable across different OS, especially for network drives
-      usePolling: false, // Set to true if network drives are common
-      // Stability threshold - wait for file writes to complete
-      awaitWriteFinish: {
-        stabilityThreshold: 2000,
-        pollInterval: 100,
-      },
-      // Performance options
-      depth: 99, // Watch subdirectories
-      alwaysStat: false,
-    });
-
-    const watchedFolder: WatchedFolder = {
-      folder_name: folderName,
-      path: folderPath,
-      watcher,
-      status: 'idle',
-      fileCount: 0,
-      lastSync: null,
-    };
-
-    this.watchedFolders.set(folderName, watchedFolder);
-
-    logger.debug(`Watcher created for folder ${folderName}, waiting for events...`);
-
-    // Persist to disk after successful setup
-    this.persistState();
-
-    // Handle new files
-    watcher.on('add', async (filePath: string) => {
-      logger.debug(`[CHOKIDAR] File added: ${filePath}`);
-      logger.debug(`[CHOKIDAR] File type:`, path.extname(filePath));
-      await this.handleFileChange(folderName, filePath, 'add');
-    });
-
-    // Handle changed files
-    watcher.on('change', async (filePath: string) => {
-      logger.debug(`[CHOKIDAR] File changed: ${filePath}`);
-      logger.debug(`[CHOKIDAR] File type:`, path.extname(filePath));
-      await this.handleFileChange(folderName, filePath, 'change');
-    });
-
-    // Handle deleted files
-    watcher.on('unlink', async (filePath: string) => {
-      logger.debug(`[CHOKIDAR] File deleted: ${filePath}`);
-      await this.handleFileDeletion(folderName, filePath);
-    });
-
-    // Handle errors
-    watcher.on('error', (err: unknown) => {
-      const error = err instanceof Error ? err : new Error(String(err));
-      logger.error(`Watcher error for folder ${folderName}:`, error);
-      watchedFolder.status = 'error';
-      this.sendToRenderer('folder-sync-status', {
-        folderId: folderName,
-        status: 'error',
-        error: error.message,
-      });
-    });
-
-    // Handle ready event (initial scan complete)
-    watcher.on('ready', async () => {
-      logger.debug(`[CHOKIDAR READY] Initial scan complete for folder ${folderName}`);
-      logger.debug(`[CHOKIDAR READY] Files processed during scan: ${watchedFolder.fileCount}`);
-
-      // If chokidar didn't process files during initial scan, manually sync existing files
-      if (watchedFolder.fileCount === 0 && existingFiles.length > 0) {
-        logger.debug(`[CHOKIDAR READY] Chokidar didn't process existing files, triggering manual initial sync...`);
-
-        watchedFolder.status = 'syncing';
-        this.sendToRenderer('folder-sync-status', {
-          folderId: folderName,
-          status: 'syncing',
-        });
-
-        // Manually sync all existing files
-        for (const filePath of existingFiles) {
-          await this.handleFileChange(folderName, filePath, 'initial');
-        }
-
-        logger.debug(`[CHOKIDAR READY] Initial sync complete, synced ${existingFiles.length} files`);
-      }
-
-      // Mark as synced if we have files, otherwise idle
-      if (watchedFolder.fileCount > 0) {
-        watchedFolder.status = 'synced';
-        this.sendToRenderer('folder-sync-status', {
-          folderId: folderName,
-          status: 'synced',
-        });
-      } else {
-        logger.debug(`[CHOKIDAR READY] No files in folder`);
-        watchedFolder.status = 'idle';
-      }
-    });
   }
 
   private async handleFileChange(folderName: string, filePath: string, eventType: string) {
@@ -185,6 +75,15 @@ class SyncService {
       logger.debug(`[SYNC] Folder not found: ${folderName}`);
       return;
     }
+
+    // Deduplication: check if already syncing this file
+    const syncKey = `${folderName}:${filePath}`;
+    if (this.syncInProgress.has(syncKey)) {
+      logger.debug(`[SYNC] File already being synced, skipping: ${filePath}`);
+      return;
+    }
+
+    this.syncInProgress.add(syncKey);
 
     logger.debug(`[SYNC] Starting file sync for: ${filePath}`);
     logger.debug(`[SYNC] Event type: ${eventType}`);
@@ -269,6 +168,9 @@ class SyncService {
         status: 'error',
         error: error.message,
       });
+    } finally {
+      // Always remove from sync in progress set
+      this.syncInProgress.delete(syncKey);
     }
   }
 
@@ -436,35 +338,52 @@ class SyncService {
     const state = this.store.get('folders', []);
     logger.debug(`[SYNC] Found ${state.length} persisted folders`);
 
+    // Track folders that need startup sync
+    const foldersToSync: Array<{ name: string; path: string }> = [];
+
+    // Start watchers for all valid folders
     for (const { name, path: folderPath } of state) {
-      if (fs.existsSync(folderPath)) {
-        logger.debug(`[SYNC] Starting watcher for ${name} at ${folderPath}`);
-        await this.startWatching(name, folderPath, false); // Skip initial sync
-      } else {
-        logger.debug(`[SYNC] Folder path no longer exists: ${folderPath}`);
+      if (!fs.existsSync(folderPath)) {
+        logger.warn(`[SYNC] Folder no longer exists: ${folderPath}`);
+        // Send notification to renderer
+        this.sendToRenderer('folder-sync-status', {
+          folderId: name,
+          status: 'error',
+          error: 'Folder no longer exists',
+        });
+        continue;
       }
+
+      logger.debug(`[SYNC] Starting watcher for ${name} at ${folderPath}`);
+      // Start watching IMMEDIATELY (don't wait for sync)
+      await this.startWatchingOnly(name, folderPath);
+      foldersToSync.push({ name, path: folderPath });
     }
 
-    // Fetch remote state and update file counts
+    // Fetch remote state and perform startup sync
     try {
       const remoteState = await getStatus();
+      logger.debug(`[SYNC] Fetched remote state for ${remoteState.folders?.length || 0} folders`);
 
-      for (const remoteFolder of remoteState.folders) {
+      // Update local folder metadata
+      for (const remoteFolder of remoteState.folders || []) {
         const localFolder = this.watchedFolders.get(remoteFolder.folder_name);
         if (localFolder) {
           localFolder.fileCount = remoteFolder.file_count;
           localFolder.lastSync = remoteFolder.last_sync;
-          localFolder.status = remoteFolder.status;
-
-          this.sendToRenderer('folder-sync-status', {
-            folderId: remoteFolder.folder_name,
-            status: remoteFolder.status,
-          });
         }
       }
-    } catch (error) {
-      logger.error('[SYNC] Failed to fetch remote state (backend offline?):', error);
-      // Mark all folders as offline if backend is unreachable
+
+      // Perform startup sync for each valid folder (sequentially)
+      for (const { name, path: folderPath } of foldersToSync) {
+        logger.debug(`[SYNC] Performing startup sync for ${name}`);
+        await this.performStartupSync(name, folderPath);
+      }
+
+      logger.debug('[SYNC] Initialization and startup sync complete');
+    } catch (error: any) {
+      logger.error('[SYNC] Backend offline during initialization:', error);
+      // Mark all folders as error
       for (const folder of this.watchedFolders.values()) {
         folder.status = 'error';
         this.sendToRenderer('folder-sync-status', {
@@ -474,8 +393,6 @@ class SyncService {
         });
       }
     }
-
-    logger.debug('[SYNC] Initialization complete');
   }
 
   private persistState() {
@@ -622,6 +539,268 @@ class SyncService {
         folderId: folderName,
         status: 'error',
         message: `Failed to sync: ${error.message}`,
+      });
+    }
+  }
+
+  /**
+   * Start watching a folder WITHOUT performing any initial sync
+   * Used during app initialization - sync is handled separately by performStartupSync
+   * @param folderName - Name of the folder
+   * @param folderPath - Absolute path to folder
+   */
+  private async startWatchingOnly(folderName: string, folderPath: string): Promise<void> {
+    if (this.watchedFolders.has(folderName)) {
+      logger.debug(`[WATCH] Already watching folder ${folderName}`);
+      return;
+    }
+
+    logger.debug(`[WATCH] Starting watcher for folder: ${folderPath}`);
+
+    // Create watcher with ignoreInitial: true (startup sync handles existing files)
+    const watcher = chokidar.watch(folderPath, {
+      persistent: true,
+      ignoreInitial: true, // Don't fire events for existing files
+      followSymlinks: true,
+      ignored: (filePath: string) => {
+        const basename = path.basename(filePath);
+        // Ignore hidden files (starting with .)
+        if (basename.startsWith('.')) return true;
+        // Ignore Word temporary lock files (starting with ~$)
+        if (basename.startsWith('~$')) return true;
+        // Don't ignore directories (we need to traverse them)
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+          return false;
+        }
+        return false;
+      },
+      awaitWriteFinish: {
+        stabilityThreshold: 2000,
+        pollInterval: 100,
+      },
+      depth: 99,
+      alwaysStat: false,
+      usePolling: false,
+    });
+
+    const watchedFolder: WatchedFolder = {
+      folder_name: folderName,
+      path: folderPath,
+      watcher,
+      status: 'idle',
+      fileCount: 0,
+      lastSync: null,
+    };
+
+    this.watchedFolders.set(folderName, watchedFolder);
+
+    // Set up event handlers
+    watcher.on('add', async (filePath: string) => {
+      logger.debug(`[CHOKIDAR] File added: ${filePath}`);
+      await this.handleFileChange(folderName, filePath, 'add');
+    });
+
+    watcher.on('change', async (filePath: string) => {
+      logger.debug(`[CHOKIDAR] File changed: ${filePath}`);
+      await this.handleFileChange(folderName, filePath, 'change');
+    });
+
+    watcher.on('unlink', async (filePath: string) => {
+      logger.debug(`[CHOKIDAR] File deleted: ${filePath}`);
+      await this.handleFileDeletion(folderName, filePath);
+    });
+
+    watcher.on('error', (err: unknown) => {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error(`[WATCH] Watcher error for folder ${folderName}:`, error);
+      watchedFolder.status = 'error';
+      this.sendToRenderer('folder-sync-status', {
+        folderId: folderName,
+        status: 'error',
+        error: error.message,
+      });
+    });
+
+    watcher.on('ready', () => {
+      logger.debug(`[WATCH] Watcher ready for ${folderPath}`);
+    });
+
+    // Persist state
+    this.persistState();
+  }
+
+  /**
+   * Sync files sequentially with progress reporting
+   * @param folderName - Name of the folder
+   * @param files - Array of files to sync with reason
+   */
+  private async syncFilesSequentially(
+    folderName: string,
+    files: Array<{ path: string; reason: 'new' | 'changed' | 'manual' }>
+  ): Promise<{ syncedCount: number; skippedCount: number; errorCount: number }> {
+    const folder = this.watchedFolders.get(folderName);
+    if (!folder) {
+      return { syncedCount: 0, skippedCount: 0, errorCount: 0 };
+    }
+
+    logger.debug(`[SEQUENTIAL-SYNC] Syncing ${files.length} files for ${folderName}`);
+
+    let syncedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
+
+    for (let i = 0; i < files.length; i++) {
+      const { path: filePath, reason } = files[i];
+
+      try {
+        logger.debug(`[SEQUENTIAL-SYNC] [${i + 1}/${files.length}] Syncing: ${filePath} (${reason})`);
+
+        // Send progress update
+        this.sendToRenderer('sync-progress', {
+          folderId: folderName,
+          current: i + 1,
+          total: files.length,
+          fileName: path.basename(filePath),
+          reason,
+        });
+
+        // Call existing handleFileChange (respects checksum logic)
+        await this.handleFileChange(folderName, filePath, reason);
+
+        syncedCount++;
+      } catch (error: any) {
+        logger.error(`[SEQUENTIAL-SYNC] Failed to sync ${filePath}:`, error);
+        errorCount++;
+
+        // Send error event but continue with next file
+        this.sendToRenderer('file-sync-error', {
+          folderId: folderName,
+          filePath,
+          fileName: path.basename(filePath),
+          error: error.message,
+        });
+
+        // Don't abort - try next file
+      }
+    }
+
+    logger.debug(
+      `[SEQUENTIAL-SYNC] Complete: ${syncedCount} synced, ${skippedCount} skipped, ${errorCount} errors`
+    );
+
+    // Send final summary
+    this.sendToRenderer('sync-complete', {
+      folderId: folderName,
+      syncedCount,
+      skippedCount,
+      errorCount,
+    });
+
+    return { syncedCount, skippedCount, errorCount };
+  }
+
+  /**
+   * Perform smart startup sync - only uploads files that changed while app was closed
+   * @param folderName - Name of the folder
+   * @param folderPath - Absolute path to folder
+   */
+  private async performStartupSync(folderName: string, folderPath: string): Promise<void> {
+    const folder = this.watchedFolders.get(folderName);
+    if (!folder) return;
+
+    logger.debug(`[STARTUP-SYNC] Starting for ${folderName}`);
+    folder.status = 'syncing';
+    this.sendToRenderer('startup-sync-begin', {
+      folderId: folderName,
+      message: 'Checking for changes...',
+    });
+
+    try {
+      // Get all local files
+      const localFiles = this.getAllFiles(folderPath);
+      logger.debug(`[STARTUP-SYNC] Found ${localFiles.length} local files`);
+
+      if (localFiles.length === 0) {
+        logger.debug(`[STARTUP-SYNC] No local files found`);
+        folder.status = 'idle';
+        this.sendToRenderer('startup-sync-complete', {
+          folderId: folderName,
+          status: 'completed',
+          message: 'No files to sync',
+        });
+        return;
+      }
+
+      // Get backend file list with checksums
+      const backendResponse = await listFiles(folderName);
+      const backendFiles = backendResponse.files || [];
+
+      // Build remote file map: relativePath -> checksum
+      const remoteFileMap = new Map<string, string>();
+      for (const file of backendFiles) {
+        remoteFileMap.set(file.relative_path, file.checksum);
+      }
+
+      logger.debug(`[STARTUP-SYNC] Found ${backendFiles.length} files on backend`);
+
+      // Filter files that need syncing (new or changed)
+      const filesToSync: Array<{ path: string; reason: 'new' | 'changed' }> = [];
+
+      for (const filePath of localFiles) {
+        const relativePath = path.relative(folderPath, filePath);
+        const remoteChecksum = remoteFileMap.get(relativePath);
+
+        if (!remoteChecksum) {
+          // File doesn't exist on backend
+          logger.debug(`[STARTUP-SYNC] New file: ${relativePath}`);
+          filesToSync.push({ path: filePath, reason: 'new' });
+          continue;
+        }
+
+        // Calculate local checksum
+        const localChecksum = await calculateChecksum(filePath);
+
+        if (localChecksum !== remoteChecksum) {
+          // File changed since last sync
+          logger.debug(
+            `[STARTUP-SYNC] Changed file: ${relativePath} (local: ${localChecksum}, remote: ${remoteChecksum})`
+          );
+          filesToSync.push({ path: filePath, reason: 'changed' });
+        }
+        // else: checksums match, skip
+      }
+
+      logger.debug(`[STARTUP-SYNC] ${filesToSync.length} files need syncing`);
+
+      if (filesToSync.length === 0) {
+        folder.status = 'synced';
+        this.sendToRenderer('startup-sync-complete', {
+          folderId: folderName,
+          status: 'completed',
+          message: 'All files up to date',
+        });
+        return;
+      }
+
+      // Sync files sequentially
+      const results = await this.syncFilesSequentially(folderName, filesToSync);
+
+      folder.status = 'synced';
+      folder.lastSync = new Date().toISOString();
+      this.sendToRenderer('startup-sync-complete', {
+        folderId: folderName,
+        status: 'completed',
+        message: `Synced ${results.syncedCount} files`,
+        syncedCount: results.syncedCount,
+        errorCount: results.errorCount,
+      });
+    } catch (error: any) {
+      logger.error(`[STARTUP-SYNC] Error for ${folderName}:`, error);
+      folder.status = 'error';
+      this.sendToRenderer('startup-sync-complete', {
+        folderId: folderName,
+        status: 'error',
+        error: error.message,
       });
     }
   }
