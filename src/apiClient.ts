@@ -8,6 +8,7 @@ import * as path from 'path';
 import { app } from 'electron';
 import { EncryptedCookieStore } from './encryptedCookieStore';
 import { defaultLogger as logger } from './utils/logger';
+import { ApiLogData, DevToolsLogLevel } from './shared/types';
 
 // In development mode, default to devdemia API
 export const isDev = !app.isPackaged;
@@ -15,6 +16,43 @@ export const DEFAULT_URL = isDev ? 'https://api.devdemia.com' : 'https://api.aca
 export const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 
 let apiClient: AxiosInstance | null = null;
+
+// API logging functions (only used by interceptors in this file)
+function logApiRequest(method: string, endpoint: string, data?: any): void {
+  const logData: ApiLogData = {
+    type: 'request',
+    method,
+    endpoint,
+    requestData: data,
+  };
+  logger.sendToDevTools('api', 'info', logData);
+}
+
+function logApiResponse(method: string, endpoint: string, status: number, statusText: string, data?: any): void {
+  const level: DevToolsLogLevel = status >= 400 ? 'error' : 'info';
+  const logData: ApiLogData = {
+    type: 'response',
+    method,
+    endpoint,
+    status,
+    statusText,
+    requestData: data,
+  };
+  logger.sendToDevTools('api', level, logData);
+}
+
+function logApiError(method: string, endpoint: string, url: string, message: string, status?: number, data?: any): void {
+  const logData: ApiLogData = {
+    type: 'error',
+    method,
+    endpoint,
+    url,
+    message,
+    status,
+    requestData: data,
+  };
+  logger.sendToDevTools('api', 'error', logData);
+}
 
 export const APIclient = async (enableLogging = true): Promise<AxiosInstance> => {
   if (apiClient) {
@@ -47,7 +85,7 @@ export const APIclient = async (enableLogging = true): Promise<AxiosInstance> =>
         const endpoint = config.url || '';
         const data = config.data || config.params;
 
-        logger.apiRequest(method, endpoint, data);
+        logApiRequest(method, endpoint, data);
         return config;
       },
       (error) => {
@@ -66,7 +104,7 @@ export const APIclient = async (enableLogging = true): Promise<AxiosInstance> =>
 
         // Check if this is actually an error (for validateStatus: () => true cases)
         if (status >= 400) {
-          logger!.apiError(
+          logApiError(
             method,
             endpoint,
             (response.config.baseURL || '') + endpoint,
@@ -75,7 +113,7 @@ export const APIclient = async (enableLogging = true): Promise<AxiosInstance> =>
             response.data
           );
         } else {
-          logger!.apiResponse(
+          logApiResponse(
             method,
             endpoint,
             status,
@@ -94,7 +132,7 @@ export const APIclient = async (enableLogging = true): Promise<AxiosInstance> =>
 
         if (error.response) {
           // HTTP error response (4xx, 5xx)
-          logger!.apiError(
+          logApiError(
             method,
             endpoint,
             url,
@@ -104,7 +142,7 @@ export const APIclient = async (enableLogging = true): Promise<AxiosInstance> =>
           );
         } else {
           // Network error (no response)
-          logger!.apiError(
+          logApiError(
             method,
             endpoint,
             url,

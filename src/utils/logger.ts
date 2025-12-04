@@ -5,7 +5,6 @@ import {
   DevToolsLogLevel,
   DevToolsLogPayload,
   GeneralLogData,
-  ApiLogData,
 } from '../shared/types';
 
 // Development logging configuration
@@ -80,10 +79,10 @@ export class Logger {
   /**
    * Send log to renderer DevTools (development only)
    */
-  private sendToDevTools(
+  sendToDevTools(
     category: DevToolsLogCategory,
     level: DevToolsLogLevel,
-    data: GeneralLogData | ApiLogData
+    data: DevToolsLogPayload['data']
   ): void {
     if (!DEV_LOGGING_CONFIG.devToolsLogging) {
       return; // DevTools logging disabled
@@ -161,58 +160,10 @@ export class Logger {
   }
 
   /**
-   * Log an API request
+   * Check if terminal logging is enabled (for external API logging)
    */
-  apiRequest(method: string, endpoint: string, data?: any): void {
-    this.sendToDevTools('api', 'info', {
-      type: 'request',
-      method,
-      endpoint,
-      requestData: data,
-    });
-
-    // Also log to terminal if enabled
-    if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
-      console.log(`[API REQUEST] ${method} ${endpoint}`, data || '');
-    }
-  }
-
-  /**
-   * Log an API response
-   */
-  apiResponse(method: string, endpoint: string, status: number, statusText: string, data?: any): void {
-    const level: DevToolsLogLevel = status >= 400 ? 'error' : 'info';
-    this.sendToDevTools('api', level, {
-      type: 'response',
-      method,
-      endpoint,
-      status,
-      statusText,
-      requestData: data,
-    });
-
-    if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
-      console.log(`[API RESPONSE] ${method} ${endpoint} - ${status} ${statusText}`, JSON.stringify(data) || '');
-    }
-  }
-
-  /**
-   * Log an API error
-   */
-  apiError(method: string, endpoint: string, url: string, message: string, status?: number, data?: any): void {
-    this.sendToDevTools('api', 'error', {
-      type: 'error',
-      method,
-      endpoint,
-      url,
-      message,
-      status,
-      requestData: data,
-    });
-
-    if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
-      console.error(`[API ERROR] ${method} ${endpoint}`, { url, message, status, data });
-    }
+  isTerminalLoggingEnabled(): boolean {
+    return !this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging;
   }
 }
 
