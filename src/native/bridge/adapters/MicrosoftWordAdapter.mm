@@ -17,7 +17,6 @@ static const NSTimeInterval kBoundsCacheValidityDuration = 1.0; // 1 second
 
 // Polling configuration constants (for two-phase position stability detection)
 static const NSTimeInterval kPollingInterval = 0.1;             // 100ms polling interval
-static const NSTimeInterval kStabilityRequiredDuration = 0.5;   // 500ms stability required
 static const NSTimeInterval kMaxPollingDuration = 5.0;          // 5 second max polling duration
 static const NSInteger kStabilitySampleCount = 5;               // Number of samples for stability (500ms / 100ms)
 
@@ -183,12 +182,10 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
             // Get scroll area bounds (with caching fallback)
             CGRect scrollBounds = [strongSelf getScrollAreaBounds];
-            BOOL usedCache = NO;
 
             // If bounds is empty, try to use cached bounds
             if (CGRectEqualToRect(scrollBounds, CGRectZero)) {
                 scrollBounds = strongSelf->_cachedScrollAreaBounds;
-                usedCache = YES;
             }
 
             // If still empty, skip (no-op - we don't know the bounds)
@@ -750,10 +747,8 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     CFRelease(focusedElement);
 
     // Find AXScrollArea in hierarchy at any level
-    int scrollAreaLevel = -1;
     for (NSDictionary* item in hierarchy) {
         if ([item[@"role"] isEqualToString:(__bridge NSString*)kAXScrollAreaRole]) {
-            scrollAreaLevel = [item[@"level"] intValue];
 
             // Get the bounds of the scroll area
             CGPoint position = NSPointToCGPoint([item[@"position"] pointValue]);

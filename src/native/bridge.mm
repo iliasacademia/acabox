@@ -854,11 +854,6 @@ static void initializeRegistry() {
     }
 }
 
-static WordAccessibilityObserver* getObserverForPID(pid_t pid) {
-    initializeRegistry();
-    return observerRegistry[@(pid)];
-}
-
 static void setActiveObserver(pid_t pid) {
     initializeRegistry();
     NSNumber* pidKey = @(pid);
