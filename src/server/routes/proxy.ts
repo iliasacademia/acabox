@@ -11,6 +11,7 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { APIclient, getCsrfToken } from '../../apiClient';
 import { AxiosError } from 'axios';
+import { defaultLogger as logger } from '../../utils/logger';
 
 /**
  * Determine if a request method requires CSRF token
@@ -37,7 +38,7 @@ export async function registerProxyRoutes(fastify: FastifyInstance): Promise<voi
       // Extract the API path by removing /proxy-api/ prefix
       const apiPath = request.url.replace('/proxy-api/', '');
 
-      console.log(`[Proxy API] ${request.method} /proxy-api/${apiPath}`);
+      logger.debug(`[Proxy API] ${request.method} /proxy-api/${apiPath}`);
 
       // Get authenticated API client
       const client = await APIclient();
@@ -50,7 +51,7 @@ export async function registerProxyRoutes(fastify: FastifyInstance): Promise<voi
       // Add CSRF token for write operations
       if (requiresCsrfToken(request.method)) {
         headers['x-csrf-token'] = await getCsrfToken();
-        console.log(`[Proxy API] Added CSRF token for ${request.method} request`);
+        logger.debug(`[Proxy API] Added CSRF token for ${request.method} request`);
       }
 
       // Forward the request to Academia.edu API
@@ -61,7 +62,7 @@ export async function registerProxyRoutes(fastify: FastifyInstance): Promise<voi
         headers,
       });
 
-      console.log(`[Proxy API] Success: ${response.status} - ${apiPath}`);
+      logger.debug(`[Proxy API] Success: ${response.status} - ${apiPath}`);
 
       // Forward response status and data
       reply.status(response.status).send(response.data);
@@ -75,14 +76,14 @@ export async function registerProxyRoutes(fastify: FastifyInstance): Promise<voi
           const status = axiosError.response.status;
           const data = axiosError.response.data;
 
-          console.error(
+          logger.error(
             `[Proxy API] Error: ${status} - ${request.method} /proxy-api/${request.url.replace('/proxy-api/', '')}`
           );
 
           reply.status(status).send(data);
         } else if (axiosError.request) {
           // Request was made but no response received
-          console.error('[Proxy API] No response received:', axiosError.message);
+          logger.error('[Proxy API] No response received:', axiosError.message);
           reply.code(503).send({
             error: 'ServiceUnavailable',
             message: 'No response from Academia.edu API',
@@ -90,7 +91,7 @@ export async function registerProxyRoutes(fastify: FastifyInstance): Promise<voi
           });
         } else {
           // Error setting up the request
-          console.error('[Proxy API] Request setup error:', axiosError.message);
+          logger.error('[Proxy API] Request setup error:', axiosError.message);
           reply.code(500).send({
             error: 'InternalServerError',
             message: 'Failed to setup request',
@@ -99,7 +100,7 @@ export async function registerProxyRoutes(fastify: FastifyInstance): Promise<voi
         }
       } else {
         // Non-axios error
-        console.error('[Proxy API] Unexpected error:', error);
+        logger.error('[Proxy API] Unexpected error:', error);
         reply.code(500).send({
           error: 'InternalServerError',
           message: 'An unexpected error occurred',
@@ -109,5 +110,5 @@ export async function registerProxyRoutes(fastify: FastifyInstance): Promise<voi
     }
   });
 
-  console.log('[Proxy API] Registered proxy routes at /proxy-api/*');
+  logger.debug('[Proxy API] Registered proxy routes at /proxy-api/*');
 }

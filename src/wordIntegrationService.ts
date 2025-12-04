@@ -3,6 +3,7 @@ import { screen } from 'electron';
 import { wordAccessibility, AccessibilityEvent } from './native/wordAccessibility';
 import { FEATURES } from './shared/types';
 import { wordIntegrationDataStore } from './wordIntegrationDataStore';
+import { defaultLogger as logger } from './utils/logger';
 
 /**
  * Represents a tracked Word process with its manuscript file.
@@ -67,7 +68,7 @@ class WordIntegrationService {
     this.serverBaseUrl = url;
     const success = wordAccessibility.setServerBaseUrl(url);
     if (!success) {
-      console.error('[WORD-INTEGRATION] Failed to set server URL for native popups');
+      logger.error('[WORD-INTEGRATION] Failed to set server URL for native popups');
     }
     return success;
   }
@@ -206,10 +207,10 @@ class WordIntegrationService {
           if (this.navigationHandler) {
             this.navigationHandler(payload);
           } else {
-            console.warn('[WORD-INTEGRATION] Navigation handler not set');
+            logger.warn('[WORD-INTEGRATION] Navigation handler not set');
           }
         } catch (err) {
-          console.error('[WORD-INTEGRATION] Error parsing navigateToPage payload:', err);
+          logger.error('[WORD-INTEGRATION] Error parsing navigateToPage payload:', err);
         }
       }
     });
@@ -224,7 +225,7 @@ class WordIntegrationService {
         this.activePID = pid;
       }
     } else {
-      console.error(`[WORD-INTEGRATION] Failed to start tracking PID ${pid}`);
+      logger.error(`[WORD-INTEGRATION] Failed to start tracking PID ${pid}`);
     }
   }
 
@@ -287,7 +288,7 @@ class WordIntegrationService {
         wordIntegrationDataStore.clearTrackedPIDs();
         this.activePID = null;
       } catch (error) {
-        console.error('[WORD-INTEGRATION] Error stopping observers:', error);
+        logger.error('[WORD-INTEGRATION] Error stopping observers:', error);
       }
     }
   }
@@ -355,7 +356,7 @@ class WordIntegrationService {
         }
       };
     } catch (error: any) {
-      console.error('[WORD-INTEGRATION] Error getting position info:', error);
+      logger.error('[WORD-INTEGRATION] Error getting position info:', error);
       return {
         success: false,
         error: error.message,

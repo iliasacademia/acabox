@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import * as os from 'os';
 import { Cookie, Store } from 'tough-cookie';
 import { app } from 'electron';
+import { defaultLogger as logger } from './utils/logger';
 
 /**
  * Encrypted cookie store that uses AES-256-GCM encryption
@@ -47,7 +48,7 @@ export class EncryptedCookieStore extends Store {
 
       return key;
     } catch (error) {
-      console.error('[EncryptedCookieStore] Error deriving encryption key:', error);
+      logger.error('[EncryptedCookieStore] Error deriving encryption key:', error);
       // Fallback to a basic key (less secure but functional)
       const fallbackData = `${os.hostname()}:${os.platform()}:${app.getPath('userData')}`;
       return crypto.createHash('sha256').update(fallbackData).digest();
@@ -85,7 +86,7 @@ export class EncryptedCookieStore extends Store {
 
       return newId;
     } catch (error) {
-      console.error('[EncryptedCookieStore] Error managing machine ID:', error);
+      logger.error('[EncryptedCookieStore] Error managing machine ID:', error);
       // Fallback to hostname-based ID if file operations fail
       return `fallback-${os.hostname()}`;
     }
@@ -113,7 +114,7 @@ export class EncryptedCookieStore extends Store {
       // Return: IV (12 bytes) + Auth Tag (16 bytes) + Encrypted Data
       return Buffer.concat([iv, authTag, encrypted]);
     } catch (error) {
-      console.error('[EncryptedCookieStore] Encryption error:', error);
+      logger.error('[EncryptedCookieStore] Encryption error:', error);
       throw error;
     }
   }
@@ -143,7 +144,7 @@ export class EncryptedCookieStore extends Store {
 
       return decrypted.toString('utf8');
     } catch (error) {
-      console.error('[EncryptedCookieStore] Decryption error:', error);
+      logger.error('[EncryptedCookieStore] Decryption error:', error);
       throw error;
     }
   }
@@ -161,7 +162,7 @@ export class EncryptedCookieStore extends Store {
 
       // Check if this looks like encrypted data (has minimum size)
       if (encryptedData.length < 28) {
-        console.warn('[EncryptedCookieStore] Cookie file too small to be valid, starting with empty store');
+        logger.warn('[EncryptedCookieStore] Cookie file too small to be valid, starting with empty store');
         this.idx = {};
         return;
       }
@@ -174,10 +175,10 @@ export class EncryptedCookieStore extends Store {
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       if (errorMessage.includes('unable to authenticate data') || errorMessage.includes('Unsupported state')) {
-        console.warn('[EncryptedCookieStore] Cookie decryption failed - encryption key mismatch');
-        console.warn('[EncryptedCookieStore] This is expected after app updates. Please log in again.');
+        logger.warn('[EncryptedCookieStore] Cookie decryption failed - encryption key mismatch');
+        logger.warn('[EncryptedCookieStore] This is expected after app updates. Please log in again.');
       } else {
-        console.error('[EncryptedCookieStore] Unexpected error loading cookies:', error);
+        logger.error('[EncryptedCookieStore] Unexpected error loading cookies:', error);
       }
 
       // Start with empty store if we can't load
@@ -202,7 +203,7 @@ export class EncryptedCookieStore extends Store {
               result[domain][path][key] = cookie;
             }
           } catch (e) {
-            console.error('[EncryptedCookieStore] Failed to deserialize cookie:', e);
+            logger.error('[EncryptedCookieStore] Failed to deserialize cookie:', e);
           }
         }
       }
@@ -230,7 +231,7 @@ export class EncryptedCookieStore extends Store {
       // Write encrypted data to file
       fs.writeFileSync(this.filePath, encryptedData);
     } catch (error) {
-      console.error('[EncryptedCookieStore] Error saving cookies:', error);
+      logger.error('[EncryptedCookieStore] Error saving cookies:', error);
     }
   }
 

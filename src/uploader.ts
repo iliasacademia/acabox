@@ -5,6 +5,7 @@ import { PDFDocument } from 'pdf-lib';
 import { readFile } from 'fs/promises';
 import { APIclient, getCsrfToken } from './apiClient';
 import { GetLatestResponse } from './types/api';
+import { defaultLogger as logger } from './utils/logger';
 
 const getTitle = async (filePath: string): Promise<string | undefined> => {
   const arrayBuffer = await readFile(filePath);
@@ -166,10 +167,10 @@ export const removeSyncAgentFolder = async (folderName: string): Promise<void> =
  */
 export const getStatus = async (): Promise<any> => {
   const client = await APIclient();
-  console.log('[API] Calling GET /v0/sync_agent/status');
+  logger.debug('[API] Calling GET /v0/sync_agent/status');
   const response = await client.get('/v0/sync_agent/status');
-  console.log('[API] Response status:', response.status);
-  // console.log('[API] Response data:', JSON.stringify(response.data, null, 2));
+  logger.debug('[API] Response status:', response.status);
+  // logger.debug('[API] Response data:', JSON.stringify(response.data, null, 2));
   return response.data;
 };
 
@@ -272,12 +273,12 @@ export const deleteFile = async (
  */
 export const listFiles = async (folderName: string): Promise<any> => {
   const client = await APIclient();
-  console.log('[API] Calling GET /v0/sync_agent/files?folder_name=' + folderName);
+  logger.debug('[API] Calling GET /v0/sync_agent/files?folder_name=' + folderName);
   const response = await client.get('/v0/sync_agent/files', {
     params: { folder_name: folderName },
     validateStatus: () => true,
   });
-  console.log('[API] Response status:', response.status);
-  console.log('[API] Response data:', JSON.stringify(response.data, null, 2));
+  logger.debug('[API] Response status:', response.status);
+  logger.debug('[API] Response data:', JSON.stringify(response.data, null, 2));
   return response.data;
 };

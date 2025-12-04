@@ -8,6 +8,7 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { randomBytes } from 'crypto';
 import { TokenMetadata } from '../types';
+import { defaultLogger as logger } from '../../utils/logger';
 
 /**
  * Token manager for tracking valid authentication tokens
@@ -35,7 +36,7 @@ export class TokenManager {
     this.tokens.add(token);
     this.tokenMetadata.set(token, metadata);
 
-    console.log(`[TokenManager] Generated new token${identifier ? ` for ${identifier}` : ''}: ${token.substring(0, 16)}...`);
+    logger.debug(`[TokenManager] Generated new token${identifier ? ` for ${identifier}` : ''}: ${token.substring(0, 16)}...`);
 
     return metadata;
   }
@@ -60,7 +61,7 @@ export class TokenManager {
     const existed = this.tokens.delete(token);
     if (existed) {
       this.tokenMetadata.delete(token);
-      console.log(`[TokenManager] Revoked token: ${token.substring(0, 16)}...`);
+      logger.debug(`[TokenManager] Revoked token: ${token.substring(0, 16)}...`);
     }
     return existed;
   }
@@ -73,7 +74,7 @@ export class TokenManager {
     const count = this.tokens.size;
     this.tokens.clear();
     this.tokenMetadata.clear();
-    console.log(`[TokenManager] Revoked all ${count} tokens`);
+    logger.debug(`[TokenManager] Revoked all ${count} tokens`);
   }
 
   /**

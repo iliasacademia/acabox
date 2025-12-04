@@ -1,3 +1,6 @@
+// disable eslint rule for this file
+/* eslint-disable */
+
 /**
  * Unit tests for apiClient logging functionality
  *

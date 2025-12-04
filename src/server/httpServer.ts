@@ -24,6 +24,7 @@ import { registerWordRoutes } from './routes/word';
 import { wordIntegrationDataStore } from '../wordIntegrationDataStore';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
+import { defaultLogger as logger } from '../utils/logger';
 
 /**
  * Academia HTTP Server
@@ -77,13 +78,13 @@ export class AcademiaHttpServer {
 
     // Create Fastify instance
     this.fastify = Fastify({
-      logger: false, // Disable Fastify's built-in logger (we use console.log)
+      logger: false, // Disable Fastify's built-in logger (we use logger.debug)
       disableRequestLogging: true,
     });
 
     // Register global error handler
     this.fastify.setErrorHandler((error, request, reply) => {
-      console.error('[HTTP Server] Error handling request:', error);
+      logger.error('[HTTP Server] Error handling request:', error);
 
       // Map validation errors (400 status) to BadRequest
       const errorName = error.statusCode === 400 ? 'BadRequest' : (error.name || 'InternalServerError');
@@ -201,24 +202,24 @@ export class AcademiaHttpServer {
           });
         });
 
-        console.log(`[HTTP Server] ✓ Server listening on ${address}`);
-        console.log(`[HTTP Server] Actual port: ${this.actualPort}`);
+        logger.debug(`[HTTP Server] ✓ Server listening on ${address}`);
+        logger.debug(`[HTTP Server] Actual port: ${this.actualPort}`);
 
         return this.actualPort!;
       } catch (error: any) {
         lastError = error;
         if (error.code === 'EADDRINUSE') {
-          console.log(`[HTTP Server] Port ${port} in use, trying next port...`);
+          logger.debug(`[HTTP Server] Port ${port} in use, trying next port...`);
           continue;
         }
         // For non-port-in-use errors, throw immediately
-        console.error('[HTTP Server] Failed to start server:', error);
+        logger.error('[HTTP Server] Failed to start server:', error);
         throw error;
       }
     }
 
     // All ports exhausted
-    console.error(`[HTTP Server] Failed to start server: All ports ${startPort}-${startPort + maxAttempts - 1} are in use`);
+    logger.error(`[HTTP Server] Failed to start server: All ports ${startPort}-${startPort + maxAttempts - 1} are in use`);
     throw lastError || new Error(`No available ports in range ${startPort}-${startPort + maxAttempts - 1}`);
   }
 
@@ -230,7 +231,7 @@ export class AcademiaHttpServer {
       return;
     }
 
-    console.log('[HTTP Server] Stopping server...');
+    logger.debug('[HTTP Server] Stopping server...');
 
     // Destroy all active connections first
     for (const socket of this.activeConnections) {
@@ -253,13 +254,13 @@ export class AcademiaHttpServer {
       this.fastify = null;
       this.actualPort = null;
 
-      console.log('[HTTP Server] ✓ Server stopped');
+      logger.debug('[HTTP Server] ✓ Server stopped');
     } catch (error) {
-      console.error('[HTTP Server] Error stopping server:', error);
+      logger.error('[HTTP Server] Error stopping server:', error);
 
       // Force close by accessing underlying server
       if (this.fastify && this.fastify.server) {
-        console.log('[HTTP Server] Force closing server...');
+        logger.debug('[HTTP Server] Force closing server...');
         this.fastify.server.close();
         this.fastify.server.unref(); // Allow process to exit
       }
@@ -268,7 +269,7 @@ export class AcademiaHttpServer {
       this.actualPort = null;
 
       // Don't throw - we still cleaned up
-      console.log('[HTTP Server] ✓ Server force stopped');
+      logger.debug('[HTTP Server] ✓ Server force stopped');
     }
   }
 

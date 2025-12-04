@@ -3,6 +3,7 @@ import { app } from 'electron';
 import { createHash } from 'crypto';
 import os from 'os';
 import { APIclient, BASE_URL } from '../apiClient';
+import { defaultLogger as logger } from '../utils/logger';
 
 const WEB_URL = BASE_URL.replace('api.', ''); // Convert api.academia.edu to academia.edu
 
@@ -97,8 +98,8 @@ export async function createQRAuthSession(): Promise<QRAuthSession> {
       },
     });
 
-    console.log(`[QR Auth] Created session with device_id: ${deviceId}`);
-    console.log(`[QR Auth] Authorization URL: ${authorizationURL}`);
+    logger.debug(`[QR Auth] Created session with device_id: ${deviceId}`);
+    logger.debug(`[QR Auth] Authorization URL: ${authorizationURL}`);
 
     return {
       deviceId,
@@ -106,7 +107,7 @@ export async function createQRAuthSession(): Promise<QRAuthSession> {
       authorizationURL,
     };
   } catch (error) {
-    console.error('Error creating QR auth session:', error);
+    logger.error('Error creating QR auth session:', error);
     throw new Error('Failed to create QR auth session');
   }
 }
@@ -118,7 +119,7 @@ export async function createQRAuthSession(): Promise<QRAuthSession> {
  */
 export async function verifyAuthCode(deviceId: string, code: string): Promise<QRAuthResult> {
   try {
-    console.log(`[QR Auth] Verifying code for device_id: ${deviceId}`);
+    logger.debug(`[QR Auth] Verifying code for device_id: ${deviceId}`);
 
     // Get device fingerprint for verification
     const fingerprint = getDeviceFingerprint();
@@ -140,7 +141,7 @@ export async function verifyAuthCode(deviceId: string, code: string): Promise<QR
 
     // Handle error responses
     if (response.status >= 400) {
-      console.error(`[QR Auth] Verification failed with status ${response.status}:`, data);
+      logger.error(`[QR Auth] Verification failed with status ${response.status}:`, data);
       return {
         authorized: false,
         error: data.error || `Verification failed (${response.status})`,
@@ -150,7 +151,7 @@ export async function verifyAuthCode(deviceId: string, code: string): Promise<QR
     // Handle successful verification
     // Cookie is automatically captured by cookie jar from Set-Cookie header
     if (data.authorized === true) {
-      console.log(`[QR Auth] Verification successful! Cookie set by backend.`);
+      logger.debug(`[QR Auth] Verification successful! Cookie set by backend.`);
 
       return {
         authorized: true,
@@ -159,13 +160,13 @@ export async function verifyAuthCode(deviceId: string, code: string): Promise<QR
     }
 
     // Verification failed
-    console.log(`[QR Auth] Verification returned unauthorized`);
+    logger.debug(`[QR Auth] Verification returned unauthorized`);
     return {
       authorized: false,
       error: data.error || 'Invalid verification code',
     };
   } catch (error) {
-    console.error('Error verifying auth code:', error);
+    logger.error('Error verifying auth code:', error);
     // Type guard for axios error
     if (error && typeof error === 'object' && 'response' in error) {
       const axiosError = error as { response?: { status?: number } };

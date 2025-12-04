@@ -14,6 +14,7 @@ import {
   UpdateNotificationBody,
   UpdateNotificationResponse,
 } from '../types';
+import { defaultLogger as logger } from '../../utils/logger';
 
 /**
  * Register notification routes on a Fastify instance
@@ -101,7 +102,7 @@ export async function registerNotificationRoutes(
 
         reply.send(response);
       } catch (error) {
-        console.error('[Notifications API] Error fetching notifications:', error);
+        logger.error('[Notifications API] Error fetching notifications:', error);
         reply.code(500).send({
           error: 'InternalServerError',
           message: 'Failed to fetch notifications',
@@ -177,7 +178,7 @@ export async function registerNotificationRoutes(
 
         reply.send(response);
       } catch (error) {
-        console.error('[Notifications API] Error fetching notification counts:', error);
+        logger.error('[Notifications API] Error fetching notification counts:', error);
         reply.code(500).send({
           error: 'InternalServerError',
           message: 'Failed to fetch notification counts',
@@ -289,7 +290,7 @@ export async function registerNotificationRoutes(
 
         reply.send(response);
       } catch (error) {
-        console.error(`[Notifications API] Error updating notification ${notificationId}:`, error);
+        logger.error(`[Notifications API] Error updating notification ${notificationId}:`, error);
         reply.code(500).send({
           error: 'InternalServerError',
           message: 'Failed to update notification',

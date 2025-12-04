@@ -5,6 +5,7 @@ import { BrowserWindow } from 'electron';
 import { downloadFileFromS3, getLatestFiles, createFile, deleteFile, getStatus } from './uploader';
 import { calculateChecksum } from './utils/checksum';
 import Store from 'electron-store';
+import { defaultLogger as logger } from './utils/logger';
 
 interface WatchedFolder {
   folder_name: string;
@@ -45,11 +46,11 @@ class SyncService {
 
     // Check if already watching
     if (this.watchedFolders.has(folderName)) {
-      console.log(`Already watching folder ${folderName}`);
+      logger.debug(`Already watching folder ${folderName}`);
       return;
     }
 
-    console.log(`Starting to watch folder: ${folderPath}`);
+    logger.debug(`Starting to watch folder: ${folderPath}`);
 
     // Perform initial sync from S3 if requested
     if (performInitialSync) {
@@ -58,9 +59,9 @@ class SyncService {
 
     // First, scan and count all files in the folder
     const existingFiles = this.getAllFiles(folderPath);
-    console.log(`Found ${existingFiles.length} files in folder ${folderPath}`);
+    logger.debug(`Found ${existingFiles.length} files in folder ${folderPath}`);
     if (existingFiles.length > 0) {
-      console.log('Files found:', existingFiles);
+      logger.debug('Files found:', existingFiles);
     }
 
     // Create watcher with options optimized for different OS
@@ -104,35 +105,35 @@ class SyncService {
 
     this.watchedFolders.set(folderName, watchedFolder);
 
-    console.log(`Watcher created for folder ${folderName}, waiting for events...`);
+    logger.debug(`Watcher created for folder ${folderName}, waiting for events...`);
 
     // Persist to disk after successful setup
     this.persistState();
 
     // Handle new files
     watcher.on('add', async (filePath: string) => {
-      console.log(`[CHOKIDAR] File added: ${filePath}`);
-      console.log(`[CHOKIDAR] File type:`, path.extname(filePath));
+      logger.debug(`[CHOKIDAR] File added: ${filePath}`);
+      logger.debug(`[CHOKIDAR] File type:`, path.extname(filePath));
       await this.handleFileChange(folderName, filePath, 'add');
     });
 
     // Handle changed files
     watcher.on('change', async (filePath: string) => {
-      console.log(`[CHOKIDAR] File changed: ${filePath}`);
-      console.log(`[CHOKIDAR] File type:`, path.extname(filePath));
+      logger.debug(`[CHOKIDAR] File changed: ${filePath}`);
+      logger.debug(`[CHOKIDAR] File type:`, path.extname(filePath));
       await this.handleFileChange(folderName, filePath, 'change');
     });
 
     // Handle deleted files
     watcher.on('unlink', async (filePath: string) => {
-      console.log(`[CHOKIDAR] File deleted: ${filePath}`);
+      logger.debug(`[CHOKIDAR] File deleted: ${filePath}`);
       await this.handleFileDeletion(folderName, filePath);
     });
 
     // Handle errors
     watcher.on('error', (err: unknown) => {
       const error = err instanceof Error ? err : new Error(String(err));
-      console.error(`Watcher error for folder ${folderName}:`, error);
+      logger.error(`Watcher error for folder ${folderName}:`, error);
       watchedFolder.status = 'error';
       this.sendToRenderer('folder-sync-status', {
         folderId: folderName,
@@ -143,12 +144,12 @@ class SyncService {
 
     // Handle ready event (initial scan complete)
     watcher.on('ready', async () => {
-      console.log(`[CHOKIDAR READY] Initial scan complete for folder ${folderName}`);
-      console.log(`[CHOKIDAR READY] Files processed during scan: ${watchedFolder.fileCount}`);
+      logger.debug(`[CHOKIDAR READY] Initial scan complete for folder ${folderName}`);
+      logger.debug(`[CHOKIDAR READY] Files processed during scan: ${watchedFolder.fileCount}`);
 
       // If chokidar didn't process files during initial scan, manually sync existing files
       if (watchedFolder.fileCount === 0 && existingFiles.length > 0) {
-        console.log(`[CHOKIDAR READY] Chokidar didn't process existing files, triggering manual initial sync...`);
+        logger.debug(`[CHOKIDAR READY] Chokidar didn't process existing files, triggering manual initial sync...`);
 
         watchedFolder.status = 'syncing';
         this.sendToRenderer('folder-sync-status', {
@@ -161,7 +162,7 @@ class SyncService {
           await this.handleFileChange(folderName, filePath, 'initial');
         }
 
-        console.log(`[CHOKIDAR READY] Initial sync complete, synced ${existingFiles.length} files`);
+        logger.debug(`[CHOKIDAR READY] Initial sync complete, synced ${existingFiles.length} files`);
       }
 
       // Mark as synced if we have files, otherwise idle
@@ -172,7 +173,7 @@ class SyncService {
           status: 'synced',
         });
       } else {
-        console.log(`[CHOKIDAR READY] No files in folder`);
+        logger.debug(`[CHOKIDAR READY] No files in folder`);
         watchedFolder.status = 'idle';
       }
     });
@@ -181,12 +182,12 @@ class SyncService {
   private async handleFileChange(folderName: string, filePath: string, eventType: string) {
     const folder = this.watchedFolders.get(folderName);
     if (!folder) {
-      console.log(`[SYNC] Folder not found: ${folderName}`);
+      logger.debug(`[SYNC] Folder not found: ${folderName}`);
       return;
     }
 
-    console.log(`[SYNC] Starting file sync for: ${filePath}`);
-    console.log(`[SYNC] Event type: ${eventType}`);
+    logger.debug(`[SYNC] Starting file sync for: ${filePath}`);
+    logger.debug(`[SYNC] Event type: ${eventType}`);
 
     // Update folder status
     folder.status = 'syncing';
@@ -197,7 +198,7 @@ class SyncService {
 
     try {
       // Calculate checksum
-      console.log(`[SYNC] Calculating checksum for ${filePath}...`);
+      logger.debug(`[SYNC] Calculating checksum for ${filePath}...`);
       const checksum = await calculateChecksum(filePath);
 
       // Get file stats
@@ -206,15 +207,15 @@ class SyncService {
 
       // Calculate relative path (handles nested subfolders)
       const localRelativePath = path.relative(folder.path, filePath);
-      console.log(`[SYNC] Relative path: ${localRelativePath}`);
-      console.log(`[SYNC] Checksum: ${checksum}`);
+      logger.debug(`[SYNC] Relative path: ${localRelativePath}`);
+      logger.debug(`[SYNC] Checksum: ${checksum}`);
 
       // Upload with checksum using new API
       const result = await createFile(folderName, localRelativePath, filePath, checksum, mtime);
 
       // If skipped (checksum matched), don't increment counter or show notification
       if (result.data?.skipped) {
-        console.log(`[SYNC] Skipped ${filePath} - checksum matched`);
+        logger.debug(`[SYNC] Skipped ${filePath} - checksum matched`);
         folder.status = 'synced';
         this.sendToRenderer('folder-sync-status', {
           folderId: folderName,
@@ -226,7 +227,7 @@ class SyncService {
       const fileName = path.basename(filePath);
       const status = result.status >= 200 && result.status < 300 ? 'success' : 'error';
 
-      console.log(`[SYNC] Sync completed with status: ${result.status} (${status})`);
+      logger.debug(`[SYNC] Sync completed with status: ${result.status} (${status})`);
 
       // Send sync event to renderer
       this.sendToRenderer('file-synced', {
@@ -247,10 +248,10 @@ class SyncService {
         status: 'synced',
       });
 
-      console.log(`[SYNC] File sync completed successfully`);
+      logger.debug(`[SYNC] File sync completed successfully`);
     } catch (error: any) {
-      console.error(`[SYNC ERROR] Error syncing file ${filePath}:`, error);
-      console.error(`[SYNC ERROR] Error stack:`, error.stack);
+      logger.error(`[SYNC ERROR] Error syncing file ${filePath}:`, error);
+      logger.error(`[SYNC ERROR] Error stack:`, error.stack);
 
       // Send error event
       this.sendToRenderer('file-synced', {
@@ -274,11 +275,11 @@ class SyncService {
   private async handleFileDeletion(folderName: string, filePath: string) {
     const folder = this.watchedFolders.get(folderName);
     if (!folder) {
-      console.log(`[SYNC] Folder not found: ${folderName}`);
+      logger.debug(`[SYNC] Folder not found: ${folderName}`);
       return;
     }
 
-    console.log(`[SYNC] Starting file deletion for: ${filePath}`);
+    logger.debug(`[SYNC] Starting file deletion for: ${filePath}`);
 
     // Update folder status
     folder.status = 'syncing';
@@ -290,7 +291,7 @@ class SyncService {
     try {
       // Calculate relative path (handles nested subfolders)
       const localRelativePath = path.relative(folder.path, filePath);
-      console.log(`[SYNC] Deleting relative path: ${localRelativePath}`);
+      logger.debug(`[SYNC] Deleting relative path: ${localRelativePath}`);
 
       // Call delete API
       const result = await deleteFile(folderName, localRelativePath);
@@ -300,7 +301,7 @@ class SyncService {
 
       const fileName = path.basename(filePath);
 
-      console.log(`[SYNC] File deleted successfully`);
+      logger.debug(`[SYNC] File deleted successfully`);
 
       // Send sync event to renderer
       this.sendToRenderer('file-synced', {
@@ -321,8 +322,8 @@ class SyncService {
         status: 'synced',
       });
     } catch (error: any) {
-      console.error(`[SYNC ERROR] Error deleting file ${filePath}:`, error);
-      console.error(`[SYNC ERROR] Error stack:`, error.stack);
+      logger.error(`[SYNC ERROR] Error deleting file ${filePath}:`, error);
+      logger.error(`[SYNC ERROR] Error stack:`, error.stack);
 
       // Send error event
       this.sendToRenderer('file-synced', {
@@ -346,11 +347,11 @@ class SyncService {
   async stopWatching(folderName: string) {
     const folder = this.watchedFolders.get(folderName);
     if (!folder) {
-      console.log(`Folder ${folderName} is not being watched`);
+      logger.debug(`Folder ${folderName} is not being watched`);
       return;
     }
 
-    console.log(`Stopping watch for folder ${folderName}`);
+    logger.debug(`Stopping watch for folder ${folderName}`);
 
     if (folder.watcher) {
       await folder.watcher.close();
@@ -368,7 +369,7 @@ class SyncService {
       throw new Error('Folder is not being watched');
     }
 
-    console.log(`Manual sync triggered for folder ${folderName}`);
+    logger.debug(`Manual sync triggered for folder ${folderName}`);
 
     // Get all files in the folder
     const files = this.getAllFiles(folder.path);
@@ -419,7 +420,7 @@ class SyncService {
   }
 
   async stopAll() {
-    console.log('Stopping all watchers');
+    logger.debug('Stopping all watchers');
     for (const [_folderName, folder] of this.watchedFolders) {
       if (folder.watcher) {
         await folder.watcher.close();
@@ -429,18 +430,18 @@ class SyncService {
   }
 
   async initialize() {
-    console.log('[SYNC] Initializing sync service...');
+    logger.debug('[SYNC] Initializing sync service...');
 
     // Load persisted folders
     const state = this.store.get('folders', []);
-    console.log(`[SYNC] Found ${state.length} persisted folders`);
+    logger.debug(`[SYNC] Found ${state.length} persisted folders`);
 
     for (const { name, path: folderPath } of state) {
       if (fs.existsSync(folderPath)) {
-        console.log(`[SYNC] Starting watcher for ${name} at ${folderPath}`);
+        logger.debug(`[SYNC] Starting watcher for ${name} at ${folderPath}`);
         await this.startWatching(name, folderPath, false); // Skip initial sync
       } else {
-        console.log(`[SYNC] Folder path no longer exists: ${folderPath}`);
+        logger.debug(`[SYNC] Folder path no longer exists: ${folderPath}`);
       }
     }
 
@@ -462,7 +463,7 @@ class SyncService {
         }
       }
     } catch (error) {
-      console.error('[SYNC] Failed to fetch remote state (backend offline?):', error);
+      logger.error('[SYNC] Failed to fetch remote state (backend offline?):', error);
       // Mark all folders as offline if backend is unreachable
       for (const folder of this.watchedFolders.values()) {
         folder.status = 'error';
@@ -474,7 +475,7 @@ class SyncService {
       }
     }
 
-    console.log('[SYNC] Initialization complete');
+    logger.debug('[SYNC] Initialization complete');
   }
 
   private persistState() {
@@ -483,11 +484,11 @@ class SyncService {
       path: f.path,
     }));
     this.store.set('folders', folders);
-    console.log(`[SYNC] Persisted ${folders.length} folders to disk`);
+    logger.debug(`[SYNC] Persisted ${folders.length} folders to disk`);
   }
 
   async performInitialSync(folderName: string, folderPath: string) {
-    console.log(`[INITIAL SYNC] Starting initial sync for folder: ${folderName}`);
+    logger.debug(`[INITIAL SYNC] Starting initial sync for folder: ${folderName}`);
 
     this.sendToRenderer('initial-sync-status', {
       folderId: folderName,
@@ -498,13 +499,13 @@ class SyncService {
     try {
       // Fetch ALL folders and files using new API
       const latestData = await getLatestFiles();
-      console.log(`[INITIAL SYNC] Got ${latestData.total_folders} folders with ${latestData.total_files} total files`);
+      logger.debug(`[INITIAL SYNC] Got ${latestData.total_folders} folders with ${latestData.total_files} total files`);
 
       // Find this specific folder
       const folderData = latestData.folders.find(f => f.folder_name === folderName);
 
       if (!folderData || folderData.files.length === 0) {
-        console.log(`[INITIAL SYNC] No files found for folder ${folderName}`);
+        logger.debug(`[INITIAL SYNC] No files found for folder ${folderName}`);
         this.sendToRenderer('initial-sync-status', {
           folderId: folderName,
           status: 'completed',
@@ -514,7 +515,7 @@ class SyncService {
       }
 
       const folderFiles = folderData.files;
-      console.log(`[INITIAL SYNC] Found ${folderFiles.length} files for folder ${folderName}`);
+      logger.debug(`[INITIAL SYNC] Found ${folderFiles.length} files for folder ${folderName}`);
 
       this.sendToRenderer('initial-sync-status', {
         folderId: folderName,
@@ -546,16 +547,16 @@ class SyncService {
 
             // Skip if local file is newer or same size
             if (localStats.size === s3File.size && localModifiedTime >= s3ModifiedTime) {
-              console.log(`[INITIAL SYNC] Skipping ${localFilePath} - already up to date`);
+              logger.debug(`[INITIAL SYNC] Skipping ${localFilePath} - already up to date`);
               syncedCount++;
               continue;
             }
 
-            console.log(`[INITIAL SYNC] Local file exists but outdated: ${localFilePath}`);
+            logger.debug(`[INITIAL SYNC] Local file exists but outdated: ${localFilePath}`);
           }
 
           // Download file from S3
-          console.log(`[INITIAL SYNC] Downloading ${s3File.key} to ${localFilePath}`);
+          logger.debug(`[INITIAL SYNC] Downloading ${s3File.key} to ${localFilePath}`);
           const fileBuffer = await downloadFileFromS3(folderName, s3File.key);
 
           // Create directory if it doesn't exist
@@ -572,7 +573,7 @@ class SyncService {
           fs.utimesSync(localFilePath, s3ModTime, s3ModTime);
 
           syncedCount++;
-          console.log(`[INITIAL SYNC] Downloaded: ${localFilePath}`);
+          logger.debug(`[INITIAL SYNC] Downloaded: ${localFilePath}`);
 
           // Send progress update
           this.sendToRenderer('initial-sync-progress', {
@@ -585,7 +586,7 @@ class SyncService {
           errorCount++;
           const errorMsg = `Failed to sync ${s3File.file_name}: ${error.message}`;
           errors.push(errorMsg);
-          console.error(`[INITIAL SYNC ERROR]`, errorMsg);
+          logger.error(`[INITIAL SYNC ERROR]`, errorMsg);
         }
       }
 
@@ -614,9 +615,9 @@ class SyncService {
         });
       }
 
-      console.log(`[INITIAL SYNC] Completed: ${syncedCount} synced, ${errorCount} errors`);
+      logger.debug(`[INITIAL SYNC] Completed: ${syncedCount} synced, ${errorCount} errors`);
     } catch (error: any) {
-      console.error(`[INITIAL SYNC ERROR] Failed to sync folder ${folderName}:`, error);
+      logger.error(`[INITIAL SYNC ERROR] Failed to sync folder ${folderName}:`, error);
       this.sendToRenderer('initial-sync-status', {
         folderId: folderName,
         status: 'error',

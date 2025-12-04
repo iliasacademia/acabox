@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { defaultLogger as logger } from '../utils/logger';
 
 // Webpack provides __non_webpack_require__ to access Node's native require
 declare const __non_webpack_require__: NodeRequire | undefined;
@@ -135,9 +136,9 @@ const nodeRequire = typeof __non_webpack_require__ !== 'undefined' ? __non_webpa
 
 try {
   // Debug: log the base directories
-  console.log('[Native Module] __dirname:', __dirname);
-  console.log('[Native Module] process.cwd():', process.cwd());
-  console.log('[Native Module] process.resourcesPath:', process.resourcesPath);
+  logger.debug('[Native Module] __dirname:', __dirname);
+  logger.debug('[Native Module] process.cwd():', process.cwd());
+  logger.debug('[Native Module] process.resourcesPath:', process.resourcesPath);
 
   // Try multiple possible paths
   const possiblePaths = [
@@ -155,19 +156,19 @@ try {
     path.join(process.resourcesPath || '', 'native', 'build', 'Release', 'word_accessibility.node')
   ];
 
-  console.log('[Native Module] Attempting to load from paths:');
+  logger.debug('[Native Module] Attempting to load from paths:');
   for (const modulePath of possiblePaths) {
     try {
       const fs = nodeRequire('fs');
       const exists = fs.existsSync(modulePath);
-      console.log(`[Native Module]   ${modulePath} - ${exists ? 'EXISTS' : 'NOT FOUND'}`);
+      logger.debug(`[Native Module]   ${modulePath} - ${exists ? 'EXISTS' : 'NOT FOUND'}`);
       if (exists) {
         nativeModule = nodeRequire(modulePath) as NativeModule;
-        console.log('Native Word accessibility module loaded successfully from:', modulePath);
+        logger.debug('Native Word accessibility module loaded successfully from:', modulePath);
         break;
       }
     } catch (e) {
-      console.error(`[Native Module] Error trying to load from ${modulePath}:`, e);
+      logger.error(`[Native Module] Error trying to load from ${modulePath}:`, e);
       // Try next path
       continue;
     }
@@ -190,16 +191,16 @@ try {
     for (const popupPath of popupPaths) {
       if (fs.existsSync(popupPath)) {
         nativeModule.setPopupPath(popupPath);
-        console.log('Popup HTML path set to:', popupPath);
+        logger.debug('Popup HTML path set to:', popupPath);
         break;
       }
     }
   } catch (error) {
-    console.error('Failed to set popup path:', error);
+    logger.error('Failed to set popup path:', error);
   }
 } catch (error) {
-  console.error('Failed to load native Word accessibility module:', error);
-  console.error('Make sure to build the native module first: npm run build:native');
+  logger.error('Failed to load native Word accessibility module:', error);
+  logger.error('Make sure to build the native module first: npm run build:native');
 }
 
 export class WordAccessibilityBridge {
@@ -223,7 +224,7 @@ export class WordAccessibilityBridge {
 
   /** @deprecated Use startObservingPID instead */
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean {
-    console.warn('[WordAccessibility] WARNING: startObserving() is deprecated. Use startObservingPID() for multi-PID support.');
+    logger.warn('[WordAccessibility] WARNING: startObserving() is deprecated. Use startObservingPID() for multi-PID support.');
 
     if (!nativeModule) {
       throw new Error('Native module not loaded');
@@ -239,14 +240,14 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.startObserving(pid, callback);
     } catch (error) {
-      console.error('Failed to start observing:', error);
+      logger.error('Failed to start observing:', error);
       throw error;
     }
   }
 
   /** @deprecated Use stopObservingPID or stopAllObserving instead */
   stopObserving(): void {
-    console.warn('[WordAccessibility] WARNING: stopObserving() is deprecated. Use stopObservingPID() or stopAllObserving() for multi-PID support.');
+    logger.warn('[WordAccessibility] WARNING: stopObserving() is deprecated. Use stopObservingPID() or stopAllObserving() for multi-PID support.');
 
     if (!nativeModule) {
       return;
@@ -257,7 +258,7 @@ export class WordAccessibilityBridge {
       this.callback = null;
       this.pid = null;
     } catch (error) {
-      console.error('Failed to stop observing:', error);
+      logger.error('Failed to stop observing:', error);
     }
   }
 
@@ -286,7 +287,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.startObservingPID(pid, callback);
     } catch (error) {
-      console.error(`Failed to start observing PID ${pid}:`, error);
+      logger.error(`Failed to start observing PID ${pid}:`, error);
       throw error;
     }
   }
@@ -304,7 +305,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.stopObservingPID(pid);
     } catch (error) {
-      console.error(`Failed to stop observing PID ${pid}:`, error);
+      logger.error(`Failed to stop observing PID ${pid}:`, error);
       return false;
     }
   }
@@ -321,7 +322,7 @@ export class WordAccessibilityBridge {
       nativeModule.stopAllObserving();
       this.sharedCallback = null;
     } catch (error) {
-      console.error('Failed to stop all observers:', error);
+      logger.error('Failed to stop all observers:', error);
     }
   }
 
@@ -338,7 +339,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.setActivePID(pid);
     } catch (error) {
-      console.error(`Failed to set active PID ${pid}:`, error);
+      logger.error(`Failed to set active PID ${pid}:`, error);
       return false;
     }
   }
@@ -355,7 +356,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getActivePID();
     } catch (error) {
-      console.error('Failed to get active PID:', error);
+      logger.error('Failed to get active PID:', error);
       return null;
     }
   }
@@ -372,7 +373,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getObservedPIDs();
     } catch (error) {
-      console.error('Failed to get observed PIDs:', error);
+      logger.error('Failed to get observed PIDs:', error);
       return [];
     }
   }
@@ -390,7 +391,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.isObservingPID(pid);
     } catch (error) {
-      console.error(`Failed to check if observing PID ${pid}:`, error);
+      logger.error(`Failed to check if observing PID ${pid}:`, error);
       return false;
     }
   }
@@ -405,14 +406,14 @@ export class WordAccessibilityBridge {
    */
   setFeatureFlags(flags: { textSideButtonEnabled?: boolean; overallReviewButtonEnabled?: boolean; scrollTrackingEnabled?: boolean }): boolean {
     if (!nativeModule) {
-      console.error('Failed to set feature flags: Native module not loaded');
+      logger.error('Failed to set feature flags: Native module not loaded');
       return false;
     }
 
     try {
       return nativeModule.setFeatureFlags(flags);
     } catch (error) {
-      console.error('Failed to set feature flags:', error);
+      logger.error('Failed to set feature flags:', error);
       return false;
     }
   }
@@ -429,7 +430,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getSelectedText();
     } catch (error) {
-      console.error('Failed to get selected text:', error);
+      logger.error('Failed to get selected text:', error);
       return null;
     }
   }
@@ -442,7 +443,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getFirstTextAreaInfo();
     } catch (error) {
-      console.error('Failed to get first text area info:', error);
+      logger.error('Failed to get first text area info:', error);
       return null;
     }
   }
@@ -459,7 +460,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getDocumentTopLeftCorner();
     } catch (error) {
-      console.error('Failed to get document top left corner:', error);
+      logger.error('Failed to get document top left corner:', error);
       return null;
     }
   }
@@ -472,7 +473,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getWordWindowBounds();
     } catch (error) {
-      console.error('Failed to get Word window bounds:', error);
+      logger.error('Failed to get Word window bounds:', error);
       return null;
     }
   }
@@ -485,7 +486,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getFirstLinePosition();
     } catch (error) {
-      console.error('Failed to get first line position:', error);
+      logger.error('Failed to get first line position:', error);
       return null;
     }
   }
@@ -498,7 +499,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getPageCornerVisibility();
     } catch (error) {
-      console.error('Failed to get page corner visibility:', error);
+      logger.error('Failed to get page corner visibility:', error);
       return null;
     }
   }
@@ -512,7 +513,7 @@ export class WordAccessibilityBridge {
       const result = nativeModule.getParentHierarchy();
       return result || [];  // Convert null to empty array
     } catch (error) {
-      console.error('Failed to get parent hierarchy:', error);
+      logger.error('Failed to get parent hierarchy:', error);
       return [];
     }
   }
@@ -525,7 +526,7 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getButtonStates();
     } catch (error) {
-      console.error('Failed to get button states:', error);
+      logger.error('Failed to get button states:', error);
       return null;
     }
   }
@@ -538,35 +539,35 @@ export class WordAccessibilityBridge {
     try {
       return nativeModule.getScrollAreaBounds();
     } catch (error) {
-      console.error('Failed to get scroll area bounds:', error);
+      logger.error('Failed to get scroll area bounds:', error);
       return null;
     }
   }
 
   setServerBaseUrl(url: string): boolean {
     if (!nativeModule) {
-      console.error('Failed to set server base URL: Native module not loaded');
+      logger.error('Failed to set server base URL: Native module not loaded');
       return false;
     }
 
     try {
       return nativeModule.setServerBaseUrl(url);
     } catch (error) {
-      console.error('Failed to set server base URL:', error);
+      logger.error('Failed to set server base URL:', error);
       return false;
     }
   }
 
   setAuthToken(token: string): boolean {
     if (!nativeModule) {
-      console.error('Failed to set auth token: Native module not loaded');
+      logger.error('Failed to set auth token: Native module not loaded');
       return false;
     }
 
     try {
       return nativeModule.setAuthToken(token);
     } catch (error) {
-      console.error('Failed to set auth token:', error);
+      logger.error('Failed to set auth token:', error);
       return false;
     }
   }
