@@ -13,13 +13,13 @@ import { datadogRum } from '@datadog/browser-rum';
  * browser SDK is fully supported.
  */
 
-// Get configuration from environment or use defaults
+// Configuration from environment variables (injected at build time via webpack DefinePlugin)
 const DATADOG_CONFIG = {
-  applicationId: '210900a6-7493-4824-82dd-84f67aabe95f',
-  clientToken: 'pub3ff81d1497ab83741b388cd92525d9e7',
-  site: 'datadoghq.com',
+  applicationId: process.env.DATADOG_APPLICATION_ID || '',
+  clientToken: process.env.DATADOG_CLIENT_TOKEN || '',
+  site: process.env.DATADOG_SITE || 'datadoghq.com',
   service: 'academia-electron',
-  env: 'development',
+  env: process.env.NODE_ENV === 'production' ? 'production' : 'development',
 };
 
 let isInitialized = false;
@@ -29,6 +29,12 @@ let isInitialized = false;
  */
 export function initDatadogRum(): void {
   if (isInitialized) {
+    return;
+  }
+
+  // Skip initialization if credentials not configured
+  if (!DATADOG_CONFIG.applicationId || !DATADOG_CONFIG.clientToken) {
+    console.log('[Datadog RUM] Skipped - credentials not configured');
     return;
   }
 
