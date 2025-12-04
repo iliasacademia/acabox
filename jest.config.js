@@ -12,12 +12,15 @@ module.exports = {
   transformIgnorePatterns: [
     'node_modules/(?!(axios-cookiejar-support|http-cookie-agent|tough-cookie-file-store)/)',
   ],
-  globals: {
-    'ts-jest': {
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', {
       tsconfig: {
         jsx: 'react',
         esModuleInterop: true,
       },
-    },
+    }],
+  },
+  moduleNameMapper: {
+    '^serialize-error$': '<rootDir>/src/__mocks__/serialize-error.ts',
   },
 };

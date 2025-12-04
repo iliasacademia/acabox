@@ -11,9 +11,14 @@ jest.mock('../apiClient', () => ({
 import { notificationManager } from '../notificationManager';
 import * as notificationManagerModule from '../notificationManager';
 
-// Mock Electron's BrowserWindow
+// Mock Electron's BrowserWindow and app
 jest.mock('electron', () => ({
   BrowserWindow: jest.fn(),
+  app: {
+    getVersion: jest.fn(() => '1.0.0-test'),
+    isPackaged: false,
+    getPath: jest.fn(() => '/mock/path'),
+  },
 }));
 
 describe('NotificationManager', () => {

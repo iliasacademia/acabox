@@ -9,6 +9,7 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
 jest.mock('electron', () => ({
   app: {
     getPath: jest.fn(() => '/mock/path'),
+    getVersion: jest.fn(() => '1.0.0-test'),
     isPackaged: false,
   },
 }));
