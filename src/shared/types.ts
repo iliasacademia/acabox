@@ -96,6 +96,7 @@ export const FEATURES = {
   MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
   TEXT_SIDE_BUTTON_ENABLED: false, // Toggle TextSideButton/Popup in Word overlay
   OVERALL_REVIEW_BUTTON_ENABLED: false, // Toggle OverallReviewButton/Popup in Word overlay
+  SCROLL_TRACKING_ENABLED: false, // Toggle scroll tracking in Word overlay
 } as const;
 
 export interface DesktopNotification {

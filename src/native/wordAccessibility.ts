@@ -107,7 +107,7 @@ interface NativeModule {
   isObservingPID(pid: number): boolean;
 
   // Configuration
-  setFeatureFlags(flags: { textSideButtonEnabled?: boolean; overallReviewButtonEnabled?: boolean }): boolean;
+  setFeatureFlags(flags: { textSideButtonEnabled?: boolean; overallReviewButtonEnabled?: boolean; scrollTrackingEnabled?: boolean }): boolean;
 
   // Utility functions
   getSelectedText(): SelectedText | null;
@@ -403,7 +403,7 @@ export class WordAccessibilityBridge {
    * Set feature flags for native components.
    * Must be called BEFORE startObservingPID() since buttons are created during observer initialization.
    */
-  setFeatureFlags(flags: { textSideButtonEnabled?: boolean; overallReviewButtonEnabled?: boolean }): boolean {
+  setFeatureFlags(flags: { textSideButtonEnabled?: boolean; overallReviewButtonEnabled?: boolean; scrollTrackingEnabled?: boolean }): boolean {
     if (!nativeModule) {
       console.error('Failed to set feature flags: Native module not loaded');
       return false;

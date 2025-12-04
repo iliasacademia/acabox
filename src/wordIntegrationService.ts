@@ -56,6 +56,7 @@ class WordIntegrationService {
     wordAccessibility.setFeatureFlags({
       textSideButtonEnabled: FEATURES.TEXT_SIDE_BUTTON_ENABLED,
       overallReviewButtonEnabled: FEATURES.OVERALL_REVIEW_BUTTON_ENABLED,
+      scrollTrackingEnabled: FEATURES.SCROLL_TRACKING_ENABLED,
     });
   }
 

@@ -32,6 +32,7 @@ NSString* globalServerBaseUrl = nil;
 // Declared at file scope for accessibility from both Obj-C implementation and C++ namespace
 static BOOL featureTextSideButtonEnabled = YES;      // Default: enabled
 static BOOL featureOverallReviewButtonEnabled = YES; // Default: enabled
+BOOL featureScrollTrackingEnabled = YES;             // Default: enabled (non-static for extern access)
 
 // Global variable for HTTP server auth token
 NSString* globalAuthToken = nil;
@@ -1535,6 +1536,14 @@ Napi::Value SetFeatureFlags(const Napi::CallbackInfo& info) {
     if (flags.Has("overallReviewButtonEnabled")) {
         featureOverallReviewButtonEnabled = flags.Get("overallReviewButtonEnabled").As<Napi::Boolean>().Value();
     }
+    if (flags.Has("scrollTrackingEnabled")) {
+        featureScrollTrackingEnabled = flags.Get("scrollTrackingEnabled").As<Napi::Boolean>().Value();
+    }
+
+    NSLog(@"[Bridge] Feature flags set - TextSide: %@, OverallReview: %@, ScrollTracking: %@",
+          featureTextSideButtonEnabled ? @"ON" : @"OFF",
+          featureOverallReviewButtonEnabled ? @"ON" : @"OFF",
+          featureScrollTrackingEnabled ? @"ON" : @"OFF");
 
     return Napi::Boolean::New(env, true);
 }

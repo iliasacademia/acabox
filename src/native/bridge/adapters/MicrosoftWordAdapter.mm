@@ -7,6 +7,9 @@
 
 #import "MicrosoftWordAdapter.h"
 
+// Feature flag from bridge.mm (for scroll tracking control)
+extern BOOL featureScrollTrackingEnabled;
+
 // Configuration constants
 static const NSTimeInterval kScrollDebounceInterval = 0.4;      // 400ms (increased for layout stability)
 static const NSTimeInterval kWindowMoveDebounceInterval = 0.5;  // 500ms
@@ -166,37 +169,43 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     // Register for app activation/deactivation notifications
     [self registerAppObservers];
 
-    // Setup scroll event monitoring
-    __weak typeof(self) weakSelf = self;
-    _scrollEventMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskScrollWheel
-                                                                  handler:^(NSEvent *event) {
-        typeof(self) strongSelf = weakSelf;
-        if (!strongSelf) return;
+    // Setup scroll event monitoring (conditionally based on feature flag)
+    if (featureScrollTrackingEnabled) {
+        __weak typeof(self) weakSelf = self;
+        _scrollEventMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskScrollWheel
+                                                                      handler:^(NSEvent *event) {
+            typeof(self) strongSelf = weakSelf;
+            if (!strongSelf) return;
 
-        // Get current mouse location in screen coordinates
-        NSPoint mouseLocation = [NSEvent mouseLocation];
-        CGPoint mouseCGPoint = CGPointMake(mouseLocation.x, mouseLocation.y);
+            // Get current mouse location in screen coordinates
+            NSPoint mouseLocation = [NSEvent mouseLocation];
+            CGPoint mouseCGPoint = CGPointMake(mouseLocation.x, mouseLocation.y);
 
-        // Get scroll area bounds (with caching fallback)
-        CGRect scrollBounds = [strongSelf getScrollAreaBounds];
-        BOOL usedCache = NO;
+            // Get scroll area bounds (with caching fallback)
+            CGRect scrollBounds = [strongSelf getScrollAreaBounds];
+            BOOL usedCache = NO;
 
-        // If bounds is empty, try to use cached bounds
-        if (CGRectEqualToRect(scrollBounds, CGRectZero)) {
-            scrollBounds = strongSelf->_cachedScrollAreaBounds;
-            usedCache = YES;
-        }
+            // If bounds is empty, try to use cached bounds
+            if (CGRectEqualToRect(scrollBounds, CGRectZero)) {
+                scrollBounds = strongSelf->_cachedScrollAreaBounds;
+                usedCache = YES;
+            }
 
-        // If still empty, skip (no-op - we don't know the bounds)
-        if (CGRectEqualToRect(scrollBounds, CGRectZero)) {
-            return;
-        }
+            // If still empty, skip (no-op - we don't know the bounds)
+            if (CGRectEqualToRect(scrollBounds, CGRectZero)) {
+                return;
+            }
 
-        // Check if mouse is within scroll area bounds
-        if (CGRectContainsPoint(scrollBounds, mouseCGPoint)) {
-            [strongSelf handleScrollEvent:event];
-        }
-    }];
+            // Check if mouse is within scroll area bounds
+            if (CGRectContainsPoint(scrollBounds, mouseCGPoint)) {
+                [strongSelf handleScrollEvent:event];
+            }
+        }];
+        NSLog(@"[MicrosoftWordAdapter] Scroll event monitor ENABLED");
+    } else {
+        NSLog(@"[MicrosoftWordAdapter] Scroll event monitor DISABLED by feature flag");
+        _scrollEventMonitor = nil;
+    }
 
     _isObserving = YES;
 
