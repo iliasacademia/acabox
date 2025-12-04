@@ -50,36 +50,24 @@ console.warn = function(...args) {
 
 // ===== Bridge Compatibility Layer =====
 try {
-  console.log('[Bridge Compat] Script executing...');
-
   (function() {
-    console.log('[Bridge Compat] Injecting bridge functions');
-
     // Initialize pending responses queue
     window.__pendingResponses = [];
 
     window.__bridgeSend = function(msg) {
-      console.log('[Bridge Compat] Sending to native:', msg.action);
       window.webkit.messageHandlers.bridge.postMessage(msg);
     };
 
     window.__bridgeReceive = function(msg) {
-      console.log('[Bridge Compat] Received from native:', msg.action, 'type:', msg.type);
-
       // If MessageBridge has registered itself, forward to it
       if (window.__messageBridge && window.__messageBridge.handleNativeMessage) {
-        console.log('[Bridge Compat] Forwarding to MessageBridge');
         window.__messageBridge.handleNativeMessage(msg);
         return;
       }
 
       // If this is a response but MessageBridge isn't loaded yet, queue it
       if (msg.type === 'response' || msg.type === 'error') {
-        // WAGENT-80: Add queue monitoring
-        console.log('[Bridge Compat] Queue length before push:', window.__pendingResponses.length);
-        console.log('[Bridge Compat] Queueing response for MessageBridge');
         window.__pendingResponses.push(msg);
-        console.log('[Bridge Compat] Queue length after push:', window.__pendingResponses.length);
 
         // WAGENT-80: Warn if queue is growing large
         if (window.__pendingResponses.length > 5) {
@@ -90,14 +78,11 @@ try {
 
       // Handle regular messages with action handlers (backward compatibility)
       if (window.__bridgeHandlers && window.__bridgeHandlers[msg.action]) {
-        console.log('[Bridge Compat] Routing to action handler');
         window.__bridgeHandlers[msg.action](msg);
       } else {
         console.warn('[Bridge Compat] No handler for action:', msg.action);
       }
     };
-
-    console.log('[Bridge Compat] Functions injected');
   })();
 } catch (e) {
   console.error('[Bridge Compat] ERROR:', e.message, e.stack);

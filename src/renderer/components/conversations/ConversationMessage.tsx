@@ -10,28 +10,9 @@ interface ConversationMessageProps {
 }
 
 export function ConversationMessage({ message, isPolling, onShowDiff }: ConversationMessageProps) {
-  const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
   const isTool = message.role === 'tool';
 
-  // Format timestamp
-  const formatTime = (timestamp: string) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-
-    if (diffMins < 1) return 'Just now';
-    if (diffMins < 60) return `${diffMins}m ago`;
-
-    const diffHours = Math.floor(diffMins / 60);
-    if (diffHours < 24) return `${diffHours}h ago`;
-
-    const diffDays = Math.floor(diffHours / 24);
-    if (diffDays < 7) return `${diffDays}d ago`;
-
-    return date.toLocaleDateString();
-  };
 
   // Tool messages are handled by ToolMessageAccordion, skip rendering here
   if (isTool) {

@@ -63,8 +63,6 @@ export async function registerWordRoutes(fastify: FastifyInstance): Promise<void
         return;
       }
 
-      console.log(`[Word API] GET /word/${pid}/project_file`);
-
       const projectFile = wordIntegrationDataStore.getProjectFileForPID(pid);
 
       if (!projectFile) {
@@ -81,11 +79,7 @@ export async function registerWordRoutes(fastify: FastifyInstance): Promise<void
         project_file_id: projectFile.project_file_id,
       };
 
-      console.log(`[Word API] Returning project file for PID ${pid}: project_id=${response.project_id}, project_file_id=${response.project_file_id}`);
-
       reply.send(response);
     }
   );
-
-  console.log('[Word API] Registered Word routes');
 }

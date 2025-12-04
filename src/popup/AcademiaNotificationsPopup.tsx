@@ -61,6 +61,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
   const [projectId, setProjectId] = useState<number | null>(null);
   const [fileId, setFileId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [error, setError] = useState<string | null>(null);
 
   // State for review status

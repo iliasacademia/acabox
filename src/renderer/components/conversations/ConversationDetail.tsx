@@ -4,7 +4,6 @@ import { getFileDiff, ProjectFile } from '../../services/projectsApi';
 import { useConversationPolling } from '../../hooks/useConversationPolling';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
-import { DateDivider } from './DateDivider';
 import { DraftConversation } from './ConversationsPage';
 import DiffModal from './DiffModal';
 
@@ -22,7 +21,7 @@ export function ConversationDetail({
   conversation,
   projectId,
   primaryManuscriptId,
-  manuscriptFile,
+  // manuscriptFile,
   onConversationCreated,
   onConversationUpdate,
   isReviewInProgress,
@@ -148,27 +147,6 @@ export function ConversationDetail({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage(e as any);
-    }
-  };
-
-  // Helper function to format date for grouping
-  const getDateString = (timestamp: string): string => {
-    const date = new Date(timestamp);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    // Reset time parts for comparison
-    const dateOnly = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const yesterdayOnly = new Date(yesterday.getFullYear(), yesterday.getMonth(), yesterday.getDate());
-
-    if (dateOnly.getTime() === todayOnly.getTime()) {
-      return 'Today';
-    } else if (dateOnly.getTime() === yesterdayOnly.getTime()) {
-      return 'Yesterday';
-    } else {
-      return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     }
   };
 

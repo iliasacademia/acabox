@@ -5,6 +5,7 @@ import { BrowserWindow } from 'electron';
 import { APIclient, getCsrfToken } from './apiClient';
 import { IPC_CHANNELS } from './shared/types';
 import FormData from 'form-data';
+import { defaultLogger as logger } from './utils/logger';
 
 /**
  * Validates that a file path is within the allowed base directory
@@ -61,11 +62,11 @@ class ProjectSyncService {
   async startWatching(projectId: number, folderId: number, folderPath: string, manuscriptPath?: string) {
     const key = `${projectId}-${folderId}`;
 
-    console.log(`[ProjectSync] Starting to watch folder: ${folderPath} for project ${projectId}`);
+    logger.debug(`[ProjectSync] Starting to watch folder: ${folderPath} for project ${projectId}`);
     if (manuscriptPath) {
-      console.log(`[ProjectSync] Manuscript file will be tagged: ${manuscriptPath}`);
+      logger.debug(`[ProjectSync] Manuscript file will be tagged: ${manuscriptPath}`);
     } else {
-      console.log(`[ProjectSync] No manuscript path provided for this folder`);
+      logger.debug(`[ProjectSync] No manuscript path provided for this folder`);
     }
 
     // Check if folder exists
@@ -75,7 +76,7 @@ class ProjectSyncService {
 
     // Check if already watching
     if (this.watchedFolders.has(key)) {
-      console.log(`[ProjectSync] Already watching folder ${folderPath} for project ${projectId}`);
+      logger.debug(`[ProjectSync] Already watching folder ${folderPath} for project ${projectId}`);
       // Update manuscript path if provided
       const existing = this.watchedFolders.get(key);
       if (existing && manuscriptPath) {
@@ -88,10 +89,10 @@ class ProjectSyncService {
     await this.performInitialSync(projectId, folderId, folderPath, manuscriptPath);
 
     // Create watcher
-    console.log(`[ProjectSync] Creating chokidar watcher with config:`);
-    console.log(`[ProjectSync]   - Folder: ${folderPath}`);
-    console.log(`[ProjectSync]   - Manuscript: ${manuscriptPath || 'none'}`);
-    console.log(`[ProjectSync]   - awaitWriteFinish: 2000ms stability`);
+    logger.debug(`[ProjectSync] Creating chokidar watcher with config:`);
+    logger.debug(`[ProjectSync]   - Folder: ${folderPath}`);
+    logger.debug(`[ProjectSync]   - Manuscript: ${manuscriptPath || 'none'}`);
+    logger.debug(`[ProjectSync]   - awaitWriteFinish: 2000ms stability`);
 
     const watcher = chokidar.watch(folderPath, {
       persistent: true,
@@ -100,14 +101,14 @@ class ProjectSyncService {
       ignored: (filePath: string) => {
         // Validate path to prevent traversal attacks
         if (!validatePath(folderPath, filePath)) {
-          console.warn(`[ProjectSync] Path traversal attempt detected: ${filePath}`);
+          logger.warn(`[ProjectSync] Path traversal attempt detected: ${filePath}`);
           return true;
         }
 
         const basename = path.basename(filePath);
         // Ignore hidden files (starting with .)
         if (basename.startsWith('.')) {
-          console.log(`[ProjectSync] Ignoring hidden file: ${filePath}`);
+          logger.debug(`[ProjectSync] Ignoring hidden file: ${filePath}`);
           return true;
         }
         // Ignore directories
@@ -138,29 +139,29 @@ class ProjectSyncService {
 
     // Set up event handlers
     watcher.on('add', (filePath: string) => {
-      console.log(`[ProjectSync] 🔵 Watcher detected 'add' event: ${filePath}`);
+      logger.debug(`[ProjectSync] 🔵 Watcher detected 'add' event: ${filePath}`);
       this.handleFileAdded(projectId, folderId, folderPath, filePath);
     });
     watcher.on('change', (filePath: string) => {
-      console.log(`[ProjectSync] 🟡 Watcher detected 'change' event: ${filePath}`);
+      logger.debug(`[ProjectSync] 🟡 Watcher detected 'change' event: ${filePath}`);
       this.handleFileChanged(projectId, folderId, folderPath, filePath);
     });
     watcher.on('unlink', (filePath: string) => {
-      console.log(`[ProjectSync] 🔴 Watcher detected 'unlink' event: ${filePath}`);
+      logger.debug(`[ProjectSync] 🔴 Watcher detected 'unlink' event: ${filePath}`);
       this.handleFileDeleted(projectId, folderId, folderPath, filePath);
     });
     watcher.on('ready', () => {
-      console.log(`[ProjectSync] ✅ Watcher is ready and actively watching: ${folderPath}`);
-      console.log(`[ProjectSync] Watched paths:`, watcher.getWatched());
+      logger.debug(`[ProjectSync] ✅ Watcher is ready and actively watching: ${folderPath}`);
+      logger.debug(`[ProjectSync] Watched paths:`, watcher.getWatched());
     });
 
     watcher.on('error', (error) => {
-      console.error(`[ProjectSync] ❌ Watcher error for ${folderPath}:`, error);
+      logger.error(`[ProjectSync] ❌ Watcher error for ${folderPath}:`, error);
       watchedFolder.status = 'error';
       this.sendSyncStatus(projectId, folderId, folderPath);
     });
 
-    console.log(`[ProjectSync] Watcher events registered for ${folderPath}`);
+    logger.debug(`[ProjectSync] Watcher events registered for ${folderPath}`);
   }
 
   /**
@@ -179,7 +180,7 @@ class ProjectSyncService {
     }
 
     this.watchedFolders.delete(key);
-    console.log(`[ProjectSync] Stopped watching folder for project ${projectId}, folder ${folderId}`);
+    logger.debug(`[ProjectSync] Stopped watching folder for project ${projectId}, folder ${folderId}`);
   }
 
   /**
@@ -189,9 +190,9 @@ class ProjectSyncService {
     const key = `${projectId}-${folderId}`;
     const watchedFolder = this.watchedFolders.get(key);
 
-    console.log(`[ProjectSync] Starting initial sync for ${folderPath}`);
+    logger.debug(`[ProjectSync] Starting initial sync for ${folderPath}`);
     if (manuscriptPath) {
-      console.log(`[ProjectSync] Will tag manuscript: ${manuscriptPath}`);
+      logger.debug(`[ProjectSync] Will tag manuscript: ${manuscriptPath}`);
     }
 
     if (watchedFolder) {
@@ -202,7 +203,7 @@ class ProjectSyncService {
     try {
       // Get all files in the folder
       const files = this.getAllFiles(folderPath);
-      console.log(`[ProjectSync] Found ${files.length} files to sync`);
+      logger.debug(`[ProjectSync] Found ${files.length} files to sync`);
 
       if (files.length === 0) {
         if (watchedFolder) {
@@ -231,9 +232,9 @@ class ProjectSyncService {
           const filePath = chunk[index];
           if (result.status === 'fulfilled') {
             syncedCount++;
-            console.log(`[ProjectSync] Synced ${syncedCount}/${files.length}: ${filePath}`);
+            logger.debug(`[ProjectSync] Synced ${syncedCount}/${files.length}: ${filePath}`);
           } else {
-            console.error(`[ProjectSync] Failed to sync ${filePath}:`, result.reason);
+            logger.error(`[ProjectSync] Failed to sync ${filePath}:`, result.reason);
             errorCount++;
           }
         });
@@ -256,27 +257,27 @@ class ProjectSyncService {
         this.sendSyncStatus(projectId, folderId, folderPath);
       }
 
-      console.log(`[ProjectSync] Initial sync complete: ${syncedCount} synced, ${errorCount} errors`);
+      logger.debug(`[ProjectSync] Initial sync complete: ${syncedCount} synced, ${errorCount} errors`);
 
       // After initial sync, if we synced a manuscript file, notify the renderer
       // so it can start polling for the automatic review
       if (manuscriptPath) {
         const relativePath = path.relative(folderPath, manuscriptPath);
-        console.log(`[ProjectSync] Initial sync complete - notifying renderer about manuscript: ${relativePath}`);
+        logger.debug(`[ProjectSync] Initial sync complete - notifying renderer about manuscript: ${relativePath}`);
         const eventData = {
           projectId,
           folderId,
           filePath: relativePath,
           action: 'initial-sync',
         };
-        console.log(`[ProjectSync] Sending initial-sync event:`, JSON.stringify(eventData, null, 2));
+        logger.debug(`[ProjectSync] Sending initial-sync event:`, JSON.stringify(eventData, null, 2));
         this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, eventData);
-        console.log(`[ProjectSync] ✓ Initial-sync event sent to renderer`);
+        logger.debug(`[ProjectSync] ✓ Initial-sync event sent to renderer`);
       } else {
-        console.log(`[ProjectSync] ⚠ No manuscriptPath provided - not sending initial-sync event`);
+        logger.debug(`[ProjectSync] ⚠ No manuscriptPath provided - not sending initial-sync event`);
       }
     } catch (error) {
-      console.error(`[ProjectSync] Initial sync failed:`, error);
+      logger.error(`[ProjectSync] Initial sync failed:`, error);
       if (watchedFolder) {
         watchedFolder.status = 'error';
         this.sendSyncStatus(projectId, folderId, folderPath);
@@ -303,7 +304,7 @@ class ProjectSyncService {
 
           // Validate path to prevent traversal attacks
           if (!validatePath(folderPath, fullPath)) {
-            console.warn(`[ProjectSync] Path traversal attempt detected during file enumeration: ${fullPath}`);
+            logger.warn(`[ProjectSync] Path traversal attempt detected during file enumeration: ${fullPath}`);
             continue;
           }
 
@@ -316,7 +317,7 @@ class ProjectSyncService {
           }
         }
       } catch (error) {
-        console.error(`[ProjectSync] Error traversing ${currentPath}:`, error);
+        logger.error(`[ProjectSync] Error traversing ${currentPath}:`, error);
       }
     };
 
@@ -412,14 +413,14 @@ class ProjectSyncService {
       throw new Error(`Failed to sync file: ${response.status} - ${JSON.stringify(response.data)}`);
     }
 
-    console.log(`[ProjectSync] File synced: ${relativePath} (uploaded: ${response.data.uploaded})`);
+    logger.debug(`[ProjectSync] File synced: ${relativePath} (uploaded: ${response.data.uploaded})`);
   }
 
   /**
    * Handle file added
    */
   private async handleFileAdded(projectId: number, folderId: number, folderPath: string, filePath: string) {
-    console.log(`[ProjectSync] File added: ${filePath}`);
+    logger.debug(`[ProjectSync] File added: ${filePath}`);
     try {
       const key = `${projectId}-${folderId}`;
       const watchedFolder = this.watchedFolders.get(key);
@@ -434,7 +435,7 @@ class ProjectSyncService {
         action: 'added',
       });
     } catch (error) {
-      console.error(`[ProjectSync] Failed to sync added file:`, error);
+      logger.error(`[ProjectSync] Failed to sync added file:`, error);
     }
   }
 
@@ -442,12 +443,12 @@ class ProjectSyncService {
    * Handle file changed
    */
   private async handleFileChanged(projectId: number, folderId: number, folderPath: string, filePath: string) {
-    console.log('========================================');
-    console.log(`[ProjectSync] File changed event detected`);
-    console.log(`[ProjectSync]   Full path: ${filePath}`);
-    console.log(`[ProjectSync]   Project ID: ${projectId}`);
-    console.log(`[ProjectSync]   Folder ID: ${folderId}`);
-    console.log(`[ProjectSync]   Base folder: ${folderPath}`);
+    logger.debug('========================================');
+    logger.debug(`[ProjectSync] File changed event detected`);
+    logger.debug(`[ProjectSync]   Full path: ${filePath}`);
+    logger.debug(`[ProjectSync]   Project ID: ${projectId}`);
+    logger.debug(`[ProjectSync]   Folder ID: ${folderId}`);
+    logger.debug(`[ProjectSync]   Base folder: ${folderPath}`);
 
     try {
       const key = `${projectId}-${folderId}`;
@@ -455,13 +456,13 @@ class ProjectSyncService {
       const manuscriptPath = watchedFolder?.manuscriptPath;
       const relativePath = path.relative(folderPath, filePath);
 
-      console.log(`[ProjectSync]   Relative path: ${relativePath}`);
-      console.log(`[ProjectSync]   Manuscript path: ${manuscriptPath || 'none'}`);
-      console.log(`[ProjectSync]   Is manuscript: ${filePath === manuscriptPath}`);
+      logger.debug(`[ProjectSync]   Relative path: ${relativePath}`);
+      logger.debug(`[ProjectSync]   Manuscript path: ${manuscriptPath || 'none'}`);
+      logger.debug(`[ProjectSync]   Is manuscript: ${filePath === manuscriptPath}`);
 
-      console.log(`[ProjectSync] Syncing file to backend...`);
+      logger.debug(`[ProjectSync] Syncing file to backend...`);
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
-      console.log(`[ProjectSync] ✓ File synced successfully to backend`);
+      logger.debug(`[ProjectSync] ✓ File synced successfully to backend`);
 
       const eventData = {
         projectId,
@@ -470,20 +471,20 @@ class ProjectSyncService {
         action: 'changed',
       };
 
-      console.log(`[ProjectSync] Sending IPC_CHANNELS.PROJECT_FILE_SYNCED event to renderer:`, eventData);
+      logger.debug(`[ProjectSync] Sending IPC_CHANNELS.PROJECT_FILE_SYNCED event to renderer:`, eventData);
       this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, eventData);
-      console.log(`[ProjectSync] ✓ Event sent to renderer`);
+      logger.debug(`[ProjectSync] ✓ Event sent to renderer`);
     } catch (error) {
-      console.error(`[ProjectSync] ✗ Failed to sync changed file:`, error);
+      logger.error(`[ProjectSync] ✗ Failed to sync changed file:`, error);
     }
-    console.log('========================================');
+    logger.debug('========================================');
   }
 
   /**
    * Handle file deleted
    */
   private async handleFileDeleted(projectId: number, folderId: number, folderPath: string, filePath: string) {
-    console.log(`[ProjectSync] File deleted: ${filePath}`);
+    logger.debug(`[ProjectSync] File deleted: ${filePath}`);
     // Note: We'd need to track file IDs to delete them
     // For now, we'll just log it
     this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
@@ -542,7 +543,7 @@ class ProjectSyncService {
   getProjectFolders(projectId: number): WatchedProjectFolder[] {
     const folders: WatchedProjectFolder[] = [];
 
-    for (const [key, folder] of this.watchedFolders.entries()) {
+    for (const [_key, folder] of this.watchedFolders.entries()) {
       if (folder.projectId === projectId) {
         folders.push(folder);
       }

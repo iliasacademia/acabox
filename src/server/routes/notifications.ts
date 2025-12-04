@@ -13,8 +13,8 @@ import {
   GetNotificationsResponse,
   UpdateNotificationBody,
   UpdateNotificationResponse,
-  NotificationCountResponse,
 } from '../types';
+import { defaultLogger as logger } from '../../utils/logger';
 
 /**
  * Register notification routes on a Fastify instance
@@ -79,8 +79,6 @@ export async function registerNotificationRoutes(
 
       const { status, limit } = request.query;
 
-      console.log(`[Notifications API] GET /api/notifications - userId=${userId}, status=${status || 'all'}, limit=${limit || 'none'}`);
-
       try {
         // Get notifications from manager
         let notifications: CachedNotification[];
@@ -102,11 +100,9 @@ export async function registerNotificationRoutes(
           count: notifications.length,
         };
 
-        console.log(`[Notifications API] Returning ${notifications.length} notifications`);
-
         reply.send(response);
       } catch (error) {
-        console.error('[Notifications API] Error fetching notifications:', error);
+        logger.error('[Notifications API] Error fetching notifications:', error);
         reply.code(500).send({
           error: 'InternalServerError',
           message: 'Failed to fetch notifications',
@@ -157,8 +153,6 @@ export async function registerNotificationRoutes(
       const { project_file_id } = request.query;
       const projectFileIdNum = project_file_id ? parseInt(project_file_id, 10) : undefined;
 
-      console.log(`[Notifications API] GET /api/notifications/count - userId=${userId}, project_file_id=${projectFileIdNum ?? 'all'}`);
-
       try {
         // Get undismissed notifications (both unread and read)
         let undismissed = notificationManager.getUndismissedNotifications(userId);
@@ -182,11 +176,9 @@ export async function registerNotificationRoutes(
           read: readCount,
         };
 
-        console.log(`[Notifications API] Returning ${undismissed.length} notifications - total: ${response.total}, unread: ${response.unread}, read: ${response.read}${projectFileIdNum !== undefined ? ` (filtered by project_file_id=${projectFileIdNum})` : ''}`);
-
         reply.send(response);
       } catch (error) {
-        console.error('[Notifications API] Error fetching notification counts:', error);
+        logger.error('[Notifications API] Error fetching notification counts:', error);
         reply.code(500).send({
           error: 'InternalServerError',
           message: 'Failed to fetch notification counts',
@@ -272,8 +264,6 @@ export async function registerNotificationRoutes(
 
       const { status } = request.body;
 
-      console.log(`[Notifications API] PATCH /api/notifications/${notificationId} - status=${status}`);
-
       try {
         // Update notification status via manager
         if (status === 'read') {
@@ -298,11 +288,9 @@ export async function registerNotificationRoutes(
           notification: updatedNotification || null,
         };
 
-        console.log(`[Notifications API] Successfully updated notification ${notificationId} to ${status}`);
-
         reply.send(response);
       } catch (error) {
-        console.error(`[Notifications API] Error updating notification ${notificationId}:`, error);
+        logger.error(`[Notifications API] Error updating notification ${notificationId}:`, error);
         reply.code(500).send({
           error: 'InternalServerError',
           message: 'Failed to update notification',
@@ -311,6 +299,4 @@ export async function registerNotificationRoutes(
       }
     }
   );
-
-  console.log('[Notifications API] Registered notification routes');
 }

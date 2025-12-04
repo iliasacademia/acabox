@@ -121,7 +121,7 @@ describe('useBridge', () => {
 
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
-      const bridge = getBridgeInstance();
+      getBridgeInstance();
 
       // Should not log about returning existing instance on first creation
       expect(consoleLogSpy).not.toHaveBeenCalledWith(
@@ -153,7 +153,7 @@ describe('useBridge', () => {
     it('should warn each time existing instance is reused in development', () => {
       process.env.NODE_ENV = 'development';
 
-      const bridge1 = getBridgeInstance();
+      const _bridge1 = getBridgeInstance(); // Initialize singleton
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
 
       getBridgeInstance();
@@ -181,7 +181,6 @@ describe('useBridge', () => {
 
       // Verify reset was logged
       expect(consoleLogSpy).toHaveBeenCalledWith('[useBridge] Bridge instance reset');
-      expect(consoleLogSpy).toHaveBeenCalledWith('[MessageBridge] Destroying bridge instance');
 
       // Verify a new instance is created on next call
       const newBridge = getBridgeInstance();
@@ -264,6 +263,7 @@ describe('useBridge', () => {
       // The function is exposed when useBridge module is loaded
       // We need to re-import to trigger the window assignment
       jest.resetModules();
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       require('../hooks/useBridge');
 
       expect((window as any).resetBridge).toBeDefined();
@@ -284,7 +284,7 @@ describe('useBridge', () => {
     });
 
     it('should maintain bridge functionality after reset and recreate', () => {
-      const bridge1 = getBridgeInstance();
+      getBridgeInstance();
       resetBridgeInstance();
 
       return new Promise<void>((resolve) => {

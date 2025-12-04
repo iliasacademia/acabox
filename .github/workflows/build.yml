@@ -274,6 +274,9 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
           CLOUDFRONT_DOMAIN: ${{ vars.CLOUDFRONT_DOMAIN }}
+          DATADOG_APPLICATION_ID: ${{ vars.DATADOG_APPLICATION_ID }}
+          DATADOG_CLIENT_TOKEN: ${{ vars.DATADOG_CLIENT_TOKEN }}
+          DATADOG_SITE: ${{ vars.DATADOG_SITE }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

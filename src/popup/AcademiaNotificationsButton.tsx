@@ -1,15 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { useNativeEvent, useSendMessage, useBridgeReady, getBridgeInstance } from './hooks/useBridge';
-import { logJSON } from './utils/logger';
+import { useSendMessage, useBridgeReady, getBridgeInstance } from './hooks/useBridge';
 import academiaLogos from '../assets/academia-logos.svg';
 import './AcademiaNotificationsButton.css';
 
 // Initialize bridge early
 getBridgeInstance('academia-notifications-button');
-
-console.log('[AcademiaNotificationsButton] Initializing...');
-console.log('[AcademiaNotificationsButton] Platform:', window.__messageBridge?.getPlatform());
 
 // Parse serverUrl from query params (passed by native bridge)
 const urlParams = new URLSearchParams(window.location.search);
@@ -28,8 +24,6 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
   const [authToken, setAuthToken] = useState<string | null>(null);
   const { sendRequest, loading } = useSendMessage();
   const isReady = useBridgeReady();
-
-  console.log('[AcademiaNotificationsButton] Render - badgeCount:', badgeCount, 'isReady:', isReady, 'projectFileId:', projectFileId);
 
   // Extract PID from URL and fetch project_file_id on mount
   useEffect(() => {
@@ -50,8 +44,6 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
           return;
         }
 
-        console.log(`[AcademiaNotificationsButton] Fetching project_file_id for PID: ${pid}`);
-
         // Fetch project file info from /word/:pid/project_file
         const response = await fetch(`${apiBaseUrl}/word/${pid}/project_file`);
 
@@ -62,7 +54,6 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
         }
 
         const data = await response.json();
-        console.log('[AcademiaNotificationsButton] Got project_file_id:', data.project_file_id);
         setProjectFileId(data.project_file_id);
         setIsInitialized(true);
       } catch (error) {
@@ -84,7 +75,6 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
 
     // If no project_file_id, don't poll - keep badge hidden
     if (projectFileId === null) {
-      console.log('[AcademiaNotificationsButton] No project_file_id available - badge will remain hidden');
       setBadgeCount(0);
       return;
     }
@@ -117,12 +107,6 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
         const notifications = data.notifications || [];
         const count = notifications.length;
 
-        // Log notifications for verification
-        console.log(`[AcademiaNotificationsButton] Fetched ${count} notifications (filtered by project_file_id=${projectFileId}):`);
-        notifications.forEach((n: { id: number; title: string; project_file_id: number; dismissed_at: number | null; status: string }) => {
-          console.log(`  - id=${n.id}, title="${n.title}", project_file_id=${n.project_file_id}, dismissed_at=${n.dismissed_at}, status=${n.status}`);
-        });
-
         // Badge shows 1 if any matching notifications exist, 0 otherwise
         setBadgeCount(count > 0 ? 1 : 0);
       } catch (error) {
@@ -143,11 +127,8 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
   }, [apiBaseUrl, projectFileId, isInitialized, authToken]);
 
   const handleClick = async () => {
-    console.log('[AcademiaNotificationsButton] Button clicked');
-
     try {
-      const result = await sendRequest('buttonClicked', {});
-      logJSON('[AcademiaNotificationsButton] Click response:', result);
+      await sendRequest('buttonClicked', {});
     } catch (err) {
       console.error('[AcademiaNotificationsButton] Click failed:', err);
     }
@@ -182,7 +163,6 @@ const rootElement = document.getElementById('root');
 if (rootElement) {
   const root = createRoot(rootElement);
   root.render(<AcademiaNotificationsButton />);
-  console.log('[AcademiaNotificationsButton] Component mounted');
 } else {
   console.error('[AcademiaNotificationsButton] Root element not found');
 }

@@ -14,14 +14,14 @@ export function ConversationsSidebar({
   projectId,
   selectedConversationId,
   onSelectConversation,
-  onNewConversation,
+  // onNewConversation,
   refreshTrigger,
   onConversationsLoaded,
 }: ConversationsSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, _setSearchQuery] = useState('');
 
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 

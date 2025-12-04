@@ -26,35 +26,10 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 // Initialize electron-store for app settings (empty for now, reserved for future settings)
 const store = new Store();
 
-if (app.isPackaged) {
-  const logFilePath = logger.getLogFilePath();
-  logger.info('[App] Logging initialized. Log file location:', logFilePath);
-} else {
-  logger.info('[App] Logging initialized in development mode (using console.log)');
-}
 
 // Clean up deprecated updateChannel preference from electron-store
 if (store.has('updateChannel')) {
-  logger.info('[App] Removing deprecated updateChannel preference from store');
   store.delete('updateChannel');
-}
-
-// Helper function to resolve paths for AppleScript files
-function resolveAppleScriptPath(scriptName: string): string {
-  // In development, use the webpack output path
-  const devPath = path.join(__dirname, 'applescripts', scriptName);
-
-  // In production, use the extraResource path (Contents/Resources/applescripts/)
-  const prodPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'applescripts', scriptName)
-    : devPath;
-
-  console.log('resolveAppleScriptPath - app.isPackaged:', app.isPackaged);
-  console.log('resolveAppleScriptPath - devPath:', devPath);
-  console.log('resolveAppleScriptPath - prodPath:', prodPath);
-  console.log('resolveAppleScriptPath - exists:', fs.existsSync(app.isPackaged ? prodPath : devPath));
-
-  return app.isPackaged ? prodPath : devPath;
 }
 
 let devWindow: BrowserWindow | null = null;
@@ -98,7 +73,8 @@ const createWindow = async (): Promise<void> => {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
           scriptSrc +
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu; " + // Specific domains only
+          "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com; " + // Datadog RUM intake
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
           "form-action 'self'; " + // Restrict form submissions
@@ -109,21 +85,6 @@ const createWindow = async (): Promise<void> => {
   });
 
   devWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
-  if (process.env.NODE_ENV === 'development') {
-    devWindow.webContents.openDevTools();
-  }
-
-  // Connect logger to devWindow for sending logs to renderer DevTools
-  devWindow.webContents.once('did-finish-load', () => {
-    logger.setMainWindow(devWindow);
-    logger.info('[App] Logger connected to renderer window');
-  });
-
-  // Handle window destruction
-  devWindow.on('closed', () => {
-    logger.setMainWindow(null);
-    devWindow = null;
-  });
 
   // Dev window is now just for development/debugging
   // Sync functionality is handled by the main window (Projects UI)
@@ -166,7 +127,8 @@ const createMainWindow = async (): Promise<void> => {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
           scriptSrc +
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu; " + // Specific domains only
+          "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com; " + // Datadog RUM intake
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
           "form-action 'self'; " + // Restrict form submissions
@@ -198,7 +160,7 @@ const createMainWindow = async (): Promise<void> => {
 
   // Wait for window to be ready, then initialize
   mainWindow.webContents.once('did-finish-load', async () => {
-    console.log('[MAIN] Main window loaded, initializing sync service...');
+    logger.setMainWindow(mainWindow);
     await syncService.initialize();
   });
 
@@ -206,17 +168,18 @@ const createMainWindow = async (): Promise<void> => {
   mainWindow.once('ready-to-show', () => {
     if (mainWindow) {
       mainWindow.show();
-      console.log('[MAIN] Main window shown');
     }
   });
 
-  console.log('[MAIN] Main window created');
+  // Handle window destruction
+  mainWindow.on('closed', () => {
+    logger.setMainWindow(null);
+    mainWindow = null;
+  });
 };
 
 // Helper function to create text-based icon
 const createTextIcon = (letter: string): Electron.NativeImage | null => {
-  console.log('[TRAY] Creating text icon with letter:', letter);
-
   try {
     // Render at 3x resolution for crisp, anti-aliased text
     // Then resize down to 18x18 for the final icon
@@ -244,23 +207,8 @@ const createTextIcon = (letter: string): Electron.NativeImage | null => {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    console.log('[TRAY] ===== TEXT ICON DETAILS =====');
-    console.log('[TRAY] Render size:', renderSize, 'x', renderSize);
-    console.log('[TRAY] Final target size:', finalSize, 'x', finalSize);
-    console.log('[TRAY] Font size:', fontSize, 'px');
-    console.log('[TRAY] Font string:', ctx.font);
-
     // Measure the actual text dimensions
     const letterToRender = letter.toUpperCase();
-    const metrics = ctx.measureText(letterToRender);
-    console.log('[TRAY] Text to render:', letterToRender);
-    console.log('[TRAY] Text metrics.width:', metrics.width);
-    console.log('[TRAY] Text metrics.actualBoundingBoxAscent:', metrics.actualBoundingBoxAscent);
-    console.log('[TRAY] Text metrics.actualBoundingBoxDescent:', metrics.actualBoundingBoxDescent);
-    const textHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
-    console.log('[TRAY] Calculated text height:', textHeight);
-    console.log('[TRAY] Text width as % of canvas:', ((metrics.width / renderSize) * 100).toFixed(1) + '%');
-    console.log('[TRAY] Text height as % of canvas:', ((textHeight / renderSize) * 100).toFixed(1) + '%');
 
     // Draw the letter centered
     ctx.fillText(letterToRender, renderSize / 2, renderSize / 2);
@@ -269,62 +217,32 @@ const createTextIcon = (letter: string): Electron.NativeImage | null => {
     const imageData = ctx.getImageData(0, 0, renderSize, renderSize);
     const buffer = Buffer.from(imageData.data);
 
-    console.log('[TRAY] Text icon rendered at:', renderSize, 'x', renderSize);
-    console.log('[TRAY] Text icon buffer size:', buffer.length, 'bytes');
-
-    // Save debug image of the high-res canvas
-    try {
-      const debugPath = path.join(app.getPath('userData'), 'debug-text-icon-highres.png');
-      const pngBuffer = canvas.toBuffer('image/png');
-      fs.writeFileSync(debugPath, pngBuffer);
-      console.log('[TRAY] Debug high-res image saved to:', debugPath);
-    } catch (err) {
-      console.error('[TRAY] Failed to save debug image:', err);
-    }
-
     // Create NativeImage from high-resolution bitmap
     let icon = nativeImage.createFromBitmap(buffer, {
       width: renderSize,
       height: renderSize
     });
 
-    console.log('[TRAY] High-res icon created - isEmpty():', icon.isEmpty());
-    console.log('[TRAY] High-res icon size:', icon.getSize());
-
     if (icon.isEmpty()) {
-      console.error('[TRAY] Text icon is empty after creation');
+      logger.error('[TRAY] Text icon is empty after creation');
       return null;
     }
 
     // Resize down to final size for sharp, anti-aliased result
-    console.log('[TRAY] Resizing from', icon.getSize(), 'to', finalSize, 'x', finalSize);
     icon = icon.resize({
       width: finalSize,
       height: finalSize,
       quality: 'best'
     });
 
-    console.log('[TRAY] Final resized icon size:', icon.getSize());
-    console.log('[TRAY] Final icon isEmpty():', icon.isEmpty());
-
-    // Save debug image of the resized icon
-    try {
-      const debugPath = path.join(app.getPath('userData'), 'debug-text-icon-final.png');
-      const pngBuffer = icon.toPNG();
-      fs.writeFileSync(debugPath, pngBuffer);
-      console.log('[TRAY] Debug final image saved to:', debugPath);
-    } catch (err) {
-      console.error('[TRAY] Failed to save debug final image:', err);
-    }
-
     // Set as template image for proper dark mode support
     icon.setTemplateImage(true);
 
     return icon;
   } catch (error) {
-    console.error('[TRAY] ERROR creating text icon:', error);
-    console.error('[TRAY] Error message:', (error as Error).message);
-    console.error('[TRAY] Error stack:', (error as Error).stack);
+    logger.error('[TRAY] ERROR creating text icon:', error);
+    logger.error('[TRAY] Error message:', (error as Error).message);
+    logger.error('[TRAY] Error stack:', (error as Error).stack);
     return null;
   }
 };
@@ -343,15 +261,13 @@ const createTextIcon = (letter: string): Electron.NativeImage | null => {
 type TrayIconType = 'dot' | 'gear' | 'bookmark' | 'lock' | 'unlock' | 'add' | 'remove' | 'refresh' | 'text';
 
 const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => {
-  console.log('[TRAY] Creating icon of type:', iconType);
-
   let icon: Electron.NativeImage;
 
   // Handle text icon separately
   if (iconType === 'text') {
     const textIcon = createTextIcon('A');
     if (!textIcon) {
-      console.error('[TRAY] Failed to create text icon');
+      logger.error('[TRAY] Failed to create text icon');
       return null;
     }
     return textIcon;
@@ -370,15 +286,12 @@ const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => 
   };
 
   const systemIconName = iconNameMap[iconType as Exclude<TrayIconType, 'text'>];
-  console.log('[TRAY] Using system template:', systemIconName);
 
   try {
     icon = nativeImage.createFromNamedImage(systemIconName);
-    console.log('[TRAY] Icon created from named image');
-    console.log('[TRAY] Original icon size:', icon.getSize());
   } catch (error) {
-    console.error('[TRAY] ERROR creating icon from named image:', error);
-    console.error('[TRAY] Error stack:', (error as Error).stack);
+    logger.error('[TRAY] ERROR creating icon from named image:', error);
+    logger.error('[TRAY] Error stack:', (error as Error).stack);
     return null;
   }
 
@@ -386,23 +299,16 @@ const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => 
   // macOS menu bar icons are typically 18x18 points
   try {
     icon = icon.resize({ width: 18, height: 18 });
-    console.log('[TRAY] Resized icon to:', icon.getSize());
   } catch (error) {
-    console.error('[TRAY] ERROR resizing icon:', error);
+    logger.error('[TRAY] ERROR resizing icon:', error);
   }
 
   // Set as template image for proper dark mode support
   try {
     icon.setTemplateImage(true);
-    console.log('[TRAY] Set as template image successfully');
   } catch (error) {
-    console.error('[TRAY] ERROR setting template image:', error);
+    logger.error('[TRAY] ERROR setting template image:', error);
   }
-
-  // Log final icon properties
-  console.log('[TRAY] Final icon isEmpty():', icon.isEmpty());
-  console.log('[TRAY] Final icon size:', icon.getSize());
-  console.log('[TRAY] Final icon aspect ratio:', icon.getAspectRatio());
 
   return icon;
 };
@@ -410,18 +316,17 @@ const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => 
 const createTray = (): void => {
   const icon = createTrayIcon('text'); // Default to letter "A"
   if (!icon) {
-    console.error('[TRAY] Failed to create icon, aborting tray creation');
+    logger.error('[TRAY] Failed to create icon, aborting tray creation');
     return;
   }
 
   // Create tray
   try {
     tray = new Tray(icon);
-    console.log('[TRAY] Tray created successfully');
   } catch (error) {
-    console.error('[TRAY] ERROR creating tray:', error);
-    console.error('[TRAY] Error message:', (error as Error).message);
-    console.error('[TRAY] Error stack:', (error as Error).stack);
+    logger.error('[TRAY] ERROR creating tray:', error);
+    logger.error('[TRAY] Error message:', (error as Error).message);
+    logger.error('[TRAY] Error stack:', (error as Error).stack);
     return;
   }
 
@@ -546,7 +451,7 @@ const positionWindowMiddleRight = (): void => {
   const y = Math.floor((screenHeight - windowBounds.height) / 2);
 
   devWindow.setPosition(x, y);
-  console.log(`[WINDOW] Positioned at middle-right: x=${x}, y=${y}`);
+  logger.debug(`[WINDOW] Positioned at middle-right: x=${x}, y=${y}`);
 };
 
 // Auto-updater configuration and setup
@@ -745,16 +650,16 @@ app.whenReady().then(async () => {
   setupAutoUpdater();
 
   // Start HTTP server for data fetching
-  console.log('[HTTP Server] Starting HTTP server...');
+  logger.debug('[HTTP Server] Starting HTTP server...');
   httpServer = new AcademiaHttpServer(
     notificationManager,
     () => notificationManager.getCurrentUserId()
   );
   try {
     const port = await httpServer.start();
-    console.log(`[HTTP Server] ✓ Server started on port ${port}`);
+    logger.debug(`[HTTP Server] ✓ Server started on port ${port}`);
     const baseUrl = httpServer.getBaseUrl();
-    console.log(`[HTTP Server] Base URL: ${baseUrl}`);
+    logger.debug(`[HTTP Server] Base URL: ${baseUrl}`);
 
     // Initialize Word integration with server URL
     if (baseUrl) {
@@ -767,28 +672,26 @@ app.whenReady().then(async () => {
       const urlSuccess = wordAccessibility.setServerBaseUrl(baseUrl);
       const tokenSuccess = wordAccessibility.setAuthToken(authToken);
       if (urlSuccess && tokenSuccess) {
-        console.log('[HTTP Server] ✓ Server URL and auth token set for native popups');
+        logger.debug('[HTTP Server] ✓ Server URL and auth token set for native popups');
       } else {
-        console.error('[HTTP Server] ✗ Failed to set server URL or auth token for native popups');
+        logger.error('[HTTP Server] ✗ Failed to set server URL or auth token for native popups');
       }
     } else if (baseUrl) {
       const success = wordAccessibility.setServerBaseUrl(baseUrl);
       if (success) {
-        console.log('[HTTP Server] ✓ Server URL set for native popups (no auth token)');
+        logger.debug('[HTTP Server] ✓ Server URL set for native popups (no auth token)');
       }
     }
   } catch (error) {
-    console.error('[HTTP Server] ✗ Failed to start server:', error);
+    logger.error('[HTTP Server] ✗ Failed to start server:', error);
     // Initialize Word integration without server URL
     wordIntegrationService.initialize();
   }
 
   // Set up navigation handler for popup-to-main-window navigation
   wordIntegrationService.setNavigationHandler((payload) => {
-    console.log('[Main] Navigate to page from Word popup:', payload);
-
     if (!mainWindow || mainWindow.isDestroyed()) {
-      console.warn('[Main] Main window not available for navigation');
+      logger.warn('[Main] Main window not available for navigation');
       return;
     }
 
@@ -829,19 +732,16 @@ async function refreshManuscriptPaths(): Promise<void> {
     const client = await APIclient();
 
     // Fetch all projects
-    console.log('[MANUSCRIPT-PATHS] Fetching projects...');
     const projectsResponse = await client.get('/v0/co_scientist/projects');
     const projects = projectsResponse.data?.projects || [];
 
     if (projects.length === 0) {
-      console.log('[MANUSCRIPT-PATHS] No projects found');
       wordIntegrationService.setManuscriptPaths([]);
       wordIntegrationDataStore.setProjectFileCache(new Map());
       return;
     }
 
     // Fetch files for each project in parallel, attaching project_id to each file
-    console.log(`[MANUSCRIPT-PATHS] Fetching files for ${projects.length} projects...`);
     const filesPromises = projects.map(async (project: { id: number }) => {
       try {
         const filesResponse = await client.get(`/v0/co_scientist/projects/${project.id}/files`);
@@ -849,7 +749,7 @@ async function refreshManuscriptPaths(): Promise<void> {
         // Attach project_id to each file for building the cache
         return files.map((file: any) => ({ ...file, project_id: project.id }));
       } catch (error) {
-        console.error(`[MANUSCRIPT-PATHS] Failed to fetch files for project ${project.id}:`, error);
+        logger.error(`[MANUSCRIPT-PATHS] Failed to fetch files for project ${project.id}:`, error);
         return [];
       }
     });
@@ -874,12 +774,11 @@ async function refreshManuscriptPaths(): Promise<void> {
     // Extract unique paths for tracking
     const manuscriptPaths = [...new Set(manuscriptFiles.map((f: { file_path: string }) => f.file_path))];
 
-    console.log(`[MANUSCRIPT-PATHS] Found ${manuscriptPaths.length} manuscript files`);
     wordIntegrationService.setManuscriptPaths(manuscriptPaths);
     wordIntegrationDataStore.setProjectFileCache(projectFileCache);
 
   } catch (error) {
-    console.error('[MANUSCRIPT-PATHS] Error refreshing manuscript paths:', error);
+    logger.error('[MANUSCRIPT-PATHS] Error refreshing manuscript paths:', error);
     wordIntegrationService.setManuscriptPaths([]);
     wordIntegrationDataStore.setProjectFileCache(new Map());
   }
@@ -896,12 +795,12 @@ async function cleanupAndExit() {
 
   // Stop HTTP server
   if (httpServer) {
-    console.log('[APP] Stopping HTTP server...');
+    logger.debug('[APP] Stopping HTTP server...');
     try {
       await httpServer.stop();
-      console.log('[APP] HTTP server stopped successfully');
+      logger.debug('[APP] HTTP server stopped successfully');
     } catch (error) {
-      console.error('[APP] Error stopping HTTP server:', error);
+      logger.error('[APP] Error stopping HTTP server:', error);
     }
   }
 
@@ -910,30 +809,30 @@ async function cleanupAndExit() {
 
 // Handle terminal signals for proper cleanup
 process.on('SIGINT', () => {
-  console.log('[APP] Received SIGINT (Ctrl+C) - cleaning up...');
+  logger.debug('[APP] Received SIGINT (Ctrl+C) - cleaning up...');
   cleanupAndExit();
 });
 
 process.on('SIGTERM', () => {
-  console.log('[APP] Received SIGTERM - cleaning up...');
+  logger.debug('[APP] Received SIGTERM - cleaning up...');
   cleanupAndExit();
 });
 
 process.on('SIGHUP', () => {
-  console.log('[APP] Received SIGHUP (terminal closed) - cleaning up...');
+  logger.debug('[APP] Received SIGHUP (terminal closed) - cleaning up...');
   cleanupAndExit();
 });
 
 // Handle uncaught exceptions to ensure cleanup
 process.on('uncaughtException', async (error) => {
-  console.error('[APP] Uncaught exception:', error);
+  logger.error('[APP] Uncaught exception:', error);
 
   // Cleanup before exit
   if (httpServer) {
     try {
       await httpServer.stop();
     } catch (e) {
-      console.error('[APP] Failed to stop server:', e);
+      logger.error('[APP] Failed to stop server:', e);
     }
   }
 
@@ -941,14 +840,14 @@ process.on('uncaughtException', async (error) => {
 });
 
 process.on('unhandledRejection', async (reason) => {
-  console.error('[APP] Unhandled rejection:', reason);
+  logger.error('[APP] Unhandled rejection:', reason);
 
   // Cleanup before exit
   if (httpServer) {
     try {
       await httpServer.stop();
     } catch (e) {
-      console.error('[APP] Failed to stop server:', e);
+      logger.error('[APP] Failed to stop server:', e);
     }
   }
 
@@ -957,7 +856,7 @@ process.on('unhandledRejection', async (reason) => {
 
 // Handle cleanup request from dev tools (for hot reload)
 ipcMain.handle('dev-cleanup-native', async () => {
-  console.log('[APP] Dev-mode cleanup requested');
+  logger.debug('[APP] Dev-mode cleanup requested');
   cleanupNativeResources();
   return { success: true };
 });
@@ -990,7 +889,7 @@ ipcMain.handle('login', async (_event, email: string, password: string) => {
     const result = await login(email, password);
     return { success: result.status >= 200 && result.status < 300, data: result.data };
   } catch (error: any) {
-    console.error('Login failed:', error);
+    logger.error('Login failed:', error);
     return {
       success: false,
       data: {
@@ -1011,7 +910,7 @@ ipcMain.handle(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS, async () => {
     await refreshManuscriptPaths();
     return { success: true };
   } catch (error: any) {
-    console.error('[IPC] Failed to refresh manuscript paths:', error);
+    logger.error('[IPC] Failed to refresh manuscript paths:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1019,9 +918,7 @@ ipcMain.handle(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS, async () => {
 // QR Code Authentication IPC handlers
 ipcMain.handle('start-qr-auth', async () => {
   try {
-    console.log('[IPC] start-qr-auth called');
     const session = await createQRAuthSession();
-    console.log(`[IPC] QR auth session created with device_id: ${session.deviceId}`);
     return {
       success: true,
       deviceId: session.deviceId,
@@ -1029,7 +926,7 @@ ipcMain.handle('start-qr-auth', async () => {
       authorizationURL: session.authorizationURL,
     };
   } catch (error: any) {
-    console.error('[IPC] Failed to start QR auth:', error);
+    logger.error('[IPC] Failed to start QR auth:', error);
     return {
       success: false,
       error: error.message || 'Failed to create QR auth session',
@@ -1039,8 +936,6 @@ ipcMain.handle('start-qr-auth', async () => {
 
 ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) => {
   try {
-    console.log(`[IPC] verify-qr-code called for device_id: ${deviceId}`);
-
     // Validate code format (must be 6 digits)
     if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
       return {
@@ -1051,8 +946,6 @@ ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) 
 
     // Call verification service
     const result = await verifyAuthCode(deviceId, code);
-
-    console.log(`[IPC] Verification result for device_id ${deviceId}: authorized=${result.authorized}`);
 
     if (result.error) {
       return {
@@ -1067,7 +960,7 @@ ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) 
       userId: result.user_id,
     };
   } catch (error: any) {
-    console.error(`[IPC] QR code verification error for device_id ${deviceId}:`, error.message);
+    logger.error(`[IPC] QR code verification error for device_id ${deviceId}:`, error.message);
     return {
       success: false,
       error: error.message || 'Verification failed',
@@ -1078,44 +971,36 @@ ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) 
 // Project Sync IPC handlers
 ipcMain.handle('start-project-folder-sync', async (_event, projectId: number, folderId: number, folderPath: string, manuscriptPath?: string) => {
   try {
-    console.log(`[IPC] Starting project folder sync for project ${projectId}, folder ${folderId}: ${folderPath}`);
-    if (manuscriptPath) {
-      console.log(`[IPC] Manuscript file will be tagged: ${manuscriptPath}`);
-    }
     await projectSyncService.startWatching(projectId, folderId, folderPath, manuscriptPath);
     return { success: true };
   } catch (error: any) {
-    console.error('[IPC] Failed to start project folder sync:', error);
+    logger.error('[IPC] Failed to start project folder sync:', error);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('stop-project-folder-sync', async (_event, projectId: number, folderId: number) => {
   try {
-    console.log(`[IPC] Stopping project folder sync for project ${projectId}, folder ${folderId}`);
     await projectSyncService.stopWatching(projectId, folderId);
     return { success: true };
   } catch (error: any) {
-    console.error('[IPC] Failed to stop project folder sync:', error);
+    logger.error('[IPC] Failed to stop project folder sync:', error);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
   try {
-    console.log(`[IPC] Stopping all folder syncs for project ${projectId}`);
     await projectSyncService.stopWatchingProject(projectId);
     return { success: true };
   } catch (error: any) {
-    console.error('[IPC] Failed to stop project sync:', error);
+    logger.error('[IPC] Failed to stop project sync:', error);
     return { success: false, error: error.message };
   }
 });
 
 // Generic API call handler for Projects API
-ipcMain.handle('api-call', async (event, options: { method: string; endpoint: string; data?: any }) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-
+ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: string; data?: any }) => {
   try {
     const { method, endpoint, data } = options;
     const client = await APIclient();
@@ -1147,7 +1032,7 @@ ipcMain.handle('api-call', async (event, options: { method: string; endpoint: st
     return response.data;
   } catch (error: any) {
     const fullUrl = error.config?.baseURL + error.config?.url;
-    console.error(`[API] ${options.method} ${options.endpoint} failed:`, {
+    logger.error(`[API] ${options.method} ${options.endpoint} failed:`, {
       url: fullUrl,
       status: error.response?.status,
       statusText: error.response?.statusText,
@@ -1186,7 +1071,7 @@ ipcMain.handle('scan-folder-for-files', async (_event, folderPaths: string[]) =>
 
     for (const folderPath of folderPaths) {
       if (!fs.existsSync(folderPath)) {
-        console.error(`[SCAN] Folder does not exist: ${folderPath}`);
+        logger.error(`[SCAN] Folder does not exist: ${folderPath}`);
         continue;
       }
 
@@ -1223,17 +1108,17 @@ ipcMain.handle('scan-folder-for-files', async (_event, folderPaths: string[]) =>
             }
           }
         } catch (error) {
-          console.error(`[SCAN] Error scanning directory ${dirPath}:`, error);
+          logger.error(`[SCAN] Error scanning directory ${dirPath}:`, error);
         }
       };
 
       scanDirectory(folderPath);
     }
 
-    console.log(`[SCAN] Found ${allFiles.length} files across ${folderPaths.length} folders`);
+    logger.debug(`[SCAN] Found ${allFiles.length} files across ${folderPaths.length} folders`);
     return allFiles;
   } catch (error: any) {
-    console.error('[SCAN] Error scanning folders:', error);
+    logger.error('[SCAN] Error scanning folders:', error);
     return [];
   }
 });
@@ -1245,7 +1130,7 @@ ipcMain.handle('upload-files', async (_event, folderPath: string) => {
   for (const file of files) {
     if (!file.toLowerCase().endsWith('.pdf')) continue;
     const filePath = path.join(folderPath, file);
-    console.log(`Uploading ${filePath}`);
+    logger.debug(`Uploading ${filePath}`);
     // Do this synchronously so as not to overwhelm the server and the user's network
     const result = await uploadFile(filePath, folderPath);
     devWindow.webContents.send('file-uploaded', { status: result.status, paper: result.data.private_paper });
@@ -1268,7 +1153,7 @@ ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread'
     const notifications = notificationManager.getNotificationsByStatus(userId, options?.status);
     return { notifications };
   } catch (error: any) {
-    console.error('Failed to get notifications:', error);
+    logger.error('Failed to get notifications:', error);
     return { notifications: [] };
   }
 });
@@ -1276,32 +1161,21 @@ ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread'
 // WAGENT-94: Badge update function removed - new architecture handles badges automatically
 
 ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
-  console.log(`[Main] Received start-notification-polling request for user ${userId}`);
   try {
     notificationManager.startPolling(userId, 30000); // 30 second interval
-    console.log(`[Main] Successfully started notification polling for user ${userId}`);
-
-    // Note: Badge is now updated via onSyncComplete callback after each sync
-    // No need for separate badge update interval
-
     return { success: true };
   } catch (error: any) {
-    console.error('[Main] Failed to start notification polling:', error);
+    logger.error('[Main] Failed to start notification polling:', error);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('stop-notification-polling', async () => {
-  console.log('[Main] Received stop-notification-polling request');
   try {
     notificationManager.stopPolling();
-
-    // WAGENT-94: Badge clearing handled by new architecture
-
-    console.log('[Main] Successfully stopped notification polling');
     return { success: true };
   } catch (error: any) {
-    console.error('[Main] Failed to stop notification polling:', error);
+    logger.error('[Main] Failed to stop notification polling:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1314,7 +1188,7 @@ ipcMain.handle('mark-notification-read', async (_event, id: number) => {
 
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to mark notification as read:', error);
+    logger.error('Failed to mark notification as read:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1327,19 +1201,17 @@ ipcMain.handle('dismiss-notification', async (_event, id: number) => {
 
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to dismiss notification:', error);
+    logger.error('Failed to dismiss notification:', error);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('get-current-user', async () => {
   try {
-    console.log('[IPC] get-current-user called');
     const user = await getCurrentUser();
-    console.log('[IPC] get-current-user result:', user ? `user_id=${user.id}` : 'null (not logged in)');
     return user;
   } catch (error: any) {
-    console.error('[IPC] Failed to get current user:', error);
+    logger.error('[IPC] Failed to get current user:', error);
     return null;
   }
 });
@@ -1364,39 +1236,39 @@ ipcMain.handle('get-http-server-info', async () => {
 
 // Cleanup on app quit
 app.on('before-quit', async () => {
-  console.log('[APP] Application quitting - cleaning up resources...');
+  logger.debug('[APP] Application quitting - cleaning up resources...');
 
   // Stop Word integration (intervals and native observers)
   wordIntegrationService.cleanup();
 
   // Stop all sync watchers
-  console.log('[APP] Stopping sync watchers...');
+  logger.debug('[APP] Stopping sync watchers...');
   await syncService.stopAll();
 
   // Stop notification polling and cleanup
-  console.log('[APP] Closing notification manager...');
+  logger.debug('[APP] Closing notification manager...');
   notificationManager.close();
 
   // Stop HTTP server
   if (httpServer) {
-    console.log('[APP] Stopping HTTP server...');
+    logger.debug('[APP] Stopping HTTP server...');
     try {
       await httpServer.stop();
-      console.log('[APP] HTTP server stopped successfully');
+      logger.debug('[APP] HTTP server stopped successfully');
     } catch (error) {
-      console.error('[APP] Error stopping HTTP server:', error);
+      logger.error('[APP] Error stopping HTTP server:', error);
     }
   }
 
-  console.log('[APP] Cleanup complete');
+  logger.debug('[APP] Cleanup complete');
 });
 
 // Sync Folder IPC handlers
 ipcMain.handle('get-sync-folders', async () => {
   try {
-    console.log('[GET-SYNC-FOLDERS] Fetching status from backend...');
+    logger.debug('[GET-SYNC-FOLDERS] Fetching status from backend...');
     const statusData = await getStatus();
-    console.log('[GET-SYNC-FOLDERS] Response from backend:', JSON.stringify(statusData, null, 2));
+    logger.debug('[GET-SYNC-FOLDERS] Response from backend:', JSON.stringify(statusData, null, 2));
 
     // Combine backend data with local sync service status
     const foldersWithStatus = statusData.folders.map((folder: any) => {
@@ -1412,7 +1284,7 @@ ipcMain.handle('get-sync-folders', async () => {
 
     return { success: true, folders: foldersWithStatus };
   } catch (error: any) {
-    console.error('[GET-SYNC-FOLDERS] Backend offline or error:', error);
+    logger.error('[GET-SYNC-FOLDERS] Backend offline or error:', error);
 
     // Return local folders with offline status
     const localFolders = syncService.getAllFolders().map((folder) => ({
@@ -1434,25 +1306,25 @@ ipcMain.handle('get-sync-folders', async () => {
 
 ipcMain.handle('add-sync-folder', async (_event, folderPath: string) => {
   try {
-    console.log('[ADD-SYNC-FOLDER] Starting to add folder:', folderPath);
+    logger.debug('[ADD-SYNC-FOLDER] Starting to add folder:', folderPath);
     const folderName = path.basename(folderPath);
-    console.log('[ADD-SYNC-FOLDER] Folder name:', folderName);
+    logger.debug('[ADD-SYNC-FOLDER] Folder name:', folderName);
 
-    console.log('[ADD-SYNC-FOLDER] Calling backend to register folder...');
+    logger.debug('[ADD-SYNC-FOLDER] Calling backend to register folder...');
     const response = await addFolder(folderName, folderPath);
-    console.log('[ADD-SYNC-FOLDER] Backend response:', response.status, response.data);
+    logger.debug('[ADD-SYNC-FOLDER] Backend response:', response.status, response.data);
 
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`Failed to add folder: ${response.status}`);
     }
 
     const folder = response.data.folder;
-    console.log('[ADD-SYNC-FOLDER] Folder registered:', folder);
+    logger.debug('[ADD-SYNC-FOLDER] Folder registered:', folder);
 
     // Start watching (will handle recursive subfolders automatically)
-    console.log('[ADD-SYNC-FOLDER] Starting sync service watcher...');
+    logger.debug('[ADD-SYNC-FOLDER] Starting sync service watcher...');
     await syncService.startWatching(folder.folder_name, folderPath);
-    console.log('[ADD-SYNC-FOLDER] Sync service watcher started successfully');
+    logger.debug('[ADD-SYNC-FOLDER] Sync service watcher started successfully');
 
     return {
       success: true,
@@ -1465,7 +1337,7 @@ ipcMain.handle('add-sync-folder', async (_event, folderPath: string) => {
       },
     };
   } catch (error: any) {
-    console.error('[ADD-SYNC-FOLDER] Failed to add sync folder:', error);
+    logger.error('[ADD-SYNC-FOLDER] Failed to add sync folder:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1476,7 +1348,7 @@ ipcMain.handle('remove-sync-folder', async (_event, folderId: string) => {
     await removeFolder(folderId);
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to remove sync folder:', error);
+    logger.error('Failed to remove sync folder:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1486,23 +1358,23 @@ ipcMain.handle('sync-folder-now', async (_event, folderId: string) => {
     await syncService.syncNow(folderId);
     return { success: true };
   } catch (error: any) {
-    console.error('Failed to sync folder:', error);
+    logger.error('Failed to sync folder:', error);
     return { success: false, error: error.message };
   }
 });
 
 ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
   try {
-    console.log('[GET-FOLDER-FILES] Fetching files for folder:', folderId);
+    logger.debug('[GET-FOLDER-FILES] Fetching files for folder:', folderId);
     const filesData = await listFiles(folderId);
-    console.log('[GET-FOLDER-FILES] Received data from backend:', JSON.stringify(filesData, null, 2));
+    logger.debug('[GET-FOLDER-FILES] Received data from backend:', JSON.stringify(filesData, null, 2));
 
     if (!filesData || !filesData.files) {
-      console.error('[GET-FOLDER-FILES] Invalid response structure:', filesData);
+      logger.error('[GET-FOLDER-FILES] Invalid response structure:', filesData);
       return { success: false, error: 'Invalid response from backend', files: [] };
     }
 
-    console.log('[GET-FOLDER-FILES] Found', filesData.files.length, 'files');
+    logger.debug('[GET-FOLDER-FILES] Found', filesData.files.length, 'files');
 
     const formattedFiles = filesData.files.map((file: any) => ({
       path: file.relative_path,
@@ -1511,35 +1383,32 @@ ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
       timestamp: file.last_modified || file.mtime,
       size: file.size,
     }));
-    console.log('[GET-FOLDER-FILES] Returning', formattedFiles.length, 'formatted files');
+    logger.debug('[GET-FOLDER-FILES] Returning', formattedFiles.length, 'formatted files');
     return { success: true, files: formattedFiles };
   } catch (error: any) {
-    console.error('[GET-FOLDER-FILES] Failed to get folder files:', error);
+    logger.error('[GET-FOLDER-FILES] Failed to get folder files:', error);
     return { success: false, error: error.message, files: [] };
   }
 });
 
 // Handle tray icon change
 ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
-  console.log('[TRAY] Changing icon to type:', iconType);
-
   if (!tray) {
-    console.error('[TRAY] Tray not initialized, cannot change icon');
+    logger.error('[TRAY] Tray not initialized, cannot change icon');
     return { success: false, error: 'Tray not initialized' };
   }
 
   try {
     const newIcon = createTrayIcon(iconType);
     if (!newIcon) {
-      console.error('[TRAY] Failed to create new icon');
+      logger.error('[TRAY] Failed to create new icon');
       return { success: false, error: 'Failed to create icon' };
     }
 
     tray.setImage(newIcon);
-    console.log('[TRAY] Icon changed successfully');
     return { success: true };
   } catch (error) {
-    console.error('[TRAY] ERROR changing icon:', error);
+    logger.error('[TRAY] ERROR changing icon:', error);
     return { success: false, error: (error as Error).message };
   }
 });
@@ -1579,7 +1448,7 @@ ipcMain.handle('get-all-notifications', async () => {
       breakdown: { unread, read, dismissed, total: notifications.length }
     };
   } catch (error: any) {
-    console.error('[NOTIFICATIONS-DEBUG] Error getting notifications:', error);
+    logger.error('[NOTIFICATIONS-DEBUG] Error getting notifications:', error);
     return {
       success: false,
       error: error.message,
@@ -1594,15 +1463,14 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
     // Validate URL against whitelist before opening
     const validation = validateExternalUrl(url);
     if (!validation.isValid) {
-      console.error('[Main] URL validation failed:', validation.error);
+      logger.error('[Main] URL validation failed:', validation.error);
       return { success: false, error: validation.error };
     }
 
-    console.log('[Main] Opening validated external URL:', url);
     await shell.openExternal(url);
     return { success: true };
   } catch (error: any) {
-    console.error('[Main] Error opening external URL:', error);
+    logger.error('[Main] Error opening external URL:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1610,10 +1478,8 @@ ipcMain.handle('open-external-url', async (_event, url: string) => {
 // Navigation handler - focus main window and relay navigation event
 ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO_PAGE, async (_event, payload: NavigateToPagePayload) => {
   try {
-    console.log('[Main] Navigate to page:', payload);
-
     if (!mainWindow) {
-      console.warn('[Main] Main window not available for navigation');
+      logger.warn('[Main] Main window not available for navigation');
       return { success: false, error: 'Main window not available' };
     }
 
@@ -1629,7 +1495,7 @@ ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO_PAGE, async (_event, payload: NavigateTo
 
     return { success: true };
   } catch (error: any) {
-    console.error('[Main] Error navigating to page:', error);
+    logger.error('[Main] Error navigating to page:', error);
     return { success: false, error: error.message };
   }
 });

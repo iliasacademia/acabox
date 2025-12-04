@@ -10,7 +10,6 @@ jest.mock('electron', () => ({
 }));
 
 import { validateExternalUrl, getAllowedDomains } from '../utils/urlValidation';
-import { app } from 'electron';
 
 describe('URL Validation', () => {
   describe('validateExternalUrl', () => {

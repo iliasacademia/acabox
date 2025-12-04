@@ -8,14 +8,12 @@ import {
   getProjectFiles,
   getProjectFolders,
   getProjectCollaborators,
-  updateReviewStatus,
   addFolderToProject,
   addCollaborator,
 } from '../services/projectsApi';
 import { IPC_CHANNELS } from '../../shared/types';
 import { useReviewPolling } from '../hooks/useReviewPolling';
 import ProjectSidebar from './ProjectSidebar';
-import ReviewComponent from './ReviewComponent';
 import AlertDialog from './AlertDialog';
 import AddCollaboratorModal from './AddCollaboratorModal';
 
@@ -38,7 +36,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
   const [expandedReviews, setExpandedReviews] = useState<Set<number>>(new Set());
 
   // Review polling hook
-  const { agentRun, isPolling, error: reviewError, startPolling } = useReviewPolling();
+  const { agentRun, error: reviewError, startPolling } = useReviewPolling();
 
   useEffect(() => {
     loadProjectData();
@@ -64,7 +62,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
 
       // Start polling for reviews if manuscript exists
       if (primaryManuscript) {
-        console.log('[ProjectDetail] Starting review polling for manuscript:', primaryManuscript.id);
         startPolling(project.id, primaryManuscript.id);
       }
     } catch (error) {
@@ -173,16 +170,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
       }
       return newSet;
     });
-  };
-
-  const extractHeadingFromHTML = (html: string): string | null => {
-    // Create a temporary div to parse HTML
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-
-    // Look for first h2, h3, or h4 heading
-    const heading = tempDiv.querySelector('h2, h3, h4');
-    return heading ? heading.textContent : null;
   };
 
   interface StrengthItem {

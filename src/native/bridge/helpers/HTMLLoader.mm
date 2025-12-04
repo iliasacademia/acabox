@@ -70,7 +70,6 @@ NSString* globalAuthToken __attribute__((weak)) = nil;
         NSURL* httpURL = [NSURL URLWithString:fullUrlString];
 
         if (httpURL) {
-            NSLog(@"[%@] Loading popup from HTTP server: %@", windowName, fullUrlString);
             [webView loadRequest:[NSURLRequest requestWithURL:httpURL]];
             return;
         } else {

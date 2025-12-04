@@ -9,7 +9,9 @@
 // Mock Electron's app module for testing
 jest.mock('electron', () => ({
   app: {
+    getVersion: jest.fn(() => '1.0.0-test'),
     isPackaged: false,
+    getPath: jest.fn(() => '/mock/path'),
   },
 }));
 

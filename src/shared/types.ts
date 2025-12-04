@@ -14,7 +14,7 @@ export const IPC_CHANNELS = {
 
   // API operations
   API_CALL: 'api-call',
-  API_LOG: 'api-log',
+  DEVTOOLS_LOG: 'devtools-log',
 
   // File operations
   SELECT_FOLDER: 'select-folder',
@@ -96,6 +96,7 @@ export const FEATURES = {
   MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
   TEXT_SIDE_BUTTON_ENABLED: false, // Toggle TextSideButton/Popup in Word overlay
   OVERALL_REVIEW_BUTTON_ENABLED: false, // Toggle OverallReviewButton/Popup in Word overlay
+  SCROLL_TRACKING_ENABLED: false, // Toggle scroll tracking in Word overlay
 } as const;
 
 export interface DesktopNotification {
@@ -121,4 +122,30 @@ export interface NavigateToPagePayload {
   page: 'conversation';  // Extensible: 'project' | 'settings' | etc.
   projectId: number;
   conversationId: number;
+}
+
+// DevTools logging types
+export type DevToolsLogCategory = 'api' | 'general';
+export type DevToolsLogLevel = 'info' | 'warn' | 'error' | 'debug';
+
+export interface GeneralLogData {
+  message: any[];
+}
+
+export interface ApiLogData {
+  type: 'request' | 'response' | 'error';
+  method: string;
+  endpoint: string;
+  status?: number;
+  statusText?: string;
+  url?: string;
+  message?: string;
+  requestData?: any;
+}
+
+export interface DevToolsLogPayload {
+  timestamp: string;
+  category: DevToolsLogCategory;
+  level: DevToolsLogLevel;
+  data: GeneralLogData | ApiLogData;
 }

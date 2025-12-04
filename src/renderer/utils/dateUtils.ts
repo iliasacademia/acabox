@@ -37,7 +37,7 @@ export const getCategoryFromDate = (dateString: string): ProjectCategory => {
     if (daysDiff < 7) return 'Last 7 days';
     if (daysDiff < 30) return 'Last 30 days';
     return 'Older';
-  } catch (error) {
+  } catch {
     return 'Older'; // Fallback for any errors
   }
 };
@@ -77,7 +77,7 @@ export const formatProjectDate = (dateString: string): string => {
       month: 'short',
       day: 'numeric',
     });
-  } catch (error) {
+  } catch {
     return 'Unknown date';
   }
 };

@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import { APIclient, getCsrfToken } from './apiClient';
 import { Notification, GetNotificationsResponse } from './types/notifications';
+import { defaultLogger as logger } from './utils/logger';
 
 export interface CachedNotification extends Notification {
   fetched_at: number;
@@ -41,8 +42,9 @@ export const updateNotification = async (
         headers: { 'x-csrf-token': csrfToken },
       }
     );
+    return response.data;
   } catch (error: any) {
-    console.error('[API] updateNotification error:', {
+    logger.error('[API] updateNotification error:', {
       message: error.message,
       response: error.response?.data,
       status: error.response?.status,
@@ -86,7 +88,6 @@ class NotificationManager {
    */
   async syncWithBackend(userId: number): Promise<void> {
     if (this.isSyncing) {
-      console.log('Sync already in progress, skipping...');
       return;
     }
 
@@ -98,7 +99,6 @@ class NotificationManager {
         ? new Date(latestCreatedAt).toISOString()
         : undefined;
 
-      console.log(`Syncing notifications from backend...${afterParam ? ` (after: ${afterParam})` : ' (full sync)'}`);
       const response = await getNotifications(afterParam);
       const fetchedAt = Date.now();
 
@@ -143,12 +143,12 @@ class NotificationManager {
         for (const notif of newNotifications) {
           // Validate window before sending
           if (!this.mainWindow || this.mainWindow.isDestroyed()) {
-            console.error(`[NotificationManager] Cannot send notification ${notif.id}: mainWindow is null or destroyed`);
+            logger.error(`[NotificationManager] Cannot send notification ${notif.id}: mainWindow is null or destroyed`);
             continue; // Skip marking as delivered
           }
 
           if (!this.mainWindow.webContents || this.mainWindow.webContents.isDestroyed()) {
-            console.error(`[NotificationManager] Cannot send notification ${notif.id}: webContents is null or destroyed`);
+            logger.error(`[NotificationManager] Cannot send notification ${notif.id}: webContents is null or destroyed`);
             continue;
           }
 
@@ -156,7 +156,7 @@ class NotificationManager {
           try {
             this.mainWindow.webContents.send('new-notification', notif);
           } catch (error) {
-            console.error(`[NotificationManager] Failed to send IPC for notification ${notif.id}:`, error);
+            logger.error(`[NotificationManager] Failed to send IPC for notification ${notif.id}:`, error);
             continue; // Don't mark as delivered if send failed
           }
 
@@ -177,24 +177,24 @@ class NotificationManager {
               cached.delivered_at = deliveredAt;
               this.notifications.set(notif.id, cached);
             } else {
-              console.warn(`[NotificationManager] Could not find notification ${notif.id} in cache to update delivered_at`);
+              logger.warn(`[NotificationManager] Could not find notification ${notif.id} in cache to update delivered_at`);
             }
           } catch (error) {
-            console.error(`Failed to mark notification ${notif.id} as delivered:`, error);
+            logger.error(`Failed to mark notification ${notif.id} as delivered:`, error);
           }
         }
       } else if (newNotifications.length > 0 && !this.mainWindow) {
-        console.warn(`[NotificationManager] Have ${newNotifications.length} new notifications but mainWindow is not set!`);
+        logger.warn(`[NotificationManager] Have ${newNotifications.length} new notifications but mainWindow is not set!`);
       }
 
       // Notify listeners that sync is complete (for badge updates, etc.)
       if (this.onSyncComplete) {
         this.onSyncComplete(userId);
       } else {
-        console.warn(`[NotificationManager] onSyncComplete callback is NOT set!`);
+        logger.warn(`[NotificationManager] onSyncComplete callback is NOT set!`);
       }
-    } catch (error) {
-      console.error('Failed to sync notifications:', error);
+    } catch (_error: unknown) {
+      logger.error('Failed to sync notifications:', _error);
     } finally {
       this.isSyncing = false;
     }
@@ -226,7 +226,7 @@ class NotificationManager {
         notif.synced_to_backend = true;
         this.notifications.set(notif.id, notif);
       } catch (error) {
-        console.error(`Failed to sync notification ${notif.id} to backend:`, error);
+        logger.error(`Failed to sync notification ${notif.id} to backend:`, error);
       }
     }
   }
@@ -275,7 +275,7 @@ class NotificationManager {
   ): void {
     const notif = this.notifications.get(id);
     if (!notif) {
-      console.error(`Notification ${id} not found`);
+      logger.error(`Notification ${id} not found`);
       return;
     }
 
@@ -309,7 +309,7 @@ class NotificationManager {
         this.notifications.set(id, notif);
       }
     } catch (error) {
-      console.error('Failed to sync mark as read to backend:', error);
+      logger.error('Failed to sync mark as read to backend:', error);
       // Will be retried in next syncLocalChangesToBackend call
     }
 
@@ -337,7 +337,7 @@ class NotificationManager {
         this.notifications.set(id, notif);
       }
     } catch (error) {
-      console.error('Failed to sync dismiss to backend:', error);
+      logger.error('Failed to sync dismiss to backend:', error);
       // Will be retried in next syncLocalChangesToBackend call
     }
 
@@ -367,8 +367,6 @@ class NotificationManager {
         this.syncWithBackend(this.currentUserId);
       }
     }, interval);
-
-    console.log(`Started notification polling for user ${userId} with ${interval}ms interval`);
   }
 
   /**
@@ -380,7 +378,7 @@ class NotificationManager {
       this.pollingInterval = null;
     }
     this.currentUserId = null;
-    console.log('Stopped notification polling');
+    logger.debug('Stopped notification polling');
   }
 
   /**

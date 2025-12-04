@@ -11,6 +11,9 @@
 // Global variable needed by BasePopupWindow
 NSString* globalPopupPath = nil;
 
+// Global variable needed by MicrosoftWordAdapter (stub for tests)
+BOOL featureScrollTrackingEnabled = YES;
+
 // Simple test framework macros
 #define TEST_START(name) \
     NSLog(@"\n[TEST] Starting: %s", name); \
