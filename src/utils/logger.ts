@@ -38,6 +38,9 @@ export class Logger {
     if (this.isPackaged) {
       // Production configuration
       this.configureProductionLogging();
+    } else {
+      // Development configuration
+      this.configureDevelopmentLogging();
     }
   }
 
@@ -58,14 +61,24 @@ export class Logger {
     log.transports.console.format = `[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v${this.version}] [{level}] {text}`;
   }
 
+  private configureDevelopmentLogging(): void {
+    // Configure file transport for development
+    log.transports.file.level = 'debug'; // More verbose in development
+    log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB max file size
+    log.transports.file.fileName = 'main-dev.log';
+
+    // Set format to include version number after timestamp, before level
+    log.transports.file.format = `[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v${this.version}] [{level}] {text}`;
+
+    // Disable console transport in development (we use DevTools logging instead)
+    log.transports.console.level = false;
+  }
+
   /**
-   * Get the log file path (only available in production)
+   * Get the log file path
    */
-  getLogFilePath(): string | null {
-    if (this.isPackaged) {
-      return log.transports.file.getFile().path;
-    }
-    return null;
+  getLogFilePath(): string {
+    return log.transports.file.getFile().path;
   }
 
   /**
@@ -111,9 +124,8 @@ export class Logger {
    * Log an info message
    */
   info(...args: any[]): void {
-    if (this.isPackaged) {
-      log.info(...args);
-    } else {
+    log.info(...args);
+    if (!this.isPackaged) {
       if (DEV_LOGGING_CONFIG.terminalLogging) {
         console.log(...args);
       }
@@ -125,9 +137,8 @@ export class Logger {
    * Log an error message
    */
   error(...args: any[]): void {
-    if (this.isPackaged) {
-      log.error(...args);
-    } else {
+    log.error(...args);
+    if (!this.isPackaged) {
       if (DEV_LOGGING_CONFIG.terminalLogging) {
         console.error(...args);
       }
@@ -139,9 +150,8 @@ export class Logger {
    * Log a warning message
    */
   warn(...args: any[]): void {
-    if (this.isPackaged) {
-      log.warn(...args);
-    } else {
+    log.warn(...args);
+    if (!this.isPackaged) {
       if (DEV_LOGGING_CONFIG.terminalLogging) {
         console.warn(...args);
       }
@@ -150,12 +160,11 @@ export class Logger {
   }
 
   /**
-   * Log a debug message
+   * Log a debug message (development only)
    */
   debug(...args: any[]): void {
-    if (this.isPackaged) {
+    if (!this.isPackaged) {
       log.debug(...args);
-    } else {
       if (DEV_LOGGING_CONFIG.terminalLogging) {
         console.debug(...args);
       }

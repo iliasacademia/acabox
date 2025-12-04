@@ -23,7 +23,8 @@
     "package": "electron-forge package",
     "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - {} \\;",
     "package:sign": "npm run package && npm run codesign",
-    "make": "electron-forge make"
+    "make": "electron-forge make",
+    "logs:watch": "tail -f ~/Library/Logs/academia-electron/main-dev.log"
   },
   "author": "Academia.edu",
   "license": "UNLICENSED",
