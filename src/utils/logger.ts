@@ -1,95 +1,71 @@
-import log from 'electron-log';
 import { BrowserWindow, app } from 'electron';
 import {
   DevToolsLogCategory,
   DevToolsLogLevel,
   DevToolsLogPayload,
 } from '../shared/types';
+import { logLayer, devToolsTransport, getLogFilePath } from './logLayer';
+import { LOGGING_CONFIG } from './config/loggingConfig';
 
-// Development logging configuration
+// Re-export for backward compatibility
+export { getChannelFromVersion } from './config/loggingConfig';
+
+// Re-export DEV_LOGGING_CONFIG for backward compatibility
 export const DEV_LOGGING_CONFIG = {
-  devToolsLogging: true,   // Send logs to renderer DevTools console
-  terminalLogging: false,   // Output logs to terminal
+  devToolsLogging: LOGGING_CONFIG.devToolsLogging,
+  terminalLogging: LOGGING_CONFIG.terminalLogging,
 };
 
-// Helper function to detect channel from version string
-export function getChannelFromVersion(): 'stable' | 'beta' {
-  const version = app.getVersion();
-  return version.includes('-beta') ? 'beta' : 'stable';
-}
-
 /**
- * Logger class that switches between console.log (development) and electron-log (production)
+ * Logger class that wraps LogLayer for backward compatibility.
  *
- * In development: Uses console.log for familiar debugging
- * In production: Uses electron-log with channel-specific filenames and version numbers in log lines
+ * This class maintains the existing API while delegating to LogLayer internally.
+ * All existing code using `logger.info()`, `logger.error()`, etc. continues to work.
+ *
+ * For new code, you can use LogLayer directly for enhanced features:
+ * - `logLayer.withMetadata({ userId: 123 }).info('message')`
+ * - `logLayer.withError(error).error('message')`
+ *
+ * @example
+ * ```typescript
+ * // Existing API (still works)
+ * import { defaultLogger as logger } from './utils/logger';
+ * logger.info('Hello world');
+ *
+ * // New LogLayer API (recommended for new code)
+ * import { logLayer } from './utils/logLayer';
+ * logLayer.withMetadata({ action: 'login' }).info('User logged in');
+ * ```
  */
 export class Logger {
   private isPackaged: boolean;
-  private version: string;
-  private channel: 'stable' | 'beta';
   private mainWindow: BrowserWindow | null = null;
 
-  constructor(isPackaged: boolean, version: string, channel: 'stable' | 'beta') {
+  constructor(isPackaged: boolean, _version: string, _channel: 'stable' | 'beta') {
     this.isPackaged = isPackaged;
-    this.version = version;
-    this.channel = channel;
-
-    if (this.isPackaged) {
-      // Production configuration
-      this.configureProductionLogging();
-    } else {
-      // Development configuration
-      this.configureDevelopmentLogging();
-    }
-  }
-
-  private configureProductionLogging(): void {
-    // Configure file transport
-    log.transports.file.level = 'info';
-    log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB max file size
-
-    // Set filename to include channel: main-stable.log or main-beta.log
-    log.transports.file.fileName = `main-${this.channel}.log`;
-
-    // Set format to include version number after timestamp, before level
-    // Format: [2025-01-06 14:30:22] [v20250106143022] [info] message
-    log.transports.file.format = `[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v${this.version}] [{level}] {text}`;
-
-    // Configure console transport for production (optional - you may want to disable this)
-    log.transports.console.level = 'info';
-    log.transports.console.format = `[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v${this.version}] [{level}] {text}`;
-  }
-
-  private configureDevelopmentLogging(): void {
-    // Configure file transport for development
-    log.transports.file.level = 'debug'; // More verbose in development
-    log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB max file size
-    log.transports.file.fileName = 'main-dev.log';
-
-    // Set format to include version number after timestamp, before level
-    log.transports.file.format = `[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v${this.version}] [{level}] {text}`;
-
-    // Disable console transport in development (we use DevTools logging instead)
-    log.transports.console.level = false;
+    // Note: version and channel are now handled in loggingConfig.ts
+    // These params are kept for backward compatibility
   }
 
   /**
    * Get the log file path
    */
   getLogFilePath(): string {
-    return log.transports.file.getFile().path;
+    return getLogFilePath();
   }
 
   /**
-   * Set the main window reference for sending logs to renderer
+   * Set the main window reference for sending logs to renderer.
+   * This updates the DevTools transport with the window reference.
    */
   setMainWindow(window: BrowserWindow | null): void {
     this.mainWindow = window;
+    devToolsTransport.setMainWindow(window);
   }
 
   /**
-   * Send log to renderer DevTools (development only)
+   * Send log to renderer DevTools (development only).
+   * This method is preserved for API-specific logging in apiClient.ts.
    */
   sendToDevTools(
     category: DevToolsLogCategory,
@@ -100,22 +76,28 @@ export class Logger {
       return;
     }
 
-    if (!DEV_LOGGING_CONFIG.devToolsLogging) {
-      return; // DevTools logging disabled
+    if (!LOGGING_CONFIG.devToolsLogging) {
+      return;
     }
 
-    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      try {
-        const payload: DevToolsLogPayload = {
-          timestamp: new Date().toISOString(),
-          category,
-          level,
-          data,
-        };
-        this.mainWindow.webContents.send('devtools-log', payload);
-      } catch (error) {
-        // Silently fail - don't want logging to break the app
-        console.error('Failed to send log to DevTools:', error);
+    if (category === 'api') {
+      // Use the DevTools transport's API-specific method
+      devToolsTransport.sendApiLog(level, data);
+    } else {
+      // For general logs, let LogLayer handle it
+      // This path is less common as general logs go through info/warn/error/debug
+      if (this.mainWindow && !this.mainWindow.isDestroyed()) {
+        try {
+          const payload: DevToolsLogPayload = {
+            timestamp: new Date().toISOString(),
+            category,
+            level,
+            data,
+          };
+          this.mainWindow.webContents.send('devtools-log', payload);
+        } catch {
+          // Silently fail
+        }
       }
     }
   }
@@ -124,12 +106,9 @@ export class Logger {
    * Log an info message
    */
   info(...args: any[]): void {
-    log.info(...args);
-    if (!this.isPackaged) {
-      if (DEV_LOGGING_CONFIG.terminalLogging) {
-        console.log(...args);
-      }
-      this.sendToDevTools('general', 'info', { message: args });
+    logLayer.info(...args);
+    if (!this.isPackaged && LOGGING_CONFIG.terminalLogging) {
+      console.log(...args);
     }
   }
 
@@ -137,12 +116,9 @@ export class Logger {
    * Log an error message
    */
   error(...args: any[]): void {
-    log.error(...args);
-    if (!this.isPackaged) {
-      if (DEV_LOGGING_CONFIG.terminalLogging) {
-        console.error(...args);
-      }
-      this.sendToDevTools('general', 'error', { message: args });
+    logLayer.error(...args);
+    if (!this.isPackaged && LOGGING_CONFIG.terminalLogging) {
+      console.error(...args);
     }
   }
 
@@ -150,12 +126,9 @@ export class Logger {
    * Log a warning message
    */
   warn(...args: any[]): void {
-    log.warn(...args);
-    if (!this.isPackaged) {
-      if (DEV_LOGGING_CONFIG.terminalLogging) {
-        console.warn(...args);
-      }
-      this.sendToDevTools('general', 'warn', { message: args });
+    logLayer.warn(...args);
+    if (!this.isPackaged && LOGGING_CONFIG.terminalLogging) {
+      console.warn(...args);
     }
   }
 
@@ -164,11 +137,10 @@ export class Logger {
    */
   debug(...args: any[]): void {
     if (!this.isPackaged) {
-      log.debug(...args);
-      if (DEV_LOGGING_CONFIG.terminalLogging) {
+      logLayer.debug(...args);
+      if (LOGGING_CONFIG.terminalLogging) {
         console.debug(...args);
       }
-      this.sendToDevTools('general', 'debug', { message: args });
     }
   }
 
@@ -176,13 +148,48 @@ export class Logger {
    * Check if terminal logging is enabled (for external API logging)
    */
   isTerminalLoggingEnabled(): boolean {
-    return !this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging;
+    return !this.isPackaged && LOGGING_CONFIG.terminalLogging;
   }
+
+  // ============================================
+  // New LogLayer-powered methods
+  // ============================================
+
+  /**
+   * Create a child logger with attached metadata.
+   * This is a new feature powered by LogLayer.
+   *
+   * @example
+   * ```typescript
+   * const childLogger = logger.withMetadata({ requestId: '123' });
+   * childLogger.info('Processing request'); // metadata is attached
+   * ```
+   */
+  withMetadata(metadata: Record<string, any>) {
+    return logLayer.withMetadata(metadata);
+  }
+
+  /**
+   * Create a child logger with an attached error.
+   * This is a new feature powered by LogLayer.
+   *
+   * @example
+   * ```typescript
+   * logger.withError(error).error('Operation failed');
+   * ```
+   */
+  withError(error: Error) {
+    return logLayer.withError(error);
+  }
+
 }
 
 // Default logger instance for use throughout the application
 export const defaultLogger = new Logger(
   app.isPackaged,
   app.getVersion(),
-  getChannelFromVersion()
+  (app.getVersion().includes('-beta') ? 'beta' : 'stable') as 'stable' | 'beta'
 );
+
+// Export LogLayer instance for direct access to advanced features
+export { logLayer } from './logLayer';

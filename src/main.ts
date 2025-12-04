@@ -73,7 +73,8 @@ const createWindow = async (): Promise<void> => {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
           scriptSrc +
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu; " + // Specific domains only
+          "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com; " + // Datadog RUM intake
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
           "form-action 'self'; " + // Restrict form submissions
@@ -126,7 +127,8 @@ const createMainWindow = async (): Promise<void> => {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data:; " + // Removed localhost wildcard for production
           scriptSrc +
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu; " + // Specific domains only
+          "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com; " + // Datadog RUM intake
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
           "form-action 'self'; " + // Restrict form submissions
