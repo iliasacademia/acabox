@@ -323,8 +323,8 @@ describe('MessageBridge', () => {
       // Simulate responses arriving before MessageBridge is created
       (window as any).__pendingResponses = [preloadResponse1, preloadResponse2];
 
-      // Create a new MessageBridge instance
-      const newBridge = new MessageBridge('preload-test');
+      // Create a new MessageBridge instance (triggers side effect of processing queue)
+      const _newBridge = new MessageBridge('preload-test');
 
       // The queue should be processed synchronously during construction
       // So __pendingResponses should be cleared immediately
@@ -391,7 +391,7 @@ describe('MessageBridge', () => {
       console.error = jest.fn();
 
       // Create MessageBridge - it won't be able to initialize because bridge functions are missing
-      const failingBridge = new MessageBridge('timeout-test');
+      new MessageBridge('timeout-test');
 
       // Simulate responses arriving AFTER MessageBridge is created
       // This represents responses that arrive during the window between construction and timeout
@@ -452,7 +452,7 @@ describe('MessageBridge', () => {
       console.error = mockConsoleError;
 
       // Create MessageBridge with bridge functions available (from beforeEach setup)
-      const successBridge = new MessageBridge('success-test');
+      new MessageBridge('success-test');
 
       // Wait for 5+ seconds
       setTimeout(() => {

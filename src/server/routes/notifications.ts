@@ -13,7 +13,6 @@ import {
   GetNotificationsResponse,
   UpdateNotificationBody,
   UpdateNotificationResponse,
-  NotificationCountResponse,
 } from '../types';
 
 /**

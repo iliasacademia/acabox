@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react';
 import { parseDiff, Diff, Hunk, tokenize } from 'react-diff-view';
 import 'react-diff-view/style/index.css';
-import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 
 interface DiffModalProps {
   diffData: string; // Git diff output as a string
@@ -61,15 +60,6 @@ const DiffModal: React.FC<DiffModalProps> = ({ diffData, onClose, isLoading = fa
         </Diff>
       </div>
     );
-  };
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      month: 'short',
-      day: 'numeric'
-    });
   };
 
   return (

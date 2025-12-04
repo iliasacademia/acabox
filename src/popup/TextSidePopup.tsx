@@ -84,15 +84,6 @@ const TextSidePopup: React.FC = () => {
     }
   };
 
-  const toggleReference = (id: string) => {
-    setCitationData({
-      ...citationData,
-      references: citationData.references.map(ref =>
-        ref.id === id ? { ...ref, expanded: !ref.expanded } : ref
-      )
-    });
-  };
-
   const getRelevanceBadgeStyle = (relevance: number): React.CSSProperties => {
     if (relevance >= 80) {
       return {

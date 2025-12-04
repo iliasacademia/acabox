@@ -10,7 +10,6 @@ import {
   Project,
   getProjects,
   createProject,
-  updateProject,
   deleteProject,
   addFolderToProject,
   addCollaborator,
@@ -26,12 +25,6 @@ interface DialogState {
   title: string;
   message: string;
   onConfirm?: () => void;
-}
-
-interface UserData {
-  id: number;
-  first_name?: string;
-  name?: string;
 }
 
 interface ProjectsProps {

@@ -24,7 +24,6 @@ export function useConversationPolling(): UseConversationPollingResult {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const conversationIdRef = useRef<number | null>(null);
   const projectIdRef = useRef<number | null>(null);
-  const shouldKeepMessages = useRef<boolean>(false);
 
   const stopPolling = useCallback(() => {
     if (intervalRef.current) {

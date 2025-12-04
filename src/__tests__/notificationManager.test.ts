@@ -10,7 +10,6 @@ jest.mock('../apiClient', () => ({
 
 import { notificationManager } from '../notificationManager';
 import * as notificationManagerModule from '../notificationManager';
-import { BrowserWindow } from 'electron';
 
 // Mock Electron's BrowserWindow
 jest.mock('electron', () => ({

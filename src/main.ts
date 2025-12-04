@@ -32,24 +32,6 @@ if (store.has('updateChannel')) {
   store.delete('updateChannel');
 }
 
-// Helper function to resolve paths for AppleScript files
-function resolveAppleScriptPath(scriptName: string): string {
-  // In development, use the webpack output path
-  const devPath = path.join(__dirname, 'applescripts', scriptName);
-
-  // In production, use the extraResource path (Contents/Resources/applescripts/)
-  const prodPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'applescripts', scriptName)
-    : devPath;
-
-  console.log('resolveAppleScriptPath - app.isPackaged:', app.isPackaged);
-  console.log('resolveAppleScriptPath - devPath:', devPath);
-  console.log('resolveAppleScriptPath - prodPath:', prodPath);
-  console.log('resolveAppleScriptPath - exists:', fs.existsSync(app.isPackaged ? prodPath : devPath));
-
-  return app.isPackaged ? prodPath : devPath;
-}
-
 let devWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -102,20 +84,6 @@ const createWindow = async (): Promise<void> => {
   });
 
   devWindow.loadURL(MAIN_WINDOW_WEBPACK_ENTRY);
-  if (process.env.NODE_ENV === 'development') {
-    devWindow.webContents.openDevTools();
-  }
-
-  // Connect logger to devWindow for sending logs to renderer DevTools
-  devWindow.webContents.once('did-finish-load', () => {
-    logger.setMainWindow(devWindow);
-  });
-
-  // Handle window destruction
-  devWindow.on('closed', () => {
-    logger.setMainWindow(null);
-    devWindow = null;
-  });
 
   // Dev window is now just for development/debugging
   // Sync functionality is handled by the main window (Projects UI)
@@ -190,6 +158,7 @@ const createMainWindow = async (): Promise<void> => {
 
   // Wait for window to be ready, then initialize
   mainWindow.webContents.once('did-finish-load', async () => {
+    logger.setMainWindow(mainWindow);
     await syncService.initialize();
   });
 
@@ -198,6 +167,12 @@ const createMainWindow = async (): Promise<void> => {
     if (mainWindow) {
       mainWindow.show();
     }
+  });
+
+  // Handle window destruction
+  mainWindow.on('closed', () => {
+    logger.setMainWindow(null);
+    mainWindow = null;
   });
 };
 
@@ -1023,9 +998,7 @@ ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
 });
 
 // Generic API call handler for Projects API
-ipcMain.handle('api-call', async (event, options: { method: string; endpoint: string; data?: any }) => {
-  const senderWindow = BrowserWindow.fromWebContents(event.sender);
-
+ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: string; data?: any }) => {
   try {
     const { method, endpoint, data } = options;
     const client = await APIclient();

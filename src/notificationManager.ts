@@ -41,6 +41,7 @@ export const updateNotification = async (
         headers: { 'x-csrf-token': csrfToken },
       }
     );
+    return response.data;
   } catch (error: any) {
     console.error('[API] updateNotification error:', {
       message: error.message,
@@ -191,8 +192,8 @@ class NotificationManager {
       } else {
         console.warn(`[NotificationManager] onSyncComplete callback is NOT set!`);
       }
-    } catch (error) {
-      console.error('Failed to sync notifications:', error);
+    } catch (_error: unknown) {
+      console.error('Failed to sync notifications:', _error);
     } finally {
       this.isSyncing = false;
     }

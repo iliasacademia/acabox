@@ -56,7 +56,7 @@ export function validateExternalUrl(
   try {
     // Parse the URL to validate its structure
     url = new URL(urlString);
-  } catch (error) {
+  } catch {
     return {
       isValid: false,
       error: 'Invalid URL format',

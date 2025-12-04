@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import UploadSection from './UploadSection';
 import SearchSection from './SearchSection';
 import SyncSection from './SyncSection';

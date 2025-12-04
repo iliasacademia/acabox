@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import MessageBridge, { Message, MessageHandler } from '../messageBridge';
+import MessageBridge, { MessageHandler } from '../messageBridge';
 
 // Singleton bridge instance
 let bridgeInstance: MessageBridge | null = null;

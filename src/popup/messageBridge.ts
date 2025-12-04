@@ -339,6 +339,7 @@ export class MessageBridge {
       let foundInInstance: MessageBridge | null = null;
 
       if (pending) {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         foundInInstance = this;
       }
       // SECOND: If not found, check if there's a different global instance with this request
@@ -476,7 +477,7 @@ export class MessageBridge {
     }
 
     // Cancel all pending request timeouts and reject them
-    this.pendingRequests.forEach((request, requestId) => {
+    this.pendingRequests.forEach((request, _requestId) => {
       clearTimeout(request.timeoutId);
       request.reject(new Error('Bridge destroyed'));
     });

@@ -2,7 +2,7 @@ import * as chokidar from 'chokidar';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
-import { downloadFileFromS3, syncFile, getLatestFiles, createFile, deleteFile, getStatus } from './uploader';
+import { downloadFileFromS3, getLatestFiles, createFile, deleteFile, getStatus } from './uploader';
 import { calculateChecksum } from './utils/checksum';
 import Store from 'electron-store';
 
@@ -294,6 +294,9 @@ class SyncService {
 
       // Call delete API
       const result = await deleteFile(folderName, localRelativePath);
+      if (result.data?.status !== 'success') {
+        throw new Error(`Failed to delete file ${filePath}: ${result.message}`);
+      }
 
       const fileName = path.basename(filePath);
 
@@ -417,7 +420,7 @@ class SyncService {
 
   async stopAll() {
     console.log('Stopping all watchers');
-    for (const [folderName, folder] of this.watchedFolders) {
+    for (const [_folderName, folder] of this.watchedFolders) {
       if (folder.watcher) {
         await folder.watcher.close();
       }
@@ -553,7 +556,7 @@ class SyncService {
 
           // Download file from S3
           console.log(`[INITIAL SYNC] Downloading ${s3File.key} to ${localFilePath}`);
-          const fileBuffer = await downloadFileFromS3(folderName, s3File.key, s3File.relative_path);
+          const fileBuffer = await downloadFileFromS3(folderName, s3File.key);
 
           // Create directory if it doesn't exist
           const dirPath = path.dirname(localFilePath);

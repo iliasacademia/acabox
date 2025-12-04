@@ -4,7 +4,6 @@ import {
   DevToolsLogCategory,
   DevToolsLogLevel,
   DevToolsLogPayload,
-  GeneralLogData,
 } from '../shared/types';
 
 // Development logging configuration
@@ -84,11 +83,15 @@ export class Logger {
     level: DevToolsLogLevel,
     data: DevToolsLogPayload['data']
   ): void {
+    if (this.isPackaged) {
+      return;
+    }
+
     if (!DEV_LOGGING_CONFIG.devToolsLogging) {
       return; // DevTools logging disabled
     }
 
-    if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
+    if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       try {
         const payload: DevToolsLogPayload = {
           timestamp: new Date().toISOString(),
@@ -99,6 +102,7 @@ export class Logger {
         this.mainWindow.webContents.send('devtools-log', payload);
       } catch (error) {
         // Silently fail - don't want logging to break the app
+        console.error('Failed to send log to DevTools:', error);
       }
     }
   }

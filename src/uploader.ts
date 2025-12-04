@@ -56,7 +56,7 @@ export const searchFiles = async (searchTerm: string) => {
   return response.data;
 };
 
-export const downloadFileFromS3 = async (folderName: string, fileKey: string, relativePath: string): Promise<Buffer> => {
+export const downloadFileFromS3 = async (folderName: string, fileKey: string): Promise<Buffer> => {
   const client = await APIclient();
   const response = await client.get(
     '/v0/sync_agent/download',

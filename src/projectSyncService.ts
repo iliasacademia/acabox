@@ -542,7 +542,7 @@ class ProjectSyncService {
   getProjectFolders(projectId: number): WatchedProjectFolder[] {
     const folders: WatchedProjectFolder[] = [];
 
-    for (const [key, folder] of this.watchedFolders.entries()) {
+    for (const [_key, folder] of this.watchedFolders.entries()) {
       if (folder.projectId === projectId) {
         folders.push(folder);
       }

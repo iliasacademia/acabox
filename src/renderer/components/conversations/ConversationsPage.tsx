@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Conversation, getConversation, ConversationResponse } from '../../services/conversationsApi';
+import { Conversation, getConversation } from '../../services/conversationsApi';
 import { Project, ProjectFile, getProjectFiles, getProjectStatus, triggerFullReview, triggerDiffReview } from '../../services/projectsApi';
 import { ConversationsSidebar } from './ConversationsSidebar';
 import { ConversationDetail } from './ConversationDetail';
@@ -25,7 +25,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
     useState<Conversation | DraftConversation | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
-  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [_isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [hasConversations, setHasConversations] = useState(false);
