@@ -1,5 +1,12 @@
 import log from 'electron-log';
 import { BrowserWindow, app } from 'electron';
+import {
+  DevToolsLogCategory,
+  DevToolsLogLevel,
+  DevToolsLogPayload,
+  GeneralLogData,
+  ApiLogData,
+} from '../shared/types';
 
 // Development logging configuration
 export const DEV_LOGGING_CONFIG = {
@@ -73,18 +80,24 @@ export class Logger {
   /**
    * Send log to renderer DevTools (development only)
    */
-  private sendToRenderer(level: string, args: any[]): void {
+  private sendToDevTools(
+    category: DevToolsLogCategory,
+    level: DevToolsLogLevel,
+    data: GeneralLogData | ApiLogData
+  ): void {
     if (!DEV_LOGGING_CONFIG.devToolsLogging) {
       return; // DevTools logging disabled
     }
 
     if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
       try {
-        this.mainWindow.webContents.send('api-log', {
-          type: level,
-          message: args,
+        const payload: DevToolsLogPayload = {
           timestamp: new Date().toISOString(),
-        });
+          category,
+          level,
+          data,
+        };
+        this.mainWindow.webContents.send('devtools-log', payload);
       } catch (error) {
         // Silently fail - don't want logging to break the app
       }
@@ -101,7 +114,7 @@ export class Logger {
       if (DEV_LOGGING_CONFIG.terminalLogging) {
         console.log(...args);
       }
-      this.sendToRenderer('info', args);
+      this.sendToDevTools('general', 'info', { message: args });
     }
   }
 
@@ -115,7 +128,7 @@ export class Logger {
       if (DEV_LOGGING_CONFIG.terminalLogging) {
         console.error(...args);
       }
-      this.sendToRenderer('error', args);
+      this.sendToDevTools('general', 'error', { message: args });
     }
   }
 
@@ -129,7 +142,7 @@ export class Logger {
       if (DEV_LOGGING_CONFIG.terminalLogging) {
         console.warn(...args);
       }
-      this.sendToRenderer('warn', args);
+      this.sendToDevTools('general', 'warn', { message: args });
     }
   }
 
@@ -143,7 +156,7 @@ export class Logger {
       if (DEV_LOGGING_CONFIG.terminalLogging) {
         console.debug(...args);
       }
-      this.sendToRenderer('debug', args);
+      this.sendToDevTools('general', 'debug', { message: args });
     }
   }
 
@@ -151,20 +164,12 @@ export class Logger {
    * Log an API request
    */
   apiRequest(method: string, endpoint: string, data?: any): void {
-    if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
-      try {
-        this.mainWindow.webContents.send('api-log', {
-          type: 'request',
-          method,
-          endpoint,
-          data,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (error) {
-        // Silently fail
-        console.error('Error sending API request log to renderer:', error);
-      }
-    }
+    this.sendToDevTools('api', 'info', {
+      type: 'request',
+      method,
+      endpoint,
+      requestData: data,
+    });
 
     // Also log to terminal if enabled
     if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
@@ -176,22 +181,15 @@ export class Logger {
    * Log an API response
    */
   apiResponse(method: string, endpoint: string, status: number, statusText: string, data?: any): void {
-    if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
-      try {
-        this.mainWindow.webContents.send('api-log', {
-          type: 'response',
-          method,
-          endpoint,
-          status,
-          statusText,
-          data,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (error) {
-        // Silently fail
-        console.error('Error sending API response log to renderer:', error);
-      }
-    }
+    const level: DevToolsLogLevel = status >= 400 ? 'error' : 'info';
+    this.sendToDevTools('api', level, {
+      type: 'response',
+      method,
+      endpoint,
+      status,
+      statusText,
+      requestData: data,
+    });
 
     if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
       console.log(`[API RESPONSE] ${method} ${endpoint} - ${status} ${statusText}`, JSON.stringify(data) || '');
@@ -202,22 +200,15 @@ export class Logger {
    * Log an API error
    */
   apiError(method: string, endpoint: string, url: string, message: string, status?: number, data?: any): void {
-    if (!this.isPackaged && this.mainWindow && !this.mainWindow.isDestroyed()) {
-      try {
-        this.mainWindow.webContents.send('api-log', {
-          type: 'error',
-          method,
-          endpoint,
-          url,
-          message,
-          status,
-          data,
-          timestamp: new Date().toISOString(),
-        });
-      } catch (error) {
-        // Silently fail
-      }
-    }
+    this.sendToDevTools('api', 'error', {
+      type: 'error',
+      method,
+      endpoint,
+      url,
+      message,
+      status,
+      requestData: data,
+    });
 
     if (!this.isPackaged && DEV_LOGGING_CONFIG.terminalLogging) {
       console.error(`[API ERROR] ${method} ${endpoint}`, { url, message, status, data });

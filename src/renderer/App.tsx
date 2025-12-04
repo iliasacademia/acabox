@@ -5,6 +5,7 @@ import { UpdateBanner } from './components/UpdateBanner';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
+import { useDevToolsLog } from './hooks/useDevToolsLog';
 import Projects from './components/Projects';
 import './App.css';
 
@@ -27,42 +28,11 @@ const App: React.FC = () => {
   // Detect if this is the main window (Projects UI) or dev window
   const isMainWindow = new URLSearchParams(window.location.search).get('window') === 'main';
 
+  // Listen for devtools logs from main process
+  useDevToolsLog();
+
   useEffect(() => {
     checkLoginStatus();
-
-    // Listen for API logs from main process
-    const handleApiLog = (_event: any, logData: any) => {
-      const timestamp = logData.timestamp || new Date().toISOString();
-      if (logData.type === 'request') {
-        console.log(
-          `%c[${timestamp}] [API REQUEST] ${logData.method} ${logData.endpoint}`,
-          'color: #0645b1; font-weight: bold',
-          logData.data || ''
-        );
-      } else if (logData.type === 'response') {
-        console.log(
-          `%c[${timestamp}] [API RESPONSE] ${logData.method} ${logData.endpoint} - ${logData.status} ${logData.statusText}`,
-          'color: #28a745; font-weight: bold',
-          logData.data || ''
-        );
-      } else if (logData.type === 'error') {
-        console.error(
-          `%c[${timestamp}] [API ERROR] ${logData.method} ${logData.endpoint} - ${logData.status || 'No status'}`,
-          'color: #dc3545; font-weight: bold',
-          {
-            url: logData.url,
-            message: logData.message,
-            data: logData.data,
-          }
-        );
-      }
-    };
-
-    window.electronAPI.on('api-log', handleApiLog);
-
-    return () => {
-      window.electronAPI.removeListener('api-log', handleApiLog);
-    };
   }, []);
 
   useEffect(() => {
