@@ -73,12 +73,12 @@ NSString* globalAuthToken __attribute__((weak)) = nil;
             [webView loadRequest:[NSURLRequest requestWithURL:httpURL]];
             return;
         } else {
-            NSLog(@"[%@] ERROR: Failed to construct HTTP URL from: %@", windowName, fullUrlString);
+            NSLog(@"[HTMLLoader] ERROR: Failed to construct HTTP URL from: %@", fullUrlString);
             return;
         }
     }
 
-    NSLog(@"[%@] ERROR: HTTP server base URL not set! Cannot load popup without file:// fallback.", windowName);
+    NSLog(@"[HTMLLoader] ERROR: globalServerBaseUrl not set for window: %@", windowName);
 }
 
 + (NSArray<NSString*>*)possibleHTMLPathsWithGlobalPath:(NSString*)globalPath {

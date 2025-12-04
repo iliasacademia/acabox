@@ -135,11 +135,6 @@ let nativeModule: NativeModule | null = null;
 const nodeRequire = typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__ : require;
 
 try {
-  // Debug: log the base directories
-  logger.debug('[Native Module] __dirname:', __dirname);
-  logger.debug('[Native Module] process.cwd():', process.cwd());
-  logger.debug('[Native Module] process.resourcesPath:', process.resourcesPath);
-
   // Try multiple possible paths
   const possiblePaths = [
     // Webpack output: relative to main bundle (most likely in development)
@@ -156,19 +151,16 @@ try {
     path.join(process.resourcesPath || '', 'native', 'build', 'Release', 'word_accessibility.node')
   ];
 
-  logger.debug('[Native Module] Attempting to load from paths:');
   for (const modulePath of possiblePaths) {
     try {
       const fs = nodeRequire('fs');
       const exists = fs.existsSync(modulePath);
-      logger.debug(`[Native Module]   ${modulePath} - ${exists ? 'EXISTS' : 'NOT FOUND'}`);
       if (exists) {
         nativeModule = nodeRequire(modulePath) as NativeModule;
-        logger.debug('Native Word accessibility module loaded successfully from:', modulePath);
+        logger.debug('[Native Module] Loaded from:', modulePath);
         break;
       }
     } catch (e) {
-      logger.error(`[Native Module] Error trying to load from ${modulePath}:`, e);
       // Try next path
       continue;
     }
@@ -191,12 +183,11 @@ try {
     for (const popupPath of popupPaths) {
       if (fs.existsSync(popupPath)) {
         nativeModule.setPopupPath(popupPath);
-        logger.debug('Popup HTML path set to:', popupPath);
         break;
       }
     }
   } catch (error) {
-    logger.error('Failed to set popup path:', error);
+    logger.error('[Native Module] Failed to set popup path:', error);
   }
 } catch (error) {
   logger.error('Failed to load native Word accessibility module:', error);
