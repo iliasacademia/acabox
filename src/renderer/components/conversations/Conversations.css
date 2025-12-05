@@ -1976,3 +1976,264 @@
 .diffModalCloseButton:hover {
   background-color: #3651d4;
 }
+
+/* Custom Diff Format Styles - New API Format */
+.diffMetadata {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 24px;
+  background-color: #f6f8fa;
+  border-bottom: 1px solid #d0d7de;
+  font-size: 13px;
+}
+
+.diffManuscriptName {
+  font-weight: 600;
+  color: #24292f;
+}
+
+.diffModifiedDate {
+  color: #57606a;
+  font-size: 12px;
+}
+
+/* Diff Line Styles */
+.diff-line {
+  display: flex;
+  font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 2px 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.diff-line-number {
+  display: inline-block;
+  min-width: 40px;
+  padding-right: 12px;
+  text-align: right;
+  color: #57606a;
+  user-select: none;
+}
+
+.diff-line-content {
+  flex: 1;
+  padding-left: 8px;
+}
+
+/* Context line (unchanged) */
+.diff-line.diff-context {
+  background-color: #ffffff;
+  color: #24292f;
+}
+
+/* Deleted line */
+.diff-line.diff-deleted {
+  background-color: #ffebe9;
+  color: #24292f;
+}
+
+.diff-line.diff-deleted::before {
+  content: '-';
+  color: #cf222e;
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+/* Added line */
+.diff-line.diff-added {
+  background-color: #e6ffec;
+  color: #24292f;
+}
+
+.diff-line.diff-added::before {
+  content: '+';
+  color: #1a7f37;
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+/* Modified line (with word-level diffs) */
+.diff-line.diff-modified {
+  background-color: #fff3e0;
+  color: #24292f;
+}
+
+.diff-line.diff-modified::before {
+  content: '~';
+  color: #9a6700;
+  font-weight: bold;
+  margin-right: 4px;
+}
+
+/* Header line */
+.diff-line.diff-header {
+  background-color: #f6f8fa;
+  color: #57606a;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-top: 1px solid #d0d7de;
+  border-bottom: 1px solid #d0d7de;
+}
+
+/* Word-level diff markers */
+.diff-word-deleted {
+  background-color: #ffd7d5;
+  color: #cf222e;
+  padding: 2px 4px;
+  border-radius: 3px;
+  text-decoration: line-through;
+  font-weight: 500;
+}
+
+.diff-word-added {
+  background-color: #acf2bd;
+  color: #1a7f37;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+/* ============================================ */
+/* Split Diff Viewer Styles - Side-by-Side View */
+/* ============================================ */
+
+.split-diff-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* Header */
+.split-diff-header {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: #e1e4e8;
+  border-bottom: 2px solid #d0d7de;
+}
+
+.panel-header {
+  background: #f6f8fa;
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  color: #24292f;
+  text-align: center;
+}
+
+.left-panel-header {
+  border-right: 1px solid #e1e4e8;
+}
+
+/* Content Container */
+.split-diff-content {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: #e1e4e8;
+  flex: 1;
+  overflow: auto;
+}
+
+/* Panels */
+.diff-panel {
+  background: white;
+  overflow-y: auto;
+  font-family: ui-monospace, 'SF Mono', Monaco, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', 'Oxygen Mono', 'Ubuntu Monospace', 'Source Code Pro', 'Fira Mono', 'Droid Sans Mono', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.left-panel {
+  border-right: 1px solid #e1e4e8;
+}
+
+/* Diff Lines */
+.diff-panel .diff-line {
+  display: flex;
+  padding: 2px 12px;
+  min-height: 24px;
+  align-items: flex-start;
+}
+
+.diff-panel .line-number {
+  width: 40px;
+  min-width: 40px;
+  color: #57606a;
+  text-align: right;
+  padding-right: 12px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.diff-panel .line-content {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Context lines (unchanged) */
+.diff-panel .diff-line.context {
+  background: #ffffff;
+  color: #24292f;
+}
+
+/* Deleted lines (left panel only) */
+.diff-panel .diff-line.deletion {
+  background: #ffebe9;
+  color: #24292f;
+  border-left: 3px solid #cf222e;
+  padding-left: 9px; /* Adjust for border */
+}
+
+/* Added lines (right panel only) */
+.diff-panel .diff-line.addition {
+  background: #e6ffec;
+  color: #24292f;
+  border-left: 3px solid #1a7f37;
+  padding-left: 9px; /* Adjust for border */
+}
+
+/* Modified lines (both panels) */
+.diff-panel .diff-line.modification {
+  background: #fff8e1;
+  color: #24292f;
+}
+
+/* Empty lines for alignment */
+.diff-panel .diff-line.empty-line {
+  background: #f6f8fa;
+  min-height: 24px;
+}
+
+/* Word-level highlights */
+.diff-panel mark.deletion {
+  background: #ffc0c0;
+  color: #cf222e;
+  padding: 2px 0;
+  font-weight: 500;
+  border-radius: 2px;
+}
+
+.diff-panel mark.addition {
+  background: #acf2bd;
+  color: #1a7f37;
+  padding: 2px 0;
+  font-weight: 500;
+  border-radius: 2px;
+}
+
+/* Empty state */
+.diff-empty-state {
+  text-align: center;
+  padding: 40px;
+  color: #666666;
+  font-size: 16px;
+}
