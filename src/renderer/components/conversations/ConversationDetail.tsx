@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Message, createMessage, createConversation, Conversation } from '../../services/conversationsApi';
-import { getFileDiff, ProjectFile } from '../../services/projectsApi';
+import { getFileDiff, ProjectFile, DiffResponse } from '../../services/projectsApi';
 import { useConversationPolling } from '../../hooks/useConversationPolling';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
@@ -30,7 +30,7 @@ export function ConversationDetail({
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showDiffModal, setShowDiffModal] = useState(false);
-  const [diffData, setDiffData] = useState<any>(null);
+  const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [isDiffLoading, setIsDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
 

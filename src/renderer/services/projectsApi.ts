@@ -109,6 +109,13 @@ export interface AgentRun {
   review_data: ReviewData | null;
 }
 
+export interface DiffResponse {
+  diff: string;              // Plain text diff with line prefixes (space, -, +, ~)
+  modified_date: string;     // ISO 8601 format
+  manuscript_name: string;
+  title: string;
+}
+
 export interface ProjectStatusResponse {
   project_id: number;
   agent_runs: AgentRun[];
@@ -343,18 +350,17 @@ export async function updateReviewStatus(
 /**
  * Get file diff (current version vs previous version)
  * GET /v0/co_scientist/projects/:projectId/files/:fileId/diff
- * Returns standard git diff format as a string
+ * Returns diff response with plain text diff and metadata
  */
 export async function getFileDiff(
   projectId: number,
   fileId: number
-): Promise<string> {
+): Promise<DiffResponse> {
   const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
     method: 'GET',
     endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff`,
   });
-  // Backend returns git diff as a string
-  return response.diff || response;
+  return response;
 }
 
 /**
