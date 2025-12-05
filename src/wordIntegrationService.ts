@@ -253,6 +253,8 @@ class WordIntegrationService {
     }
 
     if (!wordAccessibility.checkPermission()) {
+      logger.warn('[WORD-INTEGRATION] Accessibility permission not granted, prompting user...');
+      wordAccessibility.requestPermission();
       return;
     }
 

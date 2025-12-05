@@ -1283,6 +1283,15 @@ Napi::Value CheckPermission(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, hasPermission);
 }
 
+Napi::Value RequestPermission(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @YES};
+    BOOL hasPermission = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
+
+    return Napi::Boolean::New(env, hasPermission);
+}
+
 Napi::Value SetPopupPath(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1564,6 +1573,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getSelectedText", Napi::Function::New(env, GetSelectedText));
     exports.Set("getFirstTextAreaInfo", Napi::Function::New(env, GetFirstTextAreaInfo));
     exports.Set("checkPermission", Napi::Function::New(env, CheckPermission));
+    exports.Set("requestPermission", Napi::Function::New(env, RequestPermission));
     exports.Set("setPopupPath", Napi::Function::New(env, SetPopupPath));
     exports.Set("setServerBaseUrl", Napi::Function::New(env, SetServerBaseUrl));
     exports.Set("setAuthToken", Napi::Function::New(env, SetAuthToken));

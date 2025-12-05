@@ -114,6 +114,7 @@ interface NativeModule {
   getSelectedText(): SelectedText | null;
   getFirstTextAreaInfo(): FirstTextAreaInfo | null;
   checkPermission(): boolean;
+  requestPermission(): boolean;
   setPopupPath(path: string): boolean;
   setServerBaseUrl(url: string): boolean;
   setAuthToken(token: string): boolean;
@@ -207,6 +208,13 @@ export class WordAccessibilityBridge {
       throw new Error('Native module not loaded');
     }
     return nativeModule.checkPermission();
+  }
+
+  requestPermission(): boolean {
+    if (!nativeModule) {
+      return false;
+    }
+    return nativeModule.requestPermission();
   }
 
   // ============================================================================
