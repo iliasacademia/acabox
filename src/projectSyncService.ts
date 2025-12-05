@@ -2,10 +2,12 @@ import * as chokidar from 'chokidar';
 import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserWindow } from 'electron';
-import { APIclient, getCsrfToken } from './apiClient';
+import { APIclient, getCsrfToken, checkLogin } from './apiClient';
 import { IPC_CHANNELS } from './shared/types';
 import FormData from 'form-data';
 import { defaultLogger as logger } from './utils/logger';
+import Store from 'electron-store';
+import { calculateChecksum } from './utils/checksum';
 
 /**
  * Validates that a file path is within the allowed base directory
@@ -42,9 +44,19 @@ interface ProjectSyncStatus {
   errorCount: number;
 }
 
+interface ProjectSyncState {
+  folders: Array<{
+    projectId: number;
+    folderId: number;
+    folderPath: string;
+    manuscriptPath?: string;
+  }>;
+}
+
 class ProjectSyncService {
   private watchedFolders: Map<string, WatchedProjectFolder> = new Map();
   private mainWindow: BrowserWindow | null = null;
+  private store = new Store<ProjectSyncState>({ name: 'project-sync-state' });
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -54,6 +66,105 @@ class ProjectSyncService {
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
       this.mainWindow.webContents.send(channel, data);
     }
+  }
+
+  /**
+   * Persist watched folders to disk
+   */
+  private persistState() {
+    const folders = Array.from(this.watchedFolders.values()).map(f => ({
+      projectId: f.projectId,
+      folderId: f.folderId,
+      folderPath: f.folderPath,
+      manuscriptPath: f.manuscriptPath,
+    }));
+    this.store.set('folders', folders);
+    logger.debug(`[ProjectSync] Persisted ${folders.length} folders to disk`);
+  }
+
+  /**
+   * Initialize project sync service on app startup
+   * Restores watchers for all persisted folders and performs startup sync
+   */
+  async initialize() {
+    logger.debug('[ProjectSync] Initializing project sync service...');
+
+    // Load persisted folders
+    const state = this.store.get('folders', []);
+    logger.debug(`[ProjectSync] Found ${state.length} persisted folders`);
+
+    // Check if user is logged in
+    const isLoggedIn = await checkLogin();
+    if (!isLoggedIn) {
+      logger.debug('[ProjectSync] User not logged in, skipping initialization');
+      return;
+    }
+
+    // Validate and restore watchers for each folder
+    const validatedFolders: Array<{
+      projectId: number;
+      folderId: number;
+      folderPath: string;
+      manuscriptPath?: string;
+    }> = [];
+
+    for (const folder of state) {
+      try {
+        // Check if local folder still exists
+        if (!fs.existsSync(folder.folderPath)) {
+          logger.warn(`[ProjectSync] Local folder no longer exists: ${folder.folderPath}`);
+          continue;
+        }
+
+        validatedFolders.push(folder);
+
+        // Start watcher (without performing initial sync yet)
+        await this.startWatchingOnly(
+          folder.projectId,
+          folder.folderId,
+          folder.folderPath,
+          folder.manuscriptPath
+        );
+
+        logger.debug(
+          `[ProjectSync] Restored watcher for project ${folder.projectId}, folder ${folder.folderId}`
+        );
+      } catch (error) {
+        logger.error(`[ProjectSync] Error restoring watcher for folder ${folder.folderPath}:`, error);
+      }
+    }
+
+    // Update persisted state to only include valid folders
+    if (validatedFolders.length !== state.length) {
+      this.store.set('folders', validatedFolders);
+      logger.debug(`[ProjectSync] Updated persisted state: ${validatedFolders.length} valid folders`);
+    }
+
+    // Perform startup sync for each validated folder (async, non-blocking)
+    if (validatedFolders.length > 0) {
+      logger.debug(`[ProjectSync] Starting async startup sync for ${validatedFolders.length} folders`);
+
+      // Don't await - let startup sync happen in background
+      Promise.all(
+        validatedFolders.map(folder =>
+          this.performStartupSync(
+            folder.projectId,
+            folder.folderId,
+            folder.folderPath,
+            folder.manuscriptPath
+          ).catch(error => {
+            logger.error(
+              `[ProjectSync] Startup sync failed for project ${folder.projectId}, folder ${folder.folderId}:`,
+              error
+            );
+          })
+        )
+      ).then(() => {
+        logger.debug('[ProjectSync] All startup syncs complete');
+      });
+    }
+
+    logger.debug('[ProjectSync] Initialization complete (startup sync running in background)');
   }
 
   /**
@@ -81,6 +192,7 @@ class ProjectSyncService {
       const existing = this.watchedFolders.get(key);
       if (existing && manuscriptPath) {
         existing.manuscriptPath = manuscriptPath;
+        this.persistState(); // Persist updated manuscript path
       }
       return;
     }
@@ -137,6 +249,9 @@ class ProjectSyncService {
 
     this.watchedFolders.set(key, watchedFolder);
 
+    // Persist state
+    this.persistState();
+
     // Set up event handlers
     watcher.on('add', (filePath: string) => {
       logger.debug(`[ProjectSync] 🔵 Watcher detected 'add' event: ${filePath}`);
@@ -165,6 +280,95 @@ class ProjectSyncService {
   }
 
   /**
+   * Start watching a folder WITHOUT performing initial sync
+   * Used during app initialization - sync is handled separately by performStartupSync
+   */
+  private async startWatchingOnly(projectId: number, folderId: number, folderPath: string, manuscriptPath?: string): Promise<void> {
+    const key = `${projectId}-${folderId}`;
+
+    // Check if already watching
+    if (this.watchedFolders.has(key)) {
+      logger.debug(`[ProjectSync] Already watching folder ${folderPath} for project ${projectId}`);
+      return;
+    }
+
+    logger.debug(`[ProjectSync] Starting watcher (no initial sync): ${folderPath}`);
+
+    // Create watcher (same config as existing startWatching)
+    const watcher = chokidar.watch(folderPath, {
+      persistent: true,
+      ignoreInitial: true, // Don't fire events for existing files
+      followSymlinks: true,
+      ignored: (filePath: string) => {
+        // Validate path to prevent traversal attacks
+        if (!validatePath(folderPath, filePath)) {
+          logger.warn(`[ProjectSync] Path traversal attempt detected: ${filePath}`);
+          return true;
+        }
+
+        const basename = path.basename(filePath);
+        // Ignore hidden files (starting with .)
+        if (basename.startsWith('.')) {
+          logger.debug(`[ProjectSync] Ignoring hidden file: ${filePath}`);
+          return true;
+        }
+        // Ignore directories
+        if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
+          return false;
+        }
+        return false;
+      },
+      awaitWriteFinish: {
+        stabilityThreshold: 2000,
+        pollInterval: 100,
+      },
+      depth: 99,
+    });
+
+    const watchedFolder: WatchedProjectFolder = {
+      projectId,
+      folderId,
+      folderPath,
+      watcher,
+      status: 'idle',
+      fileCount: 0,
+      lastSync: null,
+      manuscriptPath,
+    };
+
+    this.watchedFolders.set(key, watchedFolder);
+
+    // Set up event handlers (same as existing startWatching)
+    watcher.on('add', (filePath: string) => {
+      logger.debug(`[ProjectSync] 🔵 Watcher detected 'add' event: ${filePath}`);
+      this.handleFileAdded(projectId, folderId, folderPath, filePath);
+    });
+
+    watcher.on('change', (filePath: string) => {
+      logger.debug(`[ProjectSync] 🟡 Watcher detected 'change' event: ${filePath}`);
+      this.handleFileChanged(projectId, folderId, folderPath, filePath);
+    });
+
+    watcher.on('unlink', (filePath: string) => {
+      logger.debug(`[ProjectSync] 🔴 Watcher detected 'unlink' event: ${filePath}`);
+      this.handleFileDeleted(projectId, folderId, folderPath, filePath);
+    });
+
+    watcher.on('ready', () => {
+      logger.debug(`[ProjectSync] ✅ Watcher is ready and actively watching: ${folderPath}`);
+      logger.debug(`[ProjectSync] Watched paths:`, watcher.getWatched());
+    });
+
+    watcher.on('error', (error) => {
+      logger.error(`[ProjectSync] ❌ Watcher error for ${folderPath}:`, error);
+      watchedFolder.status = 'error';
+      this.sendSyncStatus(projectId, folderId, folderPath);
+    });
+
+    logger.debug(`[ProjectSync] Watcher started: ${folderPath}`);
+  }
+
+  /**
    * Stop watching a project folder
    */
   async stopWatching(projectId: number, folderId: number) {
@@ -180,7 +384,165 @@ class ProjectSyncService {
     }
 
     this.watchedFolders.delete(key);
+
+    // Persist state
+    this.persistState();
+
     logger.debug(`[ProjectSync] Stopped watching folder for project ${projectId}, folder ${folderId}`);
+  }
+
+  /**
+   * Perform smart startup sync - only uploads files that changed while app was closed
+   * Based on SyncService's performStartupSync pattern
+   */
+  private async performStartupSync(
+    projectId: number,
+    folderId: number,
+    folderPath: string,
+    manuscriptPath?: string
+  ): Promise<void> {
+    const key = `${projectId}-${folderId}`;
+    const folder = this.watchedFolders.get(key);
+    if (!folder) return;
+
+    logger.debug(`[ProjectSync-Startup] Starting for project ${projectId}, folder ${folderId}`);
+    folder.status = 'syncing';
+    this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_BEGIN, {
+      projectId,
+      folderId,
+      message: 'Checking for changes...',
+    });
+
+    try {
+      // Get all local files
+      const localFiles = this.getAllFiles(folderPath);
+      logger.debug(`[ProjectSync-Startup] Found ${localFiles.length} local files`);
+
+      if (localFiles.length === 0) {
+        logger.debug(`[ProjectSync-Startup] No local files found`);
+        folder.status = 'idle';
+        this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {
+          projectId,
+          folderId,
+          status: 'completed',
+          message: 'No files to sync',
+        });
+        return;
+      }
+
+      // Get backend file list with checksums
+      const client = await APIclient();
+      const filesResponse = await client.get(`/v0/co_scientist/projects/${projectId}/files`);
+      const backendFiles = filesResponse.data?.files || [];
+
+      // Build remote file map: relativePath -> { checksum, id }
+      const remoteFileMap = new Map<string, { checksum: string; id: number }>();
+      for (const file of backendFiles) {
+        // file.file_path is the relative path from project root
+        remoteFileMap.set(file.file_path, {
+          checksum: file.checksum,
+          id: file.id,
+        });
+      }
+
+      logger.debug(`[ProjectSync-Startup] Found ${backendFiles.length} files on backend`);
+
+      // Filter files that need syncing (new or changed)
+      const filesToSync: Array<{ path: string; reason: 'new' | 'changed' }> = [];
+
+      for (const filePath of localFiles) {
+        const relativePath = path.relative(folderPath, filePath);
+        const remoteFile = remoteFileMap.get(relativePath);
+
+        if (!remoteFile) {
+          // File doesn't exist on backend
+          logger.debug(`[ProjectSync-Startup] New file: ${relativePath}`);
+          filesToSync.push({ path: filePath, reason: 'new' });
+          continue;
+        }
+
+        // Calculate local checksum
+        const localChecksum = await calculateChecksum(filePath);
+
+        if (localChecksum !== remoteFile.checksum) {
+          // File changed since last sync
+          logger.debug(
+            `[ProjectSync-Startup] Changed file: ${relativePath} (local: ${localChecksum}, remote: ${remoteFile.checksum})`
+          );
+          filesToSync.push({ path: filePath, reason: 'changed' });
+        }
+        // else: checksums match, skip
+      }
+
+      logger.debug(`[ProjectSync-Startup] ${filesToSync.length} files need syncing`);
+
+      if (filesToSync.length === 0) {
+        folder.status = 'synced';
+        this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {
+          projectId,
+          folderId,
+          status: 'completed',
+          message: 'All files up to date',
+        });
+        return;
+      }
+
+      // Sync files in parallel chunks (5 at a time)
+      let syncedCount = 0;
+      let errorCount = 0;
+      const chunkSize = 5;
+
+      for (let i = 0; i < filesToSync.length; i += chunkSize) {
+        const chunk = filesToSync.slice(i, i + chunkSize);
+
+        // Send progress update
+        this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_PROGRESS, {
+          projectId,
+          folderId,
+          current: i + 1,
+          total: filesToSync.length,
+        });
+
+        // Upload all files in this chunk in parallel
+        const results = await Promise.allSettled(
+          chunk.map(({ path: filePath }) =>
+            this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath)
+          )
+        );
+
+        // Process results
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
+            syncedCount++;
+          } else {
+            logger.error(`[ProjectSync-Startup] Failed to sync ${chunk[index].path}:`, result.reason);
+            errorCount++;
+          }
+        });
+      }
+
+      folder.status = 'synced';
+      folder.lastSync = new Date().toISOString();
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {
+        projectId,
+        folderId,
+        status: 'completed',
+        message: `Synced ${syncedCount} files`,
+        syncedCount,
+        errorCount,
+      });
+
+      logger.debug(`[ProjectSync-Startup] Complete: ${syncedCount} synced, ${errorCount} errors`);
+    } catch (error: any) {
+      logger.error(`[ProjectSync-Startup] Error for project ${projectId}, folder ${folderId}:`, error);
+      folder.status = 'error';
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {
+        projectId,
+        folderId,
+        status: 'error',
+        error: error.message,
+      });
+    }
   }
 
   /**

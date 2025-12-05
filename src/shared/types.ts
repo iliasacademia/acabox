@@ -71,6 +71,9 @@ export const IPC_CHANNELS = {
   PROJECT_SYNC_STATUS: 'project-sync-status',
   PROJECT_SYNC_PROGRESS: 'project-sync-progress',
   PROJECT_FILE_SYNCED: 'project-file-synced',
+  PROJECT_STARTUP_SYNC_BEGIN: 'project-startup-sync-begin',
+  PROJECT_STARTUP_SYNC_PROGRESS: 'project-startup-sync-progress',
+  PROJECT_STARTUP_SYNC_COMPLETE: 'project-startup-sync-complete',
 
   // Selection tracking
   START_SELECTION_TRACKING: 'start-selection-tracking',
