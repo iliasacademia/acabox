@@ -6,6 +6,7 @@ import { downloadFileFromS3, getLatestFiles, createFile, deleteFile, getStatus, 
 import { calculateChecksum } from './utils/checksum';
 import Store from 'electron-store';
 import { defaultLogger as logger } from './utils/logger';
+import { checkLogin } from './apiClient';
 
 interface WatchedFolder {
   folder_name: string;
@@ -358,6 +359,17 @@ class SyncService {
       // Start watching IMMEDIATELY (don't wait for sync)
       await this.startWatchingOnly(name, folderPath);
       foldersToSync.push({ name, path: folderPath });
+    }
+
+    // Check if user is logged in before attempting to sync
+    const isLoggedIn = await checkLogin();
+    if (!isLoggedIn) {
+      logger.debug('[SYNC] User not logged in, skipping remote sync');
+      // Mark all folders as idle (not an error, just waiting for login)
+      for (const folder of this.watchedFolders.values()) {
+        folder.status = 'idle';
+      }
+      return;
     }
 
     // Fetch remote state and perform startup sync

@@ -181,6 +181,15 @@
   cursor: not-allowed;
 }
 
+.triggerFullReviewButton.reviewing {
+  background-color: #9ca3af;
+  cursor: wait;
+}
+
+.triggerFullReviewButton.reviewing:hover {
+  background-color: #9ca3af;
+}
+
 .reviewErrorMessage {
   padding: 12px 24px;
   background-color: #ffebee;
@@ -413,6 +422,15 @@
     opacity: 0.5;
     transform: scale(1.1);
   }
+}
+
+.reviewChangesButton.reviewing {
+  background-color: #9ca3af;
+  cursor: wait;
+}
+
+.reviewChangesButton.reviewing:hover {
+  background-color: #9ca3af;
 }
 
 .fullReviewButton {

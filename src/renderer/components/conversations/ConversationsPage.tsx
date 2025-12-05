@@ -29,7 +29,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
   const [hasConversations, setHasConversations] = useState(false);
-  const [isFullReviewing, setIsFullReviewing] = useState(false);
+  const [reviewingState, setReviewingState] = useState<'idle' | 'full-reviewing' | 'diff-reviewing'>('idle');
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [recentlySynced, setRecentlySynced] = useState(false);
   const [syncIndicatorTimeout, setSyncIndicatorTimeout] = useState<NodeJS.Timeout | null>(null);
@@ -66,18 +66,65 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
     return hasDiffs;
   };
 
+  // Check for in-progress reviews on initial load
+  useEffect(() => {
+    if (!selectedProject || !manuscriptFile) return;
+
+    const checkInitialReviewStatus = async () => {
+      try {
+        const status = await getProjectStatus(selectedProject.id, undefined, manuscriptFile.id);
+
+        // Check for any pending/processing runs
+        const inProgressRuns = status.agent_runs.filter((run: any) =>
+          run.file_id === manuscriptFile.id &&
+          (run.status === 'pending' || run.status === 'processing')
+        );
+
+        if (inProgressRuns.length > 0) {
+          console.log('[ConversationsPage] Found in-progress review on load, starting polling');
+          setIsReviewInProgress(true);
+
+          // Determine which type of review is in progress
+          const hasFullReview = inProgressRuns.some((run: any) =>
+            run.agent_name?.includes('full')
+          );
+          const hasDiffReview = inProgressRuns.some((run: any) =>
+            run.agent_name?.includes('diff')
+          );
+
+          if (hasDiffReview) {
+            setReviewingState('diff-reviewing');
+          } else if (hasFullReview) {
+            setReviewingState('full-reviewing');
+          }
+
+          // Start polling to track completion
+          startPolling(manuscriptFile.id);
+        }
+      } catch (error) {
+        console.error('[ConversationsPage] Error checking initial review status:', error);
+      }
+    };
+
+    checkInitialReviewStatus();
+  }, [selectedProject, manuscriptFile?.id]);
+
   // Check if review changes button should be shown
   const shouldShowReviewChangesButton = (): boolean => {
     console.log('[ConversationsPage] shouldShowReviewChangesButton check:', {
       isAutoReviewInProgress,
       isReviewInProgress,
-      isFullReviewing,
+      reviewingState,
       hasDiffs: hasDiffsSinceLastReview()
     });
 
-    // Hide if any review is in progress (auto or manual)
-    // This covers pending/processing status before review_data is populated
-    if (isReviewInProgress || isFullReviewing) return false;
+    // If we're actively reviewing (button clicked and showing "Reviewing..."), keep button visible
+    if (reviewingState === 'diff-reviewing') {
+      return true;
+    }
+
+    // Hide if any other review is in progress (auto, full, etc)
+    if (isReviewInProgress) return false;
 
     // Show only if there are diffs
     return hasDiffsSinceLastReview();
@@ -97,12 +144,12 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
         console.log('[ConversationsPage] Max poll attempts reached, stopping');
         setPollInterval(null);
         setIsReviewInProgress(false);
-        setIsFullReviewing(false); // Reset button state
+        setReviewingState('idle');
         return;
       }
 
       try {
-        const status = await getProjectStatus(selectedProject!.id, 'science_agent', manuscriptId);
+        const status = await getProjectStatus(selectedProject!.id, undefined, manuscriptId);
         console.log('[ConversationsPage] Poll result:', status);
 
         // Check for recent agent runs (within last 5 minutes)
@@ -116,7 +163,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
           console.log('[ConversationsPage] No recent runs found, stopping poll');
           setPollInterval(null);
           setIsReviewInProgress(false);
-          setIsFullReviewing(false); // Reset button state
+          setReviewingState('idle');
           return;
         }
 
@@ -137,11 +184,15 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
           console.log('[ConversationsPage] All recent runs completed');
           setPollInterval(null);
           setIsReviewInProgress(false);
-          setIsFullReviewing(false); // Reset button state
+          setReviewingState('idle');
           setIsAutoReviewInProgress(false); // Reset auto review state
 
           // Refresh manuscript file data to get updated last_review
+          console.log('[ConversationsPage] Refreshing manuscript file to get updated last_review...');
           await refreshManuscriptFile();
+          console.log('[ConversationsPage] Manuscript file refreshed. Checking if Review Changes should be visible...');
+          console.log('[ConversationsPage] hasDiffsSinceLastReview:', hasDiffsSinceLastReview());
+          console.log('[ConversationsPage] shouldShowReviewChangesButton:', shouldShowReviewChangesButton());
 
           // Refresh conversation list to show new review conversation
           setRefreshTrigger(prev => prev + 1);
@@ -420,10 +471,10 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
     }
 
     console.log('[ConversationsPage] 🔄 Starting full review...');
-    setIsFullReviewing(true);
+    setReviewingState('full-reviewing');
     setIsReviewInProgress(true);
     setReviewError(null);
-    console.log('[ConversationsPage] State updated: isFullReviewing=true, isReviewInProgress=true');
+    console.log('[ConversationsPage] State updated: reviewingState=full-reviewing, isReviewInProgress=true');
 
     try {
       const response = await triggerFullReview(selectedProject.id, manuscriptFile.id);
@@ -436,7 +487,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
       console.error('[ConversationsPage] ❌ Error triggering full review:', error);
       const errorMsg = error.message || 'Failed to trigger full review';
       setReviewError(errorMsg);
-      setIsFullReviewing(false);
+      setReviewingState('idle');
       setIsReviewInProgress(false);
     }
   };
@@ -448,10 +499,10 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
     }
 
     console.log('[ConversationsPage] 🔄 Starting diff review...');
-    setIsFullReviewing(true);
+    setReviewingState('diff-reviewing');
     setIsReviewInProgress(true);
     setReviewError(null);
-    console.log('[ConversationsPage] State updated: isFullReviewing=true, isReviewInProgress=true');
+    console.log('[ConversationsPage] State updated: reviewingState=diff-reviewing, isReviewInProgress=true');
 
     try {
       const response = await triggerDiffReview(selectedProject.id, manuscriptFile.id);
@@ -464,7 +515,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
       console.error('[ConversationsPage] ❌ Error triggering diff review:', error);
       const errorMsg = error.message || 'Failed to trigger diff review';
       setReviewError(errorMsg);
-      setIsFullReviewing(false);
+      setReviewingState('idle');
       setIsReviewInProgress(false);
     }
   };
@@ -520,20 +571,20 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
               </div>
             </div>
             <button
-              className="triggerFullReviewButton"
+              className={`triggerFullReviewButton ${reviewingState === 'full-reviewing' ? 'reviewing' : ''}`}
               onClick={handleFullReview}
-              disabled={isFullReviewing || isReviewInProgress}
+              disabled={reviewingState !== 'idle' || isReviewInProgress}
             >
-              {isFullReviewing ? 'Reviewing...' : 'Trigger Full Review'}
+              {reviewingState === 'full-reviewing' ? 'Reviewing...' : 'Trigger Full Review'}
             </button>
             {shouldShowReviewChangesButton() && (
               <button
-                className={`reviewChangesButton ${recentlySynced ? 'recently-synced' : ''}`}
+                className={`reviewChangesButton ${recentlySynced ? 'recently-synced' : ''} ${reviewingState === 'diff-reviewing' ? 'reviewing' : ''}`}
                 onClick={handleDiffReview}
-                disabled={isFullReviewing || isReviewInProgress}
+                disabled={reviewingState !== 'idle' || isReviewInProgress}
               >
-                {isFullReviewing || isReviewInProgress ? 'Reviewing...' : 'Review Changes'}
-                {recentlySynced && !isFullReviewing && !isReviewInProgress && <span className="sync-indicator"></span>}
+                {reviewingState === 'diff-reviewing' ? 'Reviewing...' : 'Review Changes'}
+                {recentlySynced && reviewingState === 'idle' && <span className="sync-indicator"></span>}
               </button>
             )}
           </div>
