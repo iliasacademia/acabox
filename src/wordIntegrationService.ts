@@ -206,12 +206,12 @@ class WordIntegrationService {
    * Stop tracking all PIDs and clean up.
    */
   private stopAllTracking(): void {
-    if (this.trackedPIDs.size > 0) {
-      wordAccessibility.stopAllObserving();
-      this.trackedPIDs.clear();
-      wordIntegrationDataStore.clearTrackedPIDs();
-      this.activePID = null;
-    }
+    // Always call stopAllObserving to ensure native overlays are hidden,
+    // even if trackedPIDs is empty (handles state sync issues)
+    wordAccessibility.stopAllObserving();
+    this.trackedPIDs.clear();
+    wordIntegrationDataStore.clearTrackedPIDs();
+    this.activePID = null;
   }
 
   /**
