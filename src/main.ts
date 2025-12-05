@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { createCanvas } from 'canvas';
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
+import AutoLaunch from 'auto-launch';
 import { defaultLogger as logger, getChannelFromVersion } from './utils/logger';
 import { login, logout, checkLogin, getCurrentUser, APIclient, getCsrfToken } from './apiClient';
 import { uploadFile, searchFiles, getStatus, addFolder, removeFolder, listFiles } from './uploader';
@@ -30,6 +31,29 @@ const store = new Store();
 // Clean up deprecated updateChannel preference from electron-store
 if (store.has('updateChannel')) {
   store.delete('updateChannel');
+}
+
+// Initialize auto-launch (only in production)
+const autoLauncher = new AutoLaunch({
+  name: 'Academia Electron',
+  path: app.getPath('exe'),
+});
+
+// Enable auto-launch on first run (only in production)
+if (app.isPackaged) {
+  autoLauncher.isEnabled().then((isEnabled) => {
+    if (!isEnabled) {
+      autoLauncher.enable().then(() => {
+        logger.info('[Auto-Launch] Enabled successfully');
+      }).catch((err) => {
+        logger.error('[Auto-Launch] Failed to enable:', err);
+      });
+    } else {
+      logger.info('[Auto-Launch] Already enabled');
+    }
+  }).catch((err) => {
+    logger.error('[Auto-Launch] Failed to check status:', err);
+  });
 }
 
 let devWindow: BrowserWindow | null = null;

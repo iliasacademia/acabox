@@ -36,6 +36,9 @@ export function ConversationDetail({
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const isInitialLoad = useRef(true);
+  const previousMessageCount = useRef(0);
+  const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Fetch diff when Show Diff is clicked
   const handleShowDiff = async () => {
@@ -75,17 +78,38 @@ export function ConversationDetail({
     if (!conversation || isDraft(conversation)) {
       // For drafts or no conversation, stop polling and clear messages
       stopPolling();
+      isInitialLoad.current = true;
+      previousMessageCount.current = 0;
       return;
     }
+
+    // Mark as initial load when conversation changes
+    isInitialLoad.current = true;
+    previousMessageCount.current = 0;
 
     // Load initial messages for the selected conversation
     initializeMessages(conversation.id, projectId);
   }, [conversation?.id, projectId, initializeMessages, stopPolling]);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Handle scrolling: stay at top on initial load, scroll to new message when messages arrive
   useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    if (messages.length === 0) return;
+
+    if (isInitialLoad.current) {
+      // On initial load, stay at the top (don't scroll)
+      // The container naturally starts at the top, so we just mark it as loaded
+      isInitialLoad.current = false;
+      previousMessageCount.current = messages.length;
+    } else if (messages.length > previousMessageCount.current) {
+      // New messages arrived - scroll to the first new message
+      const firstNewMessageIndex = previousMessageCount.current;
+      const firstNewMessageRef = messageRefs.current.get(firstNewMessageIndex);
+
+      if (firstNewMessageRef) {
+        firstNewMessageRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      previousMessageCount.current = messages.length;
     }
   }, [messages]);
 
@@ -151,8 +175,9 @@ export function ConversationDetail({
   };
 
   // Group consecutive tool messages (no date dividers)
-  const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: any }> = [];
+  const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: any; messageIndex: number }> = [];
   let currentToolGroup: Message[] = [];
+  let messageIndex = 0;
 
   messages.forEach((message) => {
     if (message.role === 'tool') {
@@ -163,7 +188,9 @@ export function ConversationDetail({
         groupedMessages.push({
           type: 'toolGroup',
           data: currentToolGroup,
+          messageIndex: messageIndex,
         });
+        messageIndex++;
         currentToolGroup = [];
       }
 
@@ -171,7 +198,9 @@ export function ConversationDetail({
       groupedMessages.push({
         type: 'message',
         data: message,
+        messageIndex: messageIndex,
       });
+      messageIndex++;
     }
   });
 
@@ -180,6 +209,7 @@ export function ConversationDetail({
     groupedMessages.push({
       type: 'toolGroup',
       data: currentToolGroup,
+      messageIndex: messageIndex,
     });
   }
 
@@ -261,7 +291,16 @@ export function ConversationDetail({
         ) : (
           <>
             {groupedMessages.map((item, index) => (
-              <React.Fragment key={index}>
+              <div
+                key={index}
+                ref={(el) => {
+                  if (el) {
+                    messageRefs.current.set(item.messageIndex, el);
+                  } else {
+                    messageRefs.current.delete(item.messageIndex);
+                  }
+                }}
+              >
                 {item.type === 'message' ? (
                   <ConversationMessage
                     message={item.data}
@@ -271,7 +310,7 @@ export function ConversationDetail({
                 ) : (
                   <ToolMessageAccordion messages={item.data} />
                 )}
-              </React.Fragment>
+              </div>
             ))}
           </>
         )}

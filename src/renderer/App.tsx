@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import LoginModal from './components/LoginModal';
 import DevTools from './components/DevTools';
 import { UpdateBanner } from './components/UpdateBanner';
+import DevelopmentBanner from './components/DevelopmentBanner';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
@@ -28,8 +29,21 @@ const App: React.FC = () => {
   // Detect if this is the main window (Projects UI) or dev window
   const isMainWindow = new URLSearchParams(window.location.search).get('window') === 'main';
 
+  // Detect if we're in development mode
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
   // Listen for devtools logs from main process
   useDevToolsLog();
+
+  // Add body class for development banner padding
+  useEffect(() => {
+    if (isDevelopment) {
+      document.body.classList.add('has-dev-banner');
+      return () => {
+        document.body.classList.remove('has-dev-banner');
+      };
+    }
+  }, [isDevelopment]);
 
   useEffect(() => {
     checkLoginStatus();
@@ -226,6 +240,7 @@ const App: React.FC = () => {
     }
     return (
       <>
+        {isDevelopment && <DevelopmentBanner />}
         <Projects
           userId={userId}
           userName={userName}
@@ -252,6 +267,7 @@ const App: React.FC = () => {
   // Otherwise, render the development tools UI
   return (
     <>
+      {isDevelopment && <DevelopmentBanner />}
       <DevTools onLogout={handleLogout} />
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
       {updateState.show && (
