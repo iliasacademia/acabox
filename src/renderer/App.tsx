@@ -172,15 +172,20 @@ const App: React.FC = () => {
   };
 
   const handleLoginSuccess = async () => {
-    setShowLogin(false);
-    // Get user info after successful login
+    // Get user info FIRST, before hiding modal
+    // This prevents race condition with Projects' onLoginRequired effect
     const user = await window.electronAPI.invoke('get-current-user');
     if (user) {
       setUserId(user.id);
       setUserName(user.first_name || user.name || null);
+      setShowLogin(false); // Only hide modal AFTER userId is set
+      // Refresh manuscript paths for Word integration tracking
+      await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+    } else {
+      // get-current-user returned null - login didn't complete properly
+      // Keep modal open so user can retry
+      console.error('[App] Login success but get-current-user returned null');
     }
-    // Refresh manuscript paths for Word integration tracking
-    await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
   };
 
   const handleLogout = async () => {
