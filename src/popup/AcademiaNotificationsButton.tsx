@@ -97,7 +97,7 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
         });
 
         if (!response.ok) {
-          console.error('[AcademiaNotificationsButton] HTTP error:', response.status);
+          console.error('[AcademiaNotificationsButton] HTTP error:', response.status, await response.text());
           return;
         }
 

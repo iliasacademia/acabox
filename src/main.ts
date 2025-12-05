@@ -910,6 +910,13 @@ ipcMain.handle('login', async (_event, email: string, password: string) => {
 
 ipcMain.handle('logout', async () => {
   const result = await logout();
+
+  // Clear Word integration only after successful logout
+  if (result.success) {
+    wordIntegrationService.setManuscriptPaths([]);
+    wordIntegrationDataStore.setProjectFileCache(new Map());
+  }
+
   return result;
 });
 
