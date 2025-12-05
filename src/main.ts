@@ -729,6 +729,15 @@ app.on('activate', () => {
  */
 async function refreshManuscriptPaths(): Promise<void> {
   try {
+    // Check if user is logged in first - if not, clear cache and return
+    const isLoggedIn = await checkLogin();
+    if (!isLoggedIn) {
+      logger.info('[MANUSCRIPT-PATHS] User is logged out, clearing cache');
+      wordIntegrationService.setManuscriptPaths([]);
+      wordIntegrationDataStore.setProjectFileCache(new Map());
+      return;
+    }
+
     const client = await APIclient();
 
     // Fetch all projects
