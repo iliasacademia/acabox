@@ -162,6 +162,7 @@ const createMainWindow = async (): Promise<void> => {
   mainWindow.webContents.once('did-finish-load', async () => {
     logger.setMainWindow(mainWindow);
     await syncService.initialize();
+    await projectSyncService.initialize();
   });
 
   // Show window when ready to prevent visual flash
