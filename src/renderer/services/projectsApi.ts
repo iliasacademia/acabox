@@ -171,7 +171,7 @@ export interface CreateProjectRequest {
   name: string;
   description?: string;
   folder_ids?: number[]; // Legacy: Link existing folders (deprecated)
-  folder_paths?: string[]; // NEW: Atomic creation with folder paths
+  folder_path?: string; // NEW: Atomic creation with single folder path
   primary_manuscript_id?: number;
   collaborator_emails?: string[];
 }
@@ -215,9 +215,9 @@ export async function getProject(id: number): Promise<Project | null> {
  * Create new project
  * POST /v0/co_scientist/projects
  *
- * Supports atomic creation with folders via folder_paths parameter.
- * All operations happen in a single transaction - if folder validation fails,
- * the entire project creation is rolled back.
+ * Supports atomic creation with a single folder via folder_path parameter.
+ * If folder validation fails, the entire project creation is rolled back.
+ * For multiple folders, create with first folder then use addFolderToProject.
  */
 export async function createProject(data: CreateProjectRequest): Promise<Project> {
   const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {

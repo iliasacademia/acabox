@@ -147,74 +147,62 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     try {
       console.log('[Projects] Creating project with data:', data);
 
-      // 1. Create the project atomically with folders
-      // If folder validation fails, entire project creation is rolled back
+      // 1. Create project atomically with single folder
       const newProject = await createProject({
         name: data.name,
         description: data.description,
-        folder_paths: data.folders, // NEW: Atomic creation with folders
+        folder_path: data.folder, // Single folder (atomic)
       });
-      console.log('[Projects] Project created with', data.folders?.length || 0, 'folders:', newProject);
+      console.log('[Projects] Project created:', newProject);
 
-      // 2. Start syncing the folders that were created with the project
-      if (data.folders && data.folders.length > 0) {
-        console.log('[Projects] Starting sync for', data.folders.length, 'folders');
+      // 2. Start syncing the folder (if provided)
+      if (data.folder) {
+        console.log('[Projects] Starting sync for folder:', data.folder);
 
-        // Fetch the folders that were created to get their IDs
+        // Fetch the folder to get its ID
         const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
           method: 'GET',
           endpoint: `v0/co_scientist/projects/${newProject.id}/folders`,
         });
         const createdFolders = response.folders || [];
-        console.log('[Projects] Retrieved folders:', createdFolders);
+        const folder = createdFolders.find((f: any) => f.folder_path === data.folder);
 
-        // Start syncing each folder
-        for (const folderPath of data.folders) {
-          try {
-            // Find the folder ID for this path
-            const folder = createdFolders.find((f: any) => f.folder_path === folderPath);
-            if (!folder) {
-              console.error(`[Projects] Could not find folder ID for path: ${folderPath}`);
-              continue;
-            }
+        if (folder) {
+          console.log('[Projects] Retrieved folder:', folder);
 
-            console.log('[Projects] Starting sync for folder:', folderPath);
+          // Check if manuscript is in this folder
+          const manuscriptInThisFolder = data.primaryManuscriptPath?.startsWith(data.folder)
+            ? data.primaryManuscriptPath
+            : undefined;
 
-            // Check if manuscript is in this folder
-            const manuscriptInThisFolder = data.primaryManuscriptPath?.startsWith(folderPath)
-              ? data.primaryManuscriptPath
-              : undefined;
-
-            if (manuscriptInThisFolder) {
-              console.log('[Projects] Manuscript will be tagged during sync:', manuscriptInThisFolder);
-            }
-
-            // Start syncing files from this folder
-            const syncResult = await window.electronAPI.invoke(
-              'start-project-folder-sync',
-              newProject.id,
-              folder.id,
-              folderPath,
-              manuscriptInThisFolder
-            );
-
-            if (!syncResult.success) {
-              console.error(`[Projects] Failed to start sync for folder ${folderPath}:`, syncResult.error);
-              setDialog({
-                type: 'alert',
-                title: 'Sync Warning',
-                message: `Folder created but sync failed: ${syncResult.error}`,
-              });
-            } else {
-              console.log(`[Projects] Successfully started syncing folder ${folderPath}`);
-            }
-          } catch (error) {
-            console.error(`[Projects] Failed to start sync for folder ${folderPath}:`, error);
-            // Don't show error dialog here - folder was created, just sync failed
+          if (manuscriptInThisFolder) {
+            console.log('[Projects] Manuscript will be tagged during sync:', manuscriptInThisFolder);
           }
+
+          // Start syncing files from this folder
+          const syncResult = await window.electronAPI.invoke(
+            'start-project-folder-sync',
+            newProject.id,
+            folder.id,
+            data.folder,
+            manuscriptInThisFolder
+          );
+
+          if (!syncResult.success) {
+            console.error(`[Projects] Failed to start sync:`, syncResult.error);
+            setDialog({
+              type: 'alert',
+              title: 'Sync Warning',
+              message: `Folder created but sync failed: ${syncResult.error}`,
+            });
+          } else {
+            console.log(`[Projects] Successfully started syncing folder`);
+          }
+        } else {
+          console.error(`[Projects] Could not find folder ID for path: ${data.folder}`);
         }
       } else {
-        console.log('[Projects] No folders to sync');
+        console.log('[Projects] No folder to sync');
       }
 
       // 3. Add collaborators to the project

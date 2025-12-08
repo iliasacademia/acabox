@@ -11,7 +11,7 @@ interface CreateProjectWizardProps {
 export interface ProjectCreationData {
   name: string;
   description?: string;
-  folders: string[];
+  folder?: string; // Single folder path
   primaryManuscriptPath?: string;
   collaboratorEmails?: string[];
 }
@@ -31,7 +31,7 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   const [step, setStep] = useState(1);
   const [projectName, setProjectName] = useState('');
   const [projectDescription, setProjectDescription] = useState('');
-  const [selectedFolderPaths, setSelectedFolderPaths] = useState<string[]>([]);
+  const [selectedFolderPath, setSelectedFolderPath] = useState<string>(''); // Single folder
   const [availableFiles, setAvailableFiles] = useState<LocalFile[]>([]);
   const [selectedManuscriptPath, setSelectedManuscriptPath] = useState<string | null>(null);
   const [error, setError] = useState('');
@@ -48,10 +48,10 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
     try {
       setLoading(true);
 
-      // Scan selected folders for files
-      if (selectedFolderPaths.length > 0) {
-        const files = await window.electronAPI.invoke(IPC_CHANNELS.SCAN_FOLDER_FOR_FILES, selectedFolderPaths);
-        console.log('[Wizard] Scanned files from folders:', files);
+      // Scan selected folder for files
+      if (selectedFolderPath) {
+        const files = await window.electronAPI.invoke(IPC_CHANNELS.SCAN_FOLDER_FOR_FILES, [selectedFolderPath]);
+        console.log('[Wizard] Scanned files from folder:', files);
         setAvailableFiles(files || []);
       } else {
         setAvailableFiles([]);
@@ -75,10 +75,8 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
         return; // User cancelled
       }
 
-      // Add to selected folders (will be synced when project is created)
-      if (!selectedFolderPaths.includes(folderPath)) {
-        setSelectedFolderPaths([...selectedFolderPaths, folderPath]);
-      }
+      // Set the single selected folder
+      setSelectedFolderPath(folderPath);
     } catch (err: any) {
       console.error('Failed to select folder:', err);
       setError('Failed to select folder');
@@ -95,8 +93,8 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
       }
       setStep(2);
     } else if (step === 2) {
-      if (selectedFolderPaths.length === 0) {
-        setError('Please select at least one folder');
+      if (!selectedFolderPath) {
+        setError('Please select a folder');
         return;
       }
       setStep(3);
@@ -128,18 +126,14 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
     onComplete({
       name: projectName,
       description: projectDescription,
-      folders: selectedFolderPaths,
+      folder: selectedFolderPath || undefined,
       primaryManuscriptPath: selectedManuscriptPath || undefined,
       collaboratorEmails: [],
     });
   };
 
-  const toggleFolder = (folderPath: string) => {
-    if (selectedFolderPaths.includes(folderPath)) {
-      setSelectedFolderPaths(selectedFolderPaths.filter((p) => p !== folderPath));
-    } else {
-      setSelectedFolderPaths([...selectedFolderPaths, folderPath]);
-    }
+  const clearFolder = () => {
+    setSelectedFolderPath('');
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -209,35 +203,32 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
             <div className="wizardForm">
               <div className="wizardSection">
                 <p className="wizardSectionTitle">
-                  Add folders your project will read from
+                  Select a folder your project will read from
                 </p>
-                {loading && <div className="wizardLoading">Loading folders...</div>}
+                {loading && <div className="wizardLoading">Loading folder...</div>}
                 <div className="folderList">
-                  {selectedFolderPaths.length > 0 && (
+                  {selectedFolderPath && (
                     <div className="selectedFolders">
-                      {selectedFolderPaths.map((folderPath) => {
-                        const folderName = folderPath.split('/').pop() || folderPath;
-
-                        return (
-                          <div key={folderPath} className="selectedFolderItem">
-                            <span className="folderIcon">📁</span>
-                            <span className="folderName">{folderName}</span>
-                            <button
-                              className="folderRemove"
-                              onClick={() => toggleFolder(folderPath)}
-                            >
-                              ×
-                            </button>
-                          </div>
-                        );
-                      })}
+                      <div className="selectedFolderItem">
+                        <span className="folderIcon">📁</span>
+                        <span className="folderName">
+                          {selectedFolderPath.split('/').pop() || selectedFolderPath}
+                        </span>
+                        <button
+                          className="folderRemove"
+                          onClick={clearFolder}
+                        >
+                          ×
+                        </button>
+                      </div>
                     </div>
                   )}
                   <button
                     className="wizardAddButton"
                     onClick={handleSelectFolder}
+                    disabled={!!selectedFolderPath}
                   >
-                    + Select folders
+                    {selectedFolderPath ? '✓ Folder selected' : '+ Select folder'}
                   </button>
                 </div>
               </div>
