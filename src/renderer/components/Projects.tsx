@@ -13,6 +13,7 @@ import {
   deleteProject,
   addFolderToProject,
   addCollaborator,
+  extractErrorMessage,
 } from '../services/projectsApi';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { ConversationsPage } from './conversations/ConversationsPage';
@@ -146,24 +147,38 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     try {
       console.log('[Projects] Creating project with data:', data);
 
-      // 1. Create the project
+      // 1. Create the project atomically with folders
+      // If folder validation fails, entire project creation is rolled back
       const newProject = await createProject({
         name: data.name,
         description: data.description,
+        folder_paths: data.folders, // NEW: Atomic creation with folders
       });
-      console.log('[Projects] Project created:', newProject);
+      console.log('[Projects] Project created with', data.folders?.length || 0, 'folders:', newProject);
 
-      // 2. Add folders to the project and start syncing
+      // 2. Start syncing the folders that were created with the project
       if (data.folders && data.folders.length > 0) {
-        console.log('[Projects] Adding and syncing', data.folders.length, 'folders');
+        console.log('[Projects] Starting sync for', data.folders.length, 'folders');
 
+        // Fetch the folders that were created to get their IDs
+        const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
+          method: 'GET',
+          endpoint: `v0/co_scientist/projects/${newProject.id}/folders`,
+        });
+        const createdFolders = response.folders || [];
+        console.log('[Projects] Retrieved folders:', createdFolders);
+
+        // Start syncing each folder
         for (const folderPath of data.folders) {
           try {
-            console.log('[Projects] Adding folder to project:', folderPath);
+            // Find the folder ID for this path
+            const folder = createdFolders.find((f: any) => f.folder_path === folderPath);
+            if (!folder) {
+              console.error(`[Projects] Could not find folder ID for path: ${folderPath}`);
+              continue;
+            }
 
-            // Add folder to project (returns folder with ID)
-            const folder = await addFolderToProject(newProject.id, folderPath);
-            console.log('[Projects] Folder added to project:', folder);
+            console.log('[Projects] Starting sync for folder:', folderPath);
 
             // Check if manuscript is in this folder
             const manuscriptInThisFolder = data.primaryManuscriptPath?.startsWith(folderPath)
@@ -175,7 +190,6 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
             }
 
             // Start syncing files from this folder
-            console.log('[Projects] Starting sync for folder:', folderPath);
             const syncResult = await window.electronAPI.invoke(
               'start-project-folder-sync',
               newProject.id,
@@ -189,22 +203,18 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
               setDialog({
                 type: 'alert',
                 title: 'Sync Warning',
-                message: `Folder added but sync failed: ${syncResult.error}`,
+                message: `Folder created but sync failed: ${syncResult.error}`,
               });
             } else {
               console.log(`[Projects] Successfully started syncing folder ${folderPath}`);
             }
           } catch (error) {
-            console.error(`[Projects] Failed to add folder ${folderPath}:`, error);
-            setDialog({
-              type: 'alert',
-              title: 'Error',
-              message: `Failed to add folder: ${folderPath}`,
-            });
+            console.error(`[Projects] Failed to start sync for folder ${folderPath}:`, error);
+            // Don't show error dialog here - folder was created, just sync failed
           }
         }
       } else {
-        console.log('[Projects] No folders to add');
+        console.log('[Projects] No folders to sync');
       }
 
       // 3. Add collaborators to the project
@@ -235,10 +245,14 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
       setCurrentView('detail');
     } catch (error) {
       console.error('Error creating project:', error);
+
+      // Extract user-friendly error message (includes folder validation errors)
+      const errorMessage = extractErrorMessage(error, 'Failed to create project. Please try again.');
+
       setDialog({
         type: 'alert',
         title: 'Error',
-        message: 'Failed to create project. Please try again.',
+        message: errorMessage,
       });
     } finally {
       setCreatingProject(false);

@@ -1081,14 +1081,28 @@ ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: s
       data: error.response?.data,
     });
 
-    // Re-throw with response data if available
+    // Re-throw with response data embedded in error message for IPC serialization
+    // IPC can't serialize custom properties, so we include error details in the message
     if (error.response) {
-      const apiError: any = new Error(error.message);
-      apiError.response = {
-        status: error.response.status,
-        data: error.response.data,
-      };
-      throw apiError;
+      // Extract backend error message
+      let backendError = null;
+      if (error.response.data?.error) {
+        backendError = error.response.data.error;
+      } else if (error.response.data?.errors) {
+        const errors = error.response.data.errors;
+        if (Array.isArray(errors)) {
+          backendError = errors.join(', ');
+        } else if (typeof errors === 'object') {
+          backendError = Object.values(errors).flat().join(', ');
+        }
+      }
+
+      // Create error with backend details in message
+      if (backendError) {
+        throw new Error(`API Error: ${backendError}`);
+      } else {
+        throw new Error(`Request failed with status code ${error.response.status}`);
+      }
     }
     throw error;
   }
