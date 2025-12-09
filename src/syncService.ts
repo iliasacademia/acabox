@@ -362,7 +362,12 @@ class SyncService {
     }
 
     // Check if user is logged in before attempting to sync
-    const isLoggedIn = await checkLogin();
+    let isLoggedIn = false;
+    try {
+      isLoggedIn = await checkLogin();
+    } catch (error) {
+      logger.warn('[SYNC] Failed to check login status, skipping remote sync:', error);
+    }
     if (!isLoggedIn) {
       logger.debug('[SYNC] User not logged in, skipping remote sync');
       // Mark all folders as idle (not an error, just waiting for login)

@@ -94,7 +94,12 @@ class ProjectSyncService {
     logger.debug(`[ProjectSync] Found ${state.length} persisted folders`);
 
     // Check if user is logged in
-    const isLoggedIn = await checkLogin();
+    let isLoggedIn = false;
+    try {
+      isLoggedIn = await checkLogin();
+    } catch (error) {
+      logger.warn('[ProjectSync] Failed to check login status, skipping initialization:', error);
+    }
     if (!isLoggedIn) {
       logger.debug('[ProjectSync] User not logged in, skipping initialization');
       return;
