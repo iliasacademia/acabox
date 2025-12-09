@@ -1346,14 +1346,17 @@ Napi::Value RequestPermission(const Napi::CallbackInfo& info) {
     AcademiaLog(@"[WORD-INTEGRATION]   - Bundle identifier: %@", bundleId);
     AcademiaLog(@"[WORD-INTEGRATION]   - Executable path: %@", executablePath);
 
-    // Open Accessibility settings directly if permission not granted
-    if (!hasPermission) {
-        AcademiaLog(@"[WORD-INTEGRATION]   - Opening System Settings > Privacy & Security > Accessibility...");
-        NSURL *url = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"];
-        [[NSWorkspace sharedWorkspace] openURL:url];
-    }
-
     return Napi::Boolean::New(env, hasPermission);
+}
+
+Napi::Value OpenAccessibilitySettings(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    AcademiaLog(@"[WORD-INTEGRATION] Opening System Settings > Privacy & Security > Accessibility...");
+    NSURL *url = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"];
+    [[NSWorkspace sharedWorkspace] openURL:url];
+
+    return env.Undefined();
 }
 
 Napi::Value ResetAndRequestPermission(const Napi::CallbackInfo& info) {
@@ -1704,6 +1707,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getFirstTextAreaInfo", Napi::Function::New(env, GetFirstTextAreaInfo));
     exports.Set("checkPermission", Napi::Function::New(env, CheckPermission));
     exports.Set("requestPermission", Napi::Function::New(env, RequestPermission));
+    exports.Set("openAccessibilitySettings", Napi::Function::New(env, OpenAccessibilitySettings));
     exports.Set("resetAndRequestPermission", Napi::Function::New(env, ResetAndRequestPermission));
     exports.Set("getAppInfo", Napi::Function::New(env, GetAppInfo));
     exports.Set("setPopupPath", Napi::Function::New(env, SetPopupPath));

@@ -115,6 +115,7 @@ interface NativeModule {
   getFirstTextAreaInfo(): FirstTextAreaInfo | null;
   checkPermission(): boolean;
   requestPermission(): boolean;
+  openAccessibilitySettings(): void;
   resetAndRequestPermission(): { resetSuccess: boolean; bundleId: string };
   getAppInfo(): { bundleId: string; executablePath: string };
   setLogFilePath(path: string): boolean;
@@ -218,6 +219,13 @@ export class WordAccessibilityBridge {
       return false;
     }
     return nativeModule.requestPermission();
+  }
+
+  openAccessibilitySettings(): void {
+    if (!nativeModule) {
+      return;
+    }
+    nativeModule.openAccessibilitySettings();
   }
 
   resetAndRequestPermission(): { resetSuccess: boolean; bundleId: string } {

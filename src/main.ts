@@ -971,7 +971,7 @@ ipcMain.handle(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION, async () => {
     return { success: true, hasPermission: true };
   }
   try {
-    wordAccessibility.requestPermission();
+    wordAccessibility.openAccessibilitySettings();
     const hasPermission = wordAccessibility.checkPermission();
     if (hasPermission) {
       await refreshManuscriptPaths();
