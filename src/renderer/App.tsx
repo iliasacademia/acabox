@@ -273,8 +273,6 @@ const App: React.FC = () => {
   };
 
   // Permission handlers
-  const isDevelopment = process.env.NODE_ENV === 'development';
-
   const handleGrantPermission = async () => {
     setPermissionState(prev => ({ ...prev, isChecking: true }));
     try {
