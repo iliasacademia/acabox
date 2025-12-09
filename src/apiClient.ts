@@ -12,7 +12,7 @@ import { ApiLogData, DevToolsLogLevel } from './shared/types';
 
 // In development mode, default to devdemia API
 export const isDev = !app.isPackaged;
-export const DEFAULT_URL = isDev ? 'https://api.devdemia.com' : 'https://api.academia.edu';
+export const DEFAULT_URL = isDev ? 'https://api.devdemia.com/' : 'https://api.academia.edu/';
 export const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 
 let apiClient: AxiosInstance | null = null;

@@ -1134,6 +1134,7 @@ ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: s
   try {
     const { method, endpoint, data } = options;
     const client = await APIclient();
+
     // Get CSRF token for non-GET requests
     const headers: any = {};
     if (method.toUpperCase() !== 'GET') {

@@ -6,6 +6,7 @@ import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
 import { DraftConversation } from './ConversationsPage';
 import DiffModal from './DiffModal';
+import { trackConversationMessageSent, trackConversationMessageReceived } from '../../utils/analytics';
 
 interface ConversationDetailProps {
   conversation: Conversation | DraftConversation | null;
@@ -39,6 +40,8 @@ export function ConversationDetail({
   const isInitialLoad = useRef(true);
   const previousMessageCount = useRef(0);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const lastTrackedAssistantMessageId = useRef<number | null>(null);
+  const lastUserMessageTime = useRef<Date | null>(null);
 
   // Fetch diff when Show Diff is clicked
   const handleShowDiff = async () => {
@@ -80,12 +83,16 @@ export function ConversationDetail({
       stopPolling();
       isInitialLoad.current = true;
       previousMessageCount.current = 0;
+      lastTrackedAssistantMessageId.current = null;
+      lastUserMessageTime.current = null;
       return;
     }
 
     // Mark as initial load when conversation changes
     isInitialLoad.current = true;
     previousMessageCount.current = 0;
+    lastTrackedAssistantMessageId.current = null;
+    lastUserMessageTime.current = null;
 
     // Load initial messages for the selected conversation
     initializeMessages(conversation.id, projectId);
@@ -113,6 +120,39 @@ export function ConversationDetail({
     }
   }, [messages]);
 
+  // Track received assistant messages
+  useEffect(() => {
+    if (!conversation || isDraft(conversation) || messages.length === 0) return;
+
+    // Find the latest assistant message
+    const assistantMessages = messages.filter((m) => m.role === 'assistant');
+    if (assistantMessages.length === 0) return;
+
+    const latestAssistantMessage = assistantMessages[assistantMessages.length - 1];
+
+    // Check if we've already tracked this message
+    if (lastTrackedAssistantMessageId.current === latestAssistantMessage.id) return;
+
+    // Calculate duration if we have a user message timestamp
+    let durationSeconds: number | undefined;
+    if (lastUserMessageTime.current && latestAssistantMessage.created_at) {
+      const assistantTime = new Date(latestAssistantMessage.created_at);
+      const userTime = lastUserMessageTime.current;
+      durationSeconds = Math.round((assistantTime.getTime() - userTime.getTime()) / 1000);
+    }
+
+    // Track the received message
+    trackConversationMessageReceived(
+      projectId,
+      conversation.id,
+      conversation.agent_name,
+      durationSeconds
+    );
+
+    // Update the last tracked message ID
+    lastTrackedAssistantMessageId.current = latestAssistantMessage.id;
+  }, [messages, conversation, projectId]);
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -131,6 +171,10 @@ export function ConversationDetail({
           conversation.agent_name,
           projectId
         );
+
+        // Track conversation message sent
+        trackConversationMessageSent(projectId, newConversation.id, conversation.agent_name);
+        lastUserMessageTime.current = new Date();
 
         // Notify parent to replace draft with real conversation
         onConversationCreated?.(newConversation);
@@ -151,6 +195,10 @@ export function ConversationDetail({
 
         // Send message to backend
         await createMessage(conversation.id, content, projectId);
+
+        // Track conversation message sent
+        trackConversationMessageSent(projectId, conversation.id, conversation.agent_name);
+        lastUserMessageTime.current = new Date();
 
         // Notify parent to update conversation list
         onConversationUpdate?.();

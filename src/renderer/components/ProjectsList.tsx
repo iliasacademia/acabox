@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Project } from '../services/projectsApi';
 import ProjectCard from './ProjectCard';
 import { categorizeProjects, getCategoryOrder } from '../utils/dateUtils';
+import { trackProjectsView, trackNewProjectClick } from '../utils/analytics';
 
 interface ProjectsListProps {
   projects: Project[];
@@ -18,15 +19,26 @@ const ProjectsList: React.FC<ProjectsListProps> = ({
   onSelectProject,
   onDeleteProject,
 }) => {
+  // Track projects list view when component mounts
+  useEffect(() => {
+    trackProjectsView();
+  }, []);
+
   // Categorize and sort projects
   const categorizedProjects = categorizeProjects(projects);
   const categoryOrder = getCategoryOrder();
+
+  const handleCreateClick = () => {
+    trackNewProjectClick();
+    onCreateProject();
+  };
+
   return (
     <div className="projectsList">
       {/* Header Section */}
       <div className="projectsListHeader">
         <h1 className="projectsListTitle">Research projects</h1>
-        <button className="createProjectButton" onClick={onCreateProject}>
+        <button className="createProjectButton" onClick={handleCreateClick}>
           <span className="buttonIcon">+</span>
           Create new project
         </button>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Conversation, listConversations } from '../../services/conversationsApi';
+import { trackConversationView } from '../../utils/analytics';
 
 interface ConversationsSidebarProps {
   projectId: number;
@@ -200,7 +201,10 @@ export function ConversationsSidebar({
                 className={`conversationItem ${
                   selectedConversationId === conversation.id ? 'selected' : ''
                 }`}
-                onClick={() => onSelectConversation(conversation)}
+                onClick={() => {
+                  trackConversationView(projectId, conversation.id, conversation.agent_name);
+                  onSelectConversation(conversation);
+                }}
               >
                 <h4 className="conversationItemTitle">
                   {conversation.title || 'Untitled Conversation'}
