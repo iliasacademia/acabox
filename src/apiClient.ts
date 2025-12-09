@@ -243,8 +243,7 @@ export const login = async (email: string, password: string) => {
         // Previous code wrote to /tmp/wtf.html which was world-readable
         if (error.response) {
           logger.error('Login error status:', error.response.status);
-          logger.error('Login error headers:', error.response.headers);
-          // Log only non-sensitive error info to console
+          // Do NOT log headers - may contain sensitive tokens/cookies
         }
       }
       throw error;

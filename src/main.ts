@@ -80,11 +80,15 @@ const createWindow = async (): Promise<void> => {
 
   // Set Content Security Policy
   devWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const scriptSrc = process.env.NODE_ENV === 'development'
+    // Security: Use app.isPackaged (runtime check) in addition to NODE_ENV (build-time check)
+    // This ensures production CSP even if development build is accidentally deployed
+    const isDevelopment = process.env.NODE_ENV === 'development' && !app.isPackaged;
+
+    const scriptSrc = isDevelopment
       ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
       : "script-src 'self'; ";
 
-    const styleSrc = process.env.NODE_ENV === 'development'
+    const styleSrc = isDevelopment
       ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for style-loader (webpack injects inline styles in dev)
       : "style-src 'self' https://fonts.googleapis.com; "; // Production uses MiniCssExtractPlugin (external CSS files)
 
@@ -133,12 +137,16 @@ const createMainWindow = async (): Promise<void> => {
   });
 
   // Set Content Security Policy
+  // Security: Use app.isPackaged (runtime check) in addition to NODE_ENV (build-time check)
+  // This ensures production CSP even if development build is accidentally deployed
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const scriptSrc = process.env.NODE_ENV === 'development'
+    const isDevelopment = process.env.NODE_ENV === 'development' && !app.isPackaged;
+
+    const scriptSrc = isDevelopment
       ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
       : "script-src 'self'; ";
 
-    const styleSrc = process.env.NODE_ENV === 'development'
+    const styleSrc = isDevelopment
       ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for style-loader (webpack injects inline styles in dev)
       : "style-src 'self' https://fonts.googleapis.com; "; // Production uses MiniCssExtractPlugin (external CSS files)
 
