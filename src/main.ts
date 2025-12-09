@@ -189,12 +189,16 @@ const createMainWindow = async (): Promise<void> => {
     await projectSyncService.initialize();
 
     // Check accessibility permission on startup (macOS only)
+    // Note: Permission status is cached by macOS for the app's lifetime, so we only log once here
     if (process.platform === 'darwin') {
       try {
         const hasPermission = wordAccessibility.checkPermission();
-        logger.info('[Permissions] Startup accessibility permission check:', { hasPermission });
+        const appInfo = wordAccessibility.getAppInfo();
+        logger.info('[Permissions] Accessibility permission status:', {
+          granted: hasPermission,
+          bundleId: appInfo.bundleId,
+        });
         if (!hasPermission) {
-          logger.info('[Permissions] Accessibility permission not granted, sending status to renderer');
           mainWindow?.webContents.send(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, { hasPermission: false });
         }
       } catch (error) {
@@ -955,16 +959,9 @@ ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
     return { success: true, hasPermission: true };
   }
   try {
-    const appInfo = wordAccessibility.getAppInfo();
     const hasPermission = wordAccessibility.checkPermission();
-    logger.info('[Permissions] Accessibility permission checked:', {
-      hasPermission,
-      bundleId: appInfo.bundleId,
-      executablePath: appInfo.executablePath
-    });
     return { success: true, hasPermission };
   } catch (error: any) {
-    logger.error('[Permissions] Error checking accessibility permission:', error);
     return { success: false, hasPermission: false, error: error.message };
   }
 });
@@ -974,22 +971,13 @@ ipcMain.handle(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION, async () => {
     return { success: true, hasPermission: true };
   }
   try {
-    logger.info('[Permissions] Requesting accessibility permission...');
     wordAccessibility.requestPermission();
-
-    // Re-check after request (user may have granted immediately)
     const hasPermission = wordAccessibility.checkPermission();
-    logger.info('[Permissions] Permission status after request:', { hasPermission });
-
-    // If permission was granted, refresh manuscript paths to start Word integration
     if (hasPermission) {
-      logger.info('[Permissions] Permission granted, refreshing manuscript paths...');
       await refreshManuscriptPaths();
     }
-
     return { success: true, hasPermission };
   } catch (error: any) {
-    logger.error('[Permissions] Error requesting accessibility permission:', error);
     return { success: false, hasPermission: false, error: error.message };
   }
 });
@@ -999,12 +987,9 @@ ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
     return { success: false, error: 'Only supported on macOS' };
   }
   try {
-    logger.info('[Permissions] Resetting accessibility permission...');
     const result = wordAccessibility.resetAndRequestPermission();
-    logger.info('[Permissions] Reset result:', result);
     return { success: true, ...result };
   } catch (error: any) {
-    logger.error('[Permissions] Error resetting accessibility permission:', error);
     return { success: false, resetSuccess: false, error: error.message };
   }
 });

@@ -210,50 +210,21 @@ export class WordAccessibilityBridge {
     if (!nativeModule) {
       throw new Error('Native module not loaded');
     }
-    const hasPermission = nativeModule.checkPermission();
-
-    if (!hasPermission) {
-      const appInfo = this.getAppInfo();
-      logger.debug('[WORD-INTEGRATION] Accessibility permission NOT granted:', {
-        bundleId: appInfo.bundleId,
-        executablePath: appInfo.executablePath,
-        help: 'Grant permission in System Settings > Privacy & Security > Accessibility'
-      });
-    }
-
-    return hasPermission;
+    return nativeModule.checkPermission();
   }
 
   requestPermission(): boolean {
     if (!nativeModule) {
       return false;
     }
-    const appInfo = this.getAppInfo();
-    const hasPermission = nativeModule.requestPermission();
-
-    logger.debug('[WORD-INTEGRATION] Accessibility permission request:', {
-      granted: hasPermission,
-      bundleId: appInfo.bundleId,
-      executablePath: appInfo.executablePath
-    });
-
-    return hasPermission;
+    return nativeModule.requestPermission();
   }
 
   resetAndRequestPermission(): { resetSuccess: boolean; bundleId: string } {
     if (!nativeModule) {
       return { resetSuccess: false, bundleId: '(native module not loaded)' };
     }
-
-    logger.info('[WORD-INTEGRATION] Resetting and requesting accessibility permission...');
-    const result = nativeModule.resetAndRequestPermission();
-
-    logger.info('[WORD-INTEGRATION] Reset and request result:', {
-      resetSuccess: result.resetSuccess,
-      bundleId: result.bundleId
-    });
-
-    return result;
+    return nativeModule.resetAndRequestPermission();
   }
 
   getAppInfo(): { bundleId: string; executablePath: string } {
