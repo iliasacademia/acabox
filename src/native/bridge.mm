@@ -1309,36 +1309,10 @@ Napi::Value GetFirstTextAreaInfo(const Napi::CallbackInfo& info) {
 Napi::Value CheckPermission(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
-    // Try both API variants for debugging
-    BOOL hasPermissionSimple = AXIsProcessTrusted();
-
     NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @NO};
-    BOOL hasPermissionWithOptions = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
+    BOOL hasPermission = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
 
-    // Get detailed process info
-    NSBundle *mainBundle = [NSBundle mainBundle];
-    NSString *bundleId = [mainBundle bundleIdentifier] ?: @"(no bundle identifier)";
-    NSString *bundlePath = [mainBundle bundlePath] ?: @"(no bundle path)";
-    NSString *executablePath = [[NSProcessInfo processInfo] arguments][0] ?: @"(unknown)";
-    pid_t pid = [[NSProcessInfo processInfo] processIdentifier];
-
-    // Get the actual executable path from the bundle
-    NSString *bundleExecutablePath = [mainBundle executablePath] ?: @"(no bundle executable)";
-
-    AcademiaLog(@"[Permissions] CheckPermission called - DETAILED DEBUG:");
-    AcademiaLog(@"[Permissions]   - AXIsProcessTrusted(): %@", hasPermissionSimple ? @"YES" : @"NO");
-    AcademiaLog(@"[Permissions]   - AXIsProcessTrustedWithOptions(): %@", hasPermissionWithOptions ? @"YES" : @"NO");
-    AcademiaLog(@"[Permissions]   - Process ID (PID): %d", pid);
-    AcademiaLog(@"[Permissions]   - Bundle ID: %@", bundleId);
-    AcademiaLog(@"[Permissions]   - Bundle Path: %@", bundlePath);
-    AcademiaLog(@"[Permissions]   - Bundle Executable Path: %@", bundleExecutablePath);
-    AcademiaLog(@"[Permissions]   - Process arguments[0]: %@", executablePath);
-
-    // Check if paths match
-    BOOL pathsMatch = [bundleExecutablePath isEqualToString:executablePath];
-    AcademiaLog(@"[Permissions]   - Executable paths match: %@", pathsMatch ? @"YES" : @"NO");
-
-    return Napi::Boolean::New(env, hasPermissionWithOptions);
+    return Napi::Boolean::New(env, hasPermission);
 }
 
 Napi::Value GetAppInfo(const Napi::CallbackInfo& info) {
@@ -1388,8 +1362,6 @@ Napi::Value ResetAndRequestPermission(const Napi::CallbackInfo& info) {
     NSBundle *mainBundle = [NSBundle mainBundle];
     NSString *bundleId = [mainBundle bundleIdentifier] ?: @"com.electron.academia-electron";
 
-    AcademiaLog(@"[Permissions] ResetAndRequestPermission called for bundle: %@", bundleId);
-
     // Build the tccutil command
     NSString *command = [NSString stringWithFormat:@"tccutil reset Accessibility %@", bundleId];
 
@@ -1403,12 +1375,6 @@ Napi::Value ResetAndRequestPermission(const Napi::CallbackInfo& info) {
     NSAppleEventDescriptor *result = [appleScript executeAndReturnError:&errorInfo];
 
     BOOL resetSuccess = (result != nil);
-
-    if (resetSuccess) {
-        AcademiaLog(@"[Permissions] TCC reset successful, opening System Settings...");
-    } else {
-        AcademiaLog(@"[Permissions] TCC reset failed or cancelled: %@", errorInfo);
-    }
 
     // Open Accessibility settings regardless (user may have cancelled but still wants to manage permissions)
     NSURL *url = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"];
