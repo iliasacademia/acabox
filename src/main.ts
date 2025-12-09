@@ -197,6 +197,7 @@ const createMainWindow = async (): Promise<void> => {
         logger.info('[Permissions] Accessibility permission status:', {
           granted: hasPermission,
           bundleId: appInfo.bundleId,
+          teamId: appInfo.teamId,
         });
         if (!hasPermission) {
           mainWindow?.webContents.send(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, { hasPermission: false });

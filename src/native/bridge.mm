@@ -1322,9 +1322,27 @@ Napi::Value GetAppInfo(const Napi::CallbackInfo& info) {
     NSString *bundleId = [mainBundle bundleIdentifier] ?: @"(no bundle identifier)";
     NSString *executablePath = [[NSProcessInfo processInfo] arguments][0] ?: @"(unknown)";
 
+    // Get code signing information including TeamIdentifier
+    NSString *teamId = @"(not set)";
+    SecCodeRef code = NULL;
+    OSStatus status = SecCodeCopySelf(kSecCSDefaultFlags, &code);
+    if (status == errSecSuccess && code != NULL) {
+        CFDictionaryRef signingInfo = NULL;
+        status = SecCodeCopySigningInformation(code, kSecCSSigningInformation, &signingInfo);
+        if (status == errSecSuccess && signingInfo != NULL) {
+            NSString *teamIdValue = (NSString *)CFDictionaryGetValue(signingInfo, kSecCodeInfoTeamIdentifier);
+            if (teamIdValue) {
+                teamId = teamIdValue;
+            }
+            CFRelease(signingInfo);
+        }
+        CFRelease(code);
+    }
+
     Napi::Object result = Napi::Object::New(env);
     result.Set("bundleId", Napi::String::New(env, [bundleId UTF8String]));
     result.Set("executablePath", Napi::String::New(env, [executablePath UTF8String]));
+    result.Set("teamId", Napi::String::New(env, [teamId UTF8String]));
 
     return result;
 }

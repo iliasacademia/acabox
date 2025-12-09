@@ -117,7 +117,7 @@ interface NativeModule {
   requestPermission(): boolean;
   openAccessibilitySettings(): void;
   resetAndRequestPermission(): { resetSuccess: boolean; bundleId: string };
-  getAppInfo(): { bundleId: string; executablePath: string };
+  getAppInfo(): { bundleId: string; executablePath: string; teamId: string };
   setLogFilePath(path: string): boolean;
   setPopupPath(path: string): boolean;
   setServerBaseUrl(url: string): boolean;
@@ -235,9 +235,9 @@ export class WordAccessibilityBridge {
     return nativeModule.resetAndRequestPermission();
   }
 
-  getAppInfo(): { bundleId: string; executablePath: string } {
+  getAppInfo(): { bundleId: string; executablePath: string; teamId: string } {
     if (!nativeModule) {
-      return { bundleId: '(native module not loaded)', executablePath: '(native module not loaded)' };
+      return { bundleId: '(native module not loaded)', executablePath: '(native module not loaded)', teamId: '(native module not loaded)' };
     }
     return nativeModule.getAppInfo();
   }
