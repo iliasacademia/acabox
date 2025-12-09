@@ -15,6 +15,14 @@ NSString* globalPopupPath = nil;
 // Global variable needed by MicrosoftWordAdapter (stub for tests)
 BOOL featureScrollTrackingEnabled = YES;
 
+// Stub for AcademiaLog (defined in bridge.mm which has NAPI dependencies)
+void AcademiaLog(NSString* format, ...) {
+    va_list args;
+    va_start(args, format);
+    NSLogv(format, args);
+    va_end(args);
+}
+
 // Simple test framework macros
 #define TEST_START(name) \
     NSLog(@"\n[TEST] Starting: %s", name); \

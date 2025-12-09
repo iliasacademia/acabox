@@ -3,6 +3,7 @@ import LoginModal from './components/LoginModal';
 import DevTools from './components/DevTools';
 import { UpdateBanner } from './components/UpdateBanner';
 import DevelopmentBanner from './components/DevelopmentBanner';
+import { PermissionsBanner } from './components/PermissionsBanner';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
@@ -25,6 +26,12 @@ const App: React.FC = () => {
     progress?: number;
     errorMessage?: string;
   }>({ show: false, status: 'available' });
+
+  // Permissions banner state
+  const [permissionState, setPermissionState] = useState<{
+    show: boolean;
+    isChecking: boolean;
+  }>({ show: false, isChecking: false });
 
   // Detect if this is the main window (Projects UI) or dev window
   const isMainWindow = new URLSearchParams(window.location.search).get('window') === 'main';
@@ -129,6 +136,39 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Listen for accessibility permission status from main process
+  useEffect(() => {
+    // Initial permission check on mount (only on main window)
+    if (isMainWindow) {
+      const checkInitialPermission = async () => {
+        try {
+          const result = await window.electronAPI.invoke(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION);
+          if (result && !result.hasPermission) {
+            setPermissionState({ show: true, isChecking: false });
+          }
+        } catch (error) {
+          console.error('[App] Failed to check initial permission:', error);
+        }
+      };
+
+      checkInitialPermission();
+    }
+
+    // Listen for permission status updates from main process
+    const handlePermissionStatus = (_event: any, data: { hasPermission: boolean }) => {
+      setPermissionState({
+        show: !data.hasPermission,
+        isChecking: false,
+      });
+    };
+
+    window.electronAPI.on(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, handlePermissionStatus);
+
+    return () => {
+      window.electronAPI.off(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, handlePermissionStatus);
+    };
+  }, [isMainWindow]);
+
   const handleNavigationHandled = () => {
     setPendingNavigation(null);
   };
@@ -232,6 +272,39 @@ const App: React.FC = () => {
     }
   };
 
+  // Permission handlers
+  const handleGrantPermission = async () => {
+    setPermissionState(prev => ({ ...prev, isChecking: true }));
+    try {
+      // Opens System Settings > Accessibility
+      await window.electronAPI.invoke(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION);
+    } catch (error) {
+      console.error('[App] Failed to open settings:', error);
+    } finally {
+      setPermissionState(prev => ({ ...prev, isChecking: false }));
+    }
+  };
+
+  const handleResetPermission = async () => {
+    setPermissionState(prev => ({ ...prev, isChecking: true }));
+    try {
+      // This will reset TCC (with admin password prompt) and open System Settings
+      await window.electronAPI.invoke(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION);
+    } catch (error) {
+      console.error('[App] Failed to reset permission:', error);
+    } finally {
+      setPermissionState(prev => ({ ...prev, isChecking: false }));
+    }
+  };
+
+  const handleRestartApp = async () => {
+    try {
+      await window.electronAPI.restartApp();
+    } catch (error) {
+      console.error('[App] Failed to restart app:', error);
+    }
+  };
+
   // If this is the main window, render the Projects UI
   if (isMainWindow) {
     // Wait for auth check to complete before rendering Projects
@@ -241,6 +314,16 @@ const App: React.FC = () => {
     return (
       <>
         {isDevelopment && <DevelopmentBanner />}
+        {permissionState.show && (
+          <PermissionsBanner
+            onGrantPermission={handleGrantPermission}
+            onResetPermission={handleResetPermission}
+            onRestartApp={handleRestartApp}
+            isWorking={permissionState.isChecking}
+            isDevelopment={isDevelopment}
+            hasUpdateBanner={updateState.show}
+          />
+        )}
         <Projects
           userId={userId}
           userName={userName}

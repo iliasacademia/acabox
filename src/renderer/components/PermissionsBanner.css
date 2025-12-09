@@ -1,0 +1,67 @@
+.permissionsBanner {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 4px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  z-index: 10000; /* Above update banner (9999) */
+  font-size: 14px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: #dc3545;
+  color: white;
+}
+
+/* When update banner is also showing, stack permission banner above it */
+.permissionsBanner--withUpdateBanner {
+  bottom: 54px; /* Height of update banner */
+}
+
+.permissionsBanner__message {
+  flex: 1;
+  text-align: center;
+}
+
+.permissionsBanner__button {
+  border: none;
+  padding: 6px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 13px;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+.permissionsBanner__button--secondary {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.permissionsBanner__button--secondary:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+.permissionsBanner__button--secondary:active:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.4);
+}
+
+.permissionsBanner__button--primary {
+  background-color: white;
+  color: #dc3545;
+}
+
+.permissionsBanner__button--primary:hover:not(:disabled) {
+  background-color: #f0f0f0;
+}
+
+.permissionsBanner__button--primary:active:not(:disabled) {
+  background-color: #e0e0e0;
+}
+
+.permissionsBanner__button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}

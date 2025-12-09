@@ -6,6 +6,7 @@
 //
 
 #import "MicrosoftWordAdapter.h"
+#import "../../bridge.h"  // For AcademiaLog
 
 // Feature flag from bridge.mm (for scroll tracking control)
 extern BOOL featureScrollTrackingEnabled;
@@ -132,6 +133,7 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
 
     // Check accessibility permission
     if (![self checkAccessibilityPermission]) {
+        AcademiaLog(@"[WORD-INTEGRATION] MicrosoftWordAdapter startObserving failed: Accessibility permission not granted for PID %d", _wordPID);
         if (error) {
             *error = [NSError errorWithDomain:@"MicrosoftWordAdapter"
                                         code:1
