@@ -19,6 +19,7 @@ module.exports = {
         esModuleInterop: true,
       },
     }],
+    '^.+\\.jsx?$': ['babel-jest'],
   },
   moduleNameMapper: {
     '^serialize-error$': '<rootDir>/src/__mocks__/serialize-error.ts',
