@@ -145,13 +145,20 @@ class ProjectSyncService {
       logger.debug(`[ProjectSync] Updated persisted state: ${validatedFolders.length} valid folders`);
     }
 
-    // Perform startup sync for each validated folder (async, non-blocking)
-    if (validatedFolders.length > 0) {
-      logger.debug(`[ProjectSync] Starting async startup sync for ${validatedFolders.length} folders`);
+    // Try to restore any folders from backend that aren't in local state
+    // This handles new machine login or cleared app data scenarios
+    await this.restoreFoldersFromBackend();
+
+    // Get all currently watched folders for startup sync (includes newly restored ones)
+    const allWatchedFolders = Array.from(this.watchedFolders.values());
+
+    // Perform startup sync for each watched folder (async, non-blocking)
+    if (allWatchedFolders.length > 0) {
+      logger.debug(`[ProjectSync] Starting async startup sync for ${allWatchedFolders.length} folders`);
 
       // Don't await - let startup sync happen in background
       Promise.all(
-        validatedFolders.map(folder =>
+        allWatchedFolders.map(folder =>
           this.performStartupSync(
             folder.projectId,
             folder.folderId,
@@ -371,6 +378,66 @@ class ProjectSyncService {
     });
 
     logger.debug(`[ProjectSync] Watcher started: ${folderPath}`);
+  }
+
+  /**
+   * Fetch all project folders from backend and restore sync for those that exist locally
+   * This handles the case where user logs in on a new machine or after clearing app data
+   */
+  private async restoreFoldersFromBackend(): Promise<void> {
+    try {
+      const client = await APIclient();
+
+      // 1. Fetch all user's projects
+      const projectsResponse = await client.get('/v0/co_scientist/projects');
+      const projects = projectsResponse.data?.projects || [];
+
+      if (projects.length === 0) {
+        logger.debug('[ProjectSync] No projects found on backend');
+        return;
+      }
+
+      logger.debug(`[ProjectSync] Found ${projects.length} projects on backend, checking for folders...`);
+
+      // 2. Fetch folders for each project
+      let restoredCount = 0;
+      for (const project of projects) {
+        try {
+          const foldersResponse = await client.get(`/v0/co_scientist/projects/${project.id}/folders`);
+          const folders = foldersResponse.data?.folders || [];
+
+          for (const folder of folders) {
+            // 3. Check if the local folder still exists
+            if (!fs.existsSync(folder.folder_path)) {
+              logger.debug(`[ProjectSync] Skipping folder (not on local machine): ${folder.folder_path}`);
+              continue;
+            }
+
+            // 4. Check if already watching
+            const key = `${project.id}-${folder.id}`;
+            if (this.watchedFolders.has(key)) {
+              continue;
+            }
+
+            // 5. Start watching this folder
+            await this.startWatchingOnly(project.id, folder.id, folder.folder_path);
+            restoredCount++;
+            logger.debug(`[ProjectSync] Restored folder from backend: ${folder.folder_path}`);
+          }
+        } catch (error) {
+          logger.error(`[ProjectSync] Failed to fetch folders for project ${project.id}:`, error);
+        }
+      }
+
+      if (restoredCount > 0) {
+        this.persistState();
+        logger.info(`[ProjectSync] Restored ${restoredCount} folders from backend`);
+      } else {
+        logger.debug('[ProjectSync] No new folders to restore from backend');
+      }
+    } catch (error) {
+      logger.error('[ProjectSync] Failed to restore folders from backend:', error);
+    }
   }
 
   /**
