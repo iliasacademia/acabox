@@ -4,6 +4,7 @@ export interface ElectronAPI {
   off: (channel: string, callback: (event: any, ...args: any[]) => void) => void;
   removeListener: (channel: string, callback: (event: any, ...args: any[]) => void) => void;
   removeAllListeners: (channel: string) => void;
+  restartApp: () => Promise<void>;
 }
 
 declare global {

@@ -187,6 +187,20 @@ const createMainWindow = async (): Promise<void> => {
     logger.setMainWindow(mainWindow);
     await syncService.initialize();
     await projectSyncService.initialize();
+
+    // Check accessibility permission on startup (macOS only)
+    if (process.platform === 'darwin') {
+      try {
+        const hasPermission = wordAccessibility.checkPermission();
+        logger.info('[Permissions] Startup accessibility permission check:', { hasPermission });
+        if (!hasPermission) {
+          logger.info('[Permissions] Accessibility permission not granted, sending status to renderer');
+          mainWindow?.webContents.send(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, { hasPermission: false });
+        }
+      } catch (error) {
+        logger.error('[Permissions] Error checking permission on startup:', error);
+      }
+    }
   });
 
   // Show window when ready to prevent visual flash
@@ -437,6 +451,17 @@ const createTray = (): void => {
     {
       label: `Version: ${formatTimestampVersion(app.getVersion())}`,
       enabled: false,
+    }
+  );
+
+  // Add permissions option (always present)
+  menuItems.push(
+    { type: 'separator' },
+    {
+      label: 'Request Permissions',
+      click: () => {
+        wordAccessibility.requestPermission();
+      },
     }
   );
 
@@ -707,6 +732,17 @@ app.whenReady().then(async () => {
         logger.debug('[HTTP Server] ✓ Server URL set for native popups (no auth token)');
       }
     }
+
+    // Set up native logging to same file as TypeScript logger
+    const logFilePath = logger.getLogFilePath();
+    if (logFilePath) {
+      const logSuccess = wordAccessibility.setLogFilePath(logFilePath);
+      if (logSuccess) {
+        logger.debug('[Native] ✓ Native logging initialized to:', logFilePath);
+      } else {
+        logger.warn('[Native] ✗ Failed to initialize native logging');
+      }
+    }
   } catch (error) {
     logger.error('[HTTP Server] ✗ Failed to start server:', error);
     // Initialize Word integration without server URL
@@ -911,6 +947,73 @@ ipcMain.handle(IPC_CHANNELS.DOWNLOAD_UPDATE, async () => {
     logger.error('[Auto-Updater] Download failed:', error);
     throw error;
   }
+});
+
+// Permission IPC handlers (macOS only)
+ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: true, hasPermission: true };
+  }
+  try {
+    const appInfo = wordAccessibility.getAppInfo();
+    const hasPermission = wordAccessibility.checkPermission();
+    logger.info('[Permissions] Accessibility permission checked:', {
+      hasPermission,
+      bundleId: appInfo.bundleId,
+      executablePath: appInfo.executablePath
+    });
+    return { success: true, hasPermission };
+  } catch (error: any) {
+    logger.error('[Permissions] Error checking accessibility permission:', error);
+    return { success: false, hasPermission: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: true, hasPermission: true };
+  }
+  try {
+    logger.info('[Permissions] Requesting accessibility permission...');
+    wordAccessibility.requestPermission();
+
+    // Re-check after request (user may have granted immediately)
+    const hasPermission = wordAccessibility.checkPermission();
+    logger.info('[Permissions] Permission status after request:', { hasPermission });
+
+    // If permission was granted, refresh manuscript paths to start Word integration
+    if (hasPermission) {
+      logger.info('[Permissions] Permission granted, refreshing manuscript paths...');
+      await refreshManuscriptPaths();
+    }
+
+    return { success: true, hasPermission };
+  } catch (error: any) {
+    logger.error('[Permissions] Error requesting accessibility permission:', error);
+    return { success: false, hasPermission: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: false, error: 'Only supported on macOS' };
+  }
+  try {
+    logger.info('[Permissions] Resetting accessibility permission...');
+    const result = wordAccessibility.resetAndRequestPermission();
+    logger.info('[Permissions] Reset result:', result);
+    return { success: true, ...result };
+  } catch (error: any) {
+    logger.error('[Permissions] Error resetting accessibility permission:', error);
+    return { success: false, resetSuccess: false, error: error.message };
+  }
+});
+
+// App lifecycle IPC handlers
+ipcMain.handle(IPC_CHANNELS.RESTART_APP, () => {
+  logger.info('[App] Restarting app to apply permission changes...');
+  app.relaunch();
+  app.quit();
 });
 
 ipcMain.handle('check-login', async () => {

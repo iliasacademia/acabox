@@ -99,6 +99,15 @@ export const IPC_CHANNELS = {
   UPDATE_DOWNLOADED: 'update-downloaded',
   UPDATE_ERROR: 'update-error',
   DOWNLOAD_UPDATE: 'download-update',
+
+  // Permissions
+  CHECK_ACCESSIBILITY_PERMISSION: 'check-accessibility-permission',
+  REQUEST_ACCESSIBILITY_PERMISSION: 'request-accessibility-permission',
+  RESET_ACCESSIBILITY_PERMISSION: 'reset-accessibility-permission',
+  ACCESSIBILITY_PERMISSION_STATUS: 'accessibility-permission-status',
+
+  // App lifecycle
+  RESTART_APP: 'restart-app',
 } as const;
 
 // Feature flags

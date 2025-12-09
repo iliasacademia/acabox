@@ -21,12 +21,14 @@
     "test:native": "cd src/native && ./run-simple-tests.sh",
     "prebuild": "npm run build:native && npm run build:popup",
     "package": "electron-forge package",
-    "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - {} \\;",
+    "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - --identifier com.electron.academia-electron {} \\;",
     "package:sign": "npm run package && npm run codesign",
     "make": "electron-forge make",
     "logs:dev:watch": "tail -f ~/Library/Logs/academia-electron/main-dev.log",
     "logs:stable:watch": "tail -f ~/Library/Logs/academia-electron/main-stable.log",
-    "logs:beta:watch": "tail -f ~/Library/Logs/academia-electron/main-beta.log"
+    "logs:beta:watch": "tail -f ~/Library/Logs/academia-electron/main-beta.log",
+    "reset-permissions": "tccutil reset All com.electron.academia-electron",
+    "fresh-install": "rm -rf /Applications/academia-electron.app; tccutil reset All com.electron.academia-electron; rm -rf ~/Library/Preferences/com.electron.academia-electron* ~/Library/Application\\ Support/academia-electron ~/Library/Application\\ Support/com.electron.academia-electron* ~/Library/Caches/com.electron.academia-electron ~/Library/Logs/academia-electron out/"
   },
   "author": "Academia.edu",
   "license": "UNLICENSED",
