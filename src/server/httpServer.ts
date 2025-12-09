@@ -21,6 +21,7 @@ import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
 import { registerWordRoutes } from './routes/word';
+import { registerAnalyticsRoutes } from './routes/analytics';
 import { wordIntegrationDataStore } from '../wordIntegrationDataStore';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
@@ -177,6 +178,9 @@ export class AcademiaHttpServer {
 
     // Register Word integration routes
     await registerWordRoutes(this.fastify);
+
+    // Register analytics routes
+    await registerAnalyticsRoutes(this.fastify);
 
     // Start listening - try ports in range (default 23111-23120)
     const startPort = this.config.port;

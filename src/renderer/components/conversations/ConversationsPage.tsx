@@ -5,6 +5,7 @@ import { ConversationsSidebar } from './ConversationsSidebar';
 import { ConversationDetail } from './ConversationDetail';
 import { generateDailyFeedbackTitle } from './utils';
 import { IPC_CHANNELS } from '../../../shared/types';
+import { trackTriggerFullReview, trackTriggerDiffReview, trackProjectView } from '../../utils/analytics';
 import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 import './Conversations.css';
 
@@ -250,6 +251,9 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
       // Reset selected conversation when project changes
       setSelectedConversation(null);
 
+      // Track analytics
+      trackProjectView(selectedProject.id);
+
       console.log('========================================');
       console.log('[ConversationsPage] Initial fetch for project:', selectedProject.id);
       setIsLoadingFiles(true);
@@ -470,6 +474,9 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
       return;
     }
 
+    // Track analytics
+    trackTriggerFullReview('desktop', selectedProject.id, manuscriptFile.id);
+
     console.log('[ConversationsPage] 🔄 Starting full review...');
     setReviewingState('full-reviewing');
     setIsReviewInProgress(true);
@@ -497,6 +504,9 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
       setReviewError('No manuscript file found');
       return;
     }
+
+    // Track analytics
+    trackTriggerDiffReview('desktop', selectedProject.id, manuscriptFile.id);
 
     console.log('[ConversationsPage] 🔄 Starting diff review...');
     setReviewingState('diff-reviewing');

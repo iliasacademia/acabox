@@ -1,5 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { IPC_CHANNELS } from '../../shared/types';
+import {
+  trackNewProjectModalView,
+  trackSelectFolderModalView,
+  trackSelectManuscriptView,
+  trackCreateProjectClick,
+  trackCloseModalClick,
+} from '../utils/analytics';
 import MSWordIcon from '../../assets/images/MSWordIcon.png';
 
 interface CreateProjectWizardProps {
@@ -37,9 +44,17 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Load files when step 3 is reached
+  // Track modal view on mount
   useEffect(() => {
-    if (step === 3) {
+    trackNewProjectModalView();
+  }, []);
+
+  // Track step views and load files when step changes
+  useEffect(() => {
+    if (step === 2) {
+      trackSelectFolderModalView();
+    } else if (step === 3) {
+      trackSelectManuscriptView();
       loadFiles();
     }
   }, [step]);
@@ -125,6 +140,7 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   };
 
   const handleComplete = () => {
+    trackCreateProjectClick();
     onComplete({
       name: projectName,
       description: projectDescription,
@@ -132,6 +148,11 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
       primaryManuscriptPath: selectedManuscriptPath || undefined,
       collaboratorEmails: [],
     });
+  };
+
+  const handleClose = () => {
+    trackCloseModalClick();
+    onClose();
   };
 
   const toggleFolder = (folderPath: string) => {
@@ -149,11 +170,11 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
   };
 
   return (
-    <div className="wizardOverlay" onClick={isCreating ? undefined : onClose}>
+    <div className="wizardOverlay" onClick={isCreating ? undefined : handleClose}>
       <div className="wizardModal" onClick={(e) => e.stopPropagation()}>
         <button
           className="wizardClose"
-          onClick={onClose}
+          onClick={handleClose}
           disabled={isCreating}
           style={{ opacity: isCreating ? 0.5 : 1, cursor: isCreating ? 'not-allowed' : 'pointer' }}
         >
@@ -192,7 +213,7 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
             </div>
             {error && <div className="wizardError">{error}</div>}
             <div className="wizardActions">
-              <button className="wizardButtonSecondary" onClick={onClose}>
+              <button className="wizardButtonSecondary" onClick={handleClose}>
                 Cancel
               </button>
               <button className="wizardButtonPrimary" onClick={handleNext}>

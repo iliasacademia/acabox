@@ -6,6 +6,7 @@ import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
 import { DraftConversation } from './ConversationsPage';
 import DiffModal from './DiffModal';
+import { trackConversationMessageSent, trackConversationMessageReceived } from '../../utils/analytics';
 
 interface ConversationDetailProps {
   conversation: Conversation | DraftConversation | null;
@@ -39,6 +40,10 @@ export function ConversationDetail({
   const isInitialLoad = useRef(true);
   const previousMessageCount = useRef(0);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+  const lastTrackedAssistantMessageId = useRef<number | null>(null);
+  const lastTrackedConversationId = useRef<number | null>(null);
+  const conversationViewedAt = useRef<Date | null>(null);
+  const lastUserMessageTime = useRef<Date | null>(null);
 
   // Fetch diff when Show Diff is clicked
   const handleShowDiff = async () => {
@@ -80,12 +85,20 @@ export function ConversationDetail({
       stopPolling();
       isInitialLoad.current = true;
       previousMessageCount.current = 0;
+      lastTrackedAssistantMessageId.current = null;
+      lastTrackedConversationId.current = null;
+      conversationViewedAt.current = null;
+      lastUserMessageTime.current = null;
       return;
     }
 
     // Mark as initial load when conversation changes
     isInitialLoad.current = true;
     previousMessageCount.current = 0;
+    lastTrackedAssistantMessageId.current = null;
+    lastTrackedConversationId.current = null;
+    conversationViewedAt.current = new Date(); // Record when we started viewing this conversation
+    lastUserMessageTime.current = null;
 
     // Load initial messages for the selected conversation
     initializeMessages(conversation.id, projectId);
@@ -113,6 +126,75 @@ export function ConversationDetail({
     }
   }, [messages]);
 
+  // Track received assistant messages
+  useEffect(() => {
+    if (!conversation || isDraft(conversation) || messages.length === 0) return;
+
+    // Find the latest assistant message by timestamp (not array position)
+    const assistantMessages = messages.filter((m) => m.role === 'assistant');
+    if (assistantMessages.length === 0) return;
+
+    // Sort by created_at to find the truly latest message
+    const latestAssistantMessage = assistantMessages.reduce((latest, current) => {
+      if (!latest.created_at) return current;
+      if (!current.created_at) return latest;
+      return new Date(current.created_at) > new Date(latest.created_at) ? current : latest;
+    });
+
+    // If conversation has changed, reset tracking refs
+    if (lastTrackedConversationId.current !== conversation.id) {
+      lastTrackedAssistantMessageId.current = latestAssistantMessage.id;
+      lastTrackedConversationId.current = conversation.id;
+      return;
+    }
+
+    // Check if we've already tracked this message
+    if (lastTrackedAssistantMessageId.current === latestAssistantMessage.id) {
+      return;
+    }
+
+    // If this is the initial load (ref was reset to null when switching conversations),
+    // set the ref without tracking - we only want to track NEW messages, not existing ones
+    if (lastTrackedAssistantMessageId.current === null) {
+      lastTrackedAssistantMessageId.current = latestAssistantMessage.id;
+      lastTrackedConversationId.current = conversation.id;
+      return;
+    }
+
+    // CRITICAL CHECK: Only track messages created AFTER we started viewing this conversation
+    // This prevents tracking old messages when switching to an existing conversation
+    if (conversationViewedAt.current && latestAssistantMessage.created_at) {
+      const messageCreatedAt = new Date(latestAssistantMessage.created_at);
+      const viewedAt = conversationViewedAt.current;
+
+      if (messageCreatedAt <= viewedAt) {
+        // Update ref to prevent repeated checks for this old message
+        lastTrackedAssistantMessageId.current = latestAssistantMessage.id;
+        return;
+      }
+    }
+
+    // Calculate duration if we have a user message timestamp
+    let durationSeconds: number | undefined;
+    if (lastUserMessageTime.current && latestAssistantMessage.created_at) {
+      const assistantTime = new Date(latestAssistantMessage.created_at);
+      const userTime = lastUserMessageTime.current;
+      durationSeconds = Math.round((assistantTime.getTime() - userTime.getTime()) / 1000);
+    }
+
+    // Track the received message
+    trackConversationMessageReceived(
+      projectId,
+      conversation.id,
+      conversation.agent_name,
+      durationSeconds
+    );
+
+    // Update the last tracked message ID and conversation ID
+    lastTrackedAssistantMessageId.current = latestAssistantMessage.id;
+    lastTrackedConversationId.current = conversation.id;
+  }, [messages, conversation, projectId]);
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -131,6 +213,12 @@ export function ConversationDetail({
           conversation.agent_name,
           projectId
         );
+
+        // Track conversation message sent
+        trackConversationMessageSent(projectId, newConversation.id, conversation.agent_name);
+        const now = new Date();
+        lastUserMessageTime.current = now;
+        conversationViewedAt.current = now; // Update so we track the AI response
 
         // Notify parent to replace draft with real conversation
         onConversationCreated?.(newConversation);
@@ -151,6 +239,12 @@ export function ConversationDetail({
 
         // Send message to backend
         await createMessage(conversation.id, content, projectId);
+
+        // Track conversation message sent
+        trackConversationMessageSent(projectId, conversation.id, conversation.agent_name);
+        const now = new Date();
+        lastUserMessageTime.current = now;
+        conversationViewedAt.current = now; // Update so we track the AI response
 
         // Notify parent to update conversation list
         onConversationUpdate?.();

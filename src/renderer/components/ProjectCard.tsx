@@ -1,6 +1,7 @@
 import React from 'react';
 import { Project } from '../services/projectsApi';
 import { formatProjectDate } from '../utils/dateUtils';
+import { trackProjectClick } from '../utils/analytics';
 
 interface ProjectCardProps {
   project: Project;
@@ -10,13 +11,18 @@ interface ProjectCardProps {
 
 const ProjectCard: React.FC<ProjectCardProps> = ({ project, onClick, onDelete }) => {
 
+  const handleClick = () => {
+    trackProjectClick(project.id);
+    onClick();
+  };
+
   const handleDeleteClick = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click
     onDelete();
   };
 
   return (
-    <div className="projectCard" onClick={onClick}>
+    <div className="projectCard" onClick={handleClick}>
       <div className="projectCardHeader">
         <h3 className="projectCardTitle">{project.name}</h3>
         <button

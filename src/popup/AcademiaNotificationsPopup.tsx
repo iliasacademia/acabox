@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
+import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
 
 // Initialize bridge early
 getBridgeInstance('notifications-popup');
@@ -385,6 +386,9 @@ const AcademiaNotificationsPopup: React.FC = () => {
 
     console.log('[AcademiaNotificationsPopup] Triggering diff review...');
 
+    // Track analytics - diff review triggered from overlay
+    trackTriggerDiffReview('overlay', projectId, fileId);
+
     // Optimistically set reviewing state
     setReviewState('reviewing');
 
@@ -425,6 +429,9 @@ const AcademiaNotificationsPopup: React.FC = () => {
     }
 
     console.log('[AcademiaNotificationsPopup] Triggering full review...');
+
+    // Track analytics - full review triggered from overlay
+    trackTriggerFullReview('overlay', projectId, fileId);
 
     // Optimistically set reviewing state
     setReviewState('reviewing');

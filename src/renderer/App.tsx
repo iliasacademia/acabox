@@ -8,6 +8,7 @@ import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
 import { useDevToolsLog } from './hooks/useDevToolsLog';
+import { trackNotificationView, trackNotificationClick } from './utils/analytics';
 import Projects from './components/Projects';
 import './App.css';
 
@@ -64,6 +65,14 @@ const App: React.FC = () => {
 
       // Listen for new notifications
       const handleNewNotification = (_event: any, notif: NotificationType) => {
+        // Track analytics - notification.view
+        if (notif.data?.conversation_id && notif.data?.agent_name) {
+          trackNotificationView(
+            notif.project_id,
+            notif.data.conversation_id,
+            notif.data.agent_name
+          );
+        }
         showDesktopNotification(notif);
       };
       window.electronAPI.on('new-notification', handleNewNotification);
@@ -204,6 +213,15 @@ const App: React.FC = () => {
       });
 
       osNotification.onclick = () => {
+        // Track analytics - notification.click
+        if (notif.data?.conversation_id && notif.data?.agent_name) {
+          trackNotificationClick(
+            notif.project_id,
+            notif.data.conversation_id,
+            notif.data.agent_name
+          );
+        }
+
         // Navigate to conversation if notification has the required data
         if (notif.data?.conversation_id && notif.project_id) {
           window.electronAPI.invoke(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
