@@ -45,6 +45,14 @@ export function ConversationDetail({
   const conversationViewedAt = useRef<Date | null>(null);
   const lastUserMessageTime = useRef<Date | null>(null);
 
+  // Open feedback form in browser with conversation ID prefilled
+  const handleOpenFeedback = () => {
+    if (!conversation || isDraft(conversation)) return;
+    const conversationId = encodeURIComponent(String(conversation.id));
+    const formUrl = `https://docs.google.com/forms/d/e/1FAIpQLSdCjDGx4NHWFMSGslBFLzdbvXM8JL6blV-DeVkJEqDpDrJ31A/viewform?usp=pp_url&entry.744362453=${conversationId}`;
+    window.electronAPI.invoke('open-external-url', formUrl);
+  };
+
   // Fetch diff when Show Diff is clicked
   const handleShowDiff = async () => {
     if (!primaryManuscriptId) {
@@ -442,6 +450,20 @@ export function ConversationDetail({
             </button>
           </div>
         </form>
+
+        {/* Feedback Link */}
+        {!currentIsDraft && groupedMessages.length > 0 && (
+          <a
+            href="#"
+            className="feedbackLink"
+            onClick={(e) => {
+              e.preventDefault();
+              handleOpenFeedback();
+            }}
+          >
+            Provide feedback on this review
+          </a>
+        )}
       </div>
 
       {/* Diff Modal */}
