@@ -301,30 +301,32 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
   // Main projects UI
   return (
     <div className="projectsContainer">
-      {/* Header with logo and avatar */}
-      <div className="projectsHeader">
-        <div className="projectsLogo">
-          <span className="logoText">A</span>
-        </div>
-        <div className="projectsUserMenu">
-          <div className="userAvatar" onClick={() => setShowUserMenu(!showUserMenu)}>
-            <span className="avatarInitial">
-              {userName ? userName.charAt(0).toUpperCase() : (userId ? userId.toString()[0] : 'U')}
-            </span>
+      {/* Header with logo and avatar - only show on list view */}
+      {currentView === 'list' && (
+        <div className="projectsHeader">
+          <div className="projectsLogo">
+            <span className="logoText">A</span>
           </div>
-          {showUserMenu && (
-            <div className="userMenuDropdown">
-              <div className="userMenuHeader">
-                <div className="userMenuName">{userName || `User ${userId}`}</div>
-              </div>
-              <div className="userMenuDivider"></div>
-              <button className="userMenuItem" onClick={handleLogoutClick}>
-                <span>Logout</span>
-              </button>
+          <div className="projectsUserMenu">
+            <div className="userAvatar" onClick={() => setShowUserMenu(!showUserMenu)}>
+              <span className="avatarInitial">
+                {userName ? userName.charAt(0).toUpperCase() : (userId ? userId.toString()[0] : 'U')}
+              </span>
             </div>
-          )}
+            {showUserMenu && (
+              <div className="userMenuDropdown">
+                <div className="userMenuHeader">
+                  <div className="userMenuName">{userName || `User ${userId}`}</div>
+                </div>
+                <div className="userMenuDivider"></div>
+                <button className="userMenuItem" onClick={handleLogoutClick}>
+                  <span>Logout</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Main Content */}
       <div className="projectsMain">
