@@ -17,9 +17,12 @@ interface EventMetadata {
   [key: string]: unknown;
 }
 
-// Get server URL from query params (passed by native bridge)
+// Get serverUrl from window.location.origin (popup is served from the HTTP server)
+// This ensures we use the correct port even when server binds to fallback port
+const serverUrl = window.location.origin;
+
+// Get auth token from query params (passed by native bridge)
 const urlParams = new URLSearchParams(window.location.search);
-const serverUrl = urlParams.get('serverUrl') || 'http://127.0.0.1:23111';
 const authToken = urlParams.get('token') || '';
 
 // Check if in development mode
