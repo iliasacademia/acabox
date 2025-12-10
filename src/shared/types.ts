@@ -118,6 +118,7 @@ export const FEATURES = {
   TEXT_SIDE_BUTTON_ENABLED: false, // Toggle TextSideButton/Popup in Word overlay
   OVERALL_REVIEW_BUTTON_ENABLED: false, // Toggle OverallReviewButton/Popup in Word overlay
   SCROLL_TRACKING_ENABLED: false, // Toggle scroll tracking in Word overlay
+  ZENDESK_WIDGET_ENABLED: true, // Toggle Zendesk support widget
 } as const;
 
 export interface DesktopNotification {
