@@ -1163,6 +1163,25 @@
   font-style: italic;
 }
 
+/* Feedback Link */
+.feedbackLink {
+  font-family: var(--font-family-sans);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 20px;
+  color: #0645b1;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 8px 0;
+  background: none;
+  border: none;
+  display: block;
+}
+
+.feedbackLink:hover {
+  color: #0530a0;
+}
+
 .messageContexts {
   margin-top: 12px;
   display: flex;
