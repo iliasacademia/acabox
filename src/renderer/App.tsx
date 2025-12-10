@@ -9,6 +9,8 @@ import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
 import { useDevToolsLog } from './hooks/useDevToolsLog';
 import { trackNotificationView, trackNotificationClick } from './utils/analytics';
+import { initZendeskWidget, cleanupZendeskWidget, showWidget } from './utils/zendeskWidget';
+import { FEATURES } from '../shared/types';
 import Projects from './components/Projects';
 import './App.css';
 
@@ -195,6 +197,16 @@ const App: React.FC = () => {
         if (user) {
           setUserId(user.id);
           setUserName(user.first_name || user.name || null);
+
+          // Initialize Zendesk for already-logged-in user
+          if (FEATURES.ZENDESK_WIDGET_ENABLED) {
+            initZendeskWidget({
+              id: user.id.toString(),
+              email: user.email || undefined,
+              name: user.first_name || user.name || undefined,
+            });
+            showWidget();
+          }
         }
         // Refresh manuscript paths for Word integration tracking on app startup
         await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
@@ -251,6 +263,17 @@ const App: React.FC = () => {
       setUserId(user.id);
       setUserName(user.first_name || user.name || null);
       setShowLogin(false); // Only hide modal AFTER userId is set
+
+      // Initialize Zendesk widget with user info
+      if (FEATURES.ZENDESK_WIDGET_ENABLED) {
+        initZendeskWidget({
+          id: user.id.toString(),
+          email: user.email || undefined,
+          name: user.first_name || user.name || undefined,
+        });
+        showWidget();
+      }
+
       // Refresh manuscript paths for Word integration tracking
       await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
       // Reinitialize sync services now that user is logged in
@@ -264,6 +287,11 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    // Clean up Zendesk before logout
+    if (FEATURES.ZENDESK_WIDGET_ENABLED) {
+      cleanupZendeskWidget();
+    }
+
     const result = await window.electronAPI.invoke('logout');
     if (result.success) {
       setShowLogin(true);

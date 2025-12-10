@@ -85,12 +85,12 @@ const createWindow = async (): Promise<void> => {
     const isDevelopment = process.env.NODE_ENV === 'development' && !app.isPackaged;
 
     const scriptSrc = isDevelopment
-      ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
-      : "script-src 'self'; ";
+      ? "script-src 'self' 'unsafe-eval' https://static.zdassets.com https://*.zendesk.com; " // unsafe-eval needed for webpack-dev-server, Zendesk scripts and JSONP
+      : "script-src 'self' https://static.zdassets.com https://*.zendesk.com; ";
 
     const styleSrc = isDevelopment
-      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for style-loader (webpack injects inline styles in dev)
-      : "style-src 'self' https://fonts.googleapis.com; "; // Production uses MiniCssExtractPlugin (external CSS files)
+      ? "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; " // unsafe-inline needed for style-loader and Zendesk
+      : "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; "; // Zendesk requires unsafe-inline even in production
 
     callback({
       responseHeaders: {
@@ -99,10 +99,11 @@ const createWindow = async (): Promise<void> => {
           "default-src 'self'; " +
           styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src 'self' data:; " + // Removed localhost wildcard for production
+          "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
           "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com; " + // Datadog RUM intake
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Zendesk API, WebSocket, and Sentry
+          "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
           "form-action 'self'; " + // Restrict form submissions
@@ -143,12 +144,12 @@ const createMainWindow = async (): Promise<void> => {
     const isDevelopment = process.env.NODE_ENV === 'development' && !app.isPackaged;
 
     const scriptSrc = isDevelopment
-      ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
-      : "script-src 'self'; ";
+      ? "script-src 'self' 'unsafe-eval' https://static.zdassets.com https://*.zendesk.com; " // unsafe-eval needed for webpack-dev-server, Zendesk scripts and JSONP
+      : "script-src 'self' https://static.zdassets.com https://*.zendesk.com; ";
 
     const styleSrc = isDevelopment
-      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for style-loader (webpack injects inline styles in dev)
-      : "style-src 'self' https://fonts.googleapis.com; "; // Production uses MiniCssExtractPlugin (external CSS files)
+      ? "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; " // unsafe-inline needed for style-loader and Zendesk
+      : "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; "; // Zendesk requires unsafe-inline even in production
 
     callback({
       responseHeaders: {
@@ -157,10 +158,11 @@ const createMainWindow = async (): Promise<void> => {
           "default-src 'self'; " +
           styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src 'self' data:; " + // Removed localhost wildcard for production
+          "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
           "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com; " + // Datadog RUM intake
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Zendesk API, WebSocket, and Sentry
+          "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
           "form-action 'self'; " + // Restrict form submissions
