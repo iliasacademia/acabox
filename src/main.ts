@@ -1502,6 +1502,21 @@ ipcMain.handle('sync-folder-now', async (_event, folderId: string) => {
   }
 });
 
+// Reinitialize sync services after user login
+// This is needed when the app starts without a user logged in - sync services skip initialization
+// and need to be reinitialized once the user logs in
+ipcMain.handle(IPC_CHANNELS.REINITIALIZE_SYNC, async () => {
+  logger.debug('[Main] Reinitializing sync services after login');
+  try {
+    await syncService.initialize();
+    await projectSyncService.initialize();
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[Main] Failed to reinitialize sync services:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
   try {
     logger.debug('[GET-FOLDER-FILES] Fetching files for folder:', folderId);

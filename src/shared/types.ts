@@ -46,6 +46,7 @@ export const IPC_CHANNELS = {
   REFRESH_MANUSCRIPT_PATHS: 'refresh-manuscript-paths',
 
   // Sync operations
+  REINITIALIZE_SYNC: 'reinitialize-sync',
   GET_SYNC_FOLDERS: 'get-sync-folders',
   ADD_SYNC_FOLDER: 'add-sync-folder',
   REMOVE_SYNC_FOLDER: 'remove-sync-folder',

@@ -253,6 +253,9 @@ const App: React.FC = () => {
       setShowLogin(false); // Only hide modal AFTER userId is set
       // Refresh manuscript paths for Word integration tracking
       await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+      // Reinitialize sync services now that user is logged in
+      // This handles the case where app started without a user logged in
+      await window.electronAPI.invoke(IPC_CHANNELS.REINITIALIZE_SYNC);
     } else {
       // get-current-user returned null - login didn't complete properly
       // Keep modal open so user can retry

@@ -9,9 +9,9 @@ getBridgeInstance('overall-review-popup');
 console.log('[OverallReviewPopup] Initializing...');
 console.log('[OverallReviewPopup] Platform:', window.__messageBridge?.getPlatform());
 
-// Parse serverUrl from query params (passed by native bridge)
-const urlParams = new URLSearchParams(window.location.search);
-const serverUrl = urlParams.get('serverUrl') || 'http://127.0.0.1:23111';
+// Get serverUrl from window.location.origin (popup is served from the HTTP server)
+// This ensures we use the correct port even when server binds to fallback port
+const serverUrl = window.location.origin;
 
 interface Comment {
   id: string;
