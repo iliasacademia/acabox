@@ -1,40 +1,67 @@
 import React, { useState, useEffect } from 'react';
-import { Conversation, getConversation } from '../../services/conversationsApi';
-import { Project, ProjectFile, getProjectFiles, getProjectStatus, triggerFullReview, triggerDiffReview } from '../../services/projectsApi';
+import { Conversation, DraftConversation } from '../types/conversation';
+import { Project, ProjectFile, AgentRun } from '../types/project';
+import { useConversationsApi } from '../api/useConversationsApi';
+import { useProjectsApi } from '../api/useProjectsApi';
+import { useApiClient } from '../context/ApiContext';
 import { ConversationsSidebar } from './ConversationsSidebar';
 import { ConversationDetail } from './ConversationDetail';
 import { generateDailyFeedbackTitle } from './utils';
-import { IPC_CHANNELS } from '../../../shared/types';
-import { trackTriggerFullReview, trackTriggerDiffReview, trackProjectView } from '../../utils/analytics';
-import MSWordIcon from '../../../assets/images/MSWordIcon.png';
-import './Conversations.css';
 
-interface ConversationsPageProps {
+export interface ConversationsPageProps {
   selectedProject: Project | null;
   onBack?: () => void;
   initialConversationId?: number | null;
   onConversationNavigated?: () => void;
+
+  // Analytics callbacks (optional)
+  onProjectView?: (projectId: number) => void;
+  onTriggerFullReview?: (projectId: number, fileId: number) => void;
+  onTriggerDiffReview?: (projectId: number, fileId: number) => void;
+  onConversationView?: (projectId: number, conversationId: number, agentName: string) => void;
+  onMessageSent?: (projectId: number, conversationId: number, agentName: string) => void;
+  onMessageReceived?: (projectId: number, conversationId: number, agentName: string, durationSeconds?: number) => void;
+
+  // Customization props
+  renderManuscriptIcon?: () => React.ReactNode;
+  feedbackFormUrl?: string;
+
+  // Event subscription (for file sync events)
+  fileSyncEventName?: string;
 }
 
-// Extended conversation type to support draft conversations
-export interface DraftConversation extends Conversation {
-  isDraft: true;
-}
-
-export function ConversationsPage({ selectedProject, onBack, initialConversationId, onConversationNavigated }: ConversationsPageProps) {
+export function ConversationsPage({
+  selectedProject,
+  onBack,
+  initialConversationId,
+  onConversationNavigated,
+  onProjectView,
+  onTriggerFullReview,
+  onTriggerDiffReview,
+  onConversationView,
+  onMessageSent,
+  onMessageReceived,
+  renderManuscriptIcon,
+  feedbackFormUrl,
+  fileSyncEventName,
+}: ConversationsPageProps) {
   const [selectedConversation, setSelectedConversation] =
     useState<Conversation | DraftConversation | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
   const [_isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
-  const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const [pollInterval, setPollInterval] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [hasConversations, setHasConversations] = useState(false);
   const [reviewingState, setReviewingState] = useState<'idle' | 'full-reviewing' | 'diff-reviewing'>('idle');
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [recentlySynced, setRecentlySynced] = useState(false);
-  const [syncIndicatorTimeout, setSyncIndicatorTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [syncIndicatorTimeout, setSyncIndicatorTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
   const [isAutoReviewInProgress, setIsAutoReviewInProgress] = useState(false);
+
+  const apiClient = useApiClient();
+  const { getConversation } = useConversationsApi();
+  const { getProjectFiles, getProjectStatus, triggerFullReview, triggerDiffReview } = useProjectsApi();
 
   // Refresh manuscript file data
   const refreshManuscriptFile = async () => {
@@ -76,7 +103,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
         const status = await getProjectStatus(selectedProject.id, undefined, manuscriptFile.id);
 
         // Check for any pending/processing runs
-        const inProgressRuns = status.agent_runs.filter((run: any) =>
+        const inProgressRuns = status.agent_runs.filter((run: AgentRun) =>
           run.file_id === manuscriptFile.id &&
           (run.status === 'pending' || run.status === 'processing')
         );
@@ -86,10 +113,10 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
           setIsReviewInProgress(true);
 
           // Determine which type of review is in progress
-          const hasFullReview = inProgressRuns.some((run: any) =>
+          const hasFullReview = inProgressRuns.some((run: AgentRun) =>
             run.agent_name?.includes('full')
           );
-          const hasDiffReview = inProgressRuns.some((run: any) =>
+          const hasDiffReview = inProgressRuns.some((run: AgentRun) =>
             run.agent_name?.includes('diff')
           );
 
@@ -155,7 +182,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
 
         // Check for recent agent runs (within last 5 minutes)
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const recentRuns = status.agent_runs.filter(run => {
+        const recentRuns = status.agent_runs.filter((run: AgentRun) => {
           const createdAt = new Date(run.created_at);
           return run.file_id === manuscriptId && createdAt > fiveMinutesAgo;
         });
@@ -169,12 +196,12 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
         }
 
         // Check if any runs are still in progress (pending or processing)
-        const inProgressRuns = recentRuns.filter(run =>
+        const inProgressRuns = recentRuns.filter((run: AgentRun) =>
           run.status === 'pending' || run.status === 'processing'
         );
 
         // Check if any in-progress runs are auto-scheduled
-        const autoScheduledInProgress = inProgressRuns.some(run =>
+        const autoScheduledInProgress = inProgressRuns.some((run: AgentRun) =>
           run.review_data?.triggered_by === 'auto_scheduler'
         );
         setIsAutoReviewInProgress(autoScheduledInProgress);
@@ -199,13 +226,13 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
           setRefreshTrigger(prev => prev + 1);
         } else {
           console.log('[ConversationsPage] Still in progress:', inProgressRuns.length, 'runs',
-            inProgressRuns.map(r => ({ status: r.status, running_jobs: r.running_jobs_count })));
+            inProgressRuns.map((r: AgentRun) => ({ status: r.status, running_jobs: r.running_jobs_count })));
 
           // Schedule next poll with exponential backoff
           pollCount++;
           currentDelay = Math.min(currentDelay * 1.5, 10000); // Max 10 seconds
           const timeoutId = setTimeout(poll, currentDelay);
-          setPollInterval(timeoutId as any);
+          setPollInterval(timeoutId);
         }
       } catch (error) {
         console.error('[ConversationsPage] Error polling review status:', error);
@@ -214,7 +241,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
         pollCount++;
         currentDelay = Math.min(currentDelay * 2, 10000);
         const timeoutId = setTimeout(poll, currentDelay);
-        setPollInterval(timeoutId as any);
+        setPollInterval(timeoutId);
       }
     };
 
@@ -252,7 +279,9 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
       setSelectedConversation(null);
 
       // Track analytics
-      trackProjectView(selectedProject.id);
+      if (onProjectView) {
+        onProjectView(selectedProject.id);
+      }
 
       console.log('========================================');
       console.log('[ConversationsPage] Initial fetch for project:', selectedProject.id);
@@ -298,9 +327,10 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
 
   // Listen for file sync events to refresh manuscript data and start polling
   useEffect(() => {
-    if (!selectedProject) return;
+    if (!selectedProject || !fileSyncEventName || !apiClient.on || !apiClient.removeListener) return;
 
-    const handleFileSynced = (_event: any, data: any) => {
+    const handleFileSynced = (...args: unknown[]) => {
+      const [_event, data] = args as [unknown, { projectId?: number; filePath?: string; action?: string }];
       console.log('========================================');
       console.log('[ConversationsPage] File synced event received:', JSON.stringify(data, null, 2));
       console.log('[ConversationsPage] Current project ID:', selectedProject.id);
@@ -385,13 +415,13 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
     };
 
     console.log('[ConversationsPage] Setting up file sync event listener for project:', selectedProject.id);
-    window.electronAPI.on(IPC_CHANNELS.PROJECT_FILE_SYNCED, handleFileSynced);
+    apiClient.on(fileSyncEventName, handleFileSynced);
 
     return () => {
       console.log('[ConversationsPage] Removing file sync event listener for project:', selectedProject.id);
-      window.electronAPI.removeListener(IPC_CHANNELS.PROJECT_FILE_SYNCED, handleFileSynced);
+      apiClient.removeListener!(fileSyncEventName, handleFileSynced);
     };
-  }, [selectedProject]);
+  }, [selectedProject, fileSyncEventName, apiClient]);
 
   // Handle initial conversation navigation from notification click
   useEffect(() => {
@@ -475,7 +505,9 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
     }
 
     // Track analytics
-    trackTriggerFullReview('desktop', selectedProject.id, manuscriptFile.id);
+    if (onTriggerFullReview) {
+      onTriggerFullReview(selectedProject.id, manuscriptFile.id);
+    }
 
     console.log('[ConversationsPage] 🔄 Starting full review...');
     setReviewingState('full-reviewing');
@@ -490,9 +522,10 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
       // Start polling for completion
       startPolling(manuscriptFile.id);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       console.error('[ConversationsPage] ❌ Error triggering full review:', error);
-      const errorMsg = error.message || 'Failed to trigger full review';
+      const errorMsg = err.message || 'Failed to trigger full review';
       setReviewError(errorMsg);
       setReviewingState('idle');
       setIsReviewInProgress(false);
@@ -506,7 +539,9 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
     }
 
     // Track analytics
-    trackTriggerDiffReview('desktop', selectedProject.id, manuscriptFile.id);
+    if (onTriggerDiffReview) {
+      onTriggerDiffReview(selectedProject.id, manuscriptFile.id);
+    }
 
     console.log('[ConversationsPage] 🔄 Starting diff review...');
     setReviewingState('diff-reviewing');
@@ -521,9 +556,10 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
       // Start polling for completion
       startPolling(manuscriptFile.id);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       console.error('[ConversationsPage] ❌ Error triggering diff review:', error);
-      const errorMsg = error.message || 'Failed to trigger diff review';
+      const errorMsg = err.message || 'Failed to trigger diff review';
       setReviewError(errorMsg);
       setReviewingState('idle');
       setIsReviewInProgress(false);
@@ -571,7 +607,9 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
             <div className="manuscriptInfoLeft">
               <span className="manuscriptLabel">Manuscript:</span>
               <div className="manuscriptFileIcon">
-                <img src={MSWordIcon} alt="Word document" />
+                {renderManuscriptIcon ? renderManuscriptIcon() : (
+                  <span className="defaultManuscriptIcon">📄</span>
+                )}
               </div>
               <div className="manuscriptFileDetails">
                 <span className="manuscriptFileName">{manuscriptFile.file_name}</span>
@@ -622,6 +660,7 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
               onNewConversation={handleNewConversation}
               refreshTrigger={refreshTrigger}
               onConversationsLoaded={handleConversationsLoaded}
+              onConversationView={onConversationView}
             />
 
             {/* Detail Panel */}
@@ -633,6 +672,9 @@ export function ConversationsPage({ selectedProject, onBack, initialConversation
               onConversationCreated={handleConversationCreated}
               onConversationUpdate={handleConversationUpdate}
               isReviewInProgress={isReviewInProgress}
+              onMessageSent={onMessageSent}
+              onMessageReceived={onMessageReceived}
+              feedbackFormUrl={feedbackFormUrl}
             />
           </div>
         </div>

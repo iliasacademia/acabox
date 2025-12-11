@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, createMessage, createConversation, Conversation } from '../../services/conversationsApi';
-import { getFileDiff, ProjectFile, DiffResponse } from '../../services/projectsApi';
-import { useConversationPolling } from '../../hooks/useConversationPolling';
+import { Message, Conversation, DraftConversation } from '../types/conversation';
+import { ProjectFile, DiffResponse } from '../types/project';
+import { useConversationsApi } from '../api/useConversationsApi';
+import { useProjectsApi } from '../api/useProjectsApi';
+import { useConversationPolling } from '../hooks/useConversationPolling';
+import { useApiClient } from '../context/ApiContext';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
-import { DraftConversation } from './ConversationsPage';
 import DiffModal from './DiffModal';
-import { trackConversationMessageSent, trackConversationMessageReceived } from '../../utils/analytics';
 
 interface ConversationDetailProps {
   conversation: Conversation | DraftConversation | null;
@@ -16,6 +17,12 @@ interface ConversationDetailProps {
   onConversationCreated?: (conversation: Conversation) => void;
   onConversationUpdate?: () => void;
   isReviewInProgress?: boolean;
+  /** Optional: Called when a message is sent (for analytics) */
+  onMessageSent?: (projectId: number, conversationId: number, agentName: string) => void;
+  /** Optional: Called when an assistant message is received (for analytics) */
+  onMessageReceived?: (projectId: number, conversationId: number, agentName: string, durationSeconds?: number) => void;
+  /** Optional: URL for feedback form. If provided, shows a feedback link. */
+  feedbackFormUrl?: string;
 }
 
 export function ConversationDetail({
@@ -26,6 +33,9 @@ export function ConversationDetail({
   onConversationCreated,
   onConversationUpdate,
   isReviewInProgress,
+  onMessageSent,
+  onMessageReceived,
+  feedbackFormUrl,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -45,12 +55,22 @@ export function ConversationDetail({
   const conversationViewedAt = useRef<Date | null>(null);
   const lastUserMessageTime = useRef<Date | null>(null);
 
+  const apiClient = useApiClient();
+  const { createConversation, createMessage } = useConversationsApi();
+  const { getFileDiff } = useProjectsApi();
+
   // Open feedback form in browser with conversation ID prefilled
   const handleOpenFeedback = () => {
-    if (!conversation || isDraft(conversation)) return;
+    if (!conversation || isDraft(conversation) || !feedbackFormUrl) return;
     const conversationId = encodeURIComponent(String(conversation.id));
-    const formUrl = `https://docs.google.com/forms/d/e/1FAIpQLSdCjDGx4NHWFMSGslBFLzdbvXM8JL6blV-DeVkJEqDpDrJ31A/viewform?usp=pp_url&entry.744362453=${conversationId}`;
-    window.electronAPI.invoke('open-external-url', formUrl);
+    const formUrl = `${feedbackFormUrl}?usp=pp_url&entry.744362453=${conversationId}`;
+
+    if (apiClient.openExternalUrl) {
+      apiClient.openExternalUrl(formUrl);
+    } else {
+      // Fallback for web: open in new tab
+      window.open(formUrl, '_blank');
+    }
   };
 
   // Fetch diff when Show Diff is clicked
@@ -68,15 +88,15 @@ export function ConversationDetail({
     try {
       const diff = await getFileDiff(projectId, primaryManuscriptId);
       setDiffData(diff);
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const err = error as { message?: string };
       // Sanitize error message
-      const errorMsg = String(error.message || 'Failed to load diff').substring(0, 200);
+      const errorMsg = String(err.message || 'Failed to load diff').substring(0, 200);
       setDiffError(errorMsg);
     } finally {
       setIsDiffLoading(false);
     }
   };
-
 
   const { messages, isPolling, isLoading, error, startPolling, stopPolling, initializeMessages, addOptimisticMessage } =
     useConversationPolling();
@@ -136,7 +156,7 @@ export function ConversationDetail({
 
   // Track received assistant messages
   useEffect(() => {
-    if (!conversation || isDraft(conversation) || messages.length === 0) return;
+    if (!conversation || isDraft(conversation) || messages.length === 0 || !onMessageReceived) return;
 
     // Find the latest assistant message by timestamp (not array position)
     const assistantMessages = messages.filter((m) => m.role === 'assistant');
@@ -191,7 +211,7 @@ export function ConversationDetail({
     }
 
     // Track the received message
-    trackConversationMessageReceived(
+    onMessageReceived(
       projectId,
       conversation.id,
       conversation.agent_name,
@@ -201,7 +221,7 @@ export function ConversationDetail({
     // Update the last tracked message ID and conversation ID
     lastTrackedAssistantMessageId.current = latestAssistantMessage.id;
     lastTrackedConversationId.current = conversation.id;
-  }, [messages, conversation, projectId]);
+  }, [messages, conversation, projectId, onMessageReceived]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -223,7 +243,9 @@ export function ConversationDetail({
         );
 
         // Track conversation message sent
-        trackConversationMessageSent(projectId, newConversation.id, conversation.agent_name);
+        if (onMessageSent) {
+          onMessageSent(projectId, newConversation.id, conversation.agent_name);
+        }
         const now = new Date();
         lastUserMessageTime.current = now;
         conversationViewedAt.current = now; // Update so we track the AI response
@@ -249,7 +271,9 @@ export function ConversationDetail({
         await createMessage(conversation.id, content, projectId);
 
         // Track conversation message sent
-        trackConversationMessageSent(projectId, conversation.id, conversation.agent_name);
+        if (onMessageSent) {
+          onMessageSent(projectId, conversation.id, conversation.agent_name);
+        }
         const now = new Date();
         lastUserMessageTime.current = now;
         conversationViewedAt.current = now; // Update so we track the AI response
@@ -260,8 +284,9 @@ export function ConversationDetail({
         // Start polling to get AI response and sync messages
         startPolling(conversation.id, projectId);
       }
-    } catch (err: any) {
-      setSendError(err.message || 'Failed to send message. Please try again.');
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setSendError(error.message || 'Failed to send message. Please try again.');
       // Restore input value on error
       setInputValue(content);
     } finally {
@@ -272,12 +297,12 @@ export function ConversationDetail({
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage(e as any);
+      handleSendMessage(e as unknown as React.FormEvent);
     }
   };
 
   // Group consecutive tool messages (no date dividers)
-  const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: any; messageIndex: number }> = [];
+  const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: Message | Message[]; messageIndex: number }> = [];
   let currentToolGroup: Message[] = [];
   let messageIndex = 0;
 
@@ -405,12 +430,12 @@ export function ConversationDetail({
               >
                 {item.type === 'message' ? (
                   <ConversationMessage
-                    message={item.data}
+                    message={item.data as Message}
                     isPolling={isPolling}
                     onShowDiff={handleShowDiff}
                   />
                 ) : (
-                  <ToolMessageAccordion messages={item.data} />
+                  <ToolMessageAccordion messages={item.data as Message[]} />
                 )}
               </div>
             ))}
@@ -452,7 +477,7 @@ export function ConversationDetail({
         </form>
 
         {/* Feedback Link */}
-        {!currentIsDraft && groupedMessages.length > 0 && (
+        {!currentIsDraft && groupedMessages.length > 0 && feedbackFormUrl && (
           <a
             href="#"
             className="feedbackLink"

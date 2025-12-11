@@ -1,5 +1,5 @@
 import React from 'react';
-import { DiffResponse } from '../../services/projectsApi';
+import { DiffResponse } from '../types/project';
 import SplitDiffViewer from './SplitDiffViewer';
 
 interface DiffModalProps {
@@ -9,8 +9,12 @@ interface DiffModalProps {
   error?: string | null;
 }
 
-const DiffModal: React.FC<DiffModalProps> = ({ diffData, onClose, isLoading = false, error = null }) => {
-
+const DiffModal: React.FC<DiffModalProps> = ({
+  diffData,
+  onClose,
+  isLoading = false,
+  error = null,
+}) => {
   return (
     <div className="diffModalOverlay" onClick={onClose}>
       <div

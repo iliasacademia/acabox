@@ -12,8 +12,7 @@ import {
   parseSplitDiff,
   highlightWordChanges,
   DiffLine,
-  HighlightSegment,
-} from '../../utils/splitDiffParser';
+} from './splitDiffParser';
 
 interface SplitDiffViewerProps {
   diffText: string;

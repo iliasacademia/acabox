@@ -1,7 +1,7 @@
 import React from 'react';
 import Markdown from 'markdown-to-jsx';
 import DOMPurify from 'isomorphic-dompurify';
-import { Message } from '../../services/conversationsApi';
+import { Message } from '../types/conversation';
 
 interface ConversationMessageProps {
   message: Message;
@@ -12,7 +12,6 @@ interface ConversationMessageProps {
 export function ConversationMessage({ message, isPolling, onShowDiff }: ConversationMessageProps) {
   const isAssistant = message.role === 'assistant';
   const isTool = message.role === 'tool';
-
 
   // Tool messages are handled by ToolMessageAccordion, skip rendering here
   if (isTool) {
@@ -130,7 +129,7 @@ export function ConversationMessage({ message, isPolling, onShowDiff }: Conversa
       )}
 
       {/* Show loading indicator only when actively polling for response */}
-      {isAssistant && message.data?.final !== true && isPolling && (
+      {isAssistant && (message.data as { final?: boolean })?.final !== true && isPolling && (
         <div className="messageLoading">
           <span className="loadingDot"></span>
           <span className="loadingDot"></span>
