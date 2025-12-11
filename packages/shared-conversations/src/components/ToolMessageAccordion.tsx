@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import Markdown from 'markdown-to-jsx';
-import { Message } from '../../services/conversationsApi';
+import { Message } from '../types/conversation';
 
 interface ToolMessageAccordionProps {
   messages: Message[];
@@ -18,8 +18,21 @@ interface ToolDisplayInfo {
 
 // Helper to get display info for a tool message
 function getToolDisplayInfo(message: Message): ToolDisplayInfo {
-  const toolResult = message.data?.tool_result;
-  const toolCall = message.data?.tool_call;
+  const data = message.data as {
+    tool_result?: {
+      name?: string;
+      arguments?: { preference?: string };
+      result?: { success?: boolean };
+    };
+    tool_call?: {
+      name?: string;
+      action?: string;
+      parameters?: Record<string, unknown>;
+    };
+  } | null;
+
+  const toolResult = data?.tool_result;
+  const toolCall = data?.tool_call;
 
   // Special handling for save_user_preference
   if (toolResult?.name === 'save_user_preference') {
@@ -85,13 +98,20 @@ export function ToolMessageAccordion({ messages }: ToolMessageAccordionProps) {
         <div className="accordionContent">
           {messages.map((message, index) => {
             const messageInfo = getToolDisplayInfo(message);
+            const messageData = message.data as {
+              tool_call?: {
+                name?: string;
+                parameters?: Record<string, unknown>;
+              };
+            } | null;
+
             return (
               <div key={message.id} className="toolMessage">
                 <div className="toolMessageHeader">
                   <span className="toolMessageNumber">Step {index + 1}</span>
-                  {!messageInfo.isCustomTool && message.data?.tool_call?.name && (
+                  {!messageInfo.isCustomTool && messageData?.tool_call?.name && (
                     <span className="toolMessageName">
-                      {message.data.tool_call.name}
+                      {messageData.tool_call.name}
                     </span>
                   )}
                 </div>
@@ -127,11 +147,11 @@ export function ToolMessageAccordion({ messages }: ToolMessageAccordionProps) {
                 </div>
 
                 {/* Show tool call parameters if available */}
-                {!messageInfo.hideParameters && message.data?.tool_call?.parameters && (
+                {!messageInfo.hideParameters && messageData?.tool_call?.parameters && (
                   <details className="toolParameters">
                     <summary>Parameters</summary>
                     <pre className="parametersJson">
-                      {JSON.stringify(message.data.tool_call.parameters, null, 2)}
+                      {JSON.stringify(messageData.tool_call.parameters, null, 2)}
                     </pre>
                   </details>
                 )}

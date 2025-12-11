@@ -15,7 +15,7 @@ import {
   addCollaborator,
 } from '../services/projectsApi';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
-import { ConversationsPage } from './conversations/ConversationsPage';
+import { ConversationsPageWrapper } from './conversations/ConversationsPageWrapper';
 import './Projects.css';
 
 type View = 'list' | 'detail';
@@ -341,7 +341,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
             />
           ) : currentView === 'detail' && selectedProject ? (
             FEATURES.CONVERSATIONS_ENABLED ? (
-              <ConversationsPage
+              <ConversationsPageWrapper
                 selectedProject={selectedProject}
                 onBack={handleBackToList}
                 initialConversationId={pendingConversationId}
