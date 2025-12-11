@@ -31,7 +31,7 @@ export function ConversationsPageWrapper({
   onConversationNavigated,
 }: ConversationsPageWrapperProps) {
   // Feedback form URL from environment or default
-  const feedbackFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSdGK6wGdPRhW6LzF_aBYoU0WJGK2-Sq5lCPgLy3n3Bk0qT1ig/viewform';
+  const feedbackFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSdCjDGx4NHWFMSGslBFLzdbvXM8JL6blV-DeVkJEqDpDrJ31A/viewform';
 
   return (
     <ApiProvider client={electronApiClient}>
