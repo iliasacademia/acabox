@@ -66,13 +66,10 @@ export function ConversationsPage({
   // Refresh manuscript file data
   const refreshManuscriptFile = async () => {
     if (!selectedProject) return;
-
-    console.log('[ConversationsPage] Refreshing manuscript file data');
     try {
       const files = await getProjectFiles(selectedProject.id);
       const primaryManuscript = files.find(file => file.is_primary_manuscript);
       setManuscriptFile(primaryManuscript || null);
-      console.log('[ConversationsPage] Manuscript file refreshed:', primaryManuscript);
     } catch (error) {
       console.error('Failed to refresh manuscript file:', error);
     }
@@ -81,16 +78,11 @@ export function ConversationsPage({
   // Check if there are diffs since last review
   const hasDiffsSinceLastReview = (): boolean => {
     if (!manuscriptFile?.last_review) {
-      console.log('[ConversationsPage] hasDiffsSinceLastReview: false (no last_review)');
       return false;
     }
     const fileUpdate = new Date(manuscriptFile.updated_at);
     const lastReview = new Date(manuscriptFile.last_review.reviewed_at);
     const hasDiffs = fileUpdate > lastReview;
-    console.log('[ConversationsPage] hasDiffsSinceLastReview:', hasDiffs, {
-      fileUpdate: fileUpdate.toISOString(),
-      lastReview: lastReview.toISOString()
-    });
     return hasDiffs;
   };
 
@@ -109,7 +101,6 @@ export function ConversationsPage({
         );
 
         if (inProgressRuns.length > 0) {
-          console.log('[ConversationsPage] Found in-progress review on load, starting polling');
           setIsReviewInProgress(true);
 
           // Determine which type of review is in progress
@@ -139,13 +130,6 @@ export function ConversationsPage({
 
   // Check if review changes button should be shown
   const shouldShowReviewChangesButton = (): boolean => {
-    console.log('[ConversationsPage] shouldShowReviewChangesButton check:', {
-      isAutoReviewInProgress,
-      isReviewInProgress,
-      reviewingState,
-      hasDiffs: hasDiffsSinceLastReview()
-    });
-
     // If we're actively reviewing (button clicked and showing "Reviewing..."), keep button visible
     if (reviewingState === 'diff-reviewing') {
       return true;
@@ -160,7 +144,6 @@ export function ConversationsPage({
 
   // Poll for review completion with exponential backoff
   const startPolling = (manuscriptId: number) => {
-    console.log('[ConversationsPage] Starting review status polling for manuscript:', manuscriptId);
     setIsReviewInProgress(true);
 
     let pollCount = 0;
@@ -169,7 +152,6 @@ export function ConversationsPage({
 
     const poll = async () => {
       if (pollCount >= MAX_POLLS) {
-        console.log('[ConversationsPage] Max poll attempts reached, stopping');
         setPollInterval(null);
         setIsReviewInProgress(false);
         setReviewingState('idle');
@@ -178,8 +160,6 @@ export function ConversationsPage({
 
       try {
         const status = await getProjectStatus(selectedProject!.id, undefined, manuscriptId);
-        console.log('[ConversationsPage] Poll result:', status);
-
         // Check for recent agent runs (within last 5 minutes)
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
         const recentRuns = status.agent_runs.filter((run: AgentRun) => {
@@ -188,7 +168,6 @@ export function ConversationsPage({
         });
 
         if (recentRuns.length === 0) {
-          console.log('[ConversationsPage] No recent runs found, stopping poll');
           setPollInterval(null);
           setIsReviewInProgress(false);
           setReviewingState('idle');
@@ -205,29 +184,18 @@ export function ConversationsPage({
           run.review_data?.triggered_by === 'auto_scheduler'
         );
         setIsAutoReviewInProgress(autoScheduledInProgress);
-        console.log('[ConversationsPage] Auto-scheduled review in progress:', autoScheduledInProgress);
-
         if (inProgressRuns.length === 0) {
           // All recent runs are completed or failed
-          console.log('[ConversationsPage] All recent runs completed');
           setPollInterval(null);
           setIsReviewInProgress(false);
           setReviewingState('idle');
           setIsAutoReviewInProgress(false); // Reset auto review state
 
           // Refresh manuscript file data to get updated last_review
-          console.log('[ConversationsPage] Refreshing manuscript file to get updated last_review...');
           await refreshManuscriptFile();
-          console.log('[ConversationsPage] Manuscript file refreshed. Checking if Review Changes should be visible...');
-          console.log('[ConversationsPage] hasDiffsSinceLastReview:', hasDiffsSinceLastReview());
-          console.log('[ConversationsPage] shouldShowReviewChangesButton:', shouldShowReviewChangesButton());
-
           // Refresh conversation list to show new review conversation
           setRefreshTrigger(prev => prev + 1);
         } else {
-          console.log('[ConversationsPage] Still in progress:', inProgressRuns.length, 'runs',
-            inProgressRuns.map((r: AgentRun) => ({ status: r.status, running_jobs: r.running_jobs_count })));
-
           // Schedule next poll with exponential backoff
           pollCount++;
           currentDelay = Math.min(currentDelay * 1.5, 10000); // Max 10 seconds
@@ -282,44 +250,27 @@ export function ConversationsPage({
       if (onProjectView) {
         onProjectView(selectedProject.id);
       }
-
-      console.log('========================================');
-      console.log('[ConversationsPage] Initial fetch for project:', selectedProject.id);
       setIsLoadingFiles(true);
       try {
         const files = await getProjectFiles(selectedProject.id);
-        console.log('[ConversationsPage] Fetched', files.length, 'files');
-
         // Find the primary manuscript
         const primaryManuscript = files.find(file => file.is_primary_manuscript);
-        console.log('[ConversationsPage] Primary manuscript:', primaryManuscript);
-
         if (primaryManuscript) {
-          console.log('[ConversationsPage] Initial manuscript details:');
-          console.log('  - File ID:', primaryManuscript.id);
-          console.log('  - File name:', primaryManuscript.file_name);
-          console.log('  - Updated at:', primaryManuscript.updated_at);
-          console.log('  - Last review:', primaryManuscript.last_review);
-
           // Check if this is a newly synced manuscript with no review yet
           // If so, start polling immediately (backend auto-triggered review on first sync)
           if (!primaryManuscript.last_review) {
-            console.log('[ConversationsPage] ✓ New manuscript detected (no last_review) - starting polling');
             startPolling(primaryManuscript.id);
           } else {
-            console.log('[ConversationsPage] Manuscript already has a review - no polling needed');
           }
         }
 
         setManuscriptFile(primaryManuscript || null);
-        console.log('[ConversationsPage] ✓ Initial manuscript file state set');
       } catch (error) {
         console.error('[ConversationsPage] ✗ Failed to fetch project files:', error);
         setManuscriptFile(null);
       } finally {
         setIsLoadingFiles(false);
       }
-      console.log('========================================');
     };
 
     fetchManuscript();
@@ -331,50 +282,21 @@ export function ConversationsPage({
 
     const handleFileSynced = (...args: unknown[]) => {
       const [_event, data] = args as [unknown, { projectId?: number; filePath?: string; action?: string }];
-      console.log('========================================');
-      console.log('[ConversationsPage] File synced event received:', JSON.stringify(data, null, 2));
-      console.log('[ConversationsPage] Current project ID:', selectedProject.id);
-      console.log('[ConversationsPage] Event project ID:', data.projectId);
-      console.log('[ConversationsPage] Project IDs match:', data.projectId === selectedProject.id);
-
       // Handle file sync for this project
       if (data.projectId === selectedProject.id) {
-        console.log('[ConversationsPage] ✓ Project IDs match - Refetching manuscript after file sync');
-        console.log('[ConversationsPage] Current manuscript file before refresh:', manuscriptFile);
-
         getProjectFiles(selectedProject.id).then(files => {
-          console.log('[ConversationsPage] Received files from API:', files.length, 'files');
           const primaryManuscript = files.find(file => file.is_primary_manuscript);
-          console.log('[ConversationsPage] Primary manuscript found:', primaryManuscript);
-
           if (primaryManuscript) {
-            console.log('[ConversationsPage] Manuscript details:');
-            console.log('  - File ID:', primaryManuscript.id);
-            console.log('  - File name:', primaryManuscript.file_name);
-            console.log('  - Updated at:', primaryManuscript.updated_at);
-            console.log('  - Last review:', primaryManuscript.last_review);
-
             // Compare timestamps to check if button should show
             if (primaryManuscript.last_review && primaryManuscript.updated_at) {
               const reviewDate = new Date(primaryManuscript.last_review.reviewed_at);
               const fileUpdateDate = new Date(primaryManuscript.updated_at);
-              console.log('[ConversationsPage] Review date:', reviewDate.toISOString());
-              console.log('[ConversationsPage] File update date:', fileUpdateDate.toISOString());
-              console.log('[ConversationsPage] File updated after review?', fileUpdateDate > reviewDate);
             }
 
             // Check if the synced file is the manuscript
             const syncedFilePath = data.filePath;
             const manuscriptFileName = primaryManuscript.file_name;
-
-            console.log('[ConversationsPage] Synced file path:', syncedFilePath);
-            console.log('[ConversationsPage] Manuscript file name:', manuscriptFileName);
-
             if (syncedFilePath && syncedFilePath.includes(manuscriptFileName)) {
-              console.log('[ConversationsPage] ✓ Synced file is the manuscript - starting review polling');
-              console.log('[ConversationsPage] Event action:', data.action);
-              console.log('[ConversationsPage] Has last_review:', !!primaryManuscript.last_review);
-
               // Always start polling when manuscript is synced
               // Backend automatically triggers review for:
               // - First time sync (no last_review): full review
@@ -388,37 +310,27 @@ export function ConversationsPage({
               }
 
               setRecentlySynced(true);
-              console.log('[ConversationsPage] ✓ Recently synced indicator set');
-
               // Clear indicator after 5 seconds
               const timeoutId = setTimeout(() => {
                 setRecentlySynced(false);
                 setSyncIndicatorTimeout(null);
-                console.log('[ConversationsPage] Recently synced indicator cleared after timeout');
               }, 5000);
 
               setSyncIndicatorTimeout(timeoutId);
             } else {
-              console.log('[ConversationsPage] Synced file is not the manuscript');
             }
           }
 
           setManuscriptFile(primaryManuscript || null);
-          console.log('[ConversationsPage] ✓ Manuscript file state updated');
         }).catch(error => {
           console.error('[ConversationsPage] ✗ Error fetching files:', error);
         });
       } else {
-        console.log('[ConversationsPage] ✗ Project IDs do not match - ignoring event');
       }
-      console.log('========================================');
     };
-
-    console.log('[ConversationsPage] Setting up file sync event listener for project:', selectedProject.id);
     apiClient.on(fileSyncEventName, handleFileSynced);
 
     return () => {
-      console.log('[ConversationsPage] Removing file sync event listener for project:', selectedProject.id);
       apiClient.removeListener!(fileSyncEventName, handleFileSynced);
     };
   }, [selectedProject, fileSyncEventName, apiClient]);
@@ -426,16 +338,10 @@ export function ConversationsPage({
   // Handle initial conversation navigation from notification click
   useEffect(() => {
     if (!initialConversationId || !selectedProject) return;
-
-    console.log('[ConversationsPage] Initial conversation ID provided:', initialConversationId);
-
     const fetchAndSelectConversation = async () => {
       try {
-        console.log('[ConversationsPage] Fetching conversation for navigation:', initialConversationId, selectedProject.id);
         const conversationDetail = await getConversation(initialConversationId, selectedProject.id);
-        console.log('[ConversationsPage] Fetched conversation:', conversationDetail);
         if (conversationDetail) {
-          console.log('[ConversationsPage] Fetched conversation for navigation:', conversationDetail.conversation.id, conversationDetail.conversation.title);
           // Convert to Conversation type (getConversation returns ConversationDetail which has messages)
           const { conversation } = conversationDetail;
           setSelectedConversation(conversation);
@@ -508,17 +414,11 @@ export function ConversationsPage({
     if (onTriggerFullReview) {
       onTriggerFullReview(selectedProject.id, manuscriptFile.id);
     }
-
-    console.log('[ConversationsPage] 🔄 Starting full review...');
     setReviewingState('full-reviewing');
     setIsReviewInProgress(true);
     setReviewError(null);
-    console.log('[ConversationsPage] State updated: reviewingState=full-reviewing, isReviewInProgress=true');
-
     try {
       const response = await triggerFullReview(selectedProject.id, manuscriptFile.id);
-      console.log('[ConversationsPage] ✅ Full review triggered:', response);
-
       // Start polling for completion
       startPolling(manuscriptFile.id);
 
@@ -542,17 +442,11 @@ export function ConversationsPage({
     if (onTriggerDiffReview) {
       onTriggerDiffReview(selectedProject.id, manuscriptFile.id);
     }
-
-    console.log('[ConversationsPage] 🔄 Starting diff review...');
     setReviewingState('diff-reviewing');
     setIsReviewInProgress(true);
     setReviewError(null);
-    console.log('[ConversationsPage] State updated: reviewingState=diff-reviewing, isReviewInProgress=true');
-
     try {
       const response = await triggerDiffReview(selectedProject.id, manuscriptFile.id);
-      console.log('[ConversationsPage] ✅ Diff review triggered:', response);
-
       // Start polling for completion
       startPolling(manuscriptFile.id);
 

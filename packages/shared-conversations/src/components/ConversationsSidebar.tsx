@@ -49,14 +49,9 @@ export function ConversationsSidebar({
       let offset = 0;
       let hasMore = true;
       const batchSize = 100; // Fetch 100 at a time
-
-      console.log('[ConversationsSidebar] Starting to load all conversations');
-
       // Keep fetching until we have all conversations
       while (hasMore) {
         const response = await listConversations(offset, projectId, batchSize);
-        console.log(`[ConversationsSidebar] Batch at offset ${offset}:`, response.conversations.length, 'conversations, has_more:', response.has_more);
-
         allConversations = [...allConversations, ...response.conversations];
         hasMore = response.has_more;
         offset += response.conversations.length;
@@ -67,8 +62,6 @@ export function ConversationsSidebar({
           break;
         }
       }
-
-      console.log('[ConversationsSidebar] Total conversations loaded:', allConversations.length);
       setConversations(allConversations);
 
       // Only notify parent on initial load (not on polling refreshes)

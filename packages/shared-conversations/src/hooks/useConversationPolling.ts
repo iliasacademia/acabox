@@ -61,8 +61,6 @@ export function useConversationPolling(): UseConversationPollingResult {
 
     try {
       setIsLoading(true);
-      console.log('[ConversationPolling] Fetching messages for conversation:', conversationIdRef.current);
-
       const conversation = await getConversation(
         conversationIdRef.current,
         projectIdRef.current
@@ -74,16 +72,8 @@ export function useConversationPolling(): UseConversationPollingResult {
         stopPolling();
         return;
       }
-
-      console.log('[ConversationPolling] Received conversation:', {
-        id: conversation.conversation.id,
-        messageCount: conversation.messages?.length || 0,
-        messages: conversation.messages,
-      });
-
       // Handle different possible response structures
       const messagesArray = conversation.messages || [];
-      console.log('[ConversationPolling] Setting messages:', messagesArray);
       setMessages(messagesArray);
       setError(null); // Clear any previous errors
 
@@ -95,7 +85,6 @@ export function useConversationPolling(): UseConversationPollingResult {
         lastMessage.role === 'assistant' &&
         (lastMessage.data as { final?: boolean })?.final === true
       ) {
-        console.log('[ConversationPolling] AI response complete, stopping poll');
         stopPolling();
       }
     } catch (err: unknown) {
@@ -117,12 +106,6 @@ export function useConversationPolling(): UseConversationPollingResult {
       // Store IDs
       conversationIdRef.current = conversationId;
       projectIdRef.current = projectId;
-
-      console.log('[ConversationPolling] Starting to poll for messages:', {
-        conversationId,
-        projectId,
-      });
-
       setIsPolling(true);
       setError(null);
 
@@ -156,7 +139,6 @@ export function useConversationPolling(): UseConversationPollingResult {
       setError(null);
 
       try {
-        console.log('[ConversationPolling] Initializing messages for conversation:', conversationId);
         const conversation = await getConversation(conversationId, projectId);
 
         if (conversation && conversation.messages) {
