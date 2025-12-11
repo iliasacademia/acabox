@@ -75,6 +75,8 @@ export const IPC_CHANNELS = {
   PROJECT_STARTUP_SYNC_BEGIN: 'project-startup-sync-begin',
   PROJECT_STARTUP_SYNC_PROGRESS: 'project-startup-sync-progress',
   PROJECT_STARTUP_SYNC_COMPLETE: 'project-startup-sync-complete',
+  GET_PROJECT_WATCHER_STATUS: 'get-project-watcher-status',
+  PROJECT_WATCHER_STATUS_CHANGED: 'project-watcher-status-changed',
 
   // Selection tracking
   START_SELECTION_TRACKING: 'start-selection-tracking',
@@ -109,6 +111,9 @@ export const IPC_CHANNELS = {
 
   // App lifecycle
   RESTART_APP: 'restart-app',
+
+  // Debug
+  DEBUG_GET_ACTIVE_WATCHERS: 'debug-get-active-watchers',
 } as const;
 
 // Feature flags
