@@ -11,6 +11,7 @@ import {
   trackConversationMessageReceived,
 } from '../../utils/analytics';
 import { IPC_CHANNELS } from '../../../shared/types';
+import { useProjectSyncStatus } from '../../hooks/useProjectSyncStatus';
 import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 
 interface ConversationsPageWrapperProps {
@@ -33,6 +34,9 @@ export function ConversationsPageWrapper({
   // Feedback form URL from environment or default
   const feedbackFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSdCjDGx4NHWFMSGslBFLzdbvXM8JL6blV-DeVkJEqDpDrJ31A/viewform';
 
+  // Track folder sync status for the current project
+  const folderSyncStatus = useProjectSyncStatus(selectedProject?.id || null);
+
   return (
     <ApiProvider client={electronApiClient}>
       <ConversationsPage
@@ -54,6 +58,8 @@ export function ConversationsPageWrapper({
         feedbackFormUrl={feedbackFormUrl}
         // Event channel name for file sync
         fileSyncEventName={IPC_CHANNELS.PROJECT_FILE_SYNCED}
+        // Folder sync status
+        folderSyncStatus={folderSyncStatus}
       />
     </ApiProvider>
   );

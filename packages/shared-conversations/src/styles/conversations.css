@@ -157,6 +157,27 @@
     white-space: nowrap;
 }
 
+.headerManuscriptInfo .folderSyncIndicator {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+
+.folderSyncIndicator--watching {
+    background-color: #28a745;
+}
+
+.folderSyncIndicator--syncing {
+    background-color: #ffc107;
+}
+
+.folderSyncIndicator--error {
+    background-color: #dc3545;
+}
+
 .triggerFullReviewButton {
     font-family: var(--font-family-sans);
     font-size: 16px;

@@ -12,6 +12,8 @@ import { trackNotificationView, trackNotificationClick } from './utils/analytics
 import { initZendeskWidget, cleanupZendeskWidget, showWidget } from './utils/zendeskWidget';
 import { FEATURES } from '../shared/types';
 import Projects from './components/Projects';
+import { StatusBar } from './components/StatusBar';
+import { useConnectivityStatus } from './hooks/useConnectivityStatus';
 import './App.css';
 
 const App: React.FC = () => {
@@ -45,7 +47,19 @@ const App: React.FC = () => {
   // Listen for devtools logs from main process
   useDevToolsLog();
 
-  // Add body class for development banner padding
+  // Monitor connectivity status
+  const connectivity = useConnectivityStatus();
+
+  // Add body class for development banner padding and status bar (when offline)
+  useEffect(() => {
+    // Add status bar padding only when offline
+    if (connectivity.status === 'offline') {
+      document.body.classList.add('has-status-bar');
+    } else {
+      document.body.classList.remove('has-status-bar');
+    }
+  }, [connectivity.status]);
+
   useEffect(() => {
     if (isDevelopment) {
       document.body.classList.add('has-dev-banner');
@@ -392,6 +406,12 @@ const App: React.FC = () => {
             onRetryClick={handleRetryUpdate}
           />
         )}
+        {connectivity.status === 'offline' && (
+          <StatusBar
+            connectivityStatus={connectivity.status}
+            lastChecked={connectivity.lastChecked}
+          />
+        )}
       </>
     );
   }
@@ -410,6 +430,12 @@ const App: React.FC = () => {
           errorMessage={updateState.errorMessage}
           onDownloadClick={handleDownloadUpdate}
           onRetryClick={handleRetryUpdate}
+        />
+      )}
+      {connectivity.status === 'offline' && (
+        <StatusBar
+          connectivityStatus={connectivity.status}
+          lastChecked={connectivity.lastChecked}
         />
       )}
     </>

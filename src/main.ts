@@ -102,7 +102,7 @@ const createWindow = async (): Promise<void> => {
           "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
           "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Zendesk API, WebSocket, and Sentry
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
           "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
@@ -161,7 +161,7 @@ const createMainWindow = async (): Promise<void> => {
           "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
           "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Zendesk API, WebSocket, and Sentry
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
           "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
@@ -1135,6 +1135,51 @@ ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
     return { success: true };
   } catch (error: any) {
     logger.error('[IPC] Failed to stop project sync:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Get watcher status for a project folder
+ipcMain.handle(IPC_CHANNELS.GET_PROJECT_WATCHER_STATUS, async (_event, projectId: number, folderId: number) => {
+  try {
+    const status = projectSyncService.getWatcherStatus(projectId, folderId);
+
+    if (!status) {
+      return {
+        watcherActive: false,
+        status: 'idle',
+        error: 'Folder not being watched'
+      };
+    }
+
+    return status;
+  } catch (error: any) {
+    logger.error('[IPC] Failed to get watcher status:', error);
+    return {
+      watcherActive: false,
+      status: 'error',
+      error: error.message
+    };
+  }
+});
+
+// Debug: Get all active watchers
+ipcMain.handle(IPC_CHANNELS.DEBUG_GET_ACTIVE_WATCHERS, async () => {
+  try {
+    const allFolders = projectSyncService.getAllWatchedFolders();
+    return {
+      success: true,
+      count: allFolders.length,
+      folders: allFolders.map(f => ({
+        projectId: f.projectId,
+        folderId: f.folderId,
+        folderPath: f.folderPath,
+        status: f.status,
+        watcherActive: f.watcher !== null
+      }))
+    };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to get active watchers:', error);
     return { success: false, error: error.message };
   }
 });

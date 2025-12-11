@@ -1,12 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { Conversation, DraftConversation } from '../types/conversation';
-import { Project, ProjectFile, AgentRun } from '../types/project';
-import { useConversationsApi } from '../api/useConversationsApi';
-import { useProjectsApi } from '../api/useProjectsApi';
-import { useApiClient } from '../context/ApiContext';
-import { ConversationsSidebar } from './ConversationsSidebar';
-import { ConversationDetail } from './ConversationDetail';
-import { generateDailyFeedbackTitle } from './utils';
+import React, { useState, useEffect } from "react";
+import { Conversation, DraftConversation } from "../types/conversation";
+import { Project, ProjectFile, AgentRun } from "../types/project";
+import { useConversationsApi } from "../api/useConversationsApi";
+import { useProjectsApi } from "../api/useProjectsApi";
+import { useApiClient } from "../context/ApiContext";
+import { ConversationsSidebar } from "./ConversationsSidebar";
+import { ConversationDetail } from "./ConversationDetail";
+import { generateDailyFeedbackTitle } from "./utils";
 
 export interface ConversationsPageProps {
   selectedProject: Project | null;
@@ -18,9 +18,22 @@ export interface ConversationsPageProps {
   onProjectView?: (projectId: number) => void;
   onTriggerFullReview?: (projectId: number, fileId: number) => void;
   onTriggerDiffReview?: (projectId: number, fileId: number) => void;
-  onConversationView?: (projectId: number, conversationId: number, agentName: string) => void;
-  onMessageSent?: (projectId: number, conversationId: number, agentName: string) => void;
-  onMessageReceived?: (projectId: number, conversationId: number, agentName: string, durationSeconds?: number) => void;
+  onConversationView?: (
+    projectId: number,
+    conversationId: number,
+    agentName: string,
+  ) => void;
+  onMessageSent?: (
+    projectId: number,
+    conversationId: number,
+    agentName: string,
+  ) => void;
+  onMessageReceived?: (
+    projectId: number,
+    conversationId: number,
+    agentName: string,
+    durationSeconds?: number,
+  ) => void;
 
   // Customization props
   renderManuscriptIcon?: () => React.ReactNode;
@@ -28,6 +41,9 @@ export interface ConversationsPageProps {
 
   // Event subscription (for file sync events)
   fileSyncEventName?: string;
+
+  // Folder sync status (optional)
+  folderSyncStatus?: "watching" | "syncing" | "error" | "idle";
 }
 
 export function ConversationsPage({
@@ -44,34 +60,51 @@ export function ConversationsPage({
   renderManuscriptIcon,
   feedbackFormUrl,
   fileSyncEventName,
+  folderSyncStatus = "idle",
 }: ConversationsPageProps) {
-  const [selectedConversation, setSelectedConversation] =
-    useState<Conversation | DraftConversation | null>(null);
+  const [selectedConversation, setSelectedConversation] = useState<
+    Conversation | DraftConversation | null
+  >(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
+  const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(
+    null,
+  );
   const [_isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
-  const [pollInterval, setPollInterval] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [pollInterval, setPollInterval] = useState<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [hasConversations, setHasConversations] = useState(false);
-  const [reviewingState, setReviewingState] = useState<'idle' | 'full-reviewing' | 'diff-reviewing'>('idle');
+  const [reviewingState, setReviewingState] = useState<
+    "idle" | "full-reviewing" | "diff-reviewing"
+  >("idle");
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [recentlySynced, setRecentlySynced] = useState(false);
-  const [syncIndicatorTimeout, setSyncIndicatorTimeout] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const [syncIndicatorTimeout, setSyncIndicatorTimeout] = useState<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const [isAutoReviewInProgress, setIsAutoReviewInProgress] = useState(false);
 
   const apiClient = useApiClient();
   const { getConversation } = useConversationsApi();
-  const { getProjectFiles, getProjectStatus, triggerFullReview, triggerDiffReview } = useProjectsApi();
+  const {
+    getProjectFiles,
+    getProjectStatus,
+    triggerFullReview,
+    triggerDiffReview,
+  } = useProjectsApi();
 
   // Refresh manuscript file data
   const refreshManuscriptFile = async () => {
     if (!selectedProject) return;
     try {
       const files = await getProjectFiles(selectedProject.id);
-      const primaryManuscript = files.find(file => file.is_primary_manuscript);
+      const primaryManuscript = files.find(
+        (file) => file.is_primary_manuscript,
+      );
       setManuscriptFile(primaryManuscript || null);
     } catch (error) {
-      console.error('Failed to refresh manuscript file:', error);
+      console.error("Failed to refresh manuscript file:", error);
     }
   };
 
@@ -92,12 +125,17 @@ export function ConversationsPage({
 
     const checkInitialReviewStatus = async () => {
       try {
-        const status = await getProjectStatus(selectedProject.id, undefined, manuscriptFile.id);
+        const status = await getProjectStatus(
+          selectedProject.id,
+          undefined,
+          manuscriptFile.id,
+        );
 
         // Check for any pending/processing runs
-        const inProgressRuns = status.agent_runs.filter((run: AgentRun) =>
-          run.file_id === manuscriptFile.id &&
-          (run.status === 'pending' || run.status === 'processing')
+        const inProgressRuns = status.agent_runs.filter(
+          (run: AgentRun) =>
+            run.file_id === manuscriptFile.id &&
+            (run.status === "pending" || run.status === "processing"),
         );
 
         if (inProgressRuns.length > 0) {
@@ -105,23 +143,26 @@ export function ConversationsPage({
 
           // Determine which type of review is in progress
           const hasFullReview = inProgressRuns.some((run: AgentRun) =>
-            run.agent_name?.includes('full')
+            run.agent_name?.includes("full"),
           );
           const hasDiffReview = inProgressRuns.some((run: AgentRun) =>
-            run.agent_name?.includes('diff')
+            run.agent_name?.includes("diff"),
           );
 
           if (hasDiffReview) {
-            setReviewingState('diff-reviewing');
+            setReviewingState("diff-reviewing");
           } else if (hasFullReview) {
-            setReviewingState('full-reviewing');
+            setReviewingState("full-reviewing");
           }
 
           // Start polling to track completion
           startPolling(manuscriptFile.id);
         }
       } catch (error) {
-        console.error('[ConversationsPage] Error checking initial review status:', error);
+        console.error(
+          "[ConversationsPage] Error checking initial review status:",
+          error,
+        );
       }
     };
 
@@ -131,7 +172,7 @@ export function ConversationsPage({
   // Check if review changes button should be shown
   const shouldShowReviewChangesButton = (): boolean => {
     // If we're actively reviewing (button clicked and showing "Reviewing..."), keep button visible
-    if (reviewingState === 'diff-reviewing') {
+    if (reviewingState === "diff-reviewing") {
       return true;
     }
 
@@ -154,12 +195,16 @@ export function ConversationsPage({
       if (pollCount >= MAX_POLLS) {
         setPollInterval(null);
         setIsReviewInProgress(false);
-        setReviewingState('idle');
+        setReviewingState("idle");
         return;
       }
 
       try {
-        const status = await getProjectStatus(selectedProject!.id, undefined, manuscriptId);
+        const status = await getProjectStatus(
+          selectedProject!.id,
+          undefined,
+          manuscriptId,
+        );
         // Check for recent agent runs (within last 5 minutes)
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
         const recentRuns = status.agent_runs.filter((run: AgentRun) => {
@@ -170,31 +215,32 @@ export function ConversationsPage({
         if (recentRuns.length === 0) {
           setPollInterval(null);
           setIsReviewInProgress(false);
-          setReviewingState('idle');
+          setReviewingState("idle");
           return;
         }
 
         // Check if any runs are still in progress (pending or processing)
-        const inProgressRuns = recentRuns.filter((run: AgentRun) =>
-          run.status === 'pending' || run.status === 'processing'
+        const inProgressRuns = recentRuns.filter(
+          (run: AgentRun) =>
+            run.status === "pending" || run.status === "processing",
         );
 
         // Check if any in-progress runs are auto-scheduled
-        const autoScheduledInProgress = inProgressRuns.some((run: AgentRun) =>
-          run.review_data?.triggered_by === 'auto_scheduler'
+        const autoScheduledInProgress = inProgressRuns.some(
+          (run: AgentRun) => run.review_data?.triggered_by === "auto_scheduler",
         );
         setIsAutoReviewInProgress(autoScheduledInProgress);
         if (inProgressRuns.length === 0) {
           // All recent runs are completed or failed
           setPollInterval(null);
           setIsReviewInProgress(false);
-          setReviewingState('idle');
+          setReviewingState("idle");
           setIsAutoReviewInProgress(false); // Reset auto review state
 
           // Refresh manuscript file data to get updated last_review
           await refreshManuscriptFile();
           // Refresh conversation list to show new review conversation
-          setRefreshTrigger(prev => prev + 1);
+          setRefreshTrigger((prev) => prev + 1);
         } else {
           // Schedule next poll with exponential backoff
           pollCount++;
@@ -203,7 +249,10 @@ export function ConversationsPage({
           setPollInterval(timeoutId);
         }
       } catch (error) {
-        console.error('[ConversationsPage] Error polling review status:', error);
+        console.error(
+          "[ConversationsPage] Error polling review status:",
+          error,
+        );
 
         // On error, retry with backoff
         pollCount++;
@@ -254,7 +303,9 @@ export function ConversationsPage({
       try {
         const files = await getProjectFiles(selectedProject.id);
         // Find the primary manuscript
-        const primaryManuscript = files.find(file => file.is_primary_manuscript);
+        const primaryManuscript = files.find(
+          (file) => file.is_primary_manuscript,
+        );
         if (primaryManuscript) {
           // Check if this is a newly synced manuscript with no review yet
           // If so, start polling immediately (backend auto-triggered review on first sync)
@@ -266,7 +317,10 @@ export function ConversationsPage({
 
         setManuscriptFile(primaryManuscript || null);
       } catch (error) {
-        console.error('[ConversationsPage] ✗ Failed to fetch project files:', error);
+        console.error(
+          "[ConversationsPage] ✗ Failed to fetch project files:",
+          error,
+        );
         setManuscriptFile(null);
       } finally {
         setIsLoadingFiles(false);
@@ -278,53 +332,74 @@ export function ConversationsPage({
 
   // Listen for file sync events to refresh manuscript data and start polling
   useEffect(() => {
-    if (!selectedProject || !fileSyncEventName || !apiClient.on || !apiClient.removeListener) return;
+    if (
+      !selectedProject ||
+      !fileSyncEventName ||
+      !apiClient.on ||
+      !apiClient.removeListener
+    )
+      return;
 
     const handleFileSynced = (...args: unknown[]) => {
-      const [_event, data] = args as [unknown, { projectId?: number; filePath?: string; action?: string }];
+      const [_event, data] = args as [
+        unknown,
+        { projectId?: number; filePath?: string; action?: string },
+      ];
       // Handle file sync for this project
       if (data.projectId === selectedProject.id) {
-        getProjectFiles(selectedProject.id).then(files => {
-          const primaryManuscript = files.find(file => file.is_primary_manuscript);
-          if (primaryManuscript) {
-            // Compare timestamps to check if button should show
-            if (primaryManuscript.last_review && primaryManuscript.updated_at) {
-              const reviewDate = new Date(primaryManuscript.last_review.reviewed_at);
-              const fileUpdateDate = new Date(primaryManuscript.updated_at);
-            }
-
-            // Check if the synced file is the manuscript
-            const syncedFilePath = data.filePath;
-            const manuscriptFileName = primaryManuscript.file_name;
-            if (syncedFilePath && syncedFilePath.includes(manuscriptFileName)) {
-              // Always start polling when manuscript is synced
-              // Backend automatically triggers review for:
-              // - First time sync (no last_review): full review
-              // - Subsequent syncs (has last_review): full review (we let backend decide)
-              startPolling(primaryManuscript.id);
-
-              // Set recently synced indicator
-              // Clear any existing timeout
-              if (syncIndicatorTimeout) {
-                clearTimeout(syncIndicatorTimeout);
+        getProjectFiles(selectedProject.id)
+          .then((files) => {
+            const primaryManuscript = files.find(
+              (file) => file.is_primary_manuscript,
+            );
+            if (primaryManuscript) {
+              // Compare timestamps to check if button should show
+              if (
+                primaryManuscript.last_review &&
+                primaryManuscript.updated_at
+              ) {
+                const reviewDate = new Date(
+                  primaryManuscript.last_review.reviewed_at,
+                );
+                const fileUpdateDate = new Date(primaryManuscript.updated_at);
               }
 
-              setRecentlySynced(true);
-              // Clear indicator after 5 seconds
-              const timeoutId = setTimeout(() => {
-                setRecentlySynced(false);
-                setSyncIndicatorTimeout(null);
-              }, 5000);
+              // Check if the synced file is the manuscript
+              const syncedFilePath = data.filePath;
+              const manuscriptFileName = primaryManuscript.file_name;
+              if (
+                syncedFilePath &&
+                syncedFilePath.includes(manuscriptFileName)
+              ) {
+                // Always start polling when manuscript is synced
+                // Backend automatically triggers review for:
+                // - First time sync (no last_review): full review
+                // - Subsequent syncs (has last_review): full review (we let backend decide)
+                startPolling(primaryManuscript.id);
 
-              setSyncIndicatorTimeout(timeoutId);
-            } else {
+                // Set recently synced indicator
+                // Clear any existing timeout
+                if (syncIndicatorTimeout) {
+                  clearTimeout(syncIndicatorTimeout);
+                }
+
+                setRecentlySynced(true);
+                // Clear indicator after 5 seconds
+                const timeoutId = setTimeout(() => {
+                  setRecentlySynced(false);
+                  setSyncIndicatorTimeout(null);
+                }, 5000);
+
+                setSyncIndicatorTimeout(timeoutId);
+              } else {
+              }
             }
-          }
 
-          setManuscriptFile(primaryManuscript || null);
-        }).catch(error => {
-          console.error('[ConversationsPage] ✗ Error fetching files:', error);
-        });
+            setManuscriptFile(primaryManuscript || null);
+          })
+          .catch((error) => {
+            console.error("[ConversationsPage] ✗ Error fetching files:", error);
+          });
       } else {
       }
     };
@@ -340,16 +415,25 @@ export function ConversationsPage({
     if (!initialConversationId || !selectedProject) return;
     const fetchAndSelectConversation = async () => {
       try {
-        const conversationDetail = await getConversation(initialConversationId, selectedProject.id);
+        const conversationDetail = await getConversation(
+          initialConversationId,
+          selectedProject.id,
+        );
         if (conversationDetail) {
           // Convert to Conversation type (getConversation returns ConversationDetail which has messages)
           const { conversation } = conversationDetail;
           setSelectedConversation(conversation);
         } else {
-          console.warn('[ConversationsPage] Conversation not found:', initialConversationId);
+          console.warn(
+            "[ConversationsPage] Conversation not found:",
+            initialConversationId,
+          );
         }
       } catch (error) {
-        console.error('[ConversationsPage] Error fetching conversation for navigation:', error);
+        console.error(
+          "[ConversationsPage] Error fetching conversation for navigation:",
+          error,
+        );
       } finally {
         // Clear the pending navigation after handling
         if (onConversationNavigated) {
@@ -369,13 +453,13 @@ export function ConversationsPage({
     // Create a draft conversation object that will be created on first message
     const draftConversation: DraftConversation = {
       id: -1, // Temporary ID to indicate draft
-      agent_name: 'co_scientist',
+      agent_name: "co_scientist",
       title: generateDailyFeedbackTitle(),
       summary: null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       parent_id: selectedProject?.id || null,
-      parent_type: 'Project',
+      parent_type: "Project",
       isDraft: true,
     };
 
@@ -406,7 +490,7 @@ export function ConversationsPage({
 
   const handleFullReview = async () => {
     if (!selectedProject || !manuscriptFile) {
-      setReviewError('No manuscript file found');
+      setReviewError("No manuscript file found");
       return;
     }
 
@@ -414,27 +498,32 @@ export function ConversationsPage({
     if (onTriggerFullReview) {
       onTriggerFullReview(selectedProject.id, manuscriptFile.id);
     }
-    setReviewingState('full-reviewing');
+    setReviewingState("full-reviewing");
     setIsReviewInProgress(true);
     setReviewError(null);
     try {
-      const response = await triggerFullReview(selectedProject.id, manuscriptFile.id);
+      const response = await triggerFullReview(
+        selectedProject.id,
+        manuscriptFile.id,
+      );
       // Start polling for completion
       startPolling(manuscriptFile.id);
-
     } catch (error: unknown) {
       const err = error as { message?: string };
-      console.error('[ConversationsPage] ❌ Error triggering full review:', error);
-      const errorMsg = err.message || 'Failed to trigger full review';
+      console.error(
+        "[ConversationsPage] ❌ Error triggering full review:",
+        error,
+      );
+      const errorMsg = err.message || "Failed to trigger full review";
       setReviewError(errorMsg);
-      setReviewingState('idle');
+      setReviewingState("idle");
       setIsReviewInProgress(false);
     }
   };
 
   const handleDiffReview = async () => {
     if (!selectedProject || !manuscriptFile) {
-      setReviewError('No manuscript file found');
+      setReviewError("No manuscript file found");
       return;
     }
 
@@ -442,20 +531,25 @@ export function ConversationsPage({
     if (onTriggerDiffReview) {
       onTriggerDiffReview(selectedProject.id, manuscriptFile.id);
     }
-    setReviewingState('diff-reviewing');
+    setReviewingState("diff-reviewing");
     setIsReviewInProgress(true);
     setReviewError(null);
     try {
-      const response = await triggerDiffReview(selectedProject.id, manuscriptFile.id);
+      const response = await triggerDiffReview(
+        selectedProject.id,
+        manuscriptFile.id,
+      );
       // Start polling for completion
       startPolling(manuscriptFile.id);
-
     } catch (error: unknown) {
       const err = error as { message?: string };
-      console.error('[ConversationsPage] ❌ Error triggering diff review:', error);
-      const errorMsg = err.message || 'Failed to trigger diff review';
+      console.error(
+        "[ConversationsPage] ❌ Error triggering diff review:",
+        error,
+      );
+      const errorMsg = err.message || "Failed to trigger diff review";
       setReviewError(errorMsg);
-      setReviewingState('idle');
+      setReviewingState("idle");
       setIsReviewInProgress(false);
     }
   };
@@ -463,12 +557,12 @@ export function ConversationsPage({
   // Format manuscript update timestamp
   const formatManuscriptTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
@@ -490,8 +584,20 @@ export function ConversationsPage({
       <div className="conversationsHeader">
         <div className="headerLeft">
           <button className="backButton" onClick={onBack}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <svg
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M15 18L9 12L15 6"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           </button>
           <h1 className="projectTitle">{selectedProject.name}</h1>
@@ -501,32 +607,49 @@ export function ConversationsPage({
             <div className="manuscriptInfoLeft">
               <span className="manuscriptLabel">Manuscript:</span>
               <div className="manuscriptFileIcon">
-                {renderManuscriptIcon ? renderManuscriptIcon() : (
+                {renderManuscriptIcon ? (
+                  renderManuscriptIcon()
+                ) : (
                   <span className="defaultManuscriptIcon">📄</span>
                 )}
               </div>
               <div className="manuscriptFileDetails">
-                <span className="manuscriptFileName">{manuscriptFile.file_name}</span>
+                <span className="manuscriptFileName">
+                  {manuscriptFile.file_name}
+                </span>
                 <span className="manuscriptTimestamp">
-                  Last updated: {formatManuscriptTimestamp(manuscriptFile.updated_at)}
+                  {folderSyncStatus && folderSyncStatus !== "idle" && (
+                    <span
+                      className={`folderSyncIndicator folderSyncIndicator--${folderSyncStatus}`}
+                      title={`Folders: ${folderSyncStatus === "watching" ? "Watching" : folderSyncStatus === "syncing" ? "Syncing" : "Error"}`}
+                    />
+                  )}
+                  Last updated:{" "}
+                  {formatManuscriptTimestamp(manuscriptFile.updated_at)}
                 </span>
               </div>
             </div>
             <button
-              className={`triggerFullReviewButton ${reviewingState === 'full-reviewing' ? 'reviewing' : ''}`}
+              className={`triggerFullReviewButton ${reviewingState === "full-reviewing" ? "reviewing" : ""}`}
               onClick={handleFullReview}
-              disabled={reviewingState !== 'idle' || isReviewInProgress}
+              disabled={reviewingState !== "idle" || isReviewInProgress}
             >
-              {reviewingState === 'full-reviewing' ? 'Reviewing...' : 'Trigger Full Review'}
+              {reviewingState === "full-reviewing"
+                ? "Reviewing..."
+                : "Trigger Full Review"}
             </button>
             {shouldShowReviewChangesButton() && (
               <button
-                className={`reviewChangesButton ${recentlySynced ? 'recently-synced' : ''} ${reviewingState === 'diff-reviewing' ? 'reviewing' : ''}`}
+                className={`reviewChangesButton ${recentlySynced ? "recently-synced" : ""} ${reviewingState === "diff-reviewing" ? "reviewing" : ""}`}
                 onClick={handleDiffReview}
-                disabled={reviewingState !== 'idle' || isReviewInProgress}
+                disabled={reviewingState !== "idle" || isReviewInProgress}
               >
-                {reviewingState === 'diff-reviewing' ? 'Reviewing...' : 'Review Changes'}
-                {recentlySynced && reviewingState === 'idle' && <span className="sync-indicator"></span>}
+                {reviewingState === "diff-reviewing"
+                  ? "Reviewing..."
+                  : "Review Changes"}
+                {recentlySynced && reviewingState === "idle" && (
+                  <span className="sync-indicator"></span>
+                )}
               </button>
             )}
           </div>
@@ -534,11 +657,7 @@ export function ConversationsPage({
       </div>
 
       {/* Review Error */}
-      {reviewError && (
-        <div className="reviewErrorMessage">
-          {reviewError}
-        </div>
-      )}
+      {reviewError && <div className="reviewErrorMessage">{reviewError}</div>}
 
       {/* Manuscript Feedback Section - Hide when review is in progress with no conversations */}
       {!(isReviewInProgress && !hasConversations) && (
@@ -580,7 +699,9 @@ export function ConversationsPage({
           <div className="emptyState">
             <div className="emptyStateIcon">⏳</div>
             <h3>Review in progress</h3>
-            <p>Your manuscript is being reviewed. This may take a few minutes.</p>
+            <p>
+              Your manuscript is being reviewed. This may take a few minutes.
+            </p>
           </div>
         </div>
       )}

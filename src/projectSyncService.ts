@@ -280,12 +280,28 @@ class ProjectSyncService {
     watcher.on('ready', () => {
       logger.debug(`[ProjectSync] ✅ Watcher is ready and actively watching: ${folderPath}`);
       logger.debug(`[ProjectSync] Watched paths:`, watcher.getWatched());
+
+      // Broadcast watcher status change
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: true,
+        status: watchedFolder.status,
+      });
     });
 
     watcher.on('error', (error) => {
       logger.error(`[ProjectSync] ❌ Watcher error for ${folderPath}:`, error);
       watchedFolder.status = 'error';
       this.sendSyncStatus(projectId, folderId, folderPath);
+
+      // Broadcast watcher status change
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: false,
+        status: 'error',
+      });
     });
 
     logger.debug(`[ProjectSync] Watcher events registered for ${folderPath}`);
@@ -369,12 +385,28 @@ class ProjectSyncService {
     watcher.on('ready', () => {
       logger.debug(`[ProjectSync] ✅ Watcher is ready and actively watching: ${folderPath}`);
       logger.debug(`[ProjectSync] Watched paths:`, watcher.getWatched());
+
+      // Broadcast watcher status change
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: true,
+        status: watchedFolder.status,
+      });
     });
 
     watcher.on('error', (error) => {
       logger.error(`[ProjectSync] ❌ Watcher error for ${folderPath}:`, error);
       watchedFolder.status = 'error';
       this.sendSyncStatus(projectId, folderId, folderPath);
+
+      // Broadcast watcher status change
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: false,
+        status: 'error',
+      });
     });
 
     logger.debug(`[ProjectSync] Watcher started: ${folderPath}`);
@@ -389,7 +421,7 @@ class ProjectSyncService {
       const client = await APIclient();
 
       // 1. Fetch all user's projects
-      const projectsResponse = await client.get('/v0/co_scientist/projects');
+      const projectsResponse = await client.get('v0/co_scientist/projects');
       const projects = projectsResponse.data?.projects || [];
 
       if (projects.length === 0) {
@@ -403,7 +435,7 @@ class ProjectSyncService {
       let restoredCount = 0;
       for (const project of projects) {
         try {
-          const foldersResponse = await client.get(`/v0/co_scientist/projects/${project.id}/folders`);
+          const foldersResponse = await client.get(`v0/co_scientist/projects/${project.id}/folders`);
           const folders = foldersResponse.data?.folders || [];
 
           for (const folder of folders) {
@@ -460,6 +492,14 @@ class ProjectSyncService {
     // Persist state
     this.persistState();
 
+    // Broadcast watcher status change
+    this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+      projectId,
+      folderId,
+      watcherActive: false,
+      status: 'idle',
+    });
+
     logger.debug(`[ProjectSync] Stopped watching folder for project ${projectId}, folder ${folderId}`);
   }
 
@@ -504,7 +544,7 @@ class ProjectSyncService {
 
       // Get backend file list with checksums
       const client = await APIclient();
-      const filesResponse = await client.get(`/v0/co_scientist/projects/${projectId}/files`);
+      const filesResponse = await client.get(`v0/co_scientist/projects/${projectId}/files`);
       const backendFiles = filesResponse.data?.files || [];
 
       // Build remote file map: relativePath -> { checksum, id }
@@ -832,7 +872,7 @@ class ProjectSyncService {
 
     // Upload file
     const response = await client.post(
-      `/v0/co_scientist/projects/${projectId}/files`,
+      `v0/co_scientist/projects/${projectId}/files`,
       formData,
       {
         headers: {
@@ -860,7 +900,20 @@ class ProjectSyncService {
       const watchedFolder = this.watchedFolders.get(key);
       const manuscriptPath = watchedFolder?.manuscriptPath;
 
+      // Set status to syncing and broadcast
+      if (watchedFolder) {
+        watchedFolder.status = 'syncing';
+        this.sendSyncStatus(projectId, folderId, folderPath);
+      }
+
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
+
+      // Set status to synced and broadcast
+      if (watchedFolder) {
+        watchedFolder.status = 'synced';
+        watchedFolder.lastSync = new Date().toISOString();
+        this.sendSyncStatus(projectId, folderId, folderPath);
+      }
 
       this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
         projectId,
@@ -894,9 +947,22 @@ class ProjectSyncService {
       logger.debug(`[ProjectSync]   Manuscript path: ${manuscriptPath || 'none'}`);
       logger.debug(`[ProjectSync]   Is manuscript: ${filePath === manuscriptPath}`);
 
+      // Set status to syncing and broadcast
+      if (watchedFolder) {
+        watchedFolder.status = 'syncing';
+        this.sendSyncStatus(projectId, folderId, folderPath);
+      }
+
       logger.debug(`[ProjectSync] Syncing file to backend...`);
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
       logger.debug(`[ProjectSync] ✓ File synced successfully to backend`);
+
+      // Set status to synced and broadcast
+      if (watchedFolder) {
+        watchedFolder.status = 'synced';
+        watchedFolder.lastSync = new Date().toISOString();
+        this.sendSyncStatus(projectId, folderId, folderPath);
+      }
 
       const eventData = {
         projectId,
@@ -995,6 +1061,37 @@ class ProjectSyncService {
     for (const folder of folders) {
       await this.stopWatching(folder.projectId, folder.folderId);
     }
+  }
+
+  /**
+   * Get watcher status for a specific folder
+   */
+  getWatcherStatus(projectId: number, folderId: number): {
+    watcherActive: boolean;
+    status: 'idle' | 'syncing' | 'synced' | 'error';
+    fileCount: number;
+    lastSync: string | null;
+  } | null {
+    const key = `${projectId}-${folderId}`;
+    const folder = this.watchedFolders.get(key);
+
+    if (!folder) {
+      return null;
+    }
+
+    return {
+      watcherActive: folder.watcher !== null,
+      status: folder.status,
+      fileCount: folder.fileCount,
+      lastSync: folder.lastSync,
+    };
+  }
+
+  /**
+   * Get all watched folders (for debugging)
+   */
+  getAllWatchedFolders(): WatchedProjectFolder[] {
+    return Array.from(this.watchedFolders.values());
   }
 }
 
