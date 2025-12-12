@@ -8,6 +8,52 @@
 import { IPC_CHANNELS } from '../../shared/types';
 
 // ============================================================================
+// ERROR HANDLING UTILITIES
+// ============================================================================
+
+/**
+ * Extract user-friendly error message from API error response
+ */
+export function extractErrorMessage(error: any, defaultMessage: string): string {
+  // Check for structured backend errors in response.data (direct axios errors)
+  if (error.response?.data?.error) {
+    return error.response.data.error;
+  }
+  if (error.response?.data?.errors) {
+    const errors = error.response.data.errors;
+    if (Array.isArray(errors)) {
+      return errors.join(', ');
+    }
+    if (typeof errors === 'object') {
+      return Object.values(errors).flat().join(', ');
+    }
+  }
+
+  // Check if error message contains backend error (IPC-serialized errors)
+  // Format: "API Error: <backend error message>"
+  if (error.message && error.message.startsWith('API Error: ')) {
+    return error.message.replace('API Error: ', '');
+  }
+
+  // Check for generic status code errors
+  if (error.message) {
+    const match = error.message.match(/Request failed with status code (\d+)/);
+    if (match) {
+      const statusCode = match[1];
+      if (statusCode === '422') {
+        return 'This folder is already in use by another project';
+      }
+      if (statusCode === '401' || statusCode === '403') {
+        return 'Authentication error: Please log in again';
+      }
+    }
+  }
+
+  // Fall back to error message or default
+  return error.message || defaultMessage;
+}
+
+// ============================================================================
 // TYPE DEFINITIONS (Backend Data Models)
 // ============================================================================
 
@@ -124,7 +170,8 @@ export interface ProjectStatusResponse {
 export interface CreateProjectRequest {
   name: string;
   description?: string;
-  folder_ids?: number[];
+  folder_ids?: number[]; // Legacy: Link existing folders (deprecated)
+  folder_path?: string; // NEW: Atomic creation with single folder path
   primary_manuscript_id?: number;
   collaborator_emails?: string[];
 }
@@ -167,12 +214,18 @@ export async function getProject(id: number): Promise<Project | null> {
 /**
  * Create new project
  * POST /v0/co_scientist/projects
+ *
+ * Supports atomic creation with a single folder via folder_path parameter.
+ * If folder validation fails, the entire project creation is rolled back.
+ * For multiple folders, create with first folder then use addFolderToProject.
  */
 export async function createProject(data: CreateProjectRequest): Promise<Project> {
   const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
     method: 'POST',
     endpoint: 'v0/co_scientist/projects',
-    data: data,
+    data: {
+      project: data, // Backend expects data wrapped in "project" key
+    },
   });
   return response.project;
 }

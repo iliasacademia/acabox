@@ -76,7 +76,7 @@ export function ConversationsPage({
   > | null>(null);
   const [hasConversations, setHasConversations] = useState(false);
   const [reviewingState, setReviewingState] = useState<
-    "idle" | "full-reviewing" | "diff-reviewing"
+    "idle" | "full-reviewing" | "diff-reviewing" | "pending-scheduled"
   >("idle");
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [recentlySynced, setRecentlySynced] = useState(false);
@@ -84,6 +84,7 @@ export function ConversationsPage({
     typeof setTimeout
   > | null>(null);
   const [isAutoReviewInProgress, setIsAutoReviewInProgress] = useState(false);
+  const [scheduledReviewTime, setScheduledReviewTime] = useState<Date | null>(null);
 
   const apiClient = useApiClient();
   const { getConversation } = useConversationsApi();
@@ -141,18 +142,37 @@ export function ConversationsPage({
         if (inProgressRuns.length > 0) {
           setIsReviewInProgress(true);
 
-          // Determine which type of review is in progress
-          const hasFullReview = inProgressRuns.some((run: AgentRun) =>
-            run.agent_name?.includes("full"),
-          );
-          const hasDiffReview = inProgressRuns.some((run: AgentRun) =>
-            run.agent_name?.includes("diff"),
+          // Separate pending from processing runs
+          const pendingRuns = inProgressRuns.filter((run: AgentRun) =>
+            run.status === "pending"
           );
 
-          if (hasDiffReview) {
-            setReviewingState("diff-reviewing");
-          } else if (hasFullReview) {
-            setReviewingState("full-reviewing");
+          // Check if there are pending auto-scheduled diff reviews
+          // (only auto-scheduled reviews have a delay; manual reviews are immediate)
+          const pendingAutoScheduledReviews = pendingRuns.filter((run: AgentRun) =>
+            (run.agent_name?.includes("diff") || run.agent_name === "science_agent") &&
+            run.review_data?.triggered_by === "auto_scheduler"
+          );
+
+          if (pendingAutoScheduledReviews.length > 0) {
+            // Auto-scheduled diff review is waiting for its scheduled time - show pending state
+            const pendingRun = pendingAutoScheduledReviews[0];
+            setReviewingState("pending-scheduled");
+            setScheduledReviewTime(new Date(pendingRun.created_at));
+          } else {
+            // Job is currently processing or is a full review - determine type
+            const hasFullReview = inProgressRuns.some((run: AgentRun) =>
+              run.agent_name?.includes("full"),
+            );
+            const hasDiffReview = inProgressRuns.some((run: AgentRun) =>
+              run.agent_name?.includes("diff") || run.agent_name === "science_agent"
+            );
+
+            if (hasDiffReview) {
+              setReviewingState("diff-reviewing");
+            } else if (hasFullReview) {
+              setReviewingState("full-reviewing");
+            }
           }
 
           // Start polling to track completion
@@ -173,6 +193,11 @@ export function ConversationsPage({
   const shouldShowReviewChangesButton = (): boolean => {
     // If we're actively reviewing (button clicked and showing "Reviewing..."), keep button visible
     if (reviewingState === "diff-reviewing") {
+      return true;
+    }
+
+    // Show if review is pending (scheduled but not yet started)
+    if (reviewingState === "pending-scheduled") {
       return true;
     }
 
@@ -225,23 +250,89 @@ export function ConversationsPage({
             run.status === "pending" || run.status === "processing",
         );
 
+        // Separate pending from processing runs
+        const pendingRuns = inProgressRuns.filter((run: AgentRun) =>
+          run.status === "pending"
+        );
+
+        const processingRuns = inProgressRuns.filter((run: AgentRun) =>
+          run.status === "processing"
+        );
+
         // Check if any in-progress runs are auto-scheduled
         const autoScheduledInProgress = inProgressRuns.some(
           (run: AgentRun) => run.review_data?.triggered_by === "auto_scheduler",
         );
         setIsAutoReviewInProgress(autoScheduledInProgress);
+
         if (inProgressRuns.length === 0) {
           // All recent runs are completed or failed
           setPollInterval(null);
           setIsReviewInProgress(false);
           setReviewingState("idle");
+          setScheduledReviewTime(null);
           setIsAutoReviewInProgress(false); // Reset auto review state
 
           // Refresh manuscript file data to get updated last_review
           await refreshManuscriptFile();
           // Refresh conversation list to show new review conversation
           setRefreshTrigger((prev) => prev + 1);
-        } else {
+        } else if (pendingRuns.length > 0) {
+          // Check if pending run is an auto-scheduled diff review
+          // (only auto-scheduled reviews have a delay; manual reviews are immediate)
+          const pendingAutoScheduledReviews = pendingRuns.filter((run: AgentRun) =>
+            (run.agent_name?.includes("diff") || run.agent_name === "science_agent") &&
+            run.review_data?.triggered_by === "auto_scheduler"
+          );
+
+          if (pendingAutoScheduledReviews.length > 0) {
+            // Auto-scheduled diff review is still waiting - update scheduled time if needed
+            const pendingRun = pendingAutoScheduledReviews[0];
+            if (reviewingState !== "pending-scheduled") {
+              setReviewingState("pending-scheduled");
+              setScheduledReviewTime(new Date(pendingRun.created_at));
+            }
+          } else {
+            // Manual review or full review - determine type and set to reviewing
+            const hasFullReview = pendingRuns.some((run: AgentRun) =>
+              run.agent_name?.includes("full"),
+            );
+            const hasDiffReview = pendingRuns.some((run: AgentRun) =>
+              run.agent_name?.includes("diff") || run.agent_name === "science_agent"
+            );
+
+            if (hasDiffReview) {
+              setReviewingState("diff-reviewing");
+            } else if (hasFullReview) {
+              setReviewingState("full-reviewing");
+            }
+          }
+
+          // Schedule next poll with exponential backoff
+          pollCount++;
+          currentDelay = Math.min(currentDelay * 1.5, 10000); // Max 10 seconds
+          const timeoutId = setTimeout(poll, currentDelay);
+          setPollInterval(timeoutId);
+        } else if (processingRuns.length > 0) {
+          // Transitioned to processing - clear scheduled time
+          if (reviewingState === "pending-scheduled") {
+            setScheduledReviewTime(null);
+          }
+
+          // Determine which type of review is processing
+          const hasFullReview = processingRuns.some((run: AgentRun) =>
+            run.agent_name?.includes("full"),
+          );
+          const hasDiffReview = processingRuns.some((run: AgentRun) =>
+            run.agent_name?.includes("diff") || run.agent_name === "science_agent"
+          );
+
+          if (hasDiffReview) {
+            setReviewingState("diff-reviewing");
+          } else if (hasFullReview) {
+            setReviewingState("full-reviewing");
+          }
+
           // Schedule next poll with exponential backoff
           pollCount++;
           currentDelay = Math.min(currentDelay * 1.5, 10000); // Max 10 seconds
@@ -283,6 +374,21 @@ export function ConversationsPage({
       }
     };
   }, [syncIndicatorTimeout]);
+
+  // Countdown timer for pending scheduled reviews
+  useEffect(() => {
+    if (reviewingState !== "pending-scheduled" || !scheduledReviewTime) {
+      return;
+    }
+
+    // Update every 30 seconds
+    const intervalId = setInterval(() => {
+      // Force re-render to update countdown display
+      setScheduledReviewTime(new Date(scheduledReviewTime));
+    }, 30000);
+
+    return () => clearInterval(intervalId);
+  }, [reviewingState, scheduledReviewTime]);
 
   // Fetch project files when selectedProject changes
   useEffect(() => {
@@ -566,6 +672,23 @@ export function ConversationsPage({
     });
   };
 
+  // Calculate remaining time until scheduled review
+  const calculateRemainingTime = (createdAt: string): number => {
+    const scheduledTime = new Date(createdAt);
+    const targetTime = new Date(scheduledTime.getTime() + 10 * 60 * 1000);
+    const now = new Date();
+    const remainingMs = targetTime.getTime() - now.getTime();
+    return Math.max(0, remainingMs);
+  };
+
+  // Format countdown time for display
+  const formatCountdownTime = (remainingMs: number): string => {
+    const minutes = Math.floor(remainingMs / (60 * 1000));
+    if (minutes >= 1) return `~${minutes} min`;
+    if (remainingMs > 0) return "< 1 min";
+    return "starting...";
+  };
+
   if (!selectedProject) {
     return (
       <div className="conversationsPage empty">
@@ -640,11 +763,22 @@ export function ConversationsPage({
             </button>
             {shouldShowReviewChangesButton() && (
               <button
-                className={`reviewChangesButton ${recentlySynced ? "recently-synced" : ""} ${reviewingState === "diff-reviewing" ? "reviewing" : ""}`}
+                className={`reviewChangesButton ${
+                  reviewingState === "pending-scheduled" ? "pending" : ""
+                } ${recentlySynced ? "recently-synced" : ""} ${
+                  reviewingState === "diff-reviewing" ? "reviewing" : ""
+                }`}
                 onClick={handleDiffReview}
-                disabled={reviewingState !== "idle" || isReviewInProgress}
+                disabled={
+                  (reviewingState !== "idle" && reviewingState !== "pending-scheduled") ||
+                  (isReviewInProgress && reviewingState !== "pending-scheduled")
+                }
               >
-                {reviewingState === "diff-reviewing"
+                {reviewingState === "pending-scheduled" && scheduledReviewTime
+                  ? `Review scheduled (${formatCountdownTime(
+                      calculateRemainingTime(scheduledReviewTime.toISOString())
+                    )})`
+                  : reviewingState === "diff-reviewing"
                   ? "Reviewing..."
                   : "Review Changes"}
                 {recentlySynced && reviewingState === "idle" && (

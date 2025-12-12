@@ -10,6 +10,7 @@ import {
   getProjectCollaborators,
   addFolderToProject,
   addCollaborator,
+  extractErrorMessage,
 } from '../services/projectsApi';
 import { IPC_CHANNELS } from '../../shared/types';
 import { useReviewPolling } from '../hooks/useReviewPolling';
@@ -104,7 +105,11 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
       }
     } catch (error: any) {
       console.error('Error adding folder:', error);
-      setAlertMessage(`Failed to add folder: ${error.message || 'Unknown error'}`);
+
+      // Extract user-friendly error message from backend response
+      const errorMessage = extractErrorMessage(error, 'Unknown error');
+
+      setAlertMessage(`Failed to add folder: ${errorMessage}`);
       setShowAlert(true);
     }
   };
