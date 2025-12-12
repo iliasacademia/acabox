@@ -117,6 +117,13 @@ export class AcademiaHttpServer {
       }
     });
 
+    // Log popup requests with full URL including query params (pid and token)
+    this.fastify.addHook('onRequest', async (request, reply) => {
+      if (request.url.startsWith('/ui/popup/')) {
+        logger.info(`[HttpServer] Popup request: ${request.url}`);
+      }
+    });
+
     // Register static file serving for popup UI
     // Serve files from dist/popup at /ui/popup route
     const devPopupPath = path.join(__dirname, '..', '..', 'dist', 'popup');
