@@ -178,7 +178,7 @@
 /* Main Content */
 .projectsMain {
   flex: 1;
-  overflow-y: hidden;
+  overflow-y: auto;
 }
 
 /* ============================================================================
