@@ -6,6 +6,7 @@ import {
 } from '../shared/types';
 import { logLayer, devToolsTransport, getLogFilePath } from './logLayer';
 import { LOGGING_CONFIG } from './config/loggingConfig';
+import { sanitizeForIpc } from './transports/devToolsTransport';
 
 // Re-export for backward compatibility
 export { getChannelFromVersion } from './config/loggingConfig';
@@ -92,7 +93,7 @@ export class Logger {
             timestamp: new Date().toISOString(),
             category,
             level,
-            data,
+            data: sanitizeForIpc(data),
           };
           this.mainWindow.webContents.send('devtools-log', payload);
         } catch {
