@@ -117,8 +117,8 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
     // Fetch immediately
     fetchNotificationCount();
 
-    // Set up polling interval (10 seconds)
-    const intervalId = setInterval(fetchNotificationCount, 10000);
+    // Set up polling interval (3 seconds)
+    const intervalId = setInterval(fetchNotificationCount, 3000);
 
     // Cleanup on unmount
     return () => {

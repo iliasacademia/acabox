@@ -9,18 +9,38 @@ import type {
 import { LOGGING_CONFIG } from '../config/loggingConfig';
 
 /**
+ * Safely serialize an Error object for IPC.
+ * The serialize-error package can return objects with non-serializable properties
+ * in edge cases (native errors, Electron errors), so we validate the result.
+ */
+function safeSerializeError(error: Error): Record<string, any> {
+  try {
+    const serialized = serializeError(error);
+    // Validate it's actually serializable by round-tripping through JSON
+    return JSON.parse(JSON.stringify(serialized));
+  } catch {
+    // Fallback: extract only safe properties manually
+    return {
+      name: String(error.name || 'Error'),
+      message: String(error.message || 'Unknown error'),
+      stack: error.stack ? String(error.stack) : undefined,
+    };
+  }
+}
+
+/**
  * Sanitize data to make it safe for IPC serialization.
  * Handles Error objects, circular references, functions, and other non-serializable types.
  */
-function sanitizeForIpc(data: any): any {
+export function sanitizeForIpc(data: any): any {
   // Handle null/undefined
   if (data == null) {
     return data;
   }
 
-  // Handle Error objects
+  // Handle Error objects with extra safety
   if (data instanceof Error) {
-    return serializeError(data);
+    return safeSerializeError(data);
   }
 
   // Handle primitives
@@ -52,7 +72,7 @@ function sanitizeForIpc(data: any): any {
       return JSON.parse(JSON.stringify(data, (key, value) => {
         // Handle nested Error objects
         if (value instanceof Error) {
-          return serializeError(value);
+          return safeSerializeError(value);
         }
         // Handle functions
         if (typeof value === 'function') {
