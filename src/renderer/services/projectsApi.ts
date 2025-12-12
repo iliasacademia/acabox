@@ -41,7 +41,7 @@ export function extractErrorMessage(error: any, defaultMessage: string): string 
     if (match) {
       const statusCode = match[1];
       if (statusCode === '422') {
-        return 'Validation error: This folder may already be in use by another project';
+        return 'This folder is already in use by another project';
       }
       if (statusCode === '401' || statusCode === '403') {
         return 'Authentication error: Please log in again';

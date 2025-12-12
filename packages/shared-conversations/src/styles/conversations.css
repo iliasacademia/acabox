@@ -455,6 +455,16 @@
     background-color: #9ca3af;
 }
 
+.reviewChangesButton.pending {
+    background-color: #f59e0b;
+    color: #ffffff;
+    border: none;
+}
+
+.reviewChangesButton.pending:hover:not(:disabled) {
+    background-color: #d97706;
+}
+
 .fullReviewButton {
     padding: 8px 16px;
     background-color: #667eea;

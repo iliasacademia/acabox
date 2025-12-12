@@ -129,14 +129,6 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
     }
   };
 
-  const handleSkip = () => {
-    setError('');
-    if (step === 3) {
-      // Skip manuscript selection and complete
-      handleComplete();
-    }
-  };
-
   const handleComplete = () => {
     trackCreateProjectClick();
     onComplete({
@@ -307,9 +299,6 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
             <div className="wizardActions">
               <button className="wizardButtonSecondary" onClick={handleBack} disabled={isCreating}>
                 Back
-              </button>
-              <button className="wizardButtonText" onClick={handleSkip} disabled={isCreating}>
-                Skip
               </button>
               <button
                 className="wizardButtonPrimary"
