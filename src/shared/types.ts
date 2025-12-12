@@ -46,6 +46,7 @@ export const IPC_CHANNELS = {
   REFRESH_MANUSCRIPT_PATHS: 'refresh-manuscript-paths',
 
   // Sync operations
+  REINITIALIZE_SYNC: 'reinitialize-sync',
   GET_SYNC_FOLDERS: 'get-sync-folders',
   ADD_SYNC_FOLDER: 'add-sync-folder',
   REMOVE_SYNC_FOLDER: 'remove-sync-folder',
@@ -74,6 +75,8 @@ export const IPC_CHANNELS = {
   PROJECT_STARTUP_SYNC_BEGIN: 'project-startup-sync-begin',
   PROJECT_STARTUP_SYNC_PROGRESS: 'project-startup-sync-progress',
   PROJECT_STARTUP_SYNC_COMPLETE: 'project-startup-sync-complete',
+  GET_PROJECT_WATCHER_STATUS: 'get-project-watcher-status',
+  PROJECT_WATCHER_STATUS_CHANGED: 'project-watcher-status-changed',
 
   // Selection tracking
   START_SELECTION_TRACKING: 'start-selection-tracking',
@@ -99,6 +102,18 @@ export const IPC_CHANNELS = {
   UPDATE_DOWNLOADED: 'update-downloaded',
   UPDATE_ERROR: 'update-error',
   DOWNLOAD_UPDATE: 'download-update',
+
+  // Permissions
+  CHECK_ACCESSIBILITY_PERMISSION: 'check-accessibility-permission',
+  REQUEST_ACCESSIBILITY_PERMISSION: 'request-accessibility-permission',
+  RESET_ACCESSIBILITY_PERMISSION: 'reset-accessibility-permission',
+  ACCESSIBILITY_PERMISSION_STATUS: 'accessibility-permission-status',
+
+  // App lifecycle
+  RESTART_APP: 'restart-app',
+
+  // Debug
+  DEBUG_GET_ACTIVE_WATCHERS: 'debug-get-active-watchers',
 } as const;
 
 // Feature flags
@@ -108,6 +123,7 @@ export const FEATURES = {
   TEXT_SIDE_BUTTON_ENABLED: false, // Toggle TextSideButton/Popup in Word overlay
   OVERALL_REVIEW_BUTTON_ENABLED: false, // Toggle OverallReviewButton/Popup in Word overlay
   SCROLL_TRACKING_ENABLED: false, // Toggle scroll tracking in Word overlay
+  ZENDESK_WIDGET_ENABLED: true, // Toggle Zendesk support widget
 } as const;
 
 export interface DesktopNotification {

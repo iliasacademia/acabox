@@ -1,11 +1,82 @@
 import { LoggerlessTransport, type LogLayerTransportParams } from '@loglayer/transport';
 import { BrowserWindow, app } from 'electron';
+import { serializeError } from 'serialize-error';
 import type {
   DevToolsLogCategory,
   DevToolsLogLevel,
   DevToolsLogPayload,
 } from '../../shared/types';
 import { LOGGING_CONFIG } from '../config/loggingConfig';
+
+/**
+ * Sanitize data to make it safe for IPC serialization.
+ * Handles Error objects, circular references, functions, and other non-serializable types.
+ */
+function sanitizeForIpc(data: any): any {
+  // Handle null/undefined
+  if (data == null) {
+    return data;
+  }
+
+  // Handle Error objects
+  if (data instanceof Error) {
+    return serializeError(data);
+  }
+
+  // Handle primitives
+  const type = typeof data;
+  if (type === 'string' || type === 'number' || type === 'boolean') {
+    return data;
+  }
+
+  // Handle functions - convert to string representation
+  if (type === 'function') {
+    return `[Function: ${data.name || 'anonymous'}]`;
+  }
+
+  // Handle Date objects
+  if (data instanceof Date) {
+    return data.toISOString();
+  }
+
+  // Handle arrays
+  if (Array.isArray(data)) {
+    return data.map((item) => sanitizeForIpc(item));
+  }
+
+  // Handle objects (with circular reference protection)
+  if (type === 'object') {
+    try {
+      // Use JSON stringify/parse to detect circular references
+      // This also removes functions and non-serializable properties
+      return JSON.parse(JSON.stringify(data, (key, value) => {
+        // Handle nested Error objects
+        if (value instanceof Error) {
+          return serializeError(value);
+        }
+        // Handle functions
+        if (typeof value === 'function') {
+          return `[Function: ${value.name || 'anonymous'}]`;
+        }
+        // Handle undefined (JSON.stringify removes it, but we want to show it)
+        if (value === undefined) {
+          return '[undefined]';
+        }
+        return value;
+      }));
+    } catch (error) {
+      // If serialization fails, return a safe representation
+      return {
+        __type: data.constructor?.name || 'Object',
+        __error: 'Failed to serialize object',
+        __toString: String(data),
+      };
+    }
+  }
+
+  // Fallback for unknown types
+  return String(data);
+}
 
 /**
  * Custom LogLayer transport that sends logs to the renderer process DevTools console.
@@ -75,12 +146,13 @@ export class DevToolsTransport extends LoggerlessTransport {
       const level = this.mapLogLevel(logLevel);
       const category: DevToolsLogCategory = 'general';
 
-      // Build the message content
-      const messageContent = messages.length > 0 ? messages : [];
+      // Build the message content - sanitize each message item
+      const messageContent = messages.length > 0 ? messages.map(sanitizeForIpc) : [];
 
-      // Include metadata if present
+      // Include metadata if present - sanitize data as well
+      const sanitizedData = hasData && data ? sanitizeForIpc(data) : undefined;
       const logData: { message: any[] } = {
-        message: hasData && data ? [...messageContent, data] : messageContent,
+        message: sanitizedData ? [...messageContent, sanitizedData] : messageContent,
       };
 
       const payload: DevToolsLogPayload = {
@@ -91,8 +163,10 @@ export class DevToolsTransport extends LoggerlessTransport {
       };
 
       this.mainWindow.webContents.send('devtools-log', payload);
-    } catch {
-      // Silently fail - logging should never break the app
+    } catch (error) {
+      // Log serialization errors to electron-log (file) for debugging
+      // but don't throw - logging should never break the app
+      console.error('[DevToolsTransport] Failed to send log to DevTools:', error);
     }
 
     return messages;
@@ -115,16 +189,20 @@ export class DevToolsTransport extends LoggerlessTransport {
     }
 
     try {
+      // Sanitize the data before sending through IPC
+      const sanitizedData = sanitizeForIpc(data);
+
       const payload: DevToolsLogPayload = {
         timestamp: new Date().toISOString(),
         category: 'api',
         level,
-        data,
+        data: sanitizedData,
       };
 
       this.mainWindow.webContents.send('devtools-log', payload);
-    } catch {
-      // Silently fail
+    } catch (error) {
+      // Log serialization errors for debugging
+      console.error('[DevToolsTransport] Failed to send API log to DevTools:', error);
     }
   }
 

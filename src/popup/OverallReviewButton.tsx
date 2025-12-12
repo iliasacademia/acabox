@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useNativeEvent, useSendMessage, useBridgeReady, getBridgeInstance } from './hooks/useBridge';
 import { logJSON } from './utils/logger';
+import { trackAcademiaButtonView, trackAcademiaButtonClick } from './utils/analytics';
 import academiaLogos from '../assets/academia-logos.svg';
 import dropdownArrow from '../assets/dropdown-arrow.svg';
 
@@ -11,9 +12,14 @@ getBridgeInstance('overall-review-button');
 console.log('[OverallReviewButton] Initializing...');
 console.log('[OverallReviewButton] Platform:', window.__messageBridge?.getPlatform());
 
-// Parse serverUrl from query params (passed by native bridge)
+// Get serverUrl from window.location.origin (popup is served from the HTTP server)
+// This ensures we use the correct port even when server binds to fallback port
+const serverUrl = window.location.origin;
+
+// Parse URL params (passed by native bridge)
 const urlParams = new URLSearchParams(window.location.search);
-const serverUrl = urlParams.get('serverUrl') || 'http://127.0.0.1:23111';
+const pidParam = urlParams.get('pid');
+const tokenParam = urlParams.get('token') || '';
 
 interface OverallReviewButtonProps {
   date?: string;
@@ -31,10 +37,54 @@ const formatReviewDate = (dateString: string): string => {
 
 const OverallReviewButton: React.FC<OverallReviewButtonProps> = ({ date: initialDate }) => {
   const [date, setDate] = useState<string>(initialDate || 'Wed, 29 Oct');
+  const [projectId, setProjectId] = useState<number | null>(null);
+  const [fileId, setFileId] = useState<number | null>(null);
   const { sendRequest, loading } = useSendMessage();
   const isReady = useBridgeReady();
 
   console.log('[OverallReviewButton] Render - date:', date, 'isReady:', isReady);
+
+  // Fetch project/file info and track button view
+  useEffect(() => {
+    const fetchProjectFileInfo = async () => {
+      if (!pidParam) {
+        console.warn('[OverallReviewButton] No PID in URL params, skipping analytics');
+        return;
+      }
+
+      try {
+        const response = await fetch(
+          `${serverUrl}/word/${pidParam}/project_file`,
+          {
+            method: 'GET',
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': `Bearer ${tokenParam}`,
+            },
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        setProjectId(data.project_id);
+        setFileId(data.project_file_id);
+
+        // Track button view now that we have the IDs
+        trackAcademiaButtonView(data.project_id, data.project_file_id);
+        console.log('[OverallReviewButton] Tracked button view:', {
+          projectId: data.project_id,
+          fileId: data.project_file_id,
+        });
+      } catch (err) {
+        console.error('[OverallReviewButton] Failed to fetch project file info:', err);
+      }
+    };
+
+    fetchProjectFileInfo();
+  }, []); // Only run once on mount
 
   // Fetch review data from API
   useEffect(() => {
@@ -82,6 +132,12 @@ const OverallReviewButton: React.FC<OverallReviewButtonProps> = ({ date: initial
 
   const handleClick = async () => {
     console.log('[OverallReviewButton] Button clicked');
+
+    // Track analytics if we have project/file IDs
+    if (projectId && fileId) {
+      trackAcademiaButtonClick(projectId, fileId);
+      console.log('[OverallReviewButton] Tracked button click:', { projectId, fileId });
+    }
 
     try {
       const result = await sendRequest('buttonClicked', {});

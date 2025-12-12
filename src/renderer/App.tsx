@@ -3,11 +3,17 @@ import LoginModal from './components/LoginModal';
 import DevTools from './components/DevTools';
 import { UpdateBanner } from './components/UpdateBanner';
 import DevelopmentBanner from './components/DevelopmentBanner';
+import { PermissionsBanner } from './components/PermissionsBanner';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
 import { useDevToolsLog } from './hooks/useDevToolsLog';
+import { trackNotificationView, trackNotificationClick } from './utils/analytics';
+import { initZendeskWidget, cleanupZendeskWidget, showWidget } from './utils/zendeskWidget';
+import { FEATURES } from '../shared/types';
 import Projects from './components/Projects';
+import { StatusBar } from './components/StatusBar';
+import { useConnectivityStatus } from './hooks/useConnectivityStatus';
 import './App.css';
 
 const App: React.FC = () => {
@@ -26,6 +32,12 @@ const App: React.FC = () => {
     errorMessage?: string;
   }>({ show: false, status: 'available' });
 
+  // Permissions banner state
+  const [permissionState, setPermissionState] = useState<{
+    show: boolean;
+    isChecking: boolean;
+  }>({ show: false, isChecking: false });
+
   // Detect if this is the main window (Projects UI) or dev window
   const isMainWindow = new URLSearchParams(window.location.search).get('window') === 'main';
 
@@ -35,7 +47,19 @@ const App: React.FC = () => {
   // Listen for devtools logs from main process
   useDevToolsLog();
 
-  // Add body class for development banner padding
+  // Monitor connectivity status
+  const connectivity = useConnectivityStatus();
+
+  // Add body class for development banner padding and status bar (when offline)
+  useEffect(() => {
+    // Add status bar padding only when offline
+    if (connectivity.status === 'offline') {
+      document.body.classList.add('has-status-bar');
+    } else {
+      document.body.classList.remove('has-status-bar');
+    }
+  }, [connectivity.status]);
+
   useEffect(() => {
     if (isDevelopment) {
       document.body.classList.add('has-dev-banner');
@@ -57,6 +81,14 @@ const App: React.FC = () => {
 
       // Listen for new notifications
       const handleNewNotification = (_event: any, notif: NotificationType) => {
+        // Track analytics - notification.view
+        if (notif.data?.conversation_id && notif.data?.agent_name) {
+          trackNotificationView(
+            notif.project_id,
+            notif.data.conversation_id,
+            notif.data.agent_name
+          );
+        }
         showDesktopNotification(notif);
       };
       window.electronAPI.on('new-notification', handleNewNotification);
@@ -129,6 +161,39 @@ const App: React.FC = () => {
     };
   }, []);
 
+  // Listen for accessibility permission status from main process
+  useEffect(() => {
+    // Initial permission check on mount (only on main window)
+    if (isMainWindow) {
+      const checkInitialPermission = async () => {
+        try {
+          const result = await window.electronAPI.invoke(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION);
+          if (result && !result.hasPermission) {
+            setPermissionState({ show: true, isChecking: false });
+          }
+        } catch (error) {
+          console.error('[App] Failed to check initial permission:', error);
+        }
+      };
+
+      checkInitialPermission();
+    }
+
+    // Listen for permission status updates from main process
+    const handlePermissionStatus = (_event: any, data: { hasPermission: boolean }) => {
+      setPermissionState({
+        show: !data.hasPermission,
+        isChecking: false,
+      });
+    };
+
+    window.electronAPI.on(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, handlePermissionStatus);
+
+    return () => {
+      window.electronAPI.off(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, handlePermissionStatus);
+    };
+  }, [isMainWindow]);
+
   const handleNavigationHandled = () => {
     setPendingNavigation(null);
   };
@@ -146,6 +211,16 @@ const App: React.FC = () => {
         if (user) {
           setUserId(user.id);
           setUserName(user.first_name || user.name || null);
+
+          // Initialize Zendesk for already-logged-in user
+          if (FEATURES.ZENDESK_WIDGET_ENABLED) {
+            initZendeskWidget({
+              id: user.id.toString(),
+              email: user.email || undefined,
+              name: user.first_name || user.name || undefined,
+            });
+            showWidget();
+          }
         }
         // Refresh manuscript paths for Word integration tracking on app startup
         await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
@@ -164,6 +239,15 @@ const App: React.FC = () => {
       });
 
       osNotification.onclick = () => {
+        // Track analytics - notification.click
+        if (notif.data?.conversation_id && notif.data?.agent_name) {
+          trackNotificationClick(
+            notif.project_id,
+            notif.data.conversation_id,
+            notif.data.agent_name
+          );
+        }
+
         // Navigate to conversation if notification has the required data
         if (notif.data?.conversation_id && notif.project_id) {
           window.electronAPI.invoke(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
@@ -193,8 +277,22 @@ const App: React.FC = () => {
       setUserId(user.id);
       setUserName(user.first_name || user.name || null);
       setShowLogin(false); // Only hide modal AFTER userId is set
+
+      // Initialize Zendesk widget with user info
+      if (FEATURES.ZENDESK_WIDGET_ENABLED) {
+        initZendeskWidget({
+          id: user.id.toString(),
+          email: user.email || undefined,
+          name: user.first_name || user.name || undefined,
+        });
+        showWidget();
+      }
+
       // Refresh manuscript paths for Word integration tracking
       await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+      // Reinitialize sync services now that user is logged in
+      // This handles the case where app started without a user logged in
+      await window.electronAPI.invoke(IPC_CHANNELS.REINITIALIZE_SYNC);
     } else {
       // get-current-user returned null - login didn't complete properly
       // Keep modal open so user can retry
@@ -203,6 +301,11 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
+    // Clean up Zendesk before logout
+    if (FEATURES.ZENDESK_WIDGET_ENABLED) {
+      cleanupZendeskWidget();
+    }
+
     const result = await window.electronAPI.invoke('logout');
     if (result.success) {
       setShowLogin(true);
@@ -232,6 +335,39 @@ const App: React.FC = () => {
     }
   };
 
+  // Permission handlers
+  const handleGrantPermission = async () => {
+    setPermissionState(prev => ({ ...prev, isChecking: true }));
+    try {
+      // Opens System Settings > Accessibility
+      await window.electronAPI.invoke(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION);
+    } catch (error) {
+      console.error('[App] Failed to open settings:', error);
+    } finally {
+      setPermissionState(prev => ({ ...prev, isChecking: false }));
+    }
+  };
+
+  const handleResetPermission = async () => {
+    setPermissionState(prev => ({ ...prev, isChecking: true }));
+    try {
+      // This will reset TCC (with admin password prompt) and open System Settings
+      await window.electronAPI.invoke(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION);
+    } catch (error) {
+      console.error('[App] Failed to reset permission:', error);
+    } finally {
+      setPermissionState(prev => ({ ...prev, isChecking: false }));
+    }
+  };
+
+  const handleRestartApp = async () => {
+    try {
+      await window.electronAPI.restartApp();
+    } catch (error) {
+      console.error('[App] Failed to restart app:', error);
+    }
+  };
+
   // If this is the main window, render the Projects UI
   if (isMainWindow) {
     // Wait for auth check to complete before rendering Projects
@@ -241,6 +377,16 @@ const App: React.FC = () => {
     return (
       <>
         {isDevelopment && <DevelopmentBanner />}
+        {permissionState.show && (
+          <PermissionsBanner
+            onGrantPermission={handleGrantPermission}
+            onResetPermission={handleResetPermission}
+            onRestartApp={handleRestartApp}
+            isWorking={permissionState.isChecking}
+            isDevelopment={isDevelopment}
+            hasUpdateBanner={updateState.show}
+          />
+        )}
         <Projects
           userId={userId}
           userName={userName}
@@ -258,6 +404,12 @@ const App: React.FC = () => {
             errorMessage={updateState.errorMessage}
             onDownloadClick={handleDownloadUpdate}
             onRetryClick={handleRetryUpdate}
+          />
+        )}
+        {connectivity.status === 'offline' && (
+          <StatusBar
+            connectivityStatus={connectivity.status}
+            lastChecked={connectivity.lastChecked}
           />
         )}
       </>
@@ -278,6 +430,12 @@ const App: React.FC = () => {
           errorMessage={updateState.errorMessage}
           onDownloadClick={handleDownloadUpdate}
           onRetryClick={handleRetryUpdate}
+        />
+      )}
+      {connectivity.status === 'offline' && (
+        <StatusBar
+          connectivityStatus={connectivity.status}
+          lastChecked={connectivity.lastChecked}
         />
       )}
     </>

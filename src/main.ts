@@ -80,13 +80,17 @@ const createWindow = async (): Promise<void> => {
 
   // Set Content Security Policy
   devWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const scriptSrc = process.env.NODE_ENV === 'development'
-      ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
-      : "script-src 'self'; ";
+    // Security: Use app.isPackaged (runtime check) in addition to NODE_ENV (build-time check)
+    // This ensures production CSP even if development build is accidentally deployed
+    const isDevelopment = process.env.NODE_ENV === 'development' && !app.isPackaged;
 
-    const styleSrc = process.env.NODE_ENV === 'development'
-      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for style-loader (webpack injects inline styles in dev)
-      : "style-src 'self' https://fonts.googleapis.com; "; // Production uses MiniCssExtractPlugin (external CSS files)
+    const scriptSrc = isDevelopment
+      ? "script-src 'self' 'unsafe-eval' https://static.zdassets.com https://*.zendesk.com; " // unsafe-eval needed for webpack-dev-server, Zendesk scripts and JSONP
+      : "script-src 'self' https://static.zdassets.com https://*.zendesk.com; ";
+
+    const styleSrc = isDevelopment
+      ? "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; " // unsafe-inline needed for style-loader and Zendesk
+      : "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; "; // Zendesk requires unsafe-inline even in production
 
     callback({
       responseHeaders: {
@@ -95,10 +99,11 @@ const createWindow = async (): Promise<void> => {
           "default-src 'self'; " +
           styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src 'self' data:; " + // Removed localhost wildcard for production
+          "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
           "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com; " + // Datadog RUM intake
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
+          "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
           "form-action 'self'; " + // Restrict form submissions
@@ -133,14 +138,18 @@ const createMainWindow = async (): Promise<void> => {
   });
 
   // Set Content Security Policy
+  // Security: Use app.isPackaged (runtime check) in addition to NODE_ENV (build-time check)
+  // This ensures production CSP even if development build is accidentally deployed
   mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
-    const scriptSrc = process.env.NODE_ENV === 'development'
-      ? "script-src 'self' 'unsafe-eval'; " // unsafe-eval needed for webpack-dev-server
-      : "script-src 'self'; ";
+    const isDevelopment = process.env.NODE_ENV === 'development' && !app.isPackaged;
 
-    const styleSrc = process.env.NODE_ENV === 'development'
-      ? "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; " // unsafe-inline needed for style-loader (webpack injects inline styles in dev)
-      : "style-src 'self' https://fonts.googleapis.com; "; // Production uses MiniCssExtractPlugin (external CSS files)
+    const scriptSrc = isDevelopment
+      ? "script-src 'self' 'unsafe-eval' https://static.zdassets.com https://*.zendesk.com; " // unsafe-eval needed for webpack-dev-server, Zendesk scripts and JSONP
+      : "script-src 'self' https://static.zdassets.com https://*.zendesk.com; ";
+
+    const styleSrc = isDevelopment
+      ? "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; " // unsafe-inline needed for style-loader and Zendesk
+      : "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; "; // Zendesk requires unsafe-inline even in production
 
     callback({
       responseHeaders: {
@@ -149,10 +158,11 @@ const createMainWindow = async (): Promise<void> => {
           "default-src 'self'; " +
           styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src 'self' data:; " + // Removed localhost wildcard for production
+          "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
           "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://browser-intake-datadoghq.com; " + // Datadog RUM intake
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
+          "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
           "form-action 'self'; " + // Restrict form submissions
@@ -187,6 +197,25 @@ const createMainWindow = async (): Promise<void> => {
     logger.setMainWindow(mainWindow);
     await syncService.initialize();
     await projectSyncService.initialize();
+
+    // Check accessibility permission on startup (macOS only)
+    // Note: Permission status is cached by macOS for the app's lifetime, so we only log once here
+    if (process.platform === 'darwin') {
+      try {
+        const hasPermission = wordAccessibility.checkPermission();
+        const appInfo = wordAccessibility.getAppInfo();
+        logger.info('[Permissions] Accessibility permission status:', {
+          granted: hasPermission,
+          bundleId: appInfo.bundleId,
+          teamId: appInfo.teamId,
+        });
+        if (!hasPermission) {
+          mainWindow?.webContents.send(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, { hasPermission: false });
+        }
+      } catch (error) {
+        logger.error('[Permissions] Error checking permission on startup:', error);
+      }
+    }
   });
 
   // Show window when ready to prevent visual flash
@@ -437,6 +466,17 @@ const createTray = (): void => {
     {
       label: `Version: ${formatTimestampVersion(app.getVersion())}`,
       enabled: false,
+    }
+  );
+
+  // Add permissions option (always present)
+  menuItems.push(
+    { type: 'separator' },
+    {
+      label: 'Request Permissions',
+      click: () => {
+        wordAccessibility.requestPermission();
+      },
     }
   );
 
@@ -707,6 +747,17 @@ app.whenReady().then(async () => {
         logger.debug('[HTTP Server] ✓ Server URL set for native popups (no auth token)');
       }
     }
+
+    // Set up native logging to same file as TypeScript logger
+    const logFilePath = logger.getLogFilePath();
+    if (logFilePath) {
+      const logSuccess = wordAccessibility.setLogFilePath(logFilePath);
+      if (logSuccess) {
+        logger.debug('[Native] ✓ Native logging initialized to:', logFilePath);
+      } else {
+        logger.warn('[Native] ✗ Failed to initialize native logging');
+      }
+    }
   } catch (error) {
     logger.error('[HTTP Server] ✗ Failed to start server:', error);
     // Initialize Word integration without server URL
@@ -913,6 +964,54 @@ ipcMain.handle(IPC_CHANNELS.DOWNLOAD_UPDATE, async () => {
   }
 });
 
+// Permission IPC handlers (macOS only)
+ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: true, hasPermission: true };
+  }
+  try {
+    const hasPermission = wordAccessibility.checkPermission();
+    return { success: true, hasPermission };
+  } catch (error: any) {
+    return { success: false, hasPermission: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: true, hasPermission: true };
+  }
+  try {
+    wordAccessibility.openAccessibilitySettings();
+    const hasPermission = wordAccessibility.checkPermission();
+    if (hasPermission) {
+      await refreshManuscriptPaths();
+    }
+    return { success: true, hasPermission };
+  } catch (error: any) {
+    return { success: false, hasPermission: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: false, error: 'Only supported on macOS' };
+  }
+  try {
+    const result = wordAccessibility.resetAndRequestPermission();
+    return { success: true, ...result };
+  } catch (error: any) {
+    return { success: false, resetSuccess: false, error: error.message };
+  }
+});
+
+// App lifecycle IPC handlers
+ipcMain.handle(IPC_CHANNELS.RESTART_APP, () => {
+  logger.info('[App] Restarting app to apply permission changes...');
+  app.relaunch();
+  app.quit();
+});
+
 ipcMain.handle('check-login', async () => {
   const result = await checkLogin();
   return result;
@@ -1040,11 +1139,57 @@ ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
   }
 });
 
+// Get watcher status for a project folder
+ipcMain.handle(IPC_CHANNELS.GET_PROJECT_WATCHER_STATUS, async (_event, projectId: number, folderId: number) => {
+  try {
+    const status = projectSyncService.getWatcherStatus(projectId, folderId);
+
+    if (!status) {
+      return {
+        watcherActive: false,
+        status: 'idle',
+        error: 'Folder not being watched'
+      };
+    }
+
+    return status;
+  } catch (error: any) {
+    logger.error('[IPC] Failed to get watcher status:', error);
+    return {
+      watcherActive: false,
+      status: 'error',
+      error: error.message
+    };
+  }
+});
+
+// Debug: Get all active watchers
+ipcMain.handle(IPC_CHANNELS.DEBUG_GET_ACTIVE_WATCHERS, async () => {
+  try {
+    const allFolders = projectSyncService.getAllWatchedFolders();
+    return {
+      success: true,
+      count: allFolders.length,
+      folders: allFolders.map(f => ({
+        projectId: f.projectId,
+        folderId: f.folderId,
+        folderPath: f.folderPath,
+        status: f.status,
+        watcherActive: f.watcher !== null
+      }))
+    };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to get active watchers:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Generic API call handler for Projects API
 ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: string; data?: any }) => {
   try {
     const { method, endpoint, data } = options;
     const client = await APIclient();
+
     // Get CSRF token for non-GET requests
     const headers: any = {};
     if (method.toUpperCase() !== 'GET') {
@@ -1414,6 +1559,21 @@ ipcMain.handle('sync-folder-now', async (_event, folderId: string) => {
     return { success: true };
   } catch (error: any) {
     logger.error('Failed to sync folder:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Reinitialize sync services after user login
+// This is needed when the app starts without a user logged in - sync services skip initialization
+// and need to be reinitialized once the user logs in
+ipcMain.handle(IPC_CHANNELS.REINITIALIZE_SYNC, async () => {
+  logger.debug('[Main] Reinitializing sync services after login');
+  try {
+    await syncService.initialize();
+    await projectSyncService.initialize();
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[Main] Failed to reinitialize sync services:', error);
     return { success: false, error: error.message };
   }
 });

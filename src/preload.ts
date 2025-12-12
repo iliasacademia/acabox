@@ -9,6 +9,7 @@ const VALID_EVENT_CHANNELS: string[] = [
   IPC_CHANNELS.INITIAL_SYNC_STATUS,
   IPC_CHANNELS.INITIAL_SYNC_PROGRESS,
   IPC_CHANNELS.PROJECT_FILE_SYNCED,
+  IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED,
   IPC_CHANNELS.SELECTION_UPDATED,
   IPC_CHANNELS.BUTTON_ACTION,
   IPC_CHANNELS.NEW_NOTIFICATION,
@@ -20,6 +21,8 @@ const VALID_EVENT_CHANNELS: string[] = [
   IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS,
   IPC_CHANNELS.UPDATE_DOWNLOADED,
   IPC_CHANNELS.UPDATE_ERROR,
+  // Permissions events
+  IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS,
 ];
 
 /**
@@ -100,5 +103,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (VALID_EVENT_CHANNELS.includes(channel)) {
       ipcRenderer.removeAllListeners(channel as any);
     }
+  },
+
+  // App lifecycle
+  restartApp: () => {
+    return ipcRenderer.invoke(IPC_CHANNELS.RESTART_APP);
   },
 });

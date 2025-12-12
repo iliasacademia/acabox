@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Conversation, listConversations } from '../../services/conversationsApi';
+import { Conversation } from '../types/conversation';
+import { useConversationsApi } from '../api/useConversationsApi';
 
 interface ConversationsSidebarProps {
   projectId: number;
@@ -8,6 +9,8 @@ interface ConversationsSidebarProps {
   onNewConversation: () => void;
   refreshTrigger?: number; // Used to trigger refresh from parent
   onConversationsLoaded?: (conversations: Conversation[]) => void;
+  /** Optional: Called when a conversation is selected (for analytics) */
+  onConversationView?: (projectId: number, conversationId: number, agentName: string) => void;
 }
 
 export function ConversationsSidebar({
@@ -17,15 +20,24 @@ export function ConversationsSidebar({
   // onNewConversation,
   refreshTrigger,
   onConversationsLoaded,
+  onConversationView,
 }: ConversationsSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, _setSearchQuery] = useState('');
 
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const conversationsRef = useRef<Conversation[]>([]);
+
+  const { listConversations } = useConversationsApi();
 
   const POLL_INTERVAL = 5000; // Poll every 5 seconds
+
+  // Keep ref in sync with state for use in polling interval
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
 
   // Load all conversations by fetching in batches if needed
   const loadConversations = async (isInitialLoad: boolean = false) => {
@@ -37,14 +49,9 @@ export function ConversationsSidebar({
       let offset = 0;
       let hasMore = true;
       const batchSize = 100; // Fetch 100 at a time
-
-      console.log('[ConversationsSidebar] Starting to load all conversations');
-
       // Keep fetching until we have all conversations
       while (hasMore) {
         const response = await listConversations(offset, projectId, batchSize);
-        console.log(`[ConversationsSidebar] Batch at offset ${offset}:`, response.conversations.length, 'conversations, has_more:', response.has_more);
-
         allConversations = [...allConversations, ...response.conversations];
         hasMore = response.has_more;
         offset += response.conversations.length;
@@ -55,17 +62,16 @@ export function ConversationsSidebar({
           break;
         }
       }
-
-      console.log('[ConversationsSidebar] Total conversations loaded:', allConversations.length);
       setConversations(allConversations);
 
       // Only notify parent on initial load (not on polling refreshes)
       if (onConversationsLoaded && allConversations.length > 0 && isInitialLoad) {
         onConversationsLoaded(allConversations);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const error = err as { message?: string };
       console.error('Failed to load conversations:', err);
-      setError(err.message || 'Failed to load conversations');
+      setError(error.message || 'Failed to load conversations');
     } finally {
       setIsLoading(false);
     }
@@ -81,23 +87,24 @@ export function ConversationsSidebar({
       // Only check for new conversations at the top, don't reset the entire list
       try {
         const response = await listConversations(0, projectId, 20);
+        const currentConversations = conversationsRef.current;
 
         // Check if there are any new conversations by comparing the first conversation ID
-        if (response.conversations.length > 0 && conversations.length > 0) {
+        if (response.conversations.length > 0 && currentConversations.length > 0) {
           const newestPolledId = response.conversations[0].id;
-          const currentNewestId = conversations[0].id;
+          const currentNewestId = currentConversations[0].id;
 
           // If there's a newer conversation, prepend only the new ones
           if (newestPolledId !== currentNewestId) {
             const newConversations = response.conversations.filter(
-              conv => !conversations.some(existing => existing.id === conv.id)
+              conv => !currentConversations.some(existing => existing.id === conv.id)
             );
 
             if (newConversations.length > 0) {
               setConversations(prev => [...newConversations, ...prev]);
             }
           }
-        } else if (response.conversations.length > 0 && conversations.length === 0) {
+        } else if (response.conversations.length > 0 && currentConversations.length === 0) {
           // If we had no conversations before and now we do, add them
           setConversations(response.conversations);
         }
@@ -161,6 +168,14 @@ export function ConversationsSidebar({
     });
   };
 
+  const handleSelectConversation = (conversation: Conversation) => {
+    // Call analytics callback if provided
+    if (onConversationView) {
+      onConversationView(projectId, conversation.id, conversation.agent_name);
+    }
+    onSelectConversation(conversation);
+  };
+
   return (
     <div className="conversationsSidebar">
       {/* Conversations List */}
@@ -200,7 +215,7 @@ export function ConversationsSidebar({
                 className={`conversationItem ${
                   selectedConversationId === conversation.id ? 'selected' : ''
                 }`}
-                onClick={() => onSelectConversation(conversation)}
+                onClick={() => handleSelectConversation(conversation)}
               >
                 <h4 className="conversationItemTitle">
                   {conversation.title || 'Untitled Conversation'}

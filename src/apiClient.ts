@@ -12,7 +12,7 @@ import { ApiLogData, DevToolsLogLevel } from './shared/types';
 
 // In development mode, default to devdemia API
 export const isDev = !app.isPackaged;
-export const DEFAULT_URL = isDev ? 'https://api.devdemia.com' : 'https://api.academia.edu';
+export const DEFAULT_URL = isDev ? 'https://api.devdemia.com/' : 'https://api.academia.edu/';
 export const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 
 let apiClient: AxiosInstance | null = null;
@@ -243,8 +243,7 @@ export const login = async (email: string, password: string) => {
         // Previous code wrote to /tmp/wtf.html which was world-readable
         if (error.response) {
           logger.error('Login error status:', error.response.status);
-          logger.error('Login error headers:', error.response.headers);
-          // Log only non-sensitive error info to console
+          // Do NOT log headers - may contain sensitive tokens/cookies
         }
       }
       throw error;

@@ -114,6 +114,11 @@ interface NativeModule {
   getSelectedText(): SelectedText | null;
   getFirstTextAreaInfo(): FirstTextAreaInfo | null;
   checkPermission(): boolean;
+  requestPermission(): boolean;
+  openAccessibilitySettings(): void;
+  resetAndRequestPermission(): { resetSuccess: boolean; bundleId: string };
+  getAppInfo(): { bundleId: string; executablePath: string; teamId: string };
+  setLogFilePath(path: string): boolean;
   setPopupPath(path: string): boolean;
   setServerBaseUrl(url: string): boolean;
   setAuthToken(token: string): boolean;
@@ -207,6 +212,47 @@ export class WordAccessibilityBridge {
       throw new Error('Native module not loaded');
     }
     return nativeModule.checkPermission();
+  }
+
+  requestPermission(): boolean {
+    if (!nativeModule) {
+      return false;
+    }
+    return nativeModule.requestPermission();
+  }
+
+  openAccessibilitySettings(): void {
+    if (!nativeModule) {
+      return;
+    }
+    nativeModule.openAccessibilitySettings();
+  }
+
+  resetAndRequestPermission(): { resetSuccess: boolean; bundleId: string } {
+    if (!nativeModule) {
+      return { resetSuccess: false, bundleId: '(native module not loaded)' };
+    }
+    return nativeModule.resetAndRequestPermission();
+  }
+
+  getAppInfo(): { bundleId: string; executablePath: string; teamId: string } {
+    if (!nativeModule) {
+      return { bundleId: '(native module not loaded)', executablePath: '(native module not loaded)', teamId: '(native module not loaded)' };
+    }
+    return nativeModule.getAppInfo();
+  }
+
+  setLogFilePath(logFilePath: string): boolean {
+    if (!nativeModule) {
+      logger.error('[WordAccessibility] Failed to set log file path: Native module not loaded');
+      return false;
+    }
+    try {
+      return nativeModule.setLogFilePath(logFilePath);
+    } catch (error) {
+      logger.error('[WordAccessibility] Failed to set log file path:', error);
+      return false;
+    }
   }
 
   // ============================================================================

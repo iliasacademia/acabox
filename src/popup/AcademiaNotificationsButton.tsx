@@ -7,9 +7,9 @@ import './AcademiaNotificationsButton.css';
 // Initialize bridge early
 getBridgeInstance('academia-notifications-button');
 
-// Parse serverUrl from query params (passed by native bridge)
-const urlParams = new URLSearchParams(window.location.search);
-const serverUrl = urlParams.get('serverUrl') || 'http://127.0.0.1:23111';
+// Get serverUrl from window.location.origin (popup is served from the HTTP server)
+// This ensures we use the correct port even when server binds to fallback port
+const serverUrl = window.location.origin;
 
 interface AcademiaNotificationsButtonProps {
   apiBaseUrl?: string;

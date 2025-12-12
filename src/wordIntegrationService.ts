@@ -36,6 +36,9 @@ class WordIntegrationService {
   // Navigation handler callback (set by main.ts)
   private navigationHandler: ((payload: { page: string; projectId: number; conversationId: number }) => void) | null = null;
 
+  // Track if we've already prompted for accessibility permission
+  private hasPromptedForPermission = false;
+
   /**
    * Initialize Word integration.
    * - Sets feature flags for native components
@@ -253,6 +256,11 @@ class WordIntegrationService {
     }
 
     if (!wordAccessibility.checkPermission()) {
+      if (!this.hasPromptedForPermission) {
+        logger.warn('[WORD-INTEGRATION] Accessibility permission not granted, prompting user...');
+        this.hasPromptedForPermission = true;
+        wordAccessibility.requestPermission();
+      }
       return;
     }
 

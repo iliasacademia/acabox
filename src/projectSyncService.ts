@@ -94,7 +94,12 @@ class ProjectSyncService {
     logger.debug(`[ProjectSync] Found ${state.length} persisted folders`);
 
     // Check if user is logged in
-    const isLoggedIn = await checkLogin();
+    let isLoggedIn = false;
+    try {
+      isLoggedIn = await checkLogin();
+    } catch (error) {
+      logger.warn('[ProjectSync] Failed to check login status, skipping initialization:', error);
+    }
     if (!isLoggedIn) {
       logger.debug('[ProjectSync] User not logged in, skipping initialization');
       return;
@@ -140,13 +145,20 @@ class ProjectSyncService {
       logger.debug(`[ProjectSync] Updated persisted state: ${validatedFolders.length} valid folders`);
     }
 
-    // Perform startup sync for each validated folder (async, non-blocking)
-    if (validatedFolders.length > 0) {
-      logger.debug(`[ProjectSync] Starting async startup sync for ${validatedFolders.length} folders`);
+    // Try to restore any folders from backend that aren't in local state
+    // This handles new machine login or cleared app data scenarios
+    await this.restoreFoldersFromBackend();
+
+    // Get all currently watched folders for startup sync (includes newly restored ones)
+    const allWatchedFolders = Array.from(this.watchedFolders.values());
+
+    // Perform startup sync for each watched folder (async, non-blocking)
+    if (allWatchedFolders.length > 0) {
+      logger.debug(`[ProjectSync] Starting async startup sync for ${allWatchedFolders.length} folders`);
 
       // Don't await - let startup sync happen in background
       Promise.all(
-        validatedFolders.map(folder =>
+        allWatchedFolders.map(folder =>
           this.performStartupSync(
             folder.projectId,
             folder.folderId,
@@ -268,12 +280,28 @@ class ProjectSyncService {
     watcher.on('ready', () => {
       logger.debug(`[ProjectSync] ✅ Watcher is ready and actively watching: ${folderPath}`);
       logger.debug(`[ProjectSync] Watched paths:`, watcher.getWatched());
+
+      // Broadcast watcher status change
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: true,
+        status: watchedFolder.status,
+      });
     });
 
     watcher.on('error', (error) => {
       logger.error(`[ProjectSync] ❌ Watcher error for ${folderPath}:`, error);
       watchedFolder.status = 'error';
       this.sendSyncStatus(projectId, folderId, folderPath);
+
+      // Broadcast watcher status change
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: false,
+        status: 'error',
+      });
     });
 
     logger.debug(`[ProjectSync] Watcher events registered for ${folderPath}`);
@@ -357,15 +385,91 @@ class ProjectSyncService {
     watcher.on('ready', () => {
       logger.debug(`[ProjectSync] ✅ Watcher is ready and actively watching: ${folderPath}`);
       logger.debug(`[ProjectSync] Watched paths:`, watcher.getWatched());
+
+      // Broadcast watcher status change
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: true,
+        status: watchedFolder.status,
+      });
     });
 
     watcher.on('error', (error) => {
       logger.error(`[ProjectSync] ❌ Watcher error for ${folderPath}:`, error);
       watchedFolder.status = 'error';
       this.sendSyncStatus(projectId, folderId, folderPath);
+
+      // Broadcast watcher status change
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: false,
+        status: 'error',
+      });
     });
 
     logger.debug(`[ProjectSync] Watcher started: ${folderPath}`);
+  }
+
+  /**
+   * Fetch all project folders from backend and restore sync for those that exist locally
+   * This handles the case where user logs in on a new machine or after clearing app data
+   */
+  private async restoreFoldersFromBackend(): Promise<void> {
+    try {
+      const client = await APIclient();
+
+      // 1. Fetch all user's projects
+      const projectsResponse = await client.get('v0/co_scientist/projects');
+      const projects = projectsResponse.data?.projects || [];
+
+      if (projects.length === 0) {
+        logger.debug('[ProjectSync] No projects found on backend');
+        return;
+      }
+
+      logger.debug(`[ProjectSync] Found ${projects.length} projects on backend, checking for folders...`);
+
+      // 2. Fetch folders for each project
+      let restoredCount = 0;
+      for (const project of projects) {
+        try {
+          const foldersResponse = await client.get(`v0/co_scientist/projects/${project.id}/folders`);
+          const folders = foldersResponse.data?.folders || [];
+
+          for (const folder of folders) {
+            // 3. Check if the local folder still exists
+            if (!fs.existsSync(folder.folder_path)) {
+              logger.debug(`[ProjectSync] Skipping folder (not on local machine): ${folder.folder_path}`);
+              continue;
+            }
+
+            // 4. Check if already watching
+            const key = `${project.id}-${folder.id}`;
+            if (this.watchedFolders.has(key)) {
+              continue;
+            }
+
+            // 5. Start watching this folder
+            await this.startWatchingOnly(project.id, folder.id, folder.folder_path);
+            restoredCount++;
+            logger.debug(`[ProjectSync] Restored folder from backend: ${folder.folder_path}`);
+          }
+        } catch (error) {
+          logger.error(`[ProjectSync] Failed to fetch folders for project ${project.id}:`, error);
+        }
+      }
+
+      if (restoredCount > 0) {
+        this.persistState();
+        logger.info(`[ProjectSync] Restored ${restoredCount} folders from backend`);
+      } else {
+        logger.debug('[ProjectSync] No new folders to restore from backend');
+      }
+    } catch (error) {
+      logger.error('[ProjectSync] Failed to restore folders from backend:', error);
+    }
   }
 
   /**
@@ -387,6 +491,14 @@ class ProjectSyncService {
 
     // Persist state
     this.persistState();
+
+    // Broadcast watcher status change
+    this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+      projectId,
+      folderId,
+      watcherActive: false,
+      status: 'idle',
+    });
 
     logger.debug(`[ProjectSync] Stopped watching folder for project ${projectId}, folder ${folderId}`);
   }
@@ -432,7 +544,7 @@ class ProjectSyncService {
 
       // Get backend file list with checksums
       const client = await APIclient();
-      const filesResponse = await client.get(`/v0/co_scientist/projects/${projectId}/files`);
+      const filesResponse = await client.get(`v0/co_scientist/projects/${projectId}/files`);
       const backendFiles = filesResponse.data?.files || [];
 
       // Build remote file map: relativePath -> { checksum, id }
@@ -760,7 +872,7 @@ class ProjectSyncService {
 
     // Upload file
     const response = await client.post(
-      `/v0/co_scientist/projects/${projectId}/files`,
+      `v0/co_scientist/projects/${projectId}/files`,
       formData,
       {
         headers: {
@@ -788,7 +900,20 @@ class ProjectSyncService {
       const watchedFolder = this.watchedFolders.get(key);
       const manuscriptPath = watchedFolder?.manuscriptPath;
 
+      // Set status to syncing and broadcast
+      if (watchedFolder) {
+        watchedFolder.status = 'syncing';
+        this.sendSyncStatus(projectId, folderId, folderPath);
+      }
+
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
+
+      // Set status to synced and broadcast
+      if (watchedFolder) {
+        watchedFolder.status = 'synced';
+        watchedFolder.lastSync = new Date().toISOString();
+        this.sendSyncStatus(projectId, folderId, folderPath);
+      }
 
       this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
         projectId,
@@ -822,9 +947,22 @@ class ProjectSyncService {
       logger.debug(`[ProjectSync]   Manuscript path: ${manuscriptPath || 'none'}`);
       logger.debug(`[ProjectSync]   Is manuscript: ${filePath === manuscriptPath}`);
 
+      // Set status to syncing and broadcast
+      if (watchedFolder) {
+        watchedFolder.status = 'syncing';
+        this.sendSyncStatus(projectId, folderId, folderPath);
+      }
+
       logger.debug(`[ProjectSync] Syncing file to backend...`);
       await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
       logger.debug(`[ProjectSync] ✓ File synced successfully to backend`);
+
+      // Set status to synced and broadcast
+      if (watchedFolder) {
+        watchedFolder.status = 'synced';
+        watchedFolder.lastSync = new Date().toISOString();
+        this.sendSyncStatus(projectId, folderId, folderPath);
+      }
 
       const eventData = {
         projectId,
@@ -923,6 +1061,37 @@ class ProjectSyncService {
     for (const folder of folders) {
       await this.stopWatching(folder.projectId, folder.folderId);
     }
+  }
+
+  /**
+   * Get watcher status for a specific folder
+   */
+  getWatcherStatus(projectId: number, folderId: number): {
+    watcherActive: boolean;
+    status: 'idle' | 'syncing' | 'synced' | 'error';
+    fileCount: number;
+    lastSync: string | null;
+  } | null {
+    const key = `${projectId}-${folderId}`;
+    const folder = this.watchedFolders.get(key);
+
+    if (!folder) {
+      return null;
+    }
+
+    return {
+      watcherActive: folder.watcher !== null,
+      status: folder.status,
+      fileCount: folder.fileCount,
+      lastSync: folder.lastSync,
+    };
+  }
+
+  /**
+   * Get all watched folders (for debugging)
+   */
+  getAllWatchedFolders(): WatchedProjectFolder[] {
+    return Array.from(this.watchedFolders.values());
   }
 }
 

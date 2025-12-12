@@ -1,0 +1,50 @@
+.statusBar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  background: #f5f5f5;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  font-size: 12px;
+  color: #666;
+  z-index: 100;
+}
+
+.statusBar__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.statusBar__icon {
+  font-size: 10px;
+}
+
+.statusBar__text {
+  font-weight: 500;
+}
+
+.statusBar__timestamp {
+  color: #999;
+  margin-left: 8px;
+  font-size: 11px;
+}
+
+.statusBar--offline {
+  background: #fff3cd;
+  border-top-color: #ffc107;
+}
+
+.statusBar--checking {
+  background: #e7f3ff;
+  border-top-color: #2196f3;
+}
+
+/* Add padding to app content to prevent overlap */
+.has-status-bar {
+  padding-bottom: 28px;
+}
