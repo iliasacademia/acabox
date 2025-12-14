@@ -1139,6 +1139,26 @@ ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
   }
 });
 
+ipcMain.handle('refresh-manuscript-paths', async () => {
+  try {
+    await refreshManuscriptPaths();
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to refresh manuscript paths:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('clear-notifications-for-project', async (_event, projectId: number) => {
+  try {
+    notificationManager.clearNotificationsForProject(projectId);
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to clear notifications for project:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Get watcher status for a project folder
 ipcMain.handle(IPC_CHANNELS.GET_PROJECT_WATCHER_STATUS, async (_event, projectId: number, folderId: number) => {
   try {

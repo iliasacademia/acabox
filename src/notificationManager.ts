@@ -416,6 +416,23 @@ class NotificationManager {
   }
 
   /**
+   * Clear notifications for a specific project (for project deletion)
+   */
+  clearNotificationsForProject(projectId: number): void {
+    const toDelete: number[] = [];
+
+    for (const [id, notif] of this.notifications) {
+      if (notif.project_id === projectId) {
+        toDelete.push(id);
+      }
+    }
+
+    for (const id of toDelete) {
+      this.notifications.delete(id);
+    }
+  }
+
+  /**
    * Get current user ID (for badge updates)
    */
   getCurrentUserId(): number | null {
