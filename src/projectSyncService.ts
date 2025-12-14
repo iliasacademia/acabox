@@ -656,6 +656,13 @@ class ProjectSyncService {
 
       logger.debug(`[ProjectSync-Startup] Complete: ${syncedCount} synced, ${errorCount} errors`);
     } catch (error: any) {
+      // If project no longer exists (404), stop watching and clean up
+      if (error?.response?.status === 404 || error?.status === 404) {
+        logger.warn(`[ProjectSync-Startup] Project ${projectId} no longer exists (404), stopping watcher`);
+        await this.stopWatching(projectId, folderId);
+        return;
+      }
+
       logger.error(`[ProjectSync-Startup] Error for project ${projectId}, folder ${folderId}:`, error);
       folder.status = 'error';
       this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {

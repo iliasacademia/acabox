@@ -1257,6 +1257,40 @@ Napi::Value IsObservingPID(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, isObserving);
 }
 
+Napi::Value GetActiveDocumentPath(const Napi::CallbackInfo& info) {
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 1 || !info[0].IsNumber()) {
+        Napi::TypeError::New(env, "Expected (pid: number)").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    int32_t pid = info[0].As<Napi::Number>().Int32Value();
+    NSNumber* pidKey = @(pid);
+
+    initializeRegistry();
+
+    // Find observer for this PID
+    WordAccessibilityObserver* observer = observerRegistry[pidKey];
+    if (!observer) {
+        // Fallback: If not explicitly observing this PID but global observer exists (legacy), use that
+        if (globalObserver && [globalObserver getWordPID] == pid) {
+            observer = globalObserver;
+        } else {
+            return env.Null();
+        }
+    }
+
+    MicrosoftWordAdapter* adapter = [observer getWordAdapter];
+    NSString* path = [adapter getActiveDocumentPath];
+
+    if (!path) {
+        return env.Null();
+    }
+
+    return Napi::String::New(env, [path UTF8String]);
+}
+
 // ============================================================================
 // Legacy Single-Observer API (getter functions use globalObserver for backward compat)
 // ============================================================================
@@ -1739,6 +1773,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
     exports.Set("getParentHierarchy", Napi::Function::New(env, GetParentHierarchy));
     exports.Set("getButtonStates", Napi::Function::New(env, GetButtonStates));
     exports.Set("getScrollAreaBounds", Napi::Function::New(env, GetScrollAreaBounds));
+    exports.Set("getActiveDocumentPath", Napi::Function::New(env, GetActiveDocumentPath));
     return exports;
 }
 

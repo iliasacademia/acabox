@@ -13,86 +13,49 @@ const serverUrl = window.location.origin;
 
 // Generate unique instance ID for logging (uses PID from URL or random ID)
 const urlParams = new URLSearchParams(window.location.search);
-const instanceId = `AcademiaNotificationsButton-${urlParams.get('pid') || Math.random().toString(36).substring(2, 8)}`;
+const pidParam = urlParams.get('pid');
+const instanceId = `AcademiaNotificationsButton-${pidParam || Math.random().toString(36).substring(2, 8)}`;
 
 interface AcademiaNotificationsButtonProps {
   apiBaseUrl?: string;
+}
+
+// Define response type locally to avoid importing server types in client code
+interface WordPollResponse {
+  shouldShow: boolean;
+  projectId?: number;
+  projectFileId?: number;
+  notificationCount: number;
+  isActive: boolean;
 }
 
 const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = ({
   apiBaseUrl = serverUrl
 }) => {
   const [badgeCount, setBadgeCount] = useState<number>(0);
-  const [projectFileId, setProjectFileId] = useState<number | null>(null);
-  const [isInitialized, setIsInitialized] = useState<boolean>(false);
+  const [shouldShow, setShouldShow] = useState<boolean>(false);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const { sendRequest, loading } = useSendMessage();
   const isReady = useBridgeReady();
 
-  // Extract PID from URL and fetch project_file_id on mount
+  // Extract Token from URL
+  const tokenParam = urlParams.get('token');
+
   useEffect(() => {
-    const fetchProjectFileId = async () => {
-      try {
-        // Extract PID and token from URL query params
-        const urlParams = new URLSearchParams(window.location.search);
-        const pid = urlParams.get('pid');
-        const token = urlParams.get('token');
+    if (tokenParam) setAuthToken(tokenParam);
+  }, [tokenParam]);
 
-        if (token) {
-          setAuthToken(token);
-        }
-
-        if (!pid) {
-          console.warn('[AcademiaNotificationsButton] No PID in URL query params - badge will be hidden');
-          setIsInitialized(true);
-          return;
-        }
-
-        // Fetch project file info from /word/:pid/project_file
-        const response = await fetch(`${apiBaseUrl}/word/${pid}/project_file`);
-
-        if (!response.ok) {
-          console.error('[AcademiaNotificationsButton] Failed to fetch project_file:', response.status);
-          setIsInitialized(true);
-          return;
-        }
-
-        const data = await response.json();
-        console.log(`[AcademiaNotificationsButton:${instanceId}] Got project_file_id from /word/:pid/project_file`, {
-          pid,
-          project_file_id: data.project_file_id,
-          project_id: data.project_id,
-        });
-        setProjectFileId(data.project_file_id);
-        setIsInitialized(true);
-      } catch (error) {
-        console.error('[AcademiaNotificationsButton] Error fetching project_file:', error);
-        setIsInitialized(true);
-      }
-    };
-
-    fetchProjectFileId();
-  }, [apiBaseUrl]);
-
-  // Polling logic - fetch filtered notification count every 10 seconds
-  // Only starts after initialization (project_file_id fetch attempt completed)
+  // Polling logic - poll /word/:pid/poll every 3 seconds
   useEffect(() => {
-    // Don't start polling until initialized
-    if (!isInitialized) {
+    if (!pidParam) {
+      console.warn('[AcademiaNotificationsButton] No PID in URL query params - hiding button');
+      setShouldShow(false);
       return;
     }
 
-    // If no project_file_id, don't poll - keep badge hidden
-    if (projectFileId === null) {
-      setBadgeCount(0);
-      return;
-    }
-
-    const fetchNotificationCount = async () => {
+    const poll = async () => {
       try {
-        // Include project_file_id filter in the request
-        const url = `${apiBaseUrl}/api/notifications/count?project_file_id=${projectFileId}`;
-
+        const url = `${apiBaseUrl}/word/${pidParam}/poll`;
         const headers: Record<string, string> = {
           'Accept': 'application/json',
           'X-Instance-Id': instanceId,
@@ -101,61 +64,34 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
           headers['Authorization'] = `Bearer ${authToken}`;
         }
 
-        const response = await fetch(url, {
-          method: 'GET',
-          headers,
-        });
-
+        const response = await fetch(url, { headers });
         if (!response.ok) {
-          console.error('[AcademiaNotificationsButton] HTTP error:', response.status, await response.text());
-          return;
+           // If 404 or other error, assume should hide
+           setShouldShow(false);
+           return;
         }
 
-        const data = await response.json();
+        const data: WordPollResponse = await response.json();
+        
+        // Update state
+        setShouldShow(data.shouldShow);
+        // Use actual count (or binary if preferred, but usually count is better if supported)
+        // Previous logic forced 1, but we'll use actual count here as it's more informative
+        setBadgeCount(data.notificationCount);
 
-        // Get notifications array from response and count client-side
-        const notifications = data.notifications || [];
-        const count = notifications.length;
-
-        // Log the response for debugging
-        console.log(`[AcademiaNotificationsButton:${instanceId}] Notification count response`, {
-          projectFileIdFilter: projectFileId,
-          totalFromApi: data.total,
-          unreadFromApi: data.unread,
-          notificationsCount: count,
-          notificationIds: notifications.map((n: any) => n.id),
-          notificationProjectFileIds: notifications.map((n: any) => n.project_file_id),
-        });
-
-        // Badge shows 1 if any matching notifications exist, 0 otherwise
-        const newBadgeCount = count > 0 ? 1 : 0;
-        setBadgeCount((prevCount) => {
-          if (prevCount !== newBadgeCount) {
-            console.log(`[AcademiaNotificationsButton:${instanceId}] Badge count changed`, {
-              from: prevCount,
-              to: newBadgeCount,
-              projectFileId,
-              notificationCount: count,
-            });
-          }
-          return newBadgeCount;
-        });
       } catch (error) {
-        console.error('[AcademiaNotificationsButton] Error fetching notification count:', error);
+        console.error('[AcademiaNotificationsButton] Poll failed:', error);
       }
     };
 
-    // Fetch immediately
-    fetchNotificationCount();
+    // Poll immediately
+    poll();
 
-    // Set up polling interval (3 seconds)
-    const intervalId = setInterval(fetchNotificationCount, 3000);
+    // Set interval (3 seconds)
+    const intervalId = setInterval(poll, 3000);
 
-    // Cleanup on unmount
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [apiBaseUrl, projectFileId, isInitialized, authToken]);
+    return () => clearInterval(intervalId);
+  }, [apiBaseUrl, pidParam, authToken]);
 
   const handleClick = async () => {
     try {
@@ -164,6 +100,11 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
       console.error('[AcademiaNotificationsButton] Click failed:', err);
     }
   };
+
+  // If should not show, return null to render nothing
+  if (!shouldShow) {
+      return null;
+  }
 
   // Format badge count (show "9+" for counts > 9)
   const displayCount = badgeCount > 9 ? '9+' : badgeCount.toString();
