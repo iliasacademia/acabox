@@ -260,6 +260,9 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
       onConfirm: async () => {
         setDialog({ type: null, title: '', message: '' });
         try {
+          // Clean up local sync state before deleting from backend
+          await window.electronAPI.invoke('stop-project-sync', project.id);
+
           const success = await deleteProject(project.id);
           if (success) {
             setProjects(projects.filter((p) => p.id !== project.id));
