@@ -6,9 +6,9 @@
 @implementation AcademiaNotificationsButton
 
 - (instancetype)initWithObserver:(WordAccessibilityObserver*)observer {
-    // Create webview-based button - small size for circular button with badge
-    CGFloat width = 30.0;   // 24px button + 6px badge overhang
-    CGFloat height = 30.0;  // 24px button + 6px badge overhang
+    // Create webview-based button - size for rectangular "Feedback" button with badge
+    CGFloat width = 150.0;   // ~130px button + 20px badge overhang
+    CGFloat height = 50.0;   // 32px button + 18px badge overhang
 
     // Call base class initializer
     self = [super initWithSize:CGSizeMake(width, height)
@@ -202,9 +202,9 @@
         return;
     }
 
-    // Button dimensions (30x30 to accommodate button + badge)
-    CGFloat windowWidth = 40.0;
-    CGFloat windowHeight = 40.0;
+    // Button dimensions (150x50 to accommodate rectangular "Feedback" button + badge)
+    CGFloat windowWidth = 150.0;
+    CGFloat windowHeight = 50.0;
 
     // Margins from scroll area edges
     CGFloat leftMargin = 50.0;   // Space from left edge of scroll area
