@@ -1139,6 +1139,26 @@ ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
   }
 });
 
+ipcMain.handle('refresh-manuscript-paths', async () => {
+  try {
+    await refreshManuscriptPaths();
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to refresh manuscript paths:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle('clear-notifications-for-project', async (_event, projectId: number) => {
+  try {
+    notificationManager.clearNotificationsForProject(projectId);
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to clear notifications for project:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 // Get watcher status for a project folder
 ipcMain.handle(IPC_CHANNELS.GET_PROJECT_WATCHER_STATUS, async (_event, projectId: number, folderId: number) => {
   try {
@@ -1218,13 +1238,13 @@ ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: s
     return response.data;
   } catch (error: any) {
     const fullUrl = error.config?.baseURL + error.config?.url;
-    logger.error(`[API] ${options.method} ${options.endpoint} failed:`, {
+    logger.error(`[API] ${options.method} ${options.endpoint} failed: ${JSON.stringify({
       url: fullUrl,
       status: error.response?.status,
       statusText: error.response?.statusText,
       message: error.message,
       data: error.response?.data,
-    });
+    })}`);
 
     // Re-throw with response data embedded in error message for IPC serialization
     // IPC can't serialize custom properties, so we include error details in the message
@@ -1233,6 +1253,8 @@ ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: s
       let backendError = null;
       if (error.response.data?.error) {
         backendError = error.response.data.error;
+      } else if (error.response.data?.message) {
+        backendError = error.response.data.message;
       } else if (error.response.data?.errors) {
         const errors = error.response.data.errors;
         if (Array.isArray(errors)) {

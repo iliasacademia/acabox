@@ -235,6 +235,11 @@ class ProjectSyncService {
           logger.debug(`[ProjectSync] Ignoring hidden file: ${filePath}`);
           return true;
         }
+        // Ignore Word temporary lock files (starting with ~$)
+        if (basename.startsWith('~$')) {
+          logger.debug(`[ProjectSync] Ignoring temporary Word file: ${filePath}`);
+          return true;
+        }
         // Ignore directories
         if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
           return false;
@@ -338,6 +343,11 @@ class ProjectSyncService {
         // Ignore hidden files (starting with .)
         if (basename.startsWith('.')) {
           logger.debug(`[ProjectSync] Ignoring hidden file: ${filePath}`);
+          return true;
+        }
+        // Ignore Word temporary lock files (starting with ~$)
+        if (basename.startsWith('~$')) {
+          logger.debug(`[ProjectSync] Ignoring temporary Word file: ${filePath}`);
           return true;
         }
         // Ignore directories
@@ -773,6 +783,8 @@ class ProjectSyncService {
         for (const item of items) {
           // Skip hidden files/folders
           if (item.startsWith('.')) continue;
+          // Skip Word temporary lock files (~$filename.docx)
+          if (item.startsWith('~$')) continue;
 
           const fullPath = path.join(currentPath, item);
 

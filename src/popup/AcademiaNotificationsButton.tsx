@@ -11,6 +11,10 @@ getBridgeInstance('academia-notifications-button');
 // This ensures we use the correct port even when server binds to fallback port
 const serverUrl = window.location.origin;
 
+// Generate unique instance ID for logging (uses PID from URL or random ID)
+const urlParams = new URLSearchParams(window.location.search);
+const instanceId = `AcademiaNotificationsButton-${urlParams.get('pid') || Math.random().toString(36).substring(2, 8)}`;
+
 interface AcademiaNotificationsButtonProps {
   apiBaseUrl?: string;
 }
@@ -54,6 +58,11 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
         }
 
         const data = await response.json();
+        console.log(`[AcademiaNotificationsButton:${instanceId}] Got project_file_id from /word/:pid/project_file`, {
+          pid,
+          project_file_id: data.project_file_id,
+          project_id: data.project_id,
+        });
         setProjectFileId(data.project_file_id);
         setIsInitialized(true);
       } catch (error) {
@@ -86,6 +95,7 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
 
         const headers: Record<string, string> = {
           'Accept': 'application/json',
+          'X-Instance-Id': instanceId,
         };
         if (authToken) {
           headers['Authorization'] = `Bearer ${authToken}`;
@@ -107,8 +117,29 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
         const notifications = data.notifications || [];
         const count = notifications.length;
 
+        // Log the response for debugging
+        console.log(`[AcademiaNotificationsButton:${instanceId}] Notification count response`, {
+          projectFileIdFilter: projectFileId,
+          totalFromApi: data.total,
+          unreadFromApi: data.unread,
+          notificationsCount: count,
+          notificationIds: notifications.map((n: any) => n.id),
+          notificationProjectFileIds: notifications.map((n: any) => n.project_file_id),
+        });
+
         // Badge shows 1 if any matching notifications exist, 0 otherwise
-        setBadgeCount(count > 0 ? 1 : 0);
+        const newBadgeCount = count > 0 ? 1 : 0;
+        setBadgeCount((prevCount) => {
+          if (prevCount !== newBadgeCount) {
+            console.log(`[AcademiaNotificationsButton:${instanceId}] Badge count changed`, {
+              from: prevCount,
+              to: newBadgeCount,
+              projectFileId,
+              notificationCount: count,
+            });
+          }
+          return newBadgeCount;
+        });
       } catch (error) {
         console.error('[AcademiaNotificationsButton] Error fetching notification count:', error);
       }

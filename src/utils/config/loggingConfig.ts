@@ -16,6 +16,10 @@ export function getChannelFromVersion(): 'stable' | 'beta' {
  * - Datadog cloud logging
  * - Default metadata attached to all logs
  */
+// Temporary flag to enable debug logs to Datadog for troubleshooting
+// Set to true to enable, false to disable
+export const DATADOG_DEBUG_LOGS_ENABLED = true;
+
 export const LOGGING_CONFIG = {
   // Development logging toggles
   devToolsLogging: true, // Send logs to renderer DevTools console
