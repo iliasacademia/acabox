@@ -59,14 +59,9 @@ class NotificationManager {
   private pollingInterval: NodeJS.Timeout | null = null;
   private currentUserId: number | null = null;
   private isSyncing = false;
-  private onSyncComplete: ((userId: number) => void) | null = null;
 
   setMainWindow(window: BrowserWindow | null) {
     this.mainWindow = window;
-  }
-
-  setOnSyncComplete(callback: (userId: number) => void) {
-    this.onSyncComplete = callback;
   }
 
   /**
@@ -88,10 +83,16 @@ class NotificationManager {
    */
   async syncWithBackend(userId: number): Promise<void> {
     if (this.isSyncing) {
+      logger.debug('[NotificationManager] Sync already in progress, skipping');
       return;
     }
 
     this.isSyncing = true;
+    logger.info('[NotificationManager] Starting sync', {
+      userId,
+      cacheSize: this.notifications.size,
+    });
+
     try {
       // Get latest timestamp from cache for incremental sync
       const latestCreatedAt = this.getLatestCreatedAt();
@@ -101,6 +102,11 @@ class NotificationManager {
 
       const response = await getNotifications(afterParam);
       const fetchedAt = Date.now();
+
+      logger.info('[NotificationManager] Fetched from backend', {
+        fetchedCount: response.notifications.length,
+        afterParam: afterParam || 'none (full sync)',
+      });
 
       // Get existing notification IDs
       const existingIds = new Set<number>();
@@ -137,6 +143,15 @@ class NotificationManager {
 
       // Sync local changes to backend
       await this.syncLocalChangesToBackend();
+
+      // Log new notifications that will trigger desktop popups
+      if (newNotifications.length > 0) {
+        logger.info('[NotificationManager] New notifications to show as popups', {
+          count: newNotifications.length,
+          ids: newNotifications.map(n => n.id),
+          projectFileIds: newNotifications.map(n => n.project_file_id),
+        });
+      }
 
       // Notify renderer about new notifications and mark as delivered
       if (newNotifications.length > 0 && this.mainWindow) {
@@ -187,12 +202,14 @@ class NotificationManager {
         logger.warn(`[NotificationManager] Have ${newNotifications.length} new notifications but mainWindow is not set!`);
       }
 
-      // Notify listeners that sync is complete (for badge updates, etc.)
-      if (this.onSyncComplete) {
-        this.onSyncComplete(userId);
-      } else {
-        logger.warn(`[NotificationManager] onSyncComplete callback is NOT set!`);
-      }
+      // Log sync completion with final state
+      const undismissedNotifs = Array.from(this.notifications.values()).filter(n => n.status !== 'dismissed');
+      logger.info('[NotificationManager] Sync complete', {
+        totalCached: this.notifications.size,
+        undismissedCount: undismissedNotifs.length,
+        unreadCount: undismissedNotifs.filter(n => n.status === 'unread').length,
+        projectFileIds: [...new Set(undismissedNotifs.map(n => n.project_file_id))],
+      });
     } catch (_error: unknown) {
       logger.error('Failed to sync notifications:', _error);
     } finally {

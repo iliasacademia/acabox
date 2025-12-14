@@ -152,10 +152,18 @@ export async function registerNotificationRoutes(
 
       const { project_file_id } = request.query;
       const projectFileIdNum = project_file_id ? parseInt(project_file_id, 10) : undefined;
+      const instanceId = request.headers['x-instance-id'] || 'unknown';
+
+      logger.info('[Notifications API] GET /api/notifications/count request', {
+        instanceId,
+        userId,
+        projectFileIdFilter: projectFileIdNum ?? 'none',
+      });
 
       try {
         // Get undismissed notifications (both unread and read)
         let undismissed = notificationManager.getUndismissedNotifications(userId);
+        const beforeFilterCount = undismissed.length;
 
         // Filter by project_file_id if provided
         if (projectFileIdNum !== undefined && !isNaN(projectFileIdNum)) {
@@ -175,6 +183,18 @@ export async function registerNotificationRoutes(
           unread: unreadCount,
           read: readCount,
         };
+
+        logger.info('[Notifications API] GET /api/notifications/count response', {
+          instanceId,
+          userId,
+          projectFileIdFilter: projectFileIdNum ?? 'none',
+          beforeFilter: beforeFilterCount,
+          afterFilter: undismissed.length,
+          unread: unreadCount,
+          read: readCount,
+          notificationIds: undismissed.map((n: CachedNotification) => n.id),
+          notificationProjectFileIds: undismissed.map((n: CachedNotification) => n.project_file_id),
+        });
 
         reply.send(response);
       } catch (error) {

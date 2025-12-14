@@ -13,6 +13,10 @@ console.log('[AcademiaNotificationsPopup] Platform:', window.__messageBridge?.ge
 // This ensures we use the correct port even when server binds to fallback port
 const serverUrl = window.location.origin;
 
+// Generate unique instance ID for logging (uses PID from URL or random ID)
+const popupUrlParams = new URLSearchParams(window.location.search);
+const popupInstanceId = `AcademiaNotificationsPopup-${popupUrlParams.get('pid') || Math.random().toString(36).substring(2, 8)}`;
+
 // Height constants matching native window sizes
 const POPUP_HEIGHT_DEFAULT = 280;      // 2 sections (short + full review)
 const POPUP_HEIGHT_WITH_NOTIF = 400;   // 3 sections (new review + short + full)
@@ -261,7 +265,9 @@ const AcademiaNotificationsPopup: React.FC = () => {
     try {
       console.log(`[AcademiaNotificationsPopup] Checking notifications for file ${fileId}`);
 
-      const headers: Record<string, string> = {};
+      const headers: Record<string, string> = {
+        'X-Instance-Id': popupInstanceId,
+      };
       if (authToken) {
         headers['Authorization'] = `Bearer ${authToken}`;
       }
