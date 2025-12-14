@@ -5,7 +5,7 @@ import {
   DevToolsLogPayload,
 } from '../shared/types';
 import { logLayer, devToolsTransport, getLogFilePath } from './logLayer';
-import { LOGGING_CONFIG } from './config/loggingConfig';
+import { LOGGING_CONFIG, DATADOG_DEBUG_LOGS_ENABLED } from './config/loggingConfig';
 import { sanitizeForIpc } from './transports/devToolsTransport';
 
 // Re-export for backward compatibility
@@ -134,14 +134,17 @@ export class Logger {
   }
 
   /**
-   * Log a debug message (development only)
+   * Log a debug message
+   * Sent to LogLayer (including Datadog) if DATADOG_DEBUG_LOGS_ENABLED or in development
    */
   debug(...args: any[]): void {
-    if (!this.isPackaged) {
+    // Send to LogLayer (including Datadog) if flag enabled OR in development
+    if (!this.isPackaged || DATADOG_DEBUG_LOGS_ENABLED) {
       logLayer.debug(...args);
-      if (LOGGING_CONFIG.terminalLogging) {
-        console.debug(...args);
-      }
+    }
+    // Console output only in development
+    if (!this.isPackaged && LOGGING_CONFIG.terminalLogging) {
+      console.debug(...args);
     }
   }
 
