@@ -1,28 +1,33 @@
-/* Academia Notifications Button Styles */
+/* Academia Notifications Button Styles - Feedback Button Design */
 
 .button-container {
   position: absolute;
   bottom: 0;
   left: 0;
-  width: 24px;
-  height: 24px;
+  width: 150px;
+  height: 50px;
+  display: flex;
+  align-items: flex-end; /* Push button to bottom */
+  justify-content: flex-start; /* Align button to left */
+  box-sizing: border-box;
 }
 
 .button {
-  width: 24px;
-  height: 24px;
+  height: 32px;
   background-color: #141413;
-  border: 1px solid #000000;
-  border-radius: 50%;
+  border: 1px solid white;
+  border-radius: 8px;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
   cursor: pointer;
   outline: none;
   user-select: none;
   -webkit-user-select: none;
-  padding: 0;
   position: relative;
+  box-shadow: 0px 2px 4px rgba(0, 0, 0, 0.16);
 }
 
 .button:disabled {
@@ -30,21 +35,43 @@
   opacity: 0.6;
 }
 
+.logo-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding-right: 8px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  border-right: 0.472px solid #c8c8cf;
+  overflow: clip;
+}
+
 .logo {
-  width: 13.81px;
-  height: 12.185px;
+  width: 13.076px;
+  height: 12.101px;
   filter: brightness(0) invert(1); /* Make logo white */
+}
+
+.feedback-text {
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 20px;
+  color: white;
+  text-align: center;
 }
 
 .badge {
   position: absolute;
-  top: -12px;
-  right: -12px;
+  top: -13px;
+  right: -10px;
   width: 20px;
   height: 20px;
   background-color: #f10000;
   border: 1.25px solid #f2f0ec;
-  border-radius: 50%;
+  border-radius: 12500px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -56,7 +83,7 @@
 }
 
 .badge-text {
-  font-family: Roboto, sans-serif;
+  font-family: 'Roboto', sans-serif;
   font-weight: 800;
   font-size: 12px;
   line-height: 12px;

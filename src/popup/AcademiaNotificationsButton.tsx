@@ -143,17 +143,20 @@ const AcademiaNotificationsButton: React.FC<AcademiaNotificationsButtonProps> = 
         className="button"
         onClick={handleClick}
         disabled={!isReady || loading}
-        data-node-id="549:1574"
+        data-node-id="1630:6725"
       >
-        <img src={academiaLogos} alt="Academia" className="logo" data-node-id="549:1576" />
-      </button>
-      {badgeCount > 0 && (
-        <div className="badge" data-node-id="549:1578">
-          <span className="badge-text" data-node-id="549:1579">
-            {displayCount}
-          </span>
+        <div className="logo-section" data-node-id="1630:6720">
+          <img src={academiaLogos} alt="Academia" className="logo" data-node-id="1630:6721" />
         </div>
-      )}
+        <span className="feedback-text" data-node-id="1630:6722">Feedback</span>
+        {badgeCount > 0 && (
+          <div className="badge" data-node-id="1630:6723">
+            <span className="badge-text" data-node-id="1630:6724">
+              {displayCount}
+            </span>
+          </div>
+        )}
+      </button>
     </div>
   );
 };
