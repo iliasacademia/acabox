@@ -1218,13 +1218,13 @@ ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: s
     return response.data;
   } catch (error: any) {
     const fullUrl = error.config?.baseURL + error.config?.url;
-    logger.error(`[API] ${options.method} ${options.endpoint} failed:`, {
+    logger.error(`[API] ${options.method} ${options.endpoint} failed: ${JSON.stringify({
       url: fullUrl,
       status: error.response?.status,
       statusText: error.response?.statusText,
       message: error.message,
       data: error.response?.data,
-    });
+    })}`);
 
     // Re-throw with response data embedded in error message for IPC serialization
     // IPC can't serialize custom properties, so we include error details in the message
@@ -1233,6 +1233,8 @@ ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: s
       let backendError = null;
       if (error.response.data?.error) {
         backendError = error.response.data.error;
+      } else if (error.response.data?.message) {
+        backendError = error.response.data.message;
       } else if (error.response.data?.errors) {
         const errors = error.response.data.errors;
         if (Array.isArray(errors)) {
