@@ -32,13 +32,7 @@ export function extractErrorMessage(error: any, defaultMessage: string): string 
   // Check if error message contains backend error (IPC-serialized errors)
   // Format: "API Error: <backend error message>"
   if (error.message && error.message.startsWith('API Error: ')) {
-    const backendMessage = error.message.replace('API Error: ', '');
-    // Check if the backend returned just a path (unhelpful error)
-    // Matches absolute paths like /Users/... or C:\...
-    if (backendMessage.match(/^(\/|[A-Za-z]:\\)/)) {
-      return 'The server rejected this folder. It may already be synced or there may be a permission issue.';
-    }
-    return backendMessage;
+    return error.message.replace('API Error: ', '');
   }
 
   // Check for generic status code errors
