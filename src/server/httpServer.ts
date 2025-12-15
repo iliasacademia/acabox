@@ -184,7 +184,7 @@ export class AcademiaHttpServer {
     await registerProxyRoutes(this.fastify);
 
     // Register Word integration routes
-    await registerWordRoutes(this.fastify);
+    await registerWordRoutes(this.fastify, this.notificationManager, this.currentUserId);
 
     // Register analytics routes
     await registerAnalyticsRoutes(this.fastify);

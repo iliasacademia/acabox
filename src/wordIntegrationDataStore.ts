@@ -84,6 +84,16 @@ class WordIntegrationDataStore {
   }
 
   /**
+   * Get project file info for a given file path.
+   * Note: The file path must match the one used during manuscript registration.
+   */
+  getProjectFileForPath(filePath: string): ProjectFileInfo | null {
+    // We might need to normalize the path here (e.g. NFD/NFC) if not matching
+    // But for now, direct lookup since main.ts sets the cache
+    return this.projectFileCache.get(filePath) || null;
+  }
+
+  /**
    * Get all tracked PIDs with their info.
    */
   getTrackedPIDs(): TrackedPIDInfo[] {

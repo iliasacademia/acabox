@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 
 type IconType = 'dot' | 'gear' | 'bookmark' | 'lock' | 'unlock' | 'add' | 'remove' | 'refresh' | 'text';
 
@@ -73,7 +74,7 @@ const TrayIconSwitcher: React.FC = () => {
   const handleIconChange = async (iconType: IconType) => {
     setStatus('Changing icon...');
     try {
-      const result = await window.electronAPI.invoke('change-tray-icon', iconType);
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.CHANGE_TRAY_ICON, iconType);
       if (result.success) {
         setCurrentIcon(iconType);
         const option = iconOptions.find(opt => opt.type === iconType);

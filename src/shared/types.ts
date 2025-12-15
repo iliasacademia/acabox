@@ -30,6 +30,7 @@ export const IPC_CHANNELS = {
   STOP_NOTIFICATION_POLLING: 'stop-notification-polling',
   MARK_NOTIFICATION_READ: 'mark-notification-read',
   DISMISS_NOTIFICATION: 'dismiss-notification',
+  CLEAR_NOTIFICATIONS_FOR_PROJECT: 'clear-notifications-for-project',
   NEW_NOTIFICATION: 'new-notification',
   NOTIFICATION_UPDATED: 'notification-updated',
 
@@ -114,7 +115,15 @@ export const IPC_CHANNELS = {
 
   // Debug
   DEBUG_GET_ACTIVE_WATCHERS: 'debug-get-active-watchers',
+  DEV_CLEANUP_NATIVE: 'dev-cleanup-native',
+
+  // App info
+  GET_APP_VERSION: 'get-app-version',
+  GET_HTTP_SERVER_INFO: 'get-http-server-info',
 } as const;
+
+// Type for valid IPC channel values - enforces compile-time validation
+export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
 // Feature flags
 export const FEATURES = {

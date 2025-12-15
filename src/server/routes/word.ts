@@ -3,18 +3,28 @@
  *
  * Provides REST API endpoints for Word process integration:
  * - GET /word/:pid/project_file - Get project file info for a Word PID
+ * - GET /word/:pid/poll - Poll status and notifications for a Word PID
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { wordIntegrationDataStore } from '../../wordIntegrationDataStore';
-import { WordProjectFileResponse } from '../types';
+import { WordProjectFileResponse, WordPollResponse } from '../types';
+import { CachedNotification } from '../../notificationManager';
+import { defaultLogger as logger } from '../../utils/logger';
+import { wordIntegrationService } from '../../wordIntegrationService';
 
 /**
  * Register Word integration routes on a Fastify instance
  *
  * @param fastify Fastify instance
+ * @param notificationManager NotificationManager instance (optional)
+ * @param currentUserId Function returning current user ID (optional)
  */
-export async function registerWordRoutes(fastify: FastifyInstance): Promise<void> {
+export async function registerWordRoutes(
+  fastify: FastifyInstance,
+  notificationManager?: any,
+  currentUserId?: () => number | null
+): Promise<void> {
   /**
    * GET /word/:pid/project_file
    *
@@ -63,7 +73,16 @@ export async function registerWordRoutes(fastify: FastifyInstance): Promise<void
         return;
       }
 
-      const projectFile = wordIntegrationDataStore.getProjectFileForPID(pid);
+      // Check active document path first
+      const activePath = wordIntegrationService.getActiveDocumentPath(pid);
+      let projectFile = null;
+
+      if (activePath) {
+        projectFile = wordIntegrationDataStore.getProjectFileForPath(activePath);
+      } else {
+        // Fallback to PID mapping (legacy/startup)
+        projectFile = wordIntegrationDataStore.getProjectFileForPID(pid);
+      }
 
       if (!projectFile) {
         reply.code(404).send({
@@ -77,6 +96,116 @@ export async function registerWordRoutes(fastify: FastifyInstance): Promise<void
       const response: WordProjectFileResponse = {
         project_id: projectFile.project_id,
         project_file_id: projectFile.project_file_id,
+      };
+
+      reply.send(response);
+    }
+  );
+
+  /**
+   * GET /word/:pid/poll
+   *
+   * Poll status for a Word PID.
+   * Returns visibility status, project info, and notification count.
+   */
+  fastify.get<{
+    Params: { pid: string };
+  }>(
+    '/word/:pid/poll',
+    {
+      schema: {
+        params: {
+          type: 'object',
+          required: ['pid'],
+          properties: {
+            pid: { type: 'string' },
+          },
+        },
+      },
+    },
+    async (
+      request: FastifyRequest<{ Params: { pid: string } }>,
+      reply: FastifyReply
+    ) => {
+      const pid = parseInt(request.params.pid, 10);
+
+      if (isNaN(pid)) {
+        reply.code(400).send({
+          error: 'BadRequest',
+          message: 'Invalid PID format',
+          statusCode: 400,
+        });
+        return;
+      }
+
+      // 1. Get Active Document Path from Native
+      const activePath = wordIntegrationService.getActiveDocumentPath(pid);
+      
+      // 2. Resolve Project Info based on Path
+      let projectFile = null;
+      if (activePath) {
+        projectFile = wordIntegrationDataStore.getProjectFileForPath(activePath);
+      } else {
+        // Fallback: If no active path (maybe window not ready), check if PID is tracked at all
+        // This handles cases where we know the PID but can't get path yet
+        projectFile = wordIntegrationDataStore.getProjectFileForPID(pid);
+      }
+
+      const trackedPIDs = wordIntegrationDataStore.getTrackedPIDs();
+      const tracked = trackedPIDs.find(p => p.pid === pid);
+
+      // If not tracked or no project file, hide the button
+      if (!projectFile || !tracked) {
+        const response: WordPollResponse = {
+          shouldShow: false,
+          notificationCount: 0,
+          isActive: false,
+          latestReviewNotification: null,
+          activeDocumentPath: activePath
+        };
+        reply.send(response);
+        return;
+      }
+
+      // Calculate notification count and find latest review notification if user is logged in
+      let count = 0;
+      let latestReviewNotification = null;
+
+      if (notificationManager && currentUserId) {
+        const userId = currentUserId();
+        if (userId) {
+          try {
+            const undismissed = notificationManager.getUndismissedNotifications(userId);
+            const filtered = undismissed.filter((n: CachedNotification) => n.project_file_id === projectFile.project_file_id);
+            count = filtered.length;
+
+            // Find notification with conversation_id for popup
+            const reviewNotification = filtered.find(
+              (n: any) => n.data?.conversation_id != null
+            );
+            
+            if (reviewNotification) {
+              latestReviewNotification = {
+                id: reviewNotification.id,
+                project_id: reviewNotification.project_id,
+                conversation_id: reviewNotification.data.conversation_id,
+              };
+            }
+
+          } catch (err) {
+            logger.error(`[WORD-POLL] Error fetching notifications for PID ${pid}:`, err);
+          }
+        }
+      }
+
+      const response: WordPollResponse = {
+        shouldShow: true,
+        projectId: projectFile.project_id,
+        projectFileId: projectFile.project_file_id,
+        notificationCount: count,
+        isActive: tracked.isActive,
+        latestReviewNotification,
+        activeDocumentPath: activePath
       };
 
       reply.send(response);

@@ -118,3 +118,27 @@ export interface WordProjectFileResponse {
   /** Project file ID */
   project_file_id: number;
 }
+
+/**
+ * Response for GET /word/:pid/poll
+ */
+export interface WordPollResponse {
+  /** Whether the button should be shown */
+  shouldShow: boolean;
+  /** Project ID (if valid manuscript) */
+  projectId?: number;
+  /** Project File ID (if valid manuscript) */
+  projectFileId?: number;
+  /** Notification count */
+  notificationCount?: number;
+  /** Whether this PID is the active/focused one */
+  isActive: boolean;
+  /** Latest review notification (if any) */
+  latestReviewNotification?: {
+    id: number;
+    project_id: number;
+    conversation_id: number;
+  } | null;
+  /** Active document path (if available) */
+  activeDocumentPath?: string | null;
+}

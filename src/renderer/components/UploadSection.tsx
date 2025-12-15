@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 
 interface UploadedFile {
   title: string;
@@ -25,11 +26,11 @@ const UploadSection: React.FC = () => {
   }, []);
 
   const handleSelectFolder = async () => {
-    const folderPath = await window.electronAPI.invoke('select-folder');
+    const folderPath = await window.electronAPI.invoke(IPC_CHANNELS.SELECT_FOLDER);
     if (folderPath) {
       setSelectedPath(folderPath);
       setUploadedFiles([]); // Clear previous uploads
-      await window.electronAPI.invoke('upload-files', folderPath);
+      await window.electronAPI.invoke(IPC_CHANNELS.UPLOAD_FILES, folderPath);
     }
   };
 

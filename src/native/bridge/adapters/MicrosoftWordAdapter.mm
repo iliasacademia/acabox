@@ -1195,6 +1195,60 @@ static void WordAdapterAccessibilityCallback(AXObserverRef observer, AXUIElement
     }
 }
 
+- (NSString*)getActiveDocumentPath {
+    // 1. Get frontmost window
+    CFTypeRef windowsRef = NULL;
+    AXError error = AXUIElementCopyAttributeValue(_wordApp, kAXWindowsAttribute, &windowsRef);
+    
+    if (error != kAXErrorSuccess || !windowsRef) {
+        AcademiaLog(@"[MicrosoftWordAdapter] Failed to get windows: error %d", error);
+        return nil;
+    }
+    
+    CFArrayRef windows = (CFArrayRef)windowsRef;
+    if (CFArrayGetCount(windows) == 0) {
+        CFRelease(windowsRef);
+        return nil;
+    }
+    
+    // 2. Get the active window (index 0)
+    AXUIElementRef frontWindow = (AXUIElementRef)CFArrayGetValueAtIndex(windows, 0);
+    if (!frontWindow) {
+        AcademiaLog(@"[MicrosoftWordAdapter] Front window is NULL");
+        CFRelease(windowsRef);
+        return nil;
+    }
+    
+    // 3. Get the document path (kAXDocumentAttribute)
+    CFTypeRef documentRef = NULL;
+    error = AXUIElementCopyAttributeValue(frontWindow, kAXDocumentAttribute, &documentRef);
+    
+    NSString* path = nil;
+    
+    if (error == kAXErrorSuccess && documentRef) {
+        // It's usually a file URL string
+        NSString* urlString = (__bridge NSString*)documentRef;
+        NSURL* url = [NSURL URLWithString:urlString];
+        
+        if (url && [url isFileURL]) {
+            path = [url path]; // Convert file:// URL to standard path
+        } else {
+            path = urlString;
+        }
+        CFRelease(documentRef);
+    } else {
+        // Fallback: Try kAXTitleAttribute as some versions/states might use title
+        CFTypeRef titleRef = NULL;
+        if (AXUIElementCopyAttributeValue(frontWindow, kAXTitleAttribute, &titleRef) == kAXErrorSuccess && titleRef) {
+            NSString* title = (__bridge NSString*)titleRef;
+            CFRelease(titleRef);
+        }
+    }
+    
+    CFRelease(windowsRef);
+    return path;
+}
+
 @end
 
 #pragma mark - Accessibility Callback

@@ -940,13 +940,13 @@ process.on('unhandledRejection', async (reason) => {
 });
 
 // Handle cleanup request from dev tools (for hot reload)
-ipcMain.handle('dev-cleanup-native', async () => {
+ipcMain.handle(IPC_CHANNELS.DEV_CLEANUP_NATIVE, async () => {
   logger.debug('[APP] Dev-mode cleanup requested');
   cleanupNativeResources();
   return { success: true };
 });
 
-ipcMain.handle('get-app-version', async () => {
+ipcMain.handle(IPC_CHANNELS.GET_APP_VERSION, async () => {
   return {
     version: app.getVersion(),
     formatted: formatTimestampVersion(app.getVersion()),
@@ -1012,12 +1012,12 @@ ipcMain.handle(IPC_CHANNELS.RESTART_APP, () => {
   app.quit();
 });
 
-ipcMain.handle('check-login', async () => {
+ipcMain.handle(IPC_CHANNELS.CHECK_LOGIN, async () => {
   const result = await checkLogin();
   return result;
 });
 
-ipcMain.handle('login', async (_event, email: string, password: string) => {
+ipcMain.handle(IPC_CHANNELS.LOGIN, async (_event, email: string, password: string) => {
   try {
     const result = await login(email, password);
     return { success: result.status >= 200 && result.status < 300, data: result.data };
@@ -1032,7 +1032,7 @@ ipcMain.handle('login', async (_event, email: string, password: string) => {
   }
 });
 
-ipcMain.handle('logout', async () => {
+ipcMain.handle(IPC_CHANNELS.LOGOUT, async () => {
   const result = await logout();
 
   // Clear Word integration only after successful logout
@@ -1056,7 +1056,7 @@ ipcMain.handle(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS, async () => {
 });
 
 // QR Code Authentication IPC handlers
-ipcMain.handle('start-qr-auth', async () => {
+ipcMain.handle(IPC_CHANNELS.START_QR_AUTH, async () => {
   try {
     const session = await createQRAuthSession();
     return {
@@ -1074,7 +1074,7 @@ ipcMain.handle('start-qr-auth', async () => {
   }
 });
 
-ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) => {
+ipcMain.handle(IPC_CHANNELS.VERIFY_QR_CODE, async (_event, deviceId: string, code: string) => {
   try {
     // Validate code format (must be 6 digits)
     if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
@@ -1109,7 +1109,7 @@ ipcMain.handle('verify-qr-code', async (_event, deviceId: string, code: string) 
 });
 
 // Project Sync IPC handlers
-ipcMain.handle('start-project-folder-sync', async (_event, projectId: number, folderId: number, folderPath: string, manuscriptPath?: string) => {
+ipcMain.handle(IPC_CHANNELS.START_PROJECT_FOLDER_SYNC, async (_event, projectId: number, folderId: number, folderPath: string, manuscriptPath?: string) => {
   try {
     await projectSyncService.startWatching(projectId, folderId, folderPath, manuscriptPath);
     return { success: true };
@@ -1119,7 +1119,7 @@ ipcMain.handle('start-project-folder-sync', async (_event, projectId: number, fo
   }
 });
 
-ipcMain.handle('stop-project-folder-sync', async (_event, projectId: number, folderId: number) => {
+ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_FOLDER_SYNC, async (_event, projectId: number, folderId: number) => {
   try {
     await projectSyncService.stopWatching(projectId, folderId);
     return { success: true };
@@ -1129,7 +1129,7 @@ ipcMain.handle('stop-project-folder-sync', async (_event, projectId: number, fol
   }
 });
 
-ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
+ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_SYNC, async (_event, projectId: number) => {
   try {
     await projectSyncService.stopWatchingProject(projectId);
     return { success: true };
@@ -1139,7 +1139,7 @@ ipcMain.handle('stop-project-sync', async (_event, projectId: number) => {
   }
 });
 
-ipcMain.handle('clear-notifications-for-project', async (_event, projectId: number) => {
+ipcMain.handle(IPC_CHANNELS.CLEAR_NOTIFICATIONS_FOR_PROJECT, async (_event, projectId: number) => {
   try {
     notificationManager.clearNotificationsForProject(projectId);
     return { success: true };
@@ -1195,7 +1195,7 @@ ipcMain.handle(IPC_CHANNELS.DEBUG_GET_ACTIVE_WATCHERS, async () => {
 });
 
 // Generic API call handler for Projects API
-ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: string; data?: any }) => {
+ipcMain.handle(IPC_CHANNELS.API_CALL, async (_event, options: { method: string; endpoint: string; data?: any }) => {
   try {
     const { method, endpoint, data } = options;
     const client = await APIclient();
@@ -1265,7 +1265,7 @@ ipcMain.handle('api-call', async (_event, options: { method: string; endpoint: s
   }
 });
 
-ipcMain.handle('select-folder', async (event) => {
+ipcMain.handle(IPC_CHANNELS.SELECT_FOLDER, async (event) => {
   // Determine which window is requesting the dialog
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
@@ -1277,7 +1277,7 @@ ipcMain.handle('select-folder', async (event) => {
 });
 
 // Scan folder for files
-ipcMain.handle('scan-folder-for-files', async (_event, folderPaths: string[]) => {
+ipcMain.handle(IPC_CHANNELS.SCAN_FOLDER_FOR_FILES, async (_event, folderPaths: string[]) => {
   try {
     const allFiles: Array<{ path: string; name: string; relativePath: string; folderPath: string }> = [];
 
@@ -1335,7 +1335,7 @@ ipcMain.handle('scan-folder-for-files', async (_event, folderPaths: string[]) =>
   }
 });
 
-ipcMain.handle('upload-files', async (_event, folderPath: string) => {
+ipcMain.handle(IPC_CHANNELS.UPLOAD_FILES, async (_event, folderPath: string) => {
   if (!devWindow) return;
   const files = fs.readdirSync(folderPath, { recursive: true }) as string[];
 
@@ -1349,13 +1349,13 @@ ipcMain.handle('upload-files', async (_event, folderPath: string) => {
   }
 });
 
-ipcMain.handle('search-files', async (_event, searchTerm: string) => {
+ipcMain.handle(IPC_CHANNELS.SEARCH_FILES, async (_event, searchTerm: string) => {
   const results = await searchFiles(searchTerm);
   return results;
 });
 
 // Notification IPC handlers
-ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread' | 'read' | 'dismissed'; userId?: number }) => {
+ipcMain.handle(IPC_CHANNELS.GET_NOTIFICATIONS, async (_event, options?: { status?: 'unread' | 'read' | 'dismissed'; userId?: number }) => {
   try {
     const userId = options?.userId;
     if (!userId) {
@@ -1372,7 +1372,7 @@ ipcMain.handle('get-notifications', async (_event, options?: { status?: 'unread'
 
 // WAGENT-94: Badge update function removed - new architecture handles badges automatically
 
-ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
+ipcMain.handle(IPC_CHANNELS.START_NOTIFICATION_POLLING, async (_event, userId: number) => {
   try {
     notificationManager.startPolling(userId, 30000); // 30 second interval
     return { success: true };
@@ -1382,7 +1382,7 @@ ipcMain.handle('start-notification-polling', async (_event, userId: number) => {
   }
 });
 
-ipcMain.handle('stop-notification-polling', async () => {
+ipcMain.handle(IPC_CHANNELS.STOP_NOTIFICATION_POLLING, async () => {
   try {
     notificationManager.stopPolling();
     return { success: true };
@@ -1392,7 +1392,7 @@ ipcMain.handle('stop-notification-polling', async () => {
   }
 });
 
-ipcMain.handle('mark-notification-read', async (_event, id: number) => {
+ipcMain.handle(IPC_CHANNELS.MARK_NOTIFICATION_READ, async (_event, id: number) => {
   try {
     await notificationManager.markAsRead(id);
 
@@ -1405,7 +1405,7 @@ ipcMain.handle('mark-notification-read', async (_event, id: number) => {
   }
 });
 
-ipcMain.handle('dismiss-notification', async (_event, id: number) => {
+ipcMain.handle(IPC_CHANNELS.DISMISS_NOTIFICATION, async (_event, id: number) => {
   try {
     await notificationManager.dismissNotification(id);
 
@@ -1418,7 +1418,7 @@ ipcMain.handle('dismiss-notification', async (_event, id: number) => {
   }
 });
 
-ipcMain.handle('get-current-user', async () => {
+ipcMain.handle(IPC_CHANNELS.GET_CURRENT_USER, async () => {
   try {
     const user = await getCurrentUser();
     return user;
@@ -1429,7 +1429,7 @@ ipcMain.handle('get-current-user', async () => {
 });
 
 // HTTP Server IPC handlers
-ipcMain.handle('get-http-server-info', async () => {
+ipcMain.handle(IPC_CHANNELS.GET_HTTP_SERVER_INFO, async () => {
   if (!httpServer || !httpServer.isRunning()) {
     return {
       running: false,
@@ -1476,7 +1476,7 @@ app.on('before-quit', async () => {
 });
 
 // Sync Folder IPC handlers
-ipcMain.handle('get-sync-folders', async () => {
+ipcMain.handle(IPC_CHANNELS.GET_SYNC_FOLDERS, async () => {
   try {
     logger.debug('[GET-SYNC-FOLDERS] Fetching status from backend...');
     const statusData = await getStatus();
@@ -1516,7 +1516,7 @@ ipcMain.handle('get-sync-folders', async () => {
   }
 });
 
-ipcMain.handle('add-sync-folder', async (_event, folderPath: string) => {
+ipcMain.handle(IPC_CHANNELS.ADD_SYNC_FOLDER, async (_event, folderPath: string) => {
   try {
     logger.debug('[ADD-SYNC-FOLDER] Starting to add folder:', folderPath);
     const folderName = path.basename(folderPath);
@@ -1554,7 +1554,7 @@ ipcMain.handle('add-sync-folder', async (_event, folderPath: string) => {
   }
 });
 
-ipcMain.handle('remove-sync-folder', async (_event, folderId: string) => {
+ipcMain.handle(IPC_CHANNELS.REMOVE_SYNC_FOLDER, async (_event, folderId: string) => {
   try {
     await syncService.stopWatching(folderId);
     await removeFolder(folderId);
@@ -1565,7 +1565,7 @@ ipcMain.handle('remove-sync-folder', async (_event, folderId: string) => {
   }
 });
 
-ipcMain.handle('sync-folder-now', async (_event, folderId: string) => {
+ipcMain.handle(IPC_CHANNELS.SYNC_FOLDER_NOW, async (_event, folderId: string) => {
   try {
     await syncService.syncNow(folderId);
     return { success: true };
@@ -1590,7 +1590,7 @@ ipcMain.handle(IPC_CHANNELS.REINITIALIZE_SYNC, async () => {
   }
 });
 
-ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
+ipcMain.handle(IPC_CHANNELS.GET_FOLDER_FILES, async (_event, folderId: string) => {
   try {
     logger.debug('[GET-FOLDER-FILES] Fetching files for folder:', folderId);
     const filesData = await listFiles(folderId);
@@ -1619,7 +1619,7 @@ ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
 });
 
 // Handle tray icon change
-ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
+ipcMain.handle(IPC_CHANNELS.CHANGE_TRAY_ICON, async (_event, iconType: TrayIconType) => {
   if (!tray) {
     logger.error('[TRAY] Tray not initialized, cannot change icon');
     return { success: false, error: 'Tray not initialized' };
@@ -1640,14 +1640,32 @@ ipcMain.handle('change-tray-icon', async (_event, iconType: TrayIconType) => {
   }
 });
 
+// Window control handlers
+ipcMain.handle(IPC_CHANNELS.MINIMIZE_WINDOW, async (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow) {
+    senderWindow.minimize();
+    return { success: true };
+  }
+  return { success: false, error: 'Window not found' };
+});
+
+ipcMain.handle(IPC_CHANNELS.CLOSE_WINDOW, async (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (senderWindow) {
+    senderWindow.close();
+    return { success: true };
+  }
+  return { success: false, error: 'Window not found' };
+});
 
 // Handle position debug info request
-ipcMain.handle('get-position-debug-info', async () => {
+ipcMain.handle(IPC_CHANNELS.GET_POSITION_DEBUG_INFO, async () => {
   return wordIntegrationService.getPositionDebugInfo();
 });
 
 // Handle get all notifications request for debugging
-ipcMain.handle('get-all-notifications', async () => {
+ipcMain.handle(IPC_CHANNELS.GET_ALL_NOTIFICATIONS, async () => {
   try {
     const userId = notificationManager.getCurrentUserId();
 
@@ -1685,7 +1703,7 @@ ipcMain.handle('get-all-notifications', async () => {
   }
 });
 
-ipcMain.handle('open-external-url', async (_event, url: string) => {
+ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
   try {
     // Validate URL against whitelist before opening
     const validation = validateExternalUrl(url);

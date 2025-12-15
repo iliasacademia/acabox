@@ -236,6 +236,14 @@ class WordIntegrationService {
           continue;
         }
         this.startTrackingPID(pid, filePath);
+      } else {
+        // PID already tracked, check if file path changed
+        const tracked = this.trackedPIDs.get(pid);
+        if (tracked && tracked.filePath !== filePath) {
+          logger.info(`[WORD-INTEGRATION] PID ${pid} switched file: ${tracked.filePath} -> ${filePath}`);
+          tracked.filePath = filePath;
+          wordIntegrationDataStore.setTrackedPID(pid, tracked);
+        }
       }
     }
 
@@ -389,6 +397,17 @@ class WordIntegrationService {
    */
   getTrackedPIDs(): Array<{ pid: number; filePath: string; isActive: boolean }> {
     return Array.from(this.trackedPIDs.values());
+  }
+
+  /**
+   * Get the active document path for a specific PID from the native layer.
+   * This handles multi-window scenarios where one PID manages multiple documents.
+   */
+  getActiveDocumentPath(pid: number): string | null {
+    if (!FEATURES.MS_WORD_INTEGRATION_ENABLED) {
+      return null;
+    }
+    return wordAccessibility.getActiveDocumentPath(pid);
   }
 
   /**

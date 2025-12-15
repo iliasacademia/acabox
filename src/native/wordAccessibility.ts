@@ -130,6 +130,7 @@ interface NativeModule {
   getButtonStates(): ButtonStates | null;
   getScrollAreaBounds(): Bounds | null;
   // WAGENT-94: updateButtonBadge and getBadgeState removed - badges handled by new architecture
+  getActiveDocumentPath(pid: number): string | null;
 }
 
 // Load the native module
@@ -611,6 +612,18 @@ export class WordAccessibilityBridge {
 
   // WAGENT-94: updateButtonBadge and getBadgeState methods removed
   // Badge management now handled by new architecture (AcademiaManager)
+
+  getActiveDocumentPath(pid: number): string | null {
+    if (!nativeModule) {
+      return null;
+    }
+    try {
+      return nativeModule.getActiveDocumentPath(pid);
+    } catch (error) {
+      logger.error(`[WordAccessibility] Failed to get active document path for PID ${pid}:`, error);
+      return null;
+    }
+  }
 }
 
 // Export singleton instance

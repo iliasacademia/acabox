@@ -76,7 +76,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (userId) {
       // Start polling in main process
-      window.electronAPI.invoke('start-notification-polling', userId)
+      window.electronAPI.invoke(IPC_CHANNELS.START_NOTIFICATION_POLLING, userId)
         .catch((error) => console.error('[Renderer] Failed to start notification polling:', error));
 
       // Listen for new notifications
@@ -96,7 +96,7 @@ const App: React.FC = () => {
       return () => {
         window.electronAPI.removeListener('new-notification', handleNewNotification);
         // Stop polling on cleanup
-        window.electronAPI.invoke('stop-notification-polling');
+        window.electronAPI.invoke(IPC_CHANNELS.STOP_NOTIFICATION_POLLING);
       };
     }
   }, [userId]);
@@ -200,14 +200,14 @@ const App: React.FC = () => {
 
   const checkLoginStatus = async () => {
     try {
-      const isLoggedIn = await window.electronAPI.invoke('check-login');
+      const isLoggedIn = await window.electronAPI.invoke(IPC_CHANNELS.CHECK_LOGIN);
       if (!isLoggedIn) {
         setShowLogin(true);
         setUserId(null);
         setUserName(null);
       } else {
         // Get current user info
-        const user = await window.electronAPI.invoke('get-current-user');
+        const user = await window.electronAPI.invoke(IPC_CHANNELS.GET_CURRENT_USER);
         if (user) {
           setUserId(user.id);
           setUserName(user.first_name || user.name || null);
@@ -258,7 +258,7 @@ const App: React.FC = () => {
         }
 
         // Mark as read
-        window.electronAPI.invoke('mark-notification-read', notif.id);
+        window.electronAPI.invoke(IPC_CHANNELS.MARK_NOTIFICATION_READ, notif.id);
       };
 
       osNotification.onerror = (error) => {
@@ -272,7 +272,7 @@ const App: React.FC = () => {
   const handleLoginSuccess = async () => {
     // Get user info FIRST, before hiding modal
     // This prevents race condition with Projects' onLoginRequired effect
-    const user = await window.electronAPI.invoke('get-current-user');
+    const user = await window.electronAPI.invoke(IPC_CHANNELS.GET_CURRENT_USER);
     if (user) {
       setUserId(user.id);
       setUserName(user.first_name || user.name || null);
@@ -306,7 +306,7 @@ const App: React.FC = () => {
       cleanupZendeskWidget();
     }
 
-    const result = await window.electronAPI.invoke('logout');
+    const result = await window.electronAPI.invoke(IPC_CHANNELS.LOGOUT);
     if (result.success) {
       setShowLogin(true);
       setUserId(null);

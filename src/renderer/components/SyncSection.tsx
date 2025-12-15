@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 
 interface SyncFolder {
   id: string;
@@ -123,7 +124,7 @@ const SyncSection: React.FC = () => {
   const loadSyncFolders = async () => {
     setIsLoading(true);
     try {
-      const result = await window.electronAPI.invoke('get-sync-folders');
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.GET_SYNC_FOLDERS);
       if (result.success) {
         setFolders(result.folders || []);
 
@@ -140,10 +141,10 @@ const SyncSection: React.FC = () => {
   };
 
   const handleAddFolder = async () => {
-    const folderPath = await window.electronAPI.invoke('select-folder');
+    const folderPath = await window.electronAPI.invoke(IPC_CHANNELS.SELECT_FOLDER);
     if (folderPath) {
       try {
-        const result = await window.electronAPI.invoke('add-sync-folder', folderPath);
+        const result = await window.electronAPI.invoke(IPC_CHANNELS.ADD_SYNC_FOLDER, folderPath);
         if (result.success) {
           setFolders((prev) => [...prev, result.folder]);
         } else {
@@ -162,7 +163,7 @@ const SyncSection: React.FC = () => {
     }
 
     try {
-      const result = await window.electronAPI.invoke('remove-sync-folder', folderId);
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.REMOVE_SYNC_FOLDER, folderId);
       if (result.success) {
         setFolders((prev) => prev.filter((f) => f.id !== folderId));
         if (selectedFolderId === folderId) {
@@ -179,7 +180,7 @@ const SyncSection: React.FC = () => {
 
   const handleSyncNow = async (folderId: string) => {
     try {
-      const result = await window.electronAPI.invoke('sync-folder-now', folderId);
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.SYNC_FOLDER_NOW, folderId);
       if (!result.success) {
         alert(result.error || 'Failed to trigger sync');
       }
@@ -192,7 +193,7 @@ const SyncSection: React.FC = () => {
   const handleViewFiles = async (folderId: string) => {
     setSelectedFolderId(folderId);
     try {
-      const result = await window.electronAPI.invoke('get-folder-files', folderId);
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.GET_FOLDER_FILES, folderId);
       if (result.success) {
         setSyncedFiles(result.files || []);
       }

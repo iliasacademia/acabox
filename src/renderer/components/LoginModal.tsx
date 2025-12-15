@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 import './LoginModal.css';
 import QRLoginModal from './QRLoginModal';
 
@@ -16,7 +17,7 @@ const LoginModal: React.FC<LoginModalProps> = ({ onSuccess }) => {
 
   const handleLogin = async () => {
     setError('');
-    const result = await window.electronAPI.invoke('login', email, password);
+    const result = await window.electronAPI.invoke(IPC_CHANNELS.LOGIN, email, password);
     if (result.success) {
       onSuccess();
     } else {

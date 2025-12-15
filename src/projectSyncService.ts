@@ -1,7 +1,7 @@
 import * as chokidar from 'chokidar';
 import * as path from 'path';
 import * as fs from 'fs';
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { APIclient, getCsrfToken, checkLogin } from './apiClient';
 import { IPC_CHANNELS } from './shared/types';
 import FormData from 'form-data';
@@ -56,7 +56,9 @@ interface ProjectSyncState {
 class ProjectSyncService {
   private watchedFolders: Map<string, WatchedProjectFolder> = new Map();
   private mainWindow: BrowserWindow | null = null;
-  private store = new Store<ProjectSyncState>({ name: 'project-sync-state' });
+  private store = new Store<ProjectSyncState>({
+    name: app.isPackaged ? 'project-sync-state' : 'project-sync-state-dev',
+  });
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -656,6 +658,13 @@ class ProjectSyncService {
 
       logger.debug(`[ProjectSync-Startup] Complete: ${syncedCount} synced, ${errorCount} errors`);
     } catch (error: any) {
+      // If project no longer exists (404), stop watching and clean up
+      if (error?.response?.status === 404 || error?.status === 404) {
+        logger.warn(`[ProjectSync-Startup] Project ${projectId} no longer exists (404), stopping watcher`);
+        await this.stopWatching(projectId, folderId);
+        return;
+      }
+
       logger.error(`[ProjectSync-Startup] Error for project ${projectId}, folder ${folderId}:`, error);
       folder.status = 'error';
       this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {

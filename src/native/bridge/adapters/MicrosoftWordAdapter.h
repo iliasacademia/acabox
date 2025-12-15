@@ -229,6 +229,13 @@ typedef struct {
  */
 - (void)updateCachedWordBounds;
 
+/**
+ * Get the document path from the active (frontmost) window
+ *
+ * @return NSString path to the document file, or nil if not found
+ */
+- (NSString* _Nullable)getActiveDocumentPath;
+
 @end
 
 NS_ASSUME_NONNULL_END

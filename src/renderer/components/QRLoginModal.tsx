@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 import './QRLoginModal.css';
 
 interface QRLoginModalProps {
@@ -31,7 +32,7 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
       setUserInputCode('');
 
       // Start QR auth session
-      const result = await window.electronAPI.invoke('start-qr-auth');
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.START_QR_AUTH);
 
       if (!result.success) {
         setStatus('error');
@@ -76,7 +77,7 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
       console.log('[QR Auth] Verifying code for device_id:', deviceId);
 
       // Call verification endpoint
-      const result = await window.electronAPI.invoke('verify-qr-code', deviceId, userInputCode);
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.VERIFY_QR_CODE, deviceId, userInputCode);
 
       if (!result.success) {
         setAttemptCount(prev => prev + 1);
@@ -188,7 +189,7 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
                     {copied ? '✓ Copied!' : 'Copy'}
                   </button>
                 </div>
-                <a href="#" onClick={() => window.electronAPI.invoke('open-external-url', authorizationURL)} className="qrLink">
+                <a href="#" onClick={() => window.electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, authorizationURL)} className="qrLink">
                   Click to open in browser
                 </a>
               </div>

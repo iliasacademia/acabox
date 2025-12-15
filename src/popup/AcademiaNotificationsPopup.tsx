@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
 import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
@@ -15,7 +15,8 @@ const serverUrl = window.location.origin;
 
 // Generate unique instance ID for logging (uses PID from URL or random ID)
 const popupUrlParams = new URLSearchParams(window.location.search);
-const popupInstanceId = `AcademiaNotificationsPopup-${popupUrlParams.get('pid') || Math.random().toString(36).substring(2, 8)}`;
+const pidParam = popupUrlParams.get('pid');
+const popupInstanceId = `AcademiaNotificationsPopup-${pidParam || Math.random().toString(36).substring(2, 8)}`;
 
 // Height constants matching native window sizes
 const POPUP_HEIGHT_DEFAULT = 280;      // 2 sections (short + full review)
@@ -50,6 +51,21 @@ interface ProjectStatusResponse {
   agent_runs: AgentRun[];
 }
 
+// Define response type locally to avoid importing server types in client code
+interface WordPollResponse {
+  shouldShow: boolean;
+  projectId?: number;
+  projectFileId?: number;
+  notificationCount?: number;
+  isActive: boolean;
+  latestReviewNotification?: {
+    id: number;
+    project_id: number;
+    conversation_id: number;
+  } | null;
+  activeDocumentPath?: string | null;
+}
+
 type ReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
 
 const AcademiaNotificationsPopup: React.FC = () => {
@@ -62,12 +78,13 @@ const AcademiaNotificationsPopup: React.FC = () => {
   } | null>(null);
   const { sendRequest } = useSendMessage();
 
-  // State for project file info (fetched from /word/:pid/project_file)
+  // State for project file info (fetched from /word/:pid/poll)
   const [projectId, setProjectId] = useState<number | null>(null);
   const [fileId, setFileId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [error, setError] = useState<string | null>(null);
+  const [shouldShow, setShouldShow] = useState<boolean>(true); // Default to true, update via poll
 
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
@@ -76,10 +93,17 @@ const AcademiaNotificationsPopup: React.FC = () => {
   // Auth token from URL
   const [authToken, setAuthToken] = useState<string | null>(null);
 
+  // Extract Token from URL
+  const tokenParam = popupUrlParams.get('token');
+
+  useEffect(() => {
+    if (tokenParam) setAuthToken(tokenParam);
+  }, [tokenParam]);
+
   // Fetch project status to determine review state
   const fetchProjectStatus = async (projId: number, fId: number, token: string | null): Promise<void> => {
     try {
-      console.log(`[AcademiaNotificationsPopup] Fetching project status for project ${projId}, file ${fId}`);
+      // console.log(`[AcademiaNotificationsPopup] Fetching project status for project ${projId}, file ${fId}`);
 
       const headers: Record<string, string> = {};
       if (token) {
@@ -97,7 +121,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
       }
 
       const data: ProjectStatusResponse = await response.json();
-      console.log('[AcademiaNotificationsPopup] Project status:', data);
+      // console.log('[AcademiaNotificationsPopup] Project status:', data);
 
       // Find the latest agent run by created_at timestamp
       if (data.agent_runs.length === 0) {
@@ -118,8 +142,11 @@ const AcademiaNotificationsPopup: React.FC = () => {
         case 'processing':
           setReviewState('reviewing');
           // Start polling since a review is already in progress
-          console.log('[AcademiaNotificationsPopup] Review in progress on load, starting polling');
-          startStatusPolling(projId, fId, token);
+          // Note: Only start if not already polling to avoid loop, handled by startStatusPolling
+          if (reviewState !== 'reviewing') {
+              console.log('[AcademiaNotificationsPopup] Review in progress on load, starting polling');
+              startStatusPolling(projId, fId, token);
+          }
           break;
         case 'completed':
           setReviewState('completed');
@@ -131,7 +158,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
           setReviewState('idle');
       }
 
-      console.log(`[AcademiaNotificationsPopup] Review state set to: ${latest.status}`);
+      // console.log(`[AcademiaNotificationsPopup] Review state set to: ${latest.status}`);
     } catch (err) {
       console.error('[AcademiaNotificationsPopup] Error fetching project status:', err);
       // Don't update state on error - keep previous state
@@ -204,140 +231,103 @@ const AcademiaNotificationsPopup: React.FC = () => {
     };
   }, []);
 
-  // Fetch project file info on mount
+  // Poll endpoint for PID info and notifications
   useEffect(() => {
-    const fetchProjectFile = async () => {
-      try {
-        // Extract PID and token from URL query params
-        const urlParams = new URLSearchParams(window.location.search);
-        const pid = urlParams.get('pid');
-        const token = urlParams.get('token');
-
-        if (token) {
-          setAuthToken(token);
-        }
-
-        if (!pid) {
-          console.error('[AcademiaNotificationsPopup] No PID provided in URL');
-          setError('No PID provided');
-          setIsLoading(false);
-          return;
-        }
-
-        console.log(`[AcademiaNotificationsPopup] Fetching project file for PID: ${pid}`);
-
-        // Fetch project file info from HTTP server (no auth needed for /word/ routes)
-        const response = await fetch(`${serverUrl}/word/${pid}/project_file`);
-        console.log('[AcademiaNotificationsPopup] Project file response:', response);
-
-        if (!response.ok) {
-          const errorData = await response.json();
-          console.error('[AcademiaNotificationsPopup] Failed to fetch project file:', errorData);
-          setError(errorData.message || 'Failed to fetch project file');
-          setIsLoading(false);
-          return;
-        }
-
-        const data = await response.json();
-        console.log('[AcademiaNotificationsPopup] Project file fetched:', data);
-        setProjectId(data.project_id);
-        setFileId(data.project_file_id);
-
-        // Fetch project status to check if a review is in progress
-        await fetchProjectStatus(data.project_id, data.project_file_id, token);
-
-        setIsLoading(false);
-      } catch (err) {
-        console.error('[AcademiaNotificationsPopup] Error fetching project file:', err);
-        setError('Failed to connect to server');
-        setIsLoading(false);
-      }
-    };
-
-    fetchProjectFile();
-  }, []);
-
-  // Reusable callback to check for unread review notifications
-  const checkForUnreadReview = useCallback(async () => {
-    // Wait for fileId to be available
-    if (fileId === null) return;
-
-    try {
-      console.log(`[AcademiaNotificationsPopup] Checking notifications for file ${fileId}`);
-
-      const headers: Record<string, string> = {
-        'X-Instance-Id': popupInstanceId,
-      };
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-      }
-
-      const response = await fetch(
-        `${serverUrl}/api/notifications/count?project_file_id=${fileId}`,
-        { headers }
-      );
-
-      if (!response.ok) {
-        console.error('[AcademiaNotificationsPopup] Failed to fetch notifications:', response.status);
-        return;
-      }
-
-      const data = await response.json();
-      console.log('[AcademiaNotificationsPopup] Notifications response:', data);
-
-      // Check for undismissed notifications with conversation_id
-      if (data.notifications && data.notifications.length > 0) {
-        // Find first notification with conversation_id
-        const notification = data.notifications.find(
-          (n: { data?: { conversation_id?: number } }) => n.data?.conversation_id != null
-        );
-
-        // Only update state if we found a notification and don't already have one displayed
-        if (notification && !hasUnreadReview) {
-          console.log('[AcademiaNotificationsPopup] Found NEW notification with conversation:', notification);
-          setCurrentNotification({
-            id: notification.id,
-            project_id: notification.project_id,
-            conversation_id: notification.data.conversation_id,
-          });
-          setHasUnreadReview(true);
-
-          // Resize window for 3-section layout
-          console.log('[AcademiaNotificationsPopup] Resizing window for notification');
-          await sendRequest('resizeWindow', { height: POPUP_HEIGHT_WITH_NOTIF });
-        }
-      } else if (currentNotification) {
-        // Notifications were cleared (e.g., dismissed from main app) - reset UI
-        console.log('[AcademiaNotificationsPopup] Notifications cleared, resetting UI');
-        setCurrentNotification(null);
-        setHasUnreadReview(false);
-
-        // Resize window back to default (2-section layout)
-        await sendRequest('resizeWindow', { height: POPUP_HEIGHT_DEFAULT });
-      }
-    } catch (err) {
-      console.error('[AcademiaNotificationsPopup] Error checking notifications:', err);
+    if (!pidParam) {
+      console.error('[AcademiaNotificationsPopup] No PID provided in URL');
+      setError('No PID provided');
+      setIsLoading(false);
+      setShouldShow(false);
+      return;
     }
-  }, [fileId, hasUnreadReview, currentNotification, sendRequest, authToken]);
 
-  // Initial check for unread review notifications after fileId is available
-  useEffect(() => {
-    checkForUnreadReview();
-  }, [checkForUnreadReview]);
+    const poll = async () => {
+      try {
+        const url = `${serverUrl}/word/${pidParam}/poll`;
+        const headers: Record<string, string> = {
+          'Accept': 'application/json',
+          'X-Instance-Id': popupInstanceId,
+        };
+        if (authToken) {
+          headers['Authorization'] = `Bearer ${authToken}`;
+        }
 
-  // Poll for new notifications every 3 seconds
-  useEffect(() => {
-    if (fileId === null) return;
+        const response = await fetch(url, { headers });
+        if (!response.ok) {
+           setShouldShow(false);
+           return;
+        }
 
-    const pollInterval = setInterval(() => {
-      console.log('[AcademiaNotificationsPopup] Polling for new notifications...');
-      checkForUnreadReview();
-    }, 3000);
+        const data: WordPollResponse = await response.json();
+        
+        setShouldShow(data.shouldShow);
 
-    return () => {
-      clearInterval(pollInterval);
+        if (!data.shouldShow) {
+             console.log(`[AcademiaNotificationsPopup] Hiding popup: shouldShow=false. Active path: ${data.activeDocumentPath || 'none'}`);
+             sendRequest('closeWindow', {});
+             return;
+        }
+
+        if (data.shouldShow && data.projectId && data.projectFileId) {
+             setProjectId(data.projectId);
+             setFileId(data.projectFileId);
+             setIsLoading(false);
+
+             // Handle notifications
+             if (data.latestReviewNotification) {
+                 if (!hasUnreadReview) {
+                     console.log('[AcademiaNotificationsPopup] Found NEW notification with conversation:', data.latestReviewNotification);
+                     setCurrentNotification(data.latestReviewNotification);
+                     setHasUnreadReview(true);
+                     // Resize window for 3-section layout
+                     await sendRequest('resizeWindow', { height: POPUP_HEIGHT_WITH_NOTIF });
+                 }
+             } else {
+                 if (hasUnreadReview) {
+                     // Notifications cleared
+                     console.log('[AcademiaNotificationsPopup] Notifications cleared, resetting UI');
+                     setCurrentNotification(null);
+                     setHasUnreadReview(false);
+                     // Resize window back to default (2-section layout)
+                     await sendRequest('resizeWindow', { height: POPUP_HEIGHT_DEFAULT });
+                 }
+             }
+        } else {
+            // Not showing or missing ID - keep minimal state or hide
+            setIsLoading(false);
+        }
+
+      } catch (error) {
+        console.error('[AcademiaNotificationsPopup] Poll failed:', error);
+      }
     };
-  }, [fileId, checkForUnreadReview]);
+
+    // Poll immediately
+    poll();
+
+    // Set interval (3 seconds)
+    const intervalId = setInterval(poll, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [pidParam, authToken, hasUnreadReview, sendRequest]);
+
+  // Check project status periodically if we have IDs
+  useEffect(() => {
+      if (!projectId || !fileId) return;
+
+      const checkStatus = async () => {
+          await fetchProjectStatus(projectId, fileId, authToken);
+      };
+
+      // Check immediately
+      checkStatus();
+
+      // Check every 10 seconds (less frequent than main poll)
+      const intervalId = setInterval(checkStatus, 10000);
+
+      return () => clearInterval(intervalId);
+  }, [projectId, fileId, authToken]);
+
 
   const handleSeeNewReview = async () => {
     if (!currentNotification) {
@@ -487,6 +477,12 @@ const AcademiaNotificationsPopup: React.FC = () => {
   const isReviewing = reviewState === 'reviewing';
   const showFailedMessage = reviewState === 'failed';
   const buttonsDisabled = isLoading || !projectId || !fileId || isReviewing;
+
+  // If we should not show (e.g. invalid PID or file), we might want to render empty or a message
+  // For popup, it usually stays open but maybe disabled. Or we can just disable buttons.
+  // The 'shouldShow' from poll refers more to the Button visibility.
+  // But if the project file is gone, the popup probably shouldn't be interactable.
+  // Let's rely on buttonsDisabled which checks for missing projectId/fileId.
 
   return (
     <div style={styles.container}>
