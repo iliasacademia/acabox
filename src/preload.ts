@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import { IPC_CHANNELS } from './shared/types';
+import { IPC_CHANNELS, IpcChannel } from './shared/types';
 
 // Single source of truth for valid event channels - prevents security bypass from inconsistent lists
 const VALID_EVENT_CHANNELS: string[] = [

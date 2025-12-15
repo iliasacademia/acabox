@@ -1,13 +1,14 @@
 import React from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 import './CustomTitleBar.css';
 
 const CustomTitleBar: React.FC = () => {
   const handleMinimize = () => {
-    window.electronAPI.invoke('minimize-window');
+    window.electronAPI.invoke(IPC_CHANNELS.MINIMIZE_WINDOW);
   };
 
   const handleClose = () => {
-    window.electronAPI.invoke('close-window');
+    window.electronAPI.invoke(IPC_CHANNELS.CLOSE_WINDOW);
   };
 
   return (

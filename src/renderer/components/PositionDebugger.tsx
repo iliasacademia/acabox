@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 
 interface Position {
   x: number;
@@ -106,8 +107,8 @@ const PositionDebugger: React.FC = () => {
     try {
       // Fetch both position data and notifications in parallel
       const [positionResult, notificationsResult] = await Promise.all([
-        window.electronAPI.invoke('get-position-debug-info'),
-        window.electronAPI.invoke('get-all-notifications')
+        window.electronAPI.invoke(IPC_CHANNELS.GET_POSITION_DEBUG_INFO),
+        window.electronAPI.invoke(IPC_CHANNELS.GET_ALL_NOTIFICATIONS)
       ]);
 
       if (positionResult.success && notificationsResult.success) {

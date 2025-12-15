@@ -261,15 +261,15 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
         setDialog({ type: null, title: '', message: '' });
         try {
           // Clean up local sync state before deleting from backend
-          await window.electronAPI.invoke('stop-project-sync', project.id);
+          await window.electronAPI.invoke(IPC_CHANNELS.STOP_PROJECT_SYNC, project.id);
 
           const success = await deleteProject(project.id);
           if (success) {
             // Refresh manuscript paths to remove deleted project's manuscripts
-            await window.electronAPI.invoke('refresh-manuscript-paths');
+            await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
 
             // Clear notifications for deleted project
-            await window.electronAPI.invoke('clear-notifications-for-project', project.id);
+            await window.electronAPI.invoke(IPC_CHANNELS.CLEAR_NOTIFICATIONS_FOR_PROJECT, project.id);
 
             setProjects(projects.filter((p) => p.id !== project.id));
 

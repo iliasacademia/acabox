@@ -24,7 +24,7 @@ export function useProjectSyncStatus(projectId: number | null): SyncStatus {
     const fetchInitialStatus = async () => {
       try {
         // Get project folders from API
-        const response = await window.electronAPI.invoke('api-call', {
+        const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
           method: 'GET',
           endpoint: `v0/co_scientist/projects/${projectId}/folders`
         });

@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { IPC_CHANNELS } from '../../shared/types';
 
 interface SearchResult {
   id: number;
@@ -11,7 +12,7 @@ const SearchSection: React.FC = () => {
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
 
   const handleSearch = async () => {
-    const results = await window.electronAPI.invoke('search-files', searchTerm);
+    const results = await window.electronAPI.invoke(IPC_CHANNELS.SEARCH_FILES, searchTerm);
     setSearchResults(results.private_papers || []);
   };
 
