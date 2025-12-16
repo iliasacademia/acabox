@@ -25,7 +25,9 @@ declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 // Initialize electron-store for app settings (empty for now, reserved for future settings)
-const store = new Store();
+const store = new Store({
+  name: app.isPackaged ? 'config' : 'config-dev',
+});
 
 
 // Clean up deprecated updateChannel preference from electron-store
@@ -101,8 +103,8 @@ const createWindow = async (): Promise<void> => {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
-          "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
+          "worker-src 'self' blob:; " +
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
           "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
@@ -160,8 +162,8 @@ const createMainWindow = async (): Promise<void> => {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
-          "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
+          "worker-src 'self' blob:; " +
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
           "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
@@ -1524,14 +1526,14 @@ ipcMain.handle(IPC_CHANNELS.ADD_SYNC_FOLDER, async (_event, folderPath: string) 
 
     logger.debug('[ADD-SYNC-FOLDER] Calling backend to register folder...');
     const response = await addFolder(folderName, folderPath);
-    logger.debug('[ADD-SYNC-FOLDER] Backend response:', response.status, response.data);
+    logger.debug(`[ADD-SYNC-FOLDER] Backend response: ${response.status} ${JSON.stringify(response.data)}`);
 
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`Failed to add folder: ${response.status}`);
     }
 
     const folder = response.data.folder;
-    logger.debug('[ADD-SYNC-FOLDER] Folder registered:', folder);
+    logger.debug(`[ADD-SYNC-FOLDER] Folder registered: ${JSON.stringify(folder)}`);
 
     // Start watching (will handle recursive subfolders automatically)
     logger.debug('[ADD-SYNC-FOLDER] Starting sync service watcher...');
@@ -1597,7 +1599,7 @@ ipcMain.handle(IPC_CHANNELS.GET_FOLDER_FILES, async (_event, folderId: string) =
     logger.debug('[GET-FOLDER-FILES] Received data from backend:', JSON.stringify(filesData, null, 2));
 
     if (!filesData || !filesData.files) {
-      logger.error('[GET-FOLDER-FILES] Invalid response structure:', filesData);
+      logger.error(`[GET-FOLDER-FILES] Invalid response structure: ${JSON.stringify(filesData)}`);
       return { success: false, error: 'Invalid response from backend', files: [] };
     }
 

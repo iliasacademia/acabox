@@ -153,11 +153,11 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
         description: data.description,
         folder_path: data.folder, // Single folder (atomic)
       });
-      console.log('[Projects] Project created:', newProject);
+      console.log(`[Projects] Project created: ${JSON.stringify(newProject)}`);
 
       // 2. Start syncing the folder (if provided)
       if (data.folder) {
-        console.log('[Projects] Starting sync for folder:', data.folder);
+        console.log(`[Projects] Starting sync for folder: ${JSON.stringify(data.folder)}`);
 
         // Fetch the folder to get its ID
         const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
@@ -168,7 +168,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
         const folder = createdFolders.find((f: any) => f.folder_path === data.folder);
 
         if (folder) {
-          console.log('[Projects] Retrieved folder:', folder);
+          console.log(`[Projects] Retrieved folder: ${JSON.stringify(folder)}`);
 
           // Check if manuscript is in this folder
           const manuscriptInThisFolder = data.primaryManuscriptPath?.startsWith(data.folder)

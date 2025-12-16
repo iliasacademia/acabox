@@ -360,15 +360,15 @@ const AcademiaNotificationsPopup: React.FC = () => {
         console.log('[AcademiaNotificationsPopup] Notification dismissed');
       }
 
-      // 2. Navigate to conversation via native bridge
+      // 2. Close the popup first to avoid focus interference
+      await sendRequest('closeWindow', {});
+
+      // 3. Navigate to conversation via native bridge
       await sendRequest('navigateToPage', {
         page: 'conversation',
         projectId: currentNotification.project_id,
         conversationId: currentNotification.conversation_id,
       });
-
-      // 3. Close the popup after navigation request
-      await sendRequest('closeWindow', {});
     } catch (err) {
       console.error('[AcademiaNotificationsPopup] Error in handleSeeNewReview:', err);
     }
