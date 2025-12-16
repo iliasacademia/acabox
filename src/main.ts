@@ -25,7 +25,9 @@ declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 // Initialize electron-store for app settings (empty for now, reserved for future settings)
-const store = new Store();
+const store = new Store({
+  name: app.isPackaged ? 'config' : 'config-dev',
+});
 
 
 // Clean up deprecated updateChannel preference from electron-store

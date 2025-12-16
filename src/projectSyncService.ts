@@ -1,7 +1,7 @@
 import * as chokidar from 'chokidar';
 import * as path from 'path';
 import * as fs from 'fs';
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { APIclient, getCsrfToken, checkLogin } from './apiClient';
 import { IPC_CHANNELS } from './shared/types';
 import FormData from 'form-data';
@@ -56,7 +56,9 @@ interface ProjectSyncState {
 class ProjectSyncService {
   private watchedFolders: Map<string, WatchedProjectFolder> = new Map();
   private mainWindow: BrowserWindow | null = null;
-  private store = new Store<ProjectSyncState>({ name: 'project-sync-state' });
+  private store = new Store<ProjectSyncState>({
+    name: app.isPackaged ? 'project-sync-state' : 'project-sync-state-dev',
+  });
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;

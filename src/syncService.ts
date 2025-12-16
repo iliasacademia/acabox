@@ -1,7 +1,7 @@
 import * as chokidar from 'chokidar';
 import * as path from 'path';
 import * as fs from 'fs';
-import { BrowserWindow } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { downloadFileFromS3, getLatestFiles, createFile, deleteFile, getStatus, listFiles } from './uploader';
 import { calculateChecksum } from './utils/checksum';
 import Store from 'electron-store';
@@ -27,7 +27,9 @@ interface SyncState {
 class SyncService {
   private watchedFolders: Map<string, WatchedFolder> = new Map();
   private mainWindow: BrowserWindow | null = null;
-  private store = new Store<SyncState>({ name: 'sync-state' });
+  private store = new Store<SyncState>({
+    name: app.isPackaged ? 'sync-state' : 'sync-state-dev',
+  });
   private syncInProgress = new Set<string>(); // Track files currently being synced to prevent double-syncing
 
   setMainWindow(window: BrowserWindow) {
