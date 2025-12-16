@@ -1,10 +1,3 @@
-// Mock Datadog RUM - must be before any imports
-jest.mock('@datadog/browser-rum', () => ({
-  datadogRum: {
-    addAction: jest.fn(),
-  },
-}));
-
 // Mock the window.electronAPI BEFORE importing analytics
 // We need to extend the existing jsdom window, not replace it
 const mockInvoke = jest.fn();

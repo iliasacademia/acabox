@@ -1,4 +1,3 @@
-import { datadogRum } from "@datadog/browser-rum";
 import { IPC_CHANNELS } from "../../shared/types";
 
 /**
@@ -94,23 +93,6 @@ async function sendToBackend(
   }
 }
 
-/**
- * Also send to Datadog RUM for debugging/monitoring (optional).
- */
-function sendToDatadog(
-  eventName: string,
-  action: string,
-  context: Record<string, unknown>,
-): void {
-  try {
-    if (datadogRum && typeof datadogRum.addAction === "function") {
-      datadogRum.addAction(`${eventName}.${action}`, context);
-    }
-  } catch (error) {
-    // Silently fail
-  }
-}
-
 // =============================================================================
 // PROJECT EVENTS
 // =============================================================================
@@ -120,7 +102,6 @@ function sendToDatadog(
  */
 export function trackProjectsView(): void {
   sendToBackend("projects", "view", "desktop");
-  sendToDatadog("projects", "view", {});
 }
 
 /**
@@ -128,7 +109,6 @@ export function trackProjectsView(): void {
  */
 export function trackProjectClick(projectId: number): void {
   sendToBackend("project", "click", "desktop", {}, projectId);
-  sendToDatadog("project", "click", { projectId });
 }
 
 /**
@@ -136,7 +116,6 @@ export function trackProjectClick(projectId: number): void {
  */
 export function trackProjectView(projectId: number): void {
   sendToBackend("project", "view", "desktop", {}, projectId);
-  sendToDatadog("project", "view", { projectId });
 }
 
 // =============================================================================
@@ -148,7 +127,6 @@ export function trackProjectView(projectId: number): void {
  */
 export function trackNewProjectClick(): void {
   sendToBackend("new_project", "click", "desktop", {});
-  sendToDatadog("new_project", "click", {});
 }
 
 /**
@@ -156,7 +134,6 @@ export function trackNewProjectClick(): void {
  */
 export function trackNewProjectModalView(): void {
   sendToBackend("new_project_modal", "view", "desktop", {});
-  sendToDatadog("new_project_modal", "view", {});
 }
 
 /**
@@ -164,7 +141,6 @@ export function trackNewProjectModalView(): void {
  */
 export function trackSelectFolderModalView(): void {
   sendToBackend("select_folder_modal", "view", "desktop", {});
-  sendToDatadog("select_folder_modal", "view", {});
 }
 
 /**
@@ -172,7 +148,6 @@ export function trackSelectFolderModalView(): void {
  */
 export function trackSelectManuscriptView(): void {
   sendToBackend("select_manuscript", "view", "desktop", {});
-  sendToDatadog("select_manuscript", "view", {});
 }
 
 /**
@@ -180,7 +155,6 @@ export function trackSelectManuscriptView(): void {
  */
 export function trackCreateProjectClick(): void {
   sendToBackend("create_project", "click", "desktop", {});
-  sendToDatadog("create_project", "click", {});
 }
 
 /**
@@ -188,7 +162,6 @@ export function trackCreateProjectClick(): void {
  */
 export function trackCloseModalClick(): void {
   sendToBackend("close_modal", "click", "desktop", {});
-  sendToDatadog("close_modal", "click", {});
 }
 
 // =============================================================================
@@ -210,11 +183,6 @@ export function trackConversationView(
     { conversation_id: conversationId, agent_name: agentName },
     projectId,
   );
-  sendToDatadog("conversation", "view", {
-    projectId,
-    conversationId,
-    agentName,
-  });
 }
 
 /**
@@ -232,11 +200,6 @@ export function trackConversationMessageSent(
     { conversation_id: conversationId, agent_name: agentName },
     projectId,
   );
-  sendToDatadog("conversation_message", "sent", {
-    projectId,
-    conversationId,
-    agentName,
-  });
 }
 
 /**
@@ -264,12 +227,6 @@ export function trackConversationMessageReceived(
     metadata,
     projectId,
   );
-  sendToDatadog("conversation_message", "received", {
-    projectId,
-    conversationId,
-    agentName,
-    durationSeconds,
-  });
 }
 
 // =============================================================================
@@ -291,11 +248,6 @@ export function trackNotificationView(
     { conversation_id: conversationId, agent_name: agentName },
     projectId,
   );
-  sendToDatadog("notification", "view", {
-    projectId,
-    conversationId,
-    agentName,
-  });
 }
 
 /**
@@ -313,11 +265,6 @@ export function trackNotificationClick(
     { conversation_id: conversationId, agent_name: agentName },
     projectId,
   );
-  sendToDatadog("notification", "click", {
-    projectId,
-    conversationId,
-    agentName,
-  });
 }
 
 // =============================================================================
@@ -339,7 +286,6 @@ export function trackTriggerFullReview(
     { file_id: fileId },
     projectId,
   );
-  sendToDatadog("trigger_full_review", "click", { source, projectId, fileId });
 }
 
 /**
@@ -357,7 +303,6 @@ export function trackTriggerDiffReview(
     { file_id: fileId },
     projectId,
   );
-  sendToDatadog("trigger_diff_review", "click", { source, projectId, fileId });
 }
 
 // =============================================================================
@@ -378,7 +323,6 @@ export function trackManuscriptFileSaved(
     { file_id: fileId },
     projectId,
   );
-  sendToDatadog("manuscript_file", "saved", { projectId, fileId });
 }
 
 // =============================================================================
@@ -399,7 +343,6 @@ export function trackAcademiaButtonView(
     { file_id: fileId },
     projectId,
   );
-  sendToDatadog("academia_button", "view", { projectId, fileId });
 }
 
 /**
@@ -416,7 +359,6 @@ export function trackAcademiaButtonClick(
     { file_id: fileId },
     projectId,
   );
-  sendToDatadog("academia_button", "click", { projectId, fileId });
 }
 
 /**
@@ -433,10 +375,6 @@ export function trackAcademiaButtonNotificationPopupView(
     { file_id: fileId },
     projectId,
   );
-  sendToDatadog("academia_button_notification_popup", "view", {
-    projectId,
-    fileId,
-  });
 }
 
 /**
@@ -459,10 +397,4 @@ export function trackAcademiaButtonNewReviewClick(
     },
     projectId,
   );
-  sendToDatadog("academia_button_new_review", "click", {
-    projectId,
-    fileId,
-    conversationId,
-    agentName,
-  });
 }

@@ -101,8 +101,8 @@ const createWindow = async (): Promise<void> => {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
-          "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
+          "worker-src 'self' blob:; " +
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
           "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
@@ -160,8 +160,8 @@ const createMainWindow = async (): Promise<void> => {
           "font-src 'self' https://fonts.gstatic.com; " +
           "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
-          "worker-src 'self' blob:; " + // Datadog RUM uses blob workers for session replay
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://browser-intake-datadoghq.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
+          "worker-src 'self' blob:; " +
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
           "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
