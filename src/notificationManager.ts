@@ -88,10 +88,10 @@ class NotificationManager {
     }
 
     this.isSyncing = true;
-    logger.info('[NotificationManager] Starting sync', {
+    logger.info(`[NotificationManager] Starting sync ${JSON.stringify({
       userId,
       cacheSize: this.notifications.size,
-    });
+    })}`);
 
     try {
       // Get latest timestamp from cache for incremental sync
@@ -103,10 +103,10 @@ class NotificationManager {
       const response = await getNotifications(afterParam);
       const fetchedAt = Date.now();
 
-      logger.info('[NotificationManager] Fetched from backend', {
+      logger.info(`[NotificationManager] Fetched from backend ${JSON.stringify({
         fetchedCount: response.notifications.length,
         afterParam: afterParam || 'none (full sync)',
-      });
+      })}`);
 
       // Get existing notification IDs
       const existingIds = new Set<number>();
@@ -146,11 +146,11 @@ class NotificationManager {
 
       // Log new notifications that will trigger desktop popups
       if (newNotifications.length > 0) {
-        logger.info('[NotificationManager] New notifications to show as popups', {
+        logger.info(`[NotificationManager] New notifications to show as popups ${JSON.stringify({
           count: newNotifications.length,
           ids: newNotifications.map(n => n.id),
           projectFileIds: newNotifications.map(n => n.project_file_id),
-        });
+        })}`);
       }
 
       // Notify renderer about new notifications and mark as delivered
@@ -204,12 +204,12 @@ class NotificationManager {
 
       // Log sync completion with final state
       const undismissedNotifs = Array.from(this.notifications.values()).filter(n => n.status !== 'dismissed');
-      logger.info('[NotificationManager] Sync complete', {
+      logger.info(`[NotificationManager] Sync complete ${JSON.stringify({
         totalCached: this.notifications.size,
         undismissedCount: undismissedNotifs.length,
         unreadCount: undismissedNotifs.filter(n => n.status === 'unread').length,
         projectFileIds: [...new Set(undismissedNotifs.map(n => n.project_file_id))],
-      });
+      })}`);
     } catch (_error: unknown) {
       logger.error('Failed to sync notifications:', _error);
     } finally {

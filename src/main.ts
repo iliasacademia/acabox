@@ -1526,14 +1526,14 @@ ipcMain.handle('add-sync-folder', async (_event, folderPath: string) => {
 
     logger.debug('[ADD-SYNC-FOLDER] Calling backend to register folder...');
     const response = await addFolder(folderName, folderPath);
-    logger.debug('[ADD-SYNC-FOLDER] Backend response:', response.status, response.data);
+    logger.debug(`[ADD-SYNC-FOLDER] Backend response: ${response.status} ${JSON.stringify(response.data)}`);
 
     if (response.status < 200 || response.status >= 300) {
       throw new Error(`Failed to add folder: ${response.status}`);
     }
 
     const folder = response.data.folder;
-    logger.debug('[ADD-SYNC-FOLDER] Folder registered:', folder);
+    logger.debug(`[ADD-SYNC-FOLDER] Folder registered: ${JSON.stringify(folder)}`);
 
     // Start watching (will handle recursive subfolders automatically)
     logger.debug('[ADD-SYNC-FOLDER] Starting sync service watcher...');
@@ -1599,7 +1599,7 @@ ipcMain.handle('get-folder-files', async (_event, folderId: string) => {
     logger.debug('[GET-FOLDER-FILES] Received data from backend:', JSON.stringify(filesData, null, 2));
 
     if (!filesData || !filesData.files) {
-      logger.error('[GET-FOLDER-FILES] Invalid response structure:', filesData);
+      logger.error(`[GET-FOLDER-FILES] Invalid response structure: ${JSON.stringify(filesData)}`);
       return { success: false, error: 'Invalid response from backend', files: [] };
     }
 
