@@ -563,8 +563,13 @@ function setupAutoUpdater(): void {
   // electron-updater will automatically append platform-specific manifest:
   // - macOS: {channel}-mac.yml
   // - Windows: {channel}.yml (Squirrel.Windows)
-  const feedUrl = `https://${cloudFrontDomain}/${channel}`;
+  // For macOS, include architecture in path for arm64/x64 specific builds
+  const arch = process.arch; // 'arm64' or 'x64'
+  const feedUrl = process.platform === 'darwin'
+    ? `https://${cloudFrontDomain}/${channel}/${arch}`
+    : `https://${cloudFrontDomain}/${channel}`;
   logger.info(`[Auto-Updater] Platform: ${process.platform}`);
+  logger.info(`[Auto-Updater] Architecture: ${arch}`);
   logger.info(`[Auto-Updater] Feed URL configured: ${feedUrl}`);
   logger.info('[Auto-Updater] Security: CloudFront domain validation passed');
 

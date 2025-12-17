@@ -133,7 +133,7 @@ jobs:
 
   package:
     needs: calculate-version
-    name: Package Electron App (${{ matrix.platform }})
+    name: Package Electron App (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -143,6 +143,11 @@ jobs:
           - os: macos-latest
             platform: darwin
             arch: arm64
+            artifact_pattern: "out/make/**/*.{dmg,zip}"
+            node-version: 22.x
+          - os: macos-15-intel
+            platform: darwin
+            arch: x64
             artifact_pattern: "out/make/**/*.{dmg,zip}"
             node-version: 22.x
           - os: windows-latest
@@ -252,9 +257,9 @@ jobs:
           BRANCH_NAME=$(echo "$REF_NAME" | sed 's/[\/\.]/-/g' | tr '[:upper:]' '[:lower:]')
           BRANCH_NAME_SHORT=$(echo "$BRANCH_NAME" | cut -c1-40)
 
-          # Platform-specific artifact naming
+          # Platform-specific artifact naming (include arch for macOS to distinguish arm64 vs x64)
           if [[ "$PLATFORM" == "darwin" ]]; then
-            ARTIFACT_NAME="academia-electron-macos-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
+            ARTIFACT_NAME="academia-electron-macos-${{ matrix.arch }}-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
           else
             ARTIFACT_NAME="academia-electron-windows-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
           fi
@@ -327,12 +332,13 @@ jobs:
           BUCKET="${{ vars.S3_BUCKET_NAME }}"
           CLOUDFRONT_DOMAIN="${{ vars.CLOUDFRONT_DOMAIN }}"
 
-          echo "Uploading to S3: s3://${BUCKET}/${CHANNEL}/${VERSION}/"
+          echo "Uploading to S3: s3://${BUCKET}/${CHANNEL}/${ARCH}/${VERSION}/"
 
           if [[ "$PLATFORM" == "darwin" ]]; then
             # macOS: .zip (auto-updater) and .dmg (manual)
+            # Upload to architecture-specific path
             aws s3 cp out/make/zip/darwin/${ARCH}/ \
-              s3://${BUCKET}/${CHANNEL}/${VERSION}/ \
+              s3://${BUCKET}/${CHANNEL}/${ARCH}/${VERSION}/ \
               --recursive \
               --exclude "*" \
               --include "*.zip" \
@@ -346,7 +352,7 @@ jobs:
               echo "$DMG_FILES"
               for dmg in $DMG_FILES; do
                 echo "Uploading DMG: $dmg"
-                aws s3 cp "$dmg" s3://${BUCKET}/${CHANNEL}/${VERSION}/
+                aws s3 cp "$dmg" s3://${BUCKET}/${CHANNEL}/${ARCH}/${VERSION}/
               done
             else
               echo "WARNING: No DMG files found to upload"
@@ -376,14 +382,26 @@ jobs:
             export CLOUDFRONT_DOMAIN
             export CHANNEL
             export VERSION
+            export ARCH
             node scripts/update-manifest.js
 
-            # Upload manifest to channel root with platform-specific name
-            aws s3 cp "$MANIFEST_FILE" s3://${BUCKET}/${CHANNEL}/${MANIFEST_S3_NAME}
+            if [[ "$PLATFORM" == "darwin" ]]; then
+              # Upload manifest to architecture-specific path (new standard)
+              aws s3 cp "$MANIFEST_FILE" s3://${BUCKET}/${CHANNEL}/${ARCH}/${MANIFEST_S3_NAME}
+              echo "Manifest uploaded to: s3://${BUCKET}/${CHANNEL}/${ARCH}/${MANIFEST_S3_NAME}"
+
+              # HYBRID: For ARM64 only, also upload manifest to legacy path for backwards compatibility
+              if [[ "$ARCH" == "arm64" ]]; then
+                aws s3 cp "$MANIFEST_FILE" s3://${BUCKET}/${CHANNEL}/${MANIFEST_S3_NAME}
+                echo "Legacy manifest uploaded to: s3://${BUCKET}/${CHANNEL}/${MANIFEST_S3_NAME}"
+              fi
+            else
+              # Windows: upload to channel root (no arch subfolder)
+              aws s3 cp "$MANIFEST_FILE" s3://${BUCKET}/${CHANNEL}/${MANIFEST_S3_NAME}
+            fi
 
             echo "Upload complete!"
-            echo "Artifacts location: s3://${BUCKET}/${CHANNEL}/${VERSION}/"
-            echo "Manifest location: s3://${BUCKET}/${CHANNEL}/${MANIFEST_S3_NAME}"
+            echo "Artifacts location: s3://${BUCKET}/${CHANNEL}/${ARCH}/${VERSION}/"
           else
             echo "Warning: Manifest file not found at $MANIFEST_FILE"
             exit 1
@@ -395,20 +413,33 @@ jobs:
         run: |
           CHANNEL="${{ steps.artifact-name.outputs.channel }}"
           PLATFORM="${{ steps.artifact-name.outputs.platform }}"
+          ARCH="${{ steps.artifact-name.outputs.arch }}"
           DISTRIBUTION_ID="${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}"
 
           if [[ "$PLATFORM" == "darwin" ]]; then
-            MANIFEST_PATH="/${CHANNEL}/${CHANNEL}-mac.yml"
+            # Architecture-specific manifest path (new standard)
+            MANIFEST_PATH="/${CHANNEL}/${ARCH}/${CHANNEL}-mac.yml"
+
+            # For ARM64, also invalidate the legacy path for backwards compatibility
+            if [[ "$ARCH" == "arm64" ]]; then
+              LEGACY_PATH="/${CHANNEL}/${CHANNEL}-mac.yml"
+              echo "Invalidating CloudFront cache for ${MANIFEST_PATH} and ${LEGACY_PATH}..."
+              aws cloudfront create-invalidation \
+                --distribution-id "${DISTRIBUTION_ID}" \
+                --invalidation-batch "{\"Paths\":{\"Quantity\":2,\"Items\":[\"${MANIFEST_PATH}\",\"${LEGACY_PATH}\"]},\"CallerReference\":\"$(date +%s)\"}"
+            else
+              echo "Invalidating CloudFront cache for ${MANIFEST_PATH}..."
+              aws cloudfront create-invalidation \
+                --distribution-id "${DISTRIBUTION_ID}" \
+                --invalidation-batch "{\"Paths\":{\"Quantity\":1,\"Items\":[\"${MANIFEST_PATH}\"]},\"CallerReference\":\"$(date +%s)\"}"
+            fi
           else
             MANIFEST_PATH="/${CHANNEL}/${CHANNEL}.yml"
+            echo "Invalidating CloudFront cache for ${MANIFEST_PATH}..."
+            aws cloudfront create-invalidation \
+              --distribution-id "${DISTRIBUTION_ID}" \
+              --invalidation-batch "{\"Paths\":{\"Quantity\":1,\"Items\":[\"${MANIFEST_PATH}\"]},\"CallerReference\":\"$(date +%s)\"}"
           fi
-
-          echo "Invalidating CloudFront cache for ${MANIFEST_PATH}..."
-
-          # Use JSON input to avoid shell escaping issues on Windows
-          aws cloudfront create-invalidation \
-            --distribution-id "${DISTRIBUTION_ID}" \
-            --invalidation-batch "{\"Paths\":{\"Quantity\":1,\"Items\":[\"${MANIFEST_PATH}\"]},\"CallerReference\":\"$(date +%s)\"}"
 
           echo "CloudFront cache invalidation initiated"
 
