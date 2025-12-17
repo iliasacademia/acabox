@@ -12,6 +12,7 @@
  * - CLOUDFRONT_DOMAIN: CloudFront distribution domain
  * - CHANNEL: Release channel (stable, beta, etc.)
  * - VERSION: Version string for the release
+ * - ARCH: CPU architecture (arm64, x64) - for macOS builds
  */
 
 const fs = require('fs');
@@ -23,11 +24,12 @@ const manifestFile = process.env.MANIFEST_FILE;
 const cloudfrontDomain = process.env.CLOUDFRONT_DOMAIN;
 const channel = process.env.CHANNEL;
 const version = process.env.VERSION;
+const arch = process.env.ARCH;
 
 // Validate required environment variables
-if (!manifestFile || !cloudfrontDomain || !channel || !version) {
+if (!manifestFile || !cloudfrontDomain || !channel || !version || !arch) {
   console.error('Error: Missing required environment variables');
-  console.error('Required: MANIFEST_FILE, CLOUDFRONT_DOMAIN, CHANNEL, VERSION');
+  console.error('Required: MANIFEST_FILE, CLOUDFRONT_DOMAIN, CHANNEL, VERSION, ARCH');
   process.exit(1);
 }
 
@@ -56,8 +58,8 @@ try {
   // Extract the original filename from the path
   const originalFilename = path.basename(data.path);
 
-  // Create versioned URL: https://DOMAIN/CHANNEL/VERSION/filename
-  const newUrl = `https://${cloudfrontDomain}/${channel}/${version}/${originalFilename}`;
+  // Create versioned URL with architecture: https://DOMAIN/CHANNEL/ARCH/VERSION/filename
+  const newUrl = `https://${cloudfrontDomain}/${channel}/${arch}/${version}/${originalFilename}`;
 
   // Update the path field
   data.path = newUrl;
