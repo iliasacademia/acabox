@@ -596,10 +596,11 @@ const styles: { [key: string]: React.CSSProperties } = {
     position: 'relative',
     padding: '24px', // Figma: spacing/sm-24
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-    overflow: 'hidden',
+    maxHeight: '100%',
+    overflowY: 'auto',
   },
   closeButton: {
-    position: 'absolute',
+    position: 'fixed',
     top: '11px',
     right: '15px',
     width: '20px',
