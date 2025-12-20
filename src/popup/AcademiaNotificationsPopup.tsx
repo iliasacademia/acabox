@@ -498,7 +498,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
         </button>
 
         {/* Status Messages */}
-        {showFailedMessage || true && (
+        {showFailedMessage && (
           <div style={styles.errorMessage}>
             <p style={styles.errorText}>The last review failed. Please try again.</p>
           </div>
