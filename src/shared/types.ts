@@ -16,6 +16,9 @@ export const IPC_CHANNELS = {
   API_CALL: 'api-call',
   DEVTOOLS_LOG: 'devtools-log',
 
+  // System
+  GET_DEVICE_ID: 'get-device-id',
+
   // File operations
   SELECT_FOLDER: 'select-folder',
   UPLOAD_FILES: 'upload-files',

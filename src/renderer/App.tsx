@@ -216,8 +216,9 @@ const App: React.FC = () => {
           setUserId(user.id);
           setUserName(user.first_name || user.name || null);
 
-          // Identify user in FullStory for session attribution
-          identifyUser(user.id, user.email, user.first_name || user.name);
+          // Identify user in FullStory for session attribution (with device ID)
+          const deviceId = await window.electronAPI.invoke(IPC_CHANNELS.GET_DEVICE_ID);
+          identifyUser(user.id, user.email, user.first_name || user.name, deviceId);
 
           // Initialize Zendesk for already-logged-in user
           if (FEATURES.ZENDESK_WIDGET_ENABLED) {
@@ -285,8 +286,9 @@ const App: React.FC = () => {
       setUserName(user.first_name || user.name || null);
       setShowLogin(false); // Only hide modal AFTER userId is set
 
-      // Identify user in FullStory for session attribution
-      identifyUser(user.id, user.email, user.first_name || user.name);
+      // Identify user in FullStory for session attribution (with device ID)
+      const deviceId = await window.electronAPI.invoke(IPC_CHANNELS.GET_DEVICE_ID);
+      identifyUser(user.id, user.email, user.first_name || user.name, deviceId);
 
       // Initialize Zendesk widget with user info
       if (FEATURES.ZENDESK_WIDGET_ENABLED) {

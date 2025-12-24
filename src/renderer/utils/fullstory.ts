@@ -1,7 +1,9 @@
 import { FullStory, init } from '@fullstory/browser';
-import { app } from 'electron';
 
 let isInitialized = false;
+
+// Check if in development mode (renderer-safe check)
+const isDevelopment = process.env.NODE_ENV === 'development';
 
 /**
  * Initialize FullStory session recording.
@@ -17,7 +19,7 @@ export function initFullStory(): void {
     init({
       orgId: '17I9',
       // Set devMode to true to disable recording in development
-      devMode: !app.isPackaged,
+      devMode: isDevelopment,
     });
 
     isInitialized = true;
@@ -34,8 +36,14 @@ export function initFullStory(): void {
  * @param userId - The user's numeric ID
  * @param email - Optional email address
  * @param displayName - Optional display name
+ * @param deviceId - Optional device/machine ID for cross-device tracking
  */
-export function identifyUser(userId: number, email?: string, displayName?: string): void {
+export function identifyUser(
+  userId: number,
+  email?: string,
+  displayName?: string,
+  deviceId?: string
+): void {
   if (!isInitialized) {
     console.warn('[FullStory] Cannot identify user - not initialized');
     return;
@@ -47,10 +55,11 @@ export function identifyUser(userId: number, email?: string, displayName?: strin
       properties: {
         email: email || '',
         displayName: displayName || '',
+        deviceId: deviceId || '',
       },
     });
 
-    console.log('[FullStory] User identified:', userId);
+    console.log('[FullStory] User identified:', userId, deviceId ? `(device: ${deviceId})` : '');
   } catch (error) {
     console.error('[FullStory] Failed to identify user:', error);
   }

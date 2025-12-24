@@ -19,6 +19,7 @@ import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
 import { validateExternalUrl } from './utils/urlValidation';
 import { validateCloudFrontDomain } from './utils/validateCloudFrontDomain';
 import { IPC_CHANNELS, NavigateToPagePayload } from './shared/types';
+import { getDeviceId } from './utils/deviceId';
 
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
@@ -1433,6 +1434,11 @@ ipcMain.handle(IPC_CHANNELS.GET_CURRENT_USER, async () => {
     logger.error('[IPC] Failed to get current user:', error);
     return null;
   }
+});
+
+// System IPC handlers
+ipcMain.handle(IPC_CHANNELS.GET_DEVICE_ID, () => {
+  return getDeviceId();
 });
 
 // HTTP Server IPC handlers
