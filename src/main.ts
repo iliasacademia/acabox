@@ -87,8 +87,8 @@ const createWindow = async (): Promise<void> => {
     const isDevelopment = process.env.NODE_ENV === 'development' && !app.isPackaged;
 
     const scriptSrc = isDevelopment
-      ? "script-src 'self' 'unsafe-eval' https://static.zdassets.com https://*.zendesk.com; " // unsafe-eval needed for webpack-dev-server, Zendesk scripts and JSONP
-      : "script-src 'self' https://static.zdassets.com https://*.zendesk.com; ";
+      ? "script-src 'self' 'unsafe-eval' https://static.zdassets.com https://*.zendesk.com https://edge.fullstory.com; " // unsafe-eval needed for webpack-dev-server, Zendesk scripts and JSONP
+      : "script-src 'self' https://static.zdassets.com https://*.zendesk.com https://edge.fullstory.com; ";
 
     const styleSrc = isDevelopment
       ? "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; " // unsafe-inline needed for style-loader and Zendesk
@@ -101,10 +101,10 @@ const createWindow = async (): Promise<void> => {
           "default-src 'self'; " +
           styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
+          "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com https://rs.fullstory.com;" + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
           "worker-src 'self' blob:; " +
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io https://rs.fullstory.com https://*.fullstory.com;" + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
           "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection
@@ -146,8 +146,8 @@ const createMainWindow = async (): Promise<void> => {
     const isDevelopment = process.env.NODE_ENV === 'development' && !app.isPackaged;
 
     const scriptSrc = isDevelopment
-      ? "script-src 'self' 'unsafe-eval' https://static.zdassets.com https://*.zendesk.com; " // unsafe-eval needed for webpack-dev-server, Zendesk scripts and JSONP
-      : "script-src 'self' https://static.zdassets.com https://*.zendesk.com; ";
+      ? "script-src 'self' 'unsafe-eval' https://static.zdassets.com https://*.zendesk.com https://edge.fullstory.com; " // unsafe-eval needed for webpack-dev-server, Zendesk scripts and JSONP
+      : "script-src 'self' https://static.zdassets.com https://*.zendesk.com https://edge.fullstory.com; ";
 
     const styleSrc = isDevelopment
       ? "style-src 'self' https://fonts.googleapis.com https://static.zdassets.com 'unsafe-inline'; " // unsafe-inline needed for style-loader and Zendesk
@@ -160,10 +160,10 @@ const createMainWindow = async (): Promise<void> => {
           "default-src 'self'; " +
           styleSrc +
           "font-src 'self' https://fonts.gstatic.com; " +
-          "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com; " + // Added Zendesk image domains and Gravatar for avatars
+          "img-src 'self' data: https://*.zdassets.com https://*.zendesk.com https://*.gravatar.com https://rs.fullstory.com;" + // Added Zendesk image domains and Gravatar for avatars
           scriptSrc +
           "worker-src 'self' blob:; " +
-          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io; " + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
+          "connect-src 'self' https://api.academia.edu https://www.academia.edu https://www.google.com https://*.zendesk.com https://*.zdassets.com wss://*.zendesk.com https://*.sentry.io https://rs.fullstory.com https://*.fullstory.com;" + // Added Google for connectivity check, Zendesk API, WebSocket, and Sentry
           "frame-src https://*.zendesk.com https://*.zdassets.com; " + // Zendesk widget uses iframes
           "object-src 'none'; " + // Disable plugins
           "base-uri 'self'; " + // Prevent base tag injection

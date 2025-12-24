@@ -10,11 +10,15 @@ import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
 import { useDevToolsLog } from './hooks/useDevToolsLog';
 import { trackNotificationView, trackNotificationClick } from './utils/analytics';
 import { initZendeskWidget, cleanupZendeskWidget, showWidget } from './utils/zendeskWidget';
+import { initFullStory, identifyUser, clearUserIdentity } from './utils/fullstory';
 import { FEATURES } from '../shared/types';
 import Projects from './components/Projects';
 import { StatusBar } from './components/StatusBar';
 import { useConnectivityStatus } from './hooks/useConnectivityStatus';
 import './App.css';
+
+// Initialize FullStory early (before React renders)
+initFullStory();
 
 const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
@@ -212,6 +216,9 @@ const App: React.FC = () => {
           setUserId(user.id);
           setUserName(user.first_name || user.name || null);
 
+          // Identify user in FullStory for session attribution
+          identifyUser(user.id, user.email, user.first_name || user.name);
+
           // Initialize Zendesk for already-logged-in user
           if (FEATURES.ZENDESK_WIDGET_ENABLED) {
             initZendeskWidget({
@@ -278,6 +285,9 @@ const App: React.FC = () => {
       setUserName(user.first_name || user.name || null);
       setShowLogin(false); // Only hide modal AFTER userId is set
 
+      // Identify user in FullStory for session attribution
+      identifyUser(user.id, user.email, user.first_name || user.name);
+
       // Initialize Zendesk widget with user info
       if (FEATURES.ZENDESK_WIDGET_ENABLED) {
         initZendeskWidget({
@@ -305,6 +315,9 @@ const App: React.FC = () => {
     if (FEATURES.ZENDESK_WIDGET_ENABLED) {
       cleanupZendeskWidget();
     }
+
+    // Clear FullStory user identity
+    clearUserIdentity();
 
     const result = await window.electronAPI.invoke(IPC_CHANNELS.LOGOUT);
     if (result.success) {
