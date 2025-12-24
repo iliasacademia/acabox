@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
 
   // System
   GET_DEVICE_ID: 'get-device-id',
+  GET_APP_INFO: 'get-app-info',
 
   // File operations
   SELECT_FOLDER: 'select-folder',

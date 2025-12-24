@@ -1441,6 +1441,13 @@ ipcMain.handle(IPC_CHANNELS.GET_DEVICE_ID, () => {
   return getDeviceId();
 });
 
+ipcMain.handle(IPC_CHANNELS.GET_APP_INFO, () => {
+  return {
+    version: app.getVersion(),
+    isPackaged: app.isPackaged,
+  };
+});
+
 // HTTP Server IPC handlers
 ipcMain.handle(IPC_CHANNELS.GET_HTTP_SERVER_INFO, async () => {
   if (!httpServer || !httpServer.isRunning()) {

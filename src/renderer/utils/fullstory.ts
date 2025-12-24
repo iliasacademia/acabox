@@ -1,9 +1,7 @@
 import { FullStory, init } from '@fullstory/browser';
+import { IPC_CHANNELS } from '../../shared/types';
 
 let isInitialized = false;
-
-// Check if in development mode (renderer-safe check)
-const isDevelopment = process.env.NODE_ENV === 'development';
 
 /**
  * Initialize FullStory session recording.
@@ -12,18 +10,22 @@ const isDevelopment = process.env.NODE_ENV === 'development';
  * Note: FullStory doesn't officially support Electron. Session replay
  * may have issues in production builds using file:// protocol.
  */
-export function initFullStory(): void {
+export async function initFullStory(): Promise<void> {
   if (isInitialized) return;
 
   try {
+    // Get app info to determine if we're in development mode
+    const appInfo = await window.electronAPI.invoke(IPC_CHANNELS.GET_APP_INFO);
+    const isDevMode = !appInfo.isPackaged;
+
     init({
       orgId: '17I9',
-      // Set devMode to true to disable recording in development
-      devMode: isDevelopment,
+      // Disable recording in development (unpackaged) builds
+      devMode: isDevMode,
     });
 
     isInitialized = true;
-    console.log('[FullStory] Initialized');
+    console.log('[FullStory] Initialized', isDevMode ? '(dev mode - recording disabled)' : '');
   } catch (error) {
     console.error('[FullStory] Failed to initialize:', error);
   }
@@ -37,12 +39,14 @@ export function initFullStory(): void {
  * @param email - Optional email address
  * @param displayName - Optional display name
  * @param deviceId - Optional device/machine ID for cross-device tracking
+ * @param appVersion - Optional app version string
  */
 export function identifyUser(
   userId: number,
   email?: string,
   displayName?: string,
-  deviceId?: string
+  deviceId?: string,
+  appVersion?: string
 ): void {
   if (!isInitialized) {
     console.warn('[FullStory] Cannot identify user - not initialized');
@@ -56,10 +60,11 @@ export function identifyUser(
         email: email || '',
         displayName: displayName || '',
         deviceId: deviceId || '',
+        appVersion: appVersion || '',
       },
     });
 
-    console.log('[FullStory] User identified:', userId, deviceId ? `(device: ${deviceId})` : '');
+    console.log('[FullStory] User identified:', userId, deviceId ? `(device: ${deviceId})` : '', appVersion ? `(v${appVersion})` : '');
   } catch (error) {
     console.error('[FullStory] Failed to identify user:', error);
   }

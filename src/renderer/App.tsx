@@ -17,8 +17,8 @@ import { StatusBar } from './components/StatusBar';
 import { useConnectivityStatus } from './hooks/useConnectivityStatus';
 import './App.css';
 
-// Initialize FullStory early (before React renders)
-initFullStory();
+// Initialize FullStory early (fire and forget - async init happens in background)
+initFullStory().catch((error) => console.error('[App] FullStory init failed:', error));
 
 const App: React.FC = () => {
   const [showLogin, setShowLogin] = useState(false);
@@ -216,9 +216,12 @@ const App: React.FC = () => {
           setUserId(user.id);
           setUserName(user.first_name || user.name || null);
 
-          // Identify user in FullStory for session attribution (with device ID)
-          const deviceId = await window.electronAPI.invoke(IPC_CHANNELS.GET_DEVICE_ID);
-          identifyUser(user.id, user.email, user.first_name || user.name, deviceId);
+          // Identify user in FullStory for session attribution (with device ID and version)
+          const [deviceId, appInfo] = await Promise.all([
+            window.electronAPI.invoke(IPC_CHANNELS.GET_DEVICE_ID),
+            window.electronAPI.invoke(IPC_CHANNELS.GET_APP_INFO),
+          ]);
+          identifyUser(user.id, user.email, user.first_name || user.name, deviceId, appInfo.version);
 
           // Initialize Zendesk for already-logged-in user
           if (FEATURES.ZENDESK_WIDGET_ENABLED) {
@@ -286,9 +289,12 @@ const App: React.FC = () => {
       setUserName(user.first_name || user.name || null);
       setShowLogin(false); // Only hide modal AFTER userId is set
 
-      // Identify user in FullStory for session attribution (with device ID)
-      const deviceId = await window.electronAPI.invoke(IPC_CHANNELS.GET_DEVICE_ID);
-      identifyUser(user.id, user.email, user.first_name || user.name, deviceId);
+      // Identify user in FullStory for session attribution (with device ID and version)
+      const [deviceId, appInfo] = await Promise.all([
+        window.electronAPI.invoke(IPC_CHANNELS.GET_DEVICE_ID),
+        window.electronAPI.invoke(IPC_CHANNELS.GET_APP_INFO),
+      ]);
+      identifyUser(user.id, user.email, user.first_name || user.name, deviceId, appInfo.version);
 
       // Initialize Zendesk widget with user info
       if (FEATURES.ZENDESK_WIDGET_ENABLED) {
