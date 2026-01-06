@@ -431,7 +431,6 @@ export function ConversationDetail({
                 {item.type === 'message' ? (
                   <ConversationMessage
                     message={item.data as Message}
-                    isPolling={isPolling}
                     onShowDiff={handleShowDiff}
                   />
                 ) : (
@@ -440,6 +439,19 @@ export function ConversationDetail({
               </div>
             ))}
           </>
+        )}
+
+        {/* Show loading indicator when AI is responding */}
+        {isPolling && groupedMessages.length > 0 && (
+          <div className="conversationMessage assistant">
+            <div className="messageContent">
+              <div className="messageLoading">
+                <span className="loadingDot"></span>
+                <span className="loadingDot"></span>
+                <span className="loadingDot"></span>
+              </div>
+            </div>
+          </div>
         )}
 
         <div ref={messagesEndRef} />

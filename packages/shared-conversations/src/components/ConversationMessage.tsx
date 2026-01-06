@@ -5,11 +5,10 @@ import { Message } from '../types/conversation';
 
 interface ConversationMessageProps {
   message: Message;
-  isPolling?: boolean;
   onShowDiff?: () => void;
 }
 
-export function ConversationMessage({ message, isPolling, onShowDiff }: ConversationMessageProps) {
+export function ConversationMessage({ message, onShowDiff }: ConversationMessageProps) {
   const isAssistant = message.role === 'assistant';
   const isTool = message.role === 'tool';
 
@@ -125,15 +124,6 @@ export function ConversationMessage({ message, isPolling, onShowDiff }: Conversa
               </span>
             </div>
           ))}
-        </div>
-      )}
-
-      {/* Show loading indicator only when actively polling for response */}
-      {isAssistant && (message.data as { final?: boolean })?.final !== true && isPolling && (
-        <div className="messageLoading">
-          <span className="loadingDot"></span>
-          <span className="loadingDot"></span>
-          <span className="loadingDot"></span>
         </div>
       )}
     </div>
