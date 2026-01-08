@@ -402,16 +402,17 @@ export async function updateReviewStatus(
 
 /**
  * Get file diff (current version vs previous version)
- * GET /v0/co_scientist/projects/:projectId/files/:fileId/diff
+ * GET /v0/co_scientist/projects/:projectId/files/:fileId/diff?conversation_id=:conversationId
  * Returns diff response with plain text diff and metadata
  */
 export async function getFileDiff(
   projectId: number,
-  fileId: number
+  fileId: number,
+  conversationId: number
 ): Promise<DiffResponse> {
   const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
     method: 'GET',
-    endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff`,
+    endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff?conversation_id=${conversationId}`,
   });
   return response;
 }
