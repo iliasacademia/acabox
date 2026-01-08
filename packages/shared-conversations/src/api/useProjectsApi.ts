@@ -67,16 +67,17 @@ export function useProjectsApi() {
 
     /**
      * Get file diff (current version vs previous version)
-     * GET /v0/co_scientist/projects/:projectId/files/:fileId/diff
+     * GET /v0/co_scientist/projects/:projectId/files/:fileId/diff?conversation_id=:conversationId
      * Returns diff response with plain text diff and metadata
      */
     getFileDiff: async (
       projectId: number,
-      fileId: number
+      fileId: number,
+      conversationId: number
     ): Promise<DiffResponse> => {
       const response = await client.invoke<DiffResponse>({
         method: 'GET',
-        endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff`,
+        endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}/diff?conversation_id=${conversationId}`,
       });
       return response;
     },
