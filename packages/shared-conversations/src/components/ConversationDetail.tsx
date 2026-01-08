@@ -81,18 +81,12 @@ export function ConversationDetail({
       return;
     }
 
-    if (!conversation || isDraft(conversation)) {
-      setDiffError('Cannot show diff for draft conversation');
-      setShowDiffModal(true);
-      return;
-    }
-
     setIsDiffLoading(true);
     setDiffError(null);
     setShowDiffModal(true);
 
     try {
-      const diff = await getFileDiff(projectId, primaryManuscriptId, conversation.id);
+      const diff = await getFileDiff(projectId, primaryManuscriptId);
       setDiffData(diff);
     } catch (error: unknown) {
       const err = error as { message?: string };
