@@ -160,16 +160,18 @@ export async function registerWordRoutes(
           shouldShow: false,
           notificationCount: 0,
           isActive: false,
-          latestReviewNotification: null,
+          fullReviewNotification: null,
+          diffReviewNotification: null,
           activeDocumentPath: activePath
         };
         reply.send(response);
         return;
       }
 
-      // Calculate notification count and find latest review notification if user is logged in
+      // Calculate notification count and find review notifications if user is logged in
       let count = 0;
-      let latestReviewNotification = null;
+      let fullReviewNotification = null;
+      let diffReviewNotification = null;
 
       if (notificationManager && currentUserId) {
         const userId = currentUserId();
@@ -179,16 +181,33 @@ export async function registerWordRoutes(
             const filtered = undismissed.filter((n: CachedNotification) => n.project_file_id === projectFile.project_file_id);
             count = filtered.length;
 
-            // Find notification with conversation_id for popup
-            const reviewNotification = filtered.find(
-              (n: any) => n.data?.conversation_id != null
+            // Find full review notification (agent_name contains "full")
+            const fullReviewNotif = filtered.find(
+              (n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("full")
             );
-            
-            if (reviewNotification) {
-              latestReviewNotification = {
-                id: reviewNotification.id,
-                project_id: reviewNotification.project_id,
-                conversation_id: reviewNotification.data.conversation_id,
+
+            // Find diff review notification (agent_name contains "diff")
+            const diffReviewNotif = filtered.find(
+              (n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("diff")
+            );
+
+            if (fullReviewNotif) {
+              fullReviewNotification = {
+                id: fullReviewNotif.id,
+                project_id: fullReviewNotif.project_id,
+                conversation_id: fullReviewNotif.data.conversation_id,
+                created_at: fullReviewNotif.created_at,
+                title: fullReviewNotif.title,
+              };
+            }
+
+            if (diffReviewNotif) {
+              diffReviewNotification = {
+                id: diffReviewNotif.id,
+                project_id: diffReviewNotif.project_id,
+                conversation_id: diffReviewNotif.data.conversation_id,
+                created_at: diffReviewNotif.created_at,
+                title: diffReviewNotif.title,
               };
             }
 
@@ -204,7 +223,8 @@ export async function registerWordRoutes(
         projectFileId: projectFile.project_file_id,
         notificationCount: count,
         isActive: tracked.isActive,
-        latestReviewNotification,
+        fullReviewNotification,
+        diffReviewNotification,
         activeDocumentPath: activePath
       };
 

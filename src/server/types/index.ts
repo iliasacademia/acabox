@@ -133,11 +133,21 @@ export interface WordPollResponse {
   notificationCount?: number;
   /** Whether this PID is the active/focused one */
   isActive: boolean;
-  /** Latest review notification (if any) */
-  latestReviewNotification?: {
+  /** Full review notification (if any) - agent_name contains "full" */
+  fullReviewNotification?: {
     id: number;
     project_id: number;
     conversation_id: number;
+    created_at: number;
+    title: string;
+  } | null;
+  /** Diff review notification (if any) - agent_name contains "diff" */
+  diffReviewNotification?: {
+    id: number;
+    project_id: number;
+    conversation_id: number;
+    created_at: number;
+    title: string;
   } | null;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
