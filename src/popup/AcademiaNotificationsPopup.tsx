@@ -789,7 +789,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     background: '#ffffff', // Figma: background-white
     borderRadius: '16px', // Figma: corner-radius/radius-lg
     border: '1px solid #ccc9bc', // Figma: stroke-beige-light
-    boxShadow: '0px 4px 12px rgba(0, 0, 0, 0.25)', // Figma: shadow
     position: 'relative',
     padding: '24px', // Figma: spacing/sm-24
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
