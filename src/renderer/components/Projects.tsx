@@ -90,7 +90,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
 
     console.log('[Projects] Handling pending navigation:', pendingNavigation);
 
-    if (pendingNavigation.page === 'conversation') {
+    if (pendingNavigation.page === 'conversation' || pendingNavigation.page === 'conversations') {
       // Find the project in our local state
       const targetProject = projects.find(p => p.id === pendingNavigation.projectId);
 
@@ -98,7 +98,10 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
         console.log('[Projects] Navigating to project:', targetProject.name, 'conversation:', pendingNavigation.conversationId);
         setSelectedProject(targetProject);
         setCurrentView('detail');
-        setPendingConversationId(pendingNavigation.conversationId);
+        // Only set pending conversation ID for specific conversation navigation
+        if (pendingNavigation.page === 'conversation' && pendingNavigation.conversationId) {
+          setPendingConversationId(pendingNavigation.conversationId);
+        }
         onNavigationHandled();
       } else {
         console.warn('[Projects] Project not found for navigation:', pendingNavigation.projectId);
@@ -108,7 +111,9 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
           if (project) {
             setSelectedProject(project);
             setCurrentView('detail');
-            setPendingConversationId(pendingNavigation.conversationId);
+            if (pendingNavigation.page === 'conversation' && pendingNavigation.conversationId) {
+              setPendingConversationId(pendingNavigation.conversationId);
+            }
           }
           onNavigationHandled();
         });

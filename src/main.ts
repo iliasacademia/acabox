@@ -774,24 +774,45 @@ app.whenReady().then(async () => {
 
   // Set up navigation handler for popup-to-main-window navigation
   wordIntegrationService.setNavigationHandler((payload) => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      logger.warn('[Main] Main window not available for navigation');
+    const sendNavigationEvent = () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        logger.warn('[Main] Main window not available for navigation after creation');
+        return;
+      }
+
+      // Show and focus the main window
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+
+      // Send navigation event to renderer
+      mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+        page: payload.page,
+        projectId: payload.projectId,
+        conversationId: payload.conversationId,
+      } as NavigateToPagePayload);
+    };
+
+    // If main window exists, navigate immediately
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      sendNavigationEvent();
       return;
     }
 
-    // Show and focus the main window
-    if (mainWindow.isMinimized()) {
-      mainWindow.restore();
-    }
-    mainWindow.show();
-    mainWindow.focus();
-
-    // Send navigation event to renderer
-    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-      page: payload.page,
-      projectId: payload.projectId,
-      conversationId: payload.conversationId,
-    } as NavigateToPagePayload);
+    // Main window was closed, create it first
+    logger.info('[Main] Main window not available, creating new window for navigation');
+    createMainWindow().then(() => {
+      // Wait for window to finish loading before sending navigation event
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.once('did-finish-load', () => {
+          sendNavigationEvent();
+        });
+      }
+    }).catch((err) => {
+      logger.error('[Main] Failed to create main window for navigation:', err);
+    });
   });
 });
 
