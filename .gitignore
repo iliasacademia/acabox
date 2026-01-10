@@ -50,3 +50,7 @@ src/native/build/SimpleTests
 .claude/settings.local.json
 
 window-monitor
+# Window monitor binary
+window-monitor/window-monitor
+
+
