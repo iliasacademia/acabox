@@ -7,7 +7,12 @@
 @property (nonatomic, assign) pid_t wordPid;
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *trackedWindowIds;      // Windows we emitted CREATED/EXISTING for (role=AXWindow)
 @property (nonatomic, strong) NSMutableSet<NSNumber *> *allKnownWindowIds;     // All Word windows (for destroy detection)
+@property (nonatomic, strong) NSMutableDictionary<NSNumber *, NSValue *> *windowBoundsCache;  // Cached bounds for resize detection
+@property (nonatomic, assign) AXUIElementRef observedWindowElement;                          // Window with resize observers attached
+@property (nonatomic, assign) BOOL isResizing;                                               // Whether focused window is currently resizing
+@property (nonatomic, strong) NSDate *lastBoundsChangeTime;                                  // Last bounds change timestamp for focused window
 @property (nonatomic, strong) NSTimer *pollingTimer;                           // Periodic check for missed events
+@property (nonatomic, strong) NSTimer *resizeEndTimer;                         // Timer to detect resize end
 @property (nonatomic, assign) CGWindowID lastFocusedWindowId;                  // Track last focused window for polling
 @property (nonatomic, assign) BOOL isMonitoring;
 
@@ -31,6 +36,10 @@
     if (self) {
         _trackedWindowIds = [NSMutableSet set];
         _allKnownWindowIds = [NSMutableSet set];
+        _windowBoundsCache = [NSMutableDictionary dictionary];
+        _observedWindowElement = NULL;
+        _isResizing = NO;
+        _lastBoundsChangeTime = nil;
         _wordPid = 0;
         _lastFocusedWindowId = 0;
         _isMonitoring = NO;
@@ -218,11 +227,18 @@
 }
 
 - (void)detachFromWord {
-    // Stop polling timer
+    // Stop timers
     if (self.pollingTimer) {
         [self.pollingTimer invalidate];
         self.pollingTimer = nil;
     }
+    if (self.resizeEndTimer) {
+        [self.resizeEndTimer invalidate];
+        self.resizeEndTimer = nil;
+    }
+
+    // Unregister resize observers from focused window
+    [self unregisterResizeObservers];
 
     if (self.axObserver) {
         CFRunLoopRemoveSource(CFRunLoopGetCurrent(),
@@ -238,8 +254,50 @@
     }
 
     self.wordPid = 0;
+    self.isResizing = NO;
+    self.lastBoundsChangeTime = nil;
     [self.trackedWindowIds removeAllObjects];
     [self.allKnownWindowIds removeAllObjects];
+    [self.windowBoundsCache removeAllObjects];
+}
+
+#pragma mark - Resize Observer Management
+
+- (void)registerResizeObserversForWindow:(AXUIElementRef)windowElement {
+    if (!self.axObserver || !windowElement) {
+        return;
+    }
+
+    // Unregister from previous window first
+    [self unregisterResizeObservers];
+
+    // Register for move and resize notifications on this window
+    AXObserverAddNotification(self.axObserver, windowElement,
+                              kAXMovedNotification,
+                              (__bridge void *)self);
+
+    AXObserverAddNotification(self.axObserver, windowElement,
+                              kAXResizedNotification,
+                              (__bridge void *)self);
+
+    self.observedWindowElement = windowElement;
+    CFRetain(self.observedWindowElement);
+}
+
+- (void)unregisterResizeObservers {
+    if (self.observedWindowElement && self.axObserver) {
+        AXObserverRemoveNotification(self.axObserver, self.observedWindowElement,
+                                     kAXMovedNotification);
+        AXObserverRemoveNotification(self.axObserver, self.observedWindowElement,
+                                     kAXResizedNotification);
+        CFRelease(self.observedWindowElement);
+        self.observedWindowElement = NULL;
+    }
+
+    // If we were resizing, emit the final RESIZED event
+    if (self.isResizing) {
+        [self finishResizing];
+    }
 }
 
 #pragma mark - Window Enumeration
@@ -267,6 +325,8 @@
         }
 
         [self.trackedWindowIds addObject:@(windowId)];
+        // Cache initial bounds for resize detection
+        self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:bounds];
         emittedCount++;
 
         WindowEvent *event = [self createEventFromWindowDict:windowDict eventType:WindowEventTypeInitial];
@@ -331,6 +391,9 @@ static void axObserverCallback(AXObserverRef observer,
         // Emit focus event and also check for window changes
         [monitor handleFocusChanged];
         [monitor checkForWindowChanges];
+    } else if ([notification isEqualToString:(__bridge NSString *)kAXMovedNotification] ||
+               [notification isEqualToString:(__bridge NSString *)kAXResizedNotification]) {
+        [monitor handleWindowBoundsChanged:element];
     }
 }
 
@@ -354,6 +417,98 @@ static void axObserverCallback(AXObserverRef observer,
 
 - (void)handleFocusChanged {
     [self checkForFocusChange];
+}
+
+- (void)handleWindowBoundsChanged:(AXUIElementRef)windowElement {
+    // Cancel any pending resize end timer
+    if (self.resizeEndTimer) {
+        [self.resizeEndTimer invalidate];
+        self.resizeEndTimer = nil;
+    }
+
+    // If not already resizing, emit WINDOW_RESIZING
+    if (!self.isResizing) {
+        self.isResizing = YES;
+
+        // Find the window and emit RESIZING event
+        [self emitResizingEventForFocusedWindow];
+    }
+
+    // Update last change time
+    self.lastBoundsChangeTime = [NSDate date];
+
+    // Schedule timer to detect when resizing stops
+    self.resizeEndTimer = [NSTimer scheduledTimerWithTimeInterval:0.15
+                                                           target:self
+                                                         selector:@selector(checkResizeEnd)
+                                                         userInfo:nil
+                                                          repeats:NO];
+}
+
+- (void)checkResizeEnd {
+    self.resizeEndTimer = nil;
+
+    // If enough time passed since last bounds change, resize is done
+    if (self.isResizing && self.lastBoundsChangeTime) {
+        NSTimeInterval elapsed = [[NSDate date] timeIntervalSinceDate:self.lastBoundsChangeTime];
+        if (elapsed >= 0.1) {
+            [self finishResizing];
+        }
+    }
+}
+
+- (void)finishResizing {
+    if (!self.isResizing) {
+        return;
+    }
+
+    self.isResizing = NO;
+    self.lastBoundsChangeTime = nil;
+
+    // Emit WINDOW_RESIZED event with final bounds
+    [self emitResizedEventForFocusedWindow];
+}
+
+- (void)emitResizingEventForFocusedWindow {
+    if (self.lastFocusedWindowId == 0) {
+        return;
+    }
+
+    NSArray<NSDictionary *> *windows = [self getWordWindows];
+    for (NSDictionary *windowDict in windows) {
+        CGWindowID windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
+        if (windowId == self.lastFocusedWindowId) {
+            WindowEvent *event = [self createEventFromWindowDict:windowDict
+                                                       eventType:WindowEventTypeRepositioning];
+            [self emitEvent:event];
+            break;
+        }
+    }
+}
+
+- (void)emitResizedEventForFocusedWindow {
+    if (self.lastFocusedWindowId == 0) {
+        return;
+    }
+
+    NSArray<NSDictionary *> *windows = [self getWordWindows];
+    for (NSDictionary *windowDict in windows) {
+        CGWindowID windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
+        if (windowId == self.lastFocusedWindowId) {
+            // Update cached bounds
+            CGRect bounds = CGRectZero;
+            CGRectMakeWithDictionaryRepresentation(
+                (__bridge CFDictionaryRef)windowDict[(__bridge id)kCGWindowBounds],
+                &bounds
+            );
+            self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:bounds];
+
+            WindowEvent *event = [self createEventFromWindowDict:windowDict
+                                                       eventType:WindowEventTypeRepositioned];
+            [self emitEvent:event];
+            break;
+        }
+    }
 }
 
 - (void)checkForFocusChange {
@@ -430,6 +585,10 @@ static void axObserverCallback(AXObserverRef observer,
             // Only emit if focus actually changed
             if (windowId != self.lastFocusedWindowId) {
                 self.lastFocusedWindowId = windowId;
+
+                // Register resize observers on the newly focused window
+                [self registerResizeObserversForWindow:focusedWindow];
+
                 WindowEvent *event = [self createEventFromWindowDict:windowDict eventType:WindowEventTypeFocused];
                 [self emitEvent:event];
             }
@@ -466,6 +625,8 @@ static void axObserverCallback(AXObserverRef observer,
             NSString *role = [self getRoleForWindowAtBounds:bounds];
             if ([role isEqualToString:@"AXWindow"]) {
                 [self.trackedWindowIds addObject:@(windowId)];
+                // Cache initial bounds for resize detection
+                self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:bounds];
                 WindowEvent *event = [self createEventFromWindowDict:windowDict eventType:WindowEventTypeCreated];
                 [self emitEvent:event];
             }
@@ -479,6 +640,7 @@ static void axObserverCallback(AXObserverRef observer,
     for (NSNumber *windowId in destroyedWindowIds) {
         [self.allKnownWindowIds removeObject:windowId];
         [self.trackedWindowIds removeObject:windowId];  // Also remove from tracked if present
+        [self.windowBoundsCache removeObjectForKey:windowId];  // Clean up bounds cache
         [self emitDestroyedEventForWindowId:[windowId unsignedIntValue]];
     }
 }

@@ -86,6 +86,10 @@
             return @"WINDOW_EXISTING";
         case WindowEventTypeFocused:
             return @"WINDOW_FOCUSED";
+        case WindowEventTypeRepositioning:
+            return @"WINDOW_REPOSITIONING";
+        case WindowEventTypeRepositioned:
+            return @"WINDOW_REPOSITIONED";
         case WindowEventTypeAppFocused:
             return @"APP_FOCUSED";
         case WindowEventTypeAppUnfocused:

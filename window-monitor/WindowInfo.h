@@ -8,7 +8,9 @@ typedef NS_ENUM(NSInteger, WindowEventType) {
     WindowEventTypeCreated,
     WindowEventTypeDestroyed,
     WindowEventTypeInitial,       // For windows that exist when monitoring starts
-    WindowEventTypeFocused,       // When a window becomes focused/active
+    WindowEventTypeFocused,          // When a window becomes focused/active
+    WindowEventTypeRepositioning,    // When window bounds change begins (resize or move)
+    WindowEventTypeRepositioned,     // When window bounds change ends (resize or move)
     WindowEventTypeAppFocused,    // When Word app becomes frontmost
     WindowEventTypeAppUnfocused,  // When Word app loses focus
     WindowEventTypeAppLaunched,   // When Word app launches
