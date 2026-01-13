@@ -915,18 +915,26 @@ const AcademiaNotificationsPopup: React.FC = () => {
             <p style={styles.loadingText}>Loading feedback...</p>
           )}
 
-          {/* Message Content - only show assistant messages */}
+          {/* Message Content - show user and assistant messages */}
           {conversationData?.messages
-            .filter(m => m.role === 'assistant')
-            .map((message, idx) => (
-              <div
-                key={idx}
-                className="review-content"
-                style={styles.reviewContent}
-                onClick={handleReviewContentClick}
-                dangerouslySetInnerHTML={{ __html: message.content }}
-              />
-            ))}
+            .filter(m => m.role !== 'tool')
+            .map((message, idx) => {
+              const isUser = message.role === 'user';
+
+              return (
+                <div
+                  key={idx}
+                  style={isUser ? styles.userMessage : styles.assistantMessage}
+                >
+                  <div
+                    className={isUser ? undefined : "review-content"}
+                    style={isUser ? styles.userMessageContent : styles.reviewContent}
+                    onClick={isUser ? undefined : handleReviewContentClick}
+                    dangerouslySetInnerHTML={{ __html: message.content }}
+                  />
+                </div>
+              );
+            })}
         </div>
 
         {/* Footer with Ask Follow Up button */}
@@ -1436,6 +1444,27 @@ const styles: { [key: string]: React.CSSProperties } = {
     textAlign: 'center',
     padding: '24px 0',
   },
+  // User message styles (right-aligned, blue background)
+  userMessage: {
+    marginLeft: 'auto',
+    marginRight: 0,
+    maxWidth: '300px',
+    marginBottom: '12px',
+  },
+  userMessageContent: {
+    padding: '12px 16px',
+    backgroundColor: '#e6ecf7', // --background-blue from design tokens
+    borderRadius: '8px',
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 400,
+    lineHeight: '20px',
+    color: '#141413',
+  },
+  // Assistant message wrapper
+  assistantMessage: {
+    marginBottom: '12px',
+  },
   reviewFooter: {
     borderTop: '1px solid #dddde2',
     paddingTop: '24px',
@@ -1488,7 +1517,7 @@ if (typeof document !== 'undefined') {
     button[aria-label="Close"]:hover {
       background-color: rgba(0, 0, 0, 0.05) !important;
     }
-    .review-content p {
+    .review-content p, .review-content h1, .review-content h2, .review-content h3, .review-content h4, .review-content h5, .review-content h6, .review-content ul, .review-content ol, .review-content li {
       margin: 0 0 12px 0;
     }
   `;
