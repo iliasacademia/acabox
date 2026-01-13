@@ -22,6 +22,7 @@ import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
 import { registerWordRoutes } from './routes/word';
 import { registerAnalyticsRoutes } from './routes/analytics';
+import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
 import { wordIntegrationDataStore } from '../wordIntegrationDataStore';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
@@ -42,6 +43,7 @@ export class AcademiaHttpServer {
   private activeConnections = new Set<any>();
   private tokenManager: TokenManager;
   private authToken: string | null = null;
+  private navigationHandler: NavigationHandler | null = null;
 
   /**
    * Create a new HTTP server instance
@@ -65,6 +67,14 @@ export class AcademiaHttpServer {
       host: config.host ?? '127.0.0.1',
     };
 
+  }
+
+  /**
+   * Set the navigation handler for main window navigation
+   * @param handler Function to handle navigation requests
+   */
+  setNavigationHandler(handler: NavigationHandler): void {
+    this.navigationHandler = handler;
   }
 
   /**
@@ -188,6 +198,11 @@ export class AcademiaHttpServer {
 
     // Register analytics routes
     await registerAnalyticsRoutes(this.fastify);
+
+    // Register navigation routes (if handler is set)
+    if (this.navigationHandler) {
+      await registerNavigationRoutes(this.fastify, this.navigationHandler);
+    }
 
     // Start listening - try ports in range (default 23111-23120)
     const startPort = this.config.port;

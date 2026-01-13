@@ -152,3 +152,17 @@ export interface WordPollResponse {
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
 }
+
+/**
+ * Request body for POST /api/navigate
+ */
+export interface NavigateRequestBody {
+  /** Target page */
+  page: 'conversation' | 'conversations';
+  /** Project ID */
+  projectId: number;
+  /** Conversation ID (required for 'conversation' page) */
+  conversationId?: number;
+  /** Whether to auto-open the diff modal */
+  openDiffModal?: boolean;
+}

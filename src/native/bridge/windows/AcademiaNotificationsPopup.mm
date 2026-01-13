@@ -144,47 +144,6 @@
         return;
     }
 
-    // Handle navigateToPage action
-    if ([action isEqualToString:@"navigateToPage"]) {
-        NSDictionary* payload = message[@"payload"];
-        NSLog(@"[AcademiaNotificationsPopup] Navigate to page: %@", payload);
-
-        // Forward to observer's button click callback
-        // Format: "navigateToPage|{json_payload}"
-        NSError* jsonError = nil;
-        NSData* jsonData = [NSJSONSerialization dataWithJSONObject:payload options:0 error:&jsonError];
-        if (jsonData && self.observer) {
-            NSString* jsonString = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-            [self.observer handleButtonClickWithAction:@"navigateToPage" text:jsonString];
-        } else if (jsonError) {
-            NSLog(@"[AcademiaNotificationsPopup] Error serializing payload: %@", jsonError);
-        }
-
-        // Send response back to JavaScript
-        NSString* messageId = message[@"id"];
-        if (messageId) {
-            NSString* responseJS = [NSString stringWithFormat:@
-                "window.__bridgeReceive({"
-                "  id: '%@',"
-                "  from: 'native',"
-                "  to: 'notifications-popup',"
-                "  type: 'response',"
-                "  action: 'navigateToPage',"
-                "  payload: {success: true},"
-                "  timestamp: Date.now()"
-                "});",
-                messageId];
-
-            [self.webView evaluateJavaScript:responseJS completionHandler:^(id result, NSError *error) {
-                if (error) {
-                    NSLog(@"[AcademiaNotificationsPopup] ERROR sending navigateToPage response: %@", error);
-                }
-            }];
-        }
-
-        return;
-    }
-
     // Handle notificationAction (for new bridge system)
     if ([action isEqualToString:@"notificationAction"]) {
         NSDictionary* payload = message[@"payload"];
