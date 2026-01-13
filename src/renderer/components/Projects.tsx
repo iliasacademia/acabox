@@ -51,6 +51,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     message: '',
   });
   const [pendingConversationId, setPendingConversationId] = useState<number | null>(null);
+  const [pendingDiffModal, setPendingDiffModal] = useState<boolean>(false);
 
   // Derive isLoggedIn from userId prop
   const isLoggedIn = !!userId;
@@ -100,7 +101,10 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
         setCurrentView('detail');
         // Only set pending conversation ID for specific conversation navigation
         if (pendingNavigation.page === 'conversation' && pendingNavigation.conversationId) {
+          console.log('[Projects] Setting pending conversation ID:', pendingNavigation.conversationId);
+          console.log('[Projects] Setting pending diff modal:', pendingNavigation.openDiffModal ?? false);
           setPendingConversationId(pendingNavigation.conversationId);
+          setPendingDiffModal(pendingNavigation.openDiffModal ?? false);
         }
         onNavigationHandled();
       } else {
@@ -113,6 +117,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
             setCurrentView('detail');
             if (pendingNavigation.page === 'conversation' && pendingNavigation.conversationId) {
               setPendingConversationId(pendingNavigation.conversationId);
+              setPendingDiffModal(pendingNavigation.openDiffModal ?? false);
             }
           }
           onNavigationHandled();
@@ -300,11 +305,17 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     setCurrentView('list');
     setSelectedProject(null);
     setPendingConversationId(null);
+    setPendingDiffModal(false);
   };
 
   // Clear pending conversation ID after it's been used by ConversationsPage
   const handleConversationNavigated = () => {
     setPendingConversationId(null);
+  };
+
+  // Clear pending diff modal flag after ConversationDetail has opened the modal
+  const handleDiffModalOpened = () => {
+    setPendingDiffModal(false);
   };
 
   // Request login if not logged in
@@ -362,6 +373,8 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
                 onBack={handleBackToList}
                 initialConversationId={pendingConversationId}
                 onConversationNavigated={handleConversationNavigated}
+                initialOpenDiffModal={pendingDiffModal}
+                onDiffModalOpened={handleDiffModalOpened}
               />
             ) : (
               <ProjectDetail project={selectedProject} onBack={handleBackToList} />

@@ -19,6 +19,8 @@ interface ConversationsPageWrapperProps {
   onBack?: () => void;
   initialConversationId?: number | null;
   onConversationNavigated?: () => void;
+  initialOpenDiffModal?: boolean;
+  onDiffModalOpened?: () => void;
 }
 
 /**
@@ -30,6 +32,8 @@ export function ConversationsPageWrapper({
   onBack,
   initialConversationId,
   onConversationNavigated,
+  initialOpenDiffModal,
+  onDiffModalOpened,
 }: ConversationsPageWrapperProps) {
   // Feedback form URL from environment or default
   const feedbackFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSdCjDGx4NHWFMSGslBFLzdbvXM8JL6blV-DeVkJEqDpDrJ31A/viewform';
@@ -44,6 +48,8 @@ export function ConversationsPageWrapper({
         onBack={onBack}
         initialConversationId={initialConversationId}
         onConversationNavigated={onConversationNavigated}
+        initialOpenDiffModal={initialOpenDiffModal}
+        onDiffModalOpened={onDiffModalOpened}
         // Analytics callbacks
         onProjectView={trackProjectView}
         onTriggerFullReview={(projectId, fileId) => trackTriggerFullReview('desktop', projectId, fileId)}

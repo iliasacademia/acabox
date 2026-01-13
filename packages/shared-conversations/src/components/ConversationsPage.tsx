@@ -13,6 +13,8 @@ export interface ConversationsPageProps {
   onBack?: () => void;
   initialConversationId?: number | null;
   onConversationNavigated?: () => void;
+  initialOpenDiffModal?: boolean;
+  onDiffModalOpened?: () => void;
 
   // Analytics callbacks (optional)
   onProjectView?: (projectId: number) => void;
@@ -51,6 +53,8 @@ export function ConversationsPage({
   onBack,
   initialConversationId,
   onConversationNavigated,
+  initialOpenDiffModal,
+  onDiffModalOpened,
   onProjectView,
   onTriggerFullReview,
   onTriggerDiffReview,
@@ -822,6 +826,8 @@ export function ConversationsPage({
               onMessageSent={onMessageSent}
               onMessageReceived={onMessageReceived}
               feedbackFormUrl={feedbackFormUrl}
+              initialOpenDiffModal={initialOpenDiffModal}
+              onDiffModalOpened={onDiffModalOpened}
             />
           </div>
         </div>
