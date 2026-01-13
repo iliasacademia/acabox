@@ -216,6 +216,9 @@ const AcademiaNotificationsPopup: React.FC = () => {
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   // Track previous height to avoid unnecessary resize calls (prevents infinite loop)
   const previousHeightRef = useRef<number>(POPUP_HEIGHT_NO_NOTIFICATIONS);
+  // Track logged notification IDs to avoid stale closure logging issues
+  const loggedFullReviewIdRef = useRef<number | null>(null);
+  const loggedDiffReviewIdRef = useRef<number | null>(null);
 
   // State for inline review view
   const [viewMode, setViewMode] = useState<ViewMode>('menu');
@@ -324,7 +327,6 @@ const AcademiaNotificationsPopup: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log('[AcademiaNotificationsPopup] Conversation fetched:', data);
 
       return {
         title: data.conversation?.title || 'Review',
@@ -447,28 +449,32 @@ const AcademiaNotificationsPopup: React.FC = () => {
              setFileId(data.projectFileId);
              setIsLoading(false);
 
-             // Handle full review notification
+             // Handle full review notification (use refs to avoid stale closure issues)
              if (data.fullReviewNotification) {
-                 if (!fullReviewNotification) {
+                 if (loggedFullReviewIdRef.current !== data.fullReviewNotification.id) {
                      console.log('[AcademiaNotificationsPopup] Found NEW full review notification:', data.fullReviewNotification);
+                     loggedFullReviewIdRef.current = data.fullReviewNotification.id;
                  }
                  setFullReviewNotification(data.fullReviewNotification);
              } else {
-                 if (fullReviewNotification) {
+                 if (loggedFullReviewIdRef.current !== null) {
                      console.log('[AcademiaNotificationsPopup] Full review notification cleared');
+                     loggedFullReviewIdRef.current = null;
                  }
                  setFullReviewNotification(null);
              }
 
-             // Handle diff review notification
+             // Handle diff review notification (use refs to avoid stale closure issues)
              if (data.diffReviewNotification) {
-                 if (!diffReviewNotification) {
+                 if (loggedDiffReviewIdRef.current !== data.diffReviewNotification.id) {
                      console.log('[AcademiaNotificationsPopup] Found NEW diff review notification:', data.diffReviewNotification);
+                     loggedDiffReviewIdRef.current = data.diffReviewNotification.id;
                  }
                  setDiffReviewNotification(data.diffReviewNotification);
              } else {
-                 if (diffReviewNotification) {
+                 if (loggedDiffReviewIdRef.current !== null) {
                      console.log('[AcademiaNotificationsPopup] Diff review notification cleared');
+                     loggedDiffReviewIdRef.current = null;
                  }
                  setDiffReviewNotification(null);
              }

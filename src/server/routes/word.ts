@@ -184,15 +184,20 @@ export async function registerWordRoutes(
             // Count only unread notifications for the badge
             count = filtered.filter((n: CachedNotification) => n.status === 'unread').length;
 
+            // Helper to get timestamp from created_at (handles both number and ISO string)
+            const getTimestamp = (createdAt: number | string): number => {
+              return typeof createdAt === 'number' ? createdAt : new Date(createdAt).getTime();
+            };
+
             // Find latest full review notification (sorted by created_at descending)
             const fullReviewNotif = filtered
               .filter((n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("full"))
-              .sort((a: CachedNotification, b: CachedNotification) => b.created_at - a.created_at)[0];
+              .sort((a: CachedNotification, b: CachedNotification) => getTimestamp(b.created_at) - getTimestamp(a.created_at))[0];
 
             // Find latest diff review notification (sorted by created_at descending)
             const diffReviewNotif = filtered
               .filter((n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("diff"))
-              .sort((a: CachedNotification, b: CachedNotification) => b.created_at - a.created_at)[0];
+              .sort((a: CachedNotification, b: CachedNotification) => getTimestamp(b.created_at) - getTimestamp(a.created_at))[0];
 
             if (fullReviewNotif) {
               fullReviewNotification = {
