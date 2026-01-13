@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
 import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
+import { FEEDBACK_FORM_URL } from '../shared/constants';
 
 // Initialize bridge early
 getBridgeInstance('notifications-popup');
@@ -22,7 +23,7 @@ const popupInstanceId = `AcademiaNotificationsPopup-${pidParam || Math.random().
 const POPUP_HEIGHT_NO_NOTIFICATIONS = 240;    // "View previous feedback" row + "Get feedback" buttons
 const POPUP_HEIGHT_ONE_NOTIFICATION = 320;    // 1 notification card + above
 const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400;   // 2 notification cards + above
-const POPUP_HEIGHT_REVIEW_VIEW = 550;         // Height when showing inline review content
+const POPUP_HEIGHT_REVIEW_VIEW = 660;         // Height when showing inline review content
 
 // Arrow Forward Icon component
 const ArrowForwardIcon: React.FC = () => (
@@ -152,10 +153,11 @@ type ViewMode = 'menu' | 'review';
 
 // Navigation request payload type
 interface NavigateRequest {
-  page: 'conversation' | 'conversations';
-  projectId: number;
+  page: 'conversation' | 'conversations' | 'external';
+  projectId?: number;
   conversationId?: number;
   openDiffModal?: boolean;
+  url?: string;
 }
 
 // Helper function to call the navigation API
@@ -868,34 +870,6 @@ const AcademiaNotificationsPopup: React.FC = () => {
   // But if the project file is gone, the popup probably shouldn't be interactable.
   // Let's rely on buttonsDisabled which checks for missing projectId/fileId.
 
-  // Simple markdown renderer for review content
-  const renderMarkdown = (content: string): React.ReactNode => {
-    // Split by double newlines for paragraphs
-    const paragraphs = content.split(/\n\n+/);
-
-    return paragraphs.map((para, idx) => {
-      // Handle markdown links [text](url)
-      let processed = para.replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2" style="color: #0645b1; text-decoration: underline; cursor: pointer;">$1</a>'
-      );
-      // Handle bold text (**text**)
-      processed = processed.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-      // Handle italic text (*text*)
-      processed = processed.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-      // Convert single newlines to <br>
-      processed = processed.replace(/\n/g, '<br/>');
-
-      return (
-        <p
-          key={idx}
-          style={styles.reviewParagraph}
-          dangerouslySetInnerHTML={{ __html: processed }}
-        />
-      );
-    });
-  };
-
   // Render the review view (inline feedback content)
   const renderReviewView = () => {
     const notification = activeReviewType === 'full'
@@ -947,11 +921,11 @@ const AcademiaNotificationsPopup: React.FC = () => {
             .map((message, idx) => (
               <div
                 key={idx}
+                className="review-content"
                 style={styles.reviewContent}
                 onClick={handleReviewContentClick}
-              >
-                {renderMarkdown(message.content)}
-              </div>
+                dangerouslySetInnerHTML={{ __html: message.content }}
+              />
             ))}
         </div>
 
@@ -964,6 +938,18 @@ const AcademiaNotificationsPopup: React.FC = () => {
           >
             <span>Ask follow up</span>
             <ArrowForwardIcon />
+          </button>
+          <button
+            style={styles.provideFeedbackLink}
+            onClick={() => {
+              const notification = activeReviewType === 'full' ? fullReviewNotification : diffReviewNotification;
+              const feedbackUrl = notification
+                ? `${FEEDBACK_FORM_URL}?usp=pp_url&entry.744362453=${encodeURIComponent(String(notification.conversation_id))}`
+                : FEEDBACK_FORM_URL;
+              navigateToPage({ page: 'external', url: feedbackUrl }, authToken);
+            }}
+          >
+            Provide feedback on this review
           </button>
         </div>
       </>
@@ -1124,7 +1110,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     overflowY: 'auto',
     display: 'flex',
     flexDirection: 'column',
-    gap: '24px', // Figma: spacing/sm-24
   },
   closeButton: {
     position: 'absolute',
@@ -1436,17 +1421,13 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 400,
     lineHeight: '20px',
     color: '#535366',
-    margin: '0 0 24px 0',
   },
   reviewContent: {
     fontFamily: "'DM Sans', sans-serif",
     fontSize: '16px',
     fontWeight: 400,
-    lineHeight: '20px',
+    // lineHeight: '20px',
     color: '#141413',
-  },
-  reviewParagraph: {
-    margin: '0 0 12px 0',
   },
   loadingText: {
     fontFamily: "'DM Sans', sans-serif",
@@ -1476,6 +1457,22 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 400,
     color: '#141413',
   },
+  provideFeedbackLink: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 400,
+    lineHeight: '20px',
+    color: '#0645b1',
+    textDecoration: 'underline',
+    textAlign: 'center',
+    width: '100%',
+    display: 'block',
+    marginTop: '10px',
+    cursor: 'pointer',
+    background: 'none',
+    border: 'none',
+    padding: 0,
+  },
 };
 
 // Add hover styles
@@ -1490,6 +1487,9 @@ if (typeof document !== 'undefined') {
     }
     button[aria-label="Close"]:hover {
       background-color: rgba(0, 0, 0, 0.05) !important;
+    }
+    .review-content p {
+      margin: 0 0 12px 0;
     }
   `;
 
