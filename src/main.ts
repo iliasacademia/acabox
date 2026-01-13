@@ -731,6 +731,18 @@ app.whenReady().then(async () => {
 
   // Set up navigation handler for HTTP API navigation requests
   httpServer.setNavigationHandler(async (payload) => {
+    // Handle external URL navigation separately
+    if (payload.page === 'external' && payload.url) {
+      const validation = validateExternalUrl(payload.url);
+      if (!validation.isValid) {
+        logger.error('[Main] External URL validation failed:', validation.error);
+        throw new Error(validation.error || 'Invalid URL');
+      }
+      logger.info('[Main] Opening external URL:', payload.url);
+      await shell.openExternal(payload.url);
+      return;
+    }
+
     const sendNavigationEvent = () => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         logger.warn('[Main] Main window not available for navigation after creation');

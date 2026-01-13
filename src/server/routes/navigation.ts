@@ -29,14 +29,15 @@ export async function registerNavigationRoutes(
   /**
    * POST /api/navigate
    *
-   * Navigate to a page in the main window
+   * Navigate to a page in the main window or open an external URL
    *
    * Body:
    * {
-   *   page: 'conversation' | 'conversations',
-   *   projectId: number,
+   *   page: 'conversation' | 'conversations' | 'external',
+   *   projectId?: number,  // Required for conversation/conversations
    *   conversationId?: number,
-   *   openDiffModal?: boolean
+   *   openDiffModal?: boolean,
+   *   url?: string  // Required for external
    * }
    *
    * Returns:
@@ -50,11 +51,11 @@ export async function registerNavigationRoutes(
       schema: {
         body: {
           type: 'object',
-          required: ['page', 'projectId'],
+          required: ['page'],
           properties: {
             page: {
               type: 'string',
-              enum: ['conversation', 'conversations'],
+              enum: ['conversation', 'conversations', 'external'],
             },
             projectId: {
               type: 'number',
@@ -65,6 +66,9 @@ export async function registerNavigationRoutes(
             openDiffModal: {
               type: 'boolean',
             },
+            url: {
+              type: 'string',
+            },
           },
         },
       },
@@ -73,7 +77,17 @@ export async function registerNavigationRoutes(
       request: FastifyRequest<{ Body: NavigateRequestBody }>,
       reply: FastifyReply
     ) => {
-      const { page, projectId, conversationId, openDiffModal } = request.body;
+      const { page, projectId, conversationId, openDiffModal, url } = request.body;
+
+      // Validate projectId is provided for conversation/conversations pages
+      if ((page === 'conversation' || page === 'conversations') && projectId === undefined) {
+        reply.code(400).send({
+          error: 'BadRequest',
+          message: 'projectId is required when page is "conversation" or "conversations"',
+          statusCode: 400,
+        });
+        return;
+      }
 
       // Validate conversationId is provided when navigating to conversation page
       if (page === 'conversation' && conversationId === undefined) {
@@ -85,11 +99,22 @@ export async function registerNavigationRoutes(
         return;
       }
 
+      // Validate url is provided when navigating to external page
+      if (page === 'external' && !url) {
+        reply.code(400).send({
+          error: 'BadRequest',
+          message: 'url is required when page is "external"',
+          statusCode: 400,
+        });
+        return;
+      }
+
       logger.info('[Navigation API] POST /api/navigate request', {
         page,
         projectId,
         conversationId,
         openDiffModal,
+        url: page === 'external' ? url : undefined,
       });
 
       try {
@@ -98,6 +123,7 @@ export async function registerNavigationRoutes(
           projectId,
           conversationId,
           openDiffModal,
+          url,
         });
 
         reply.send({ success: true });

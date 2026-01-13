@@ -160,11 +160,13 @@ export interface WordPollResponse {
  */
 export interface NavigateRequestBody {
   /** Target page */
-  page: 'conversation' | 'conversations';
-  /** Project ID */
-  projectId: number;
+  page: 'conversation' | 'conversations' | 'external';
+  /** Project ID (required for 'conversation' and 'conversations' pages) */
+  projectId?: number;
   /** Conversation ID (required for 'conversation' page) */
   conversationId?: number;
   /** Whether to auto-open the diff modal */
   openDiffModal?: boolean;
+  /** URL to open (required for 'external' page) */
+  url?: string;
 }
