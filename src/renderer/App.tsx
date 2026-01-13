@@ -83,6 +83,10 @@ const App: React.FC = () => {
       window.electronAPI.invoke(IPC_CHANNELS.START_NOTIFICATION_POLLING, userId)
         .catch((error) => console.error('[Renderer] Failed to start notification polling:', error));
 
+      // Start events polling
+      window.electronAPI.invoke(IPC_CHANNELS.START_EVENTS_POLLING, userId)
+        .catch((error) => console.error('[Renderer] Failed to start events polling:', error));
+
       // Listen for new notifications
       const handleNewNotification = (_event: any, notif: NotificationType) => {
         // Track analytics - notification.view
@@ -101,6 +105,7 @@ const App: React.FC = () => {
         window.electronAPI.removeListener('new-notification', handleNewNotification);
         // Stop polling on cleanup
         window.electronAPI.invoke(IPC_CHANNELS.STOP_NOTIFICATION_POLLING);
+        window.electronAPI.invoke(IPC_CHANNELS.STOP_EVENTS_POLLING);
       };
     }
   }, [userId]);

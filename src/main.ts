@@ -11,6 +11,7 @@ import { uploadFile, searchFiles, getStatus, addFolder, removeFolder, listFiles 
 import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
+import { eventsManager } from './eventsManager';
 import { wordIntegrationService } from './wordIntegrationService';
 import { wordIntegrationDataStore, ProjectFileInfo } from './wordIntegrationDataStore';
 import { wordAccessibility } from './native/wordAccessibility';
@@ -191,6 +192,9 @@ const createMainWindow = async (): Promise<void> => {
 
   // Initialize notification manager with main window
   notificationManager.setMainWindow(mainWindow);
+
+  // Initialize events manager with main window
+  eventsManager.setMainWindow(mainWindow);
 
   // WAGENT-94: Badge updates now handled by new architecture (AcademiaManager)
   // No need for manual badge update callbacks
@@ -1400,6 +1404,27 @@ ipcMain.handle(IPC_CHANNELS.STOP_NOTIFICATION_POLLING, async () => {
   }
 });
 
+// Events polling handlers
+ipcMain.handle(IPC_CHANNELS.START_EVENTS_POLLING, async (_event, userId: number) => {
+  try {
+    eventsManager.startPolling(userId, 10000); // 10 second interval
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[Main] Failed to start events polling:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.STOP_EVENTS_POLLING, async () => {
+  try {
+    eventsManager.stopPolling();
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[Main] Failed to stop events polling:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle(IPC_CHANNELS.MARK_NOTIFICATION_READ, async (_event, id: number) => {
   try {
     await notificationManager.markAsRead(id);
@@ -1480,6 +1505,10 @@ app.on('before-quit', async () => {
   // Stop notification polling and cleanup
   logger.debug('[APP] Closing notification manager...');
   notificationManager.close();
+
+  // Stop events polling and cleanup
+  logger.debug('[APP] Closing events manager...');
+  eventsManager.close();
 
   // Stop HTTP server
   if (httpServer) {
