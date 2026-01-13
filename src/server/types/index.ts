@@ -140,6 +140,7 @@ export interface WordPollResponse {
     conversation_id: number;
     created_at: number;
     title: string;
+    isRead: boolean;
   } | null;
   /** Diff review notification (if any) - agent_name contains "diff" */
   diffReviewNotification?: {
@@ -148,6 +149,7 @@ export interface WordPollResponse {
     conversation_id: number;
     created_at: number;
     title: string;
+    isRead: boolean;
   } | null;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;

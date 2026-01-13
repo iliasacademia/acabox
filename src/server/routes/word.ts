@@ -177,19 +177,22 @@ export async function registerWordRoutes(
         const userId = currentUserId();
         if (userId) {
           try {
-            const undismissed = notificationManager.getUndismissedNotifications(userId);
-            const filtered = undismissed.filter((n: CachedNotification) => n.project_file_id === projectFile.project_file_id);
-            count = filtered.length;
+            // Get ALL notifications (including dismissed) so we can always show the latest review
+            const allNotifications = notificationManager.getNotificationsByStatus(userId);
+            const filtered = allNotifications.filter((n: CachedNotification) => n.project_file_id === projectFile.project_file_id);
 
-            // Find full review notification (agent_name contains "full")
-            const fullReviewNotif = filtered.find(
-              (n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("full")
-            );
+            // Count only unread notifications for the badge
+            count = filtered.filter((n: CachedNotification) => n.status === 'unread').length;
 
-            // Find diff review notification (agent_name contains "diff")
-            const diffReviewNotif = filtered.find(
-              (n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("diff")
-            );
+            // Find latest full review notification (sorted by created_at descending)
+            const fullReviewNotif = filtered
+              .filter((n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("full"))
+              .sort((a: CachedNotification, b: CachedNotification) => b.created_at - a.created_at)[0];
+
+            // Find latest diff review notification (sorted by created_at descending)
+            const diffReviewNotif = filtered
+              .filter((n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("diff"))
+              .sort((a: CachedNotification, b: CachedNotification) => b.created_at - a.created_at)[0];
 
             if (fullReviewNotif) {
               fullReviewNotification = {
@@ -198,6 +201,7 @@ export async function registerWordRoutes(
                 conversation_id: fullReviewNotif.data.conversation_id,
                 created_at: fullReviewNotif.created_at,
                 title: fullReviewNotif.title,
+                isRead: fullReviewNotif.status !== 'unread',
               };
             }
 
@@ -208,6 +212,7 @@ export async function registerWordRoutes(
                 conversation_id: diffReviewNotif.data.conversation_id,
                 created_at: diffReviewNotif.created_at,
                 title: diffReviewNotif.title,
+                isRead: diffReviewNotif.status !== 'unread',
               };
             }
 

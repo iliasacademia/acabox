@@ -116,6 +116,7 @@ type NotificationData = {
   conversation_id: number;
   created_at: number;
   title: string;
+  isRead: boolean;
 } | null;
 
 // Define response type locally to avoid importing server types in client code
@@ -131,6 +132,7 @@ interface WordPollResponse {
     conversation_id: number;
     created_at: number;
     title: string;
+    isRead: boolean;
   } | null;
   diffReviewNotification?: {
     id: number;
@@ -138,6 +140,7 @@ interface WordPollResponse {
     conversation_id: number;
     created_at: number;
     title: string;
+    isRead: boolean;
   } | null;
   activeDocumentPath?: string | null;
 }
@@ -544,6 +547,28 @@ const AcademiaNotificationsPopup: React.FC = () => {
     );
 
     if (data) {
+      // Mark notification as read if not already
+      if (!fullReviewNotification.isRead) {
+        try {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+          }
+
+          await fetch(`${serverUrl}/api/notifications/${fullReviewNotification.id}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: 'read' }),
+          });
+
+          // Update local state to reflect read status
+          setFullReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
+          console.log('[AcademiaNotificationsPopup] Full review notification marked as read');
+        } catch (err) {
+          console.error('[AcademiaNotificationsPopup] Error marking notification as read:', err);
+        }
+      }
+
       setConversationData({
         title: fullReviewNotification.title || 'Full review',
         createdAt: fullReviewNotification.created_at,
@@ -572,6 +597,28 @@ const AcademiaNotificationsPopup: React.FC = () => {
     );
 
     if (data) {
+      // Mark notification as read if not already
+      if (!diffReviewNotification.isRead) {
+        try {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+          }
+
+          await fetch(`${serverUrl}/api/notifications/${diffReviewNotification.id}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: 'read' }),
+          });
+
+          // Update local state to reflect read status
+          setDiffReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
+          console.log('[AcademiaNotificationsPopup] Diff review notification marked as read');
+        } catch (err) {
+          console.error('[AcademiaNotificationsPopup] Error marking notification as read:', err);
+        }
+      }
+
       setConversationData({
         title: diffReviewNotification.title || 'Diff review',
         createdAt: diffReviewNotification.created_at,
@@ -607,50 +654,11 @@ const AcademiaNotificationsPopup: React.FC = () => {
     }
   };
 
-  // Handle clicking "Back" from review view - dismiss notification and return to menu
-  const handleBackFromReview = async () => {
+  // Handle clicking "Back" from review view - return to menu (notification stays visible)
+  const handleBackFromReview = () => {
     console.log('[AcademiaNotificationsPopup] Back from review clicked');
 
-    // Get the current notification being viewed
-    const notification = activeReviewType === 'full'
-      ? fullReviewNotification
-      : diffReviewNotification;
-
-    if (notification) {
-      try {
-        // Dismiss the notification via PATCH
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (authToken) {
-          headers['Authorization'] = `Bearer ${authToken}`;
-        }
-
-        const patchResponse = await fetch(
-          `${serverUrl}/api/notifications/${notification.id}`,
-          {
-            method: 'PATCH',
-            headers,
-            body: JSON.stringify({ status: 'dismissed' }),
-          }
-        );
-
-        if (!patchResponse.ok) {
-          console.error('[AcademiaNotificationsPopup] Failed to dismiss notification:', patchResponse.status);
-        } else {
-          console.log('[AcademiaNotificationsPopup] Notification dismissed');
-        }
-
-        // Clear the notification state
-        if (activeReviewType === 'full') {
-          setFullReviewNotification(null);
-        } else {
-          setDiffReviewNotification(null);
-        }
-      } catch (err) {
-        console.error('[AcademiaNotificationsPopup] Error dismissing notification:', err);
-      }
-    }
-
-    // Return to menu view
+    // Return to menu view (notification remains visible with isRead state from poll)
     setViewMode('menu');
     setConversationData(null);
     setActiveReviewType(null);
@@ -671,26 +679,28 @@ const AcademiaNotificationsPopup: React.FC = () => {
     }
 
     try {
-      // Dismiss the notification first
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-      }
-
-      await fetch(
-        `${serverUrl}/api/notifications/${notification.id}`,
-        {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ status: 'dismissed' }),
+      // Mark the notification as read (not dismissed, so it stays visible)
+      if (!notification.isRead) {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (authToken) {
+          headers['Authorization'] = `Bearer ${authToken}`;
         }
-      );
 
-      // Clear the notification state
-      if (activeReviewType === 'full') {
-        setFullReviewNotification(null);
-      } else {
-        setDiffReviewNotification(null);
+        await fetch(
+          `${serverUrl}/api/notifications/${notification.id}`,
+          {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: 'read' }),
+          }
+        );
+
+        // Update local state to reflect read status
+        if (activeReviewType === 'full') {
+          setFullReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
+        } else {
+          setDiffReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
+        }
       }
 
       // Close popup and navigate to main window via HTTP API
@@ -986,7 +996,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
               onClick={handleViewFullReviewFeedback}
               aria-label="View full review feedback"
             >
-              <div style={styles.blueDot} />
+              {!fullReviewNotification.isRead && <div style={styles.blueDot} />}
               <div style={styles.notificationContent as React.CSSProperties}>
                 <span style={styles.notificationTitle}>
                   {fullReviewNotification.title || 'Feedback on your entire manuscript'}
@@ -1006,7 +1016,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
               onClick={handleViewDiffReviewFeedback}
               aria-label="View diff review feedback"
             >
-              <div style={styles.blueDot} />
+              {!diffReviewNotification.isRead && <div style={styles.blueDot} />}
               <div style={styles.notificationContent as React.CSSProperties}>
                 <span style={styles.notificationTitle}>
                   {diffReviewNotification.title || 'Feedback on recent changes'}

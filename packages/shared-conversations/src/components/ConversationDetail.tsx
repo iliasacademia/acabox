@@ -146,16 +146,12 @@ export function ConversationDetail({
 
   // Auto-open diff modal when initialOpenDiffModal is true and conversation is loaded
   useEffect(() => {
-    console.log('[ConversationDetail] initialOpenDiffModal:', initialOpenDiffModal);
-    console.log('[ConversationDetail] conversation:', conversation);
-    console.log('[ConversationDetail] isDraft(conversation):', isDraft(conversation));
-    console.log('[ConversationDetail] hasOpenedInitialDiffModal.current:', hasOpenedInitialDiffModal.current);
-    console.log('[ConversationDetail] showDiffModal:', showDiffModal);
     if (
       initialOpenDiffModal &&
       conversation &&
       !isDraft(conversation) &&
       !hasOpenedInitialDiffModal.current &&
+      primaryManuscriptId &&
       !showDiffModal
     ) {
       hasOpenedInitialDiffModal.current = true;
@@ -165,7 +161,7 @@ export function ConversationDetail({
         onDiffModalOpened();
       }
     }
-  }, [initialOpenDiffModal, conversation, showDiffModal, onDiffModalOpened]);
+  }, [initialOpenDiffModal, conversation, showDiffModal, onDiffModalOpened, primaryManuscriptId]);
 
   // Handle scrolling: stay at top on initial load, scroll to new message when messages arrive
   useEffect(() => {
