@@ -11,6 +11,7 @@ import {
   trackConversationMessageReceived,
 } from '../../utils/analytics';
 import { IPC_CHANNELS } from '../../../shared/types';
+import { FEEDBACK_FORM_URL } from '../../../shared/constants';
 import { useProjectSyncStatus } from '../../hooks/useProjectSyncStatus';
 import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 
@@ -19,6 +20,8 @@ interface ConversationsPageWrapperProps {
   onBack?: () => void;
   initialConversationId?: number | null;
   onConversationNavigated?: () => void;
+  initialOpenDiffModal?: boolean;
+  onDiffModalOpened?: () => void;
 }
 
 /**
@@ -30,10 +33,9 @@ export function ConversationsPageWrapper({
   onBack,
   initialConversationId,
   onConversationNavigated,
+  initialOpenDiffModal,
+  onDiffModalOpened,
 }: ConversationsPageWrapperProps) {
-  // Feedback form URL from environment or default
-  const feedbackFormUrl = 'https://docs.google.com/forms/d/e/1FAIpQLSdCjDGx4NHWFMSGslBFLzdbvXM8JL6blV-DeVkJEqDpDrJ31A/viewform';
-
   // Track folder sync status for the current project
   const folderSyncStatus = useProjectSyncStatus(selectedProject?.id || null);
 
@@ -44,6 +46,8 @@ export function ConversationsPageWrapper({
         onBack={onBack}
         initialConversationId={initialConversationId}
         onConversationNavigated={onConversationNavigated}
+        initialOpenDiffModal={initialOpenDiffModal}
+        onDiffModalOpened={onDiffModalOpened}
         // Analytics callbacks
         onProjectView={trackProjectView}
         onTriggerFullReview={(projectId, fileId) => trackTriggerFullReview('desktop', projectId, fileId)}
@@ -55,7 +59,7 @@ export function ConversationsPageWrapper({
         renderManuscriptIcon={() => (
           <img src={MSWordIcon} alt="Word Document" className="manuscriptIcon" />
         )}
-        feedbackFormUrl={feedbackFormUrl}
+        feedbackFormUrl={FEEDBACK_FORM_URL}
         // Event channel name for file sync
         fileSyncEventName={IPC_CHANNELS.PROJECT_FILE_SYNCED}
         // Folder sync status

@@ -728,6 +728,64 @@ app.whenReady().then(async () => {
     notificationManager,
     () => notificationManager.getCurrentUserId()
   );
+
+  // Set up navigation handler for HTTP API navigation requests
+  httpServer.setNavigationHandler(async (payload) => {
+    // Handle external URL navigation separately
+    if (payload.page === 'external' && payload.url) {
+      const validation = validateExternalUrl(payload.url);
+      if (!validation.isValid) {
+        logger.error('[Main] External URL validation failed:', validation.error);
+        throw new Error(validation.error || 'Invalid URL');
+      }
+      logger.info('[Main] Opening external URL:', payload.url);
+      await shell.openExternal(payload.url);
+      return;
+    }
+
+    const sendNavigationEvent = () => {
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        logger.warn('[Main] Main window not available for navigation after creation');
+        return;
+      }
+
+      // Show and focus the main window
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+
+      // Send navigation event to renderer
+      mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+        page: payload.page,
+        projectId: payload.projectId,
+        conversationId: payload.conversationId,
+        openDiffModal: payload.openDiffModal ?? false,
+      } as NavigateToPagePayload);
+    };
+
+    // If main window exists, navigate immediately
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      sendNavigationEvent();
+      return;
+    }
+
+    // Main window was closed, create it first
+    logger.info('[Main] Main window not available, creating new window for navigation');
+    await createMainWindow();
+
+    // Wait for window to finish loading before sending navigation event
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      await new Promise<void>((resolve) => {
+        mainWindow!.webContents.once('did-finish-load', () => {
+          sendNavigationEvent();
+          resolve();
+        });
+      });
+    }
+  });
+
   try {
     const port = await httpServer.start();
     logger.debug(`[HTTP Server] ✓ Server started on port ${port}`);
@@ -771,28 +829,6 @@ app.whenReady().then(async () => {
     // Initialize Word integration without server URL
     wordIntegrationService.initialize();
   }
-
-  // Set up navigation handler for popup-to-main-window navigation
-  wordIntegrationService.setNavigationHandler((payload) => {
-    if (!mainWindow || mainWindow.isDestroyed()) {
-      logger.warn('[Main] Main window not available for navigation');
-      return;
-    }
-
-    // Show and focus the main window
-    if (mainWindow.isMinimized()) {
-      mainWindow.restore();
-    }
-    mainWindow.show();
-    mainWindow.focus();
-
-    // Send navigation event to renderer
-    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-      page: payload.page,
-      projectId: payload.projectId,
-      conversationId: payload.conversationId,
-    } as NavigateToPagePayload);
-  });
 });
 
 app.on('window-all-closed', () => {

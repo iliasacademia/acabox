@@ -397,6 +397,7 @@ const App: React.FC = () => {
     }
     return (
       <>
+        <div className="titleBarDragRegion" />
         {isDevelopment && <DevelopmentBanner />}
         {permissionState.show && (
           <PermissionsBanner

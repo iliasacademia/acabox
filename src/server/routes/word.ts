@@ -160,35 +160,64 @@ export async function registerWordRoutes(
           shouldShow: false,
           notificationCount: 0,
           isActive: false,
-          latestReviewNotification: null,
+          fullReviewNotification: null,
+          diffReviewNotification: null,
           activeDocumentPath: activePath
         };
         reply.send(response);
         return;
       }
 
-      // Calculate notification count and find latest review notification if user is logged in
+      // Calculate notification count and find review notifications if user is logged in
       let count = 0;
-      let latestReviewNotification = null;
+      let fullReviewNotification = null;
+      let diffReviewNotification = null;
 
       if (notificationManager && currentUserId) {
         const userId = currentUserId();
         if (userId) {
           try {
-            const undismissed = notificationManager.getUndismissedNotifications(userId);
-            const filtered = undismissed.filter((n: CachedNotification) => n.project_file_id === projectFile.project_file_id);
-            count = filtered.length;
+            // Get ALL notifications (including dismissed) so we can always show the latest review
+            const allNotifications = notificationManager.getNotificationsByStatus(userId);
+            const filtered = allNotifications.filter((n: CachedNotification) => n.project_file_id === projectFile.project_file_id);
 
-            // Find notification with conversation_id for popup
-            const reviewNotification = filtered.find(
-              (n: any) => n.data?.conversation_id != null
-            );
-            
-            if (reviewNotification) {
-              latestReviewNotification = {
-                id: reviewNotification.id,
-                project_id: reviewNotification.project_id,
-                conversation_id: reviewNotification.data.conversation_id,
+            // Count only unread notifications for the badge
+            count = filtered.filter((n: CachedNotification) => n.status === 'unread').length;
+
+            // Helper to get timestamp from created_at (handles both number and ISO string)
+            const getTimestamp = (createdAt: number | string): number => {
+              return typeof createdAt === 'number' ? createdAt : new Date(createdAt).getTime();
+            };
+
+            // Find latest full review notification (sorted by created_at descending)
+            const fullReviewNotif = filtered
+              .filter((n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("full"))
+              .sort((a: CachedNotification, b: CachedNotification) => getTimestamp(b.created_at) - getTimestamp(a.created_at))[0];
+
+            // Find latest diff review notification (sorted by created_at descending)
+            const diffReviewNotif = filtered
+              .filter((n: any) => n.data?.conversation_id != null && n.data?.agent_name?.includes("diff"))
+              .sort((a: CachedNotification, b: CachedNotification) => getTimestamp(b.created_at) - getTimestamp(a.created_at))[0];
+
+            if (fullReviewNotif) {
+              fullReviewNotification = {
+                id: fullReviewNotif.id,
+                project_id: fullReviewNotif.project_id,
+                conversation_id: fullReviewNotif.data.conversation_id,
+                created_at: fullReviewNotif.created_at,
+                title: fullReviewNotif.title,
+                isRead: fullReviewNotif.status !== 'unread',
+              };
+            }
+
+            if (diffReviewNotif) {
+              diffReviewNotification = {
+                id: diffReviewNotif.id,
+                project_id: diffReviewNotif.project_id,
+                conversation_id: diffReviewNotif.data.conversation_id,
+                created_at: diffReviewNotif.created_at,
+                title: diffReviewNotif.title,
+                isRead: diffReviewNotif.status !== 'unread',
               };
             }
 
@@ -204,7 +233,8 @@ export async function registerWordRoutes(
         projectFileId: projectFile.project_file_id,
         notificationCount: count,
         isActive: tracked.isActive,
-        latestReviewNotification,
+        fullReviewNotification,
+        diffReviewNotification,
         activeDocumentPath: activePath
       };
 
