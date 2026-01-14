@@ -103,9 +103,8 @@ const App: React.FC = () => {
 
       return () => {
         window.electronAPI.removeListener('new-notification', handleNewNotification);
-        // Stop polling on cleanup
-        window.electronAPI.invoke(IPC_CHANNELS.STOP_NOTIFICATION_POLLING);
-        window.electronAPI.invoke(IPC_CHANNELS.STOP_EVENTS_POLLING);
+        // Note: Don't stop polling here - on macOS, the app continues running when window closes.
+        // Polling is stopped when user logs out or app quits (handled in main.ts 'before-quit' event)
       };
     }
   }, [userId]);
