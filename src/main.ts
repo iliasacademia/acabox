@@ -843,7 +843,7 @@ app.on('window-all-closed', () => {
 
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
+    createMainWindow();
   }
 });
 
@@ -1085,6 +1085,11 @@ ipcMain.handle(IPC_CHANNELS.LOGOUT, async () => {
 
   // Clear Word integration only after successful logout
   if (result.success) {
+    // Stop polling
+    notificationManager.stopPolling();
+    eventsManager.stopPolling();
+
+    // Clear Word integration data
     wordIntegrationService.setManuscriptPaths([]);
     wordIntegrationDataStore.setProjectFileCache(new Map());
   }
