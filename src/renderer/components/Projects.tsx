@@ -51,6 +51,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     message: '',
   });
   const [pendingConversationId, setPendingConversationId] = useState<number | null>(null);
+  const [pendingDiffModal, setPendingDiffModal] = useState<boolean>(false);
 
   // Derive isLoggedIn from userId prop
   const isLoggedIn = !!userId;
@@ -90,7 +91,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
 
     console.log('[Projects] Handling pending navigation:', pendingNavigation);
 
-    if (pendingNavigation.page === 'conversation') {
+    if (pendingNavigation.page === 'conversation' || pendingNavigation.page === 'conversations') {
       // Find the project in our local state
       const targetProject = projects.find(p => p.id === pendingNavigation.projectId);
 
@@ -98,7 +99,13 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
         console.log('[Projects] Navigating to project:', targetProject.name, 'conversation:', pendingNavigation.conversationId);
         setSelectedProject(targetProject);
         setCurrentView('detail');
-        setPendingConversationId(pendingNavigation.conversationId);
+        // Only set pending conversation ID for specific conversation navigation
+        if (pendingNavigation.page === 'conversation' && pendingNavigation.conversationId) {
+          console.log('[Projects] Setting pending conversation ID:', pendingNavigation.conversationId);
+          console.log('[Projects] Setting pending diff modal:', pendingNavigation.openDiffModal ?? false);
+          setPendingConversationId(pendingNavigation.conversationId);
+          setPendingDiffModal(pendingNavigation.openDiffModal ?? false);
+        }
         onNavigationHandled();
       } else {
         console.warn('[Projects] Project not found for navigation:', pendingNavigation.projectId);
@@ -108,7 +115,10 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
           if (project) {
             setSelectedProject(project);
             setCurrentView('detail');
-            setPendingConversationId(pendingNavigation.conversationId);
+            if (pendingNavigation.page === 'conversation' && pendingNavigation.conversationId) {
+              setPendingConversationId(pendingNavigation.conversationId);
+              setPendingDiffModal(pendingNavigation.openDiffModal ?? false);
+            }
           }
           onNavigationHandled();
         });
@@ -295,11 +305,17 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     setCurrentView('list');
     setSelectedProject(null);
     setPendingConversationId(null);
+    setPendingDiffModal(false);
   };
 
   // Clear pending conversation ID after it's been used by ConversationsPage
   const handleConversationNavigated = () => {
     setPendingConversationId(null);
+  };
+
+  // Clear pending diff modal flag after ConversationDetail has opened the modal
+  const handleDiffModalOpened = () => {
+    setPendingDiffModal(false);
   };
 
   // Request login if not logged in
@@ -357,6 +373,8 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
                 onBack={handleBackToList}
                 initialConversationId={pendingConversationId}
                 onConversationNavigated={handleConversationNavigated}
+                initialOpenDiffModal={pendingDiffModal}
+                onDiffModalOpened={handleDiffModalOpened}
               />
             ) : (
               <ProjectDetail project={selectedProject} onBack={handleBackToList} />

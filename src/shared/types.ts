@@ -164,9 +164,11 @@ export interface GetNotificationsResponse {
 
 // Navigation payload for navigate-to-page IPC
 export interface NavigateToPagePayload {
-  page: 'conversation';  // Extensible: 'project' | 'settings' | etc.
-  projectId: number;
-  conversationId: number;
+  page: 'conversation' | 'conversations' | 'external';  // Extensible: 'project' | 'settings' | etc.
+  projectId?: number;  // Required for 'conversation' and 'conversations' pages
+  conversationId?: number;  // Required for 'conversation' page
+  openDiffModal?: boolean;  // Auto-open diff modal when navigating to conversation
+  url?: string;  // Required for 'external' page
 }
 
 // DevTools logging types

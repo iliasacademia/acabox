@@ -269,6 +269,7 @@
     flex-shrink: 0;
     transition: all 0.2s;
     margin-left: -18px;
+    -webkit-app-region: no-drag; /* Allow clicking in Electron */
 }
 
 .backButton:hover {

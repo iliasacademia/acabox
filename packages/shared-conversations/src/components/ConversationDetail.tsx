@@ -25,6 +25,10 @@ interface ConversationDetailProps {
   feedbackFormUrl?: string;
   /** Optional: Options for conversation polling (e.g., event-driven updates) */
   pollingOptions?: UseConversationPollingOptions;
+  /** Optional: Auto-open diff modal when conversation loads */
+  initialOpenDiffModal?: boolean;
+  /** Optional: Called when diff modal is auto-opened via initialOpenDiffModal */
+  onDiffModalOpened?: () => void;
 }
 
 export function ConversationDetail({
@@ -39,6 +43,8 @@ export function ConversationDetail({
   onMessageReceived,
   feedbackFormUrl,
   pollingOptions,
+  initialOpenDiffModal,
+  onDiffModalOpened,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -57,6 +63,7 @@ export function ConversationDetail({
   const lastTrackedConversationId = useRef<number | null>(null);
   const conversationViewedAt = useRef<Date | null>(null);
   const lastUserMessageTime = useRef<Date | null>(null);
+  const hasOpenedInitialDiffModal = useRef(false);
 
   const apiClient = useApiClient();
   const { createConversation, createMessage } = useConversationsApi();
@@ -140,6 +147,30 @@ export function ConversationDetail({
     // Load initial messages for the selected conversation
     initializeMessages(conversation.id, projectId);
   }, [conversation?.id, projectId, initializeMessages, stopPolling]);
+
+  // Reset the initial diff modal flag when conversation changes
+  useEffect(() => {
+    hasOpenedInitialDiffModal.current = false;
+  }, [conversation?.id]);
+
+  // Auto-open diff modal when initialOpenDiffModal is true and conversation is loaded
+  useEffect(() => {
+    if (
+      initialOpenDiffModal &&
+      conversation &&
+      !isDraft(conversation) &&
+      !hasOpenedInitialDiffModal.current &&
+      primaryManuscriptId &&
+      !showDiffModal
+    ) {
+      hasOpenedInitialDiffModal.current = true;
+      handleShowDiff();
+      // Signal that we've consumed the initial open flag
+      if (onDiffModalOpened) {
+        onDiffModalOpened();
+      }
+    }
+  }, [initialOpenDiffModal, conversation, showDiffModal, onDiffModalOpened, primaryManuscriptId]);
 
   // Handle scrolling: stay at top on initial load, scroll to new message when messages arrive
   useEffect(() => {

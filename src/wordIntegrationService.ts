@@ -33,9 +33,6 @@ class WordIntegrationService {
   private activePID: number | null = null;
   private readonly MAX_PIDS = 3;  // Prioritizes first-opened PIDs
 
-  // Navigation handler callback (set by main.ts)
-  private navigationHandler: ((payload: { page: string; projectId: number; conversationId: number }) => void) | null = null;
-
   // Track if we've already prompted for accessibility permission
   private hasPromptedForPermission = false;
 
@@ -74,14 +71,6 @@ class WordIntegrationService {
       logger.error('[WORD-INTEGRATION] Failed to set server URL for native popups');
     }
     return success;
-  }
-
-  /**
-   * Set the navigation handler callback for popup-to-main-window navigation.
-   * Called by main.ts to provide navigation functionality.
-   */
-  setNavigationHandler(handler: (payload: { page: string; projectId: number; conversationId: number }) => void): void {
-    this.navigationHandler = handler;
   }
 
   /**
@@ -276,20 +265,10 @@ class WordIntegrationService {
       return;
     }
     const success = wordAccessibility.startObservingPID(pid, (event: AccessibilityEvent) => {
-      // Handle navigation requests from popup (format: "navigateToPage|{json}")
-      if (event.type === 'buttonClicked' && event.text?.startsWith('navigateToPage|')) {
-        try {
-          const jsonPayload = event.text.substring('navigateToPage|'.length);
-          const payload = JSON.parse(jsonPayload);
-
-          if (this.navigationHandler) {
-            this.navigationHandler(payload);
-          } else {
-            logger.warn('[WORD-INTEGRATION] Navigation handler not set');
-          }
-        } catch (err) {
-          logger.error('[WORD-INTEGRATION] Error parsing navigateToPage payload:', err);
-        }
+      // Navigation is now handled via HTTP API (POST /api/navigate)
+      // This callback is kept for potential future event handling
+      if (event.type === 'buttonClicked') {
+        logger.debug('[WORD-INTEGRATION] Button clicked event:', event.text);
       }
     });
 

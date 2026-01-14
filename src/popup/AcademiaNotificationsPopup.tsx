@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
 import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
+import { FEEDBACK_FORM_URL } from '../shared/constants';
 
 // Initialize bridge early
 getBridgeInstance('notifications-popup');
@@ -18,9 +19,11 @@ const popupUrlParams = new URLSearchParams(window.location.search);
 const pidParam = popupUrlParams.get('pid');
 const popupInstanceId = `AcademiaNotificationsPopup-${pidParam || Math.random().toString(36).substring(2, 8)}`;
 
-// Height constants matching native window sizes
-const POPUP_HEIGHT_DEFAULT = 280;      // 2 sections (short + full review)
-const POPUP_HEIGHT_WITH_NOTIF = 400;   // 3 sections (new review + short + full)
+// Height constants matching native window sizes (updated for new layout)
+const POPUP_HEIGHT_NO_NOTIFICATIONS = 240;    // "View previous feedback" row + "Get feedback" buttons
+const POPUP_HEIGHT_ONE_NOTIFICATION = 320;    // 1 notification card + above
+const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400;   // 2 notification cards + above
+const POPUP_HEIGHT_REVIEW_VIEW = 660;         // Height when showing inline review content
 
 // Arrow Forward Icon component
 const ArrowForwardIcon: React.FC = () => (
@@ -31,6 +34,62 @@ const ArrowForwardIcon: React.FC = () => (
     />
   </svg>
 );
+
+// Notifications Icon (bell) component
+const NotificationsIcon: React.FC = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.89 2 2 2zm6-6v-5c0-3.07-1.64-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.63 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z"
+      fill="#141413"
+    />
+  </svg>
+);
+
+// Chat Bubble Icon component
+const ChatBubbleIcon: React.FC = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"
+      fill="#141413"
+    />
+  </svg>
+);
+
+// Close Icon (X) component
+const CloseIcon: React.FC = () => (
+  <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M15 5L5 15M5 5L15 15"
+      stroke="#141413"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
+
+// Arrow Back Icon component
+const ArrowBackIcon: React.FC = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path
+      d="M20 11H7.83L13.42 5.41L12 4L4 12L12 20L13.41 18.59L7.83 13H20V11Z"
+      fill="#141413"
+    />
+  </svg>
+);
+
+// Format notification timestamp to readable date string
+const formatNotificationDate = (timestamp: number): string => {
+  const date = new Date(timestamp);
+  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+  const month = date.toLocaleDateString('en-US', { month: 'short' });
+  const day = date.getDate();
+  const time = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }).toLowerCase();
+  return `${weekday}, ${month} ${day} at ${time}`;
+};
 
 // Type definitions for project status API
 type AgentRunStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -51,6 +110,16 @@ interface ProjectStatusResponse {
   agent_runs: AgentRun[];
 }
 
+// Notification data type for review notifications
+type NotificationData = {
+  id: number;
+  project_id: number;
+  conversation_id: number;
+  created_at: number;
+  title: string;
+  isRead: boolean;
+} | null;
+
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
   shouldShow: boolean;
@@ -58,25 +127,81 @@ interface WordPollResponse {
   projectFileId?: number;
   notificationCount?: number;
   isActive: boolean;
-  latestReviewNotification?: {
+  fullReviewNotification?: {
     id: number;
     project_id: number;
     conversation_id: number;
+    created_at: number;
+    title: string;
+    isRead: boolean;
+  } | null;
+  diffReviewNotification?: {
+    id: number;
+    project_id: number;
+    conversation_id: number;
+    created_at: number;
+    title: string;
+    isRead: boolean;
   } | null;
   activeDocumentPath?: string | null;
 }
 
 type ReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
 
+// View mode for popup (menu shows notification cards, review shows inline feedback)
+type ViewMode = 'menu' | 'review';
+
+// Navigation request payload type
+interface NavigateRequest {
+  page: 'conversation' | 'conversations' | 'external';
+  projectId?: number;
+  conversationId?: number;
+  openDiffModal?: boolean;
+  url?: string;
+}
+
+// Helper function to call the navigation API
+const navigateToPage = async (payload: NavigateRequest, token: string | null): Promise<boolean> => {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
+    const response = await fetch(`${serverUrl}/api/navigate`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      console.error('[AcademiaNotificationsPopup] Navigation API failed:', response.status);
+      return false;
+    }
+
+    const data = await response.json();
+    return data.success === true;
+  } catch (err) {
+    console.error('[AcademiaNotificationsPopup] Navigation API error:', err);
+    return false;
+  }
+};
+
+// Conversation data structure for inline review
+interface ConversationData {
+  title: string;
+  createdAt: number;
+  messages: Array<{ role: string; content: string; format?: string }>;
+}
+
 const AcademiaNotificationsPopup: React.FC = () => {
-  // State for unread review notification
-  const [hasUnreadReview, setHasUnreadReview] = useState<boolean>(false);
-  const [currentNotification, setCurrentNotification] = useState<{
-    id: number;
-    project_id: number;
-    conversation_id: number;
-  } | null>(null);
+  // State for review notifications (separate for full and diff reviews)
+  const [fullReviewNotification, setFullReviewNotification] = useState<NotificationData>(null);
+  const [diffReviewNotification, setDiffReviewNotification] = useState<NotificationData>(null);
   const { sendRequest } = useSendMessage();
+
+  // Computed value for backward compatibility
+  const hasUnreadReview = fullReviewNotification !== null || diffReviewNotification !== null;
 
   // State for project file info (fetched from /word/:pid/poll)
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -89,6 +214,17 @@ const AcademiaNotificationsPopup: React.FC = () => {
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Track previous height to avoid unnecessary resize calls (prevents infinite loop)
+  const previousHeightRef = useRef<number>(POPUP_HEIGHT_NO_NOTIFICATIONS);
+  // Track logged notification IDs to avoid stale closure logging issues
+  const loggedFullReviewIdRef = useRef<number | null>(null);
+  const loggedDiffReviewIdRef = useRef<number | null>(null);
+
+  // State for inline review view
+  const [viewMode, setViewMode] = useState<ViewMode>('menu');
+  const [activeReviewType, setActiveReviewType] = useState<'full' | 'diff' | null>(null);
+  const [conversationData, setConversationData] = useState<ConversationData | null>(null);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
 
   // Auth token from URL
   const [authToken, setAuthToken] = useState<string | null>(null);
@@ -162,6 +298,46 @@ const AcademiaNotificationsPopup: React.FC = () => {
     } catch (err) {
       console.error('[AcademiaNotificationsPopup] Error fetching project status:', err);
       // Don't update state on error - keep previous state
+    }
+  };
+
+  // Fetch conversation data for inline review display
+  const fetchConversation = async (conversationId: number, projectId: number): Promise<ConversationData | null> => {
+    setIsLoadingConversation(true);
+    try {
+      const headers: Record<string, string> = { 'Accept': 'application/json' };
+      if (authToken) {
+        headers['Authorization'] = `Bearer ${authToken}`;
+      }
+
+      const params = new URLSearchParams({
+        conversation_id: conversationId.toString(),
+        parent_id: projectId.toString(),
+        parent_type: 'Project',
+      });
+
+      const response = await fetch(
+        `${serverUrl}/proxy-api/v0/co_scientist/get_conversation?${params}`,
+        { headers }
+      );
+
+      if (!response.ok) {
+        console.error('[AcademiaNotificationsPopup] Failed to fetch conversation:', response.status);
+        return null;
+      }
+
+      const data = await response.json();
+
+      return {
+        title: data.conversation?.title || 'Review',
+        createdAt: new Date(data.conversation?.created_at).getTime(),
+        messages: data.messages || [],
+      };
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error fetching conversation:', err);
+      return null;
+    } finally {
+      setIsLoadingConversation(false);
     }
   };
 
@@ -273,24 +449,34 @@ const AcademiaNotificationsPopup: React.FC = () => {
              setFileId(data.projectFileId);
              setIsLoading(false);
 
-             // Handle notifications
-             if (data.latestReviewNotification) {
-                 if (!hasUnreadReview) {
-                     console.log('[AcademiaNotificationsPopup] Found NEW notification with conversation:', data.latestReviewNotification);
-                     setCurrentNotification(data.latestReviewNotification);
-                     setHasUnreadReview(true);
-                     // Resize window for 3-section layout
-                     await sendRequest('resizeWindow', { height: POPUP_HEIGHT_WITH_NOTIF });
+             // Handle full review notification (use refs to avoid stale closure issues)
+             if (data.fullReviewNotification) {
+                 if (loggedFullReviewIdRef.current !== data.fullReviewNotification.id) {
+                     console.log('[AcademiaNotificationsPopup] Found NEW full review notification:', data.fullReviewNotification);
+                     loggedFullReviewIdRef.current = data.fullReviewNotification.id;
                  }
+                 setFullReviewNotification(data.fullReviewNotification);
              } else {
-                 if (hasUnreadReview) {
-                     // Notifications cleared
-                     console.log('[AcademiaNotificationsPopup] Notifications cleared, resetting UI');
-                     setCurrentNotification(null);
-                     setHasUnreadReview(false);
-                     // Resize window back to default (2-section layout)
-                     await sendRequest('resizeWindow', { height: POPUP_HEIGHT_DEFAULT });
+                 if (loggedFullReviewIdRef.current !== null) {
+                     console.log('[AcademiaNotificationsPopup] Full review notification cleared');
+                     loggedFullReviewIdRef.current = null;
                  }
+                 setFullReviewNotification(null);
+             }
+
+             // Handle diff review notification (use refs to avoid stale closure issues)
+             if (data.diffReviewNotification) {
+                 if (loggedDiffReviewIdRef.current !== data.diffReviewNotification.id) {
+                     console.log('[AcademiaNotificationsPopup] Found NEW diff review notification:', data.diffReviewNotification);
+                     loggedDiffReviewIdRef.current = data.diffReviewNotification.id;
+                 }
+                 setDiffReviewNotification(data.diffReviewNotification);
+             } else {
+                 if (loggedDiffReviewIdRef.current !== null) {
+                     console.log('[AcademiaNotificationsPopup] Diff review notification cleared');
+                     loggedDiffReviewIdRef.current = null;
+                 }
+                 setDiffReviewNotification(null);
              }
         } else {
             // Not showing or missing ID - keep minimal state or hide
@@ -309,7 +495,10 @@ const AcademiaNotificationsPopup: React.FC = () => {
     const intervalId = setInterval(poll, 3000);
 
     return () => clearInterval(intervalId);
-  }, [pidParam, authToken, hasUnreadReview, sendRequest]);
+    // Note: fullReviewNotification and diffReviewNotification intentionally excluded
+    // from deps to prevent infinite loop - poll runs on fixed interval
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pidParam, authToken, sendRequest]);
 
   // Check project status periodically if we have IDs
   useEffect(() => {
@@ -328,49 +517,252 @@ const AcademiaNotificationsPopup: React.FC = () => {
       return () => clearInterval(intervalId);
   }, [projectId, fileId, authToken]);
 
+  // Handle window resizing based on view mode and notification count
+  useEffect(() => {
+    let height: number;
 
-  const handleSeeNewReview = async () => {
-    if (!currentNotification) {
-      console.error('[AcademiaNotificationsPopup] No notification to navigate to');
+    if (viewMode === 'review') {
+      // Taller height for inline review content
+      height = POPUP_HEIGHT_REVIEW_VIEW;
+    } else if (fullReviewNotification && diffReviewNotification) {
+      height = POPUP_HEIGHT_TWO_NOTIFICATIONS;
+    } else if (fullReviewNotification || diffReviewNotification) {
+      height = POPUP_HEIGHT_ONE_NOTIFICATION;
+    } else {
+      height = POPUP_HEIGHT_NO_NOTIFICATIONS;
+    }
+
+    // Only resize if height changed (prevents infinite loop)
+    if (height !== previousHeightRef.current) {
+      previousHeightRef.current = height;
+      sendRequest('resizeWindow', { height });
+    }
+  }, [viewMode, fullReviewNotification, diffReviewNotification, sendRequest]);
+
+  // Handle clicking on full review notification card - show inline review
+  const handleViewFullReviewFeedback = async () => {
+    if (!fullReviewNotification) {
+      console.error('[AcademiaNotificationsPopup] No full review notification to view');
       return;
     }
 
-    console.log('[AcademiaNotificationsPopup] See new review clicked:', currentNotification);
+    console.log('[AcademiaNotificationsPopup] View full review feedback clicked:', fullReviewNotification);
+
+    // Fetch conversation data for inline display
+    const data = await fetchConversation(
+      fullReviewNotification.conversation_id,
+      fullReviewNotification.project_id
+    );
+
+    if (data) {
+      // Mark notification as read if not already
+      if (!fullReviewNotification.isRead) {
+        try {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+          }
+
+          await fetch(`${serverUrl}/api/notifications/${fullReviewNotification.id}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: 'read' }),
+          });
+
+          // Update local state to reflect read status
+          setFullReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
+          console.log('[AcademiaNotificationsPopup] Full review notification marked as read');
+        } catch (err) {
+          console.error('[AcademiaNotificationsPopup] Error marking notification as read:', err);
+        }
+      }
+
+      setConversationData({
+        title: fullReviewNotification.title || 'Full review',
+        createdAt: fullReviewNotification.created_at,
+        messages: data.messages,
+      });
+      setActiveReviewType('full');
+      setViewMode('review');
+    } else {
+      console.error('[AcademiaNotificationsPopup] Failed to fetch conversation data');
+    }
+  };
+
+  // Handle clicking on diff review notification card - show inline review
+  const handleViewDiffReviewFeedback = async () => {
+    if (!diffReviewNotification) {
+      console.error('[AcademiaNotificationsPopup] No diff review notification to view');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopup] View diff review feedback clicked:', diffReviewNotification);
+
+    // Fetch conversation data for inline display
+    const data = await fetchConversation(
+      diffReviewNotification.conversation_id,
+      diffReviewNotification.project_id
+    );
+
+    if (data) {
+      // Mark notification as read if not already
+      if (!diffReviewNotification.isRead) {
+        try {
+          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+          if (authToken) {
+            headers['Authorization'] = `Bearer ${authToken}`;
+          }
+
+          await fetch(`${serverUrl}/api/notifications/${diffReviewNotification.id}`, {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: 'read' }),
+          });
+
+          // Update local state to reflect read status
+          setDiffReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
+          console.log('[AcademiaNotificationsPopup] Diff review notification marked as read');
+        } catch (err) {
+          console.error('[AcademiaNotificationsPopup] Error marking notification as read:', err);
+        }
+      }
+
+      setConversationData({
+        title: diffReviewNotification.title || 'Diff review',
+        createdAt: diffReviewNotification.created_at,
+        messages: data.messages,
+      });
+      setActiveReviewType('diff');
+      setViewMode('review');
+    } else {
+      console.error('[AcademiaNotificationsPopup] Failed to fetch conversation data');
+    }
+  };
+
+  // Handle clicking "View previous feedback" link
+  const handleViewPreviousFeedback = async () => {
+    if (!projectId) {
+      console.error('[AcademiaNotificationsPopup] No project ID for previous feedback');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopup] View previous feedback clicked');
 
     try {
-      // 1. Dismiss the notification via PATCH
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (authToken) {
-        headers['Authorization'] = `Bearer ${authToken}`;
-      }
+      // Navigate to conversations list via HTTP API
+      await navigateToPage({
+        page: 'conversations',
+        projectId,
+      }, authToken);
 
-      const patchResponse = await fetch(
-        `${serverUrl}/api/notifications/${currentNotification.id}`,
-        {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ status: 'dismissed' }),
-        }
-      );
-
-      if (!patchResponse.ok) {
-        console.error('[AcademiaNotificationsPopup] Failed to dismiss notification:', patchResponse.status);
-        // Continue anyway - navigation is more important than dismissal
-      } else {
-        console.log('[AcademiaNotificationsPopup] Notification dismissed');
-      }
-
-      // 2. Close the popup first to avoid focus interference
-      await sendRequest('closeWindow', {});
-
-      // 3. Navigate to conversation via native bridge
-      await sendRequest('navigateToPage', {
-        page: 'conversation',
-        projectId: currentNotification.project_id,
-        conversationId: currentNotification.conversation_id,
-      });
+      // Close popup (fire-and-forget, no need to await since we're done)
+      sendRequest('closeWindow', {}).catch(() => {});
     } catch (err) {
-      console.error('[AcademiaNotificationsPopup] Error in handleSeeNewReview:', err);
+      console.error('[AcademiaNotificationsPopup] Error in handleViewPreviousFeedback:', err);
+    }
+  };
+
+  // Handle clicking "Back" from review view - return to menu (notification stays visible)
+  const handleBackFromReview = () => {
+    console.log('[AcademiaNotificationsPopup] Back from review clicked');
+
+    // Return to menu view (notification remains visible with isRead state from poll)
+    setViewMode('menu');
+    setConversationData(null);
+    setActiveReviewType(null);
+  };
+
+  // Handle clicking "Ask follow up" button - navigate to main window
+  const handleAskFollowUp = async () => {
+    console.log('[AcademiaNotificationsPopup] Ask follow up clicked');
+
+    // Get the current notification being viewed
+    const notification = activeReviewType === 'full'
+      ? fullReviewNotification
+      : diffReviewNotification;
+
+    if (!notification) {
+      console.error('[AcademiaNotificationsPopup] No notification for follow up');
+      return;
+    }
+
+    try {
+      // Mark the notification as read (not dismissed, so it stays visible)
+      if (!notification.isRead) {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (authToken) {
+          headers['Authorization'] = `Bearer ${authToken}`;
+        }
+
+        await fetch(
+          `${serverUrl}/api/notifications/${notification.id}`,
+          {
+            method: 'PATCH',
+            headers,
+            body: JSON.stringify({ status: 'read' }),
+          }
+        );
+
+        // Update local state to reflect read status
+        if (activeReviewType === 'full') {
+          setFullReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
+        } else {
+          setDiffReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
+        }
+      }
+
+      // Close popup and navigate to main window via HTTP API
+      await sendRequest('closeWindow', {});
+      await navigateToPage({
+        page: 'conversation',
+        projectId: notification.project_id,
+        conversationId: notification.conversation_id,
+      }, authToken);
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error in handleAskFollowUp:', err);
+    }
+  };
+
+  // Handle clicking "#show-diff" links in review content - navigate to main window with diff modal
+  const handleViewEdits = async () => {
+    console.log('[AcademiaNotificationsPopup] View edits clicked');
+
+    const notification = activeReviewType === 'full'
+      ? fullReviewNotification
+      : diffReviewNotification;
+
+    if (!notification) {
+      console.error('[AcademiaNotificationsPopup] No notification for view edits');
+      return;
+    }
+
+    try {
+      console.log('[AcademiaNotificationsPopup] Navigating to conversation with diff modal:', true);
+      console.log('[AcademiaNotificationsPopup] Project ID:', notification.project_id);
+      console.log('[AcademiaNotificationsPopup] Conversation ID:', notification.conversation_id);
+      // Navigate to main window with diff modal flag via HTTP API (keep popup open)
+      await navigateToPage({
+        page: 'conversation',
+        projectId: notification.project_id,
+        conversationId: notification.conversation_id,
+        openDiffModal: true,
+      }, authToken);
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopup] Error in handleViewEdits:', err);
+    }
+  };
+
+  // Handle clicks on review content to intercept #show-diff links
+  const handleReviewContentClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+
+    // Check if clicked element is an anchor with href="#show-diff"
+    if (target.tagName === 'A') {
+      const href = target.getAttribute('href');
+      if (href === '#show-diff') {
+        e.preventDefault();
+        handleViewEdits();
+      }
     }
   };
 
@@ -484,95 +876,228 @@ const AcademiaNotificationsPopup: React.FC = () => {
   // But if the project file is gone, the popup probably shouldn't be interactable.
   // Let's rely on buttonsDisabled which checks for missing projectId/fileId.
 
+  // Render the review view (inline feedback content)
+  const renderReviewView = () => {
+    const notification = activeReviewType === 'full'
+      ? fullReviewNotification
+      : diffReviewNotification;
+
+    return (
+      <>
+        {/* Header with Back and Close */}
+        <div style={styles.reviewHeader}>
+          <button
+            style={styles.backButton}
+            onClick={handleBackFromReview}
+            aria-label="Back"
+          >
+            <ArrowBackIcon />
+            <span style={styles.backButtonText}>Back</span>
+          </button>
+          <button
+            style={styles.closeButton}
+            onClick={handleClose}
+            aria-label="Close"
+            title="Close"
+          >
+            <CloseIcon />
+          </button>
+        </div>
+
+        {/* Scrollable Content */}
+        <div style={styles.reviewScrollArea}>
+          {/* Title and Date */}
+          <h2 style={styles.reviewTitle}>
+            {activeReviewType === 'full' ? 'Full review' : 'Diff review'}
+          </h2>
+          {notification && (
+            <p style={styles.reviewDate}>
+              This feedback is from {formatNotificationDate(notification.created_at)}
+            </p>
+          )}
+
+          {/* Loading State */}
+          {isLoadingConversation && (
+            <p style={styles.loadingText}>Loading feedback...</p>
+          )}
+
+          {/* Message Content - show user and assistant messages */}
+          {conversationData?.messages
+            .filter(m => m.role !== 'tool')
+            .map((message, idx) => {
+              const isUser = message.role === 'user';
+
+              return (
+                <div
+                  key={idx}
+                  style={isUser ? styles.userMessage : styles.assistantMessage}
+                >
+                  <div
+                    className={isUser ? undefined : "review-content"}
+                    style={isUser ? styles.userMessageContent : styles.reviewContent}
+                    onClick={isUser ? undefined : handleReviewContentClick}
+                    dangerouslySetInnerHTML={{ __html: message.content }}
+                  />
+                </div>
+              );
+            })}
+        </div>
+
+        {/* Footer with Ask Follow Up button */}
+        <div style={styles.reviewFooter}>
+          <button
+            style={styles.askFollowUpButton}
+            onClick={handleAskFollowUp}
+            aria-label="Ask follow up"
+          >
+            <span>Ask follow up</span>
+            <ArrowForwardIcon />
+          </button>
+          <button
+            style={styles.provideFeedbackLink}
+            onClick={() => {
+              const notification = activeReviewType === 'full' ? fullReviewNotification : diffReviewNotification;
+              const feedbackUrl = notification
+                ? `${FEEDBACK_FORM_URL}?usp=pp_url&entry.744362453=${encodeURIComponent(String(notification.conversation_id))}`
+                : FEEDBACK_FORM_URL;
+              navigateToPage({ page: 'external', url: feedbackUrl }, authToken);
+            }}
+          >
+            Provide feedback on this review
+          </button>
+        </div>
+      </>
+    );
+  };
+
+  // Render the menu view (notification cards and action buttons)
+  const renderMenuView = () => (
+    <>
+      {/* Close Button */}
+      <button
+        style={styles.closeButton}
+        onClick={handleClose}
+        aria-label="Close"
+        title="Close"
+      >
+        <CloseIcon />
+      </button>
+
+      {/* Section 1: Feedback (always visible) */}
+      <div>
+        <div style={styles.sectionHeader}>
+          <span style={styles.sectionHeaderText}>Feedback</span>
+        </div>
+        <div style={styles.feedbackContent}>
+          {/* Notification cards (if any) */}
+          {fullReviewNotification && (
+            <button
+              style={styles.notificationCard}
+              onClick={handleViewFullReviewFeedback}
+              aria-label="View full review feedback"
+            >
+              {!fullReviewNotification.isRead && <div style={styles.blueDot} />}
+              <div style={styles.notificationContent as React.CSSProperties}>
+                <span style={styles.notificationTitle}>
+                  {fullReviewNotification.title || 'Feedback on your entire manuscript'}
+                </span>
+                <span style={styles.notificationDate}>
+                  {formatNotificationDate(fullReviewNotification.created_at)}
+                </span>
+              </div>
+              <div style={styles.arrowIcon}>
+                <ArrowForwardIcon />
+              </div>
+            </button>
+          )}
+          {diffReviewNotification && (
+            <button
+              style={styles.notificationCard}
+              onClick={handleViewDiffReviewFeedback}
+              aria-label="View diff review feedback"
+            >
+              {!diffReviewNotification.isRead && <div style={styles.blueDot} />}
+              <div style={styles.notificationContent as React.CSSProperties}>
+                <span style={styles.notificationTitle}>
+                  {diffReviewNotification.title || 'Feedback on recent changes'}
+                </span>
+                <span style={styles.notificationDate}>
+                  {formatNotificationDate(diffReviewNotification.created_at)}
+                </span>
+              </div>
+              <div style={styles.arrowIcon}>
+                <ArrowForwardIcon />
+              </div>
+            </button>
+          )}
+          {/* View previous feedback row (always visible) */}
+          <button
+            style={styles.viewPreviousRow}
+            onClick={handleViewPreviousFeedback}
+            aria-label="View previous feedback"
+          >
+            <span style={styles.viewPreviousText}>View previous feedback</span>
+            <div style={styles.arrowIcon}>
+              <ArrowForwardIcon />
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Section 2: Get Feedback Actions */}
+      <div>
+        <div style={styles.sectionHeader}>
+          <span style={styles.sectionHeaderText}>Get feedback</span>
+        </div>
+        <div style={styles.feedbackButtonsRow}>
+          <button
+            style={{
+              ...styles.feedbackButton,
+              ...(buttonsDisabled ? styles.feedbackButtonDisabled : {}),
+            }}
+            onClick={handleGenerateShortReview}
+            disabled={buttonsDisabled}
+            aria-label="Generate review on recent changes"
+          >
+            <span style={styles.feedbackButtonText}>
+              {isReviewing ? 'Reviewing...' : 'On recent changes'}
+            </span>
+            <div style={styles.arrowIcon}>
+              <ArrowForwardIcon />
+            </div>
+          </button>
+          <button
+            style={{
+              ...styles.feedbackButton,
+              ...(buttonsDisabled ? styles.feedbackButtonDisabled : {}),
+            }}
+            onClick={handleGenerateFullReview}
+            disabled={buttonsDisabled}
+            aria-label="Generate review on full manuscript"
+          >
+            <span style={styles.feedbackButtonText}>
+              {isReviewing ? 'Reviewing...' : 'On the full manuscript'}
+            </span>
+            <div style={styles.arrowIcon}>
+              <ArrowForwardIcon />
+            </div>
+          </button>
+        </div>
+      </div>
+
+      {/* Error Message (if any) */}
+      {showFailedMessage && (
+        <div style={styles.errorMessage}>
+          Review failed. Please try again.
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div style={styles.container}>
       <div style={styles.modal}>
-        {/* Close Button */}
-        <button
-          style={styles.closeButton}
-          onClick={handleClose}
-          aria-label="Close"
-          title="Close"
-        >
-          ×
-        </button>
-
-        {/* Status Messages */}
-        {showFailedMessage && (
-          <div style={styles.errorMessage}>
-            <p style={styles.errorText}>The last review failed. Please try again.</p>
-          </div>
-        )}
-
-        {/* Content */}
-        <div style={styles.content}>
-          {/* New Review Ready Section - Conditional */}
-          {hasUnreadReview && (
-            <div style={styles.sectionWithBorder}>
-              <p style={styles.sectionText}>A new review is ready</p>
-              <button
-                style={styles.actionButton}
-                className="action-button"
-                onClick={handleSeeNewReview}
-              >
-                <span style={styles.buttonText}>See new review</span>
-                <ArrowForwardIcon />
-              </button>
-            </div>
-          )}
-
-          {/* Generate Short Review Section */}
-          <div style={styles.sectionWithBorder}>
-            <p style={styles.sectionText}>
-              Generate a short review based on your last changes
-            </p>
-            <button
-              style={{
-                ...styles.actionButton,
-                ...(buttonsDisabled ? styles.actionButtonDisabled : {}),
-              }}
-              className="action-button"
-              onClick={handleGenerateShortReview}
-              disabled={buttonsDisabled}
-            >
-              <span
-                style={{
-                  ...styles.buttonText,
-                  ...(buttonsDisabled ? styles.buttonTextDisabled : {}),
-                }}
-              >
-                {isReviewing ? 'Reviewing...' : 'Generate short review'}
-              </span>
-              {!isReviewing && <ArrowForwardIcon />}
-            </button>
-          </div>
-
-          {/* Generate Full Review Section */}
-          <div style={styles.section}>
-            <p style={styles.sectionText}>
-              Generate a full review of your entire document
-            </p>
-            <button
-              style={{
-                ...styles.actionButton,
-                ...(buttonsDisabled ? styles.actionButtonDisabled : {}),
-              }}
-              className="action-button"
-              onClick={handleGenerateFullReview}
-              disabled={buttonsDisabled}
-            >
-              <span
-                style={{
-                  ...styles.buttonText,
-                  ...(buttonsDisabled ? styles.buttonTextDisabled : {}),
-                }}
-              >
-                {isReviewing ? 'Reviewing...' : 'Generate full review'}
-              </span>
-              {!isReviewing && <ArrowForwardIcon />}
-            </button>
-          </div>
-        </div>
+        {viewMode === 'review' ? renderReviewView() : renderMenuView()}
       </div>
     </div>
   );
@@ -589,36 +1114,223 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   modal: {
     width: '370px',
-    background: '#F9F8F6', // Figma: background-beige-light
+    background: '#ffffff', // Figma: background-white
     borderRadius: '16px', // Figma: corner-radius/radius-lg
-    border: '1px solid #CCC9BC', // Figma: stroke-beige-light
-    boxShadow: 'none',
+    border: '1px solid #ccc9bc', // Figma: stroke-beige-light
     position: 'relative',
     padding: '24px', // Figma: spacing/sm-24
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
     maxHeight: '100%',
     overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
   },
   closeButton: {
-    position: 'fixed',
-    top: '11px',
-    right: '15px',
+    position: 'absolute',
+    top: '12px',
+    right: '12px',
     width: '20px',
     height: '20px',
     border: 'none',
     backgroundColor: 'transparent',
-    fontSize: '20px',
-    fontWeight: 300,
-    color: '#141413', // Figma: text-primary
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: '50%',
-    transition: 'background-color 0.2s ease',
     padding: 0,
-    lineHeight: 1,
   },
+  // Section header with icon and text
+  sectionHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    paddingBottom: '12px', // Figma: spacing/xs-12
+  },
+  sectionHeaderText: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px', // Figma: type/body/md/size
+    fontWeight: 600, // Figma: type/weights/semibold-600
+    lineHeight: '20px', // Figma: type/body/md/line-height
+    color: '#141413', // Figma: text-primary
+  },
+  // Feedback content container (notification cards + view previous row)
+  feedbackContent: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px', // Figma: spacing/xs-12
+  },
+  // Individual notification card (light blue background) - clickable button
+  notificationCard: {
+    backgroundColor: '#eef2f9', // Figma: background-light-blue
+    borderRadius: '8px', // Figma: corner-radius/radius-md
+    padding: '12px', // Figma: spacing/xs-12
+    paddingRight: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px', // Figma: spacing/xs-8
+    position: 'relative',
+    border: 'none',
+    cursor: 'pointer',
+    width: '100%',
+    textAlign: 'left',
+  },
+  // Blue dot indicator for unread notifications
+  blueDot: {
+    width: '10px',
+    height: '10px',
+    borderRadius: '50%',
+    backgroundColor: '#0645b1', // Figma: blue indicator
+    position: 'absolute',
+    left: '-5px',
+    top: '50%',
+    transform: 'translateY(-50%)',
+    flexShrink: 0,
+  },
+  notificationContent: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  notificationTitle: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px', // Figma: type/body/md/size
+    fontWeight: 400, // Figma: type/body/md/font-weight
+    lineHeight: '20px', // Figma: type/body/md/line-height
+    color: '#141413', // Figma: text-primary
+  },
+  notificationDate: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '14px', // Figma: type/body/sm/size
+    fontWeight: 400, // Figma: type/body/sm/font-weight
+    lineHeight: '20px', // Figma: type/body/sm/line-height
+    color: '#6d6d7d', // Figma: brand-colors/neutral-800
+  },
+  // View previous feedback row (beige background)
+  viewPreviousRow: {
+    backgroundColor: '#f9f8f6', // Figma: background-beige-light
+    borderRadius: '8px', // Figma: corner-radius/radius-md
+    padding: '12px', // Figma: spacing/xs-12
+    paddingRight: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px', // Figma: spacing/xs-12
+    border: 'none',
+    cursor: 'pointer',
+    width: '100%',
+    textAlign: 'left',
+  },
+  viewPreviousText: {
+    flex: 1,
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px', // Figma: type/body/md/size
+    fontWeight: 400, // Figma: type/body/md/font-weight
+    lineHeight: '20px', // Figma: type/body/md/line-height
+    color: '#141413', // Figma: text-primary
+  },
+  // Arrow icon container
+  arrowIcon: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  // Horizontal row for Get Feedback buttons
+  feedbackButtonsRow: {
+    display: 'flex',
+    flexDirection: 'row',
+    gap: '12px', // Figma: spacing/xs-12
+  },
+  // Individual feedback button (bordered card)
+  feedbackButton: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    border: '1px solid #141413', // Figma: stroke-black
+    borderRadius: '8px', // Figma: corner-radius/radius-md
+    padding: '10px 8px 10px 12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px', // Figma: spacing/xs-12
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  feedbackButtonText: {
+    flex: 1,
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px', // Figma: type/body/md/size
+    fontWeight: 400, // Figma: type/body/md/font-weight
+    lineHeight: '20px', // Figma: type/body/md/line-height
+    color: '#141413', // Figma: text-primary
+  },
+  feedbackButtonDisabled: {
+    cursor: 'not-allowed',
+    opacity: 0.5,
+  },
+  // Legacy action card styles (can be removed after migration)
+  actionCard: {
+    backgroundColor: '#f9f8f6', // Figma: background-beige-light
+    borderRadius: '8px', // Figma: corner-radius/radius-md
+    overflow: 'hidden',
+  },
+  actionRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px', // Figma: spacing/xs-16
+    padding: '16px', // Figma: spacing/xs-16
+  },
+  actionRowWithBorder: {
+    borderBottom: '1px solid #dddde2', // Figma: stroke-grey-light
+  },
+  actionRowText: {
+    flex: 1,
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px', // Figma: type/body/md/size
+    fontWeight: 400, // Figma: type/body/md/font-weight
+    lineHeight: '20px', // Figma: type/body/md/line-height
+    color: '#141413', // Figma: text-primary
+  },
+  // Arrow button (small button with arrow icon)
+  arrowButton: {
+    backgroundColor: '#ffffff', // Figma: button-xs-fill
+    border: '1px solid #141413', // Figma: button-xs-stroke
+    borderRadius: '8px', // Figma: corner-radius/radius-md
+    width: '32px', // Figma: button xs height
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    flexShrink: 0,
+    padding: 0,
+  },
+  arrowButtonDisabled: {
+    cursor: 'not-allowed',
+    opacity: 0.5,
+  },
+  // View previous feedback link
+  viewPreviousLink: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '14px', // Figma: type/body/sm/size
+    fontWeight: 400, // Figma: type/body/sm/font-weight
+    lineHeight: '20px', // Figma: type/body/sm/line-height
+    color: '#141413', // Figma: text-primary
+    textDecoration: 'underline',
+    cursor: 'pointer',
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    textAlign: 'left',
+  },
+  // Error message
+  errorMessage: {
+    backgroundColor: '#FEE2E2',
+    borderRadius: '8px',
+    padding: '12px 16px',
+    color: '#DC2626',
+    fontSize: '14px',
+    fontFamily: "'DM Sans', sans-serif",
+  },
+  // Legacy styles kept for backward compatibility during transition
   content: {
     display: 'flex',
     flexDirection: 'column',
@@ -665,12 +1377,6 @@ const styles: { [key: string]: React.CSSProperties } = {
     lineHeight: '20px', // Figma: type/body/sm/line-height
     textAlign: 'center',
   },
-  errorMessage: {
-    backgroundColor: '#FEE2E2',
-    borderRadius: '8px',
-    padding: '12px 16px',
-    marginBottom: '8px',
-  },
   errorText: {
     fontSize: '14px',
     fontWeight: 500,
@@ -688,6 +1394,120 @@ const styles: { [key: string]: React.CSSProperties } = {
   buttonTextDisabled: {
     color: '#999999',
   },
+  // Review view styles
+  reviewHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: '16px',
+  },
+  backButton: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+  },
+  backButtonText: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 600,
+    color: '#141413',
+  },
+  reviewScrollArea: {
+    flex: 1,
+    overflowY: 'auto',
+    paddingRight: '8px',
+  },
+  reviewTitle: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '20px',
+    fontWeight: 700,
+    lineHeight: '24px',
+    color: '#141413',
+    margin: '0 0 4px 0',
+  },
+  reviewDate: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 400,
+    lineHeight: '20px',
+    color: '#535366',
+  },
+  reviewContent: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 400,
+    // lineHeight: '20px',
+    color: '#141413',
+  },
+  loadingText: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    color: '#535366',
+    textAlign: 'center',
+    padding: '24px 0',
+  },
+  // User message styles (right-aligned, blue background)
+  userMessage: {
+    marginLeft: 'auto',
+    marginRight: 0,
+    maxWidth: '300px',
+    marginBottom: '12px',
+  },
+  userMessageContent: {
+    padding: '12px 16px',
+    backgroundColor: '#e6ecf7', // --background-blue from design tokens
+    borderRadius: '8px',
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 400,
+    lineHeight: '20px',
+    color: '#141413',
+  },
+  // Assistant message wrapper
+  assistantMessage: {
+    marginBottom: '12px',
+  },
+  reviewFooter: {
+    borderTop: '1px solid #dddde2',
+    paddingTop: '24px',
+    marginTop: '24px',
+  },
+  askFollowUpButton: {
+    width: '100%',
+    height: '32px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4px',
+    backgroundColor: '#ffffff',
+    border: '1px solid #141413',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '14px',
+    fontWeight: 400,
+    color: '#141413',
+  },
+  provideFeedbackLink: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 400,
+    lineHeight: '20px',
+    color: '#0645b1',
+    textDecoration: 'underline',
+    textAlign: 'center',
+    width: '100%',
+    display: 'block',
+    marginTop: '10px',
+    cursor: 'pointer',
+    background: 'none',
+    border: 'none',
+    padding: 0,
+  },
 };
 
 // Add hover styles
@@ -702,6 +1522,9 @@ if (typeof document !== 'undefined') {
     }
     button[aria-label="Close"]:hover {
       background-color: rgba(0, 0, 0, 0.05) !important;
+    }
+    .review-content p, .review-content h1, .review-content h2, .review-content h3, .review-content h4, .review-content h5, .review-content h6, .review-content ul, .review-content ol, .review-content li {
+      margin: 0 0 12px 0;
     }
   `;
 

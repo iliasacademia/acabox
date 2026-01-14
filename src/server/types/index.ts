@@ -133,12 +133,40 @@ export interface WordPollResponse {
   notificationCount?: number;
   /** Whether this PID is the active/focused one */
   isActive: boolean;
-  /** Latest review notification (if any) */
-  latestReviewNotification?: {
+  /** Full review notification (if any) - agent_name contains "full" */
+  fullReviewNotification?: {
     id: number;
     project_id: number;
     conversation_id: number;
+    created_at: number;
+    title: string;
+    isRead: boolean;
+  } | null;
+  /** Diff review notification (if any) - agent_name contains "diff" */
+  diffReviewNotification?: {
+    id: number;
+    project_id: number;
+    conversation_id: number;
+    created_at: number;
+    title: string;
+    isRead: boolean;
   } | null;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
+}
+
+/**
+ * Request body for POST /api/navigate
+ */
+export interface NavigateRequestBody {
+  /** Target page */
+  page: 'conversation' | 'conversations' | 'external';
+  /** Project ID (required for 'conversation' and 'conversations' pages) */
+  projectId?: number;
+  /** Conversation ID (required for 'conversation' page) */
+  conversationId?: number;
+  /** Whether to auto-open the diff modal */
+  openDiffModal?: boolean;
+  /** URL to open (required for 'external' page) */
+  url?: string;
 }
