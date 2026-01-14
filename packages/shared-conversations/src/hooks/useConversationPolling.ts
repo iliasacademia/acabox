@@ -4,6 +4,24 @@ import { Message } from '../types/conversation';
 
 const POLL_INTERVAL = 2000; // 2 seconds
 
+export interface MessageCreatedEvent {
+  conversation_id: number;
+  message_id: number;
+  role: string;
+  is_final?: boolean;
+}
+
+export interface UseConversationPollingOptions {
+  /**
+   * Optional callback for when a message_created event is received from an event stream.
+   * When provided, the hook will call refetch() automatically when events arrive,
+   * reducing the need for constant polling.
+   *
+   * @param callback - Called to register the event listener. Should return a cleanup function.
+   */
+  onEventReceived?: (handler: (event: MessageCreatedEvent) => void) => () => void;
+}
+
 export interface UseConversationPollingResult {
   messages: Message[];
   isPolling: boolean;
@@ -20,21 +38,24 @@ export interface UseConversationPollingResult {
  * Hook for polling conversation messages with automatic updates.
  * Uses the injected API client via useConversationsApi hook.
  *
+ * @param options - Optional configuration for event-driven updates
+ *
  * @example
- * function ConversationView({ conversationId, projectId }) {
- *   const { messages, isPolling, startPolling, stopPolling } = useConversationPolling();
+ * // Basic usage (polling only)
+ * const { messages, isPolling, startPolling, stopPolling } = useConversationPolling();
  *
- *   useEffect(() => {
- *     initializeMessages(conversationId, projectId);
- *   }, [conversationId]);
- *
- *   const handleSendMessage = async () => {
- *     // Send message...
- *     startPolling(conversationId, projectId); // Poll for AI response
- *   };
- * }
+ * @example
+ * // Event-driven usage (Electron)
+ * const { messages, startPolling } = useConversationPolling({
+ *   onEventReceived: (handler) => {
+ *     window.electronAPI.on('message-created', handler);
+ *     return () => window.electronAPI.removeListener('message-created', handler);
+ *   }
+ * });
  */
-export function useConversationPolling(): UseConversationPollingResult {
+export function useConversationPolling(
+  options?: UseConversationPollingOptions
+): UseConversationPollingResult {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isPolling, setIsPolling] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -159,6 +180,34 @@ export function useConversationPolling(): UseConversationPollingResult {
   const addOptimisticMessage = useCallback((message: Message) => {
     setMessages((prev) => [...prev, message]);
   }, []);
+
+  // Event-driven updates (if supported)
+  useEffect(() => {
+    if (!options?.onEventReceived) return;
+
+    const handleEvent = async (event: MessageCreatedEvent) => {
+      // Check if this event is for the active conversation
+      if (event.conversation_id !== conversationIdRef.current) {
+        return;
+      }
+
+      console.log('[ConversationPolling] message_created event received, fetching messages');
+
+      // Trigger a refetch to get the new message
+      await refetch();
+
+      // If this is the final message, stop polling
+      if (event.is_final === true) {
+        console.log('[ConversationPolling] Final message received, stopping polling');
+        stopPolling();
+      }
+    };
+
+    // Register event listener and get cleanup function
+    const cleanup = options.onEventReceived(handleEvent);
+
+    return cleanup;
+  }, [options, refetch, stopPolling]);
 
   // Cleanup on unmount
   useEffect(() => {
