@@ -3,7 +3,7 @@ import { Message, Conversation, DraftConversation } from '../types/conversation'
 import { ProjectFile, DiffResponse } from '../types/project';
 import { useConversationsApi } from '../api/useConversationsApi';
 import { useProjectsApi } from '../api/useProjectsApi';
-import { useConversationPolling } from '../hooks/useConversationPolling';
+import { useConversationPolling, UseConversationPollingOptions } from '../hooks/useConversationPolling';
 import { useApiClient } from '../context/ApiContext';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
@@ -23,6 +23,8 @@ interface ConversationDetailProps {
   onMessageReceived?: (projectId: number, conversationId: number, agentName: string, durationSeconds?: number) => void;
   /** Optional: URL for feedback form. If provided, shows a feedback link. */
   feedbackFormUrl?: string;
+  /** Optional: Options for conversation polling (e.g., event-driven updates) */
+  pollingOptions?: UseConversationPollingOptions;
 }
 
 export function ConversationDetail({
@@ -36,6 +38,7 @@ export function ConversationDetail({
   onMessageSent,
   onMessageReceived,
   feedbackFormUrl,
+  pollingOptions,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -105,7 +108,7 @@ export function ConversationDetail({
   };
 
   const { messages, isPolling, isLoading, error, startPolling, stopPolling, initializeMessages, addOptimisticMessage } =
-    useConversationPolling();
+    useConversationPolling(pollingOptions);
 
   // Helper to check if conversation is a draft
   const isDraft = (conv: Conversation | DraftConversation | null): conv is DraftConversation => {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import type { UseConversationPollingOptions } from '../hooks/useConversationPolling';
 import { Conversation, DraftConversation } from "../types/conversation";
 import { Project, ProjectFile, AgentRun } from "../types/project";
 import { useConversationsApi } from "../api/useConversationsApi";
@@ -44,6 +45,17 @@ export interface ConversationsPageProps {
 
   // Folder sync status (optional)
   folderSyncStatus?: "watching" | "syncing" | "error" | "idle";
+
+  // Polling options (for event-driven message updates)
+  pollingOptions?: UseConversationPollingOptions;
+
+  // Event-driven conversations list refresh
+  onRegisterConversationsRefresh?: (refreshFn: () => void) => () => void;
+
+  // Event-driven review state updates (for review_started, review_completed, review_failed events)
+  onRegisterReviewStateUpdates?: (
+    updateFn: (state: 'idle' | 'full-reviewing' | 'diff-reviewing') => void
+  ) => () => void;
 }
 
 export function ConversationsPage({
@@ -61,6 +73,9 @@ export function ConversationsPage({
   feedbackFormUrl,
   fileSyncEventName,
   folderSyncStatus = "idle",
+  pollingOptions,
+  onRegisterConversationsRefresh,
+  onRegisterReviewStateUpdates,
 }: ConversationsPageProps) {
   const [selectedConversation, setSelectedConversation] = useState<
     Conversation | DraftConversation | null
@@ -389,6 +404,24 @@ export function ConversationsPage({
 
     return () => clearInterval(intervalId);
   }, [reviewingState, scheduledReviewTime]);
+
+  // Register event-driven review state updates
+  useEffect(() => {
+    if (!onRegisterReviewStateUpdates) return;
+
+    console.log('[ConversationsPage] Registering review state updates');
+    const cleanup = onRegisterReviewStateUpdates((state) => {
+      console.log('[ConversationsPage] Review state updated via event:', state);
+      setReviewingState(state);
+      if (state === 'idle') {
+        setIsReviewInProgress(false);
+      } else {
+        setIsReviewInProgress(true);
+      }
+    });
+
+    return cleanup;
+  }, [onRegisterReviewStateUpdates]);
 
   // Fetch project files when selectedProject changes
   useEffect(() => {
@@ -808,6 +841,7 @@ export function ConversationsPage({
               refreshTrigger={refreshTrigger}
               onConversationsLoaded={handleConversationsLoaded}
               onConversationView={onConversationView}
+              onRegisterRefresh={onRegisterConversationsRefresh}
             />
 
             {/* Detail Panel */}
@@ -822,6 +856,7 @@ export function ConversationsPage({
               onMessageSent={onMessageSent}
               onMessageReceived={onMessageReceived}
               feedbackFormUrl={feedbackFormUrl}
+              pollingOptions={pollingOptions}
             />
           </div>
         </div>

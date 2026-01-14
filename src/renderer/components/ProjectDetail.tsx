@@ -5,15 +5,17 @@ import {
   ProjectFolder,
   Collaborator,
   ReviewSuggestion,
+  AgentRun,
   getProjectFiles,
   getProjectFolders,
   getProjectCollaborators,
+  getProjectStatus,
   addFolderToProject,
   addCollaborator,
   extractErrorMessage,
 } from '../services/projectsApi';
 import { IPC_CHANNELS } from '../../shared/types';
-import { useReviewPolling } from '../hooks/useReviewPolling';
+import { useCoScientistEvents } from '../hooks/useCoScientistEvents';
 import ProjectSidebar from './ProjectSidebar';
 import AlertDialog from './AlertDialog';
 import AddCollaboratorModal from './AddCollaboratorModal';
@@ -35,13 +37,89 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
   const [showCollaboratorModal, setShowCollaboratorModal] = useState(false);
   const [activeTab, setActiveTab] = useState<ReviewTab>('summary');
   const [expandedReviews, setExpandedReviews] = useState<Set<number>>(new Set());
-
-  // Review polling hook
-  const { agentRun, error: reviewError, startPolling } = useReviewPolling();
+  const [agentRun, setAgentRun] = useState<AgentRun | null>(null);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   useEffect(() => {
     loadProjectData();
   }, [project.id]);
+
+  // Fetch review status for this project's manuscript
+  const fetchReviewStatus = async (fileId?: number) => {
+    if (!fileId) {
+      console.log('[ProjectDetail] No fileId provided, skipping status fetch');
+      return;
+    }
+
+    try {
+      console.log('[ProjectDetail] Fetching review status:', { projectId: project.id, fileId });
+
+      const statusData = await getProjectStatus(
+        project.id,
+        'science_agent',
+        fileId
+      );
+
+      const run = statusData.agent_runs[0];
+
+      if (run) {
+        console.log('[ProjectDetail] Review status:', {
+          status: run.status,
+          running_jobs_count: run.running_jobs_count,
+          has_review_data: !!run.review_data,
+          suggestions_count: run.review_data?.suggestions?.length || 0,
+        });
+
+        setAgentRun(run);
+
+        if (run.status === 'failed') {
+          setReviewError('Review generation failed');
+        } else {
+          setReviewError(null);
+        }
+      }
+    } catch (error) {
+      console.error('[ProjectDetail] Failed to fetch review status:', error);
+    }
+  };
+
+  // Listen for Co-Scientist events
+  useCoScientistEvents({
+    onReviewCompleted: async (event) => {
+      console.log('[ProjectDetail] Review completed event received:', event);
+
+      // Check if this event is for our project
+      if (event.project_id === project.id && manuscript) {
+        console.log('[ProjectDetail] Event matches current project, refreshing review status');
+
+        // Fetch the latest review status
+        await fetchReviewStatus(manuscript.id);
+
+        // If the event includes a conversation_id, navigate to it
+        if (event.data?.conversation_id) {
+          console.log('[ProjectDetail] Review includes conversation, navigating:', {
+            conversationId: event.data.conversation_id,
+            projectId: project.id,
+          });
+
+          // Navigate to the conversation
+          window.electronAPI.invoke(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+            page: 'conversation',
+            projectId: project.id,
+            conversationId: event.data.conversation_id,
+          });
+        }
+      }
+    },
+    onReviewFailed: (event) => {
+      console.log('[ProjectDetail] Review failed event received:', event);
+
+      // Check if this event is for our project
+      if (event.project_id === project.id) {
+        setReviewError('Review generation failed');
+      }
+    },
+  }, [project.id, manuscript?.id]);
 
   const loadProjectData = async () => {
     setLoading(true);
@@ -61,9 +139,9 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
       setFolders(foldersData);
       setCollaborators(collaboratorsData);
 
-      // Start polling for reviews if manuscript exists
+      // Fetch initial review status if manuscript exists
       if (primaryManuscript) {
-        startPolling(project.id, primaryManuscript.id);
+        await fetchReviewStatus(primaryManuscript.id);
       }
     } catch (error) {
       console.error('Error loading project data:', error);
@@ -314,7 +392,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
           <p className="errorMessage">{reviewError}</p>
           <button
             className="wizardButtonPrimary"
-            onClick={() => startPolling(project.id, manuscript.id)}
+            onClick={() => fetchReviewStatus(manuscript.id)}
           >
             Retry
           </button>
