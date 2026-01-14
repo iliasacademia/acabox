@@ -46,10 +46,20 @@ class EventsManager {
 
   /**
    * Update the stored timestamp on disk
+   * Adds 1 millisecond to ensure the next poll doesn't return the same event
    */
   private updateStoredTimestamp(timestamp: string): void {
-    this.store.set('last_ts', timestamp);
-    logger.debug('[EventsManager] Updated last_ts:', timestamp);
+    // Parse timestamp and add 1ms to avoid re-fetching the same event
+    // This handles the case where backend uses >= instead of > for timestamp comparison
+    const date = new Date(timestamp);
+    date.setMilliseconds(date.getMilliseconds() + 1);
+    const incrementedTimestamp = date.toISOString();
+
+    this.store.set('last_ts', incrementedTimestamp);
+    logger.debug('[EventsManager] Updated last_ts:', {
+      original: timestamp,
+      incremented: incrementedTimestamp,
+    });
   }
 
   /**
@@ -83,6 +93,17 @@ class EventsManager {
 
   /**
    * Sync events from backend API
+   *
+   * IMPORTANT: This method updates the `last_ts` timestamp after processing EACH event,
+   * including events that are skipped due to user_id mismatch. This ensures that the
+   * same events are not returned on subsequent polls.
+   *
+   * Example: If events arrive for users [456, 789, 456] and current user is 456:
+   * - Event 1 (user 456): processed, timestamp updated
+   * - Event 2 (user 789): skipped, but timestamp still updated to mark as "seen"
+   * - Event 3 (user 456): processed, timestamp updated
+   *
+   * Next poll will use the timestamp of Event 3, ensuring none of these events are re-fetched.
    */
   async syncWithBackend(): Promise<void> {
     if (this.isSyncing) {
@@ -111,18 +132,22 @@ class EventsManager {
       for (const event of response.events) {
         // Validate event belongs to current user
         if (event.user_id !== this.currentUserId) {
-          logger.warn('[EventsManager] Event user_id mismatch', {
+          logger.warn('[EventsManager] Event user_id mismatch, skipping', {
             eventUserId: event.user_id,
             currentUserId: this.currentUserId,
             eventName: event.event_name,
           });
+          // Still update timestamp to mark this event as "seen"
+          // so we don't keep polling it on every request
+          this.updateStoredTimestamp(event.timestamp);
           continue;
         }
 
         // Send to renderer
         this.sendEventToRenderer(event);
 
-        // Update last_ts to latest event timestamp
+        // Update last_ts after successfully processing event
+        // This ensures next poll won't return events we've already seen
         this.updateStoredTimestamp(event.timestamp);
       }
 

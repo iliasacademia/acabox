@@ -162,7 +162,7 @@ describe('EventsManager', () => {
             user_id: 1,
             event_name: 'review_completed',
             data: { review_id: 789 },
-            timestamp: '2026-01-13T12:30:00Z',
+            timestamp: '2026-01-13T12:30:00.000Z',
           },
         ],
       };
@@ -174,8 +174,8 @@ describe('EventsManager', () => {
 
       await eventsManager.syncWithBackend();
 
-      // Should update timestamp to event's timestamp
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:30:00Z');
+      // Should update timestamp to event's timestamp + 1ms to avoid re-fetching
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:30:00.001Z');
     });
 
     it('should handle missing timestamp (null) gracefully', async () => {
@@ -197,21 +197,21 @@ describe('EventsManager', () => {
             user_id: 1,
             event_name: 'event1',
             data: {},
-            timestamp: '2026-01-13T12:00:00Z',
+            timestamp: '2026-01-13T12:00:00.000Z',
           },
           {
             project_id: 123,
             user_id: 1,
             event_name: 'event2',
             data: {},
-            timestamp: '2026-01-13T12:30:00Z',
+            timestamp: '2026-01-13T12:30:00.000Z',
           },
           {
             project_id: 123,
             user_id: 1,
             event_name: 'event3',
             data: {},
-            timestamp: '2026-01-13T13:00:00Z',
+            timestamp: '2026-01-13T13:00:00.000Z',
           },
         ],
       };
@@ -223,10 +223,10 @@ describe('EventsManager', () => {
 
       await eventsManager.syncWithBackend();
 
-      // Should update timestamp for each event
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00Z');
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:30:00Z');
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T13:00:00Z');
+      // Should update timestamp for each event with +1ms increment
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00.001Z');
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:30:00.001Z');
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T13:00:00.001Z');
     });
   });
 
@@ -303,7 +303,7 @@ describe('EventsManager', () => {
       );
     });
 
-    it('should skip events with mismatched user_id', async () => {
+    it('should skip events with mismatched user_id but still update timestamp', async () => {
       const mockEvents = {
         events: [
           {
@@ -311,7 +311,7 @@ describe('EventsManager', () => {
             user_id: 2, // Wrong user
             event_name: 'event1',
             data: {},
-            timestamp: '2026-01-13T12:00:00Z',
+            timestamp: '2026-01-13T12:00:00.000Z',
           },
         ],
       };
@@ -325,6 +325,9 @@ describe('EventsManager', () => {
 
       // Should not send any events
       expect(mockWindow.webContents.send).not.toHaveBeenCalled();
+
+      // But should still update timestamp to mark event as "seen" with +1ms
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00.001Z');
     });
 
     it('should send events to renderer individually', async () => {
@@ -376,7 +379,7 @@ describe('EventsManager', () => {
             user_id: 1,
             event_name: 'event1',
             data: {},
-            timestamp: '2026-01-13T12:00:00Z',
+            timestamp: '2026-01-13T12:00:00.000Z',
           },
         ],
       };
@@ -388,7 +391,55 @@ describe('EventsManager', () => {
 
       await eventsManager.syncWithBackend();
 
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00Z');
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00.001Z');
+    });
+
+    it('should update timestamp for all events including skipped ones', async () => {
+      const mockEvents = {
+        events: [
+          {
+            project_id: 123,
+            user_id: 2, // Wrong user - will be skipped
+            event_name: 'event1',
+            data: {},
+            timestamp: '2026-01-13T12:00:00.000Z',
+          },
+          {
+            project_id: 123,
+            user_id: 1, // Correct user
+            event_name: 'event2',
+            data: {},
+            timestamp: '2026-01-13T12:05:00.000Z',
+          },
+          {
+            project_id: 123,
+            user_id: 3, // Wrong user - will be skipped
+            event_name: 'event3',
+            data: {},
+            timestamp: '2026-01-13T12:10:00.000Z',
+          },
+        ],
+      };
+
+      mockPollEvents.mockResolvedValue(mockEvents);
+      mockStore.get.mockReturnValue(null);
+      eventsManager.setMainWindow(mockWindow);
+      eventsManager.startPolling(1);
+
+      await eventsManager.syncWithBackend();
+
+      // Should only send one event (event2)
+      expect(mockWindow.webContents.send).toHaveBeenCalledTimes(1);
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith(
+        'co-scientist-event',
+        mockEvents.events[1]
+      );
+
+      // But should update timestamp to the latest event (including skipped ones) with +1ms
+      expect(mockStore.set).toHaveBeenCalledTimes(3);
+      expect(mockStore.set).toHaveBeenNthCalledWith(1, 'last_ts', '2026-01-13T12:00:00.001Z');
+      expect(mockStore.set).toHaveBeenNthCalledWith(2, 'last_ts', '2026-01-13T12:05:00.001Z');
+      expect(mockStore.set).toHaveBeenNthCalledWith(3, 'last_ts', '2026-01-13T12:10:00.001Z');
     });
 
     it('should handle API errors gracefully without stopping', async () => {
