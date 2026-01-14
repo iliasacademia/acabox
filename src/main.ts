@@ -232,7 +232,16 @@ const createMainWindow = async (): Promise<void> => {
     }
   });
 
-  // Handle window destruction
+  // Prevent window from being destroyed on close (macOS behavior)
+  mainWindow.on('close', (event) => {
+    if (process.platform === 'darwin') {
+      // On macOS, hide window instead of closing it
+      event.preventDefault();
+      mainWindow?.hide();
+    }
+  });
+
+  // Handle window destruction (only when actually destroyed, e.g., on quit)
   mainWindow.on('closed', () => {
     logger.setMainWindow(null);
     mainWindow = null;
@@ -713,6 +722,28 @@ function checkForUpdatesManually(): void {
   });
 }
 
+// Prevent multiple instances of the app
+const gotTheLock = app.requestSingleInstanceLock();
+
+if (!gotTheLock) {
+  // Another instance is already running - quit this one
+  logger.info('[App] Another instance is already running, quitting...');
+  app.quit();
+} else {
+  // This is the first instance - handle second instance launch
+  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
+    logger.info('[App] Second instance attempted to launch, focusing main window');
+    // Someone tried to run a second instance, focus our window instead
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
+      }
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 app.whenReady().then(async () => {
   // Create main window (always)
   createMainWindow();
@@ -842,8 +873,13 @@ app.on('window-all-closed', () => {
 });
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
+  // On macOS, re-create or show the main window when dock icon is clicked
+  if (!mainWindow || mainWindow.isDestroyed()) {
     createMainWindow();
+  } else if (mainWindow) {
+    // Window exists but might be hidden - show it
+    mainWindow.show();
+    mainWindow.focus();
   }
 });
 
