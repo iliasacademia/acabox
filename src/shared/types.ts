@@ -38,6 +38,11 @@ export const IPC_CHANNELS = {
   NEW_NOTIFICATION: 'new-notification',
   NOTIFICATION_UPDATED: 'notification-updated',
 
+  // Events polling
+  START_EVENTS_POLLING: 'start-events-polling',
+  STOP_EVENTS_POLLING: 'stop-events-polling',
+  CO_SCIENTIST_EVENT: 'co-scientist-event',
+
   // Screen and Word operations
   GET_SCREEN_SOURCES: 'get-screen-sources',
   GET_ALL_SOURCES: 'get-all-sources',
