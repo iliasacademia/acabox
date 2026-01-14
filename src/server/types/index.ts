@@ -138,6 +138,7 @@ export interface WordPollResponse {
     id: number;
     project_id: number;
     conversation_id: number;
+    conversation_title?: string;
     created_at: number;
     title: string;
     isRead: boolean;
@@ -147,6 +148,7 @@ export interface WordPollResponse {
     id: number;
     project_id: number;
     conversation_id: number;
+    conversation_title?: string;
     created_at: number;
     title: string;
     isRead: boolean;

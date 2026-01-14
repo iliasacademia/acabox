@@ -116,7 +116,8 @@ type NotificationData = {
   project_id: number;
   conversation_id: number;
   created_at: number;
-  title: string;
+  title: string; // Notification title (e.g., "New thoughts on your research!")
+  conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
   isRead: boolean;
 } | null;
 
@@ -132,7 +133,8 @@ interface WordPollResponse {
     project_id: number;
     conversation_id: number;
     created_at: number;
-    title: string;
+    title: string; // Notification title (e.g., "New thoughts on your research!")
+    conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
     isRead: boolean;
   } | null;
   diffReviewNotification?: {
@@ -140,7 +142,8 @@ interface WordPollResponse {
     project_id: number;
     conversation_id: number;
     created_at: number;
-    title: string;
+    title: string; // Notification title (e.g., "New thoughts on your research!")
+    conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
     isRead: boolean;
   } | null;
   activeDocumentPath?: string | null;
@@ -578,7 +581,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
       }
 
       setConversationData({
-        title: fullReviewNotification.title || 'Full review',
+        title: fullReviewNotification.conversation_title || fullReviewNotification.title || 'Full review',
         createdAt: fullReviewNotification.created_at,
         messages: data.messages,
       });
@@ -628,7 +631,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
       }
 
       setConversationData({
-        title: diffReviewNotification.title || 'Diff review',
+        title: diffReviewNotification.conversation_title || diffReviewNotification.title || 'Diff review',
         createdAt: diffReviewNotification.created_at,
         messages: data.messages,
       });
@@ -999,7 +1002,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
               {!fullReviewNotification.isRead && <div style={styles.blueDot} />}
               <div style={styles.notificationContent as React.CSSProperties}>
                 <span style={styles.notificationTitle}>
-                  {fullReviewNotification.title || 'Feedback on your entire manuscript'}
+                  {fullReviewNotification.conversation_title || fullReviewNotification.title || 'Feedback on your entire manuscript'}
                 </span>
                 <span style={styles.notificationDate}>
                   {formatNotificationDate(fullReviewNotification.created_at)}
@@ -1019,7 +1022,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
               {!diffReviewNotification.isRead && <div style={styles.blueDot} />}
               <div style={styles.notificationContent as React.CSSProperties}>
                 <span style={styles.notificationTitle}>
-                  {diffReviewNotification.title || 'Feedback on recent changes'}
+                  {diffReviewNotification.conversation_title || diffReviewNotification.title || 'Feedback on recent changes'}
                 </span>
                 <span style={styles.notificationDate}>
                   {formatNotificationDate(diffReviewNotification.created_at)}
