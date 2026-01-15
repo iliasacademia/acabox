@@ -303,7 +303,7 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
               <button
                 className="wizardButtonPrimary"
                 onClick={handleNext}
-                disabled={!selectedManuscriptPath || isCreating}
+                disabled={!selectedManuscriptPath || isCreating || availableFiles.length === 0}
               >
                 {isCreating ? 'Creating...' : 'Create Project'}
               </button>
