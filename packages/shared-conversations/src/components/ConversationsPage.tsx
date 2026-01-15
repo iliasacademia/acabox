@@ -697,6 +697,36 @@ export function ConversationsPage({
     }
   };
 
+  const handleOpenFile = async (filePath: string) => {
+    if (!filePath) return;
+
+    try {
+      // Call IPC through the API client
+      await apiClient.invoke({
+        method: 'POST',
+        endpoint: 'open-file',
+        data: { filePath },
+      });
+    } catch (error) {
+      console.error('[ConversationsPage] Failed to open file:', error);
+    }
+  };
+
+  const handleOpenFolder = async (filePath: string) => {
+    if (!filePath) return;
+
+    try {
+      // Call IPC through the API client
+      await apiClient.invoke({
+        method: 'POST',
+        endpoint: 'show-file-in-folder',
+        data: { filePath },
+      });
+    } catch (error) {
+      console.error('[ConversationsPage] Failed to open folder:', error);
+    }
+  };
+
   // Format manuscript update timestamp
   const formatManuscriptTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -787,6 +817,24 @@ export function ConversationsPage({
                   Last updated:{" "}
                   {formatManuscriptTimestamp(manuscriptFile.updated_at)}
                 </span>
+              </div>
+
+              {/* File action buttons */}
+              <div className="manuscriptFileActions">
+                <button
+                  className="openFileButton"
+                  onClick={() => handleOpenFile(manuscriptFile.file_path)}
+                  title="Open file in default application"
+                >
+                  Open File
+                </button>
+                <button
+                  className="openFolderButton"
+                  onClick={() => handleOpenFolder(manuscriptFile.file_path)}
+                  title="Open folder containing this file"
+                >
+                  Open Folder
+                </button>
               </div>
             </div>
             <button

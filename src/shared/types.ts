@@ -26,6 +26,8 @@ export const IPC_CHANNELS = {
   SEARCH_FILES: 'search-files',
   GET_FOLDER_FILES: 'get-folder-files',
   SCAN_FOLDER_FOR_FILES: 'scan-folder-for-files',
+  OPEN_FILE: 'open-file',
+  SHOW_FILE_IN_FOLDER: 'show-file-in-folder',
 
   // Notifications
   GET_NOTIFICATIONS: 'get-notifications',
