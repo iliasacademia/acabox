@@ -627,6 +627,7 @@ function setupAutoUpdater(): void {
     // Auto-restart after short delay to show completion state in banner
     setTimeout(() => {
       logger.info('[Auto-Updater] Auto-restarting to install update...');
+      isQuittingForUpdate = true; // Set flag to skip cleanup during update quit
       autoUpdater.quitAndInstall();
     }, 1500);
   });
@@ -1578,7 +1579,14 @@ ipcMain.handle(IPC_CHANNELS.GET_HTTP_SERVER_INFO, async () => {
 
 // Cleanup on app quit
 let isQuitting = false;
+let isQuittingForUpdate = false;
 app.on('before-quit', async (event) => {
+  // If quitting for update, allow it to proceed naturally
+  if (isQuittingForUpdate) {
+    logger.info('[APP] Quitting for update installation - skipping cleanup');
+    return; // Let update process handle quit
+  }
+
   if (isQuitting) {
     return; // Already quitting, let it proceed
   }
