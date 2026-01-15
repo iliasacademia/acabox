@@ -47,6 +47,21 @@
     padding-right: 58px;
 }
 
+/* Responsive page padding */
+@media (max-width: 1280px) {
+    .conversationsPage {
+        padding-left: 24px;
+        padding-right: 24px;
+    }
+}
+
+@media (max-width: 768px) {
+    .conversationsPage {
+        padding-left: 16px;
+        padding-right: 16px;
+    }
+}
+
 .conversationsPage.empty {
     display: flex;
     align-items: center;
@@ -68,6 +83,31 @@
     justify-content: space-between;
     padding: 16px 0;
     gap: 16px;
+    flex-wrap: wrap;
+}
+
+/* Responsive header */
+@media (max-width: 1280px) {
+    .conversationsHeader {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .headerLeft {
+        width: 100%;
+    }
+
+    .headerManuscriptInfo {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .headerManuscriptInfo .manuscriptInfoLeft {
+        flex-wrap: wrap;
+    }
 }
 
 .headerLeft {
@@ -85,6 +125,17 @@
     color: var(--text-primary);
     margin: 0;
     max-width: 700px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Responsive project title */
+@media (max-width: 768px) {
+    .projectTitle {
+        font-size: 24px;
+        line-height: 32px;
+    }
 }
 
 .headerManuscriptInfo {
@@ -187,10 +238,15 @@
     background-color: #0645b1;
     border: none;
     border-radius: var(--radius-sm);
-    padding: 8px 16px;
+    padding: 10px 20px;
     cursor: pointer;
     white-space: nowrap;
     transition: background-color 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    min-width: fit-content;
 }
 
 .triggerFullReviewButton:hover:not(:disabled) {
@@ -211,24 +267,78 @@
     background-color: #9ca3af;
 }
 
+/* Review Buttons Container */
+.reviewButtonsContainer {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+/* Responsive review buttons */
+@media (max-width: 1280px) {
+    .reviewButtonsContainer {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .triggerFullReviewButton,
+    .reviewChangesButton {
+        flex: 1;
+        min-width: 160px;
+    }
+}
+
+@media (max-width: 640px) {
+    .reviewButtonsContainer {
+        flex-direction: column;
+    }
+
+    .triggerFullReviewButton,
+    .reviewChangesButton {
+        width: 100%;
+        min-width: unset;
+    }
+}
+
 .manuscriptFileActions {
     display: flex;
     gap: 8px;
     margin-left: 16px;
+    flex-wrap: wrap;
+}
+
+/* Responsive manuscript file actions */
+@media (max-width: 1280px) {
+    .manuscriptFileActions {
+        margin-left: 0;
+        width: 100%;
+    }
+
+    .openFileButton,
+    .openFolderButton {
+        flex: 1;
+        min-width: 120px;
+    }
 }
 
 .openFileButton,
 .openFolderButton {
-    padding: 6px 12px;
-    font-size: 13px;
+    padding: 8px 16px;
+    font-size: 14px;
     border: 1px solid #cbd5e0;
-    border-radius: 4px;
+    border-radius: 6px;
     background: white;
     color: #2d3748;
     cursor: pointer;
     transition: all 0.2s;
     font-family: var(--font-family-sans);
     white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-weight: 500;
 }
 
 .openFileButton:hover,
@@ -430,7 +540,7 @@
 }
 
 .reviewChangesButton {
-    padding: 8px 16px;
+    padding: 10px 20px;
     background-color: #0645b1;
     color: #ffffff;
     border: none;
@@ -440,12 +550,15 @@
     font-weight: 500;
     line-height: 24px;
     cursor: pointer;
-    display: flex;
+    display: inline-flex;
     align-items: center;
+    justify-content: center;
+    text-align: center;
     gap: 6px;
     transition: all 0.2s;
     white-space: nowrap;
     position: relative;
+    min-width: fit-content;
 }
 
 .reviewChangesButton:hover:not(:disabled) {
@@ -646,9 +759,16 @@
     border-top: 1px solid var(--stroke-black, #141413);
 }
 
+.manuscriptFeedbackHeader {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 24px 0;
+}
+
 .manuscriptFeedbackTitle {
     margin: 0;
-    padding: 24px 0;
+    padding: 0;
     font-family: var(--font-family-sans);
     font-size: 28px;
     font-weight: 400;
@@ -662,43 +782,109 @@
     display: flex;
     padding-bottom: 80px;
     overflow: hidden;
+    position: relative;
 }
 
 /* ============================================================================
    CONVERSATIONS SIDEBAR
    ============================================================================ */
 
+/* Sidebar Backdrop (mobile overlay) */
+.sidebarBackdrop {
+    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 999;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+@media (max-width: 1280px) {
+    .sidebarBackdrop.visible {
+        display: block;
+        opacity: 1;
+    }
+}
+
 .conversationsSidebar {
     height: 100%;
     display: flex;
     flex-direction: column;
     border-right: none;
-    background-color: transparent;
+    background-color: #ffffff;
     position: relative;
-    transition: width 0.3s ease;
+    transition:
+        transform 0.3s ease,
+        width 0.3s ease,
+        padding 0.3s ease;
     padding-right: 48px;
 }
 
-.conversationsSidebar.collapsed {
-    width: 60px;
-    min-width: 60px;
+/* Responsive overlay behavior */
+@media (max-width: 1280px) {
+    .conversationsSidebar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 320px;
+        z-index: 1000;
+        padding: 16px 24px;
+    }
+
+    .conversationsSidebar.collapsed {
+        transform: translateX(-100%);
+    }
+
+    .conversationsSidebar:not(.collapsed) {
+        transform: translateX(0);
+    }
+}
+
+/* Desktop behavior - show/hide with width */
+@media (min-width: 1281px) {
+    .conversationsSidebar.collapsed {
+        width: 0 !important;
+        min-width: 0 !important;
+        padding-right: 0 !important;
+        padding-left: 0 !important;
+        margin-right: 0 !important;
+        border: none !important;
+        overflow: hidden;
+        opacity: 0;
+        visibility: hidden;
+    }
+
+    /* Hide content when collapsed on desktop */
+    .conversationsSidebar.collapsed .conversationsList {
+        display: none;
+    }
 }
 
 /* Hamburger Menu Button */
 .hamburgerMenuButton {
     background: none;
     border: none;
-    padding: 8px;
+    padding: 12px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.2s;
+    border-radius: 8px;
+    flex-shrink: 0;
 }
 
 .hamburgerMenuButton:hover {
-    background-color: rgba(0, 0, 0, 0.05);
-    border-radius: 4px;
+    background-color: rgba(0, 0, 0, 0.1);
+}
+
+.hamburgerMenuButton:active {
+    background-color: rgba(0, 0, 0, 0.15);
 }
 
 .hamburgerIcon {

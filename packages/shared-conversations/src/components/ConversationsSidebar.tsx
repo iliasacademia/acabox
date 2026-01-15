@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Conversation } from '../types/conversation';
 import { useConversationsApi } from '../api/useConversationsApi';
 
@@ -13,6 +13,10 @@ interface ConversationsSidebarProps {
   onConversationView?: (projectId: number, conversationId: number, agentName: string) => void;
   /** Optional: Event-driven refresh callback. Register this to refetch conversations on events like review_completed */
   onRegisterRefresh?: (refreshFn: () => void) => () => void;
+  /** Optional: Collapsed state for responsive sidebar */
+  collapsed?: boolean;
+  /** Optional: Toggle collapsed state */
+  onToggleCollapsed?: () => void;
 }
 
 export function ConversationsSidebar({
@@ -24,6 +28,8 @@ export function ConversationsSidebar({
   onConversationsLoaded,
   onConversationView,
   onRegisterRefresh,
+  collapsed = false,
+  onToggleCollapsed,
 }: ConversationsSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -129,12 +135,27 @@ export function ConversationsSidebar({
       onConversationView(projectId, conversation.id, conversation.agent_name);
     }
     onSelectConversation(conversation);
+
+    // Auto-close sidebar on mobile after selection
+    if (window.innerWidth <= 1280 && onToggleCollapsed && !collapsed) {
+      onToggleCollapsed();
+    }
   };
 
   return (
-    <div className="conversationsSidebar">
+    <>
+      {/* Backdrop overlay for mobile */}
+      {!collapsed && window.innerWidth <= 1280 && (
+        <div
+          className="sidebarBackdrop visible"
+          onClick={onToggleCollapsed}
+        />
+      )}
+
+      <div className={`conversationsSidebar ${collapsed ? 'collapsed' : ''}`}>
       {/* Conversations List */}
-      <div className="conversationsList">
+      {!collapsed && (
+        <div className="conversationsList">
         {error && (
           <div className="sidebarError">
             <span className="errorIcon">⚠️</span>
@@ -187,7 +208,9 @@ export function ConversationsSidebar({
             ))}
           </>
         )}
+        </div>
+      )}
       </div>
-    </div>
+    </>
   );
 }
