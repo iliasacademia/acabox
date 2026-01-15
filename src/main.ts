@@ -1577,36 +1577,59 @@ ipcMain.handle(IPC_CHANNELS.GET_HTTP_SERVER_INFO, async () => {
 
 
 // Cleanup on app quit
-app.on('before-quit', async () => {
-  logger.debug('[APP] Application quitting - cleaning up resources...');
-
-  // Stop Word integration (intervals and native observers)
-  wordIntegrationService.cleanup();
-
-  // Stop all sync watchers
-  logger.debug('[APP] Stopping sync watchers...');
-  await syncService.stopAll();
-
-  // Stop notification polling and cleanup
-  logger.debug('[APP] Closing notification manager...');
-  notificationManager.close();
-
-  // Stop events polling and cleanup
-  logger.debug('[APP] Closing events manager...');
-  eventsManager.close();
-
-  // Stop HTTP server
-  if (httpServer) {
-    logger.debug('[APP] Stopping HTTP server...');
-    try {
-      await httpServer.stop();
-      logger.debug('[APP] HTTP server stopped successfully');
-    } catch (error) {
-      logger.error('[APP] Error stopping HTTP server:', error);
-    }
+let isQuitting = false;
+app.on('before-quit', async (event) => {
+  if (isQuitting) {
+    return; // Already quitting, let it proceed
   }
 
-  logger.debug('[APP] Cleanup complete');
+  // Prevent quit until cleanup is done
+  event.preventDefault();
+  isQuitting = true;
+
+  logger.debug('[APP] Application quitting - cleaning up resources...');
+
+  // Set a timeout to force quit if cleanup hangs
+  const forceQuitTimeout = setTimeout(() => {
+    logger.warn('[APP] Cleanup timeout - forcing quit');
+    app.exit(0);
+  }, 5000); // 5 second timeout
+
+  try {
+    // Stop Word integration (intervals and native observers)
+    wordIntegrationService.cleanup();
+
+    // Stop all sync watchers
+    logger.debug('[APP] Stopping sync watchers...');
+    await syncService.stopAll();
+
+    // Stop notification polling and cleanup
+    logger.debug('[APP] Closing notification manager...');
+    notificationManager.close();
+
+    // Stop events polling and cleanup
+    logger.debug('[APP] Closing events manager...');
+    eventsManager.close();
+
+    // Stop HTTP server
+    if (httpServer) {
+      logger.debug('[APP] Stopping HTTP server...');
+      try {
+        await httpServer.stop();
+        logger.debug('[APP] HTTP server stopped successfully');
+      } catch (error) {
+        logger.error('[APP] Error stopping HTTP server:', error);
+      }
+    }
+
+    logger.debug('[APP] Cleanup complete');
+    clearTimeout(forceQuitTimeout);
+    app.exit(0); // Force exit after cleanup
+  } catch (error) {
+    logger.error('[APP] Error during cleanup:', error);
+    clearTimeout(forceQuitTimeout);
+    app.exit(1);
+  }
 });
 
 // Sync Folder IPC handlers
