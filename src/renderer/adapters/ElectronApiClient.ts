@@ -10,6 +10,18 @@ export class ElectronApiClient implements ConversationsApiClient {
    * Invoke an API call through Electron IPC
    */
   async invoke<T = unknown>(options: ApiCallOptions): Promise<T> {
+    const { method, endpoint, data } = options;
+
+    // Handle file operations via IPC
+    if (endpoint === 'open-file' && data && 'filePath' in data) {
+      return window.electronAPI.invoke(IPC_CHANNELS.OPEN_FILE, data.filePath) as Promise<T>;
+    }
+
+    if (endpoint === 'show-file-in-folder' && data && 'filePath' in data) {
+      return window.electronAPI.invoke(IPC_CHANNELS.SHOW_FILE_IN_FOLDER, data.filePath) as Promise<T>;
+    }
+
+    // Default: proxy through HTTP server
     return window.electronAPI.invoke(IPC_CHANNELS.API_CALL, options);
   }
 

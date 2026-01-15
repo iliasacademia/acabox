@@ -211,6 +211,37 @@
     background-color: #9ca3af;
 }
 
+.manuscriptFileActions {
+    display: flex;
+    gap: 8px;
+    margin-left: 16px;
+}
+
+.openFileButton,
+.openFolderButton {
+    padding: 6px 12px;
+    font-size: 13px;
+    border: 1px solid #cbd5e0;
+    border-radius: 4px;
+    background: white;
+    color: #2d3748;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-family: var(--font-family-sans);
+    white-space: nowrap;
+}
+
+.openFileButton:hover,
+.openFolderButton:hover {
+    background: #f7fafc;
+    border-color: #a0aec0;
+}
+
+.openFileButton:active,
+.openFolderButton:active {
+    background: #edf2f7;
+}
+
 .reviewErrorMessage {
     padding: 12px 24px;
     background-color: #ffebee;

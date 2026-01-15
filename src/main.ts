@@ -234,8 +234,9 @@ const createMainWindow = async (): Promise<void> => {
 
   // Prevent window from being destroyed on close (macOS behavior)
   mainWindow.on('close', (event) => {
-    if (process.platform === 'darwin') {
-      // On macOS, hide window instead of closing it
+    // On macOS in production, hide window instead of closing it
+    // In development, let it close normally so Ctrl+C works
+    if (process.platform === 'darwin' && app.isPackaged) {
       event.preventDefault();
       mainWindow?.hide();
     }
@@ -722,28 +723,6 @@ function checkForUpdatesManually(): void {
   });
 }
 
-// Prevent multiple instances of the app
-const gotTheLock = app.requestSingleInstanceLock();
-
-if (!gotTheLock) {
-  // Another instance is already running - quit this one
-  logger.info('[App] Another instance is already running, quitting...');
-  app.quit();
-} else {
-  // This is the first instance - handle second instance launch
-  app.on('second-instance', (_event, _commandLine, _workingDirectory) => {
-    logger.info('[App] Second instance attempted to launch, focusing main window');
-    // Someone tried to run a second instance, focus our window instead
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) {
-        mainWindow.restore();
-      }
-      mainWindow.show();
-      mainWindow.focus();
-    }
-  });
-}
-
 app.whenReady().then(async () => {
   // Create main window (always)
   createMainWindow();
@@ -867,7 +846,9 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  // Quit when all windows are closed, except on macOS in production
+  // In development, always quit when windows are closed
+  if (process.platform !== 'darwin' || !app.isPackaged) {
     app.quit();
   }
 });
@@ -1140,6 +1121,33 @@ ipcMain.handle(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS, async () => {
     return { success: true };
   } catch (error: any) {
     logger.error('[IPC] Failed to refresh manuscript paths:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Open file in default application (Word for .docx)
+ipcMain.handle(IPC_CHANNELS.OPEN_FILE, async (_event, filePath: string) => {
+  try {
+    const result = await shell.openPath(filePath);
+    if (result) {
+      // result is an error string if it failed, empty string if success
+      logger.error('[Main] Failed to open file:', result);
+      return { success: false, error: result };
+    }
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[Main] Failed to open file:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// Show file in Finder/Explorer
+ipcMain.handle(IPC_CHANNELS.SHOW_FILE_IN_FOLDER, async (_event, filePath: string) => {
+  try {
+    shell.showItemInFolder(filePath);
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[Main] Failed to show file in folder:', error);
     return { success: false, error: error.message };
   }
 });
