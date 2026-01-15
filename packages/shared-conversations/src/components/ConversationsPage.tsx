@@ -8,6 +8,8 @@ import { useApiClient } from "../context/ApiContext";
 import { ConversationsSidebar } from "./ConversationsSidebar";
 import { ConversationDetail } from "./ConversationDetail";
 import { generateDailyFeedbackTitle } from "./utils";
+import { useWindowSize } from "../hooks/useWindowSize";
+import { useSidebarCollapse } from "../hooks/useSidebarCollapse";
 
 export interface ConversationsPageProps {
   selectedProject: Project | null;
@@ -88,7 +90,7 @@ export function ConversationsPage({
   const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(
     null,
   );
-  const [_isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
   const [pollInterval, setPollInterval] = useState<ReturnType<
     typeof setTimeout
@@ -106,6 +108,10 @@ export function ConversationsPage({
   const [scheduledReviewTime, setScheduledReviewTime] = useState<Date | null>(null);
 
   const apiClient = useApiClient();
+
+  // Responsive sidebar collapse
+  const windowSize = useWindowSize();
+  const { collapsed, toggleCollapsed } = useSidebarCollapse(windowSize.width);
   const { getConversation } = useConversationsApi();
   const {
     getProjectFiles,
@@ -792,87 +798,109 @@ export function ConversationsPage({
           </button>
           <h1 className="projectTitle">{selectedProject.name}</h1>
         </div>
-        {manuscriptFile && (
-          <div className="headerManuscriptInfo">
-            <div className="manuscriptInfoLeft">
-              <span className="manuscriptLabel">Manuscript:</span>
-              <div className="manuscriptFileIcon">
-                {renderManuscriptIcon ? (
-                  renderManuscriptIcon()
-                ) : (
-                  <span className="defaultManuscriptIcon">📄</span>
-                )}
+        <div className="headerManuscriptInfo">
+          {isLoadingFiles ? (
+            <>
+              <div className="manuscriptInfoLeft">
+                <span className="manuscriptLabel">Loading manuscript...</span>
               </div>
-              <div className="manuscriptFileDetails">
-                <span className="manuscriptFileName">
-                  {manuscriptFile.file_name}
-                </span>
-                <span className="manuscriptTimestamp">
-                  {folderSyncStatus && folderSyncStatus !== "idle" && (
-                    <span
-                      className={`folderSyncIndicator folderSyncIndicator--${folderSyncStatus}`}
-                      title={`Folders: ${folderSyncStatus === "watching" ? "Watching" : folderSyncStatus === "syncing" ? "Syncing" : "Error"}`}
-                    />
+              <div className="reviewButtonsContainer">
+                <button
+                  className="triggerFullReviewButton"
+                  disabled
+                >
+                  Trigger Full Review
+                </button>
+              </div>
+            </>
+          ) : manuscriptFile ? (
+            <>
+              <div className="manuscriptInfoLeft">
+                <span className="manuscriptLabel">Manuscript:</span>
+                <div className="manuscriptFileIcon">
+                  {renderManuscriptIcon ? (
+                    renderManuscriptIcon()
+                  ) : (
+                    <span className="defaultManuscriptIcon">📄</span>
                   )}
-                  Last updated:{" "}
-                  {formatManuscriptTimestamp(manuscriptFile.updated_at)}
-                </span>
-              </div>
+                </div>
+                <div className="manuscriptFileDetails">
+                  <span className="manuscriptFileName">
+                    {manuscriptFile.file_name}
+                  </span>
+                  <span className="manuscriptTimestamp">
+                    {folderSyncStatus && folderSyncStatus !== "idle" && (
+                      <span
+                        className={`folderSyncIndicator folderSyncIndicator--${folderSyncStatus}`}
+                        title={`Folders: ${folderSyncStatus === "watching" ? "Watching" : folderSyncStatus === "syncing" ? "Syncing" : "Error"}`}
+                      />
+                    )}
+                    Last updated:{" "}
+                    {formatManuscriptTimestamp(manuscriptFile.updated_at)}
+                  </span>
+                </div>
 
-              {/* File action buttons */}
-              <div className="manuscriptFileActions">
-                <button
-                  className="openFileButton"
-                  onClick={() => handleOpenFile(manuscriptFile.file_path)}
-                  title="Open file in default application"
-                >
-                  Open File
-                </button>
-                <button
-                  className="openFolderButton"
-                  onClick={() => handleOpenFolder(manuscriptFile.file_path)}
-                  title="Open folder containing this file"
-                >
-                  Open Folder
-                </button>
+                {/* File action buttons */}
+                <div className="manuscriptFileActions">
+                  <button
+                    className="openFileButton"
+                    onClick={() => handleOpenFile(manuscriptFile.file_path)}
+                    title="Open file in default application"
+                  >
+                    Open File
+                  </button>
+                  <button
+                    className="openFolderButton"
+                    onClick={() => handleOpenFolder(manuscriptFile.file_path)}
+                    title="Open folder containing this file"
+                  >
+                    Open Folder
+                  </button>
+                </div>
               </div>
-            </div>
-            <button
-              className={`triggerFullReviewButton ${reviewingState === "full-reviewing" ? "reviewing" : ""}`}
-              onClick={handleFullReview}
-              disabled={reviewingState !== "idle" || isReviewInProgress}
-            >
-              {reviewingState === "full-reviewing"
-                ? "Reviewing..."
-                : "Trigger Full Review"}
-            </button>
-            {shouldShowReviewChangesButton() && (
-              <button
-                className={`reviewChangesButton ${
-                  reviewingState === "pending-scheduled" ? "pending" : ""
-                } ${recentlySynced ? "recently-synced" : ""} ${
-                  reviewingState === "diff-reviewing" ? "reviewing" : ""
-                }`}
-                onClick={handleDiffReview}
-                disabled={
-                  (reviewingState !== "idle" && reviewingState !== "pending-scheduled") ||
-                  (isReviewInProgress && reviewingState !== "pending-scheduled")
-                }
-              >
-                {reviewingState === "pending-scheduled" && scheduledReviewTime
-                  ? `Review scheduled (${formatCountdownTime(
-                      calculateRemainingTime(scheduledReviewTime.toISOString())
-                    )})`
-                  : reviewingState === "diff-reviewing"
-                  ? "Reviewing..."
-                  : "Review Changes"}
-                {recentlySynced && reviewingState === "idle" && (
-                  <span className="sync-indicator"></span>
+              <div className="reviewButtonsContainer">
+                <button
+                  className={`triggerFullReviewButton ${reviewingState === "full-reviewing" ? "reviewing" : ""}`}
+                  onClick={handleFullReview}
+                  disabled={reviewingState !== "idle" || isReviewInProgress}
+                >
+                  {reviewingState === "full-reviewing"
+                    ? "Reviewing..."
+                    : "Trigger Full Review"}
+                </button>
+                {shouldShowReviewChangesButton() && (
+                  <button
+                    className={`reviewChangesButton ${
+                      reviewingState === "pending-scheduled" ? "pending" : ""
+                    } ${recentlySynced ? "recently-synced" : ""} ${
+                      reviewingState === "diff-reviewing" ? "reviewing" : ""
+                    }`}
+                    onClick={handleDiffReview}
+                    disabled={
+                      (reviewingState !== "idle" && reviewingState !== "pending-scheduled") ||
+                      (isReviewInProgress && reviewingState !== "pending-scheduled")
+                    }
+                  >
+                    {reviewingState === "pending-scheduled" && scheduledReviewTime
+                      ? `Review scheduled (${formatCountdownTime(
+                          calculateRemainingTime(scheduledReviewTime.toISOString())
+                        )})`
+                      : reviewingState === "diff-reviewing"
+                      ? "Reviewing..."
+                      : "Review Changes"}
+                    {recentlySynced && reviewingState === "idle" && (
+                      <span className="sync-indicator"></span>
+                    )}
+                  </button>
                 )}
-              </button>
-            )}
-          </div>
-        )}
+              </div>
+            </>
+          ) : (
+            <div className="manuscriptInfoLeft">
+              <span className="manuscriptLabel">No manuscript found</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Review Error */}
@@ -881,7 +909,20 @@ export function ConversationsPage({
       {/* Manuscript Feedback Section - Hide when review is in progress with no conversations */}
       {!(isReviewInProgress && !hasConversations) && (
         <div className="manuscriptFeedbackSection">
-          <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
+          <div className="manuscriptFeedbackHeader">
+            <button
+              onClick={toggleCollapsed}
+              className="hamburgerMenuButton"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              <div className="hamburgerIcon">
+                <div className="hamburgerLine"></div>
+                <div className="hamburgerLine"></div>
+                <div className="hamburgerLine"></div>
+              </div>
+            </button>
+            <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
+          </div>
 
           <div className="conversationsContent">
             {/* Sidebar */}
@@ -894,6 +935,8 @@ export function ConversationsPage({
               onConversationsLoaded={handleConversationsLoaded}
               onConversationView={onConversationView}
               onRegisterRefresh={onRegisterConversationsRefresh}
+              collapsed={collapsed}
+              onToggleCollapsed={toggleCollapsed}
             />
 
             {/* Detail Panel */}
