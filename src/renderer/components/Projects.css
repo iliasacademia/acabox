@@ -1258,6 +1258,15 @@
   background-color: #053a8f;
 }
 
+.wizardButtonPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wizardButtonPrimary:disabled:hover {
+  background-color: #0645b1;
+}
+
 .wizardButtonSecondary {
   background-color: #ffffff;
   color: #0645b1;
@@ -1266,6 +1275,15 @@
 
 .wizardButtonSecondary:hover {
   background-color: #f0f7ff;
+}
+
+.wizardButtonSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.wizardButtonSecondary:disabled:hover {
+  background-color: #ffffff;
 }
 
 .wizardButtonText {
