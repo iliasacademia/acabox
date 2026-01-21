@@ -66,11 +66,13 @@ let tray: Tray | null = null;
 let httpServer: AcademiaHttpServer | null = null;
 
 const createWindow = async (): Promise<void> => {
+  const isDevelopment = !app.isPackaged;
+
   devWindow = new BrowserWindow({
     width: 800,
     height: 600,
-    frame: true, // Use native title bar with window controls
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' } : {}), // Hide title bar but show traffic lights (macOS only)
+    frame: true, // Use native window frame with full title bar and border
+    title: isDevelopment ? 'Development Mode' : '', // Show "Development Mode" in dev, empty in production
     show: false, // Hidden on startup
     transparent: false, // Opaque background
     hasShadow: true, // Add shadow for visual separation
@@ -125,11 +127,13 @@ const createWindow = async (): Promise<void> => {
 
 // Create main window (Projects UI)
 const createMainWindow = async (): Promise<void> => {
+  const isDevelopment = !app.isPackaged;
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    frame: true, // Use native title bar with window controls
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hidden' } : {}), // Hide title bar but show traffic lights (macOS only)
+    frame: true, // Use native window frame with full title bar and border
+    title: isDevelopment ? 'Development Mode' : '', // Show "Development Mode" in dev, empty in production
     show: false, // Hidden on startup
     transparent: false, // Opaque background
     hasShadow: true, // Add shadow for visual separation
