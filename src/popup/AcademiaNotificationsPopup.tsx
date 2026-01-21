@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import DOMPurify from 'isomorphic-dompurify';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
 import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
 import { FEEDBACK_FORM_URL } from '../shared/constants';
@@ -118,6 +119,7 @@ type NotificationData = {
   created_at: number;
   title: string; // Notification title (e.g., "New thoughts on your research!")
   conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
+  body_html?: string; // HTML content for notification display
   isRead: boolean;
 } | null;
 
@@ -135,6 +137,7 @@ interface WordPollResponse {
     created_at: number;
     title: string; // Notification title (e.g., "New thoughts on your research!")
     conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
+    body_html?: string; // HTML content for notification display
     isRead: boolean;
   } | null;
   diffReviewNotification?: {
@@ -144,6 +147,7 @@ interface WordPollResponse {
     created_at: number;
     title: string; // Notification title (e.g., "New thoughts on your research!")
     conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
+    body_html?: string; // HTML content for notification display
     isRead: boolean;
   } | null;
   activeDocumentPath?: string | null;
@@ -1001,9 +1005,12 @@ const AcademiaNotificationsPopup: React.FC = () => {
             >
               {!fullReviewNotification.isRead && <div style={styles.blueDot} />}
               <div style={styles.notificationContent as React.CSSProperties}>
-                <span style={styles.notificationTitle}>
-                  {fullReviewNotification.conversation_title || fullReviewNotification.title || 'Feedback on your entire manuscript'}
-                </span>
+                <span
+                  style={styles.notificationTitle}
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(fullReviewNotification.body_html || fullReviewNotification.conversation_title || fullReviewNotification.title || 'Feedback on your entire manuscript')
+                  }}
+                />
                 <span style={styles.notificationDate}>
                   {formatNotificationDate(fullReviewNotification.created_at)}
                 </span>
@@ -1021,9 +1028,12 @@ const AcademiaNotificationsPopup: React.FC = () => {
             >
               {!diffReviewNotification.isRead && <div style={styles.blueDot} />}
               <div style={styles.notificationContent as React.CSSProperties}>
-                <span style={styles.notificationTitle}>
-                  {diffReviewNotification.conversation_title || diffReviewNotification.title || 'Feedback on recent changes'}
-                </span>
+                <span
+                  style={styles.notificationTitle}
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(diffReviewNotification.body_html || diffReviewNotification.conversation_title || diffReviewNotification.title || 'Feedback on recent changes')
+                  }}
+                />
                 <span style={styles.notificationDate}>
                   {formatNotificationDate(diffReviewNotification.created_at)}
                 </span>
