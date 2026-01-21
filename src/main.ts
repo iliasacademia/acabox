@@ -628,7 +628,7 @@ function setupAutoUpdater(): void {
     setTimeout(() => {
       logger.info('[Auto-Updater] Auto-restarting to install update...');
       isQuittingForUpdate = true; // Set flag to skip cleanup during update quit
-      autoUpdater.quitAndInstall();
+      autoUpdater.quitAndInstall(true, true); // isSilent=true, isForceRunAfter=true
     }, 1500);
   });
 
