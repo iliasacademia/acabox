@@ -108,7 +108,8 @@ export function ConversationsPage({
   const [scheduledReviewTime, setScheduledReviewTime] = useState<Date | null>(
     null,
   );
-  const [showDropdown, setShowDropdown] = useState(false);
+  const [showOpenDropdown, setShowOpenDropdown] = useState(false);
+  const [showReviewDropdown, setShowReviewDropdown] = useState(false);
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [fileExistsLocally, setFileExistsLocally] = useState(true);
 
@@ -448,20 +449,21 @@ export function ConversationsPage({
     return cleanup;
   }, [onRegisterReviewStateUpdates]);
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
-    if (!showDropdown) return;
+    if (!showOpenDropdown && !showReviewDropdown) return;
 
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as HTMLElement;
       if (!target.closest('.dropdownContainer')) {
-        setShowDropdown(false);
+        setShowOpenDropdown(false);
+        setShowReviewDropdown(false);
       }
     };
 
     document.addEventListener('click', handleClickOutside);
     return () => document.removeEventListener('click', handleClickOutside);
-  }, [showDropdown]);
+  }, [showOpenDropdown, showReviewDropdown]);
 
   // Check if manuscript file exists locally
   useEffect(() => {
@@ -860,7 +862,7 @@ export function ConversationsPage({
           {manuscriptFile && (
             <>
               <h2 className="docName">
-                {manuscriptFile.file_name}
+                <span className="docNameText">{manuscriptFile.file_name}</span>
                 <span className="statusDotContainer">
                   <span className="statusDot"></span>
                   <div className="timestampBadge">
@@ -873,81 +875,122 @@ export function ConversationsPage({
         </div>
         <div className="topBarRight">
           {manuscriptFile && (
-            <div className="dropdownContainer">
-              <button
-                className={`primaryButton ${reviewingState === "full-reviewing" ? "reviewing" : ""}`}
-                onClick={() => setShowDropdown(!showDropdown)}
-                disabled={reviewingState !== "idle" || isReviewInProgress}
-              >
-                {reviewingState === "full-reviewing"
-                  ? "Reviewing..."
-                  : "Full review"}
-                <svg
-                  width="20"
-                  height="20"
-                  viewBox="0 0 20 20"
-                  fill="none"
-                  style={{ marginLeft: "4px" }}
+            <>
+              {/* Open Button with Dropdown */}
+              <div className="dropdownContainer">
+                <button
+                  className="secondaryButton"
+                  onClick={() => setShowOpenDropdown(!showOpenDropdown)}
+                  disabled={!fileExistsLocally}
                 >
-                  <path
-                    d="M5 7.5L10 12.5L15 7.5"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </button>
-              {showDropdown && (
-                <div className="dropdownMenu">
-                  {shouldShowReviewChangesButton() && (
+                  Open
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    style={{ marginLeft: "4px" }}
+                  >
+                    <path
+                      d="M5 7.5L10 12.5L15 7.5"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+                {showOpenDropdown && (
+                  <div className="dropdownMenu">
                     <button
                       className="dropdownItem"
                       onClick={() => {
-                        setShowDropdown(false);
-                        handleDiffReview();
+                        setShowOpenDropdown(false);
+                        handleOpenFile(manuscriptFile.file_path);
                       }}
-                      disabled={
-                        (reviewingState !== "idle" &&
-                          reviewingState !== "pending-scheduled") ||
-                        (isReviewInProgress &&
-                          reviewingState !== "pending-scheduled")
-                      }
+                      disabled={!fileExistsLocally}
                     >
-                      {reviewingState === "pending-scheduled" && scheduledReviewTime
-                        ? `Review scheduled (${formatCountdownTime(
-                            calculateRemainingTime(
-                              scheduledReviewTime.toISOString(),
-                            ),
-                          )})`
-                        : reviewingState === "diff-reviewing"
-                          ? "Reviewing..."
-                          : "Review changes"}
+                      Open file
                     </button>
-                  )}
-                  <button
-                    className="dropdownItem"
-                    onClick={() => {
-                      setShowDropdown(false);
-                      handleOpenFile(manuscriptFile.file_path);
-                    }}
-                    disabled={!fileExistsLocally}
+                    <button
+                      className="dropdownItem"
+                      onClick={() => {
+                        setShowOpenDropdown(false);
+                        handleOpenFolder(manuscriptFile.file_path);
+                      }}
+                      disabled={!fileExistsLocally}
+                    >
+                      Open folder
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Review Button with Dropdown */}
+              <div className="dropdownContainer">
+                <button
+                  className={`primaryButton ${reviewingState === "full-reviewing" || reviewingState === "diff-reviewing" ? "reviewing" : ""}`}
+                  onClick={() => setShowReviewDropdown(!showReviewDropdown)}
+                  disabled={reviewingState !== "idle" && reviewingState !== "pending-scheduled"}
+                >
+                  {reviewingState === "full-reviewing" || reviewingState === "diff-reviewing"
+                    ? "Reviewing..."
+                    : "Review"}
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    style={{ marginLeft: "4px" }}
                   >
-                    Open file
-                  </button>
-                  <button
-                    className="dropdownItem"
-                    onClick={() => {
-                      setShowDropdown(false);
-                      handleOpenFolder(manuscriptFile.file_path);
-                    }}
-                    disabled={!fileExistsLocally}
-                  >
-                    Open folder
-                  </button>
-                </div>
-              )}
-            </div>
+                    <path
+                      d="M5 7.5L10 12.5L15 7.5"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+                {showReviewDropdown && (
+                  <div className="dropdownMenu">
+                    <button
+                      className="dropdownItem"
+                      onClick={() => {
+                        setShowReviewDropdown(false);
+                        handleFullReview();
+                      }}
+                      disabled={reviewingState !== "idle" || isReviewInProgress}
+                    >
+                      Full review
+                    </button>
+                    {shouldShowReviewChangesButton() && (
+                      <button
+                        className="dropdownItem"
+                        onClick={() => {
+                          setShowReviewDropdown(false);
+                          handleDiffReview();
+                        }}
+                        disabled={
+                          (reviewingState !== "idle" &&
+                            reviewingState !== "pending-scheduled") ||
+                          (isReviewInProgress &&
+                            reviewingState !== "pending-scheduled")
+                        }
+                      >
+                        {reviewingState === "pending-scheduled" && scheduledReviewTime
+                          ? `Review scheduled (${formatCountdownTime(
+                              calculateRemainingTime(
+                                scheduledReviewTime.toISOString(),
+                              ),
+                            )})`
+                          : "Review changes"}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
