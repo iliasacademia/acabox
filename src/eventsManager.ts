@@ -165,9 +165,9 @@ class EventsManager {
   /**
    * Start polling for events
    * @param userId - User ID to poll for
-   * @param interval - Polling interval in milliseconds (default: 10000ms = 10s)
+   * @param interval - Polling interval in milliseconds (default: 1000ms = 1s)
    */
-  startPolling(userId: number, interval: number = 10000): void {
+  startPolling(userId: number, interval: number = 1000): void {
     this.currentUserId = userId;
 
     // Clear existing interval if any

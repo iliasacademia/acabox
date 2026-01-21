@@ -1153,6 +1153,36 @@ ipcMain.handle(IPC_CHANNELS.SHOW_FILE_IN_FOLDER, async (_event, filePath: string
   }
 });
 
+// Check if file exists (with path validation to prevent traversal attacks)
+ipcMain.handle(IPC_CHANNELS.CHECK_FILE_EXISTS, async (_event, filePath: string) => {
+  try {
+    // Validate that the path is within allowed directories
+    const allowedBasePaths = [
+      app.getPath('userData'),
+      app.getPath('documents'),
+      app.getPath('desktop'),
+      app.getPath('downloads'),
+      app.getPath('home')
+    ];
+
+    const resolvedPath = path.resolve(filePath);
+    const isAllowed = allowedBasePaths.some(basePath =>
+      resolvedPath.startsWith(path.resolve(basePath))
+    );
+
+    if (!isAllowed) {
+      logger.warn('[Main] Rejected file access outside allowed paths:', filePath);
+      return { exists: false, error: 'Access denied' };
+    }
+
+    const exists = fs.existsSync(resolvedPath);
+    return { exists };
+  } catch (error: any) {
+    logger.error('[Main] Failed to check file existence:', error);
+    return { exists: false, error: error.message };
+  }
+});
+
 // QR Code Authentication IPC handlers
 ipcMain.handle(IPC_CHANNELS.START_QR_AUTH, async () => {
   try {

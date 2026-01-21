@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import type { UseConversationPollingOptions } from '../hooks/useConversationPolling';
+import type { UseConversationPollingOptions } from "../hooks/useConversationPolling";
 import { Conversation, DraftConversation } from "../types/conversation";
 import { Project, ProjectFile, AgentRun } from "../types/project";
 import { useConversationsApi } from "../api/useConversationsApi";
@@ -58,7 +58,7 @@ export interface ConversationsPageProps {
 
   // Event-driven review state updates (for review_started, review_completed, review_failed events)
   onRegisterReviewStateUpdates?: (
-    updateFn: (state: 'idle' | 'full-reviewing' | 'diff-reviewing') => void
+    updateFn: (state: "idle" | "full-reviewing" | "diff-reviewing") => void,
   ) => () => void;
 }
 
@@ -105,7 +105,13 @@ export function ConversationsPage({
     typeof setTimeout
   > | null>(null);
   const [isAutoReviewInProgress, setIsAutoReviewInProgress] = useState(false);
-  const [scheduledReviewTime, setScheduledReviewTime] = useState<Date | null>(null);
+  const [scheduledReviewTime, setScheduledReviewTime] = useState<Date | null>(
+    null,
+  );
+  const [showOpenDropdown, setShowOpenDropdown] = useState(false);
+  const [showReviewDropdown, setShowReviewDropdown] = useState(false);
+  const [conversationsLoaded, setConversationsLoaded] = useState(false);
+  const [fileExistsLocally, setFileExistsLocally] = useState(true);
 
   const apiClient = useApiClient();
 
@@ -168,15 +174,17 @@ export function ConversationsPage({
           setIsReviewInProgress(true);
 
           // Separate pending from processing runs
-          const pendingRuns = inProgressRuns.filter((run: AgentRun) =>
-            run.status === "pending"
+          const pendingRuns = inProgressRuns.filter(
+            (run: AgentRun) => run.status === "pending",
           );
 
           // Check if there are pending auto-scheduled diff reviews
           // (only auto-scheduled reviews have a delay; manual reviews are immediate)
-          const pendingAutoScheduledReviews = pendingRuns.filter((run: AgentRun) =>
-            (run.agent_name?.includes("diff") || run.agent_name === "science_agent") &&
-            run.review_data?.triggered_by === "auto_scheduler"
+          const pendingAutoScheduledReviews = pendingRuns.filter(
+            (run: AgentRun) =>
+              (run.agent_name?.includes("diff") ||
+                run.agent_name === "science_agent") &&
+              run.review_data?.triggered_by === "auto_scheduler",
           );
 
           if (pendingAutoScheduledReviews.length > 0) {
@@ -189,8 +197,10 @@ export function ConversationsPage({
             const hasFullReview = inProgressRuns.some((run: AgentRun) =>
               run.agent_name?.includes("full"),
             );
-            const hasDiffReview = inProgressRuns.some((run: AgentRun) =>
-              run.agent_name?.includes("diff") || run.agent_name === "science_agent"
+            const hasDiffReview = inProgressRuns.some(
+              (run: AgentRun) =>
+                run.agent_name?.includes("diff") ||
+                run.agent_name === "science_agent",
             );
 
             if (hasDiffReview) {
@@ -276,12 +286,12 @@ export function ConversationsPage({
         );
 
         // Separate pending from processing runs
-        const pendingRuns = inProgressRuns.filter((run: AgentRun) =>
-          run.status === "pending"
+        const pendingRuns = inProgressRuns.filter(
+          (run: AgentRun) => run.status === "pending",
         );
 
-        const processingRuns = inProgressRuns.filter((run: AgentRun) =>
-          run.status === "processing"
+        const processingRuns = inProgressRuns.filter(
+          (run: AgentRun) => run.status === "processing",
         );
 
         // Check if any in-progress runs are auto-scheduled
@@ -305,9 +315,11 @@ export function ConversationsPage({
         } else if (pendingRuns.length > 0) {
           // Check if pending run is an auto-scheduled diff review
           // (only auto-scheduled reviews have a delay; manual reviews are immediate)
-          const pendingAutoScheduledReviews = pendingRuns.filter((run: AgentRun) =>
-            (run.agent_name?.includes("diff") || run.agent_name === "science_agent") &&
-            run.review_data?.triggered_by === "auto_scheduler"
+          const pendingAutoScheduledReviews = pendingRuns.filter(
+            (run: AgentRun) =>
+              (run.agent_name?.includes("diff") ||
+                run.agent_name === "science_agent") &&
+              run.review_data?.triggered_by === "auto_scheduler",
           );
 
           if (pendingAutoScheduledReviews.length > 0) {
@@ -322,8 +334,10 @@ export function ConversationsPage({
             const hasFullReview = pendingRuns.some((run: AgentRun) =>
               run.agent_name?.includes("full"),
             );
-            const hasDiffReview = pendingRuns.some((run: AgentRun) =>
-              run.agent_name?.includes("diff") || run.agent_name === "science_agent"
+            const hasDiffReview = pendingRuns.some(
+              (run: AgentRun) =>
+                run.agent_name?.includes("diff") ||
+                run.agent_name === "science_agent",
             );
 
             if (hasDiffReview) {
@@ -348,8 +362,10 @@ export function ConversationsPage({
           const hasFullReview = processingRuns.some((run: AgentRun) =>
             run.agent_name?.includes("full"),
           );
-          const hasDiffReview = processingRuns.some((run: AgentRun) =>
-            run.agent_name?.includes("diff") || run.agent_name === "science_agent"
+          const hasDiffReview = processingRuns.some(
+            (run: AgentRun) =>
+              run.agent_name?.includes("diff") ||
+              run.agent_name === "science_agent",
           );
 
           if (hasDiffReview) {
@@ -419,11 +435,11 @@ export function ConversationsPage({
   useEffect(() => {
     if (!onRegisterReviewStateUpdates) return;
 
-    console.log('[ConversationsPage] Registering review state updates');
+    console.log("[ConversationsPage] Registering review state updates");
     const cleanup = onRegisterReviewStateUpdates((state) => {
-      console.log('[ConversationsPage] Review state updated via event:', state);
+      console.log("[ConversationsPage] Review state updated via event:", state);
       setReviewingState(state);
-      if (state === 'idle') {
+      if (state === "idle") {
         setIsReviewInProgress(false);
       } else {
         setIsReviewInProgress(true);
@@ -432,6 +448,31 @@ export function ConversationsPage({
 
     return cleanup;
   }, [onRegisterReviewStateUpdates]);
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    if (!showOpenDropdown && !showReviewDropdown) return;
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+      if (!target.closest('.dropdownContainer')) {
+        setShowOpenDropdown(false);
+        setShowReviewDropdown(false);
+      }
+    };
+
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, [showOpenDropdown, showReviewDropdown]);
+
+  // Check if manuscript file exists locally
+  useEffect(() => {
+    if (manuscriptFile?.file_path) {
+      checkFileExists(manuscriptFile.file_path);
+    } else {
+      setFileExistsLocally(false);
+    }
+  }, [manuscriptFile?.file_path]);
 
   // Fetch project files when selectedProject changes
   useEffect(() => {
@@ -443,6 +484,7 @@ export function ConversationsPage({
 
       // Reset selected conversation when project changes
       setSelectedConversation(null);
+      setConversationsLoaded(false);
 
       // Track analytics
       if (onProjectView) {
@@ -572,6 +614,8 @@ export function ConversationsPage({
           // Convert to Conversation type (getConversation returns ConversationDetail which has messages)
           const { conversation } = conversationDetail;
           setSelectedConversation(conversation);
+          // Mark conversations as loaded since we have a specific one selected
+          setConversationsLoaded(true);
         } else {
           console.warn(
             "[ConversationsPage] Conversation not found:",
@@ -630,6 +674,7 @@ export function ConversationsPage({
   const handleConversationsLoaded = (conversations: Conversation[]) => {
     // Track if there are any conversations
     setHasConversations(conversations.length > 0);
+    setConversationsLoaded(true);
 
     // Auto-select the first conversation if none is selected
     if (conversations.length > 0 && !selectedConversation) {
@@ -703,18 +748,45 @@ export function ConversationsPage({
     }
   };
 
+  const checkFileExists = async (filePath: string) => {
+    if (!filePath) {
+      setFileExistsLocally(false);
+      return false;
+    }
+
+    try {
+      // Check if file exists via IPC
+      if (!window.electronAPI?.invoke) {
+        // If electronAPI is not available, default to true
+        setFileExistsLocally(true);
+        return true;
+      }
+
+      const result = await window.electronAPI.invoke('check-file-exists', filePath);
+      const exists = result?.exists ?? true; // Default to true if check fails
+      setFileExistsLocally(exists);
+      console.log('[ConversationsPage] File exists check:', { filePath, exists });
+      return exists;
+    } catch (error) {
+      console.error("[ConversationsPage] Failed to check file existence:", error);
+      // Default to true so buttons aren't unnecessarily disabled
+      setFileExistsLocally(true);
+      return true;
+    }
+  };
+
   const handleOpenFile = async (filePath: string) => {
     if (!filePath) return;
 
     try {
       // Call IPC through the API client
       await apiClient.invoke({
-        method: 'POST',
-        endpoint: 'open-file',
+        method: "POST",
+        endpoint: "open-file",
         data: { filePath },
       });
     } catch (error) {
-      console.error('[ConversationsPage] Failed to open file:', error);
+      console.error("[ConversationsPage] Failed to open file:", error);
     }
   };
 
@@ -724,12 +796,12 @@ export function ConversationsPage({
     try {
       // Call IPC through the API client
       await apiClient.invoke({
-        method: 'POST',
-        endpoint: 'show-file-in-folder',
+        method: "POST",
+        endpoint: "show-file-in-folder",
         data: { filePath },
       });
     } catch (error) {
-      console.error('[ConversationsPage] Failed to open folder:', error);
+      console.error("[ConversationsPage] Failed to open folder:", error);
     }
   };
 
@@ -776,129 +848,149 @@ export function ConversationsPage({
 
   return (
     <div className="conversationsPage">
-      {/* New Header Layout */}
-      <div className="conversationsHeader">
-        <div className="headerLeft">
+      {/* Clean Top Bar matching Figma design */}
+      <div className="conversationsTopBar">
+        <div className="topBarLeft">
           <button className="backButton" onClick={onBack}>
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path
-                d="M15 18L9 12L15 6"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+                d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"
+                fill="currentColor"
               />
             </svg>
           </button>
-          <h1 className="projectTitle">{selectedProject.name}</h1>
-        </div>
-        <div className="headerManuscriptInfo">
-          {isLoadingFiles ? (
+          {manuscriptFile && (
             <>
-              <div className="manuscriptInfoLeft">
-                <span className="manuscriptLabel">Loading manuscript...</span>
-              </div>
-              <div className="reviewButtonsContainer">
-                <button
-                  className="triggerFullReviewButton"
-                  disabled
-                >
-                  Trigger Full Review
-                </button>
-              </div>
+              <h2 className="docName">
+                <span className="docNameText">{manuscriptFile.file_name}</span>
+                <span className="statusDotContainer">
+                  <span className="statusDot"></span>
+                  <div className="timestampBadge">
+                    Updated: {formatManuscriptTimestamp(manuscriptFile.updated_at)}
+                  </div>
+                </span>
+              </h2>
             </>
-          ) : manuscriptFile ? (
+          )}
+        </div>
+        <div className="topBarRight">
+          {manuscriptFile && (
             <>
-              <div className="manuscriptInfoLeft">
-                <span className="manuscriptLabel">Manuscript:</span>
-                <div className="manuscriptFileIcon">
-                  {renderManuscriptIcon ? (
-                    renderManuscriptIcon()
-                  ) : (
-                    <span className="defaultManuscriptIcon">📄</span>
-                  )}
-                </div>
-                <div className="manuscriptFileDetails">
-                  <span className="manuscriptFileName">
-                    {manuscriptFile.file_name}
-                  </span>
-                  <span className="manuscriptTimestamp">
-                    {folderSyncStatus && folderSyncStatus !== "idle" && (
-                      <span
-                        className={`folderSyncIndicator folderSyncIndicator--${folderSyncStatus}`}
-                        title={`Folders: ${folderSyncStatus === "watching" ? "Watching" : folderSyncStatus === "syncing" ? "Syncing" : "Error"}`}
-                      />
-                    )}
-                    Last updated:{" "}
-                    {formatManuscriptTimestamp(manuscriptFile.updated_at)}
-                  </span>
-                </div>
-
-                {/* File action buttons */}
-                <div className="manuscriptFileActions">
-                  <button
-                    className="openFileButton"
-                    onClick={() => handleOpenFile(manuscriptFile.file_path)}
-                    title="Open file in default application"
-                  >
-                    Open File
-                  </button>
-                  <button
-                    className="openFolderButton"
-                    onClick={() => handleOpenFolder(manuscriptFile.file_path)}
-                    title="Open folder containing this file"
-                  >
-                    Open Folder
-                  </button>
-                </div>
-              </div>
-              <div className="reviewButtonsContainer">
+              {/* Open Button with Dropdown */}
+              <div className="dropdownContainer">
                 <button
-                  className={`triggerFullReviewButton ${reviewingState === "full-reviewing" ? "reviewing" : ""}`}
-                  onClick={handleFullReview}
-                  disabled={reviewingState !== "idle" || isReviewInProgress}
+                  className="secondaryButton"
+                  onClick={() => setShowOpenDropdown(!showOpenDropdown)}
+                  disabled={!fileExistsLocally}
                 >
-                  {reviewingState === "full-reviewing"
-                    ? "Reviewing..."
-                    : "Trigger Full Review"}
-                </button>
-                {shouldShowReviewChangesButton() && (
-                  <button
-                    className={`reviewChangesButton ${
-                      reviewingState === "pending-scheduled" ? "pending" : ""
-                    } ${recentlySynced ? "recently-synced" : ""} ${
-                      reviewingState === "diff-reviewing" ? "reviewing" : ""
-                    }`}
-                    onClick={handleDiffReview}
-                    disabled={
-                      (reviewingState !== "idle" && reviewingState !== "pending-scheduled") ||
-                      (isReviewInProgress && reviewingState !== "pending-scheduled")
-                    }
+                  Open
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    style={{ marginLeft: "4px" }}
                   >
-                    {reviewingState === "pending-scheduled" && scheduledReviewTime
-                      ? `Review scheduled (${formatCountdownTime(
-                          calculateRemainingTime(scheduledReviewTime.toISOString())
-                        )})`
-                      : reviewingState === "diff-reviewing"
-                      ? "Reviewing..."
-                      : "Review Changes"}
-                    {recentlySynced && reviewingState === "idle" && (
-                      <span className="sync-indicator"></span>
+                    <path
+                      d="M5 7.5L10 12.5L15 7.5"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+                {showOpenDropdown && (
+                  <div className="dropdownMenu">
+                    <button
+                      className="dropdownItem"
+                      onClick={() => {
+                        setShowOpenDropdown(false);
+                        handleOpenFile(manuscriptFile.file_path);
+                      }}
+                      disabled={!fileExistsLocally}
+                    >
+                      Open file
+                    </button>
+                    <button
+                      className="dropdownItem"
+                      onClick={() => {
+                        setShowOpenDropdown(false);
+                        handleOpenFolder(manuscriptFile.file_path);
+                      }}
+                      disabled={!fileExistsLocally}
+                    >
+                      Open folder
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Review Button with Dropdown */}
+              <div className="dropdownContainer">
+                <button
+                  className={`primaryButton ${reviewingState === "full-reviewing" || reviewingState === "diff-reviewing" ? "reviewing" : ""}`}
+                  onClick={() => setShowReviewDropdown(!showReviewDropdown)}
+                  disabled={reviewingState !== "idle" && reviewingState !== "pending-scheduled"}
+                >
+                  {reviewingState === "full-reviewing" || reviewingState === "diff-reviewing"
+                    ? "Reviewing..."
+                    : "Review"}
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    style={{ marginLeft: "4px" }}
+                  >
+                    <path
+                      d="M5 7.5L10 12.5L15 7.5"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
+                {showReviewDropdown && (
+                  <div className="dropdownMenu">
+                    <button
+                      className="dropdownItem"
+                      onClick={() => {
+                        setShowReviewDropdown(false);
+                        handleFullReview();
+                      }}
+                      disabled={reviewingState !== "idle" || isReviewInProgress}
+                    >
+                      Full review
+                    </button>
+                    {shouldShowReviewChangesButton() && (
+                      <button
+                        className="dropdownItem"
+                        onClick={() => {
+                          setShowReviewDropdown(false);
+                          handleDiffReview();
+                        }}
+                        disabled={
+                          (reviewingState !== "idle" &&
+                            reviewingState !== "pending-scheduled") ||
+                          (isReviewInProgress &&
+                            reviewingState !== "pending-scheduled")
+                        }
+                      >
+                        {reviewingState === "pending-scheduled" && scheduledReviewTime
+                          ? `Review scheduled (${formatCountdownTime(
+                              calculateRemainingTime(
+                                scheduledReviewTime.toISOString(),
+                              ),
+                            )})`
+                          : "Review changes"}
+                      </button>
                     )}
-                  </button>
+                  </div>
                 )}
               </div>
             </>
-          ) : (
-            <div className="manuscriptInfoLeft">
-              <span className="manuscriptLabel">No manuscript found</span>
-            </div>
           )}
         </div>
       </div>
@@ -909,35 +1001,41 @@ export function ConversationsPage({
       {/* Manuscript Feedback Section - Hide when review is in progress with no conversations */}
       {!(isReviewInProgress && !hasConversations) && (
         <div className="manuscriptFeedbackSection">
-          <div className="manuscriptFeedbackHeader">
-            <button
-              onClick={toggleCollapsed}
-              className="hamburgerMenuButton"
-              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            >
-              <div className="hamburgerIcon">
-                <div className="hamburgerLine"></div>
-                <div className="hamburgerLine"></div>
-                <div className="hamburgerLine"></div>
-              </div>
-            </button>
-            <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
-          </div>
-
           <div className="conversationsContent">
-            {/* Sidebar */}
-            <ConversationsSidebar
-              projectId={selectedProject.id}
-              selectedConversationId={selectedConversation?.id || null}
-              onSelectConversation={handleSelectConversation}
-              onNewConversation={handleNewConversation}
-              refreshTrigger={refreshTrigger}
-              onConversationsLoaded={handleConversationsLoaded}
-              onConversationView={onConversationView}
-              onRegisterRefresh={onRegisterConversationsRefresh}
-              collapsed={collapsed}
-              onToggleCollapsed={toggleCollapsed}
-            />
+            {/* Sidebar with Header */}
+            <div
+              className={`sidebarWithHeader ${collapsed ? "collapsed" : ""}`}
+            >
+              <div className="manuscriptFeedbackHeader">
+                <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
+                <button
+                  onClick={toggleCollapsed}
+                  className="panelCollapseButton"
+                  aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+                >
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <mask id="mask0_2500_461" style={{ maskType: "alpha" }} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                      <rect width="24" height="24" fill="#D9D9D9"/>
+                    </mask>
+                    <g mask="url(#mask0_2500_461)">
+                      <path d="M12.5 8V16L16.5 12L12.5 8ZM5 21C4.45 21 3.97917 20.8042 3.5875 20.4125C3.19583 20.0208 3 19.55 3 19V5C3 4.45 3.19583 3.97917 3.5875 3.5875C3.97917 3.19583 4.45 3 5 3H19C19.55 3 20.0208 3.19583 20.4125 3.5875C20.8042 3.97917 21 4.45 21 5V19C21 19.55 20.8042 20.0208 20.4125 20.4125C20.0208 20.8042 19.55 21 19 21H5ZM8 19V5H5V19H8ZM10 19H19V5H10V19Z" fill="currentColor"/>
+                    </g>
+                  </svg>
+                </button>
+              </div>
+              <ConversationsSidebar
+                projectId={selectedProject.id}
+                selectedConversationId={selectedConversation?.id || null}
+                onSelectConversation={handleSelectConversation}
+                onNewConversation={handleNewConversation}
+                refreshTrigger={refreshTrigger}
+                onConversationsLoaded={handleConversationsLoaded}
+                onConversationView={onConversationView}
+                onRegisterRefresh={onRegisterConversationsRefresh}
+                collapsed={collapsed}
+                onToggleCollapsed={toggleCollapsed}
+              />
+            </div>
 
             {/* Detail Panel */}
             <ConversationDetail
@@ -948,6 +1046,7 @@ export function ConversationsPage({
               onConversationCreated={handleConversationCreated}
               onConversationUpdate={handleConversationUpdate}
               isReviewInProgress={isReviewInProgress}
+              isInitialLoading={isLoadingFiles || !conversationsLoaded}
               onMessageSent={onMessageSent}
               onMessageReceived={onMessageReceived}
               feedbackFormUrl={feedbackFormUrl}
