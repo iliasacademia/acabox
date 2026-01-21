@@ -2,41 +2,24 @@ import React, { useState, useEffect } from 'react';
 import {
   Project,
   ProjectFile,
-  ProjectFolder,
-  Collaborator,
-  ReviewSuggestion,
   AgentRun,
   getProjectFiles,
-  getProjectFolders,
-  getProjectCollaborators,
   getProjectStatus,
-  addFolderToProject,
-  addCollaborator,
-  extractErrorMessage,
 } from '../services/projectsApi';
 import { IPC_CHANNELS } from '../../shared/types';
 import { useCoScientistEvents } from '../hooks/useCoScientistEvents';
-import ProjectSidebar from './ProjectSidebar';
 import AlertDialog from './AlertDialog';
-import AddCollaboratorModal from './AddCollaboratorModal';
 
 interface ProjectDetailProps {
   project: Project;
   onBack: () => void;
 }
 
-type ReviewTab = 'summary' | 'strengths' | 'major' | 'minor';
-
 const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
   const [manuscript, setManuscript] = useState<ProjectFile | null>(null);
-  const [folders, setFolders] = useState<ProjectFolder[]>([]);
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAlert, setShowAlert] = useState(false);
-  const [alertMessage, setAlertMessage] = useState('');
-  const [showCollaboratorModal, setShowCollaboratorModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<ReviewTab>('summary');
-  const [expandedReviews, setExpandedReviews] = useState<Set<number>>(new Set());
+  const [alertMessage] = useState('');
   const [agentRun, setAgentRun] = useState<AgentRun | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
 
@@ -124,20 +107,13 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
   const loadProjectData = async () => {
     setLoading(true);
     try {
-      const [filesData, foldersData, collaboratorsData] =
-        await Promise.all([
-          getProjectFiles(project.id),
-          getProjectFolders(project.id),
-          getProjectCollaborators(project.id),
-        ]);
+      const filesData = await getProjectFiles(project.id);
 
       // Find primary manuscript
       const primaryManuscript =
         filesData.find((f) => f.is_primary_manuscript) || null;
 
       setManuscript(primaryManuscript);
-      setFolders(foldersData);
-      setCollaborators(collaboratorsData);
 
       // Fetch initial review status if manuscript exists
       if (primaryManuscript) {
@@ -148,231 +124,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleAddFolder = async () => {
-    try {
-      // Open folder selection dialog
-      const folderPath = await window.electronAPI.invoke(IPC_CHANNELS.SELECT_FOLDER);
-
-      if (!folderPath) {
-        return; // User cancelled
-      }
-
-      // Add folder to project via API
-      const newFolder = await addFolderToProject(project.id, folderPath);
-
-      // Start syncing files from this folder
-      const syncResult = await window.electronAPI.invoke(
-        'start-project-folder-sync',
-        project.id,
-        newFolder.id,
-        folderPath
-      );
-
-      if (!syncResult.success) {
-        setAlertMessage(`Folder added but sync failed: ${syncResult.error}`);
-        setShowAlert(true);
-      } else {
-        // Reload folders list
-        const foldersData = await getProjectFolders(project.id);
-        setFolders(foldersData);
-
-        setAlertMessage('Folder added and syncing started successfully');
-        setShowAlert(true);
-      }
-    } catch (error: any) {
-      console.error('Error adding folder:', error);
-
-      // Extract user-friendly error message from backend response
-      const errorMessage = extractErrorMessage(error, 'Unknown error');
-
-      setAlertMessage(`Failed to add folder: ${errorMessage}`);
-      setShowAlert(true);
-    }
-  };
-
-  const handleAddCollaborator = () => {
-    setShowCollaboratorModal(true);
-  };
-
-  const handleAddCollaborators = async (emails: string[]) => {
-    setShowCollaboratorModal(false);
-
-    if (emails.length === 0) {
-      return; // No emails to add
-    }
-
-    try {
-      let successCount = 0;
-      let failCount = 0;
-
-      // Add each collaborator via API
-      for (const email of emails) {
-        try {
-          await addCollaborator(project.id, email);
-          successCount++;
-        } catch (error: any) {
-          console.error(`Error adding collaborator ${email}:`, error);
-          failCount++;
-        }
-      }
-
-      // Reload collaborators list
-      const collaboratorsData = await getProjectCollaborators(project.id);
-      setCollaborators(collaboratorsData);
-
-      // Show result message
-      if (successCount > 0 && failCount === 0) {
-        setAlertMessage(
-          `Successfully added ${successCount} collaborator${successCount !== 1 ? 's' : ''}`
-        );
-      } else if (successCount > 0 && failCount > 0) {
-        setAlertMessage(
-          `Added ${successCount} collaborator${successCount !== 1 ? 's' : ''}, ${failCount} failed`
-        );
-      } else {
-        setAlertMessage('Failed to add collaborators');
-      }
-      setShowAlert(true);
-    } catch (error: any) {
-      console.error('Error adding collaborators:', error);
-      setAlertMessage(`Failed to add collaborators: ${error.message || 'Unknown error'}`);
-      setShowAlert(true);
-    }
-  };
-
-
-  const toggleReviewExpansion = (reviewId: number) => {
-    setExpandedReviews(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(reviewId)) {
-        newSet.delete(reviewId);
-      } else {
-        newSet.add(reviewId);
-      }
-      return newSet;
-    });
-  };
-
-  interface StrengthItem {
-    title: string;
-    content: string;
-  }
-
-  const extractStrengthItems = (html: string): StrengthItem[] => {
-    const tempDiv = document.createElement('div');
-    tempDiv.innerHTML = html;
-
-    // Look for strength-item divs
-    const strengthItems = tempDiv.querySelectorAll('.strength-item');
-
-    if (strengthItems.length === 0) {
-      // Fallback: look for h2 headings and split content
-      const headings = tempDiv.querySelectorAll('h2');
-      if (headings.length === 0) {
-        return [];
-      }
-
-      const items: StrengthItem[] = [];
-      headings.forEach((heading, index) => {
-        const title = heading.textContent || '';
-
-        // Get content between this heading and the next
-        let content = '';
-        let currentNode = heading.nextSibling;
-        const nextHeading = headings[index + 1];
-
-        while (currentNode && currentNode !== nextHeading) {
-          if (currentNode.nodeType === Node.ELEMENT_NODE) {
-            content += (currentNode as Element).outerHTML;
-          } else if (currentNode.nodeType === Node.TEXT_NODE) {
-            const text = currentNode.textContent?.trim();
-            if (text) content += text;
-          }
-          currentNode = currentNode.nextSibling;
-        }
-
-        items.push({ title, content });
-      });
-
-      return items;
-    }
-
-    // Extract strength items with their titles and content
-    const items: StrengthItem[] = [];
-    strengthItems.forEach(item => {
-      const titleEl = item.querySelector('.strength-title, h2, h3, h4');
-      const contentEl = item.querySelector('.strength-content');
-
-      const title = titleEl?.textContent || 'Strength';
-      const content = contentEl?.innerHTML || item.innerHTML;
-
-      items.push({ title, content });
-    });
-
-    return items;
-  };
-
-  const filterReviews = (suggestions: ReviewSuggestion[]): ReviewSuggestion[] => {
-    switch (activeTab) {
-      case 'summary':
-        return []; // Summary shows the review_data.summary text, not individual items
-      case 'major':
-        return suggestions.filter(s => s.review_item_type !== 'strength' && s.major === true);
-      case 'minor':
-        return suggestions.filter(s => s.review_item_type !== 'strength' && s.major === false);
-      case 'strengths':
-        return suggestions.filter(s => s.review_item_type === 'strength');
-      default:
-        return suggestions;
-    }
-  };
-
-  const getTabLabel = (tab: ReviewTab): string => {
-    switch (tab) {
-      case 'summary': return 'Summary';
-      case 'major': return 'Major comments';
-      case 'minor': return 'Minor comments';
-      case 'strengths': return 'Strengths';
-    }
-  };
-
-  const getTabDescription = (tab: ReviewTab): string => {
-    switch (tab) {
-      case 'summary':
-        return 'An overall assessment of the manuscript\'s contributions, strengths, and areas for improvement.';
-      case 'major':
-        return 'Substantive issues that affect how the paper communicates its main scientific contribution or argument. These comments focus on framing, logic, or completeness — the kinds of revisions that would strengthen the overall story.';
-      case 'minor':
-        return 'Surface-level improvements such as typos, formatting inconsistencies, or minor phrasing adjustments that don\'t change the core argument.';
-      case 'strengths':
-        return 'What the paper does well — areas that effectively support the research goals and should be preserved or emphasized.';
-    }
-  };
-
-  const formatReviewDate = (dateString: string): string => {
-    const date = new Date(dateString);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    // Check if it's today
-    if (date.toDateString() === today.toDateString()) {
-      return `Today, ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
-    }
-
-    // Check if it's yesterday
-    if (date.toDateString() === yesterday.toDateString()) {
-      return `Yesterday, ${date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
-    }
-
-    // Otherwise, show full date
-    return date.toLocaleDateString('en-US', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short'
-    });
   };
 
   const renderReviewSection = () => {
@@ -417,198 +168,48 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
 
     // Completed
     if (agentRun.status === 'completed' && agentRun.review_data) {
-      const { suggestions, summary } = agentRun.review_data;
-      const suggestionsList = suggestions || [];
-      const filteredReviews = filterReviews(suggestionsList);
-
-      console.log('[ProjectDetail] Review data:', {
-        summary,
-        suggestionsCount: suggestionsList.length,
-        activeTab,
-        filteredCount: filteredReviews.length,
+      const { summary } = agentRun.review_data;
+      const reviewDate = new Date(agentRun.created_at).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric'
       });
-
-      const tabs: ReviewTab[] = ['summary', 'strengths', 'major', 'minor'];
-      const reviewDate = formatReviewDate(agentRun.created_at);
 
       return (
         <div className="reviewContainer">
-          {/* Feedback Header */}
-          <div className="reviewFeedbackHeader">
-            <h2 className="reviewFeedbackTitle">Feedback & suggestions</h2>
-            <p className="reviewFeedbackTimestamp">{reviewDate}</p>
+          {/* Review Header */}
+          <div className="reviewSimpleHeader">
+            <h2 className="reviewSimpleHeaderDate">{reviewDate}</h2>
+            <h2 className="reviewSimpleHeaderTitle">Full Review</h2>
           </div>
 
-          {/* Overall Review Section Header */}
-          <div className="reviewOverallHeader">
-            <span className="reviewOverallLabel">Overall review</span>
-            <span className="reviewOverallSeparator">|</span>
-            <span className="reviewOverallDate">
-              {new Date(agentRun.created_at).toLocaleDateString('en-US', {
-                weekday: 'short',
-                day: 'numeric',
-                month: 'short'
-              })}
-            </span>
+          {/* Review Content */}
+          <div className="reviewSimpleContent">
+            {summary && (
+              <div
+                className="reviewSimpleText"
+                dangerouslySetInnerHTML={{ __html: summary }}
+              />
+            )}
           </div>
 
-          <div className="reviewTabbedLayout">
-          {/* Tab Sidebar */}
-          <div className="reviewTabSidebar">
-            {tabs.map(tab => (
-              <button
-                key={tab}
-                className={`reviewTab ${activeTab === tab ? 'reviewTabActive' : ''}`}
-                onClick={() => setActiveTab(tab)}
-              >
-                {getTabLabel(tab)}
+          {/* Input Section */}
+          <div className="reviewInputSection">
+            <div className="reviewInputContainer">
+              <input
+                type="text"
+                className="reviewInput"
+                placeholder="Or ask anything..."
+              />
+              <button className="reviewInputButton">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" fill="white"/>
+                </svg>
               </button>
-            ))}
-          </div>
-
-          {/* Main Content */}
-          <div className="reviewTabContent">
-            {/* Tab Header */}
-            <div className="reviewTabHeader">
-              <h3 className="reviewTabTitle">{getTabLabel(activeTab)}</h3>
-              <p className="reviewTabDescription">{getTabDescription(activeTab)}</p>
             </div>
-
-            {/* Summary Tab Content */}
-            {activeTab === 'summary' && summary && (
-              <div className="reviewSummaryContent">
-                <p>{summary}</p>
-              </div>
-            )}
-
-            {/* Other Tabs - Collapsible Items */}
-            {activeTab !== 'summary' && (
-              <div className="reviewItemsList">
-                {filteredReviews.length > 0 ? (
-                  <>
-                    {activeTab === 'strengths' ? (
-                      // For strengths, split into multiple items based on HTML structure
-                      filteredReviews.flatMap((review) => {
-                        const strengthItems = extractStrengthItems(review.critique || '');
-
-                        if (strengthItems.length === 0) {
-                          // Fallback to showing the whole review as one item
-                          const isExpanded = expandedReviews.has(review.review_item_id);
-                          return (
-                            <div key={review.review_item_id} className="reviewItemCard">
-                              <div
-                                className="reviewItemHeader"
-                                onClick={() => toggleReviewExpansion(review.review_item_id)}
-                              >
-                                <p className="reviewItemTitle">
-                                  {review.title || 'Strength'}
-                                </p>
-                                <button className="reviewItemToggle">
-                                  <span className={`reviewItemArrow ${isExpanded ? 'expanded' : ''}`}>
-                                    ▼
-                                  </span>
-                                </button>
-                              </div>
-                              {isExpanded && (
-                                <div className="reviewItemBody">
-                                  <div
-                                    className="reviewItemCritique"
-                                    dangerouslySetInnerHTML={{ __html: review.critique || '' }}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        }
-
-                        return strengthItems.map((strengthItem, idx) => {
-                          // Use a composite key: review_item_id + index
-                          const itemKey = `${review.review_item_id}-${idx}`;
-                          const itemId = review.review_item_id * 1000 + idx; // Unique ID for expansion tracking
-                          const isExpanded = expandedReviews.has(itemId);
-
-                          return (
-                            <div key={itemKey} className="reviewItemCard">
-                              <div
-                                className="reviewItemHeader"
-                                onClick={() => toggleReviewExpansion(itemId)}
-                              >
-                                <p className="reviewItemTitle">
-                                  {strengthItem.title}
-                                </p>
-                                <button className="reviewItemToggle">
-                                  <span className={`reviewItemArrow ${isExpanded ? 'expanded' : ''}`}>
-                                    ▼
-                                  </span>
-                                </button>
-                              </div>
-                              {isExpanded && (
-                                <div className="reviewItemBody">
-                                  <div
-                                    className="reviewItemCritique"
-                                    dangerouslySetInnerHTML={{ __html: strengthItem.content }}
-                                  />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        });
-                      })
-                    ) : (
-                      // For major/minor comments, show numbered items
-                      filteredReviews.map((review, index) => {
-                        const isExpanded = expandedReviews.has(review.review_item_id);
-                        const displayTitle = `${index + 1}. ${review.title}`;
-
-                        return (
-                          <div key={review.review_item_id} className="reviewItemCard">
-                            <div
-                              className="reviewItemHeader"
-                              onClick={() => toggleReviewExpansion(review.review_item_id)}
-                            >
-                              <p className="reviewItemTitle">
-                                {displayTitle}
-                              </p>
-                              <button className="reviewItemToggle">
-                                <span className={`reviewItemArrow ${isExpanded ? 'expanded' : ''}`}>
-                                  ▼
-                                </span>
-                              </button>
-                            </div>
-                            {isExpanded && (
-                              <div className="reviewItemBody">
-                                {review.critique && (
-                                  <div
-                                    className="reviewItemCritique"
-                                    dangerouslySetInnerHTML={{ __html: review.critique }}
-                                  />
-                                )}
-                                {review.framework_to_address && (
-                                  <div className="reviewItemFramework">
-                                    <div className="reviewItemFrameworkLabel">
-                                      Suggested Framework to Address:
-                                    </div>
-                                    <div
-                                      dangerouslySetInnerHTML={{ __html: review.framework_to_address }}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </>
-                ) : (
-                  <div className="projectDetailEmpty">
-                    <p>No {getTabLabel(activeTab).toLowerCase()} available.</p>
-                  </div>
-                )}
-              </div>
-            )}
+            <button className="reviewFeedbackLink">
+              Provide feedback on this review
+            </button>
           </div>
-        </div>
         </div>
       );
     }
@@ -627,26 +228,116 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
     );
   }
 
+  const handleOpenFile = async () => {
+    if (manuscript) {
+      try {
+        await window.electronAPI.invoke(IPC_CHANNELS.OPEN_FILE, manuscript.file_path);
+      } catch (error) {
+        console.error('[ProjectDetail] Failed to open file:', error);
+      }
+    }
+  };
+
+  const handleOpenFolder = async () => {
+    if (manuscript) {
+      try {
+        await window.electronAPI.invoke(IPC_CHANNELS.SHOW_FILE_IN_FOLDER, manuscript.file_path);
+      } catch (error) {
+        console.error('[ProjectDetail] Failed to open folder:', error);
+      }
+    }
+  };
+
+  const handleFullReview = async () => {
+    if (manuscript) {
+      await fetchReviewStatus(manuscript.id);
+    }
+  };
+
+  const handleReviewChanges = () => {
+    // TODO: Implement review changes functionality
+    console.log('[ProjectDetail] Review changes clicked');
+  };
+
   return (
     <div className="projectDetail">
-      {/* Header */}
-      <div className="projectDetailHeader">
-        <button className="projectDetailBack" onClick={onBack}>
-          ← Back
-        </button>
-        <h2 className="projectDetailTitle">{project.name}</h2>
+      {/* Top Bar */}
+      <div className="projectDetailTopBar">
+        <div className="projectDetailTopBarLeft">
+          <button className="projectDetailBackIcon" onClick={onBack}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="currentColor"/>
+            </svg>
+          </button>
+          {manuscript && (
+            <>
+              <div className="projectDetailDocIcon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z" fill="#0645b1"/>
+                </svg>
+              </div>
+              <h2 className="projectDetailDocName">{manuscript.file_name}</h2>
+              <div className="projectDetailDocMeta">
+                <span className="projectDetailDocDot">•</span>
+                <span className="projectDetailDocTimestamp">
+                  Updated: {new Date(manuscript.updated_at).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                  })}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="projectDetailTopBarRight">
+          <button className="projectDetailLinkButton" onClick={handleOpenFile}>
+            Open File
+          </button>
+          <button className="projectDetailLinkButton" onClick={handleOpenFolder}>
+            Open Folder
+          </button>
+          <button className="projectDetailPrimaryButton" onClick={handleFullReview}>
+            Full review
+          </button>
+          <button className="projectDetailPrimaryButton" onClick={handleReviewChanges}>
+            Review changes
+          </button>
+        </div>
       </div>
 
       {/* Main Content Area */}
       <div className="projectDetailContent">
-        {/* Sidebar */}
-        <ProjectSidebar
-          manuscript={manuscript}
-          folders={folders}
-          collaborators={collaborators}
-          onAddFolder={handleAddFolder}
-          onAddCollaborator={handleAddCollaborator}
-        />
+        {/* Left Panel - Manuscript Feedback List */}
+        <div className="projectDetailFeedbackPanel">
+          <div className="projectDetailFeedbackHeader">
+            <h3 className="projectDetailFeedbackTitle">Manuscript feedback</h3>
+            <button className="projectDetailPanelClose">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" fill="currentColor"/>
+              </svg>
+            </button>
+          </div>
+          <div className="projectDetailFeedbackList">
+            {agentRun && (
+              <div className="projectDetailFeedbackItem projectDetailFeedbackItemActive">
+                <p className="projectDetailFeedbackItemTitle">
+                  {agentRun.review_data?.suggestions?.[0]?.title || 'Full manuscript review'}
+                </p>
+                <p className="projectDetailFeedbackItemDate">
+                  {new Date(agentRun.created_at).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                  })}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
 
         {/* Main Panel with Reviews */}
         <div className="projectDetailMain">
@@ -662,14 +353,6 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
           title="Notice"
           message={alertMessage}
           onClose={() => setShowAlert(false)}
-        />
-      )}
-
-      {/* Add Collaborator Modal */}
-      {showCollaboratorModal && (
-        <AddCollaboratorModal
-          onClose={() => setShowCollaboratorModal(false)}
-          onAdd={handleAddCollaborators}
         />
       )}
     </div>

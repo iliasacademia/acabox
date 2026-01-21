@@ -144,14 +144,6 @@ export function ConversationsSidebar({
 
   return (
     <>
-      {/* Backdrop overlay for mobile */}
-      {!collapsed && window.innerWidth <= 1280 && (
-        <div
-          className="sidebarBackdrop visible"
-          onClick={onToggleCollapsed}
-        />
-      )}
-
       <div className={`conversationsSidebar ${collapsed ? 'collapsed' : ''}`}>
       {/* Conversations List */}
       {!collapsed && (

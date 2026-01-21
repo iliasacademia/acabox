@@ -17,6 +17,7 @@ interface ConversationDetailProps {
   onConversationCreated?: (conversation: Conversation) => void;
   onConversationUpdate?: () => void;
   isReviewInProgress?: boolean;
+  isInitialLoading?: boolean;
   /** Optional: Called when a message is sent (for analytics) */
   onMessageSent?: (projectId: number, conversationId: number, agentName: string) => void;
   /** Optional: Called when an assistant message is received (for analytics) */
@@ -39,6 +40,7 @@ export function ConversationDetail({
   onConversationCreated,
   onConversationUpdate,
   isReviewInProgress,
+  isInitialLoading,
   onMessageSent,
   onMessageReceived,
   feedbackFormUrl,
@@ -384,7 +386,13 @@ export function ConversationDetail({
     return (
       <div className="conversationDetail empty">
         <div className="emptyState">
-          {isReviewInProgress ? (
+          {isInitialLoading ? (
+            <>
+              <div className="loadingSpinner"></div>
+              <h3>Loading feedback...</h3>
+              <p>Please wait while we load your manuscript feedback.</p>
+            </>
+          ) : isReviewInProgress ? (
             <>
               <div className="emptyStateIcon">⏳</div>
               <h3>Review in progress</h3>

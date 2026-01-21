@@ -1153,6 +1153,17 @@ ipcMain.handle(IPC_CHANNELS.SHOW_FILE_IN_FOLDER, async (_event, filePath: string
   }
 });
 
+// Check if file exists
+ipcMain.handle(IPC_CHANNELS.CHECK_FILE_EXISTS, async (_event, filePath: string) => {
+  try {
+    const exists = fs.existsSync(filePath);
+    return { exists };
+  } catch (error: any) {
+    logger.error('[Main] Failed to check file existence:', error);
+    return { exists: false, error: error.message };
+  }
+});
+
 // QR Code Authentication IPC handlers
 ipcMain.handle(IPC_CHANNELS.START_QR_AUTH, async () => {
   try {

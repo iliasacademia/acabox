@@ -42,24 +42,8 @@
     height: 100%;
     display: flex;
     flex-direction: column;
-    background-color: #ffffff;
-    padding-left: 58px;
-    padding-right: 58px;
-}
-
-/* Responsive page padding */
-@media (max-width: 1280px) {
-    .conversationsPage {
-        padding-left: 24px;
-        padding-right: 24px;
-    }
-}
-
-@media (max-width: 768px) {
-    .conversationsPage {
-        padding-left: 16px;
-        padding-right: 16px;
-    }
+    background-color: #f9f7f4;
+    padding: 0;
 }
 
 .conversationsPage.empty {
@@ -76,37 +60,274 @@
     padding: 40px;
 }
 
-/* New Header Layout */
-.conversationsHeader {
+/* Clean Top Bar matching Figma design */
+.conversationsTopBar {
+    background-color: white;
+    border-bottom: 1px solid var(--stroke-grey);
+    border-top: 1px solid var(--stroke-grey);
+    padding: 4px 16px;
     display: flex;
-    align-items: center;
     justify-content: space-between;
-    padding: 16px 0;
-    gap: 16px;
-    flex-wrap: wrap;
+    align-items: center;
+    flex-shrink: 0;
+    position: relative;
+    overflow: visible;
 }
 
-/* Responsive header */
-@media (max-width: 1280px) {
-    .conversationsHeader {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-    }
+.topBarLeft {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    overflow: visible;
+}
 
-    .headerLeft {
-        width: 100%;
-    }
+.topBarRight {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
 
-    .headerManuscriptInfo {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 12px;
-        padding: 12px;
-    }
+.conversationsTopBar .backButton {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    transition: opacity 0.2s;
+}
 
-    .headerManuscriptInfo .manuscriptInfoLeft {
+.conversationsTopBar .backButton:hover {
+    opacity: 0.7;
+}
+
+.conversationsTopBar .docIcon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+}
+
+.conversationsTopBar .docIcon img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+}
+
+.conversationsTopBar .docIcon svg {
+    width: 24px;
+    height: 24px;
+}
+
+.conversationsTopBar .manuscriptIcon {
+    width: 24px !important;
+    height: 24px !important;
+    object-fit: contain;
+}
+
+.conversationsTopBar .docName {
+    font-family: var(--font-family-sans);
+    font-size: 24px;
+    font-weight: 400;
+    line-height: 36px;
+    color: var(--text-primary);
+    margin: 0;
+    white-space: nowrap;
+    overflow: visible;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.conversationsTopBar .statusDotContainer {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.conversationsTopBar .statusDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #10b981;
+    flex-shrink: 0;
+    cursor: pointer;
+}
+
+.conversationsTopBar .timestampBadge {
+    display: none;
+    position: absolute;
+    top: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background-color: #1f2937;
+    color: white;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 400;
+    white-space: nowrap;
+    z-index: 9999;
+    pointer-events: none;
+}
+
+.conversationsTopBar .timestampBadge::before {
+    content: "";
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 4px solid transparent;
+    border-bottom-color: #1f2937;
+}
+
+.conversationsTopBar .statusDotContainer:hover .timestampBadge {
+    display: block;
+}
+
+.conversationsTopBar .docMeta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.conversationsTopBar .docDot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--text-secondary);
+    display: inline-block;
+}
+
+.conversationsTopBar .docTimestamp {
+    font-family: var(--font-family-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 20px;
+    color: var(--text-secondary);
+}
+
+.conversationsTopBar .linkButton {
+    background: none;
+    border: none;
+    font-family: var(--font-family-sans);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 20px;
+    color: #0645b1;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    padding: 0;
+}
+
+.conversationsTopBar .linkButton:hover {
+    opacity: 0.7;
+}
+
+.conversationsTopBar .primaryButton {
+    background-color: #0645b1;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-family: var(--font-family-sans);
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 20px;
+    color: white;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.conversationsTopBar .primaryButton:hover:not(:disabled) {
+    opacity: 0.9;
+}
+
+.conversationsTopBar .primaryButton:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Dropdown styles */
+.dropdownContainer {
+    position: relative;
+}
+
+.dropdownMenu {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    background: white;
+    border: 1px solid var(--stroke-grey);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    min-width: 200px;
+    z-index: 1000;
+    overflow: hidden;
+}
+
+.dropdownItem {
+    display: block;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 12px 16px;
+    font-family: var(--font-family-sans);
+    font-size: 16px;
+    font-weight: 400;
+    line-height: 20px;
+    color: var(--text-primary);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    border-bottom: 1px solid var(--stroke-grey);
+}
+
+.dropdownItem:last-child {
+    border-bottom: none;
+}
+
+.dropdownItem:hover:not(:disabled) {
+    background-color: #f3f4f6;
+}
+
+.dropdownItem:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Responsive top bar - only apply on very small screens */
+@media (max-width: 768px) {
+    .conversationsTopBar {
         flex-wrap: wrap;
+        gap: 8px;
+        padding: 8px 12px;
+    }
+
+    .topBarLeft {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .topBarRight {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .conversationsTopBar .docName {
+        font-size: 18px;
+    }
+
+    .conversationsTopBar .primaryButton {
+        padding: 8px 12px;
+        font-size: 14px;
     }
 }
 
@@ -276,7 +497,7 @@
 }
 
 /* Responsive review buttons */
-@media (max-width: 1280px) {
+@media (max-width: 768px) {
     .reviewButtonsContainer {
         width: 100%;
         flex-wrap: wrap;
@@ -409,7 +630,6 @@
     height: 40px;
     flex-shrink: 0;
     transition: all 0.2s;
-    margin-left: -18px;
     -webkit-app-region: no-drag; /* Allow clicking in Electron */
 }
 
@@ -756,31 +976,91 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
-    border-top: 1px solid var(--stroke-black, #141413);
+    background-color: #ffffff;
+}
+
+/* Sidebar with Header Container */
+.sidebarWithHeader {
+    width: 400px;
+    background-color: white;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid var(--stroke-grey);
+    flex-shrink: 0;
+    transition: width 0.3s ease;
+}
+
+/* Collapsed state */
+.sidebarWithHeader.collapsed {
+    width: 56px;
+}
+
+.sidebarWithHeader.collapsed .manuscriptFeedbackTitle {
+    display: none;
+}
+
+.sidebarWithHeader.collapsed .conversationsSidebar {
+    display: none;
+}
+
+.sidebarWithHeader.collapsed .manuscriptFeedbackHeader {
+    justify-content: center;
+    padding: 16px 8px;
 }
 
 .manuscriptFeedbackHeader {
     display: flex;
     align-items: center;
-    gap: 16px;
-    padding: 24px 0;
+    justify-content: space-between;
+    padding: 0px 16px;
+    background-color: white;
+    flex-shrink: 0;
+    height: 56px;
 }
 
 .manuscriptFeedbackTitle {
     margin: 0;
     padding: 0;
     font-family: var(--font-family-sans);
-    font-size: 28px;
-    font-weight: 400;
-    line-height: 34px;
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 20px;
     color: var(--text-primary);
+    flex: 1;
+}
+
+.panelCollapseButton {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-primary);
+    transition: all 0.2s;
+    width: 24px;
+    height: 24px;
+}
+
+.panelCollapseButton:hover {
+    opacity: 0.7;
+}
+
+.panelCollapseButton svg {
+    transition: transform 0.2s;
+}
+
+/* When sidebar is collapsed, rotate the icon */
+.sidebarWithHeader.collapsed .panelCollapseButton svg {
+    transform: rotate(180deg);
 }
 
 /* Main Content Layout */
 .conversationsContent {
     flex: 1;
     display: flex;
-    padding-bottom: 80px;
+    padding-bottom: 30px;
     overflow: hidden;
     position: relative;
 }
@@ -789,51 +1069,33 @@
    CONVERSATIONS SIDEBAR
    ============================================================================ */
 
-/* Sidebar Backdrop (mobile overlay) */
-.sidebarBackdrop {
-    display: none;
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 999;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-
-@media (max-width: 1280px) {
-    .sidebarBackdrop.visible {
-        display: block;
-        opacity: 1;
-    }
-}
+/* Sidebar Backdrop removed - no longer needed */
 
 .conversationsSidebar {
-    height: 100%;
+    flex: 1;
     display: flex;
     flex-direction: column;
     border-right: none;
-    background-color: #ffffff;
+    background-color: transparent;
     position: relative;
     transition:
         transform 0.3s ease,
         width 0.3s ease,
         padding 0.3s ease;
-    padding-right: 48px;
+    overflow: hidden;
+    padding: 16px 24px;
 }
 
-/* Responsive overlay behavior */
-@media (max-width: 1280px) {
+/* Responsive overlay behavior - mobile only */
+@media (max-width: 768px) {
     .conversationsSidebar {
         position: absolute;
         left: 0;
-        top: 0;
+        top: 56px;
         bottom: 0;
         width: 320px;
         z-index: 1000;
-        padding: 16px 24px;
+        background-color: white;
     }
 
     .conversationsSidebar.collapsed {
@@ -842,6 +1104,11 @@
 
     .conversationsSidebar:not(.collapsed) {
         transform: translateX(0);
+    }
+
+    .manuscriptFeedbackHeader {
+        position: relative;
+        z-index: 1001;
     }
 }
 
@@ -863,43 +1130,6 @@
     .conversationsSidebar.collapsed .conversationsList {
         display: none;
     }
-}
-
-/* Hamburger Menu Button */
-.hamburgerMenuButton {
-    background: none;
-    border: none;
-    padding: 12px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
-    border-radius: 8px;
-    flex-shrink: 0;
-}
-
-.hamburgerMenuButton:hover {
-    background-color: rgba(0, 0, 0, 0.1);
-}
-
-.hamburgerMenuButton:active {
-    background-color: rgba(0, 0, 0, 0.15);
-}
-
-.hamburgerIcon {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    width: 18px;
-}
-
-.hamburgerLine {
-    width: 100%;
-    height: 2px;
-    background-color: #333333;
-    border-radius: 2px;
-    transition: all 0.3s;
 }
 
 /* Collapsed state header */
@@ -993,6 +1223,7 @@
 
 .conversationItem {
     padding: 12px 16px;
+    margin: 0;
     margin-bottom: 0;
     background-color: transparent;
     border: none;
@@ -1128,8 +1359,6 @@
     flex-direction: column;
     background-color: #ffffff;
     padding: 32px;
-    border: 1px solid var(--stroke-grey);
-    border-radius: var(--radius-lg);
 }
 
 .conversationDetail.empty {
