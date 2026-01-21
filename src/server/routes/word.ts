@@ -207,6 +207,7 @@ export async function registerWordRoutes(
                 conversation_title: fullReviewNotif.data.conversation_title,
                 created_at: fullReviewNotif.created_at,
                 title: fullReviewNotif.title,
+                body_html: fullReviewNotif.body_html,
                 isRead: fullReviewNotif.status !== 'unread',
               };
             }
@@ -219,6 +220,7 @@ export async function registerWordRoutes(
                 conversation_title: diffReviewNotif.data.conversation_title,
                 created_at: diffReviewNotif.created_at,
                 title: diffReviewNotif.title,
+                body_html: diffReviewNotif.body_html,
                 isRead: diffReviewNotif.status !== 'unread',
               };
             }
