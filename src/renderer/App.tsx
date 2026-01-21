@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import LoginModal from './components/LoginModal';
 import DevTools from './components/DevTools';
 import { UpdateBanner } from './components/UpdateBanner';
-import DevelopmentBanner from './components/DevelopmentBanner';
 import { PermissionsBanner } from './components/PermissionsBanner';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
@@ -64,14 +63,16 @@ const App: React.FC = () => {
     }
   }, [connectivity.status]);
 
+  // Development mode is now shown in title bar instead of banner
+  // No need to add body class for banner padding
+
+  // Detect platform and add appropriate class for styling
   useEffect(() => {
-    if (isDevelopment) {
-      document.body.classList.add('has-dev-banner');
-      return () => {
-        document.body.classList.remove('has-dev-banner');
-      };
+    const userAgent = navigator.userAgent.toLowerCase();
+    if (userAgent.includes('mac')) {
+      document.body.classList.add('platform-mac');
     }
-  }, [isDevelopment]);
+  }, []);
 
   useEffect(() => {
     checkLoginStatus();
@@ -401,8 +402,8 @@ const App: React.FC = () => {
     }
     return (
       <>
-        <div className="titleBarDragRegion" />
-        {isDevelopment && <DevelopmentBanner />}
+        {/* titleBarDragRegion not needed with native frame */}
+        {/* Development mode now shown in window title bar instead of banner */}
         {permissionState.show && (
           <PermissionsBanner
             onGrantPermission={handleGrantPermission}
@@ -445,7 +446,7 @@ const App: React.FC = () => {
   // Otherwise, render the development tools UI
   return (
     <>
-      {isDevelopment && <DevelopmentBanner />}
+      {/* Development mode now shown in window title bar instead of banner */}
       <DevTools onLogout={handleLogout} />
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
       {updateState.show && (
