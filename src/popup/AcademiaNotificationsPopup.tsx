@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import DOMPurify from 'isomorphic-dompurify';
 import { getBridgeInstance, useSendMessage } from './hooks/useBridge';
 import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
 import { FEEDBACK_FORM_URL } from '../shared/constants';
@@ -1007,7 +1008,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
                 <span
                   style={styles.notificationTitle}
                   dangerouslySetInnerHTML={{
-                    __html: fullReviewNotification.body_html || fullReviewNotification.conversation_title || fullReviewNotification.title || 'Feedback on your entire manuscript'
+                    __html: DOMPurify.sanitize(fullReviewNotification.body_html || fullReviewNotification.conversation_title || fullReviewNotification.title || 'Feedback on your entire manuscript')
                   }}
                 />
                 <span style={styles.notificationDate}>
@@ -1030,7 +1031,7 @@ const AcademiaNotificationsPopup: React.FC = () => {
                 <span
                   style={styles.notificationTitle}
                   dangerouslySetInnerHTML={{
-                    __html: diffReviewNotification.body_html || diffReviewNotification.conversation_title || diffReviewNotification.title || 'Feedback on recent changes'
+                    __html: DOMPurify.sanitize(diffReviewNotification.body_html || diffReviewNotification.conversation_title || diffReviewNotification.title || 'Feedback on recent changes')
                   }}
                 />
                 <span style={styles.notificationDate}>
