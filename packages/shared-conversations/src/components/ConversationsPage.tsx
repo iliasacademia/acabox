@@ -677,8 +677,8 @@ export function ConversationsPage({
     setConversationsLoaded(true);
 
     // Auto-select the first conversation if none is selected
-    if (conversations.length > 0 && !selectedConversation) {
-      setSelectedConversation(conversations[0]);
+    if (conversations.length > 0) {
+      setSelectedConversation(prev => prev || conversations[0]);
     }
   };
 
