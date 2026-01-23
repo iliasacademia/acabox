@@ -10,6 +10,7 @@ import { ConversationDetail } from "./ConversationDetail";
 import { generateDailyFeedbackTitle } from "./utils";
 import { useWindowSize } from "../hooks/useWindowSize";
 import { useSidebarCollapse } from "../hooks/useSidebarCollapse";
+import { useUserPreferences } from "../../../../src/renderer/contexts/UserPreferencesContext";
 
 export interface ConversationsPageProps {
   selectedProject: Project | null;
@@ -120,6 +121,9 @@ export function ConversationsPage({
   const [fileExistsLocally, setFileExistsLocally] = useState(true);
 
   const apiClient = useApiClient();
+
+  // Get user preferences for auto diff review
+  const { preferences } = useUserPreferences();
 
   // Responsive sidebar collapse
   const windowSize = useWindowSize();
@@ -568,11 +572,16 @@ export function ConversationsPage({
                 syncedFilePath &&
                 syncedFilePath.includes(manuscriptFileName)
               ) {
-                // Always start polling when manuscript is synced
-                // Backend automatically triggers review for:
-                // - First time sync (no last_review): full review
-                // - Subsequent syncs (has last_review): full review (we let backend decide)
-                startPolling(primaryManuscript.id);
+                // Check user preference before starting auto diff review
+                if (preferences.auto_diff_review) {
+                  // Start polling when manuscript is synced
+                  // Backend automatically triggers review for:
+                  // - First time sync (no last_review): full review
+                  // - Subsequent syncs (has last_review): full review (we let backend decide)
+                  startPolling(primaryManuscript.id);
+                } else {
+                  console.log('[ConversationsPage] Auto diff review disabled by user preference');
+                }
 
                 // Set recently synced indicator
                 // Clear any existing timeout

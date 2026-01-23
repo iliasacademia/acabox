@@ -14,6 +14,7 @@ import { FEATURES } from '../shared/types';
 import Projects from './components/Projects';
 import { StatusBar } from './components/StatusBar';
 import { useConnectivityStatus } from './hooks/useConnectivityStatus';
+import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
 import './App.css';
 
 // Initialize FullStory early (fire and forget - async init happens in background)
@@ -414,14 +415,16 @@ const App: React.FC = () => {
             hasUpdateBanner={updateState.show}
           />
         )}
-        <Projects
-          userId={userId}
-          userName={userName}
-          onLogout={handleLogout}
-          onLoginRequired={() => setShowLogin(true)}
-          pendingNavigation={pendingNavigation}
-          onNavigationHandled={handleNavigationHandled}
-        />
+        <UserPreferencesProvider userId={userId}>
+          <Projects
+            userId={userId}
+            userName={userName}
+            onLogout={handleLogout}
+            onLoginRequired={() => setShowLogin(true)}
+            pendingNavigation={pendingNavigation}
+            onNavigationHandled={handleNavigationHandled}
+          />
+        </UserPreferencesProvider>
         {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
         {updateState.show && (
           <UpdateBanner
@@ -447,7 +450,9 @@ const App: React.FC = () => {
   return (
     <>
       {/* Development mode now shown in window title bar instead of banner */}
-      <DevTools onLogout={handleLogout} />
+      <UserPreferencesProvider userId={userId}>
+        <DevTools onLogout={handleLogout} />
+      </UserPreferencesProvider>
       {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
       {updateState.show && (
         <UpdateBanner
