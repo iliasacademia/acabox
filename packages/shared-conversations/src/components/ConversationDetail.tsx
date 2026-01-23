@@ -343,6 +343,92 @@ export function ConversationDetail({
     }
   };
 
+  // Handle question pill click - sends the question as a message
+  const handleQuestionClick = async (questionText: string) => {
+    if (!conversation || isSending) return;
+
+    const content = questionText.trim();
+    if (!content) return;
+
+    setIsSending(true);
+    setSendError(null);
+
+    try {
+      if (isDraft(conversation)) {
+        // First message: create conversation with the message
+        const newConversation = await createConversation(
+          content,
+          conversation.agent_name,
+          projectId
+        );
+
+        // Track conversation message sent
+        if (onMessageSent) {
+          onMessageSent(projectId, newConversation.id, conversation.agent_name);
+        }
+        const now = new Date();
+        lastUserMessageTime.current = now;
+        conversationViewedAt.current = now;
+
+        // Notify parent to replace draft with real conversation
+        onConversationCreated?.(newConversation);
+
+        // Start polling for AI response
+        startPolling(newConversation.id, projectId);
+      } else {
+        // Add user message optimistically to UI
+        const optimisticMessage: Message = {
+          id: Date.now(), // Temporary ID
+          role: 'user',
+          content,
+          data: null,
+          contexts: [],
+          created_at: new Date().toISOString(),
+        };
+        addOptimisticMessage(optimisticMessage);
+
+        // Send message to backend
+        await createMessage(conversation.id, content, projectId);
+
+        // Track conversation message sent
+        if (onMessageSent) {
+          onMessageSent(projectId, conversation.id, conversation.agent_name);
+        }
+        const now = new Date();
+        lastUserMessageTime.current = now;
+        conversationViewedAt.current = now;
+
+        // Notify parent to update conversation list
+        onConversationUpdate?.();
+
+        // Start polling to get AI response and sync messages
+        startPolling(conversation.id, projectId);
+      }
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setSendError(error.message || 'Failed to send message. Please try again.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // Find the last assistant message
+  const lastAssistantMessage = messages
+    .slice()
+    .reverse()
+    .find((m) => m.role === 'assistant');
+
+  // Check if there's a user message after the last assistant message
+  const lastAssistantIndex = lastAssistantMessage
+    ? messages.findIndex((m) => m.id === lastAssistantMessage.id)
+    : -1;
+
+  const hasUserMessageAfter = lastAssistantIndex >= 0 &&
+    messages.slice(lastAssistantIndex + 1).some((m) => m.role === 'user');
+
+  // Only show questions if it's the last assistant message AND no user message follows
+  const shouldShowQuestions = !hasUserMessageAfter;
+
   // Group consecutive tool messages (no date dividers)
   const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: Message | Message[]; messageIndex: number }> = [];
   let currentToolGroup: Message[] = [];
@@ -480,6 +566,12 @@ export function ConversationDetail({
                   <ConversationMessage
                     message={item.data as Message}
                     onShowDiff={handleShowDiff}
+                    onQuestionClick={handleQuestionClick}
+                    showQuestions={
+                      shouldShowQuestions &&
+                      lastAssistantMessage &&
+                      (item.data as Message).id === lastAssistantMessage.id
+                    }
                   />
                 ) : (
                   <ToolMessageAccordion messages={item.data as Message[]} />

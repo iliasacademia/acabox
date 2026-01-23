@@ -1679,6 +1679,45 @@
     font-style: italic;
 }
 
+/* Question Pills */
+.questionPills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--spacing-xs);
+    margin-top: 12px;
+    align-items: flex-start;
+}
+
+.questionPill {
+    background-color: var(--background-white);
+    border: 1px solid var(--stroke-grey);
+    border-radius: 104px; /* Pill shape - fully rounded */
+    padding: 8px 16px;
+    font-family: var(--font-family-sans);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 20px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    white-space: normal;
+    text-align: left;
+}
+
+.questionPill:hover {
+    background-color: #f3f4f6;
+    border-color: #9ca3af;
+}
+
+.questionPill:active {
+    background-color: #e5e7eb;
+    transform: scale(0.98);
+}
+
 /* Feedback Link */
 .feedbackLink {
     font-family: var(--font-family-sans);
