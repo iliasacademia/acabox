@@ -6,9 +6,11 @@ import { Message } from '../types/conversation';
 interface ConversationMessageProps {
   message: Message;
   onShowDiff?: () => void;
+  onQuestionClick?: (question: string) => void;
+  showQuestions?: boolean;
 }
 
-export function ConversationMessage({ message, onShowDiff }: ConversationMessageProps) {
+export function ConversationMessage({ message, onShowDiff, onQuestionClick, showQuestions }: ConversationMessageProps) {
   const isAssistant = message.role === 'assistant';
   const isTool = message.role === 'tool';
 
@@ -16,6 +18,9 @@ export function ConversationMessage({ message, onShowDiff }: ConversationMessage
   if (isTool) {
     return null;
   }
+
+  // Extract questions from message.data if present (array of strings)
+  const extractedQuestions = message.data?.extracted_questions as string[] | undefined;
 
   // Handle clicks on links in HTML content
   const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -26,6 +31,13 @@ export function ConversationMessage({ message, onShowDiff }: ConversationMessage
         e.preventDefault();
         onShowDiff();
       }
+    }
+  };
+
+  // Handle question pill click
+  const handleQuestionClick = (question: string) => {
+    if (onQuestionClick) {
+      onQuestionClick(question);
     }
   };
 
@@ -123,6 +135,22 @@ export function ConversationMessage({ message, onShowDiff }: ConversationMessage
                 {context.target_name || `${context.target_type} #${context.target_id}`}
               </span>
             </div>
+          ))}
+        </div>
+      )}
+
+      {/* Show question pills only when showQuestions is true */}
+      {showQuestions && extractedQuestions && extractedQuestions.length > 0 && (
+        <div className="questionPills">
+          {extractedQuestions.map((question, index) => (
+            <button
+              key={question + index}
+              type="button"
+              className="questionPill"
+              onClick={() => handleQuestionClick(question)}
+            >
+              {question}
+            </button>
           ))}
         </div>
       )}
