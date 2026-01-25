@@ -26,10 +26,11 @@
 
 @implementation AppInfo
 
-- (instancetype)initWithName:(NSString *)name pid:(pid_t)pid {
+- (instancetype)initWithName:(NSString *)name bundleId:(NSString *)bundleId pid:(pid_t)pid {
     self = [super init];
     if (self) {
         _name = [name copy];
+        _bundleId = [bundleId copy];
         _pid = pid;
     }
     return self;
@@ -38,6 +39,7 @@
 - (NSDictionary *)toDictionary {
     return @{
         @"name": self.name ?: [NSNull null],
+        @"bundleId": self.bundleId ?: [NSNull null],
         @"pid": @(self.pid)
     };
 }

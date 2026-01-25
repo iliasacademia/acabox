@@ -30,9 +30,10 @@ typedef NS_ENUM(NSInteger, WindowEventType) {
 
 @interface AppInfo : NSObject
 @property (nonatomic, copy) NSString *name;
+@property (nonatomic, copy) NSString *bundleId;
 @property (nonatomic, assign) pid_t pid;
 
-- (instancetype)initWithName:(NSString *)name pid:(pid_t)pid;
+- (instancetype)initWithName:(NSString *)name bundleId:(NSString *)bundleId pid:(pid_t)pid;
 - (NSDictionary *)toDictionary;
 @end
 

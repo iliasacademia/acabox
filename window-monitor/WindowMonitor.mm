@@ -20,20 +20,13 @@
 
 @implementation WindowMonitor
 
-#pragma mark - Singleton
+#pragma mark - Initialization
 
-+ (instancetype)sharedMonitor {
-    static WindowMonitor *sharedInstance = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        sharedInstance = [[WindowMonitor alloc] init];
-    });
-    return sharedInstance;
-}
-
-- (instancetype)init {
+- (instancetype)initWithBundleId:(NSString *)bundleId {
     self = [super init];
     if (self) {
+        _targetBundleId = [bundleId copy] ?: [kDefaultBundleId copy];
+        _appDisplayName = nil;  // Will be auto-detected when app is found
         _trackedWindowIds = [NSMutableSet set];
         _allKnownWindowIds = [NSMutableSet set];
         _windowBoundsCache = [NSMutableDictionary dictionary];
@@ -45,6 +38,10 @@
         _isMonitoring = NO;
     }
     return self;
+}
+
+- (instancetype)init {
+    return [self initWithBundleId:kDefaultBundleId];
 }
 
 #pragma mark - Accessibility Permissions
@@ -66,7 +63,7 @@
     }
 
     self.isMonitoring = YES;
-    NSLog(@"Starting window monitor for Microsoft Word...");
+    NSLog(@"Starting window monitor for %@...", self.targetBundleId);
 
     // Register for app launch/termination notifications
     [[[NSWorkspace sharedWorkspace] notificationCenter] addObserver:self
@@ -89,15 +86,16 @@
                                                                name:NSWorkspaceDidDeactivateApplicationNotification
                                                              object:nil];
 
-    // Check if Word is already running
+    // Check if target app is already running
     NSArray<NSRunningApplication *> *runningApps = [[NSWorkspace sharedWorkspace] runningApplications];
     for (NSRunningApplication *app in runningApps) {
-        if ([app.bundleIdentifier isEqualToString:kMicrosoftWordBundleId]) {
-            NSLog(@"Microsoft Word is already running (PID: %d)", app.processIdentifier);
+        if ([app.bundleIdentifier isEqualToString:self.targetBundleId]) {
+            [self updateAppDisplayNameFromApp:app];
+            NSLog(@"%@ is already running (PID: %d)", self.appDisplayName, app.processIdentifier);
             // Emit APP_EXISTING before WINDOW_EXISTING events
             self.wordPid = app.processIdentifier;
             [self emitAppEvent:WindowEventTypeAppExisting];
-            [self attachToWord:app];
+            [self attachToApp:app];
             break;
         }
     }
@@ -115,50 +113,61 @@
     [[[NSWorkspace sharedWorkspace] notificationCenter] removeObserver:self];
 
     // Clean up AXObserver
-    [self detachFromWord];
+    [self detachFromApp];
 }
 
 #pragma mark - App Notifications
 
 - (void)appDidLaunch:(NSNotification *)notification {
     NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
-    if ([app.bundleIdentifier isEqualToString:kMicrosoftWordBundleId]) {
-        NSLog(@"Microsoft Word launched (PID: %d)", app.processIdentifier);
+    if ([app.bundleIdentifier isEqualToString:self.targetBundleId]) {
+        [self updateAppDisplayNameFromApp:app];
+        NSLog(@"%@ launched (PID: %d)", self.appDisplayName, app.processIdentifier);
         // Emit APP_LAUNCHED before WINDOW_EXISTING events
         self.wordPid = app.processIdentifier;
         [self emitAppEvent:WindowEventTypeAppLaunched];
-        [self attachToWord:app];
+        [self attachToApp:app];
     }
 }
 
 - (void)appDidTerminate:(NSNotification *)notification {
     NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
-    if ([app.bundleIdentifier isEqualToString:kMicrosoftWordBundleId]) {
-        NSLog(@"Microsoft Word terminated");
+    if ([app.bundleIdentifier isEqualToString:self.targetBundleId]) {
+        NSLog(@"%@ terminated", self.appDisplayName);
 
         // Emit destroyed events for all tracked windows
         [self emitDestroyedEventsForAllTrackedWindows];
         [self emitAppEvent:WindowEventTypeAppTerminated];
-        [self detachFromWord];
+        [self detachFromApp];
     }
 }
 
 - (void)appDidActivate:(NSNotification *)notification {
     NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
-    if ([app.bundleIdentifier isEqualToString:kMicrosoftWordBundleId]) {
+    if ([app.bundleIdentifier isEqualToString:self.targetBundleId]) {
         [self emitAppEvent:WindowEventTypeAppFocused];
     }
 }
 
 - (void)appDidDeactivate:(NSNotification *)notification {
     NSRunningApplication *app = notification.userInfo[NSWorkspaceApplicationKey];
-    if ([app.bundleIdentifier isEqualToString:kMicrosoftWordBundleId]) {
+    if ([app.bundleIdentifier isEqualToString:self.targetBundleId]) {
         [self emitAppEvent:WindowEventTypeAppUnfocused];
     }
 }
 
+- (void)updateAppDisplayNameFromApp:(NSRunningApplication *)app {
+    if (!self.appDisplayName && app.localizedName) {
+        self.appDisplayName = app.localizedName;
+    } else if (!self.appDisplayName) {
+        // Fallback to bundle ID if no localized name available
+        self.appDisplayName = self.targetBundleId;
+    }
+}
+
 - (void)emitAppEvent:(WindowEventType)eventType {
-    AppInfo *appInfo = [[AppInfo alloc] initWithName:@"Microsoft Word"
+    AppInfo *appInfo = [[AppInfo alloc] initWithName:self.appDisplayName ?: self.targetBundleId
+                                            bundleId:self.targetBundleId
                                                  pid:self.wordPid];
 
     WindowEvent *event = [[WindowEvent alloc] initWithEventType:eventType
@@ -169,15 +178,15 @@
     fflush(stdout);
 }
 
-#pragma mark - Word Attachment
+#pragma mark - App Attachment
 
-- (void)attachToWord:(NSRunningApplication *)wordApp {
-    self.wordPid = wordApp.processIdentifier;
+- (void)attachToApp:(NSRunningApplication *)app {
+    self.wordPid = app.processIdentifier;
 
-    // Create AXUIElement for Word
+    // Create AXUIElement for target app
     self.wordAppElement = AXUIElementCreateApplication(self.wordPid);
     if (!self.wordAppElement) {
-        NSLog(@"Failed to create AXUIElement for Word");
+        NSLog(@"Failed to create AXUIElement for %@", self.appDisplayName);
         return;
     }
 
@@ -208,7 +217,7 @@
                        AXObserverGetRunLoopSource(self.axObserver),
                        kCFRunLoopDefaultMode);
 
-    NSLog(@"Attached to Microsoft Word, observing window events...");
+    NSLog(@"Attached to %@, observing window events...", self.appDisplayName);
 
     // Enumerate existing windows
     [self enumerateExistingWindows];
@@ -226,7 +235,7 @@
     [self checkForFocusChange];
 }
 
-- (void)detachFromWord {
+- (void)detachFromApp {
     // Stop timers
     if (self.pollingTimer) {
         [self.pollingTimer invalidate];
@@ -333,7 +342,7 @@
         [self emitEvent:event];
     }
 
-    NSLog(@"Found %lu Word windows, emitted %lu WINDOW_EXISTING events", (unsigned long)windows.count, (unsigned long)emittedCount);
+    NSLog(@"Found %lu %@ windows, emitted %lu WINDOW_EXISTING events", (unsigned long)windows.count, self.appDisplayName, (unsigned long)emittedCount);
 }
 
 - (NSArray<NSDictionary *> *)getWordWindows {
@@ -516,9 +525,9 @@ static void axObserverCallback(AXObserverRef observer,
         return;
     }
 
-    // Only emit focus events if Word is the frontmost application
+    // Only emit focus events if target app is the frontmost application
     NSRunningApplication *frontmost = [[NSWorkspace sharedWorkspace] frontmostApplication];
-    if (![frontmost.bundleIdentifier isEqualToString:kMicrosoftWordBundleId]) {
+    if (![frontmost.bundleIdentifier isEqualToString:self.targetBundleId]) {
         return;
     }
 
@@ -655,7 +664,8 @@ static void axObserverCallback(AXObserverRef observer,
 }
 
 - (void)emitDestroyedEventForWindowId:(CGWindowID)windowId {
-    AppInfo *appInfo = [[AppInfo alloc] initWithName:@"Microsoft Word"
+    AppInfo *appInfo = [[AppInfo alloc] initWithName:self.appDisplayName ?: self.targetBundleId
+                                            bundleId:self.targetBundleId
                                                  pid:self.wordPid];
 
     WindowInfo *windowInfo = [[WindowInfo alloc] init];
@@ -776,7 +786,8 @@ static void axObserverCallback(AXObserverRef observer,
 #pragma mark - Event Creation
 
 - (WindowEvent *)createEventFromWindowDict:(NSDictionary *)windowDict eventType:(WindowEventType)eventType {
-    AppInfo *appInfo = [[AppInfo alloc] initWithName:@"Microsoft Word"
+    AppInfo *appInfo = [[AppInfo alloc] initWithName:self.appDisplayName ?: self.targetBundleId
+                                            bundleId:self.targetBundleId
                                                  pid:self.wordPid];
 
     WindowInfo *windowInfo = [[WindowInfo alloc] init];

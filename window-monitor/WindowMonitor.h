@@ -6,15 +6,21 @@
 #import <ApplicationServices/ApplicationServices.h>
 #import "WindowInfo.h"
 
-// Bundle ID for Microsoft Word
-static NSString * const kMicrosoftWordBundleId = @"com.microsoft.Word";
+// Default bundle ID (Microsoft Word) for backwards compatibility
+static NSString * const kDefaultBundleId = @"com.microsoft.Word";
 
 @interface WindowMonitor : NSObject
 
-// Singleton accessor
-+ (instancetype)sharedMonitor;
+// Target application bundle identifier
+@property (nonatomic, copy) NSString *targetBundleId;
 
-// Start monitoring Word windows
+// Display name for the app (auto-detected from NSRunningApplication if not set)
+@property (nonatomic, copy) NSString *appDisplayName;
+
+// Initialize with a specific bundle ID
+- (instancetype)initWithBundleId:(NSString *)bundleId;
+
+// Start monitoring windows for the target app
 - (void)startMonitoring;
 
 // Stop monitoring
