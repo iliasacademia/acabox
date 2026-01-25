@@ -167,7 +167,8 @@
 
 - (void)emitAppEvent:(WindowEventType)eventType {
     AppInfo *appInfo = [[AppInfo alloc] initWithName:self.appDisplayName ?: self.targetBundleId
-                                            bundleId:self.targetBundleId
+                                          identifier:self.targetBundleId
+                                      identifierType:@"bundleId"
                                                  pid:self.wordPid];
 
     WindowEvent *event = [[WindowEvent alloc] initWithEventType:eventType
@@ -665,11 +666,12 @@ static void axObserverCallback(AXObserverRef observer,
 
 - (void)emitDestroyedEventForWindowId:(CGWindowID)windowId {
     AppInfo *appInfo = [[AppInfo alloc] initWithName:self.appDisplayName ?: self.targetBundleId
-                                            bundleId:self.targetBundleId
+                                          identifier:self.targetBundleId
+                                      identifierType:@"bundleId"
                                                  pid:self.wordPid];
 
     WindowInfo *windowInfo = [[WindowInfo alloc] init];
-    windowInfo.windowId = windowId;
+    windowInfo.windowId = [NSString stringWithFormat:@"%u", windowId];
     windowInfo.bounds = nil;
 
     WindowEvent *event = [[WindowEvent alloc] initWithEventType:WindowEventTypeDestroyed
@@ -741,23 +743,9 @@ static void axObserverCallback(AXObserverRef observer,
 }
 
 - (void)getAXAttributesForWindow:(AXUIElementRef)axWindow
-                            role:(NSString **)outRole
-                         subrole:(NSString **)outSubrole
                     documentPath:(NSString **)outDocumentPath {
     if (!axWindow) {
         return;
-    }
-
-    // Get role
-    CFTypeRef roleRef = NULL;
-    if (AXUIElementCopyAttributeValue(axWindow, kAXRoleAttribute, &roleRef) == kAXErrorSuccess && roleRef) {
-        *outRole = (__bridge_transfer NSString *)roleRef;
-    }
-
-    // Get subrole
-    CFTypeRef subroleRef = NULL;
-    if (AXUIElementCopyAttributeValue(axWindow, kAXSubroleAttribute, &subroleRef) == kAXErrorSuccess && subroleRef) {
-        *outSubrole = (__bridge_transfer NSString *)subroleRef;
     }
 
     // Get document path
@@ -787,11 +775,17 @@ static void axObserverCallback(AXObserverRef observer,
 
 - (WindowEvent *)createEventFromWindowDict:(NSDictionary *)windowDict eventType:(WindowEventType)eventType {
     AppInfo *appInfo = [[AppInfo alloc] initWithName:self.appDisplayName ?: self.targetBundleId
-                                            bundleId:self.targetBundleId
+                                          identifier:self.targetBundleId
+                                      identifierType:@"bundleId"
                                                  pid:self.wordPid];
 
     WindowInfo *windowInfo = [[WindowInfo alloc] init];
-    windowInfo.windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
+    CGWindowID windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
+    windowInfo.windowId = [NSString stringWithFormat:@"%u", windowId];
+
+    // Set window title from CGWindow name
+    NSString *windowName = windowDict[(__bridge id)kCGWindowName];
+    windowInfo.title = windowName;
 
     // Parse bounds
     CGRect bounds = CGRectZero;
@@ -804,14 +798,10 @@ static void axObserverCallback(AXObserverRef observer,
     // Find matching AX window and get accessibility attributes
     AXUIElementRef axWindow = [self findAXWindowForBounds:bounds];
     if (axWindow) {
-        NSString *role = nil;
-        NSString *subrole = nil;
         NSString *documentPath = nil;
 
-        [self getAXAttributesForWindow:axWindow role:&role subrole:&subrole documentPath:&documentPath];
+        [self getAXAttributesForWindow:axWindow documentPath:&documentPath];
 
-        windowInfo.role = role;
-        windowInfo.subrole = subrole;
         windowInfo.documentPath = documentPath;
 
         CFRelease(axWindow);

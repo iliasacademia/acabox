@@ -30,18 +30,18 @@ typedef NS_ENUM(NSInteger, WindowEventType) {
 
 @interface AppInfo : NSObject
 @property (nonatomic, copy) NSString *name;
-@property (nonatomic, copy) NSString *bundleId;
+@property (nonatomic, copy) NSString *identifier;
+@property (nonatomic, copy) NSString *identifierType;
 @property (nonatomic, assign) pid_t pid;
 
-- (instancetype)initWithName:(NSString *)name bundleId:(NSString *)bundleId pid:(pid_t)pid;
+- (instancetype)initWithName:(NSString *)name identifier:(NSString *)identifier identifierType:(NSString *)identifierType pid:(pid_t)pid;
 - (NSDictionary *)toDictionary;
 @end
 
 @interface WindowInfo : NSObject
-@property (nonatomic, assign) CGWindowID windowId;
+@property (nonatomic, copy) NSString *windowId;
+@property (nonatomic, copy) NSString *title;
 @property (nonatomic, strong) WindowBounds *bounds;
-@property (nonatomic, copy) NSString *role;
-@property (nonatomic, copy) NSString *subrole;
 @property (nonatomic, copy) NSString *documentPath;
 
 - (NSDictionary *)toDictionary;
@@ -50,6 +50,7 @@ typedef NS_ENUM(NSInteger, WindowEventType) {
 @interface WindowEvent : NSObject
 @property (nonatomic, assign) WindowEventType eventType;
 @property (nonatomic, copy) NSString *timestamp;
+@property (nonatomic, copy) NSString *platform;
 @property (nonatomic, strong) AppInfo *app;
 @property (nonatomic, strong) WindowInfo *window;
 

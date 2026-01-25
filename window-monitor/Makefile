@@ -1,5 +1,5 @@
-# Window Monitor for Microsoft Word
-# Makefile for building the macOS window monitoring tool
+# Window Monitor
+# Makefile for building the window monitoring tool (macOS)
 
 # Compiler settings
 CXX = clang++
@@ -12,10 +12,13 @@ LDFLAGS = -framework Foundation \
 # Target
 TARGET = window-monitor
 
+# Source directory
+SRCDIR = macos
+
 # Source files
-SOURCES = main.mm \
-          WindowMonitor.mm \
-          WindowInfo.mm
+SOURCES = $(SRCDIR)/main.mm \
+          $(SRCDIR)/WindowMonitor.mm \
+          $(SRCDIR)/WindowInfo.mm
 
 # Object files
 OBJECTS = $(SOURCES:.mm=.o)
@@ -28,12 +31,12 @@ $(TARGET): $(OBJECTS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -o $@ $^
 
 # Compile
-%.o: %.mm
-	$(CXX) $(CXXFLAGS) -c -o $@ $<
+$(SRCDIR)/%.o: $(SRCDIR)/%.mm
+	$(CXX) $(CXXFLAGS) -I$(SRCDIR) -c -o $@ $<
 
 # Clean
 clean:
-	rm -f $(TARGET) $(OBJECTS)
+	rm -f $(TARGET) $(OBJECTS) $(SRCDIR)/*.o
 
 # Run
 run: $(TARGET)

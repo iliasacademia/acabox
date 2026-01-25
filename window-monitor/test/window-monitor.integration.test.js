@@ -184,7 +184,7 @@ describe('Window Monitor Integration Tests', () => {
           end tell
         end tell
       `);
-      await delay(1000);
+      await delay(2000);
 
       // Resize the window
       await runAppleScript(`
@@ -194,7 +194,7 @@ describe('Window Monitor Integration Tests', () => {
           end tell
         end tell
       `);
-      await delay(1000);
+      await delay(2000);
 
       // Switch to another app (Finder) and back
       await runAppleScript('tell application "Finder" to activate');
@@ -245,10 +245,13 @@ describe('Window Monitor Integration Tests', () => {
       if (firstWindowEvent) {
         expect(firstWindowEvent.app).toBeDefined();
         expect(firstWindowEvent.app.name).toBe('Microsoft Word');
-        expect(firstWindowEvent.app.bundleId).toBe('com.microsoft.Word');
+        expect(firstWindowEvent.app.identifier).toBe('com.microsoft.Word');
+        expect(firstWindowEvent.app.identifierType).toBe('bundleId');
         expect(firstWindowEvent.app.pid).toBeGreaterThan(0);
+        expect(firstWindowEvent.platform).toBe('macos');
         expect(firstWindowEvent.window).toBeDefined();
-        expect(firstWindowEvent.window.id).toBeGreaterThan(0);
+        expect(typeof firstWindowEvent.window.id).toBe('string');
+        expect(parseInt(firstWindowEvent.window.id)).toBeGreaterThan(0);
         expect(firstWindowEvent.timestamp).toBeDefined();
       }
     },
@@ -256,7 +259,7 @@ describe('Window Monitor Integration Tests', () => {
   );
 
   wordTestFn(
-    'should include bundleId in all events',
+    'should include identifier in all events',
     async () => {
       const wordInstalled = await isWordInstalled();
       if (!wordInstalled) {
@@ -292,10 +295,12 @@ describe('Window Monitor Integration Tests', () => {
       monitorProcess.kill('SIGTERM');
       await delay(500);
 
-      // All events should have bundleId
+      // All events should have identifier and platform
       for (const event of events) {
         expect(event.app).toBeDefined();
-        expect(event.app.bundleId).toBe('com.microsoft.Word');
+        expect(event.app.identifier).toBe('com.microsoft.Word');
+        expect(event.app.identifierType).toBe('bundleId');
+        expect(event.platform).toBe('macos');
       }
     },
     TEST_TIMEOUT

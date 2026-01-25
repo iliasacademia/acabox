@@ -159,7 +159,19 @@ async function runTest() {
     // Create document
     log('blue', '[ACTION] Creating new document...');
     runAppleScript('tell application "Microsoft Word" to make new document');
-    await delay(2000);
+    await delay(3000);
+
+    // Ensure window is focused (registers resize observers)
+    log('blue', '[ACTION] Focusing window...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          set frontmost to true
+          perform action "AXRaise" of window 1
+        end tell
+      end tell
+    `);
+    await delay(1000);
 
     // Move window
     log('blue', '[ACTION] Moving window...');
@@ -170,7 +182,7 @@ async function runTest() {
         end tell
       end tell
     `);
-    await delay(1000);
+    await delay(2000);
 
     // Resize window
     log('blue', '[ACTION] Resizing window...');
@@ -181,7 +193,7 @@ async function runTest() {
         end tell
       end tell
     `);
-    await delay(1000);
+    await delay(2000);
 
     // Switch apps
     log('blue', '[ACTION] Switching to Finder...');
@@ -240,7 +252,8 @@ async function runTest() {
     log('green', '[PASS] Window repositioning events captured');
     passed++;
   } else {
-    log('yellow', '[WARN] Missing repositioning events (may be timing issue)');
+    log('red', '[FAIL] Missing repositioning events');
+    failed++;
   }
 
   // Check focus events
@@ -269,13 +282,23 @@ async function runTest() {
     failed++;
   }
 
-  // Check bundleId in events
-  const hasBundle = events.every((e) => e.app && e.app.bundleId === BUNDLE_ID);
-  if (hasBundle) {
-    log('green', '[PASS] All events include correct bundleId');
+  // Check identifier in events
+  const hasIdentifier = events.every((e) => e.app && e.app.identifier === BUNDLE_ID && e.app.identifierType === 'bundleId');
+  if (hasIdentifier) {
+    log('green', '[PASS] All events include correct identifier');
     passed++;
   } else {
-    log('red', '[FAIL] Some events missing bundleId');
+    log('red', '[FAIL] Some events missing identifier');
+    failed++;
+  }
+
+  // Check platform in events
+  const hasPlatform = events.every((e) => e.platform === 'macos');
+  if (hasPlatform) {
+    log('green', '[PASS] All events include correct platform');
+    passed++;
+  } else {
+    log('red', '[FAIL] Some events missing platform');
     failed++;
   }
 

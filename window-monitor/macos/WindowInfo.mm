@@ -26,11 +26,12 @@
 
 @implementation AppInfo
 
-- (instancetype)initWithName:(NSString *)name bundleId:(NSString *)bundleId pid:(pid_t)pid {
+- (instancetype)initWithName:(NSString *)name identifier:(NSString *)identifier identifierType:(NSString *)identifierType pid:(pid_t)pid {
     self = [super init];
     if (self) {
         _name = [name copy];
-        _bundleId = [bundleId copy];
+        _identifier = [identifier copy];
+        _identifierType = [identifierType copy];
         _pid = pid;
     }
     return self;
@@ -39,7 +40,8 @@
 - (NSDictionary *)toDictionary {
     return @{
         @"name": self.name ?: [NSNull null],
-        @"bundleId": self.bundleId ?: [NSNull null],
+        @"identifier": self.identifier ?: [NSNull null],
+        @"identifierType": self.identifierType ?: @"bundleId",
         @"pid": @(self.pid)
     };
 }
@@ -50,10 +52,9 @@
 
 - (NSDictionary *)toDictionary {
     return @{
-        @"id": @(self.windowId),
+        @"id": self.windowId ?: [NSNull null],
+        @"title": self.title ?: [NSNull null],
         @"bounds": self.bounds ? [self.bounds toDictionary] : [NSNull null],
-        @"role": self.role ?: [NSNull null],
-        @"subrole": self.subrole ?: [NSNull null],
         @"documentPath": self.documentPath ?: [NSNull null]
     };
 }
@@ -68,6 +69,7 @@
         _eventType = eventType;
         _app = app;
         _window = window;
+        _platform = @"macos";
 
         // Generate ISO 8601 timestamp
         NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
@@ -111,6 +113,7 @@
     [json appendString:@"{"];
     [json appendFormat:@"\"event\":\"%@\",", [WindowEvent eventTypeToString:self.eventType]];
     [json appendFormat:@"\"timestamp\":\"%@\",", self.timestamp];
+    [json appendFormat:@"\"platform\":\"%@\",", self.platform];
 
     // App object
     NSError *error;
@@ -135,6 +138,7 @@
     [json appendString:@"{"];
     [json appendFormat:@"\"event\":\"%@\",", [WindowEvent eventTypeToString:self.eventType]];
     [json appendFormat:@"\"timestamp\":\"%@\",", self.timestamp];
+    [json appendFormat:@"\"platform\":\"%@\",", self.platform];
 
     // App object
     NSError *error;
