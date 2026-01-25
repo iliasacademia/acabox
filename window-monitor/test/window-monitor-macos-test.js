@@ -14,6 +14,7 @@ const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { validateEvents } = require('./event-schemas');
 
 // Configuration
 const WINDOW_MONITOR_DIR = path.join(__dirname, '..');
@@ -709,6 +710,21 @@ async function runTest() {
     passed++;
   } else {
     log('red', '[FAIL] Some events missing platform');
+    failed++;
+  }
+
+  // Validate events against Zod schemas
+  log('blue', '\n[VALIDATE] Checking events match expected schemas...');
+  const schemaValidation = validateEvents(events);
+
+  if (schemaValidation.invalid === 0) {
+    log('green', `[PASS] All ${schemaValidation.valid} events match their expected schemas`);
+    passed++;
+  } else {
+    log('red', `[FAIL] ${schemaValidation.invalid} events failed schema validation:`);
+    for (const err of schemaValidation.errors) {
+      log('red', `  - Event ${err.index} (${err.eventType}): ${err.error}`);
+    }
     failed++;
   }
 
