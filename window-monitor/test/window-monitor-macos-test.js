@@ -173,27 +173,39 @@ async function runTest() {
     `);
     await delay(1000);
 
-    // Move window
-    log('blue', '[ACTION] Moving window...');
+    // Move window to a known starting position first
+    log('blue', '[ACTION] Moving window to starting position...');
     runAppleScript(`
       tell application "System Events"
         tell process "Microsoft Word"
-          set position of window 1 to {150, 150}
+          set position of window 1 to {100, 100}
+          set size of window 1 to {800, 600}
         end tell
       end tell
     `);
-    await delay(2000);
+    await delay(1000);
 
-    // Resize window
+    // Now move to a different position (guaranteed to be different)
+    log('blue', '[ACTION] Moving window to new position...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          set position of window 1 to {200, 200}
+        end tell
+      end tell
+    `);
+    await delay(1000);
+
+    // Resize window to a different size
     log('blue', '[ACTION] Resizing window...');
     runAppleScript(`
       tell application "System Events"
         tell process "Microsoft Word"
-          set size of window 1 to {900, 700}
+          set size of window 1 to {1000, 750}
         end tell
       end tell
     `);
-    await delay(2000);
+    await delay(1000);
 
     // Switch apps
     log('blue', '[ACTION] Switching to Finder...');

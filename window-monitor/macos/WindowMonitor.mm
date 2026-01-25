@@ -224,7 +224,7 @@
     [self enumerateExistingWindows];
 
     // Start periodic polling to catch any missed events
-    self.pollingTimer = [NSTimer scheduledTimerWithTimeInterval:0.5
+    self.pollingTimer = [NSTimer scheduledTimerWithTimeInterval:0.2
                                                          target:self
                                                        selector:@selector(pollForChanges)
                                                        userInfo:nil
@@ -234,6 +234,7 @@
 - (void)pollForChanges {
     [self checkForWindowChanges];
     [self checkForFocusChange];
+    [self checkForBoundsChange];  // Poll for bounds changes (detects programmatic moves)
 }
 
 - (void)detachFromApp {
@@ -607,6 +608,48 @@ static void axObserverCallback(AXObserverRef observer,
     }
 
     CFRelease(focusedWindow);
+}
+
+- (void)checkForBoundsChange {
+    if (self.lastFocusedWindowId == 0) {
+        return;
+    }
+
+    NSArray<NSDictionary *> *windows = [self getWordWindows];
+    for (NSDictionary *windowDict in windows) {
+        CGWindowID windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
+        if (windowId != self.lastFocusedWindowId) {
+            continue;
+        }
+
+        CGRect currentBounds = CGRectZero;
+        CGRectMakeWithDictionaryRepresentation(
+            (__bridge CFDictionaryRef)windowDict[(__bridge id)kCGWindowBounds],
+            &currentBounds
+        );
+
+        NSValue *cachedValue = self.windowBoundsCache[@(windowId)];
+        if (!cachedValue) {
+            // No cached bounds, cache current and return
+            self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:currentBounds];
+            return;
+        }
+
+        CGRect cachedBounds = [cachedValue rectValue];
+        CGFloat tolerance = 2.0;
+
+        BOOL boundsChanged =
+            fabs(currentBounds.origin.x - cachedBounds.origin.x) > tolerance ||
+            fabs(currentBounds.origin.y - cachedBounds.origin.y) > tolerance ||
+            fabs(currentBounds.size.width - cachedBounds.size.width) > tolerance ||
+            fabs(currentBounds.size.height - cachedBounds.size.height) > tolerance;
+
+        if (boundsChanged) {
+            // Trigger repositioning flow (same as AX callback)
+            [self handleWindowBoundsChanged:NULL];
+        }
+        break;
+    }
 }
 
 - (void)checkForWindowChanges {

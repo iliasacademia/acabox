@@ -19,7 +19,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:native": "cd src/native && ./run-simple-tests.sh",
-    "test:window-monitor": "node window-monitor/test/run-integration-test.js",
+    "test:window-monitor": "node window-monitor/test/window-monitor-macos-test.js",
     "prebuild": "npm run build:native && npm run build:popup",
     "package": "electron-forge package",
     "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - --identifier com.electron.academia-electron {} \\;",
