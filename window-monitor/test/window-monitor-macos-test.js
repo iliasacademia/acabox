@@ -14,7 +14,7 @@ const { spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { validateEvents } = require('./event-schemas');
+const { validateEvent } = require('./event-schemas');
 
 // Configuration
 const WINDOW_MONITOR_DIR = path.join(__dirname, '..');
@@ -147,6 +147,7 @@ async function runTest() {
   log('blue', '[TEST] Will perform window operations and validate events');
 
   const events = [];
+  const schemaErrors = []; // Track schema validation errors as events arrive
   let stderrOutput = '';
 
   // Track action timestamps and expected results
@@ -177,7 +178,20 @@ async function runTest() {
       try {
         const event = JSON.parse(line);
         events.push(event);
-        log('cyan', `[EVENT] ${event.event}`);
+
+        // Validate event against its specific schema immediately
+        const validation = validateEvent(event);
+        if (validation.success) {
+          log('cyan', `[EVENT] ${event.event} - validated against ${validation.schemaUsed} schema`);
+        } else {
+          log('red', `[EVENT] ${event.event} - SCHEMA ERROR: ${validation.error}`);
+          schemaErrors.push({
+            index: events.length - 1,
+            eventType: validation.eventType,
+            schemaUsed: validation.schemaUsed,
+            error: validation.error,
+          });
+        }
       } catch {
         // Ignore non-JSON output
       }
@@ -713,17 +727,15 @@ async function runTest() {
     failed++;
   }
 
-  // Validate events against Zod schemas
-  log('blue', '\n[VALIDATE] Checking events match expected schemas...');
-  const schemaValidation = validateEvents(events);
-
-  if (schemaValidation.invalid === 0) {
-    log('green', `[PASS] All ${schemaValidation.valid} events match their expected schemas`);
+  // Check schema validation results (validated in real-time as events arrived)
+  log('blue', '\n[VALIDATE] Schema validation summary...');
+  if (schemaErrors.length === 0) {
+    log('green', `[PASS] All ${events.length} events validated against their specific schemas`);
     passed++;
   } else {
-    log('red', `[FAIL] ${schemaValidation.invalid} events failed schema validation:`);
-    for (const err of schemaValidation.errors) {
-      log('red', `  - Event ${err.index} (${err.eventType}): ${err.error}`);
+    log('red', `[FAIL] ${schemaErrors.length} events failed schema validation:`);
+    for (const err of schemaErrors) {
+      log('red', `  - Event ${err.index} (${err.eventType}) against ${err.schemaUsed} schema: ${err.error}`);
     }
     failed++;
   }

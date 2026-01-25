@@ -163,50 +163,38 @@ const EventSchemaMap = {
 };
 
 /**
- * Validate an event against its expected schema.
+ * Validate an event against its specific schema based on event type.
  * @param {object} event - The event object to validate
- * @returns {{ success: boolean, error?: string, eventType?: string }}
+ * @returns {{ success: boolean, error?: string, eventType?: string, schemaUsed?: string }}
  */
 function validateEvent(event) {
-  const result = WindowMonitorEventSchema.safeParse(event);
+  const eventType = event?.event;
+
+  // Check if we have a specific schema for this event type
+  const specificSchema = EventSchemaMap[eventType];
+  if (!specificSchema) {
+    return {
+      success: false,
+      eventType: eventType || 'unknown',
+      schemaUsed: null,
+      error: `Unknown event type: ${eventType}`,
+    };
+  }
+
+  // Validate against the specific schema for this event type
+  const result = specificSchema.safeParse(event);
   if (result.success) {
-    return { success: true, eventType: event.event };
+    return { success: true, eventType, schemaUsed: eventType };
   } else {
     return {
       success: false,
-      eventType: event.event,
+      eventType,
+      schemaUsed: eventType,
       error: result.error.issues
         .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
         .join('; '),
     };
   }
-}
-
-/**
- * Validate an array of events.
- * @param {object[]} events - Array of events to validate
- * @returns {{ valid: number, invalid: number, errors: Array<{index: number, eventType: string, error: string}> }}
- */
-function validateEvents(events) {
-  const errors = [];
-  let valid = 0;
-  let invalid = 0;
-
-  events.forEach((event, index) => {
-    const result = validateEvent(event);
-    if (result.success) {
-      valid++;
-    } else {
-      invalid++;
-      errors.push({
-        index,
-        eventType: result.eventType,
-        error: result.error,
-      });
-    }
-  });
-
-  return { valid, invalid, errors };
 }
 
 module.exports = {
@@ -239,5 +227,4 @@ module.exports = {
   APP_EVENTS,
   WINDOW_EVENTS,
   validateEvent,
-  validateEvents,
 };
