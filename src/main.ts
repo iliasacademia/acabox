@@ -65,6 +65,10 @@ let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let httpServer: AcademiaHttpServer | null = null;
 
+// Flags for app lifecycle management
+let isQuitting = false;
+let isQuittingForUpdate = false;
+
 const createWindow = async (): Promise<void> => {
   const isDevelopment = !app.isPackaged;
 
@@ -240,7 +244,8 @@ const createMainWindow = async (): Promise<void> => {
   mainWindow.on('close', (event) => {
     // On macOS in production, hide window instead of closing it
     // In development, let it close normally so Ctrl+C works
-    if (process.platform === 'darwin' && app.isPackaged) {
+    // Exception: Allow window to close when quitting for update
+    if (process.platform === 'darwin' && app.isPackaged && !isQuittingForUpdate) {
       event.preventDefault();
       mainWindow?.hide();
     }
@@ -1616,8 +1621,6 @@ ipcMain.handle(IPC_CHANNELS.GET_HTTP_SERVER_INFO, async () => {
 
 
 // Cleanup on app quit
-let isQuitting = false;
-let isQuittingForUpdate = false;
 app.on('before-quit', async (event) => {
   // If quitting for update, allow it to proceed naturally
   if (isQuittingForUpdate) {
