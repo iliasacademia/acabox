@@ -1,0 +1,73 @@
+.settingsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settingItem {
+  background-color: #ffffff;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.settingItem:hover {
+  border-color: #0645b1;
+  background-color: #fafafa;
+}
+
+.settingItem.enabled {
+  border-color: #0645b1;
+  background-color: #f0f7ff;
+}
+
+.settingCheckbox {
+  width: 24px;
+  height: 24px;
+  border: 2px solid #e0e0e0;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+  background-color: #ffffff;
+}
+
+.settingItem.enabled .settingCheckbox {
+  border-color: #0645b1;
+  background-color: #ffffff;
+}
+
+.settingContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settingLabel {
+  font-size: 16px;
+  font-weight: 600;
+  color: #141413;
+}
+
+.settingDescription {
+  font-size: 14px;
+  color: #535366;
+  line-height: 1.4;
+}
+
+.settingsError {
+  background-color: #fee;
+  border: 1px solid #fcc;
+  border-radius: 4px;
+  padding: 12px;
+  color: #c33;
+  font-size: 14px;
+}

@@ -6,6 +6,7 @@ import CreateProjectWizard, {
 } from './CreateProjectWizard';
 import AlertDialog from './AlertDialog';
 import ConfirmDialog from './ConfirmDialog';
+import { SettingsModal } from './SettingsModal';
 import {
   Project,
   getProjects,
@@ -45,6 +46,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
   const [showCreateWizard, setShowCreateWizard] = useState(false);
   const [creatingProject, setCreatingProject] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [dialog, setDialog] = useState<DialogState>({
     type: null,
     title: '',
@@ -346,6 +348,16 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
                   <div className="userMenuName">{userName || `User ${userId}`}</div>
                 </div>
                 <div className="userMenuDivider"></div>
+
+                {/* Settings menu item */}
+                <button className="userMenuItem" onClick={() => {
+                  setShowSettingsModal(true);
+                  setShowUserMenu(false);
+                }}>
+                  <span>Settings</span>
+                </button>
+
+                {/* Logout button */}
                 <button className="userMenuItem" onClick={handleLogoutClick}>
                   <span>Logout</span>
                 </button>
@@ -410,6 +422,12 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
           onCancel={() => setDialog({ type: null, title: '', message: '' })}
         />
       )}
+
+      {/* Settings Modal */}
+      <SettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+      />
     </div>
   );
 };

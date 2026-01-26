@@ -1350,6 +1350,10 @@ ipcMain.handle(IPC_CHANNELS.API_CALL, async (_event, options: { method: string; 
       case 'PUT':
         response = await client.put(endpoint, data, { headers });
         break;
+      case 'PATCH':
+        logger.info(`[API] PATCH ${endpoint} with data: ${JSON.stringify(data)}`);
+        response = await client.patch(endpoint, data, { headers });
+        break;
       case 'DELETE':
         response = await client.delete(endpoint, { headers });
         break;
