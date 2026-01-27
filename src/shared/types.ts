@@ -22,6 +22,7 @@ export const IPC_CHANNELS = {
 
   // File operations
   SELECT_FOLDER: 'select-folder',
+  SELECT_FILE: 'select-file',
   UPLOAD_FILES: 'upload-files',
   SEARCH_FILES: 'search-files',
   GET_FOLDER_FILES: 'get-folder-files',

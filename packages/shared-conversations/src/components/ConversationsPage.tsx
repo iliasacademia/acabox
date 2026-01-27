@@ -136,6 +136,7 @@ export function ConversationsPage({
     getProjectStatus,
     triggerFullReview,
     triggerDiffReview,
+    switchManuscript,
   } = useProjectsApi();
 
   // Refresh manuscript file data
@@ -822,6 +823,21 @@ export function ConversationsPage({
     }
   };
 
+  const handleSwitchManuscript = async () => {
+    if (!selectedProject) return;
+
+    const filePath = await window.electronAPI?.invoke('select-file');
+    if (!filePath) return; // User cancelled
+
+    try {
+      await switchManuscript(selectedProject.id, filePath);
+      // Refresh manuscript file data after switch
+      await refreshManuscriptFile();
+    } catch (error) {
+      console.error('Failed to switch manuscript:', error);
+    }
+  };
+
   // Format manuscript update timestamp
   const formatManuscriptTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -899,7 +915,7 @@ export function ConversationsPage({
               {!hideSwitchManuscriptButton && (
                 <button
                   className="secondaryButton"
-                  onClick={() => console.log("Switch Manuscript clicked")}
+                  onClick={handleSwitchManuscript}
                 >
                   Switch Manuscript
                 </button>
