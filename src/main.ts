@@ -1419,11 +1419,12 @@ ipcMain.handle(IPC_CHANNELS.SELECT_FOLDER, async (event) => {
   return result.filePaths[0];
 });
 
-ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event) => {
+ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, defaultPath?: string) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
 
   const result = await dialog.showOpenDialog(senderWindow, {
+    defaultPath,
     properties: ['openFile'],
     filters: [
       { name: 'Documents', extensions: SUPPORTED_DOCUMENT_EXTENSIONS }

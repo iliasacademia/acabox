@@ -30,8 +30,6 @@ interface ConversationDetailProps {
   initialOpenDiffModal?: boolean;
   /** Optional: Called when diff modal is auto-opened via initialOpenDiffModal */
   onDiffModalOpened?: () => void;
-  /** Optional: Disable the message input */
-  disableMessageInput?: boolean;
 }
 
 export function ConversationDetail({
@@ -49,7 +47,6 @@ export function ConversationDetail({
   pollingOptions,
   initialOpenDiffModal,
   onDiffModalOpened,
-  disableMessageInput,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -58,6 +55,7 @@ export function ConversationDetail({
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [isDiffLoading, setIsDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
+  const [disableMessageInput, setDisableMessageInput] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -267,6 +265,26 @@ export function ConversationDetail({
     lastTrackedAssistantMessageId.current = latestAssistantMessage.id;
     lastTrackedConversationId.current = conversation.id;
   }, [messages, conversation, projectId, onMessageReceived]);
+
+  // Calculate disableMessageInput based on manuscript context match
+  useEffect(() => {
+    // For draft conversations or no messages, don't disable
+    if (isDraft(conversation) || messages.length === 0 || !primaryManuscriptId) {
+      setDisableMessageInput(false);
+      return;
+    }
+
+    // Get first message's context file IDs
+    const firstMessage = messages[0];
+    const contextFileIds = firstMessage.contexts
+      .map(ctx => ctx.target_id)
+      .filter((id): id is number => id !== null);
+
+    // Disable if manuscript ID is not in the first message's contexts
+    // (meaning the manuscript has changed since this conversation started)
+    const manuscriptInContext = contextFileIds.includes(primaryManuscriptId);
+    setDisableMessageInput(!manuscriptInContext);
+  }, [messages, primaryManuscriptId, conversation]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();

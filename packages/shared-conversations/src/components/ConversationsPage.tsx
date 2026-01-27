@@ -826,13 +826,28 @@ export function ConversationsPage({
   const handleSwitchManuscript = async () => {
     if (!selectedProject) return;
 
-    const filePath = await window.electronAPI?.invoke('select-file');
+    // Default to current manuscript's directory
+    const defaultDir = manuscriptFile?.file_path
+      ? manuscriptFile.file_path.substring(0, manuscriptFile.file_path.lastIndexOf('/'))
+      : undefined;
+
+    const filePath = await window.electronAPI?.invoke('select-file', defaultDir);
     if (!filePath) return; // User cancelled
 
     try {
       await switchManuscript(selectedProject.id, filePath);
       // Refresh manuscript file data after switch
-      await refreshManuscriptFile();
+      const files = await getProjectFiles(selectedProject.id);
+      const newManuscript = files.find((file) => file.is_primary_manuscript);
+      setManuscriptFile(newManuscript || null);
+
+      // Trigger full review if new manuscript exists
+      if (newManuscript) {
+        setReviewingState('full-reviewing');
+        setIsReviewInProgress(true);
+        await triggerFullReview(selectedProject.id, newManuscript.id);
+        startPolling(newManuscript.id);
+      }
     } catch (error) {
       console.error('Failed to switch manuscript:', error);
     }
