@@ -30,6 +30,8 @@ interface ConversationDetailProps {
   initialOpenDiffModal?: boolean;
   /** Optional: Called when diff modal is auto-opened via initialOpenDiffModal */
   onDiffModalOpened?: () => void;
+  /** Optional: Disable the message input */
+  disableMessageInput?: boolean;
 }
 
 export function ConversationDetail({
@@ -47,6 +49,7 @@ export function ConversationDetail({
   pollingOptions,
   initialOpenDiffModal,
   onDiffModalOpened,
+  disableMessageInput,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -615,7 +618,7 @@ export function ConversationDetail({
               onKeyPress={handleKeyPress}
               placeholder="Or ask anything..."
               rows={3}
-              disabled={isSending}
+              disabled={isSending || disableMessageInput}
             />
             <button
               type="submit"

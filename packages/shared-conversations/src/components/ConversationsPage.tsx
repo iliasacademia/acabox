@@ -47,6 +47,7 @@ export interface ConversationsPageProps {
   hideBackButton?: boolean;
   hideOpenButton?: boolean;
   hideReviewButton?: boolean;
+  hideSwitchManuscriptButton?: boolean;
 
   // Event subscription (for file sync events)
   fileSyncEventName?: string;
@@ -84,6 +85,7 @@ export function ConversationsPage({
   hideBackButton,
   hideOpenButton,
   hideReviewButton,
+  hideSwitchManuscriptButton,
   fileSyncEventName,
   folderSyncStatus = "idle",
   pollingOptions,
@@ -893,6 +895,16 @@ export function ConversationsPage({
         <div className="topBarRight">
           {manuscriptFile && (
             <>
+              {/* Switch Manuscript Button */}
+              {!hideSwitchManuscriptButton && (
+                <button
+                  className="secondaryButton"
+                  onClick={() => console.log("Switch Manuscript clicked")}
+                >
+                  Switch Manuscript
+                </button>
+              )}
+
               {/* Open Button with Dropdown */}
               {!hideOpenButton && (
                 <div className="dropdownContainer">
