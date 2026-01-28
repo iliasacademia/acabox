@@ -121,6 +121,8 @@ export function ConversationsPage({
   const [showReviewDropdown, setShowReviewDropdown] = useState(false);
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [fileExistsLocally, setFileExistsLocally] = useState(true);
+  const [isSwitchingManuscript, setIsSwitchingManuscript] = useState(false);
+  const [switchSuccessMessage, setSwitchSuccessMessage] = useState<string | null>(null);
 
   const apiClient = useApiClient();
 
@@ -834,6 +836,9 @@ export function ConversationsPage({
     const filePath = await window.electronAPI?.invoke('select-file', defaultDir);
     if (!filePath) return; // User cancelled
 
+    setIsSwitchingManuscript(true);
+    setSwitchSuccessMessage(null); // Clear any previous success message
+
     try {
       await switchManuscript(selectedProject.id, filePath);
       // Refresh manuscript file data after switch
@@ -852,9 +857,18 @@ export function ConversationsPage({
         setIsReviewInProgress(true);
         await triggerFullReview(selectedProject.id, newManuscript.id);
         startPolling(newManuscript.id);
+
+        // Show success message
+        setSwitchSuccessMessage('Manuscript switched successfully. Reviewing new manuscript...');
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+          setSwitchSuccessMessage(null);
+        }, 5000);
       }
     } catch (error) {
       console.error('Failed to switch manuscript:', error);
+    } finally {
+      setIsSwitchingManuscript(false);
     }
   };
 
@@ -936,8 +950,9 @@ export function ConversationsPage({
                 <button
                   className="secondaryButton"
                   onClick={handleSwitchManuscript}
+                  disabled={isSwitchingManuscript}
                 >
-                  Switch Manuscript
+                  {isSwitchingManuscript ? 'Switching...' : 'Switch Manuscript'}
                 </button>
               )}
 
@@ -1066,6 +1081,7 @@ export function ConversationsPage({
 
       {/* Review Error */}
       {reviewError && <div className="reviewErrorMessage">{reviewError}</div>}
+      {switchSuccessMessage && <div className="switchSuccessMessage">{switchSuccessMessage}</div>}
 
       {/* Manuscript Feedback Section - Hide when review is in progress with no conversations */}
       {!(isReviewInProgress && !hasConversations) && (

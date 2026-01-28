@@ -619,6 +619,17 @@
     margin: 0 24px;
 }
 
+.switchSuccessMessage {
+    padding: 12px 24px;
+    background-color: #e8f5e9;
+    color: #2e7d32;
+    font-family: var(--font-family-sans);
+    font-size: 14px;
+    line-height: 20px;
+    border-left: 4px solid #2e7d32;
+    margin: 0;
+}
+
 .headerManuscriptInfo .editLink {
     font-family: var(--font-family-sans);
     font-size: 20px;
