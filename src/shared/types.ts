@@ -83,6 +83,7 @@ export const IPC_CHANNELS = {
   START_PROJECT_FOLDER_SYNC: 'start-project-folder-sync',
   STOP_PROJECT_FOLDER_SYNC: 'stop-project-folder-sync',
   STOP_PROJECT_SYNC: 'stop-project-sync',
+  UPDATE_PROJECT_MANUSCRIPT_PATH: 'update-project-manuscript-path',
   PROJECT_SYNC_STATUS: 'project-sync-status',
   PROJECT_SYNC_PROGRESS: 'project-sync-progress',
   PROJECT_FILE_SYNCED: 'project-file-synced',

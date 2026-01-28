@@ -841,6 +841,11 @@ export function ConversationsPage({
       const newManuscript = files.find((file) => file.is_primary_manuscript);
       setManuscriptFile(newManuscript || null);
 
+      // Update ProjectSyncService cache with new manuscript path
+      if (newManuscript?.file_path) {
+        await window.electronAPI?.invoke('update-project-manuscript-path', selectedProject.id, newManuscript.file_path);
+      }
+
       // Trigger full review if new manuscript exists
       if (newManuscript) {
         setReviewingState('full-reviewing');

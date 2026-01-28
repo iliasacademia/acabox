@@ -315,6 +315,25 @@ class ProjectSyncService {
   }
 
   /**
+   * Update the manuscript path for all watched folders of a project
+   */
+  updateManuscriptPath(projectId: number, manuscriptPath: string): void {
+    let updated = false;
+
+    for (const [key, folder] of this.watchedFolders.entries()) {
+      if (folder.projectId === projectId) {
+        folder.manuscriptPath = manuscriptPath;
+        updated = true;
+        logger.debug(`[ProjectSync] Updated manuscriptPath for project ${projectId}: ${manuscriptPath}`);
+      }
+    }
+
+    if (updated) {
+      this.persistState();
+    }
+  }
+
+  /**
    * Start watching a folder WITHOUT performing initial sync
    * Used during app initialization - sync is handled separately by performStartupSync
    */
