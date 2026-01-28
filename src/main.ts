@@ -22,6 +22,8 @@ import { validateCloudFrontDomain } from './utils/validateCloudFrontDomain';
 import { IPC_CHANNELS, NavigateToPagePayload } from './shared/types';
 import { getDeviceId } from './utils/deviceId';
 
+// Supported document extensions (without dots) for file selection and scanning
+const SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'tex', 'rtf'];
 
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -1256,6 +1258,16 @@ ipcMain.handle(IPC_CHANNELS.START_PROJECT_FOLDER_SYNC, async (_event, projectId:
   }
 });
 
+ipcMain.handle(IPC_CHANNELS.UPDATE_PROJECT_MANUSCRIPT_PATH, async (_event, projectId: number, manuscriptPath: string) => {
+  try {
+    projectSyncService.updateManuscriptPath(projectId, manuscriptPath);
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to update manuscript path:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_FOLDER_SYNC, async (_event, projectId: number, folderId: number) => {
   try {
     await projectSyncService.stopWatching(projectId, folderId);
@@ -1417,6 +1429,20 @@ ipcMain.handle(IPC_CHANNELS.SELECT_FOLDER, async (event) => {
   return result.filePaths[0];
 });
 
+ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, defaultPath?: string) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow) return;
+
+  const result = await dialog.showOpenDialog(senderWindow, {
+    defaultPath,
+    properties: ['openFile'],
+    filters: [
+      { name: 'Documents', extensions: SUPPORTED_DOCUMENT_EXTENSIONS }
+    ]
+  });
+  return result.filePaths[0];
+});
+
 // Scan folder for files
 ipcMain.handle(IPC_CHANNELS.SCAN_FOLDER_FOR_FILES, async (_event, folderPaths: string[]) => {
   try {
@@ -1446,10 +1472,9 @@ ipcMain.handle(IPC_CHANNELS.SCAN_FOLDER_FOR_FILES, async (_event, folderPaths: s
               scanDirectory(fullPath);
             } else if (stat.isFile()) {
               // Only include common document types
-              const ext = path.extname(fullPath).toLowerCase();
-              const documentExtensions = ['.pdf', '.doc', '.docx', '.txt', '.md', '.tex', '.rtf'];
+              const ext = path.extname(fullPath).toLowerCase().slice(1); // Remove leading dot
 
-              if (documentExtensions.includes(ext)) {
+              if (SUPPORTED_DOCUMENT_EXTENSIONS.includes(ext)) {
                 const relativePath = path.relative(folderPath, fullPath);
                 allFiles.push({
                   path: fullPath,

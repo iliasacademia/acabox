@@ -119,5 +119,21 @@ export function useProjectsApi() {
       });
       return response;
     },
+
+    /**
+     * Switch the primary manuscript for a project
+     * POST /v0/co_scientist/projects/:id/switch_manuscript
+     */
+    switchManuscript: async (
+      projectId: number,
+      localFilePath: string
+    ): Promise<{ success: boolean }> => {
+      const response = await client.invoke<{ success: boolean }>({
+        method: 'POST',
+        endpoint: `v0/co_scientist/projects/${projectId}/switch_manuscript`,
+        data: { local_file_path: localFilePath },
+      });
+      return response;
+    },
   }), [client]);
 }

@@ -55,6 +55,8 @@ export function ConversationDetail({
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [isDiffLoading, setIsDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
+  const [disableMessageInput, setDisableMessageInput] = useState(false);
+  const [previousManuscriptName, setPreviousManuscriptName] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -264,6 +266,35 @@ export function ConversationDetail({
     lastTrackedAssistantMessageId.current = latestAssistantMessage.id;
     lastTrackedConversationId.current = conversation.id;
   }, [messages, conversation, projectId, onMessageReceived]);
+
+  // Calculate disableMessageInput based on manuscript context match
+  useEffect(() => {
+    // For draft conversations or no messages, don't disable
+    if (isDraft(conversation) || messages.length === 0 || !primaryManuscriptId) {
+      setDisableMessageInput(false);
+      setPreviousManuscriptName(null);
+      return;
+    }
+
+    // Get first message's contexts
+    const firstMessage = messages[0];
+    const contexts = firstMessage.contexts.filter(ctx => ctx.target_id !== null);
+
+    // Check if manuscript ID is in the first message's contexts
+    const manuscriptInContext = contexts.some(ctx => ctx.target_id === primaryManuscriptId);
+
+    // Disable if manuscript ID is not in the first message's contexts
+    // (meaning the manuscript has changed since this conversation started)
+    setDisableMessageInput(!manuscriptInContext);
+
+    // Store the previous manuscript name if disabled
+    if (!manuscriptInContext && contexts.length > 0) {
+      // Use the first context's target_name as the previous manuscript name
+      setPreviousManuscriptName(contexts[0].target_name);
+    } else {
+      setPreviousManuscriptName(null);
+    }
+  }, [messages, primaryManuscriptId, conversation]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -613,9 +644,13 @@ export function ConversationDetail({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Or ask anything..."
+              placeholder={
+                disableMessageInput && previousManuscriptName
+                  ? `Input disabled because this conversation is based on a previous manuscript: ${previousManuscriptName}`
+                  : "Or ask anything..."
+              }
               rows={3}
-              disabled={isSending}
+              disabled={isSending || disableMessageInput}
             />
             <button
               type="submit"

@@ -47,6 +47,7 @@ export interface ConversationsPageProps {
   hideBackButton?: boolean;
   hideOpenButton?: boolean;
   hideReviewButton?: boolean;
+  hideSwitchManuscriptButton?: boolean;
 
   // Event subscription (for file sync events)
   fileSyncEventName?: string;
@@ -84,6 +85,7 @@ export function ConversationsPage({
   hideBackButton,
   hideOpenButton,
   hideReviewButton,
+  hideSwitchManuscriptButton,
   fileSyncEventName,
   folderSyncStatus = "idle",
   pollingOptions,
@@ -119,6 +121,8 @@ export function ConversationsPage({
   const [showReviewDropdown, setShowReviewDropdown] = useState(false);
   const [conversationsLoaded, setConversationsLoaded] = useState(false);
   const [fileExistsLocally, setFileExistsLocally] = useState(true);
+  const [isSwitchingManuscript, setIsSwitchingManuscript] = useState(false);
+  const [switchSuccessMessage, setSwitchSuccessMessage] = useState<string | null>(null);
 
   const apiClient = useApiClient();
 
@@ -134,6 +138,7 @@ export function ConversationsPage({
     getProjectStatus,
     triggerFullReview,
     triggerDiffReview,
+    switchManuscript,
   } = useProjectsApi();
 
   // Refresh manuscript file data
@@ -820,6 +825,53 @@ export function ConversationsPage({
     }
   };
 
+  const handleSwitchManuscript = async () => {
+    if (!selectedProject) return;
+
+    // Default to current manuscript's directory
+    const defaultDir = manuscriptFile?.file_path
+      ? manuscriptFile.file_path.substring(0, manuscriptFile.file_path.lastIndexOf('/'))
+      : undefined;
+
+    const filePath = await window.electronAPI?.invoke('select-file', defaultDir);
+    if (!filePath) return; // User cancelled
+
+    setIsSwitchingManuscript(true);
+    setSwitchSuccessMessage(null); // Clear any previous success message
+
+    try {
+      await switchManuscript(selectedProject.id, filePath);
+      // Refresh manuscript file data after switch
+      const files = await getProjectFiles(selectedProject.id);
+      const newManuscript = files.find((file) => file.is_primary_manuscript);
+      setManuscriptFile(newManuscript || null);
+
+      // Update ProjectSyncService cache with new manuscript path
+      if (newManuscript?.file_path) {
+        await window.electronAPI?.invoke('update-project-manuscript-path', selectedProject.id, newManuscript.file_path);
+      }
+
+      // Trigger full review if new manuscript exists
+      if (newManuscript) {
+        setReviewingState('full-reviewing');
+        setIsReviewInProgress(true);
+        await triggerFullReview(selectedProject.id, newManuscript.id);
+        startPolling(newManuscript.id);
+
+        // Show success message
+        setSwitchSuccessMessage('Manuscript switched successfully. Reviewing new manuscript...');
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+          setSwitchSuccessMessage(null);
+        }, 5000);
+      }
+    } catch (error) {
+      console.error('Failed to switch manuscript:', error);
+    } finally {
+      setIsSwitchingManuscript(false);
+    }
+  };
+
   // Format manuscript update timestamp
   const formatManuscriptTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -893,6 +945,17 @@ export function ConversationsPage({
         <div className="topBarRight">
           {manuscriptFile && (
             <>
+              {/* Switch Manuscript Button */}
+              {!hideSwitchManuscriptButton && (
+                <button
+                  className="secondaryButton"
+                  onClick={handleSwitchManuscript}
+                  disabled={isSwitchingManuscript}
+                >
+                  {isSwitchingManuscript ? 'Switching...' : 'Switch Manuscript'}
+                </button>
+              )}
+
               {/* Open Button with Dropdown */}
               {!hideOpenButton && (
                 <div className="dropdownContainer">
@@ -1018,6 +1081,7 @@ export function ConversationsPage({
 
       {/* Review Error */}
       {reviewError && <div className="reviewErrorMessage">{reviewError}</div>}
+      {switchSuccessMessage && <div className="switchSuccessMessage">{switchSuccessMessage}</div>}
 
       {/* Manuscript Feedback Section - Hide when review is in progress with no conversations */}
       {!(isReviewInProgress && !hasConversations) && (

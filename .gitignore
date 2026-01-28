@@ -48,3 +48,5 @@ src/native/build/
 src/native/build/SimpleTests
 
 .claude/settings.local.json
+
+window-monitor
