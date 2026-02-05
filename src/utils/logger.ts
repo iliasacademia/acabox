@@ -49,6 +49,20 @@ export class Logger {
   }
 
   /**
+   * Convert object arguments to JSON strings for logLayer.
+   * Keeps string and primitive arguments as-is.
+   * Error objects are preserved for proper stack trace handling.
+   */
+  private stringifyObjects(args: any[]): any[] {
+    return args.map(arg => {
+      if (arg !== null && typeof arg === 'object' && !(arg instanceof Error)) {
+        return JSON.stringify(arg);
+      }
+      return arg;
+    });
+  }
+
+  /**
    * Get the log file path
    */
   getLogFilePath(): string {
@@ -107,7 +121,7 @@ export class Logger {
    * Log an info message
    */
   info(...args: any[]): void {
-    logLayer.info(...args);
+    logLayer.info(...this.stringifyObjects(args));
     if (!this.isPackaged && LOGGING_CONFIG.terminalLogging) {
       console.log(...args);
     }
@@ -117,7 +131,7 @@ export class Logger {
    * Log an error message
    */
   error(...args: any[]): void {
-    logLayer.error(...args);
+    logLayer.error(...this.stringifyObjects(args));
     if (!this.isPackaged && LOGGING_CONFIG.terminalLogging) {
       console.error(...args);
     }
@@ -127,7 +141,7 @@ export class Logger {
    * Log a warning message
    */
   warn(...args: any[]): void {
-    logLayer.warn(...args);
+    logLayer.warn(...this.stringifyObjects(args));
     if (!this.isPackaged && LOGGING_CONFIG.terminalLogging) {
       console.warn(...args);
     }
@@ -140,7 +154,7 @@ export class Logger {
   debug(...args: any[]): void {
     // Send to LogLayer (including Datadog) if flag enabled OR in development
     if (!this.isPackaged || DATADOG_DEBUG_LOGS_ENABLED) {
-      logLayer.debug(...args);
+      logLayer.debug(...this.stringifyObjects(args));
     }
     // Console output only in development
     if (!this.isPackaged && LOGGING_CONFIG.terminalLogging) {
