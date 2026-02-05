@@ -15,6 +15,7 @@
 @property (nonatomic, strong) NSTimer *resizeEndTimer;                         // Timer to detect resize end
 @property (nonatomic, assign) CGWindowID lastFocusedWindowId;                  // Track last focused window for polling
 @property (nonatomic, assign) BOOL isMonitoring;
+@property (nonatomic, strong) NSObject *stateLock;
 
 @end
 
@@ -36,12 +37,26 @@
         _wordPid = 0;
         _lastFocusedWindowId = 0;
         _isMonitoring = NO;
+        _stateLock = [[NSObject alloc] init];
     }
     return self;
 }
 
 - (instancetype)init {
     return [self initWithBundleId:kDefaultBundleId];
+}
+
+- (void)dealloc {
+    [self stopMonitoring];
+    if (_axObserver) {
+        CFRelease(_axObserver);
+    }
+    if (_wordAppElement) {
+        CFRelease(_wordAppElement);
+    }
+    if (_observedWindowElement) {
+        CFRelease(_observedWindowElement);
+    }
 }
 
 #pragma mark - Accessibility Permissions
@@ -238,38 +253,40 @@
 }
 
 - (void)detachFromApp {
-    // Stop timers
-    if (self.pollingTimer) {
-        [self.pollingTimer invalidate];
-        self.pollingTimer = nil;
-    }
-    if (self.resizeEndTimer) {
-        [self.resizeEndTimer invalidate];
-        self.resizeEndTimer = nil;
-    }
+    @synchronized(self.stateLock) {
+        // Stop timers
+        if (self.pollingTimer) {
+            [self.pollingTimer invalidate];
+            self.pollingTimer = nil;
+        }
+        if (self.resizeEndTimer) {
+            [self.resizeEndTimer invalidate];
+            self.resizeEndTimer = nil;
+        }
 
-    // Unregister resize observers from focused window
-    [self unregisterResizeObservers];
+        // Unregister resize observers from focused window
+        [self unregisterResizeObservers];
 
-    if (self.axObserver) {
-        CFRunLoopRemoveSource(CFRunLoopGetCurrent(),
-                              AXObserverGetRunLoopSource(self.axObserver),
-                              kCFRunLoopDefaultMode);
-        CFRelease(self.axObserver);
-        self.axObserver = NULL;
+        if (self.axObserver) {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(),
+                                  AXObserverGetRunLoopSource(self.axObserver),
+                                  kCFRunLoopDefaultMode);
+            CFRelease(self.axObserver);
+            self.axObserver = NULL;
+        }
+
+        if (self.wordAppElement) {
+            CFRelease(self.wordAppElement);
+            self.wordAppElement = NULL;
+        }
+
+        self.wordPid = 0;
+        self.isResizing = NO;
+        self.lastBoundsChangeTime = nil;
+        [self.trackedWindowIds removeAllObjects];
+        [self.allKnownWindowIds removeAllObjects];
+        [self.windowBoundsCache removeAllObjects];
     }
-
-    if (self.wordAppElement) {
-        CFRelease(self.wordAppElement);
-        self.wordAppElement = NULL;
-    }
-
-    self.wordPid = 0;
-    self.isResizing = NO;
-    self.lastBoundsChangeTime = nil;
-    [self.trackedWindowIds removeAllObjects];
-    [self.allKnownWindowIds removeAllObjects];
-    [self.windowBoundsCache removeAllObjects];
 }
 
 #pragma mark - Resize Observer Management
@@ -291,23 +308,25 @@
                               kAXResizedNotification,
                               (__bridge void *)self);
 
+    CFRetain(windowElement);
     self.observedWindowElement = windowElement;
-    CFRetain(self.observedWindowElement);
 }
 
 - (void)unregisterResizeObservers {
-    if (self.observedWindowElement && self.axObserver) {
-        AXObserverRemoveNotification(self.axObserver, self.observedWindowElement,
-                                     kAXMovedNotification);
-        AXObserverRemoveNotification(self.axObserver, self.observedWindowElement,
-                                     kAXResizedNotification);
-        CFRelease(self.observedWindowElement);
-        self.observedWindowElement = NULL;
-    }
+    @synchronized(self.stateLock) {
+        if (self.observedWindowElement && self.axObserver) {
+            AXObserverRemoveNotification(self.axObserver, self.observedWindowElement,
+                                         kAXMovedNotification);
+            AXObserverRemoveNotification(self.axObserver, self.observedWindowElement,
+                                         kAXResizedNotification);
+            CFRelease(self.observedWindowElement);
+            self.observedWindowElement = NULL;
+        }
 
-    // If we were resizing, emit the final RESIZED event
-    if (self.isResizing) {
-        [self finishResizing];
+        // If we were resizing, emit the final RESIZED event
+        if (self.isResizing) {
+            [self finishResizing];
+        }
     }
 }
 
@@ -431,53 +450,59 @@ static void axObserverCallback(AXObserverRef observer,
 }
 
 - (void)handleWindowBoundsChanged:(AXUIElementRef)windowElement {
-    // Cancel any pending resize end timer
-    if (self.resizeEndTimer) {
-        [self.resizeEndTimer invalidate];
-        self.resizeEndTimer = nil;
+    @synchronized(self.stateLock) {
+        // Cancel any pending resize end timer
+        if (self.resizeEndTimer) {
+            [self.resizeEndTimer invalidate];
+            self.resizeEndTimer = nil;
+        }
+
+        // If not already resizing, emit WINDOW_RESIZING
+        if (!self.isResizing) {
+            self.isResizing = YES;
+
+            // Find the window and emit RESIZING event
+            [self emitResizingEventForFocusedWindow];
+        }
+
+        // Update last change time
+        self.lastBoundsChangeTime = [NSDate date];
+
+        // Schedule timer to detect when resizing stops
+        self.resizeEndTimer = [NSTimer scheduledTimerWithTimeInterval:0.15
+                                                               target:self
+                                                             selector:@selector(checkResizeEnd)
+                                                             userInfo:nil
+                                                              repeats:NO];
     }
-
-    // If not already resizing, emit WINDOW_RESIZING
-    if (!self.isResizing) {
-        self.isResizing = YES;
-
-        // Find the window and emit RESIZING event
-        [self emitResizingEventForFocusedWindow];
-    }
-
-    // Update last change time
-    self.lastBoundsChangeTime = [NSDate date];
-
-    // Schedule timer to detect when resizing stops
-    self.resizeEndTimer = [NSTimer scheduledTimerWithTimeInterval:0.15
-                                                           target:self
-                                                         selector:@selector(checkResizeEnd)
-                                                         userInfo:nil
-                                                          repeats:NO];
 }
 
 - (void)checkResizeEnd {
-    self.resizeEndTimer = nil;
+    @synchronized(self.stateLock) {
+        self.resizeEndTimer = nil;
 
-    // If enough time passed since last bounds change, resize is done
-    if (self.isResizing && self.lastBoundsChangeTime) {
-        NSTimeInterval elapsed = [[NSDate date] timeIntervalSinceDate:self.lastBoundsChangeTime];
-        if (elapsed >= 0.1) {
-            [self finishResizing];
+        // If enough time passed since last bounds change, resize is done
+        if (self.isResizing && self.lastBoundsChangeTime) {
+            NSTimeInterval elapsed = [[NSDate date] timeIntervalSinceDate:self.lastBoundsChangeTime];
+            if (elapsed >= 0.1) {
+                [self finishResizing];
+            }
         }
     }
 }
 
 - (void)finishResizing {
-    if (!self.isResizing) {
-        return;
+    @synchronized(self.stateLock) {
+        if (!self.isResizing) {
+            return;
+        }
+
+        self.isResizing = NO;
+        self.lastBoundsChangeTime = nil;
+
+        // Emit WINDOW_RESIZED event with final bounds
+        [self emitResizedEventForFocusedWindow];
     }
-
-    self.isResizing = NO;
-    self.lastBoundsChangeTime = nil;
-
-    // Emit WINDOW_RESIZED event with final bounds
-    [self emitResizedEventForFocusedWindow];
 }
 
 - (void)emitResizingEventForFocusedWindow {
@@ -512,7 +537,9 @@ static void axObserverCallback(AXObserverRef observer,
                 (__bridge CFDictionaryRef)windowDict[(__bridge id)kCGWindowBounds],
                 &bounds
             );
-            self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:bounds];
+            @synchronized(self.stateLock) {
+                self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:bounds];
+            }
 
             WindowEvent *event = [self createEventFromWindowDict:windowDict
                                                        eventType:WindowEventTypeRepositioned];
@@ -594,14 +621,16 @@ static void axObserverCallback(AXObserverRef observer,
             CGWindowID windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
 
             // Only emit if focus actually changed
-            if (windowId != self.lastFocusedWindowId) {
-                self.lastFocusedWindowId = windowId;
+            @synchronized(self.stateLock) {
+                if (windowId != self.lastFocusedWindowId) {
+                    self.lastFocusedWindowId = windowId;
 
-                // Register resize observers on the newly focused window
-                [self registerResizeObserversForWindow:focusedWindow];
+                    // Register resize observers on the newly focused window
+                    [self registerResizeObserversForWindow:focusedWindow];
 
-                WindowEvent *event = [self createEventFromWindowDict:windowDict eventType:WindowEventTypeFocused];
-                [self emitEvent:event];
+                    WindowEvent *event = [self createEventFromWindowDict:windowDict eventType:WindowEventTypeFocused];
+                    [self emitEvent:event];
+                }
             }
             break;
         }
@@ -611,14 +640,19 @@ static void axObserverCallback(AXObserverRef observer,
 }
 
 - (void)checkForBoundsChange {
-    if (self.lastFocusedWindowId == 0) {
+    CGWindowID focusedWindowId;
+    @synchronized(self.stateLock) {
+        focusedWindowId = self.lastFocusedWindowId;
+    }
+
+    if (focusedWindowId == 0) {
         return;
     }
 
     NSArray<NSDictionary *> *windows = [self getWordWindows];
     for (NSDictionary *windowDict in windows) {
         CGWindowID windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
-        if (windowId != self.lastFocusedWindowId) {
+        if (windowId != focusedWindowId) {
             continue;
         }
 
@@ -628,25 +662,27 @@ static void axObserverCallback(AXObserverRef observer,
             &currentBounds
         );
 
-        NSValue *cachedValue = self.windowBoundsCache[@(windowId)];
-        if (!cachedValue) {
-            // No cached bounds, cache current and return
-            self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:currentBounds];
-            return;
-        }
+        @synchronized(self.stateLock) {
+            NSValue *cachedValue = self.windowBoundsCache[@(windowId)];
+            if (!cachedValue) {
+                // No cached bounds, cache current and return
+                self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:currentBounds];
+                return;
+            }
 
-        CGRect cachedBounds = [cachedValue rectValue];
-        CGFloat tolerance = 2.0;
+            CGRect cachedBounds = [cachedValue rectValue];
+            CGFloat tolerance = 2.0;
 
-        BOOL boundsChanged =
-            fabs(currentBounds.origin.x - cachedBounds.origin.x) > tolerance ||
-            fabs(currentBounds.origin.y - cachedBounds.origin.y) > tolerance ||
-            fabs(currentBounds.size.width - cachedBounds.size.width) > tolerance ||
-            fabs(currentBounds.size.height - cachedBounds.size.height) > tolerance;
+            BOOL boundsChanged =
+                fabs(currentBounds.origin.x - cachedBounds.origin.x) > tolerance ||
+                fabs(currentBounds.origin.y - cachedBounds.origin.y) > tolerance ||
+                fabs(currentBounds.size.width - cachedBounds.size.width) > tolerance ||
+                fabs(currentBounds.size.height - cachedBounds.size.height) > tolerance;
 
-        if (boundsChanged) {
-            // Trigger repositioning flow (same as AX callback)
-            [self handleWindowBoundsChanged:NULL];
+            if (boundsChanged) {
+                // Trigger repositioning flow (same as AX callback)
+                [self handleWindowBoundsChanged:NULL];
+            }
         }
         break;
     }
@@ -660,41 +696,47 @@ static void axObserverCallback(AXObserverRef observer,
     for (NSDictionary *windowDict in currentWindows) {
         CGWindowID windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
         [currentWindowIds addObject:@(windowId)];
-
-        // Track ALL new windows for destroy detection
-        BOOL isNewWindow = ![self.allKnownWindowIds containsObject:@(windowId)];
-        if (isNewWindow) {
-            [self.allKnownWindowIds addObject:@(windowId)];
-        }
-
-        // Only emit WINDOW_CREATED for windows with role "AXWindow" that we haven't emitted for yet
-        if (![self.trackedWindowIds containsObject:@(windowId)]) {
-            CGRect bounds = CGRectZero;
-            CGRectMakeWithDictionaryRepresentation(
-                (__bridge CFDictionaryRef)windowDict[(__bridge id)kCGWindowBounds],
-                &bounds
-            );
-
-            NSString *role = [self getRoleForWindowAtBounds:bounds];
-            if ([role isEqualToString:@"AXWindow"]) {
-                [self.trackedWindowIds addObject:@(windowId)];
-                // Cache initial bounds for resize detection
-                self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:bounds];
-                WindowEvent *event = [self createEventFromWindowDict:windowDict eventType:WindowEventTypeCreated];
-                [self emitEvent:event];
-            }
-        }
     }
 
-    // Check for destroyed windows - emit for ALL windows that disappeared (no filtering)
-    NSMutableSet<NSNumber *> *destroyedWindowIds = [self.allKnownWindowIds mutableCopy];
-    [destroyedWindowIds minusSet:currentWindowIds];
+    @synchronized(self.stateLock) {
+        for (NSDictionary *windowDict in currentWindows) {
+            CGWindowID windowId = [windowDict[(__bridge id)kCGWindowNumber] unsignedIntValue];
 
-    for (NSNumber *windowId in destroyedWindowIds) {
-        [self.allKnownWindowIds removeObject:windowId];
-        [self.trackedWindowIds removeObject:windowId];  // Also remove from tracked if present
-        [self.windowBoundsCache removeObjectForKey:windowId];  // Clean up bounds cache
-        [self emitDestroyedEventForWindowId:[windowId unsignedIntValue]];
+            // Track ALL new windows for destroy detection
+            BOOL isNewWindow = ![self.allKnownWindowIds containsObject:@(windowId)];
+            if (isNewWindow) {
+                [self.allKnownWindowIds addObject:@(windowId)];
+            }
+
+            // Only emit WINDOW_CREATED for windows with role "AXWindow" that we haven't emitted for yet
+            if (![self.trackedWindowIds containsObject:@(windowId)]) {
+                CGRect bounds = CGRectZero;
+                CGRectMakeWithDictionaryRepresentation(
+                    (__bridge CFDictionaryRef)windowDict[(__bridge id)kCGWindowBounds],
+                    &bounds
+                );
+
+                NSString *role = [self getRoleForWindowAtBounds:bounds];
+                if ([role isEqualToString:@"AXWindow"]) {
+                    [self.trackedWindowIds addObject:@(windowId)];
+                    // Cache initial bounds for resize detection
+                    self.windowBoundsCache[@(windowId)] = [NSValue valueWithRect:bounds];
+                    WindowEvent *event = [self createEventFromWindowDict:windowDict eventType:WindowEventTypeCreated];
+                    [self emitEvent:event];
+                }
+            }
+        }
+
+        // Check for destroyed windows - emit for ALL windows that disappeared (no filtering)
+        NSMutableSet<NSNumber *> *destroyedWindowIds = [self.allKnownWindowIds mutableCopy];
+        [destroyedWindowIds minusSet:currentWindowIds];
+
+        for (NSNumber *windowId in destroyedWindowIds) {
+            [self.allKnownWindowIds removeObject:windowId];
+            [self.trackedWindowIds removeObject:windowId];  // Also remove from tracked if present
+            [self.windowBoundsCache removeObjectForKey:windowId];  // Clean up bounds cache
+            [self emitDestroyedEventForWindowId:[windowId unsignedIntValue]];
+        }
     }
 }
 
