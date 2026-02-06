@@ -190,6 +190,7 @@ export class AcademiaHttpServer {
               academiaNotifications: `${baseUrl}/ui/popup/academiaNotifications/?pid=${pidInfo.pid}&token=${token}`,
               academiaNotificationsButton: `${baseUrl}/ui/popup/academiaNotificationsButton/?pid=${pidInfo.pid}&token=${token}`,
               academiaNotificationsButtonV2: `${baseUrl}/ui/popup/academiaNotificationsButtonV2/?pid=${pidInfo.pid}&token=${token}`,
+              academiaNotificationsV2: `${baseUrl}/ui/popup/academiaNotificationsV2/?pid=${pidInfo.pid}&token=${token}`,
             },
             webSocketUrl: `${wsBaseUrl}/ws/word/${pidInfo.pid}?token=${token}`,
           })),
