@@ -18,7 +18,7 @@ const { validateEvent } = require('./event-schemas');
 
 // Configuration
 const WINDOW_MONITOR_DIR = path.join(__dirname, '..');
-const WINDOW_MONITOR_PATH = process.env.WINDOW_MONITOR_BIN || path.join(WINDOW_MONITOR_DIR, 'window-monitor');
+const WINDOW_MONITOR_PATH = process.env.WINDOW_MONITOR_BIN || path.join(WINDOW_MONITOR_DIR, 'rust', 'target', 'release', 'window-monitor');
 const BUNDLE_ID = process.argv[2] || 'com.microsoft.Word';
 const LOG_FILE = path.join(os.tmpdir(), 'window-monitor-test.log');
 const TIMESTAMP_TOLERANCE_MS = 2000; // Allow 2 seconds tolerance for event timing (includes gradual movement duration)
@@ -69,8 +69,8 @@ async function isWordInstalled() {
 async function buildMonitor() {
   log('blue', '\n[BUILD] Building window-monitor...');
   try {
-    execSync('make clean && make', {
-      cwd: WINDOW_MONITOR_DIR,
+    execSync('cargo build --release', {
+      cwd: path.join(WINDOW_MONITOR_DIR, 'rust'),
       encoding: 'utf8',
       stdio: 'inherit',
     });

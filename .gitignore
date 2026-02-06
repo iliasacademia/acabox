@@ -49,8 +49,6 @@ src/native/build/SimpleTests
 
 .claude/settings.local.json
 
-# Window monitor binary
-window-monitor/window-monitor
 # Window monitor Rust build artifacts
 window-monitor/rust/target/
 
