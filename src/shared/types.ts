@@ -143,6 +143,8 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 export const FEATURES = {
   CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
   MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
+  MS_WORD_V1_ENABLED: false, // V1: wordIntegrationService + wordAccessibility overlay
+  MS_WORD_V2_ENABLED: true, // V2: new implementation
   TEXT_SIDE_BUTTON_ENABLED: false, // Toggle TextSideButton/Popup in Word overlay
   OVERALL_REVIEW_BUTTON_ENABLED: false, // Toggle OverallReviewButton/Popup in Word overlay
   SCROLL_TRACKING_ENABLED: false, // Toggle scroll tracking in Word overlay
