@@ -414,7 +414,7 @@ impl WindowMonitor {
                 bounds: None,
             });
 
-            let role = self.get_role_for_window_at_bounds(w.bounds.x, w.bounds.y, w.bounds.width, w.bounds.height);
+            let role = self.get_role_for_window(w.window_id);
             if role.as_deref() != Some("AXWindow") {
                 continue;
             }
@@ -465,12 +465,7 @@ impl WindowMonitor {
 
             let is_emitted = self.windows.get(&w.window_id).is_some_and(|tw| tw.is_emitted);
             if !is_emitted {
-                let role = self.get_role_for_window_at_bounds(
-                    w.bounds.x,
-                    w.bounds.y,
-                    w.bounds.width,
-                    w.bounds.height,
-                );
+                let role = self.get_role_for_window(w.window_id);
                 if role.as_deref() == Some("AXWindow") {
                     let entry = self.windows.get_mut(&w.window_id).unwrap();
                     entry.is_emitted = true;
@@ -514,34 +509,26 @@ impl WindowMonitor {
             None => return,
         };
 
-        let (fx, fy) = match accessibility::get_position(&focused) {
-            Some(p) => p,
-            None => return,
-        };
-        let (fw, fh) = match accessibility::get_size(&focused) {
-            Some(s) => s,
+        // Use CGWindowID to identify the focused window instead of bounds matching
+        let focused_window_id = match accessibility::get_window_id(&focused) {
+            Some(id) => id,
             None => return,
         };
 
-        for w in current_windows {
-            if bounds_match(
-                w.bounds.x, w.bounds.y, w.bounds.width, w.bounds.height,
-                fx, fy, fw, fh,
-            ) {
-                if w.window_id != self.last_focused_window_id {
-                    // Register new observers first (unregisters old, finishing any pending
-                    // resize with the OLD focused window ID still set — correct!)
-                    let retained = focused.retain();
-                    self.register_resize_observers_for_window(retained);
+        if focused_window_id != self.last_focused_window_id {
+            // Find the matching CGWindow entry for event data
+            if let Some(w) = current_windows.iter().find(|w| w.window_id == focused_window_id) {
+                // Register new observers first (unregisters old, finishing any pending
+                // resize with the OLD focused window ID still set — correct!)
+                let retained = focused.retain();
+                self.register_resize_observers_for_window(retained);
 
-                    // NOW update the focused window ID
-                    self.last_focused_window_id = w.window_id;
+                // NOW update the focused window ID
+                self.last_focused_window_id = w.window_id;
 
-                    let window_info = self.create_window_info_from_entry(w);
-                    let app = self.app_info();
-                    event_models::emit_window_event(EventType::WindowFocused, &app, window_info);
-                }
-                break;
+                let window_info = self.create_window_info_from_entry(w);
+                let app = self.app_info();
+                event_models::emit_window_event(EventType::WindowFocused, &app, window_info);
             }
         }
     }
@@ -651,34 +638,20 @@ impl WindowMonitor {
         event_models::emit_window_event(EventType::WindowDestroyed, &app, window_info);
     }
 
-    /// Find an AXWindow matching the given bounds and return its role.
-    fn get_role_for_window_at_bounds(
-        &self,
-        x: f64,
-        y: f64,
-        w: f64,
-        h: f64,
-    ) -> Option<String> {
-        let ax_window = self.find_ax_window_for_bounds(x, y, w, h)?;
+    /// Get the AXRole for a window identified by its CGWindowID.
+    fn get_role_for_window(&self, window_id: u32) -> Option<String> {
+        let ax_window = self.find_ax_window_for_id(window_id)?;
         accessibility::get_role(&ax_window)
     }
 
-    /// Find an AX window element matching the given CGWindow bounds.
-    fn find_ax_window_for_bounds(
-        &self,
-        x: f64,
-        y: f64,
-        w: f64,
-        h: f64,
-    ) -> Option<SafeAXUIElement> {
+    /// Find an AX window element matching a CGWindowID.
+    fn find_ax_window_for_id(&self, window_id: u32) -> Option<SafeAXUIElement> {
         let app_element = self.app_element.as_ref()?;
         let ax_windows = accessibility::get_ax_windows(app_element);
 
         for ax_win in ax_windows {
-            if let Some((ax, ay, aw, ah)) = accessibility::get_bounds(&ax_win) {
-                if bounds_match(x, y, w, h, ax, ay, aw, ah) {
-                    return Some(ax_win);
-                }
+            if accessibility::get_window_id(&ax_win) == Some(window_id) {
+                return Some(ax_win);
             }
         }
 
@@ -689,12 +662,7 @@ impl WindowMonitor {
     fn create_window_info_from_entry(&self, entry: &WindowListEntry) -> WindowInfoOutput {
         let mut document_path = None;
 
-        if let Some(ax_window) = self.find_ax_window_for_bounds(
-            entry.bounds.x,
-            entry.bounds.y,
-            entry.bounds.width,
-            entry.bounds.height,
-        ) {
+        if let Some(ax_window) = self.find_ax_window_for_id(entry.window_id) {
             document_path = accessibility::get_document(&ax_window);
         }
 
@@ -758,13 +726,3 @@ pub unsafe extern "C" fn ax_observer_callback(
     }
 }
 
-/// Check if two bounds match within tolerance.
-fn bounds_match(
-    x1: f64, y1: f64, w1: f64, h1: f64,
-    x2: f64, y2: f64, w2: f64, h2: f64,
-) -> bool {
-    (x1 - x2).abs() < BOUNDS_TOLERANCE
-        && (y1 - y2).abs() < BOUNDS_TOLERANCE
-        && (w1 - w2).abs() < BOUNDS_TOLERANCE
-        && (h1 - h2).abs() < BOUNDS_TOLERANCE
-}

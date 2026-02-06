@@ -9,14 +9,9 @@ use std::sync::LazyLock;
 
 pub type AXUIElementRef = *mut c_void;
 pub type AXObserverRef = *mut c_void;
-pub type AXValueRef = *mut c_void;
 pub type AXError = i32;
 
 pub const K_AX_ERROR_SUCCESS: AXError = 0;
-
-// AXValue types
-pub const K_AX_VALUE_TYPE_CGPOINT: u32 = 1;
-pub const K_AX_VALUE_TYPE_CGSIZE: u32 = 2;
 
 /// Callback signature for AXObserver.
 pub type AXObserverCallback = unsafe extern "C" fn(
@@ -63,11 +58,8 @@ extern "C" {
         value: *mut core_foundation_sys::base::CFTypeRef,
     ) -> AXError;
 
-    pub fn AXValueGetValue(
-        value: AXValueRef,
-        value_type: u32,
-        value_ptr: *mut c_void,
-    ) -> bool;
+    /// Private but stable API: get the CGWindowID for an AXUIElement.
+    fn _AXUIElementGetWindow(element: AXUIElementRef, window_id: *mut u32) -> AXError;
 }
 
 // --- AX Constants (defined as CFSTR macros in macOS headers) ---
@@ -98,8 +90,6 @@ static AX_RESIZED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXResized"))
 // Attribute constants
 static AX_FOCUSED_WINDOW: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFocusedWindow"));
 static AX_WINDOWS: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXWindows"));
-static AX_POSITION: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXPosition"));
-static AX_SIZE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSize"));
 static AX_ROLE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXRole"));
 static AX_DOCUMENT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXDocument"));
 
@@ -126,12 +116,6 @@ fn k_ax_focused_window_attribute() -> core_foundation_sys::string::CFStringRef {
 }
 fn k_ax_windows_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_WINDOWS.0
-}
-fn k_ax_position_attribute() -> core_foundation_sys::string::CFStringRef {
-    AX_POSITION.0
-}
-fn k_ax_size_attribute() -> core_foundation_sys::string::CFStringRef {
-    AX_SIZE.0
 }
 fn k_ax_role_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_ROLE.0
@@ -341,73 +325,6 @@ pub fn get_ax_windows(app_element: &SafeAXUIElement) -> Vec<SafeAXUIElement> {
     result
 }
 
-/// Get the position (CGPoint) of a window element.
-pub fn get_position(element: &SafeAXUIElement) -> Option<(f64, f64)> {
-    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
-    let err = unsafe {
-        AXUIElementCopyAttributeValue(element.raw(), k_ax_position_attribute(), &mut value)
-    };
-    if err != K_AX_ERROR_SUCCESS || value.is_null() {
-        return None;
-    }
-
-    let mut point = core_graphics::geometry::CGPoint::new(0.0, 0.0);
-    let ok = unsafe {
-        AXValueGetValue(
-            value as _,
-            K_AX_VALUE_TYPE_CGPOINT,
-            &mut point as *mut _ as *mut c_void,
-        )
-    };
-
-    unsafe {
-        core_foundation_sys::base::CFRelease(value);
-    }
-
-    if ok {
-        Some((point.x, point.y))
-    } else {
-        None
-    }
-}
-
-/// Get the size (CGSize) of a window element.
-pub fn get_size(element: &SafeAXUIElement) -> Option<(f64, f64)> {
-    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
-    let err = unsafe {
-        AXUIElementCopyAttributeValue(element.raw(), k_ax_size_attribute(), &mut value)
-    };
-    if err != K_AX_ERROR_SUCCESS || value.is_null() {
-        return None;
-    }
-
-    let mut size = core_graphics::geometry::CGSize::new(0.0, 0.0);
-    let ok = unsafe {
-        AXValueGetValue(
-            value as _,
-            K_AX_VALUE_TYPE_CGSIZE,
-            &mut size as *mut _ as *mut c_void,
-        )
-    };
-
-    unsafe {
-        core_foundation_sys::base::CFRelease(value);
-    }
-
-    if ok {
-        Some((size.width, size.height))
-    } else {
-        None
-    }
-}
-
-/// Get the bounds (position + size) of a window element.
-pub fn get_bounds(element: &SafeAXUIElement) -> Option<(f64, f64, f64, f64)> {
-    let (x, y) = get_position(element)?;
-    let (w, h) = get_size(element)?;
-    Some((x, y, w, h))
-}
-
 /// Get the AXRole string of a window element.
 pub fn get_role(element: &SafeAXUIElement) -> Option<String> {
     let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
@@ -432,4 +349,16 @@ pub fn get_document(element: &SafeAXUIElement) -> Option<String> {
     }
     let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(value as _) };
     Some(cf_str.to_string())
+}
+
+/// Get the CGWindowID associated with an AXUIElement window.
+/// Uses the private but widely-used and stable `_AXUIElementGetWindow` API.
+pub fn get_window_id(element: &SafeAXUIElement) -> Option<u32> {
+    let mut window_id: u32 = 0;
+    let err = unsafe { _AXUIElementGetWindow(element.raw(), &mut window_id) };
+    if err == K_AX_ERROR_SUCCESS && window_id != 0 {
+        Some(window_id)
+    } else {
+        None
+    }
 }
