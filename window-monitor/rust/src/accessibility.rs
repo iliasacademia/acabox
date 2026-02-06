@@ -3,6 +3,7 @@ use core_foundation::runloop::CFRunLoopSource;
 use core_foundation::string::CFString;
 use std::ffi::c_void;
 use std::ptr;
+use std::sync::LazyLock;
 
 // --- Raw FFI bindings for Accessibility API ---
 
@@ -71,56 +72,75 @@ extern "C" {
 
 // --- AX Constants (defined as CFSTR macros in macOS headers) ---
 // These are not exported symbols; they must be constructed at runtime.
+// LazyLock ensures each constant is created exactly once (no leak-per-call).
 
-/// Helper to create a static-like CFStringRef from a string literal.
-/// The returned CFString is leaked intentionally (lives for the process lifetime).
-fn ax_cfstr(s: &str) -> core_foundation_sys::string::CFStringRef {
+/// Wrapper to make CFStringRef usable in LazyLock statics.
+/// Safety: CFString objects are immutable and thread-safe once created.
+struct SyncCFStr(core_foundation_sys::string::CFStringRef);
+unsafe impl Send for SyncCFStr {}
+unsafe impl Sync for SyncCFStr {}
+
+/// Create a leaked CFStringRef that lives for the process lifetime.
+fn ax_cfstr(s: &str) -> SyncCFStr {
     let cf = CFString::new(s);
     let ptr = cf.as_concrete_TypeRef();
-    std::mem::forget(cf); // Leak: these are process-lifetime constants
-    ptr
+    std::mem::forget(cf);
+    SyncCFStr(ptr)
 }
 
 // Notification constants
-pub fn k_ax_window_created_notification() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXWindowCreated")
-}
-pub fn k_ax_ui_element_destroyed_notification() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXUIElementDestroyed")
-}
-pub fn k_ax_focused_window_changed_notification() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXFocusedWindowChanged")
-}
-pub fn k_ax_moved_notification() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXMoved")
-}
-pub fn k_ax_resized_notification() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXResized")
-}
+static AX_WINDOW_CREATED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXWindowCreated"));
+static AX_UI_ELEMENT_DESTROYED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXUIElementDestroyed"));
+static AX_FOCUSED_WINDOW_CHANGED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFocusedWindowChanged"));
+static AX_MOVED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXMoved"));
+static AX_RESIZED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXResized"));
 
 // Attribute constants
-pub fn k_ax_focused_window_attribute() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXFocusedWindow")
-}
-pub fn k_ax_windows_attribute() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXWindows")
-}
-pub fn k_ax_position_attribute() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXPosition")
-}
-pub fn k_ax_size_attribute() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXSize")
-}
-pub fn k_ax_role_attribute() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXRole")
-}
-pub fn k_ax_document_attribute() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXDocument")
-}
+static AX_FOCUSED_WINDOW: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFocusedWindow"));
+static AX_WINDOWS: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXWindows"));
+static AX_POSITION: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXPosition"));
+static AX_SIZE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSize"));
+static AX_ROLE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXRole"));
+static AX_DOCUMENT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXDocument"));
 
 // Trusted check option
-pub fn k_ax_trusted_check_option_prompt() -> core_foundation_sys::string::CFStringRef {
-    ax_cfstr("AXTrustedCheckOptionPrompt")
+static AX_TRUSTED_CHECK_OPTION_PROMPT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXTrustedCheckOptionPrompt"));
+
+pub fn k_ax_window_created_notification() -> core_foundation_sys::string::CFStringRef {
+    AX_WINDOW_CREATED.0
+}
+pub fn k_ax_ui_element_destroyed_notification() -> core_foundation_sys::string::CFStringRef {
+    AX_UI_ELEMENT_DESTROYED.0
+}
+pub fn k_ax_focused_window_changed_notification() -> core_foundation_sys::string::CFStringRef {
+    AX_FOCUSED_WINDOW_CHANGED.0
+}
+pub fn k_ax_moved_notification() -> core_foundation_sys::string::CFStringRef {
+    AX_MOVED.0
+}
+pub fn k_ax_resized_notification() -> core_foundation_sys::string::CFStringRef {
+    AX_RESIZED.0
+}
+fn k_ax_focused_window_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_FOCUSED_WINDOW.0
+}
+fn k_ax_windows_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_WINDOWS.0
+}
+fn k_ax_position_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_POSITION.0
+}
+fn k_ax_size_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_SIZE.0
+}
+fn k_ax_role_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_ROLE.0
+}
+fn k_ax_document_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_DOCUMENT.0
+}
+fn k_ax_trusted_check_option_prompt() -> core_foundation_sys::string::CFStringRef {
+    AX_TRUSTED_CHECK_OPTION_PROMPT.0
 }
 
 // --- RAII Wrappers ---

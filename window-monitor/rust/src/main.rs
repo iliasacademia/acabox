@@ -9,8 +9,11 @@ use clap::Parser;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
+
+const POLL_INTERVAL_MS: u128 = 200;
+const RUNLOOP_TIMEOUT_SECS: f64 = 0.1;
 
 /// Monitor window events for a macOS application and output JSON to stdout.
 #[derive(Parser)]
@@ -74,11 +77,9 @@ fn main() {
     }
 
     // Create monitor and start monitoring
-    let monitor = Arc::new(Mutex::new(window_monitor::WindowMonitor::new(
-        &cli.bundle_id,
-    )));
-
-    window_monitor::WindowMonitor::start_monitoring(&monitor, &should_exit);
+    let mut monitor = Box::new(window_monitor::WindowMonitor::new(&cli.bundle_id));
+    let monitor_ptr: *mut window_monitor::WindowMonitor = &mut *monitor;
+    monitor.start_monitoring(monitor_ptr, &should_exit);
 
     eprintln!("Monitoring started. Waiting for window events...");
 
@@ -90,35 +91,25 @@ fn main() {
         unsafe {
             core_foundation_sys::runloop::CFRunLoopRunInMode(
                 core_foundation_sys::runloop::kCFRunLoopDefaultMode,
-                0.1,
+                RUNLOOP_TIMEOUT_SECS,
                 1, // returnAfterSourceHandled = true
             );
         }
 
         // 150ms debounce: check if resize/move is finished (before polling can reset timer)
-        {
-            let mut m = monitor.lock().unwrap();
-            m.check_resize_end();
-        }
+        monitor.check_resize_end();
 
         // 200ms polling: check for missed events
-        if last_poll.elapsed().as_millis() >= 200 {
-            let mut m = monitor.lock().unwrap();
-            m.poll_for_changes();
+        if last_poll.elapsed().as_millis() >= POLL_INTERVAL_MS {
+            monitor.poll_for_changes();
             last_poll = Instant::now();
         }
 
         // 100ms deferred: check for window changes after AX notification
-        {
-            let mut m = monitor.lock().unwrap();
-            m.check_deferred_window_check();
-        }
+        monitor.check_deferred_window_check();
     }
 
     // Clean up
-    {
-        let mut m = monitor.lock().unwrap();
-        m.stop_monitoring();
-    }
+    monitor.stop_monitoring();
     eprintln!("Monitor stopped.");
 }

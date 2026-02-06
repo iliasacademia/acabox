@@ -6,6 +6,8 @@ use core_graphics::display::{
 };
 use std::ffi::c_void;
 
+const MIN_WINDOW_DIMENSION: f64 = 50.0;
+
 /// A window entry from CGWindowListCopyWindowInfo.
 #[derive(Debug, Clone)]
 pub struct WindowListEntry {
@@ -73,7 +75,7 @@ pub fn get_windows_for_pid(pid: i32) -> Vec<WindowListEntry> {
 
         // Filter: include windows with names or reasonable size
         let has_name = name.as_ref().map_or(false, |n| !n.is_empty());
-        let has_size = bounds.width > 50.0 && bounds.height > 50.0;
+        let has_size = bounds.width > MIN_WINDOW_DIMENSION && bounds.height > MIN_WINDOW_DIMENSION;
 
         if has_name || has_size {
             result.push(WindowListEntry {
