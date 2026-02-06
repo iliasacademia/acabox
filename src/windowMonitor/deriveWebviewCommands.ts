@@ -9,7 +9,7 @@ export interface DesiredWebviewState {
 }
 
 export interface CreateCommand { action: 'CREATE'; windowId: string; bounds: WindowBounds | null; }
-export interface ShowCommand { action: 'SHOW'; windowId: string; }
+export interface ShowCommand { action: 'SHOW'; windowId: string; bounds: WindowBounds | null; }
 export interface HideCommand { action: 'HIDE'; windowId: string; }
 export interface RepositionCommand { action: 'REPOSITION'; windowId: string; bounds: WindowBounds; }
 export interface DestroyCommand { action: 'DESTROY'; windowId: string; }
@@ -62,7 +62,7 @@ export function deriveWebviewCommands(
       // Window is new
       commands.push({ action: 'CREATE', windowId, bounds: newEntry.bounds });
       if (newEntry.visible) {
-        commands.push({ action: 'SHOW', windowId });
+        commands.push({ action: 'SHOW', windowId, bounds: newEntry.bounds });
       }
       continue;
     }
@@ -83,7 +83,7 @@ export function deriveWebviewCommands(
       if (boundsChanged && newEntry.bounds !== null) {
         commands.push({ action: 'REPOSITION', windowId, bounds: newEntry.bounds });
       }
-      commands.push({ action: 'SHOW', windowId });
+      commands.push({ action: 'SHOW', windowId, bounds: newEntry.bounds });
     }
     // hidden → hidden: nothing
   }

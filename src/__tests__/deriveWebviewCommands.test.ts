@@ -201,7 +201,7 @@ describe('New window', () => {
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
       { action: 'CREATE', windowId: '1', bounds: { x: 0, y: 0, width: 800, height: 600 } },
-      { action: 'SHOW', windowId: '1' },
+      { action: 'SHOW', windowId: '1', bounds: { x: 0, y: 0, width: 800, height: 600 } },
     ]);
   });
 });
@@ -257,7 +257,7 @@ describe('Visibility transitions', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'SHOW', windowId: '1' },
+      { action: 'SHOW', windowId: '1', bounds: { x: 0, y: 0, width: 800, height: 600 } },
     ]);
   });
 
@@ -294,7 +294,7 @@ describe('Visibility transitions', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toContainEqual({ action: 'HIDE', windowId: '1' });
-    expect(commands).toContainEqual({ action: 'SHOW', windowId: '2' });
+    expect(commands).toContainEqual({ action: 'SHOW', windowId: '2', bounds: { x: 0, y: 0, width: 800, height: 600 } });
   });
 });
 
@@ -332,7 +332,7 @@ describe('Repositioning', () => {
     // REPOSITION before SHOW to prevent flicker
     expect(commands).toEqual([
       { action: 'REPOSITION', windowId: '1', bounds: { x: 50, y: 50, width: 800, height: 600 } },
-      { action: 'SHOW', windowId: '1' },
+      { action: 'SHOW', windowId: '1', bounds: { x: 50, y: 50, width: 800, height: 600 } },
     ]);
   });
 
@@ -478,7 +478,7 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'SHOW', windowId: '42' },
+      { action: 'SHOW', windowId: '42', bounds: bounds1 },
     ]);
 
     // Step 3: User starts dragging window
@@ -499,7 +499,7 @@ describe('Realistic sequence', () => {
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
       { action: 'REPOSITION', windowId: '42', bounds: bounds2 },
-      { action: 'SHOW', windowId: '42' },
+      { action: 'SHOW', windowId: '42', bounds: bounds2 },
     ]);
 
     // Step 5: User switches to Safari
@@ -521,7 +521,7 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'SHOW', windowId: '42' },
+      { action: 'SHOW', windowId: '42', bounds: bounds2 },
     ]);
 
     // Step 7: Window destroyed
