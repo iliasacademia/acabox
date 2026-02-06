@@ -18,7 +18,7 @@ const { validateEvent } = require('./event-schemas');
 
 // Configuration
 const WINDOW_MONITOR_DIR = path.join(__dirname, '..');
-const WINDOW_MONITOR_PATH = path.join(WINDOW_MONITOR_DIR, 'window-monitor');
+const WINDOW_MONITOR_PATH = process.env.WINDOW_MONITOR_BIN || path.join(WINDOW_MONITOR_DIR, 'window-monitor');
 const BUNDLE_ID = process.argv[2] || 'com.microsoft.Word';
 const LOG_FILE = path.join(os.tmpdir(), 'window-monitor-test.log');
 const TIMESTAMP_TOLERANCE_MS = 2000; // Allow 2 seconds tolerance for event timing (includes gradual movement duration)
