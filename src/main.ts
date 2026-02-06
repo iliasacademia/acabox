@@ -21,6 +21,9 @@ import { validateExternalUrl } from './utils/urlValidation';
 import { validateCloudFrontDomain } from './utils/validateCloudFrontDomain';
 import { IPC_CHANNELS, NavigateToPagePayload, FEATURES } from './shared/types';
 import { getDeviceId } from './utils/deviceId';
+import { WindowMonitorService } from './windowMonitorService';
+
+const windowMonitorService = new WindowMonitorService();
 
 // Supported document extensions (without dots) for file selection and scanning
 const SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'tex', 'rtf'];
@@ -852,6 +855,13 @@ app.whenReady().then(async () => {
         }
       }
     }
+
+    if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
+      const authToken = httpServer.getAuthToken();
+      if (baseUrl && authToken) {
+        windowMonitorService.start(baseUrl, authToken);
+      }
+    }
   } catch (error) {
     logger.error('[HTTP Server] ✗ Failed to start server:', error);
     // Initialize Word integration without server URL
@@ -1679,6 +1689,9 @@ app.on('before-quit', async (event) => {
   }, 5000); // 5 second timeout
 
   try {
+    // Stop window monitor service (V2 Rust processes)
+    windowMonitorService.stop();
+
     // Stop Word integration (intervals and native observers)
     wordIntegrationService.cleanup();
 
