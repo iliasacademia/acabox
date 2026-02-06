@@ -4,6 +4,7 @@ import {
   boundsEqual,
   getWordWindowDesiredStates,
   deriveWebviewCommands,
+  expandCommandsForPopups,
   WebviewCommand,
   WORD_BUNDLE_ID,
 } from '../windowMonitor/deriveWebviewCommands';
@@ -186,7 +187,7 @@ describe('New window', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'CREATE', windowId: '1', bounds: { x: 0, y: 0, width: 800, height: 600 } },
+      { action: 'CREATE', windowId: '1', pid: 100, bounds: { x: 0, y: 0, width: 800, height: 600 } },
     ]);
   });
 
@@ -200,8 +201,8 @@ describe('New window', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'CREATE', windowId: '1', bounds: { x: 0, y: 0, width: 800, height: 600 } },
-      { action: 'SHOW', windowId: '1', bounds: { x: 0, y: 0, width: 800, height: 600 } },
+      { action: 'CREATE', windowId: '1', pid: 100, bounds: { x: 0, y: 0, width: 800, height: 600 } },
+      { action: 'SHOW', windowId: '1', pid: 100, bounds: { x: 0, y: 0, width: 800, height: 600 } },
     ]);
   });
 });
@@ -220,7 +221,7 @@ describe('Removed window', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'DESTROY', windowId: '1' },
+      { action: 'DESTROY', windowId: '1', pid: 100 },
     ]);
   });
 
@@ -236,8 +237,8 @@ describe('Removed window', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'DESTROY', windowId: '1' },
-      { action: 'DESTROY', windowId: '2' },
+      { action: 'DESTROY', windowId: '1', pid: 100 },
+      { action: 'DESTROY', windowId: '2', pid: 100 },
     ]);
   });
 });
@@ -257,7 +258,7 @@ describe('Visibility transitions', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'SHOW', windowId: '1', bounds: { x: 0, y: 0, width: 800, height: 600 } },
+      { action: 'SHOW', windowId: '1', pid: 100, bounds: { x: 0, y: 0, width: 800, height: 600 } },
     ]);
   });
 
@@ -276,7 +277,7 @@ describe('Visibility transitions', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'HIDE', windowId: '1' },
+      { action: 'HIDE', windowId: '1', pid: 100 },
     ]);
   });
 
@@ -293,8 +294,8 @@ describe('Visibility transitions', () => {
       { event: 'WINDOW_FOCUSED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '2' }) },
     ]);
     const commands = deriveWebviewCommands(prev, next);
-    expect(commands).toContainEqual({ action: 'HIDE', windowId: '1' });
-    expect(commands).toContainEqual({ action: 'SHOW', windowId: '2', bounds: { x: 0, y: 0, width: 800, height: 600 } });
+    expect(commands).toContainEqual({ action: 'HIDE', windowId: '1', pid: 100 });
+    expect(commands).toContainEqual({ action: 'SHOW', windowId: '2', pid: 100, bounds: { x: 0, y: 0, width: 800, height: 600 } });
   });
 });
 
@@ -313,7 +314,7 @@ describe('Repositioning', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'HIDE', windowId: '1' },
+      { action: 'HIDE', windowId: '1', pid: 100 },
     ]);
   });
 
@@ -331,8 +332,8 @@ describe('Repositioning', () => {
     const commands = deriveWebviewCommands(prev, next);
     // REPOSITION before SHOW to prevent flicker
     expect(commands).toEqual([
-      { action: 'REPOSITION', windowId: '1', bounds: { x: 50, y: 50, width: 800, height: 600 } },
-      { action: 'SHOW', windowId: '1', bounds: { x: 50, y: 50, width: 800, height: 600 } },
+      { action: 'REPOSITION', windowId: '1', pid: 100, bounds: { x: 50, y: 50, width: 800, height: 600 } },
+      { action: 'SHOW', windowId: '1', pid: 100, bounds: { x: 50, y: 50, width: 800, height: 600 } },
     ]);
   });
 
@@ -349,7 +350,7 @@ describe('Repositioning', () => {
     ]);
     const commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'REPOSITION', windowId: '1', bounds: { x: 0, y: 0, width: 1920, height: 1080 } },
+      { action: 'REPOSITION', windowId: '1', pid: 100, bounds: { x: 0, y: 0, width: 1920, height: 1080 } },
     ]);
   });
 });
@@ -414,8 +415,8 @@ describe('Edge cases', () => {
       { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app: word2, window: makeWindow({ id: '2' }) },
     ]);
     const commands = deriveWebviewCommands(prev, next);
-    expect(commands).toContainEqual({ action: 'CREATE', windowId: '1', bounds: { x: 0, y: 0, width: 800, height: 600 } });
-    expect(commands).toContainEqual({ action: 'CREATE', windowId: '2', bounds: { x: 0, y: 0, width: 800, height: 600 } });
+    expect(commands).toContainEqual({ action: 'CREATE', windowId: '1', pid: 100, bounds: { x: 0, y: 0, width: 800, height: 600 } });
+    expect(commands).toContainEqual({ action: 'CREATE', windowId: '2', pid: 200, bounds: { x: 0, y: 0, width: 800, height: 600 } });
     expect(commands).toHaveLength(2);
   });
 
@@ -467,7 +468,7 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'CREATE', windowId: '42', bounds: bounds1 },
+      { action: 'CREATE', windowId: '42', pid: 1234, bounds: bounds1 },
     ]);
 
     // Step 2: Word gets focused, window gets focused
@@ -478,7 +479,7 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'SHOW', windowId: '42', bounds: bounds1 },
+      { action: 'SHOW', windowId: '42', pid: 1234, bounds: bounds1 },
     ]);
 
     // Step 3: User starts dragging window
@@ -488,7 +489,7 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'HIDE', windowId: '42' },
+      { action: 'HIDE', windowId: '42', pid: 1234 },
     ]);
 
     // Step 4: User finishes dragging
@@ -498,8 +499,8 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'REPOSITION', windowId: '42', bounds: bounds2 },
-      { action: 'SHOW', windowId: '42', bounds: bounds2 },
+      { action: 'REPOSITION', windowId: '42', pid: 1234, bounds: bounds2 },
+      { action: 'SHOW', windowId: '42', pid: 1234, bounds: bounds2 },
     ]);
 
     // Step 5: User switches to Safari
@@ -510,7 +511,7 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'HIDE', windowId: '42' },
+      { action: 'HIDE', windowId: '42', pid: 1234 },
     ]);
 
     // Step 6: User switches back to Word (same window, same bounds)
@@ -521,7 +522,7 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'SHOW', windowId: '42', bounds: bounds2 },
+      { action: 'SHOW', windowId: '42', pid: 1234, bounds: bounds2 },
     ]);
 
     // Step 7: Window destroyed
@@ -531,7 +532,7 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([
-      { action: 'DESTROY', windowId: '42' },
+      { action: 'DESTROY', windowId: '42', pid: 1234 },
     ]);
 
     // Step 8: App terminates (no more Word windows, so no commands)
@@ -541,5 +542,51 @@ describe('Realistic sequence', () => {
     ]);
     commands = deriveWebviewCommands(prev, next);
     expect(commands).toEqual([]);
+  });
+});
+
+// --- expandCommandsForPopups ---
+
+describe('expandCommandsForPopups', () => {
+  test('multiplies commands × popup paths', () => {
+    const commands: WebviewCommand[] = [
+      { action: 'CREATE', windowId: '1', pid: 100, bounds: { x: 0, y: 0, width: 800, height: 600 } },
+      { action: 'SHOW', windowId: '1', pid: 100, bounds: { x: 0, y: 0, width: 800, height: 600 } },
+    ];
+    const result = expandCommandsForPopups(commands, ['/toolbar', '/sidebar'], 'http://localhost:3000');
+    expect(result).toHaveLength(4);
+  });
+
+  test('URL includes base + path + pid and wid query params', () => {
+    const commands: WebviewCommand[] = [
+      { action: 'CREATE', windowId: '42', pid: 1234, bounds: null },
+    ];
+    const result = expandCommandsForPopups(commands, ['/toolbar'], 'http://localhost:3000');
+    expect(result).toEqual([
+      { action: 'CREATE', windowId: '42', pid: 1234, bounds: null, url: 'http://localhost:3000/toolbar?pid=1234&wid=42' },
+    ]);
+  });
+
+  test('empty paths yields empty output', () => {
+    const commands: WebviewCommand[] = [
+      { action: 'CREATE', windowId: '1', pid: 100, bounds: null },
+    ];
+    const result = expandCommandsForPopups(commands, [], 'http://localhost:3000');
+    expect(result).toEqual([]);
+  });
+
+  test('empty commands yields empty output', () => {
+    const result = expandCommandsForPopups([], ['/toolbar', '/sidebar'], 'http://localhost:3000');
+    expect(result).toEqual([]);
+  });
+
+  test('preserves all original command fields', () => {
+    const commands: WebviewCommand[] = [
+      { action: 'REPOSITION', windowId: '5', pid: 200, bounds: { x: 10, y: 20, width: 300, height: 400 } },
+    ];
+    const result = expandCommandsForPopups(commands, ['/popup'], 'http://example.com');
+    expect(result).toEqual([
+      { action: 'REPOSITION', windowId: '5', pid: 200, bounds: { x: 10, y: 20, width: 300, height: 400 }, url: 'http://example.com/popup?pid=200&wid=5' },
+    ]);
   });
 });

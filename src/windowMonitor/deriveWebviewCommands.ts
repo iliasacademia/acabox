@@ -4,15 +4,16 @@ export const WORD_BUNDLE_ID = 'com.microsoft.Word';
 
 export interface DesiredWebviewState {
   windowId: string;
+  pid: number;
   visible: boolean;
   bounds: WindowBounds | null;
 }
 
-export interface CreateCommand { action: 'CREATE'; windowId: string; bounds: WindowBounds | null; }
-export interface ShowCommand { action: 'SHOW'; windowId: string; bounds: WindowBounds | null; }
-export interface HideCommand { action: 'HIDE'; windowId: string; }
-export interface RepositionCommand { action: 'REPOSITION'; windowId: string; bounds: WindowBounds; }
-export interface DestroyCommand { action: 'DESTROY'; windowId: string; }
+export interface CreateCommand { action: 'CREATE'; windowId: string; pid: number; bounds: WindowBounds | null; }
+export interface ShowCommand { action: 'SHOW'; windowId: string; pid: number; bounds: WindowBounds | null; }
+export interface HideCommand { action: 'HIDE'; windowId: string; pid: number; }
+export interface RepositionCommand { action: 'REPOSITION'; windowId: string; pid: number; bounds: WindowBounds; }
+export interface DestroyCommand { action: 'DESTROY'; windowId: string; pid: number; }
 
 export type WebviewCommand =
   | CreateCommand
@@ -37,6 +38,7 @@ export function getWordWindowDesiredStates(state: SystemState): Map<string, Desi
       const visible = app.isFocused && window.isFocused && !window.isRepositioning;
       result.set(window.id, {
         windowId: window.id,
+        pid: app.pid,
         visible,
         bounds: window.bounds,
       });
@@ -60,9 +62,9 @@ export function deriveWebviewCommands(
 
     if (!prevEntry) {
       // Window is new
-      commands.push({ action: 'CREATE', windowId, bounds: newEntry.bounds });
+      commands.push({ action: 'CREATE', windowId, pid: newEntry.pid, bounds: newEntry.bounds });
       if (newEntry.visible) {
-        commands.push({ action: 'SHOW', windowId, bounds: newEntry.bounds });
+        commands.push({ action: 'SHOW', windowId, pid: newEntry.pid, bounds: newEntry.bounds });
       }
       continue;
     }
@@ -73,27 +75,46 @@ export function deriveWebviewCommands(
     if (prevEntry.visible && newEntry.visible) {
       // Was visible, still visible
       if (boundsChanged && newEntry.bounds !== null) {
-        commands.push({ action: 'REPOSITION', windowId, bounds: newEntry.bounds });
+        commands.push({ action: 'REPOSITION', windowId, pid: newEntry.pid, bounds: newEntry.bounds });
       }
     } else if (prevEntry.visible && !newEntry.visible) {
       // Was visible, now hidden
-      commands.push({ action: 'HIDE', windowId });
+      commands.push({ action: 'HIDE', windowId, pid: newEntry.pid });
     } else if (!prevEntry.visible && newEntry.visible) {
       // Was hidden, now visible
       if (boundsChanged && newEntry.bounds !== null) {
-        commands.push({ action: 'REPOSITION', windowId, bounds: newEntry.bounds });
+        commands.push({ action: 'REPOSITION', windowId, pid: newEntry.pid, bounds: newEntry.bounds });
       }
-      commands.push({ action: 'SHOW', windowId, bounds: newEntry.bounds });
+      commands.push({ action: 'SHOW', windowId, pid: newEntry.pid, bounds: newEntry.bounds });
     }
     // hidden → hidden: nothing
   }
 
   // Handle removed windows
-  for (const [windowId] of prevDesired) {
+  for (const [windowId, prevEntry] of prevDesired) {
     if (!newDesired.has(windowId)) {
-      commands.push({ action: 'DESTROY', windowId });
+      commands.push({ action: 'DESTROY', windowId, pid: prevEntry.pid });
     }
   }
 
   return commands;
+}
+
+export type PopupWebviewCommand = WebviewCommand & { url: string };
+
+export function expandCommandsForPopups(
+  commands: WebviewCommand[],
+  popupPaths: string[],
+  baseUrl: string,
+): PopupWebviewCommand[] {
+  const result: PopupWebviewCommand[] = [];
+  for (const cmd of commands) {
+    for (const path of popupPaths) {
+      result.push({
+        ...cmd,
+        url: `${baseUrl}${path}?pid=${cmd.pid}&wid=${cmd.windowId}`,
+      });
+    }
+  }
+  return result;
 }
