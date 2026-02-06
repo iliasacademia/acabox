@@ -2,6 +2,7 @@ import { BrowserWindow } from 'electron';
 import { APIclient, getCsrfToken } from './apiClient';
 import { Notification, GetNotificationsResponse } from './types/notifications';
 import { defaultLogger as logger } from './utils/logger';
+import { wordPollEventBus } from './server/events/wordPollEventBus';
 
 export interface CachedNotification extends Notification {
   fetched_at: number;
@@ -210,6 +211,8 @@ class NotificationManager {
         unreadCount: undismissedNotifs.filter(n => n.status === 'unread').length,
         projectFileIds: [...new Set(undismissedNotifs.map(n => n.project_file_id))],
       })}`);
+
+      wordPollEventBus.emit('change', 'notifications-synced');
     } catch (_error: unknown) {
       logger.error('Failed to sync notifications:', _error);
     } finally {
@@ -334,6 +337,8 @@ class NotificationManager {
     if (this.mainWindow) {
       this.mainWindow.webContents.send('notification-updated', { id, status: 'read' });
     }
+
+    wordPollEventBus.emit('change', 'notification-status-changed');
   }
 
   /**
@@ -362,6 +367,8 @@ class NotificationManager {
     if (this.mainWindow) {
       this.mainWindow.webContents.send('notification-updated', { id, status: 'dismissed' });
     }
+
+    wordPollEventBus.emit('change', 'notification-status-changed');
   }
 
   /**
