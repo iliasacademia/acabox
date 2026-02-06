@@ -34,6 +34,8 @@ struct TrackedWindow {
     is_emitted: bool,
     /// Cached bounds for change detection (only set for emitted windows).
     bounds: Option<(f64, f64, f64, f64)>,
+    /// Cached document path for change detection.
+    document_path: Option<String>,
 }
 
 // --- RepositionTracker: debounce state machine for resize/move ---
@@ -383,6 +385,11 @@ impl WindowMonitor {
             accessibility::k_ax_resized_notification(),
             context,
         );
+        observer.add_notification(
+            &window_element,
+            accessibility::k_ax_title_changed_notification(),
+            context,
+        );
 
         self.observed_window_element = Some(window_element);
     }
@@ -394,6 +401,7 @@ impl WindowMonitor {
         {
             observer.remove_notification(element, accessibility::k_ax_moved_notification());
             observer.remove_notification(element, accessibility::k_ax_resized_notification());
+            observer.remove_notification(element, accessibility::k_ax_title_changed_notification());
         }
         self.observed_window_element = None;
 
@@ -412,6 +420,7 @@ impl WindowMonitor {
             self.windows.entry(w.window_id).or_insert(TrackedWindow {
                 is_emitted: false,
                 bounds: None,
+                document_path: None,
             });
 
             let role = self.get_role_for_window(w.window_id);
@@ -419,12 +428,14 @@ impl WindowMonitor {
                 continue;
             }
 
+            let window_info = self.create_window_info_from_entry(w);
+
             let entry = self.windows.get_mut(&w.window_id).unwrap();
             entry.is_emitted = true;
             entry.bounds = Some((w.bounds.x, w.bounds.y, w.bounds.width, w.bounds.height));
+            entry.document_path = window_info.document_path.clone();
             emitted_count += 1;
 
-            let window_info = self.create_window_info_from_entry(w);
             let app = self.app_info();
             event_models::emit_window_event(EventType::WindowExisting, &app, window_info);
         }
@@ -436,13 +447,14 @@ impl WindowMonitor {
         );
     }
 
-    /// Poll for changes: check focus, bounds, and window list.
+    /// Poll for changes: check focus, bounds, window list, and document path.
     /// Fetches the window list once and passes it to all sub-checks.
     pub fn poll_for_changes(&mut self) {
         let windows = window_list::get_windows_for_pid(self.word_pid);
         self.check_for_window_changes(&windows);
         self.check_for_focus_change(&windows);
         self.check_for_bounds_change(&windows);
+        self.check_document_path_changed();
     }
 
     /// Check for new/destroyed windows.
@@ -460,6 +472,7 @@ impl WindowMonitor {
                 self.windows.insert(w.window_id, TrackedWindow {
                     is_emitted: false,
                     bounds: None,
+                    document_path: None,
                 });
             }
 
@@ -467,11 +480,13 @@ impl WindowMonitor {
             if !is_emitted {
                 let role = self.get_role_for_window(w.window_id);
                 if role.as_deref() == Some("AXWindow") {
+                    let window_info = self.create_window_info_from_entry(w);
+
                     let entry = self.windows.get_mut(&w.window_id).unwrap();
                     entry.is_emitted = true;
                     entry.bounds = Some((w.bounds.x, w.bounds.y, w.bounds.width, w.bounds.height));
+                    entry.document_path = window_info.document_path.clone();
 
-                    let window_info = self.create_window_info_from_entry(w);
                     let app = self.app_info();
                     event_models::emit_window_event(EventType::WindowCreated, &app, window_info);
                 }
@@ -564,6 +579,44 @@ impl WindowMonitor {
                 }
             }
             break;
+        }
+    }
+
+    /// Check if the focused window's document path has changed; emit event if so.
+    pub fn check_document_path_changed(&mut self) {
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el,
+            None => return,
+        };
+        let focused = match accessibility::get_focused_window(app_element) {
+            Some(w) => w,
+            None => return,
+        };
+        let window_id = match accessibility::get_window_id(&focused) {
+            Some(id) => id,
+            None => return,
+        };
+
+        let current_doc_path = accessibility::get_document(&focused);
+
+        let tracked = match self.windows.get_mut(&window_id) {
+            Some(tw) => tw,
+            None => return,
+        };
+
+        if tracked.document_path != current_doc_path {
+            tracked.document_path = current_doc_path;
+
+            let windows = window_list::get_windows_for_pid(self.word_pid);
+            if let Some(entry) = windows.iter().find(|w| w.window_id == window_id) {
+                let window_info = self.create_window_info_from_entry(entry);
+                let app = self.app_info();
+                event_models::emit_window_event(
+                    EventType::WindowDocumentPathChanged,
+                    &app,
+                    window_info,
+                );
+            }
         }
     }
 
@@ -721,6 +774,9 @@ pub unsafe extern "C" fn ax_observer_callback(
         }
         "AXMoved" | "AXResized" => {
             monitor.handle_window_bounds_changed();
+        }
+        "AXTitleChanged" => {
+            monitor.check_document_path_changed();
         }
         _ => {}
     }

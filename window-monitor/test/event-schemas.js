@@ -108,6 +108,11 @@ const WindowRepositionedEventSchema = BaseEventSchema.extend({
   window: WindowInfoWithBoundsSchema,
 });
 
+const WindowDocumentPathChangedEventSchema = BaseEventSchema.extend({
+  event: z.literal('WINDOW_DOCUMENT_PATH_CHANGED'),
+  window: WindowInfoWithBoundsSchema,
+});
+
 // ============================================
 // Union schema for any event
 // ============================================
@@ -124,6 +129,7 @@ const WindowMonitorEventSchema = z.discriminatedUnion('event', [
   WindowFocusedEventSchema,
   WindowRepositioningEventSchema,
   WindowRepositionedEventSchema,
+  WindowDocumentPathChangedEventSchema,
 ]);
 
 // ============================================
@@ -145,6 +151,7 @@ const WINDOW_EVENTS = [
   'WINDOW_FOCUSED',
   'WINDOW_REPOSITIONING',
   'WINDOW_REPOSITIONED',
+  'WINDOW_DOCUMENT_PATH_CHANGED',
 ];
 
 // Map event types to their specific schemas
@@ -160,6 +167,7 @@ const EventSchemaMap = {
   WINDOW_FOCUSED: WindowFocusedEventSchema,
   WINDOW_REPOSITIONING: WindowRepositioningEventSchema,
   WINDOW_REPOSITIONED: WindowRepositionedEventSchema,
+  WINDOW_DOCUMENT_PATH_CHANGED: WindowDocumentPathChangedEventSchema,
 };
 
 /**
@@ -218,6 +226,7 @@ module.exports = {
   WindowFocusedEventSchema,
   WindowRepositioningEventSchema,
   WindowRepositionedEventSchema,
+  WindowDocumentPathChangedEventSchema,
 
   // Union schema
   WindowMonitorEventSchema,

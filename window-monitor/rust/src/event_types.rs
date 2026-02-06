@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-/// All 11 event types emitted by the window monitor.
+/// All 12 event types emitted by the window monitor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum EventType {
     #[serde(rename = "WINDOW_CREATED")]
@@ -23,6 +23,8 @@ pub enum EventType {
     AppLaunched,
     #[serde(rename = "APP_TERMINATED")]
     AppTerminated,
+    #[serde(rename = "WINDOW_DOCUMENT_PATH_CHANGED")]
+    WindowDocumentPathChanged,
     #[serde(rename = "APP_EXISTING")]
     AppExisting,
 }

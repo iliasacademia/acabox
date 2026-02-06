@@ -37,7 +37,7 @@ Output format:
   One JSON object per line for each window event.
   Events: APP_EXISTING, APP_LAUNCHED, APP_TERMINATED, APP_FOCUSED, APP_UNFOCUSED,
           WINDOW_EXISTING, WINDOW_CREATED, WINDOW_DESTROYED, WINDOW_FOCUSED,
-          WINDOW_REPOSITIONING, WINDOW_REPOSITIONED")]
+          WINDOW_REPOSITIONING, WINDOW_REPOSITIONED, WINDOW_DOCUMENT_PATH_CHANGED")]
 struct Cli {
     /// Bundle ID of the app to monitor
     #[arg(short = 'b', long = "bundle-id", default_value = "com.microsoft.Word")]

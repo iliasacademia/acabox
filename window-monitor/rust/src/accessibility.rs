@@ -86,6 +86,7 @@ static AX_UI_ELEMENT_DESTROYED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr(
 static AX_FOCUSED_WINDOW_CHANGED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFocusedWindowChanged"));
 static AX_MOVED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXMoved"));
 static AX_RESIZED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXResized"));
+static AX_TITLE_CHANGED: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXTitleChanged"));
 
 // Attribute constants
 static AX_FOCUSED_WINDOW: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFocusedWindow"));
@@ -110,6 +111,9 @@ pub fn k_ax_moved_notification() -> core_foundation_sys::string::CFStringRef {
 }
 pub fn k_ax_resized_notification() -> core_foundation_sys::string::CFStringRef {
     AX_RESIZED.0
+}
+pub fn k_ax_title_changed_notification() -> core_foundation_sys::string::CFStringRef {
+    AX_TITLE_CHANGED.0
 }
 fn k_ax_focused_window_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_FOCUSED_WINDOW.0

@@ -542,29 +542,25 @@ async function runTest() {
     `);
     await delay(3000);
 
-    // Validate that documentPath appears in events after save
+    // Validate that WINDOW_DOCUMENT_PATH_CHANGED is emitted after save
     stepEvents = events.slice(checkpoint);
     result = validateStepEvents('Save document', stepEvents, [
       (evts) => {
-        // After save, Word renames the window and sets documentPath.
-        // Look for any window event where documentPath is now set.
-        const withDocPath = evts.find((e) => e.window?.documentPath != null);
-        if (withDocPath) {
-          return { pass: true, message: `documentPath appeared: ${withDocPath.window.documentPath}` };
-        }
-        // documentPath may not appear until the next window event (move/resize).
-        // This is acceptable — we'll verify it during the saved doc operations.
-        return { pass: true, message: 'No documentPath in save step events (will verify during saved doc operations)' };
+        const docPathChanged = evts.find((e) => e.event === 'WINDOW_DOCUMENT_PATH_CHANGED');
+        if (!docPathChanged) return { pass: false, message: 'Missing WINDOW_DOCUMENT_PATH_CHANGED event' };
+        const hasPath = docPathChanged.window?.documentPath != null;
+        return { pass: hasPath, message: hasPath
+          ? `WINDOW_DOCUMENT_PATH_CHANGED with documentPath: ${docPathChanged.window.documentPath}`
+          : 'WINDOW_DOCUMENT_PATH_CHANGED has null documentPath' };
       },
       (evts) => {
-        // Check that window title changed from "Document<N>" to the saved filename
-        const withTitle = evts.find((e) => e.window?.title && !(/^Document\d+$/.test(e.window.title)));
-        if (withTitle) {
-          const expectedTitle = `test_${timestamp}`;
-          const ok = withTitle.window.title === expectedTitle;
-          return { pass: ok, message: ok ? `Window title updated to "${withTitle.window.title}"` : `Expected title "${expectedTitle}", got "${withTitle.window.title}"` };
-        }
-        return { pass: true, message: 'No title change event in save step (will verify during saved doc operations)' };
+        const docPathChanged = evts.find((e) => e.event === 'WINDOW_DOCUMENT_PATH_CHANGED');
+        if (!docPathChanged) return { pass: false, message: 'No WINDOW_DOCUMENT_PATH_CHANGED to check title' };
+        const expectedTitle = `test_${timestamp}`;
+        const ok = docPathChanged.window?.title === expectedTitle;
+        return { pass: ok, message: ok
+          ? `Window title updated to "${docPathChanged.window.title}"`
+          : `Expected title "${expectedTitle}", got "${docPathChanged.window?.title}"` };
       },
     ]);
     totalPassed += result.passed;
