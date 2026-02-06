@@ -274,6 +274,96 @@ async function runWindowOperationTests(events, label) {
   totalFailed += result.failed;
 
   // =========================================================================
+  // Swipe away from full-screen (Control+Left Arrow = move to Desktop Space)
+  // =========================================================================
+  log('blue', `\n[STEP] ${label}: Swipe away from full-screen`);
+
+  // Capture the window identity from the most recent non-DESTROYED window event
+  const lastWindowEvt = [...events].reverse().find(
+    (e) => e.window?.id && e.event !== 'WINDOW_DESTROYED'
+  );
+  const fullScreenWindowId = lastWindowEvt?.window?.id;
+  const fullScreenTitle = lastWindowEvt?.window?.title;
+  const fullScreenDocPath = lastWindowEvt?.window?.documentPath;
+
+  checkpoint = events.length;
+  log('blue', '[ACTION] Simulating Control+Left Arrow (swipe away from full-screen)...');
+  runAppleScript('tell application "System Events" to key code 123 using control down');
+  await delay(3000);
+  runAppleScript('tell application "Finder" to activate');
+  await delay(2000);
+
+  stepEvents = events.slice(checkpoint);
+  result = validateStepEvents(`${label}: Swipe away from full-screen`, stepEvents, [
+    (evts) => {
+      const destroyed = evts.find((e) => e.event === 'WINDOW_DESTROYED' && e.window?.id === fullScreenWindowId);
+      return { pass: !!destroyed, message: destroyed
+        ? `WINDOW_DESTROYED for window ${fullScreenWindowId}`
+        : `Missing WINDOW_DESTROYED for window ${fullScreenWindowId}` };
+    },
+    (evts) => {
+      const unfocused = evts.find((e) => e.event === 'APP_UNFOCUSED');
+      return { pass: !!unfocused, message: unfocused
+        ? 'APP_UNFOCUSED event captured'
+        : 'Missing APP_UNFOCUSED event' };
+    },
+    (evts) => {
+      const destroyedIdx = evts.findIndex((e) => e.event === 'WINDOW_DESTROYED' && e.window?.id === fullScreenWindowId);
+      const unfocusedIdx = evts.findIndex((e) => e.event === 'APP_UNFOCUSED');
+      if (destroyedIdx < 0 || unfocusedIdx < 0) return { pass: false, message: 'Cannot check ordering: missing WINDOW_DESTROYED or APP_UNFOCUSED' };
+      const ok = destroyedIdx < unfocusedIdx;
+      return { pass: ok, message: ok
+        ? 'WINDOW_DESTROYED before APP_UNFOCUSED'
+        : `WINDOW_DESTROYED (index ${destroyedIdx}) should come before APP_UNFOCUSED (index ${unfocusedIdx})` };
+    },
+  ]);
+  totalPassed += result.passed;
+  totalFailed += result.failed;
+
+  // =========================================================================
+  // Swipe back to full-screen (Control+Right Arrow = move to full-screen Space)
+  // =========================================================================
+  log('blue', `\n[STEP] ${label}: Swipe back to full-screen`);
+  checkpoint = events.length;
+  log('blue', '[ACTION] Simulating Control+Right Arrow (swipe back to full-screen)...');
+  runAppleScript('tell application "System Events" to key code 124 using control down');
+  await delay(5000);
+
+  stepEvents = events.slice(checkpoint);
+  result = validateStepEvents(`${label}: Swipe back to full-screen`, stepEvents, [
+    (evts) => {
+      const focused = evts.find((e) => e.event === 'APP_FOCUSED');
+      return { pass: !!focused, message: focused
+        ? 'APP_FOCUSED event captured'
+        : 'Missing APP_FOCUSED event' };
+    },
+    (evts) => {
+      const created = evts.find((e) => e.event === 'WINDOW_CREATED' && e.window?.id === fullScreenWindowId);
+      return { pass: !!created, message: created
+        ? `WINDOW_CREATED with same window ID ${fullScreenWindowId}`
+        : `Missing WINDOW_CREATED with window ID ${fullScreenWindowId}` };
+    },
+    (evts) => {
+      const created = evts.find((e) => e.event === 'WINDOW_CREATED' && e.window?.id === fullScreenWindowId);
+      if (!created) return { pass: false, message: 'No WINDOW_CREATED to check title' };
+      const ok = created.window.title === fullScreenTitle;
+      return { pass: ok, message: ok
+        ? `Title preserved: "${fullScreenTitle}"`
+        : `Title mismatch: expected "${fullScreenTitle}", got "${created.window.title}"` };
+    },
+    (evts) => {
+      const created = evts.find((e) => e.event === 'WINDOW_CREATED' && e.window?.id === fullScreenWindowId);
+      if (!created) return { pass: false, message: 'No WINDOW_CREATED to check documentPath' };
+      const ok = created.window.documentPath === fullScreenDocPath;
+      return { pass: ok, message: ok
+        ? `documentPath preserved: ${fullScreenDocPath}`
+        : `documentPath mismatch: expected ${fullScreenDocPath}, got ${created.window.documentPath}` };
+    },
+  ]);
+  totalPassed += result.passed;
+  totalFailed += result.failed;
+
+  // =========================================================================
   // Exit full-screen
   // =========================================================================
   log('blue', `\n[STEP] ${label}: Exit full-screen`);
