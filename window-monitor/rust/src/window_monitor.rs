@@ -216,6 +216,17 @@ impl WindowMonitor {
                 if should_exit_clone.load(Ordering::Relaxed) {
                     return;
                 }
+                // Handle system-wide events (no bundle_id) before app-specific filter
+                if let workspace::WorkspaceEvent::SpaceChanged = notif.event {
+                    let m = unsafe { &mut *ptr.get() };
+                    if m.word_pid != 0 {
+                        let windows = window_list::get_windows_for_pid(m.word_pid);
+                        m.check_for_window_changes(&windows);
+                        m.check_for_focus_change(&windows);
+                    }
+                    return;
+                }
+
                 let Some(ref bid) = notif.bundle_id else {
                     return;
                 };
@@ -246,6 +257,7 @@ impl WindowMonitor {
                         event_models::emit_app_event(EventType::AppUnfocused, &m.app_info());
                         m.last_focused_window_id = 0;
                     }
+                    workspace::WorkspaceEvent::SpaceChanged => unreachable!(),
                 }
             },
         ));

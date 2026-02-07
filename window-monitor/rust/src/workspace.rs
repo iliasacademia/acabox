@@ -13,6 +13,7 @@ pub enum WorkspaceEvent {
     AppTerminated,
     AppActivated,
     AppDeactivated,
+    SpaceChanged,
 }
 
 /// Info extracted from an NSWorkspace notification.
@@ -47,6 +48,7 @@ pub fn register_workspace_notifications(
         ("NSWorkspaceDidTerminateApplicationNotification", WorkspaceEvent::AppTerminated),
         ("NSWorkspaceDidActivateApplicationNotification", WorkspaceEvent::AppActivated),
         ("NSWorkspaceDidDeactivateApplicationNotification", WorkspaceEvent::AppDeactivated),
+        ("NSWorkspaceActiveSpaceDidChangeNotification", WorkspaceEvent::SpaceChanged),
     ];
 
     let mut tokens: Vec<Retained<AnyObject>> = Vec::new();
