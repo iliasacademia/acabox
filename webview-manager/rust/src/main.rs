@@ -1,3 +1,4 @@
+mod debug;
 mod desired_state;
 mod manager;
 mod panel;
@@ -7,6 +8,8 @@ mod webview;
 use desired_state::DesiredState;
 use manager::Manager;
 
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEventMask};
+use objc2_foundation::NSDefaultRunLoopMode;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag;
 use std::io::BufRead;
@@ -22,13 +25,17 @@ fn main() {
     flag::register(SIGINT, Arc::clone(&should_exit)).expect("Failed to register SIGINT handler");
     flag::register(SIGTERM, Arc::clone(&should_exit)).expect("Failed to register SIGTERM handler");
 
+    // Debug file logging (enabled by WEBVIEW_MANAGER_DEBUG_LOG env var)
+    debug::init();
+
     // Init NSApplication as Accessory (no dock icon, no menu bar)
     let mtm = {
         use objc2::MainThreadMarker;
-        use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy};
         let mtm = unsafe { MainThreadMarker::new_unchecked() };
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
+        // finishLaunching sets up event infrastructure (window server registration, etc.)
+        app.finishLaunching();
         mtm
     };
 
@@ -70,6 +77,9 @@ fn main() {
     // Manager holds all webview state
     let mut manager = Manager::new(mtm);
 
+    // Keep a reference for event dispatching
+    let app = NSApplication::sharedApplication(mtm);
+
     // Main loop: drive CFRunLoop + drain desired state channel
     while !should_exit.load(Ordering::Relaxed) {
         unsafe {
@@ -80,6 +90,21 @@ fn main() {
             );
         }
 
+        // Process pending NSApplication events (mouse clicks, key events, etc.)
+        loop {
+            let mode = unsafe { &NSDefaultRunLoopMode };
+            let event = app.nextEventMatchingMask_untilDate_inMode_dequeue(
+                NSEventMask::Any,
+                None,
+                mode,
+                true,
+            );
+            match event {
+                Some(ev) => app.sendEvent(&ev),
+                None => break,
+            }
+        }
+
         // Drain all pending states — only the last one matters
         let mut latest_state: Option<DesiredState> = None;
         while let Ok(state) = rx.try_recv() {
@@ -87,6 +112,7 @@ fn main() {
         }
 
         if let Some(desired) = latest_state {
+            debug::debug_log!("main: received desired state with {} entries", desired.len());
             manager.reconcile(&desired);
         }
     }

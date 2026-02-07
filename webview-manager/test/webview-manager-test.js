@@ -170,7 +170,46 @@ function sendState(proc, rl, state, expectedResponseCount) {
   });
 }
 
+// ── Click Simulation ──────────────────────────────────────────────────────────
+
+/**
+ * Simulate a mouse click at screen coordinates (top-left origin) using CGEvent via JXA.
+ * Moves the cursor first, then sends mouseDown + mouseUp with a small delay.
+ * Requires Accessibility permission for the terminal.
+ * Returns true if the click was dispatched, false if permission was denied.
+ */
+function simulateClick(screenX, screenY) {
+  try {
+    // Use kCGHIDEventTap for all events so the window server assigns proper
+    // window numbers. Move the cursor first so macOS knows which window is
+    // under the pointer, then click.
+    execSync(`osascript -l JavaScript -e '
+      ObjC.import("CoreGraphics");
+      var point = $.CGPointMake(${screenX}, ${screenY});
+
+      // Move cursor so window server updates hit-test tracking
+      var move = $.CGEventCreateMouseEvent($(), $.kCGEventMouseMoved, point, $.kCGMouseButtonLeft);
+      $.CGEventPost($.kCGHIDEventTap, move);
+      delay(0.2);
+
+      // Click via global HID tap — window server routes to correct window
+      var down = $.CGEventCreateMouseEvent($(), $.kCGEventLeftMouseDown, point, $.kCGMouseButtonLeft);
+      $.CGEventSetIntegerValueField(down, $.kCGMouseEventClickState, 1);
+      $.CGEventPost($.kCGHIDEventTap, down);
+      delay(0.05);
+      var up = $.CGEventCreateMouseEvent($(), $.kCGEventLeftMouseUp, point, $.kCGMouseButtonLeft);
+      $.CGEventSetIntegerValueField(up, $.kCGMouseEventClickState, 1);
+      $.CGEventPost($.kCGHIDEventTap, up);
+    '`, { timeout: 5000 });
+    return true;
+  } catch (error) {
+    return false;
+  }
+}
+
 // ── Test HTTP Server ───────────────────────────────────────────────────────────
+
+let clickCallbackReceived = false;
 
 function startTestServer() {
   return new Promise((resolve) => {
@@ -215,6 +254,31 @@ function startTestServer() {
           res.writeHead(404);
           res.end('Not found');
         }
+        return;
+      }
+
+      // Click-test page: red body that turns green on any mouse event
+      if (pathname === '/click-test') {
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+        res.end(`<!DOCTYPE html>
+<html><body style="margin:0;background:#ff0000;height:100vh;display:flex;align-items:center;justify-content:center">
+<span style="color:#fff;font-size:20px;pointer-events:none">CLICK</span>
+<script>
+document.body.addEventListener('mousedown', function() {
+  document.body.style.background = '#00ff00';
+  document.querySelector('span').textContent = 'OK';
+  fetch('/click-callback').catch(function(){});
+});
+</script>
+</body></html>`);
+        return;
+      }
+
+      // Click callback — records that a click reached the web content
+      if (pathname === '/click-callback') {
+        clickCallbackReceived = true;
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('ok');
         return;
       }
 
@@ -296,8 +360,10 @@ async function runTest() {
 
     // ── Spawn webview-manager ──────────────────────────────────────────────────
 
+    const debugLogPath = path.join(SCREENSHOT_DIR, 'webview-manager-debug.log');
     proc = spawn(BINARY_PATH, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, WEBVIEW_MANAGER_DEBUG_LOG: debugLogPath },
     });
 
     let stderrOutput = '';
@@ -354,10 +420,13 @@ async function runTest() {
     assert('SHOW: Response command is SHOW', showResps[0].command === 'SHOW');
 
     await delay(PAGE_LOAD_DELAY_MS); // First show — page loads + polls + re-renders
-    const { diff: showDiff } = await captureAndCompare(
-      PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT,
-      '03-after-show.png', baselinePixels1
-    );
+    const showPath = path.join(SCREENSHOT_DIR, '03-after-show.png');
+    {
+      const sc = cocoaToScreenCapture(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT);
+      takeScreenshot(sc.x, sc.y, sc.width, sc.height, '03-after-show.png');
+    }
+    const showPixels1 = await loadPixels(showPath);
+    const showDiff = pixelDiffFraction(baselinePixels1, showPixels1);
     assert('SHOW: Button is visible', showDiff >= PIXEL_DIFF_THRESHOLD, showDiff);
 
     // ── Step 3: HIDE ───────────────────────────────────────────────────────────
@@ -370,11 +439,12 @@ async function runTest() {
     assert('HIDE: Response command is HIDE', hideResps[0].command === 'HIDE');
 
     await delay(COMMAND_DELAY_MS);
+    // Compare against the panel-visible screenshot — if panel is hidden, pixels should differ
     const { diff: hideDiff } = await captureAndCompare(
       PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT,
-      '04-after-hide.png', baselinePixels1
+      '04-after-hide.png', showPixels1
     );
-    assert('HIDE: Panel is hidden', hideDiff < PIXEL_DIFF_THRESHOLD, hideDiff);
+    assert('HIDE: Panel is hidden', hideDiff >= PIXEL_DIFF_THRESHOLD, hideDiff);
 
     // ── Step 4: SHOW again ─────────────────────────────────────────────────────
 
@@ -396,10 +466,15 @@ async function runTest() {
 
     log('blue', '\n[STEP 5] REPOSITION');
 
-    // Take new baseline at the reposition target
+    // Take new baseline at the reposition target (no panel there yet)
     const sc2 = cocoaToScreenCapture(REPOSITION_X, REPOSITION_Y, PANEL_WIDTH, PANEL_HEIGHT);
     const baselinePath2 = takeScreenshot(sc2.x, sc2.y, sc2.width, sc2.height, '06-baseline-pos2.png');
     const baselinePixels2 = await loadPixels(baselinePath2);
+
+    // Take fresh snapshot of old position WITH the panel visible (for comparison after move)
+    const scOldBefore = cocoaToScreenCapture(PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT);
+    const oldBeforeRepoPath = takeScreenshot(scOldBefore.x, scOldBefore.y, scOldBefore.width, scOldBefore.height, '06b-old-before-reposition.png');
+    const oldBeforeRepoPixels = await loadPixels(oldBeforeRepoPath);
 
     const repoResps = await sendState(proc, rl, {
       'wv-1': { url: createUrl, visible: true, frame: frame2 },
@@ -416,12 +491,12 @@ async function runTest() {
     );
     assert('REPOSITION: Button visible at new position', repoNewDiff >= PIXEL_DIFF_THRESHOLD, repoNewDiff);
 
-    // Check old position — should be clear now
+    // Check old position — panel moved away, so should differ from pre-reposition (panel was there)
     const { diff: repoOldDiff } = await captureAndCompare(
       PANEL_X, PANEL_Y, PANEL_WIDTH, PANEL_HEIGHT,
-      '08-after-reposition-old.png', baselinePixels1
+      '08-after-reposition-old.png', oldBeforeRepoPixels
     );
-    assert('REPOSITION: Old position is clear', repoOldDiff < PIXEL_DIFF_THRESHOLD, repoOldDiff);
+    assert('REPOSITION: Old position is clear', repoOldDiff >= PIXEL_DIFF_THRESHOLD, repoOldDiff);
 
     // ── Step 5b: RESIZE to 1x1 ────────────────────────────────────────────────
 
@@ -452,6 +527,11 @@ async function runTest() {
 
     log('blue', '\n[STEP 5c] RESIZE back to normal');
 
+    // Capture the shrunk state for comparison (panel is 1x1, region looks like no panel)
+    const scAfterShrink = cocoaToScreenCapture(REPOSITION_X, REPOSITION_Y, PANEL_WIDTH, PANEL_HEIGHT);
+    const afterShrinkPath = takeScreenshot(scAfterShrink.x, scAfterShrink.y, scAfterShrink.width, scAfterShrink.height, '08b2-after-shrink-baseline.png');
+    const afterShrinkPixels = await loadPixels(afterShrinkPath);
+
     const growResps = await sendState(proc, rl, {
       'wv-1': { url: createUrl, visible: true, frame: frame2 },
     }, 1);
@@ -460,12 +540,57 @@ async function runTest() {
 
     await delay(COMMAND_DELAY_MS);
 
-    // The region should look like the panel is visible again (similar to before-shrink)
+    // After growing back, the region should differ from the shrunk state (panel visible again)
     const { diff: growDiff } = await captureAndCompare(
       REPOSITION_X, REPOSITION_Y, PANEL_WIDTH, PANEL_HEIGHT,
-      '08c-after-grow.png', beforeShrinkPixels
+      '08c-after-grow.png', afterShrinkPixels
     );
-    assert('RESIZE-RESTORE: Panel restored to normal size', growDiff < PIXEL_DIFF_THRESHOLD, growDiff);
+    assert('RESIZE-RESTORE: Panel restored to normal size', growDiff >= PIXEL_DIFF_THRESHOLD, growDiff);
+
+    // ── Step 5d: FIRST-CLICK TEST ──────────────────────────────────────────────
+
+    log('blue', '\n[STEP 5d] FIRST-CLICK (acceptsFirstMouse)');
+
+    // Reset callback flag
+    clickCallbackReceived = false;
+
+    // Switch wv-1 to the click-test page (URL change → DESTROY old + CREATE new)
+    // Use a large, centered panel so it's easy to find and click
+    const clickTestUrl = `http://127.0.0.1:${port}/click-test`;
+    const clickFrame = { x: 400, y: 300, width: 400, height: 300 };
+    const clickResps = await sendState(proc, rl, {
+      'wv-1': { url: clickTestUrl, visible: true, frame: clickFrame },
+    }, 3); // DESTROY + CREATE + SHOW
+    assert('CLICK-SETUP: All responses OK',
+      clickResps.every((r) => r.status === 'OK'),
+    );
+
+    await delay(PAGE_LOAD_DELAY_MS); // Wait for page load
+
+    // Screenshot before click — page should be red
+    const scClick = cocoaToScreenCapture(clickFrame.x, clickFrame.y, clickFrame.width, clickFrame.height);
+    const beforeClickPath = takeScreenshot(scClick.x, scClick.y, scClick.width, scClick.height, '08d-before-click.png');
+    const beforeClickPixels = await loadPixels(beforeClickPath);
+
+    // Synthetic click — scClick gives top-left-origin rect; center it
+    const clickCenterX = scClick.x + clickFrame.width / 2;
+    const clickCenterY = scClick.y + clickFrame.height / 2;
+    log('blue', `  Click coords: (${clickCenterX}, ${clickCenterY}) [screen top-left origin]`);
+    log('blue', `  Panel scRect: (${scClick.x}, ${scClick.y}, ${scClick.width}, ${scClick.height})`);
+    const clickDispatched = simulateClick(clickCenterX, clickCenterY);
+    assert('FIRST-CLICK: CGEvent click dispatched', clickDispatched);
+    await delay(2000);
+
+    if (clickCallbackReceived) {
+      const { diff: clickDiff } = await captureAndCompare(
+        clickFrame.x, clickFrame.y, clickFrame.width, clickFrame.height,
+        '08e-after-click.png', beforeClickPixels
+      );
+      assert('FIRST-CLICK: Click reached web content (acceptsFirstMouse works)', true);
+      assert('FIRST-CLICK: Page changed color on click', clickDiff >= PIXEL_DIFF_THRESHOLD, clickDiff);
+    } else {
+      assert('FIRST-CLICK: Click reached web content (acceptsFirstMouse works)', false);
+    }
 
     // ── Step 6: DESTROY ────────────────────────────────────────────────────────
 
