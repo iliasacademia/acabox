@@ -13,8 +13,9 @@ const serverUrl = window.location.origin;
 // Generate unique instance ID for logging (uses PID from URL or random ID)
 const popupUrlParams = new URLSearchParams(window.location.search);
 const pidParam = popupUrlParams.get('pid');
+const widParam = popupUrlParams.get('wid');
 const tokenParam = popupUrlParams.get('token');
-const popupInstanceId = `AcademiaNotificationsPopupV2-${pidParam || Math.random().toString(36).substring(2, 8)}`;
+const popupInstanceId = `AcademiaNotificationsPopupV2-${widParam || pidParam || Math.random().toString(36).substring(2, 8)}`;
 
 // POST bridge helper — replaces native bridge calls (closeWindow, resizeWindow)
 function postBridge(action: string, payload: Record<string, unknown> = {}) {
@@ -24,7 +25,7 @@ function postBridge(action: string, payload: Record<string, unknown> = {}) {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${tokenParam}`,
     },
-    body: JSON.stringify({ action, payload, pid: Number(pidParam) }),
+    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: widParam }),
   });
 }
 
@@ -217,19 +218,19 @@ interface ConversationData {
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 /**
- * Custom hook: connects to /ws/word/:pid via WebSocket for real-time updates.
+ * Custom hook: connects to /ws/word/v2/:wid via WebSocket for real-time updates.
  * Falls back to HTTP polling (3s) if WebSocket fails permanently.
  * Returns the full WordPollResponse (or null before first data arrives).
  */
 function useWordPollWebSocket(
-  pid: string | null,
+  wid: string | null,
   token: string | null,
   apiBaseUrl: string
 ): WordPollResponse | null {
   const [pollData, setPollData] = useState<WordPollResponse | null>(null);
 
   useEffect(() => {
-    if (!pid || !token) {
+    if (!wid || !token) {
       setPollData(null);
       return;
     }
@@ -260,7 +261,7 @@ function useWordPollWebSocket(
             'X-Instance-Id': popupInstanceId,
             'Authorization': `Bearer ${token}`,
           };
-          const res = await fetch(`${apiBaseUrl}/word/${pid}/poll`, { headers });
+          const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, { headers });
           if (!res.ok) {
             setPollData(prev => prev ? { ...prev, shouldShow: false } : null);
             return;
@@ -287,7 +288,7 @@ function useWordPollWebSocket(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/${pid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -362,7 +363,7 @@ function useWordPollWebSocket(
       }
       stopFallbackPolling();
     };
-  }, [pid, token, apiBaseUrl]);
+  }, [wid, token, apiBaseUrl]);
 
   return pollData;
 }
@@ -563,7 +564,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   }, []);
 
   // WebSocket-based polling (replaces V1 HTTP polling useEffect)
-  const pollData = useWordPollWebSocket(pidParam, tokenParam, serverUrl);
+  const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
 
   // React to pollData changes to update component state
   useEffect(() => {

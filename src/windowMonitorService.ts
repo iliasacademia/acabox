@@ -17,6 +17,10 @@ const BUTTON_HEIGHT = 50;
 const BUTTON_LEFT_MARGIN = 50;
 const BUTTON_BOTTOM_MARGIN = 30;
 
+const POPUP_WIDTH = 370;
+const POPUP_HEIGHT = 280;
+const POPUP_GAP_ABOVE_BUTTON = 10;
+
 const webviewConfigs: WebviewTypeConfig[] = [
   {
     keyPrefix: 'button-v2',
@@ -28,6 +32,20 @@ const webviewConfigs: WebviewTypeConfig[] = [
         y: cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN,
         width: BUTTON_WIDTH,
         height: BUTTON_HEIGHT,
+      };
+    },
+  },
+  {
+    keyPrefix: 'popup-v2',
+    pathSuffix: '/ui/popup/academiaNotificationsV2/',
+    computeFrame: (bounds: WindowBounds, screenHeight: number) => {
+      const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
+      const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
+      return {
+        x: bounds.x + BUTTON_LEFT_MARGIN,
+        y: buttonTopEdge + POPUP_GAP_ABOVE_BUTTON,
+        width: POPUP_WIDTH,
+        height: POPUP_HEIGHT,
       };
     },
   },
@@ -61,8 +79,14 @@ export class WindowMonitorService {
   private windowMonitorProcess: ChildProcess | null = null;
   private webviewManagerProcess: ChildProcess | null = null;
   private state: SystemState = createInitialState();
+  private popupToggledOpen: Set<string> = new Set();
+  private popupHeightOverrides: Map<string, number> = new Map();
+  private baseUrl: string | null = null;
+  private authToken: string | null = null;
 
   start(baseUrl: string, authToken: string): void {
+    this.baseUrl = baseUrl;
+    this.authToken = authToken;
     const wmBin = getWindowMonitorBinPath();
     const wvBin = getWebviewManagerBinPath();
 
@@ -110,16 +134,14 @@ export class WindowMonitorService {
         wordPollEventBus.emit('change', 'window-document-path-changed');
       }
 
+      if (event.event === 'WINDOW_DESTROYED' && event.window) {
+        this.popupToggledOpen.delete(event.window.id);
+        this.popupHeightOverrides.delete(event.window.id);
+      }
+
       logger.info('[WindowMonitorService] State:', newState);
 
-      const screenHeight = screen.getPrimaryDisplay().bounds.height;
-      const desiredState = computeWebviewState(newState, webviewConfigs, baseUrl, authToken, screenHeight);
-
-      logger.info('[WindowMonitorService] Desired state:', desiredState);
-
-      if (this.webviewManagerProcess?.stdin?.writable) {
-        this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
-      }
+      this.pushWebviewState();
     });
 
     // Handle window-monitor stderr
@@ -160,6 +182,52 @@ export class WindowMonitorService {
     });
   }
 
+  private pushWebviewState(): void {
+    if (!this.baseUrl || !this.authToken) return;
+
+    const screenHeight = screen.getPrimaryDisplay().bounds.height;
+    const desiredState = computeWebviewState(this.state, webviewConfigs, this.baseUrl, this.authToken, screenHeight);
+
+    for (const key of Object.keys(desiredState)) {
+      if (key.startsWith('popup-v2-')) {
+        const windowId = key.slice('popup-v2-'.length);
+        if (!this.popupToggledOpen.has(windowId)) {
+          desiredState[key].visible = false;
+        }
+        const heightOverride = this.popupHeightOverrides.get(windowId);
+        if (heightOverride !== undefined) {
+          desiredState[key].frame.height = heightOverride;
+        }
+      }
+    }
+
+    logger.info('[WindowMonitorService] Desired state:', desiredState);
+
+    if (this.webviewManagerProcess?.stdin?.writable) {
+      this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
+    }
+  }
+
+  togglePopupForWindow(windowId: string): void {
+    if (this.popupToggledOpen.has(windowId)) {
+      this.popupToggledOpen.delete(windowId);
+    } else {
+      this.popupToggledOpen.add(windowId);
+    }
+    this.pushWebviewState();
+  }
+
+  setPopupHeight(windowId: string, height: number): void {
+    this.popupHeightOverrides.set(windowId, height);
+    this.pushWebviewState();
+  }
+
+  closePopupForWindow(windowId: string): void {
+    if (this.popupToggledOpen.delete(windowId)) {
+      this.pushWebviewState();
+    }
+  }
+
   getDocumentPathForWindow(windowId: string): string | null {
     for (const app of this.state.apps) {
       for (const window of app.windows) {
@@ -186,6 +254,8 @@ export class WindowMonitorService {
       this.webviewManagerProcess = null;
     }
     this.state = createInitialState();
+    this.popupToggledOpen.clear();
+    this.popupHeightOverrides.clear();
   }
 }
 

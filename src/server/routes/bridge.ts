@@ -7,6 +7,7 @@
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { defaultLogger as logger } from '../../utils/logger';
+import { windowMonitorService } from '../../windowMonitorService';
 
 /**
  * Bridge request payload from popup
@@ -15,6 +16,7 @@ interface BridgeRequestPayload {
   action: string;
   payload: Record<string, unknown>;
   pid: number;
+  wid?: string;
 }
 
 /**
@@ -56,6 +58,7 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
             action: { type: 'string' },
             payload: { type: 'object' },
             pid: { type: 'number' },
+            wid: { type: 'string' },
           },
         },
       },
@@ -64,7 +67,7 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
       request: FastifyRequest<{ Body: BridgeRequestPayload }>,
       reply: FastifyReply
     ) => {
-      const { action, payload, pid } = request.body;
+      const { action, payload, pid, wid } = request.body;
 
       if (isNaN(pid)) {
         reply.code(400).send({
@@ -75,7 +78,18 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
         return;
       }
 
-      logger.info(`[Bridge API] Received action: ${action}, pid: ${pid}, payload: ${JSON.stringify(payload)}`);
+      logger.info(`[Bridge API] Received action: ${action}, pid: ${pid}, wid: ${wid}, payload: ${JSON.stringify(payload)}`);
+
+      if (action === 'buttonClicked' && wid) {
+        windowMonitorService.togglePopupForWindow(wid);
+      } else if (action === 'closeWindow' && wid) {
+        windowMonitorService.closePopupForWindow(wid);
+      } else if (action === 'resizeWindow' && wid) {
+        const height = payload.height;
+        if (typeof height === 'number' && height > 0) {
+          windowMonitorService.setPopupHeight(wid, height);
+        }
+      }
 
       reply.send({ success: true });
     }

@@ -57,7 +57,27 @@ const buttonConfig: WebviewTypeConfig = {
   },
 };
 
+const POPUP_WIDTH = 370;
+const POPUP_HEIGHT = 280;
+const POPUP_GAP_ABOVE_BUTTON = 10;
+
+const popupConfig: WebviewTypeConfig = {
+  keyPrefix: 'popup-v2',
+  pathSuffix: '/ui/popup/academiaNotificationsV2/',
+  computeFrame: (bounds: WindowBounds, screenHeight: number) => {
+    const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
+    const buttonTopEdge = cocoaBottomOfWindow + 12 + 50;
+    return {
+      x: bounds.x + 50,
+      y: buttonTopEdge + POPUP_GAP_ABOVE_BUTTON,
+      width: POPUP_WIDTH,
+      height: POPUP_HEIGHT,
+    };
+  },
+};
+
 const configs: WebviewTypeConfig[] = [buttonConfig];
+const configsWithPopup: WebviewTypeConfig[] = [buttonConfig, popupConfig];
 
 beforeEach(() => {
   tsCounter = 0;
@@ -238,6 +258,76 @@ describe('Frame computation', () => {
     // cocoaBottom = 1080 - (50 + 800) = 230
     // y = 230 + 12 = 242
     expect(result['button-v2-1'].frame).toEqual({ x: 250, y: 242, width: 150, height: 50 });
+  });
+});
+
+// --- Popup webview ---
+
+describe('Popup webview', () => {
+  test('popup frame is 10px above button top edge', () => {
+    const app = makeApp();
+    const bounds = { x: 100, y: 100, width: 800, height: 600 };
+    const state = reduce(createInitialState(), [
+      { event: 'APP_FOCUSED', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '42', bounds }) },
+      { event: 'WINDOW_FOCUSED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '42', bounds }) },
+    ]);
+    const result = computeWebviewState(state, configsWithPopup, BASE_URL, AUTH_TOKEN, SCREEN_HEIGHT);
+
+    // cocoaBottom = 1080 - (100 + 600) = 380
+    // button y = 380 + 12 = 392, button top = 392 + 50 = 442
+    // popup y = 442 + 10 = 452
+    expect(result['popup-v2-42']).toBeDefined();
+    expect(result['popup-v2-42'].frame).toEqual({
+      x: 150,        // 100 + 50
+      y: 452,         // buttonTop + 10
+      width: POPUP_WIDTH,
+      height: POPUP_HEIGHT,
+    });
+  });
+
+  test('popup entry created alongside button entry for each window', () => {
+    const app = makeApp();
+    const state = reduce(createInitialState(), [
+      { event: 'APP_FOCUSED', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '2', bounds: { x: 50, y: 50, width: 900, height: 700 } }) },
+      { event: 'WINDOW_FOCUSED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+    ]);
+    const result = computeWebviewState(state, configsWithPopup, BASE_URL, AUTH_TOKEN, SCREEN_HEIGHT);
+
+    expect(result['button-v2-1']).toBeDefined();
+    expect(result['popup-v2-1']).toBeDefined();
+    expect(result['button-v2-2']).toBeDefined();
+    expect(result['popup-v2-2']).toBeDefined();
+  });
+
+  test('popup visibility follows same focus rules as button', () => {
+    const app = makeApp();
+    const state = reduce(createInitialState(), [
+      { event: 'APP_FOCUSED', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      { event: 'WINDOW_FOCUSED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+    ]);
+    const result = computeWebviewState(state, configsWithPopup, BASE_URL, AUTH_TOKEN, SCREEN_HEIGHT);
+
+    // Both should be visible when focused (toggle override is at service level, not here)
+    expect(result['button-v2-1'].visible).toBe(true);
+    expect(result['popup-v2-1'].visible).toBe(true);
+  });
+
+  test('popup URL uses correct path suffix', () => {
+    const app = makeApp();
+    const state = reduce(createInitialState(), [
+      { event: 'APP_FOCUSED', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      { event: 'WINDOW_FOCUSED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+    ]);
+    const result = computeWebviewState(state, configsWithPopup, BASE_URL, AUTH_TOKEN, SCREEN_HEIGHT);
+
+    expect(result['popup-v2-1'].url).toBe(
+      'http://localhost:3000/ui/popup/academiaNotificationsV2/?pid=100&wid=1&token=test-token'
+    );
   });
 });
 
