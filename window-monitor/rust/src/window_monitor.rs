@@ -239,9 +239,12 @@ impl WindowMonitor {
                     }
                     workspace::WorkspaceEvent::AppActivated => {
                         event_models::emit_app_event(EventType::AppFocused, &m.app_info());
+                        let windows = window_list::get_windows_for_pid(m.word_pid);
+                        m.check_for_focus_change(&windows);
                     }
                     workspace::WorkspaceEvent::AppDeactivated => {
                         event_models::emit_app_event(EventType::AppUnfocused, &m.app_info());
+                        m.last_focused_window_id = 0;
                     }
                 }
             },

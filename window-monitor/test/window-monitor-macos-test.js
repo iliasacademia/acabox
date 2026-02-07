@@ -772,6 +772,45 @@ async function runTest() {
     }
   }
 
+  // APP_FOCUSED should always have a corresponding WINDOW_FOCUSED in the same
+  // activation. macOS may deliver AX notifications (WINDOW_FOCUSED) and workspace
+  // notifications (APP_FOCUSED) in either order, so we look both forward (until
+  // the next APP_UNFOCUSED/APP_FOCUSED) and backward (until the previous
+  // APP_UNFOCUSED) for a matching WINDOW_FOCUSED.
+  log('blue', '\n[VALIDATE] Checking WINDOW_FOCUSED accompanies every APP_FOCUSED...');
+  const appFocusedErrors = [];
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].event !== 'APP_FOCUSED') continue;
+    // Look forward for WINDOW_FOCUSED before next APP_UNFOCUSED/APP_FOCUSED
+    let found = false;
+    for (let j = i + 1; j < events.length; j++) {
+      if (events[j].event === 'WINDOW_FOCUSED') { found = true; break; }
+      if (events[j].event === 'APP_UNFOCUSED' || events[j].event === 'APP_FOCUSED') break;
+    }
+    // Look backward for WINDOW_FOCUSED after previous APP_UNFOCUSED
+    if (!found) {
+      for (let j = i - 1; j >= 0; j--) {
+        if (events[j].event === 'WINDOW_FOCUSED') { found = true; break; }
+        if (events[j].event === 'APP_UNFOCUSED' || events[j].event === 'APP_FOCUSED') break;
+      }
+    }
+    if (!found) {
+      appFocusedErrors.push(
+        `APP_FOCUSED at index ${i} (${events[i].timestamp}) has no WINDOW_FOCUSED in the same activation`
+      );
+    }
+  }
+  if (appFocusedErrors.length === 0) {
+    log('green', '[PASS] Every APP_FOCUSED has a corresponding WINDOW_FOCUSED');
+    totalPassed++;
+  } else {
+    log('red', '[FAIL] APP_FOCUSED without corresponding WINDOW_FOCUSED:');
+    for (const err of appFocusedErrors) {
+      log('red', `  - ${err}`);
+    }
+    totalFailed++;
+  }
+
   // Event ordering: the last WINDOW_DESTROYED in the stream should have no
   // window events after it, BUT only if the last WINDOW_DESTROYED is from
   // the close-document step. Full-screen transitions produce intermediate
