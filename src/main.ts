@@ -12,9 +12,8 @@ import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
 import { notificationManager } from './notificationManager';
 import { eventsManager } from './eventsManager';
-import { wordIntegrationService } from './wordIntegrationService';
-import { wordIntegrationDataStore, ProjectFileInfo } from './wordIntegrationDataStore';
 import { wordAccessibility } from './native/wordAccessibility';
+import { ProjectFileInfo } from './wordIntegrationDataStoreV2';
 import { AcademiaHttpServer } from './server/httpServer';
 import { createQRAuthSession, verifyAuthCode } from './auth/qrAuthService';
 import { validateExternalUrl } from './utils/urlValidation';
@@ -831,41 +830,6 @@ app.whenReady().then(async () => {
     const baseUrl = httpServer.getBaseUrl();
     logger.debug(`[HTTP Server] Base URL: ${baseUrl}`);
 
-    if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V1_ENABLED) {
-      // Initialize Word integration with server URL
-      if (baseUrl) {
-        wordIntegrationService.initialize(baseUrl);
-      }
-
-      // Set server base URL and auth token for native popups
-      const authToken = httpServer.getAuthToken();
-      if (baseUrl && authToken) {
-        const urlSuccess = wordAccessibility.setServerBaseUrl(baseUrl);
-        const tokenSuccess = wordAccessibility.setAuthToken(authToken);
-        if (urlSuccess && tokenSuccess) {
-          logger.debug('[HTTP Server] ✓ Server URL and auth token set for native popups');
-        } else {
-          logger.error('[HTTP Server] ✗ Failed to set server URL or auth token for native popups');
-        }
-      } else if (baseUrl) {
-        const success = wordAccessibility.setServerBaseUrl(baseUrl);
-        if (success) {
-          logger.debug('[HTTP Server] ✓ Server URL set for native popups (no auth token)');
-        }
-      }
-
-      // Set up native logging to same file as TypeScript logger
-      const logFilePath = logger.getLogFilePath();
-      if (logFilePath) {
-        const logSuccess = wordAccessibility.setLogFilePath(logFilePath);
-        if (logSuccess) {
-          logger.debug('[Native] ✓ Native logging initialized to:', logFilePath);
-        } else {
-          logger.warn('[Native] ✗ Failed to initialize native logging');
-        }
-      }
-    }
-
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
       const authToken = httpServer.getAuthToken();
       if (baseUrl && authToken) {
@@ -874,8 +838,6 @@ app.whenReady().then(async () => {
     }
   } catch (error) {
     logger.error('[HTTP Server] ✗ Failed to start server:', error);
-    // Initialize Word integration without server URL
-    wordIntegrationService.initialize();
   }
 });
 
@@ -900,10 +862,10 @@ app.on('activate', () => {
 
 /**
  * Fetches all projects and their files, extracts manuscript paths,
- * and passes them to wordIntegrationService and wordIntegrationDataStore.
+ * and passes them to wordIntegrationDataStoreV2.
  */
 async function refreshManuscriptPaths(): Promise<void> {
-  if (!(FEATURES.MS_WORD_INTEGRATION_ENABLED && (FEATURES.MS_WORD_V1_ENABLED || FEATURES.MS_WORD_V2_ENABLED))) {
+  if (!(FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED)) {
     return;
   }
   try {
@@ -911,13 +873,7 @@ async function refreshManuscriptPaths(): Promise<void> {
     const isLoggedIn = await checkLogin();
     if (!isLoggedIn) {
       logger.info('[MANUSCRIPT-PATHS] User is logged out, clearing cache');
-      if (FEATURES.MS_WORD_V1_ENABLED) {
-        wordIntegrationService.setManuscriptPaths([]);
-        wordIntegrationDataStore.setProjectFileCache(new Map());
-      }
-      if (FEATURES.MS_WORD_V2_ENABLED) {
-        wordIntegrationDataStoreV2.setProjectFileCache(new Map());
-      }
+      wordIntegrationDataStoreV2.setProjectFileCache(new Map());
       return;
     }
 
@@ -928,13 +884,7 @@ async function refreshManuscriptPaths(): Promise<void> {
     const projects = projectsResponse.data?.projects || [];
 
     if (projects.length === 0) {
-      if (FEATURES.MS_WORD_V1_ENABLED) {
-        wordIntegrationService.setManuscriptPaths([]);
-        wordIntegrationDataStore.setProjectFileCache(new Map());
-      }
-      if (FEATURES.MS_WORD_V2_ENABLED) {
-        wordIntegrationDataStoreV2.setProjectFileCache(new Map());
-      }
+      wordIntegrationDataStoreV2.setProjectFileCache(new Map());
       return;
     }
 
@@ -968,34 +918,17 @@ async function refreshManuscriptPaths(): Promise<void> {
       });
     }
 
-    // Extract unique paths for tracking
-    const manuscriptPaths = [...new Set(manuscriptFiles.map((f: { file_path: string }) => f.file_path))];
-
-    if (FEATURES.MS_WORD_V1_ENABLED) {
-      wordIntegrationService.setManuscriptPaths(manuscriptPaths);
-      wordIntegrationDataStore.setProjectFileCache(projectFileCache);
-    }
-    if (FEATURES.MS_WORD_V2_ENABLED) {
-      wordIntegrationDataStoreV2.setProjectFileCache(projectFileCache);
-    }
+    wordIntegrationDataStoreV2.setProjectFileCache(projectFileCache);
 
   } catch (error) {
     logger.error('[MANUSCRIPT-PATHS] Error refreshing manuscript paths:', error);
-    if (FEATURES.MS_WORD_V1_ENABLED) {
-      wordIntegrationService.setManuscriptPaths([]);
-      wordIntegrationDataStore.setProjectFileCache(new Map());
-    }
-    if (FEATURES.MS_WORD_V2_ENABLED) {
-      wordIntegrationDataStoreV2.setProjectFileCache(new Map());
-    }
+    wordIntegrationDataStoreV2.setProjectFileCache(new Map());
   }
 }
 
 // Helper function for cleanup
 function cleanupNativeResources() {
-  if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V1_ENABLED) {
-    wordIntegrationService.cleanup();
-  }
+  // V1 native cleanup removed — V2 cleanup handled by windowMonitorService
 }
 
 // Helper function for cleanup before exit
@@ -1181,10 +1114,6 @@ ipcMain.handle(IPC_CHANNELS.LOGOUT, async () => {
     eventsManager.stopPolling();
 
     // Clear Word integration data
-    if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V1_ENABLED) {
-      wordIntegrationService.setManuscriptPaths([]);
-      wordIntegrationDataStore.setProjectFileCache(new Map());
-    }
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
       wordIntegrationDataStoreV2.setProjectFileCache(new Map());
     }
@@ -1740,9 +1669,6 @@ app.on('before-quit', async (event) => {
     // Stop window monitor service (V2 Rust processes)
     windowMonitorService.stop();
 
-    // Stop Word integration (intervals and native observers)
-    wordIntegrationService.cleanup();
-
     // Stop all sync watchers
     logger.debug('[APP] Stopping sync watchers...');
     await syncService.stopAll();
@@ -1962,10 +1888,7 @@ ipcMain.handle(IPC_CHANNELS.CLOSE_WINDOW, async (event) => {
 
 // Handle position debug info request
 ipcMain.handle(IPC_CHANNELS.GET_POSITION_DEBUG_INFO, async () => {
-  if (!(FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V1_ENABLED)) {
-    return {};
-  }
-  return wordIntegrationService.getPositionDebugInfo();
+  return {};
 });
 
 // Handle get all notifications request for debugging

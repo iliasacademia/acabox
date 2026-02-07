@@ -8,9 +8,13 @@
 @class WordAccessibilityObserver;
 
 // Import extracted window classes
+// DEPRECATED: V1-only — can be removed when native module is stripped
 #import "bridge/windows/OverallReviewPopup.h"
+// DEPRECATED: V1-only — can be removed when native module is stripped
 #import "bridge/windows/AcademiaNotificationsButton.h"
+// DEPRECATED: V1-only — can be removed when native module is stripped
 #import "bridge/windows/OverallReviewButton.h"
+// DEPRECATED: V1-only — can be removed when native module is stripped
 #import "bridge/windows/TextSideButton.h"
 
 // Import architecture components
@@ -22,18 +26,22 @@
 #import "bridge/windows/DebugInfoOverlay.h"
 
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 // Global variable for popup path (declared at file scope for accessibility from both Obj-C and C++)
 NSString* globalPopupPath = nil;
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 // Global variable for HTTP server base URL (e.g., "http://127.0.0.1:23111")
 NSString* globalServerBaseUrl = nil;
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 // Feature flags (set from TypeScript via setFeatureFlags)
 // Declared at file scope for accessibility from both Obj-C implementation and C++ namespace
 static BOOL featureTextSideButtonEnabled = YES;      // Default: enabled
 static BOOL featureOverallReviewButtonEnabled = YES; // Default: enabled
 BOOL featureScrollTrackingEnabled = YES;             // Default: enabled (non-static for extern access)
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 // Global variable for HTTP server auth token
 NSString* globalAuthToken = nil;
 
@@ -73,6 +81,7 @@ void AcademiaLog(NSString* format, ...) {
 // Callback function for accessibility events
 static void AccessibilityCallback(AXObserverRef observer, AXUIElementRef element, CFStringRef notification, void* refcon);
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 @implementation WordAccessibilityObserver {
     AXObserverRef _observer;
     AXUIElementRef _wordApp;
@@ -870,22 +879,30 @@ struct CallbackData {
 };
 
 // Multi-PID observer registry (Phase 2 implementation)
+// DEPRECATED: V1-only — can be removed when native module is stripped
 NSMutableDictionary<NSNumber*, WordAccessibilityObserver*>* observerRegistry = nil;
+// DEPRECATED: V1-only — can be removed when native module is stripped
 NSNumber* activePID = nil;  // Currently focused Word PID
+// DEPRECATED: V1-only — can be removed when native module is stripped
 CallbackData* globalCallbackData = nullptr;  // Shared across all observers
+// DEPRECATED: V1-only — can be removed when native module is stripped
 static const NSInteger kMaxObservers = 3;  // Prioritizes first-opened PIDs
+// DEPRECATED: V1-only — can be removed when native module is stripped
 static id appActivationObserver = nil;  // Focus monitor observer
 
 // Legacy single-observer support (deprecated)
+// DEPRECATED: V1-only — can be removed when native module is stripped
 WordAccessibilityObserver* globalObserver = nil;
 
 // Registry helper functions
+// DEPRECATED: V1-only — can be removed when native module is stripped
 static void initializeRegistry() {
     if (!observerRegistry) {
         observerRegistry = [[NSMutableDictionary alloc] init];
     }
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 static void setActiveObserver(pid_t pid) {
     initializeRegistry();
     NSNumber* pidKey = @(pid);
@@ -909,6 +926,7 @@ static void setActiveObserver(pid_t pid) {
     }
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 static void setupGlobalFocusMonitor() {
     if (appActivationObserver) return;
 
@@ -938,6 +956,7 @@ static void setupGlobalFocusMonitor() {
     }];
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 static void teardownGlobalFocusMonitor() {
     if (appActivationObserver) {
         [[NSWorkspace sharedWorkspace].notificationCenter removeObserver:appActivationObserver];
@@ -945,6 +964,7 @@ static void teardownGlobalFocusMonitor() {
     }
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 void SelectionChangedCallbackBridge(const char* text, CGRect bounds) {
     if (globalCallbackData && globalCallbackData->selectionTsfn) {
         auto callback = [text = std::string(text), bounds](Napi::Env env, Napi::Function jsCallback) {
@@ -961,6 +981,7 @@ void SelectionChangedCallbackBridge(const char* text, CGRect bounds) {
     }
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 void ScrollEventCallbackBridge(bool isScrolling) {
     if (globalCallbackData && globalCallbackData->scrollTsfn) {
         auto callback = [isScrolling](Napi::Env env, Napi::Function jsCallback) {
@@ -972,6 +993,7 @@ void ScrollEventCallbackBridge(bool isScrolling) {
     }
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 void ButtonClickCallbackBridge(const char* text) {
     if (globalCallbackData && globalCallbackData->buttonClickTsfn) {
         auto callback = [text = std::string(text)](Napi::Env env, Napi::Function jsCallback) {
@@ -984,6 +1006,7 @@ void ButtonClickCallbackBridge(const char* text) {
     }
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 // DEPRECATED: Use StartObservingPID instead for multi-PID support
 Napi::Value StartObserving(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
@@ -1030,6 +1053,7 @@ Napi::Value StartObserving(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 // DEPRECATED: Use StopObservingPID or StopAllObserving instead for multi-PID support
 Napi::Value StopObserving(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
@@ -1056,6 +1080,7 @@ Napi::Value StopObserving(const Napi::CallbackInfo& info) {
 // Multi-PID Observer API (Phase 2)
 // ============================================================================
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value StartObservingPID(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1122,6 +1147,7 @@ Napi::Value StartObservingPID(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value StopObservingPID(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1170,6 +1196,7 @@ Napi::Value StopObservingPID(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value StopAllObserving(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1197,6 +1224,7 @@ Napi::Value StopAllObserving(const Napi::CallbackInfo& info) {
     return env.Null();
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value SetActivePID(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1217,6 +1245,7 @@ Napi::Value SetActivePID(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetActivePID(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1227,6 +1256,7 @@ Napi::Value GetActivePID(const Napi::CallbackInfo& info) {
     return Napi::Number::New(env, activePID.intValue);
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetObservedPIDs(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1241,6 +1271,7 @@ Napi::Value GetObservedPIDs(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value IsObservingPID(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1257,6 +1288,7 @@ Napi::Value IsObservingPID(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, isObserving);
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetActiveDocumentPath(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1295,6 +1327,7 @@ Napi::Value GetActiveDocumentPath(const Napi::CallbackInfo& info) {
 // Legacy Single-Observer API (getter functions use globalObserver for backward compat)
 // ============================================================================
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetSelectedText(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1317,6 +1350,7 @@ Napi::Value GetSelectedText(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetFirstTextAreaInfo(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1442,6 +1476,7 @@ Napi::Value ResetAndRequestPermission(const Napi::CallbackInfo& info) {
     return resultObj;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value SetPopupPath(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1492,6 +1527,7 @@ Napi::Value SetLogFilePath(const Napi::CallbackInfo& info) {
     }
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value SetServerBaseUrl(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1507,6 +1543,7 @@ Napi::Value SetServerBaseUrl(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value SetAuthToken(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1522,6 +1559,7 @@ Napi::Value SetAuthToken(const Napi::CallbackInfo& info) {
     return Napi::Boolean::New(env, true);
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetDocumentTopLeftCorner(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1542,6 +1580,7 @@ Napi::Value GetDocumentTopLeftCorner(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetWordWindowBounds(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1564,6 +1603,7 @@ Napi::Value GetWordWindowBounds(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetFirstLinePosition(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1586,6 +1626,7 @@ Napi::Value GetFirstLinePosition(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetPageCornerVisibility(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1605,6 +1646,7 @@ Napi::Value GetPageCornerVisibility(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetParentHierarchy(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1633,6 +1675,7 @@ Napi::Value GetParentHierarchy(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetButtonStates(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1682,6 +1725,7 @@ Napi::Value GetButtonStates(const Napi::CallbackInfo& info) {
     return result;
 }
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value GetScrollAreaBounds(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
@@ -1709,6 +1753,7 @@ Napi::Value GetScrollAreaBounds(const Napi::CallbackInfo& info) {
 // Feature Flag Configuration
 // ============================================================================
 
+// DEPRECATED: V1-only — can be removed when native module is stripped
 Napi::Value SetFeatureFlags(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 

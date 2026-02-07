@@ -21,13 +21,11 @@ import path from 'path';
 import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
-import { registerWordRoutes } from './routes/word';
 import { registerWordV2Routes } from './routes/wordV2';
 import { registerWebSocketRoutes } from './routes/websocket';
 import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerBridgeRoutes } from './routes/bridge';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
-import { wordIntegrationDataStore } from '../wordIntegrationDataStore';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
 import { defaultLogger as logger } from '../utils/logger';
@@ -174,30 +172,10 @@ export class AcademiaHttpServer {
     // Dev endpoint - only registered in development mode
     if (!app.isPackaged) {
       this.fastify.get('/dev', async (request, reply) => {
-        const trackedPIDs = wordIntegrationDataStore.getTrackedPIDs();
         const token = this.authToken || '';
         const baseUrl = this.getBaseUrl() || '';
 
-        const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
-
-        const response = {
-          token,
-          baseUrl,
-          trackedPIDs: trackedPIDs.map(pidInfo => ({
-            pid: pidInfo.pid,
-            filePath: pidInfo.filePath,
-            isActive: pidInfo.isActive,
-            popupUrls: {
-              academiaNotifications: `${baseUrl}/ui/popup/academiaNotifications/?pid=${pidInfo.pid}&token=${token}`,
-              academiaNotificationsButton: `${baseUrl}/ui/popup/academiaNotificationsButton/?pid=${pidInfo.pid}&token=${token}`,
-              academiaNotificationsButtonV2: `${baseUrl}/ui/popup/academiaNotificationsButtonV2/?pid=${pidInfo.pid}&token=${token}`,
-              academiaNotificationsV2: `${baseUrl}/ui/popup/academiaNotificationsV2/?pid=${pidInfo.pid}&token=${token}`,
-            },
-            webSocketUrl: `${wsBaseUrl}/ws/word/${pidInfo.pid}?token=${token}`,
-          })),
-        };
-
-        reply.send(response);
+        reply.send({ token, baseUrl });
       });
     }
 
@@ -210,9 +188,6 @@ export class AcademiaHttpServer {
 
     // Register proxy routes
     await registerProxyRoutes(this.fastify);
-
-    // Register Word integration routes
-    await registerWordRoutes(this.fastify, this.notificationManager, this.currentUserId);
 
     // Register V2 Word integration routes (wid-based)
     await registerWordV2Routes(this.fastify, this.notificationManager, this.currentUserId);

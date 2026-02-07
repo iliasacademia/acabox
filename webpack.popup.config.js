@@ -1,6 +1,5 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const CopyWebpackPlugin = require('copy-webpack-plugin');
 const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 
 // IMPORTANT: Popup uses production mode to prevent hot-reload issues
@@ -12,14 +11,8 @@ const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 module.exports = {
   mode: 'production',
   entry: {
-    academiaNotifications: './src/popup/AcademiaNotificationsPopup.tsx',
-    academiaNotificationsButton: './src/popup/AcademiaNotificationsButton.tsx',
     academiaNotificationsButtonV2: './src/popup/AcademiaNotificationsButtonV2.tsx',
     academiaNotificationsV2: './src/popup/AcademiaNotificationsPopupV2.tsx',
-    overallReview: './src/popup/OverallReviewPopup.tsx',
-    overallReviewButton: './src/popup/OverallReviewButton.tsx',
-    textSideButton: './src/popup/TextSideButton.tsx',
-    textSide: './src/popup/TextSidePopup.tsx',
   },
   output: {
     path: path.resolve(__dirname, 'dist/popup'),
@@ -54,20 +47,6 @@ module.exports = {
   },
   plugins: [
     new HtmlWebpackPlugin({
-      template: './src/popup/academia-notifications.html',
-      filename: 'academiaNotifications/index.html',
-      chunks: ['academiaNotifications'],
-      inject: false, // Don't inject - we manually control script loading order
-      scriptLoading: 'blocking',
-    }),
-    new HtmlWebpackPlugin({
-      template: './src/popup/academia-notifications-button.html',
-      filename: 'academiaNotificationsButton/index.html',
-      chunks: ['academiaNotificationsButton'],
-      inject: false, // Don't inject - we manually control script loading order
-      scriptLoading: 'blocking',
-    }),
-    new HtmlWebpackPlugin({
       template: './src/popup/academia-notifications-button-v2.html',
       filename: 'academiaNotificationsButtonV2/index.html',
       chunks: ['academiaNotificationsButtonV2'],
@@ -80,62 +59,6 @@ module.exports = {
       chunks: ['academiaNotificationsV2'],
       inject: false, // Don't inject - we manually control script loading order
       scriptLoading: 'blocking',
-    }),
-    new HtmlWebpackPlugin({
-      template: './src/popup/overall-review.html',
-      filename: 'overallReview/index.html',
-      chunks: ['overallReview'],
-      inject: false, // Don't inject - we manually control script loading order
-      scriptLoading: 'blocking',
-    }),
-    new HtmlWebpackPlugin({
-      template: './src/popup/overall-review-button.html',
-      filename: 'overallReviewButton/index.html',
-      chunks: ['overallReviewButton'],
-      inject: false, // Don't inject - we manually control script loading order
-      scriptLoading: 'blocking',
-    }),
-    new HtmlWebpackPlugin({
-      template: './src/popup/text-side-button.html',
-      filename: 'textSideButton/index.html',
-      chunks: ['textSideButton'],
-      inject: false, // Don't inject - we manually control script loading order
-      scriptLoading: 'blocking',
-    }),
-    new HtmlWebpackPlugin({
-      template: './src/popup/text-side-popup.html',
-      filename: 'textSide/index.html',
-      chunks: ['textSide'],
-      inject: false, // Don't inject - we manually control script loading order
-      scriptLoading: 'blocking',
-    }),
-    new CopyWebpackPlugin({
-      patterns: [
-        {
-          from: './src/popup/bridge-preload.js',
-          to: 'academiaNotifications/bridge-preload.js',
-        },
-        {
-          from: './src/popup/bridge-preload.js',
-          to: 'academiaNotificationsButton/bridge-preload.js',
-        },
-        {
-          from: './src/popup/bridge-preload.js',
-          to: 'overallReview/bridge-preload.js',
-        },
-        {
-          from: './src/popup/bridge-preload.js',
-          to: 'overallReviewButton/bridge-preload.js',
-        },
-        {
-          from: './src/popup/bridge-preload.js',
-          to: 'textSideButton/bridge-preload.js',
-        },
-        {
-          from: './src/popup/bridge-preload.js',
-          to: 'textSide/bridge-preload.js',
-        },
-      ],
     }),
     new MiniCssExtractPlugin({
       filename: '[name]/styles.css', // Use predictable filename for manual HTML injection

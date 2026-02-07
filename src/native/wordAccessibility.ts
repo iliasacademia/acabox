@@ -4,6 +4,7 @@ import { defaultLogger as logger } from '../utils/logger';
 // Webpack provides __non_webpack_require__ to access Node's native require
 declare const __non_webpack_require__: NodeRequire | undefined;
 
+// DEPRECATED: V1-only
 export interface SelectionEvent {
   type: 'selectionChanged';
   text: string;
@@ -13,17 +14,21 @@ export interface SelectionEvent {
   height: number;
 }
 
+// DEPRECATED: V1-only
 export interface ScrollEvent {
   type: 'scrollStarted' | 'scrollEnded';
 }
 
+// DEPRECATED: V1-only
 export interface ButtonClickEvent {
   type: 'buttonClicked';
   text: string;
 }
 
+// DEPRECATED: V1-only
 export type AccessibilityEvent = SelectionEvent | ScrollEvent | ButtonClickEvent;
 
+// DEPRECATED: V1-only
 export interface SelectedText {
   text: string;
   x: number;
@@ -32,11 +37,13 @@ export interface SelectedText {
   height: number;
 }
 
+// DEPRECATED: V1-only
 export interface Position {
   x: number;
   y: number;
 }
 
+// DEPRECATED: V1-only
 export interface Bounds {
   x: number;
   y: number;
@@ -44,6 +51,7 @@ export interface Bounds {
   height: number;
 }
 
+// DEPRECATED: V1-only
 export interface PageCornerVisibility {
   isVisible: boolean;
   inViewport: boolean;
@@ -51,6 +59,7 @@ export interface PageCornerVisibility {
   visibleRangeLength: number;
 }
 
+// DEPRECATED: V1-only
 export interface ParentElement {
   level: number;
   role: string;
@@ -60,6 +69,7 @@ export interface ParentElement {
   height: number;
 }
 
+// DEPRECATED: V1-only
 export interface ButtonState {
   x: number;
   y: number;
@@ -68,11 +78,13 @@ export interface ButtonState {
   isVisible: boolean;
 }
 
+// DEPRECATED: V1-only
 export interface ButtonStates {
   academiaButton: ButtonState | null;
   countButton: ButtonState | null;
 }
 
+// DEPRECATED: V1-only
 export interface FirstTextAreaInfo {
   text: string;
   x: number;
@@ -82,6 +94,7 @@ export interface FirstTextAreaInfo {
   charCount: number;
 }
 
+// DEPRECATED: V1-only
 export interface BadgeState {
   count: number;
   isVisible: boolean;
@@ -93,25 +106,37 @@ export interface BadgeState {
 
 interface NativeModule {
   // Legacy single-observer API (deprecated - use multi-PID API instead)
+  // DEPRECATED: V1-only
   /** @deprecated Use startObservingPID instead */
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean;
+  // DEPRECATED: V1-only
   /** @deprecated Use stopObservingPID or stopAllObserving instead */
   stopObserving(): void;
 
   // Multi-PID observer API (Phase 2)
+  // DEPRECATED: V1-only
   startObservingPID(pid: number, callback: (event: AccessibilityEvent) => void): boolean;
+  // DEPRECATED: V1-only
   stopObservingPID(pid: number): boolean;
+  // DEPRECATED: V1-only
   stopAllObserving(): void;
+  // DEPRECATED: V1-only
   setActivePID(pid: number): boolean;
+  // DEPRECATED: V1-only
   getActivePID(): number | null;
+  // DEPRECATED: V1-only
   getObservedPIDs(): number[];
+  // DEPRECATED: V1-only
   isObservingPID(pid: number): boolean;
 
   // Configuration
+  // DEPRECATED: V1-only
   setFeatureFlags(flags: { textSideButtonEnabled?: boolean; overallReviewButtonEnabled?: boolean; scrollTrackingEnabled?: boolean }): boolean;
 
   // Utility functions
+  // DEPRECATED: V1-only
   getSelectedText(): SelectedText | null;
+  // DEPRECATED: V1-only
   getFirstTextAreaInfo(): FirstTextAreaInfo | null;
   checkPermission(): boolean;
   requestPermission(): boolean;
@@ -119,17 +144,28 @@ interface NativeModule {
   resetAndRequestPermission(): { resetSuccess: boolean; bundleId: string };
   getAppInfo(): { bundleId: string; executablePath: string; teamId: string };
   setLogFilePath(path: string): boolean;
+  // DEPRECATED: V1-only
   setPopupPath(path: string): boolean;
+  // DEPRECATED: V1-only
   setServerBaseUrl(url: string): boolean;
+  // DEPRECATED: V1-only
   setAuthToken(token: string): boolean;
+  // DEPRECATED: V1-only
   getDocumentTopLeftCorner(): Position | null;
+  // DEPRECATED: V1-only
   getWordWindowBounds(): Bounds | null;
+  // DEPRECATED: V1-only
   getFirstLinePosition(): Bounds | null;
+  // DEPRECATED: V1-only
   getPageCornerVisibility(): PageCornerVisibility | null;
+  // DEPRECATED: V1-only
   getParentHierarchy(): ParentElement[];
+  // DEPRECATED: V1-only
   getButtonStates(): ButtonStates | null;
+  // DEPRECATED: V1-only
   getScrollAreaBounds(): Bounds | null;
   // WAGENT-94: updateButtonBadge and getBadgeState removed - badges handled by new architecture
+  // DEPRECATED: V1-only
   getActiveDocumentPath(pid: number): string | null;
 }
 
@@ -176,6 +212,7 @@ try {
     throw new Error('Native module not found in any expected location');
   }
 
+  // DEPRECATED: V1-only — popup path setup for native overlay
   // Set the popup HTML path for the native module
   try {
     const fs = nodeRequire('fs');
@@ -202,10 +239,13 @@ try {
 
 export class WordAccessibilityBridge {
   // Legacy single-PID tracking (deprecated)
+  // DEPRECATED: V1-only
   private callback: ((event: AccessibilityEvent) => void) | null = null;
+  // DEPRECATED: V1-only
   private pid: number | null = null;
 
   // Multi-PID tracking
+  // DEPRECATED: V1-only
   private sharedCallback: ((event: AccessibilityEvent) => void) | null = null;
 
   checkPermission(): boolean {
@@ -260,6 +300,7 @@ export class WordAccessibilityBridge {
   // Legacy Single-Observer API (deprecated)
   // ============================================================================
 
+  // DEPRECATED: V1-only
   /** @deprecated Use startObservingPID instead */
   startObserving(pid: number, callback: (event: AccessibilityEvent) => void): boolean {
     logger.warn('[WordAccessibility] WARNING: startObserving() is deprecated. Use startObservingPID() for multi-PID support.');
@@ -283,6 +324,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   /** @deprecated Use stopObservingPID or stopAllObserving instead */
   stopObserving(): void {
     logger.warn('[WordAccessibility] WARNING: stopObserving() is deprecated. Use stopObservingPID() or stopAllObserving() for multi-PID support.');
@@ -304,6 +346,7 @@ export class WordAccessibilityBridge {
   // Multi-PID Observer API (Phase 2)
   // ============================================================================
 
+  // DEPRECATED: V1-only
   /**
    * Start observing a specific PID. Can observe multiple PIDs simultaneously.
    * @param pid The process ID to observe
@@ -330,6 +373,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   /**
    * Stop observing a specific PID.
    * @param pid The process ID to stop observing
@@ -348,6 +392,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   /**
    * Stop observing all PIDs and clean up resources.
    */
@@ -364,6 +409,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   /**
    * Set which PID's overlays should be visible.
    * @param pid The process ID to make active
@@ -382,6 +428,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   /**
    * Get the currently active PID (whose overlays are visible).
    * @returns The active PID or null if none
@@ -399,6 +446,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   /**
    * Get list of all PIDs currently being observed.
    * @returns Array of observed PIDs
@@ -416,6 +464,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   /**
    * Check if a specific PID is currently being observed.
    * @param pid The process ID to check
@@ -438,6 +487,7 @@ export class WordAccessibilityBridge {
   // Configuration Methods
   // ============================================================================
 
+  // DEPRECATED: V1-only
   /**
    * Set feature flags for native components.
    * Must be called BEFORE startObservingPID() since buttons are created during observer initialization.
@@ -460,6 +510,7 @@ export class WordAccessibilityBridge {
   // Utility Methods
   // ============================================================================
 
+  // DEPRECATED: V1-only
   getSelectedText(): SelectedText | null {
     if (!nativeModule) {
       return null;
@@ -473,6 +524,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   getFirstTextAreaInfo(): FirstTextAreaInfo | null {
     if (!nativeModule) {
       return null;
@@ -486,10 +538,12 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   isObserving(): boolean {
     return this.pid !== null && this.callback !== null;
   }
 
+  // DEPRECATED: V1-only
   getDocumentTopLeftCorner(): Position | null {
     if (!nativeModule) {
       return null;
@@ -503,6 +557,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   getWordWindowBounds(): Bounds | null {
     if (!nativeModule) {
       return null;
@@ -516,6 +571,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   getFirstLinePosition(): Bounds | null {
     if (!nativeModule) {
       return null;
@@ -529,6 +585,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   getPageCornerVisibility(): PageCornerVisibility | null {
     if (!nativeModule) {
       return null;
@@ -542,6 +599,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   getParentHierarchy(): ParentElement[] {
     if (!nativeModule) {
       return [];
@@ -556,6 +614,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   getButtonStates(): ButtonStates | null {
     if (!nativeModule) {
       return null;
@@ -569,6 +628,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   getScrollAreaBounds(): Bounds | null {
     if (!nativeModule) {
       return null;
@@ -582,6 +642,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   setServerBaseUrl(url: string): boolean {
     if (!nativeModule) {
       logger.error('Failed to set server base URL: Native module not loaded');
@@ -596,6 +657,7 @@ export class WordAccessibilityBridge {
     }
   }
 
+  // DEPRECATED: V1-only
   setAuthToken(token: string): boolean {
     if (!nativeModule) {
       logger.error('Failed to set auth token: Native module not loaded');
@@ -613,6 +675,7 @@ export class WordAccessibilityBridge {
   // WAGENT-94: updateButtonBadge and getBadgeState methods removed
   // Badge management now handled by new architecture (AcademiaManager)
 
+  // DEPRECATED: V1-only
   getActiveDocumentPath(pid: number): string | null {
     if (!nativeModule) {
       return null;
