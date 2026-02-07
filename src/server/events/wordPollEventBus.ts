@@ -14,7 +14,8 @@ export type WordPollChangeReason =
   | 'notification-status-changed'
   | 'tracked-pids-changed'
   | 'project-file-cache-changed'
-  | 'v2-project-file-cache-changed';
+  | 'v2-project-file-cache-changed'
+  | 'window-document-path-changed';
 
 interface WordPollEvents {
   change: [reason: WordPollChangeReason];

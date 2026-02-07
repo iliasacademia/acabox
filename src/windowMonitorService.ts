@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { defaultLogger as logger } from './utils/logger';
 import { SystemState, WindowMonitorEvent, WindowBounds } from './windowMonitor/types';
+import { wordPollEventBus } from './server/events/wordPollEventBus';
 import { createInitialState } from './windowMonitor/initialState';
 import { reduceWindowMonitorEvent } from './windowMonitor/reducer';
 import {
@@ -46,6 +47,16 @@ function getWebviewManagerBinPath(): string {
   return path.join(app.getAppPath(), 'webview-manager', 'rust', 'target', 'release', 'webview-manager');
 }
 
+function getWindowDocumentPathMap(state: SystemState): Map<string, string | null> {
+  const map = new Map<string, string | null>();
+  for (const app of state.apps) {
+    for (const window of app.windows) {
+      map.set(window.id, window.documentPath);
+    }
+  }
+  return map;
+}
+
 export class WindowMonitorService {
   private windowMonitorProcess: ChildProcess | null = null;
   private webviewManagerProcess: ChildProcess | null = null;
@@ -83,6 +94,22 @@ export class WindowMonitorService {
 
       const newState = reduceWindowMonitorEvent(this.state, event);
 
+      // Detect window→documentPath mapping changes and notify poll subscribers
+      const oldMap = getWindowDocumentPathMap(this.state);
+      const newMap = getWindowDocumentPathMap(newState);
+      let documentPathMappingChanged = false;
+      for (const [wid, docPath] of newMap) {
+        if (oldMap.get(wid) !== docPath) {
+          documentPathMappingChanged = true;
+          break;
+        }
+      }
+      this.state = newState;
+
+      if (documentPathMappingChanged) {
+        wordPollEventBus.emit('change', 'window-document-path-changed');
+      }
+
       logger.info('[WindowMonitorService] State:', newState);
 
       const screenHeight = screen.getPrimaryDisplay().bounds.height;
@@ -93,8 +120,6 @@ export class WindowMonitorService {
       if (this.webviewManagerProcess?.stdin?.writable) {
         this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
       }
-
-      this.state = newState;
     });
 
     // Handle window-monitor stderr
