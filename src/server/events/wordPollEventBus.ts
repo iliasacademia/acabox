@@ -13,7 +13,8 @@ export type WordPollChangeReason =
   | 'notifications-synced'
   | 'notification-status-changed'
   | 'tracked-pids-changed'
-  | 'project-file-cache-changed';
+  | 'project-file-cache-changed'
+  | 'v2-project-file-cache-changed';
 
 interface WordPollEvents {
   change: [reason: WordPollChangeReason];

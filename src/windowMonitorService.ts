@@ -103,7 +103,7 @@ export class WindowMonitorService {
         return;
       }
 
-      logger.info('[WindowMonitorService] Event:', event.event);
+      logger.info('[WindowMonitorService] Event:', event);
 
       const prevState = this.state;
       const newState = reduceWindowMonitorEvent(prevState, event);
@@ -169,6 +169,20 @@ export class WindowMonitorService {
     });
   }
 
+  getDocumentPathForWindow(windowId: string): string | null {
+    for (const app of this.state.apps) {
+      for (const window of app.windows) {
+        if (window.id === windowId) {
+          if (window.documentPath?.startsWith('file://')) {
+            return decodeURIComponent(window.documentPath.slice(7));
+          }
+          return window.documentPath;
+        }
+      }
+    }
+    return null;
+  }
+
   stop(): void {
     if (this.windowMonitorProcess) {
       logger.info('[WindowMonitorService] Stopping window-monitor');
@@ -183,3 +197,5 @@ export class WindowMonitorService {
     this.state = createInitialState();
   }
 }
+
+export const windowMonitorService = new WindowMonitorService();

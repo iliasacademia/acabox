@@ -9,6 +9,7 @@ const serverUrl = window.location.origin;
 // Parse URL params
 const urlParams = new URLSearchParams(window.location.search);
 const pidParam = urlParams.get('pid');
+const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
 
 // Define response type locally to avoid importing server types in client code
@@ -28,14 +29,14 @@ interface WebSocketMessage {
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 /**
- * Custom hook: connects to /ws/word/:pid via WebSocket for real-time updates.
+ * Custom hook: connects to /ws/word/v2/:wid via WebSocket for real-time updates.
  * Falls back to HTTP polling (3s) if WebSocket fails permanently.
  *
  * All connection logic lives inside a single useEffect to avoid
  * useCallback dependency cycles that cause infinite reconnect loops.
  */
 function useWordPollWebSocket(
-  pid: string | null,
+  wid: string | null,
   token: string | null,
   apiBaseUrl: string
 ): { shouldShow: boolean; badgeCount: number } {
@@ -43,7 +44,7 @@ function useWordPollWebSocket(
   const [badgeCount, setBadgeCount] = useState(0);
 
   useEffect(() => {
-    if (!pid || !token) {
+    if (!wid || !token) {
       setShouldShow(false);
       return;
     }
@@ -72,7 +73,7 @@ function useWordPollWebSocket(
         try {
           const headers: Record<string, string> = { Accept: 'application/json' };
           headers['Authorization'] = `Bearer ${token}`;
-          const res = await fetch(`${apiBaseUrl}/word/${pid}/poll`, { headers });
+          const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, { headers });
           if (!res.ok) { setShouldShow(false); return; }
           const data: WordPollResponse = await res.json();
           applyPollData(data);
@@ -96,7 +97,7 @@ function useWordPollWebSocket(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/${pid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -154,7 +155,7 @@ function useWordPollWebSocket(
       }, delay);
     }
 
-    console.log({pid, token, apiBaseUrl});
+    console.log({wid, token, apiBaseUrl});
     // Start connection
     connect();
 
@@ -172,7 +173,7 @@ function useWordPollWebSocket(
       }
       stopFallbackPolling();
     };
-  }, [pid, token, apiBaseUrl]);
+  }, [wid, token, apiBaseUrl]);
 
   return { shouldShow, badgeCount };
 }
@@ -181,7 +182,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   const { shouldShow, badgeCount } = useWordPollWebSocket(
-    pidParam,
+    widParam,
     tokenParam,
     serverUrl
   );
@@ -195,7 +196,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${tokenParam}`,
         },
-        body: JSON.stringify({ action: 'buttonClicked', payload: {}, pid: Number(pidParam) }),
+        body: JSON.stringify({ action: 'buttonClicked', payload: {}, pid: Number(pidParam), wid: widParam }),
       });
     } catch (err) {
       console.error('[AcademiaNotificationsButtonV2] Click failed:', err);

@@ -15,6 +15,7 @@ import { FastifyInstance } from 'fastify';
 import { WebSocket } from 'ws';
 import { wordPollEventBus, WordPollChangeReason } from '../events/wordPollEventBus';
 import { buildWordPollResponse } from '../services/buildWordPollResponse';
+import { buildWordPollResponseV2 } from '../services/buildWordPollResponseV2';
 import { TokenManager } from '../middleware/auth';
 import { defaultLogger as logger } from '../../utils/logger';
 
@@ -22,7 +23,12 @@ interface ClientInfo {
   pid: number;
 }
 
+interface V2ClientInfo {
+  wid: string;
+}
+
 const clients = new Map<WebSocket, ClientInfo>();
+const v2Clients = new Map<WebSocket, V2ClientInfo>();
 
 /**
  * Register WebSocket routes on a Fastify instance.
@@ -67,6 +73,10 @@ export async function registerWebSocketRoutes(
       ws.close(1001, 'Server shutting down');
     }
     clients.clear();
+    for (const [ws] of v2Clients) {
+      ws.close(1001, 'Server shutting down');
+    }
+    v2Clients.clear();
   });
 
   // WebSocket route
@@ -123,6 +133,56 @@ export async function registerWebSocketRoutes(
       });
     }
   );
+
+  // V2 WebSocket route (wid-based)
+  fastify.get<{
+    Params: { wid: string };
+    Querystring: { token?: string };
+  }>(
+    '/ws/word/v2/:wid',
+    { websocket: true },
+    (socket: WebSocket, request) => {
+      // --- Auth ---
+      const token = (request.query as any).token as string | undefined;
+      if (!token || !tokenManager.isValidToken(token)) {
+        logger.warn('[WS-V2] Unauthorized connection attempt');
+        socket.close(4401, 'Unauthorized');
+        return;
+      }
+
+      const wid = (request.params as any).wid as string;
+
+      // Track client
+      v2Clients.set(socket, { wid });
+      logger.debug(`[WS-V2] Client connected for wid ${wid} (total: ${v2Clients.size})`);
+
+      // Send initial poll response immediately
+      sendPollToV2Client(socket, wid, notificationManager, currentUserId);
+
+      // Handle incoming messages
+      socket.on('message', (raw: Buffer | string) => {
+        try {
+          const msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString());
+          if (msg.type === 'refresh') {
+            sendPollToV2Client(socket, wid, notificationManager, currentUserId);
+          }
+        } catch {
+          // Ignore malformed messages
+        }
+      });
+
+      // Cleanup on disconnect
+      socket.on('close', () => {
+        v2Clients.delete(socket);
+        logger.debug(`[WS-V2] Client disconnected for wid ${wid} (total: ${v2Clients.size})`);
+      });
+
+      socket.on('error', (err) => {
+        logger.error(`[WS-V2] Socket error for wid ${wid}:`, err);
+        v2Clients.delete(socket);
+      });
+    }
+  );
 }
 
 /**
@@ -144,7 +204,25 @@ function sendPollToClient(
 }
 
 /**
- * Broadcast updated poll responses to all connected clients.
+ * Send a V2 poll response to a single client.
+ */
+function sendPollToV2Client(
+  ws: WebSocket,
+  wid: string,
+  notificationManager?: any,
+  currentUserId?: () => number | null
+): void {
+  if (ws.readyState !== 1) return;
+  try {
+    const data = buildWordPollResponseV2(wid, notificationManager, currentUserId);
+    ws.send(JSON.stringify({ type: 'poll', data }));
+  } catch (err) {
+    logger.error(`[WS-V2] Error building poll response for wid ${wid}:`, err);
+  }
+}
+
+/**
+ * Broadcast updated poll responses to all connected clients (V1 and V2).
  */
 function broadcastToAll(
   notificationManager?: any,
@@ -152,5 +230,8 @@ function broadcastToAll(
 ): void {
   for (const [ws, info] of clients) {
     sendPollToClient(ws, info.pid, notificationManager, currentUserId);
+  }
+  for (const [ws, info] of v2Clients) {
+    sendPollToV2Client(ws, info.wid, notificationManager, currentUserId);
   }
 }

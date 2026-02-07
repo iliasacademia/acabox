@@ -22,6 +22,7 @@ import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
 import { registerWordRoutes } from './routes/word';
+import { registerWordV2Routes } from './routes/wordV2';
 import { registerWebSocketRoutes } from './routes/websocket';
 import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerBridgeRoutes } from './routes/bridge';
@@ -212,6 +213,9 @@ export class AcademiaHttpServer {
 
     // Register Word integration routes
     await registerWordRoutes(this.fastify, this.notificationManager, this.currentUserId);
+
+    // Register V2 Word integration routes (wid-based)
+    await registerWordV2Routes(this.fastify, this.notificationManager, this.currentUserId);
 
     // Register WebSocket routes (real-time push for Word poll updates)
     await registerWebSocketRoutes(

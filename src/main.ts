@@ -21,9 +21,8 @@ import { validateExternalUrl } from './utils/urlValidation';
 import { validateCloudFrontDomain } from './utils/validateCloudFrontDomain';
 import { IPC_CHANNELS, NavigateToPagePayload, FEATURES } from './shared/types';
 import { getDeviceId } from './utils/deviceId';
-import { WindowMonitorService } from './windowMonitorService';
-
-const windowMonitorService = new WindowMonitorService();
+import { windowMonitorService } from './windowMonitorService';
+import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 
 // Supported document extensions (without dots) for file selection and scanning
 const SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'tex', 'rtf'];
@@ -893,7 +892,7 @@ app.on('activate', () => {
  * and passes them to wordIntegrationService and wordIntegrationDataStore.
  */
 async function refreshManuscriptPaths(): Promise<void> {
-  if (!(FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V1_ENABLED)) {
+  if (!(FEATURES.MS_WORD_INTEGRATION_ENABLED && (FEATURES.MS_WORD_V1_ENABLED || FEATURES.MS_WORD_V2_ENABLED))) {
     return;
   }
   try {
@@ -901,8 +900,13 @@ async function refreshManuscriptPaths(): Promise<void> {
     const isLoggedIn = await checkLogin();
     if (!isLoggedIn) {
       logger.info('[MANUSCRIPT-PATHS] User is logged out, clearing cache');
-      wordIntegrationService.setManuscriptPaths([]);
-      wordIntegrationDataStore.setProjectFileCache(new Map());
+      if (FEATURES.MS_WORD_V1_ENABLED) {
+        wordIntegrationService.setManuscriptPaths([]);
+        wordIntegrationDataStore.setProjectFileCache(new Map());
+      }
+      if (FEATURES.MS_WORD_V2_ENABLED) {
+        wordIntegrationDataStoreV2.setProjectFileCache(new Map());
+      }
       return;
     }
 
@@ -913,8 +917,13 @@ async function refreshManuscriptPaths(): Promise<void> {
     const projects = projectsResponse.data?.projects || [];
 
     if (projects.length === 0) {
-      wordIntegrationService.setManuscriptPaths([]);
-      wordIntegrationDataStore.setProjectFileCache(new Map());
+      if (FEATURES.MS_WORD_V1_ENABLED) {
+        wordIntegrationService.setManuscriptPaths([]);
+        wordIntegrationDataStore.setProjectFileCache(new Map());
+      }
+      if (FEATURES.MS_WORD_V2_ENABLED) {
+        wordIntegrationDataStoreV2.setProjectFileCache(new Map());
+      }
       return;
     }
 
@@ -951,13 +960,23 @@ async function refreshManuscriptPaths(): Promise<void> {
     // Extract unique paths for tracking
     const manuscriptPaths = [...new Set(manuscriptFiles.map((f: { file_path: string }) => f.file_path))];
 
-    wordIntegrationService.setManuscriptPaths(manuscriptPaths);
-    wordIntegrationDataStore.setProjectFileCache(projectFileCache);
+    if (FEATURES.MS_WORD_V1_ENABLED) {
+      wordIntegrationService.setManuscriptPaths(manuscriptPaths);
+      wordIntegrationDataStore.setProjectFileCache(projectFileCache);
+    }
+    if (FEATURES.MS_WORD_V2_ENABLED) {
+      wordIntegrationDataStoreV2.setProjectFileCache(projectFileCache);
+    }
 
   } catch (error) {
     logger.error('[MANUSCRIPT-PATHS] Error refreshing manuscript paths:', error);
-    wordIntegrationService.setManuscriptPaths([]);
-    wordIntegrationDataStore.setProjectFileCache(new Map());
+    if (FEATURES.MS_WORD_V1_ENABLED) {
+      wordIntegrationService.setManuscriptPaths([]);
+      wordIntegrationDataStore.setProjectFileCache(new Map());
+    }
+    if (FEATURES.MS_WORD_V2_ENABLED) {
+      wordIntegrationDataStoreV2.setProjectFileCache(new Map());
+    }
   }
 }
 
@@ -1139,6 +1158,9 @@ ipcMain.handle(IPC_CHANNELS.LOGOUT, async () => {
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V1_ENABLED) {
       wordIntegrationService.setManuscriptPaths([]);
       wordIntegrationDataStore.setProjectFileCache(new Map());
+    }
+    if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
+      wordIntegrationDataStoreV2.setProjectFileCache(new Map());
     }
   }
 
