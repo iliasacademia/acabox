@@ -7,15 +7,30 @@ import { SystemState, WindowMonitorEvent, WindowBounds } from './windowMonitor/t
 import { createInitialState } from './windowMonitor/initialState';
 import { reduceWindowMonitorEvent } from './windowMonitor/reducer';
 import {
-  deriveWebviewCommands,
-  expandCommandsForPopups,
-  PopupWebviewCommand,
-} from './windowMonitor/deriveWebviewCommands';
+  computeWebviewState,
+  WebviewTypeConfig,
+} from './windowMonitor/computeWebviewState';
 
 const BUTTON_WIDTH = 150;
 const BUTTON_HEIGHT = 50;
 const BUTTON_LEFT_MARGIN = 50;
-const BUTTON_BOTTOM_MARGIN = 12;
+const BUTTON_BOTTOM_MARGIN = 30;
+
+const webviewConfigs: WebviewTypeConfig[] = [
+  {
+    keyPrefix: 'button-v2',
+    pathSuffix: '/ui/popup/academiaNotificationsButtonV2/',
+    computeFrame: (bounds: WindowBounds, screenHeight: number) => {
+      const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
+      return {
+        x: bounds.x + BUTTON_LEFT_MARGIN,
+        y: cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN,
+        width: BUTTON_WIDTH,
+        height: BUTTON_HEIGHT,
+      };
+    },
+  },
+];
 
 function getWindowMonitorBinPath(): string {
   if (app.isPackaged) {
@@ -29,45 +44,6 @@ function getWebviewManagerBinPath(): string {
     return path.join(process.resourcesPath, 'webview-manager');
   }
   return path.join(app.getAppPath(), 'webview-manager', 'rust', 'target', 'release', 'webview-manager');
-}
-
-function computeButtonFrame(bounds: WindowBounds): { x: number; y: number; width: number; height: number } {
-  const screenHeight = screen.getPrimaryDisplay().bounds.height;
-  const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
-  return {
-    x: bounds.x + BUTTON_LEFT_MARGIN,
-    y: cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN,
-    width: BUTTON_WIDTH,
-    height: BUTTON_HEIGHT,
-  };
-}
-
-function translateToWebviewManagerCommand(
-  cmd: PopupWebviewCommand,
-  authToken: string,
-): object | null {
-  const id = `button-v2-${cmd.windowId}`;
-  const url = `${cmd.url}&token=${authToken}`;
-
-  switch (cmd.action) {
-    case 'CREATE': {
-      if (!cmd.bounds) return null;
-      const frame = computeButtonFrame(cmd.bounds);
-      return { command: 'CREATE', id, url, ...frame };
-    }
-    case 'SHOW':
-      return { command: 'SHOW', id };
-    case 'HIDE':
-      return { command: 'HIDE', id };
-    case 'REPOSITION': {
-      const frame = computeButtonFrame(cmd.bounds);
-      return { command: 'REPOSITION', id, ...frame };
-    }
-    case 'DESTROY':
-      return { command: 'DESTROY', id };
-    default:
-      return null;
-  }
 }
 
 export class WindowMonitorService {
@@ -105,27 +81,17 @@ export class WindowMonitorService {
 
       logger.info('[WindowMonitorService] Event:', event);
 
-      const prevState = this.state;
-      const newState = reduceWindowMonitorEvent(prevState, event);
+      const newState = reduceWindowMonitorEvent(this.state, event);
 
-      logger.info('[WindowMonitorService] State:', {
-        appsCount: newState.apps.length,
-        focusedApp: newState.focusedAppIdentifier,
-        focusedPid: newState.focusedAppPid,
-      });
+      logger.info('[WindowMonitorService] State:', newState);
 
-      const commands = deriveWebviewCommands(prevState, newState);
-      const popupCommands = expandCommandsForPopups(
-        commands,
-        ['/ui/popup/academiaNotificationsButtonV2/'],
-        baseUrl,
-      );
+      const screenHeight = screen.getPrimaryDisplay().bounds.height;
+      const desiredState = computeWebviewState(newState, webviewConfigs, baseUrl, authToken, screenHeight);
 
-      for (const popupCmd of popupCommands) {
-        const wmCmd = translateToWebviewManagerCommand(popupCmd, authToken);
-        if (wmCmd && this.webviewManagerProcess?.stdin?.writable) {
-          this.webviewManagerProcess.stdin.write(JSON.stringify(wmCmd) + '\n');
-        }
+      logger.info('[WindowMonitorService] Desired state:', desiredState);
+
+      if (this.webviewManagerProcess?.stdin?.writable) {
+        this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
       }
 
       this.state = newState;

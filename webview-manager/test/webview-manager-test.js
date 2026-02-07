@@ -3,7 +3,7 @@
 /**
  * Standalone integration test for webview-manager (macOS).
  *
- * Spawns the webview-manager binary, sends JSON commands via stdin,
+ * Spawns the webview-manager binary, sends desired state JSON via stdin,
  * and verifies visual behavior by taking screenshots with screencapture
  * and analyzing pixels with the canvas npm package.
  *
@@ -134,27 +134,39 @@ async function captureAndCompare(cocoaX, cocoaY, width, height, filename, baseli
 // ── Communication with webview-manager ─────────────────────────────────────────
 
 /**
- * Send a JSON command to webview-manager's stdin and wait for a JSON response on stdout.
+ * Send a desired state to webview-manager's stdin and wait for expectedResponseCount
+ * JSON response lines on stdout.
  */
-function sendCommand(proc, rl, cmd) {
+function sendState(proc, rl, state, expectedResponseCount) {
   return new Promise((resolve, reject) => {
+    const responses = [];
+
+    if (expectedResponseCount === 0) {
+      proc.stdin.write(JSON.stringify(state) + '\n');
+      resolve(responses);
+      return;
+    }
+
     const timeout = setTimeout(() => {
       rl.removeListener('line', handler);
-      reject(new Error(`Timeout waiting for response to ${cmd.command}`));
+      reject(new Error(`Timeout waiting for responses (got ${responses.length}/${expectedResponseCount})`));
     }, 10000);
 
     const handler = (line) => {
       try {
         const resp = JSON.parse(line);
-        clearTimeout(timeout);
-        rl.removeListener('line', handler);
-        resolve(resp);
+        responses.push(resp);
+        if (responses.length >= expectedResponseCount) {
+          clearTimeout(timeout);
+          rl.removeListener('line', handler);
+          resolve(responses);
+        }
       } catch {
         // Not JSON, keep waiting
       }
     };
     rl.on('line', handler);
-    proc.stdin.write(JSON.stringify(cmd) + '\n');
+    proc.stdin.write(JSON.stringify(state) + '\n');
   });
 }
 
@@ -310,20 +322,20 @@ async function runTest() {
 
     log('blue', `Spawned webview-manager (pid ${proc.pid})`);
 
-    // ── Step 1: CREATE ─────────────────────────────────────────────────────────
+    // ── Shared state for test steps ──────────────────────────────────────────
+
+    const createUrl = `http://127.0.0.1:${port}/ui/popup/academiaNotificationsButton/?pid=12345`;
+    const frame1 = { x: PANEL_X, y: PANEL_Y, width: PANEL_WIDTH, height: PANEL_HEIGHT };
+    const frame2 = { x: REPOSITION_X, y: REPOSITION_Y, width: PANEL_WIDTH, height: PANEL_HEIGHT };
+
+    // ── Step 1: CREATE (hidden) ───────────────────────────────────────────────
 
     log('blue', '\n[STEP 1] CREATE (panel starts hidden)');
-    const createUrl = `http://127.0.0.1:${port}/ui/popup/academiaNotificationsButton/?pid=12345`;
-    const createResp = await sendCommand(proc, rl, {
-      command: 'CREATE',
-      id: 'wv-1',
-      url: createUrl,
-      x: PANEL_X,
-      y: PANEL_Y,
-      width: PANEL_WIDTH,
-      height: PANEL_HEIGHT,
-    });
-    assert('CREATE: Response status is OK', createResp.status === 'OK');
+    const createResps = await sendState(proc, rl, {
+      'wv-1': { url: createUrl, visible: false, frame: frame1 },
+    }, 1);
+    assert('CREATE: Response status is OK', createResps[0].status === 'OK');
+    assert('CREATE: Response command is CREATE', createResps[0].command === 'CREATE');
 
     await delay(COMMAND_DELAY_MS);
     const { diff: createDiff } = await captureAndCompare(
@@ -335,11 +347,11 @@ async function runTest() {
     // ── Step 2: SHOW ───────────────────────────────────────────────────────────
 
     log('blue', '\n[STEP 2] SHOW');
-    const showResp = await sendCommand(proc, rl, {
-      command: 'SHOW',
-      id: 'wv-1',
-    });
-    assert('SHOW: Response status is OK', showResp.status === 'OK');
+    const showResps = await sendState(proc, rl, {
+      'wv-1': { url: createUrl, visible: true, frame: frame1 },
+    }, 1);
+    assert('SHOW: Response status is OK', showResps[0].status === 'OK');
+    assert('SHOW: Response command is SHOW', showResps[0].command === 'SHOW');
 
     await delay(PAGE_LOAD_DELAY_MS); // First show — page loads + polls + re-renders
     const { diff: showDiff } = await captureAndCompare(
@@ -351,11 +363,11 @@ async function runTest() {
     // ── Step 3: HIDE ───────────────────────────────────────────────────────────
 
     log('blue', '\n[STEP 3] HIDE');
-    const hideResp = await sendCommand(proc, rl, {
-      command: 'HIDE',
-      id: 'wv-1',
-    });
-    assert('HIDE: Response status is OK', hideResp.status === 'OK');
+    const hideResps = await sendState(proc, rl, {
+      'wv-1': { url: createUrl, visible: false, frame: frame1 },
+    }, 1);
+    assert('HIDE: Response status is OK', hideResps[0].status === 'OK');
+    assert('HIDE: Response command is HIDE', hideResps[0].command === 'HIDE');
 
     await delay(COMMAND_DELAY_MS);
     const { diff: hideDiff } = await captureAndCompare(
@@ -367,11 +379,11 @@ async function runTest() {
     // ── Step 4: SHOW again ─────────────────────────────────────────────────────
 
     log('blue', '\n[STEP 4] SHOW again');
-    const show2Resp = await sendCommand(proc, rl, {
-      command: 'SHOW',
-      id: 'wv-1',
-    });
-    assert('SHOW-2: Response status is OK', show2Resp.status === 'OK');
+    const show2Resps = await sendState(proc, rl, {
+      'wv-1': { url: createUrl, visible: true, frame: frame1 },
+    }, 1);
+    assert('SHOW-2: Response status is OK', show2Resps[0].status === 'OK');
+    assert('SHOW-2: Response command is SHOW', show2Resps[0].command === 'SHOW');
 
     await delay(COMMAND_DELAY_MS); // Page already loaded, just unhiding
     const { diff: show2Diff } = await captureAndCompare(
@@ -389,15 +401,11 @@ async function runTest() {
     const baselinePath2 = takeScreenshot(sc2.x, sc2.y, sc2.width, sc2.height, '06-baseline-pos2.png');
     const baselinePixels2 = await loadPixels(baselinePath2);
 
-    const repoResp = await sendCommand(proc, rl, {
-      command: 'REPOSITION',
-      id: 'wv-1',
-      x: REPOSITION_X,
-      y: REPOSITION_Y,
-      width: PANEL_WIDTH,
-      height: PANEL_HEIGHT,
-    });
-    assert('REPOSITION: Response status is OK', repoResp.status === 'OK');
+    const repoResps = await sendState(proc, rl, {
+      'wv-1': { url: createUrl, visible: true, frame: frame2 },
+    }, 1);
+    assert('REPOSITION: Response status is OK', repoResps[0].status === 'OK');
+    assert('REPOSITION: Response command is REPOSITION', repoResps[0].command === 'REPOSITION');
 
     await delay(COMMAND_DELAY_MS);
 
@@ -424,15 +432,12 @@ async function runTest() {
     const beforeShrinkPath = takeScreenshot(scBeforeShrink.x, scBeforeShrink.y, scBeforeShrink.width, scBeforeShrink.height, '08a-before-shrink.png');
     const beforeShrinkPixels = await loadPixels(beforeShrinkPath);
 
-    const shrinkResp = await sendCommand(proc, rl, {
-      command: 'REPOSITION',
-      id: 'wv-1',
-      x: REPOSITION_X,
-      y: REPOSITION_Y,
-      width: 1,
-      height: 1,
-    });
-    assert('RESIZE-1x1: Response status is OK', shrinkResp.status === 'OK');
+    const frame1x1 = { x: REPOSITION_X, y: REPOSITION_Y, width: 1, height: 1 };
+    const shrinkResps = await sendState(proc, rl, {
+      'wv-1': { url: createUrl, visible: true, frame: frame1x1 },
+    }, 1);
+    assert('RESIZE-1x1: Response status is OK', shrinkResps[0].status === 'OK');
+    assert('RESIZE-1x1: Response command is REPOSITION', shrinkResps[0].command === 'REPOSITION');
 
     await delay(COMMAND_DELAY_MS);
 
@@ -447,15 +452,11 @@ async function runTest() {
 
     log('blue', '\n[STEP 5c] RESIZE back to normal');
 
-    const growResp = await sendCommand(proc, rl, {
-      command: 'REPOSITION',
-      id: 'wv-1',
-      x: REPOSITION_X,
-      y: REPOSITION_Y,
-      width: PANEL_WIDTH,
-      height: PANEL_HEIGHT,
-    });
-    assert('RESIZE-RESTORE: Response status is OK', growResp.status === 'OK');
+    const growResps = await sendState(proc, rl, {
+      'wv-1': { url: createUrl, visible: true, frame: frame2 },
+    }, 1);
+    assert('RESIZE-RESTORE: Response status is OK', growResps[0].status === 'OK');
+    assert('RESIZE-RESTORE: Response command is REPOSITION', growResps[0].command === 'REPOSITION');
 
     await delay(COMMAND_DELAY_MS);
 
@@ -477,11 +478,10 @@ async function runTest() {
     const beforeDestroyPath = takeScreenshot(sc2Before.x, sc2Before.y, sc2Before.width, sc2Before.height, '09a-before-destroy.png');
     const beforeDestroyPixels = await loadPixels(beforeDestroyPath);
 
-    const destroyResp = await sendCommand(proc, rl, {
-      command: 'DESTROY',
-      id: 'wv-1',
-    });
-    assert('DESTROY: Response status is OK', destroyResp.status === 'OK');
+    // Send empty state → destroy all webviews
+    const destroyResps = await sendState(proc, rl, {}, 1);
+    assert('DESTROY: Response status is OK', destroyResps[0].status === 'OK');
+    assert('DESTROY: Response command is DESTROY', destroyResps[0].command === 'DESTROY');
 
     await delay(COMMAND_DELAY_MS);
 

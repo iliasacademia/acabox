@@ -6,7 +6,7 @@ use objc2_app_kit::NSPanel;
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 use wry::WebView;
 
-use crate::commands::Command;
+use crate::desired_state::{DesiredState, WebviewEntryState, WebviewFrame};
 use crate::panel::create_panel;
 use crate::responses::Response;
 use crate::webview::create_webview;
@@ -14,6 +14,9 @@ use crate::webview::create_webview;
 struct WebViewEntry {
     panel: Retained<NSPanel>,
     _webview: WebView,
+    url: String,
+    visible: bool,
+    frame: WebviewFrame,
 }
 
 pub struct Manager {
@@ -29,48 +32,64 @@ impl Manager {
         }
     }
 
-    pub fn handle_command(&mut self, cmd: &Command) {
-        match cmd {
-            Command::CREATE {
-                id,
-                url,
-                x,
-                y,
-                width,
-                height,
-            } => self.create(id, url, *x, *y, *width, *height),
-            Command::SHOW { id } => self.show(id),
-            Command::HIDE { id } => self.hide(id),
-            Command::REPOSITION {
-                id,
-                x,
-                y,
-                width,
-                height,
-            } => self.reposition(id, *x, *y, *width, *height),
-            Command::DESTROY { id } => self.destroy(id),
+    pub fn reconcile(&mut self, desired: &DesiredState) {
+        // 1. Destroy entries not in desired state
+        let to_destroy: Vec<String> = self
+            .entries
+            .keys()
+            .filter(|id| !desired.contains_key(*id))
+            .cloned()
+            .collect();
+
+        for id in to_destroy {
+            self.destroy(&id);
+        }
+
+        // 2. Create new entries and update existing ones
+        for (id, entry_state) in desired {
+            if let Some(existing) = self.entries.get(id) {
+                // Entry exists — check what changed
+                if existing.url != entry_state.url {
+                    // URL changed → destroy and recreate
+                    self.destroy(id);
+                    self.create(id, entry_state);
+                } else {
+                    // Same URL — update frame and visibility
+                    self.update(id, entry_state);
+                }
+            } else {
+                // New entry
+                self.create(id, entry_state);
+            }
         }
     }
 
-    fn create(&mut self, id: &str, url: &str, x: f64, y: f64, width: f64, height: f64) {
-        if self.entries.contains_key(id) {
-            Response::error("CREATE", id, "Webview already exists").emit();
-            return;
-        }
-
-        let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
+    fn create(&mut self, id: &str, state: &WebviewEntryState) {
+        let frame = NSRect::new(
+            NSPoint::new(state.frame.x, state.frame.y),
+            NSSize::new(state.frame.width, state.frame.height),
+        );
         let panel = create_panel(self.mtm, frame);
 
-        match create_webview(&panel, url) {
+        match create_webview(&panel, &state.url) {
             Ok(webview) => {
+                if state.visible {
+                    panel.orderFrontRegardless();
+                }
                 self.entries.insert(
                     id.to_string(),
                     WebViewEntry {
                         panel,
                         _webview: webview,
+                        url: state.url.clone(),
+                        visible: state.visible,
+                        frame: state.frame.clone(),
                     },
                 );
                 Response::ok("CREATE", id).emit();
+                if state.visible {
+                    Response::ok("SHOW", id).emit();
+                }
             }
             Err(e) => {
                 Response::error("CREATE", id, e).emit();
@@ -78,53 +97,47 @@ impl Manager {
         }
     }
 
-    fn show(&self, id: &str) {
-        match self.entries.get(id) {
-            Some(entry) => {
-                entry.panel.orderFrontRegardless();
-                Response::ok("SHOW", id).emit();
-            }
-            None => {
-                Response::error("SHOW", id, "Webview not found").emit();
-            }
-        }
-    }
+    fn update(&mut self, id: &str, desired: &WebviewEntryState) {
+        let existing = match self.entries.get_mut(id) {
+            Some(e) => e,
+            None => return,
+        };
 
-    fn hide(&self, id: &str) {
-        match self.entries.get(id) {
-            Some(entry) => {
-                entry.panel.orderOut(None);
+        let frame_changed = existing.frame != desired.frame;
+        let visibility_changed = existing.visible != desired.visible;
+
+        if !frame_changed && !visibility_changed {
+            return; // No-op
+        }
+
+        // Reposition before show to avoid flicker
+        if frame_changed {
+            let frame = NSRect::new(
+                NSPoint::new(desired.frame.x, desired.frame.y),
+                NSSize::new(desired.frame.width, desired.frame.height),
+            );
+            existing.panel.setFrame_display(frame, true);
+            existing.frame = desired.frame.clone();
+            Response::ok("REPOSITION", id).emit();
+        }
+
+        if visibility_changed {
+            if desired.visible {
+                existing.panel.orderFrontRegardless();
+                Response::ok("SHOW", id).emit();
+            } else {
+                existing.panel.orderOut(None);
                 Response::ok("HIDE", id).emit();
             }
-            None => {
-                Response::error("HIDE", id, "Webview not found").emit();
-            }
-        }
-    }
-
-    fn reposition(&self, id: &str, x: f64, y: f64, width: f64, height: f64) {
-        match self.entries.get(id) {
-            Some(entry) => {
-                let frame = NSRect::new(NSPoint::new(x, y), NSSize::new(width, height));
-                entry.panel.setFrame_display(frame, true);
-                Response::ok("REPOSITION", id).emit();
-            }
-            None => {
-                Response::error("REPOSITION", id, "Webview not found").emit();
-            }
+            existing.visible = desired.visible;
         }
     }
 
     fn destroy(&mut self, id: &str) {
-        match self.entries.remove(id) {
-            Some(entry) => {
-                entry.panel.orderOut(None);
-                entry.panel.close();
-                Response::ok("DESTROY", id).emit();
-            }
-            None => {
-                Response::error("DESTROY", id, "Webview not found").emit();
-            }
+        if let Some(entry) = self.entries.remove(id) {
+            entry.panel.orderOut(None);
+            entry.panel.close();
+            Response::ok("DESTROY", id).emit();
         }
     }
 }
