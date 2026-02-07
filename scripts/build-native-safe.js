@@ -30,6 +30,21 @@ if (platform === 'darwin') {
     console.error('Failed to build Rust window-monitor:', error.message);
     process.exit(1);
   }
+  try {
+    console.log('Building Rust webview-manager...');
+    const cargoEnv = Object.assign({}, process.env, {
+      PATH: path.join(os.homedir(), '.cargo', 'bin') + ':' + process.env.PATH,
+    });
+    execSync('cargo build --release', {
+      cwd: path.join(__dirname, '..', 'webview-manager', 'rust'),
+      stdio: 'inherit',
+      env: cargoEnv,
+    });
+    console.log('Rust webview-manager built successfully.');
+  } catch (error) {
+    console.error('Failed to build Rust webview-manager:', error.message);
+    process.exit(1);
+  }
 } else {
   console.log(`Skipping native module build on ${platform}`);
   console.log('Word integration features will be disabled on this platform.');
