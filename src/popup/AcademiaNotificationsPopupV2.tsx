@@ -393,6 +393,17 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const loggedFullReviewIdRef = useRef<number | null>(null);
   const loggedDiffReviewIdRef = useRef<number | null>(null);
 
+  // Resize state — persists user-chosen size across gestures
+  const accumulatedSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const resizeStateRef = useRef<{
+    startScreenX: number;
+    startScreenY: number;
+    baseWidth: number;
+    baseHeight: number;
+    rafId: number | null;
+  } | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+
   // State for inline review view
   const [viewMode, setViewMode] = useState<ViewMode>('menu');
   const [activeReviewType, setActiveReviewType] = useState<'full' | 'diff' | null>(null);
@@ -784,6 +795,10 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const handleBackFromReview = () => {
     console.log('[AcademiaNotificationsPopupV2] Back from review clicked');
 
+    // Clear resize state so menu snaps back to content-driven size
+    accumulatedSizeRef.current = null;
+    postBridge('clearPopupSize', {});
+
     // Return to menu view (notification remains visible with isRead state from poll)
     setViewMode('menu');
     setConversationData(null);
@@ -970,6 +985,58 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       console.error('[AcademiaNotificationsPopupV2] Failed to trigger full review:', err);
       setReviewState('failed');
     }
+  };
+
+  // --- Resize pointer handlers ---
+  const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setIsResizing(true);
+    const currentWidth = accumulatedSizeRef.current?.width ?? window.innerWidth;
+    const currentHeight = accumulatedSizeRef.current?.height ?? window.innerHeight;
+    resizeStateRef.current = {
+      startScreenX: e.screenX,
+      startScreenY: e.screenY,
+      baseWidth: currentWidth,
+      baseHeight: currentHeight,
+      rafId: null,
+    };
+  };
+
+  const handleResizePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rs = resizeStateRef.current;
+    if (!rs) return;
+
+    if (rs.rafId !== null) return;
+    rs.rafId = requestAnimationFrame(() => {
+      rs.rafId = null;
+      // Right = wider (positive deltaX)
+      const deltaX = e.screenX - rs.startScreenX;
+      // Up = taller (screen Y decreases going up, so negate)
+      const deltaY = -(e.screenY - rs.startScreenY);
+      const newWidth = Math.max(370, rs.baseWidth + deltaX);
+      const newHeight = Math.max(previousHeightRef.current, rs.baseHeight + deltaY);
+      postBridge('setPopupSize', { width: Math.round(newWidth), height: Math.round(newHeight) });
+    });
+  };
+
+  const handleResizePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const rs = resizeStateRef.current;
+    if (rs) {
+      if (rs.rafId !== null) {
+        cancelAnimationFrame(rs.rafId);
+      }
+      const deltaX = e.screenX - rs.startScreenX;
+      const deltaY = -(e.screenY - rs.startScreenY);
+      const finalWidth = Math.max(370, rs.baseWidth + deltaX);
+      const finalHeight = Math.max(previousHeightRef.current, rs.baseHeight + deltaY);
+      postBridge('setPopupSize', { width: Math.round(finalWidth), height: Math.round(finalHeight) });
+      accumulatedSizeRef.current = { width: finalWidth, height: finalHeight };
+    }
+    resizeStateRef.current = null;
+    setIsResizing(false);
   };
 
   const handleClose = async () => {
@@ -1215,6 +1282,18 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   return (
     <div style={styles.container}>
       <div style={styles.modal}>
+        {/* Resize handle at top-right corner — only in review view */}
+        {viewMode === 'review' && (
+          <div
+            style={{
+              ...styles.resizeHandle,
+              cursor: isResizing ? 'ne-resize' : 'ne-resize',
+            }}
+            onPointerDown={handleResizePointerDown}
+            onPointerMove={handleResizePointerMove}
+            onPointerUp={handleResizePointerUp}
+          />
+        )}
         {viewMode === 'review' ? renderReviewView() : renderMenuView()}
       </div>
     </div>
@@ -1231,7 +1310,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     backgroundColor: 'transparent',
   },
   modal: {
-    width: '370px',
+    width: '100%',
     background: '#ffffff', // Figma: background-white
     borderRadius: '16px', // Figma: corner-radius/radius-lg
     border: '1px solid #ccc9bc', // Figma: stroke-beige-light
@@ -1242,6 +1321,21 @@ const styles: { [key: string]: React.CSSProperties } = {
     overflowY: 'auto',
     display: 'flex',
     flexDirection: 'column',
+  },
+  resizeHandle: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: '16px',
+    height: '16px',
+    cursor: 'ne-resize',
+    zIndex: 10,
+    // Subtle diagonal grip lines
+    backgroundImage:
+      'linear-gradient(225deg, transparent 3px, #ccc9bc 3px, #ccc9bc 4px, transparent 4px, transparent 7px, #ccc9bc 7px, #ccc9bc 8px, transparent 8px)',
+    backgroundSize: '16px 16px',
+    backgroundPosition: 'top right',
+    borderTopRightRadius: '16px',
   },
   closeButton: {
     position: 'absolute',

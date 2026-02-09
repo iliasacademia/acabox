@@ -94,6 +94,13 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
         if (typeof dx === 'number' && typeof dy === 'number') {
           windowMonitorService.setButtonDragOffset(wid, dx, dy);
         }
+      } else if (action === 'setPopupSize' && wid) {
+        const { width, height } = payload;
+        if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
+          windowMonitorService.setPopupSize(wid, width, height);
+        }
+      } else if (action === 'clearPopupSize' && wid) {
+        windowMonitorService.clearPopupSize(wid);
       }
 
       reply.send({ success: true });

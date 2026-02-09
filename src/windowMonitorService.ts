@@ -82,6 +82,7 @@ export class WindowMonitorService {
   private popupToggledOpen: Set<string> = new Set();
   private popupHeightOverrides: Map<string, number> = new Map();
   private buttonDragOffsets: Map<string, { dx: number; dy: number }> = new Map();
+  private popupSizeOverrides: Map<string, { width: number; height: number }> = new Map();
   private baseUrl: string | null = null;
   private authToken: string | null = null;
 
@@ -139,6 +140,7 @@ export class WindowMonitorService {
         this.popupToggledOpen.delete(event.window.id);
         this.popupHeightOverrides.delete(event.window.id);
         this.buttonDragOffsets.delete(event.window.id);
+        this.popupSizeOverrides.delete(event.window.id);
       }
 
       logger.info('[WindowMonitorService] State:', newState);
@@ -199,6 +201,11 @@ export class WindowMonitorService {
         const heightOverride = this.popupHeightOverrides.get(windowId);
         if (heightOverride !== undefined) {
           desiredState[key].frame.height = heightOverride;
+        }
+        const sizeOverride = this.popupSizeOverrides.get(windowId);
+        if (sizeOverride) {
+          desiredState[key].frame.width = Math.max(desiredState[key].frame.width, sizeOverride.width);
+          desiredState[key].frame.height = Math.max(desiredState[key].frame.height, sizeOverride.height);
         }
       }
     }
@@ -283,6 +290,17 @@ export class WindowMonitorService {
     this.pushWebviewState();
   }
 
+  setPopupSize(windowId: string, width: number, height: number): void {
+    this.popupSizeOverrides.set(windowId, { width, height });
+    this.pushWebviewState();
+  }
+
+  clearPopupSize(windowId: string): void {
+    if (this.popupSizeOverrides.delete(windowId)) {
+      this.pushWebviewState();
+    }
+  }
+
   closePopupForWindow(windowId: string): void {
     if (this.popupToggledOpen.delete(windowId)) {
       this.pushWebviewState();
@@ -318,6 +336,7 @@ export class WindowMonitorService {
     this.popupToggledOpen.clear();
     this.popupHeightOverrides.clear();
     this.buttonDragOffsets.clear();
+    this.popupSizeOverrides.clear();
   }
 }
 
