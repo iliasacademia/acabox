@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
+import { IPC_CHANNELS } from '../../shared/types';
 import './SettingsModal.css';
 
 interface SettingsModalProps {
@@ -12,12 +13,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [autoDiffReview, setAutoDiffReview] = useState(currentPreferences.auto_diff_review);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [popupVersion, setPopupVersion] = useState<'v1' | 'v2' | null>(null);
+  const [switching, setSwitching] = useState(false);
 
   // Sync local state with context when modal opens
   useEffect(() => {
     if (isOpen) {
       setAutoDiffReview(currentPreferences.auto_diff_review);
       setError(null);
+      setSwitching(false);
+      // Fetch current popup version
+      window.electronAPI.invoke(IPC_CHANNELS.GET_MS_WORD_VERSION)
+        .then((version: string) => setPopupVersion(version as 'v1' | 'v2'))
+        .catch(() => setPopupVersion(null));
     }
   }, [isOpen, currentPreferences]);
 
@@ -72,6 +80,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
             </div>
           </div>
+
+          {popupVersion && (
+            <>
+              <div className="settingsDivider" />
+              <div className="settingsSection">
+                <div className="settingContent" style={{ padding: '0' }}>
+                  <div className="settingLabel">Word Popup Version</div>
+                  <div className="settingDescription">
+                    Currently using {popupVersion === 'v2' ? 'V2' : 'V1'}. Switching will restart the app.
+                  </div>
+                </div>
+                <button
+                  className="wizardButtonSecondary"
+                  style={{ marginTop: '8px', alignSelf: 'flex-start' }}
+                  disabled={switching}
+                  onClick={() => {
+                    setSwitching(true);
+                    const target = popupVersion === 'v2' ? 'v1' : 'v2';
+                    window.electronAPI.invoke(IPC_CHANNELS.SET_MS_WORD_VERSION, target);
+                  }}
+                >
+                  {switching ? 'Restarting...' : `Switch to ${popupVersion === 'v2' ? 'V1' : 'V2'} and restart`}
+                </button>
+              </div>
+            </>
+          )}
 
           {error && <div className="settingsError">{error}</div>}
 

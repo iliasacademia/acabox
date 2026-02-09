@@ -41,6 +41,17 @@ if (store.has('updateChannel')) {
   store.delete('updateChannel');
 }
 
+// Apply user's popup version override from electron-store
+const popupVersionOverride = store.get('popupVersion') as string | undefined;
+if (popupVersionOverride === 'v1') {
+  FEATURES.MS_WORD_V1_ENABLED = true;
+  FEATURES.MS_WORD_V2_ENABLED = false;
+} else if (popupVersionOverride === 'v2') {
+  FEATURES.MS_WORD_V1_ENABLED = false;
+  FEATURES.MS_WORD_V2_ENABLED = true;
+}
+logger.info(`[App] MS Word popup version: ${FEATURES.MS_WORD_V2_ENABLED ? 'V2' : 'V1'}${popupVersionOverride ? ' (user override)' : ' (default)'}`);
+
 // Initialize auto-launch (only in production)
 const autoLauncher = new AutoLaunch({
   name: 'Academia Electron',
@@ -1121,6 +1132,21 @@ ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
 // App lifecycle IPC handlers
 ipcMain.handle(IPC_CHANNELS.RESTART_APP, () => {
   logger.info('[App] Restarting app to apply permission changes...');
+  app.relaunch();
+  app.quit();
+});
+
+// MS Word popup version IPC handlers
+ipcMain.handle(IPC_CHANNELS.GET_MS_WORD_VERSION, () => {
+  return FEATURES.MS_WORD_V2_ENABLED ? 'v2' : 'v1';
+});
+
+ipcMain.handle(IPC_CHANNELS.SET_MS_WORD_VERSION, (_event, version: string) => {
+  if (version !== 'v1' && version !== 'v2') {
+    throw new Error(`Invalid popup version: ${version}`);
+  }
+  logger.info(`[App] User switching MS Word popup version to ${version.toUpperCase()}, restarting...`);
+  store.set('popupVersion', version);
   app.relaunch();
   app.quit();
 });
