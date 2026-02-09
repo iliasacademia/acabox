@@ -42,6 +42,20 @@ export class TokenManager {
   }
 
   /**
+   * Register a pre-defined token (for development use only)
+   */
+  addToken(token: string, identifier?: string): void {
+    const metadata: TokenMetadata = {
+      token,
+      createdAt: Date.now(),
+      identifier,
+    };
+    this.tokens.add(token);
+    this.tokenMetadata.set(token, metadata);
+    logger.debug(`[TokenManager] Added fixed token${identifier ? ` for ${identifier}` : ''}`);
+  }
+
+  /**
    * Validate a token
    *
    * @param token Token string to validate

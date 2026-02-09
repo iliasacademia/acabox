@@ -63,6 +63,12 @@
   line-height: 1.4;
 }
 
+.settingsDivider {
+  height: 1px;
+  background-color: #e0e0e0;
+  margin: 8px 0;
+}
+
 .settingsError {
   background-color: #fee;
   border: 1px solid #fcc;

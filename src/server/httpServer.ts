@@ -14,6 +14,7 @@
  */
 
 import Fastify, { FastifyInstance } from 'fastify';
+import fastifyWebSocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
 import cors from '@fastify/cors';
 import path from 'path';
@@ -21,7 +22,10 @@ import { app } from 'electron';
 import { registerNotificationRoutes } from './routes/notifications';
 import { registerProxyRoutes } from './routes/proxy';
 import { registerWordRoutes } from './routes/word';
+import { registerWordV2Routes } from './routes/wordV2';
+import { registerWebSocketRoutes } from './routes/websocket';
 import { registerAnalyticsRoutes } from './routes/analytics';
+import { registerBridgeRoutes } from './routes/bridge';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
 import { wordIntegrationDataStore } from '../wordIntegrationDataStore';
 import { ServerConfig, HealthResponse } from './types';
@@ -116,13 +120,22 @@ export class AcademiaHttpServer {
       credentials: true,
     });
 
+    // Register WebSocket plugin (reuses same TCP port)
+    await this.fastify.register(fastifyWebSocket);
+
     // Generate auth token and register auth middleware
-    const tokenMetadata = this.tokenManager.generateToken('word-overlay');
-    this.authToken = tokenMetadata.token;
+    if (!app.isPackaged) {
+      // Fixed token in development for convenience (e.g. manual curl/browser testing)
+      this.tokenManager.addToken('supersecuredevtoken123', 'dev-fixed');
+      this.authToken = 'supersecuredevtoken123';
+    } else {
+      const tokenMetadata = this.tokenManager.generateToken('word-overlay');
+      this.authToken = tokenMetadata.token;
+    }
 
     const authMiddleware = createAuthMiddleware(this.tokenManager);
     this.fastify.addHook('preHandler', async (request, reply) => {
-      if (request.url.startsWith('/api/') || request.url.startsWith('/proxy-api/')) {
+      if (request.url.startsWith('/api/') || request.url.startsWith('/proxy-api/') || request.url.startsWith('/bridge')) {
         await authMiddleware(request, reply);
       }
     });
@@ -165,6 +178,8 @@ export class AcademiaHttpServer {
         const token = this.authToken || '';
         const baseUrl = this.getBaseUrl() || '';
 
+        const wsBaseUrl = baseUrl.replace(/^http/, 'ws');
+
         const response = {
           token,
           baseUrl,
@@ -175,7 +190,10 @@ export class AcademiaHttpServer {
             popupUrls: {
               academiaNotifications: `${baseUrl}/ui/popup/academiaNotifications/?pid=${pidInfo.pid}&token=${token}`,
               academiaNotificationsButton: `${baseUrl}/ui/popup/academiaNotificationsButton/?pid=${pidInfo.pid}&token=${token}`,
+              academiaNotificationsButtonV2: `${baseUrl}/ui/popup/academiaNotificationsButtonV2/?pid=${pidInfo.pid}&token=${token}`,
+              academiaNotificationsV2: `${baseUrl}/ui/popup/academiaNotificationsV2/?pid=${pidInfo.pid}&token=${token}`,
             },
+            webSocketUrl: `${wsBaseUrl}/ws/word/${pidInfo.pid}?token=${token}`,
           })),
         };
 
@@ -196,8 +214,22 @@ export class AcademiaHttpServer {
     // Register Word integration routes
     await registerWordRoutes(this.fastify, this.notificationManager, this.currentUserId);
 
+    // Register V2 Word integration routes (wid-based)
+    await registerWordV2Routes(this.fastify, this.notificationManager, this.currentUserId);
+
+    // Register WebSocket routes (real-time push for Word poll updates)
+    await registerWebSocketRoutes(
+      this.fastify,
+      this.tokenManager,
+      this.notificationManager,
+      this.currentUserId
+    );
+
     // Register analytics routes
     await registerAnalyticsRoutes(this.fastify);
+
+    // Register bridge routes (V2 popup bridge actions via HTTP)
+    await registerBridgeRoutes(this.fastify);
 
     // Register navigation routes (if handler is set)
     if (this.navigationHandler) {

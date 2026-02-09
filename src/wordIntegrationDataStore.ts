@@ -8,6 +8,8 @@
  * - httpServer reads from this store (getProjectFileForPID)
  */
 
+import { wordPollEventBus } from './server/events/wordPollEventBus';
+
 /**
  * Project file information for a manuscript
  */
@@ -37,6 +39,7 @@ class WordIntegrationDataStore {
    */
   setProjectFileCache(cache: Map<string, ProjectFileInfo>): void {
     this.projectFileCache = cache;
+    wordPollEventBus.emit('change', 'project-file-cache-changed');
   }
 
   /**
@@ -45,6 +48,7 @@ class WordIntegrationDataStore {
    */
   setTrackedPID(pid: number, info: TrackedPIDInfo): void {
     this.trackedPIDs.set(pid, info);
+    wordPollEventBus.emit('change', 'tracked-pids-changed');
   }
 
   /**
@@ -53,6 +57,7 @@ class WordIntegrationDataStore {
    */
   deleteTrackedPID(pid: number): void {
     this.trackedPIDs.delete(pid);
+    wordPollEventBus.emit('change', 'tracked-pids-changed');
   }
 
   /**
@@ -61,6 +66,7 @@ class WordIntegrationDataStore {
    */
   clearTrackedPIDs(): void {
     this.trackedPIDs.clear();
+    wordPollEventBus.emit('change', 'tracked-pids-changed');
   }
 
   // === Getters (called by httpServer routes) ===

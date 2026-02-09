@@ -49,4 +49,8 @@ src/native/build/SimpleTests
 
 .claude/settings.local.json
 
-window-monitor
+# Rust build artifacts
+window-monitor/rust/target/
+webview-manager/rust/target/
+
+

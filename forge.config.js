@@ -17,6 +17,8 @@ const packagerConfig = {
     ...(platform === 'darwin' ? [
       'src/applescripts',
       'src/native/build/Release/word_accessibility.node',
+      'window-monitor/rust/target/release/window-monitor',
+      'webview-manager/rust/target/release/webview-manager',
     ] : []),
     'dist/popup',
     'src/assets/icons',
