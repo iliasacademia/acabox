@@ -103,13 +103,6 @@ impl TextSelectionTracker {
         self.last_selected_text = None;
     }
 
-    /// Delete temp file for a specific window.
-    pub fn cleanup_window(&self, window_id: u32) {
-        let path = self.file_path_for_window(window_id);
-        let _ = fs::remove_file(&path);
-        let _ = fs::remove_file(format!("{}.tmp", path.display()));
-    }
-
     /// Delete all selection text temp files.
     pub fn cleanup_all(&self) {
         if let Ok(entries) = fs::read_dir(&self.temp_dir) {

@@ -744,6 +744,114 @@ async function runTest() {
     }
 
     // =========================================================================
+    // Step 3: Select all text and validate WINDOW_TEXT_SELECTED / WINDOW_TEXT_SELECTION_CLEARED
+    // =========================================================================
+    log('blue', '\n[STEP 3] Select text and validate text selection tracking');
+
+    // Select all text with Cmd+A
+    log('blue', '[ACTION] Selecting all text with Cmd+A...');
+    checkpoint = events.length;
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          keystroke "a" using command down
+        end tell
+      end tell
+    `);
+
+    log('blue', '[ACTION] Waiting 2s for text selection detection...');
+    await delay(2000);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Text selection', stepEvents, [
+      (evts) => {
+        const selEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTED');
+        if (!selEvt) return { pass: false, message: 'Missing WINDOW_TEXT_SELECTED event' };
+        return { pass: true, message: 'WINDOW_TEXT_SELECTED event captured' };
+      },
+      (evts) => {
+        const selEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTED');
+        if (!selEvt) return { pass: false, message: 'No WINDOW_TEXT_SELECTED to check selection field' };
+        const sel = selEvt.selection;
+        if (!sel) return { pass: false, message: 'WINDOW_TEXT_SELECTED missing selection field' };
+        const hasFilePath = typeof sel.filePath === 'string' && sel.filePath.length > 0;
+        const hasLength = typeof sel.length === 'number' && sel.length > 0;
+        const ok = hasFilePath && hasLength;
+        return { pass: ok, message: ok
+          ? `Selection metadata: filePath=${sel.filePath}, length=${sel.length}`
+          : `Invalid selection metadata: filePath=${sel.filePath}, length=${sel.length}` };
+      },
+      (evts) => {
+        const selEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTED');
+        if (!selEvt || !selEvt.selection?.filePath) {
+          return { pass: false, message: 'No WINDOW_TEXT_SELECTED to check file contents' };
+        }
+        const filePath = selEvt.selection.filePath;
+        try {
+          const fileContents = fs.readFileSync(filePath, 'utf8');
+          const containsText = fileContents.includes(mockText);
+          return { pass: containsText, message: containsText
+            ? `Selection file contains typed text (${fileContents.length} bytes)`
+            : `Selection file does not contain expected text. File contents (first 200 chars): "${fileContents.slice(0, 200)}"` };
+        } catch (err) {
+          return { pass: false, message: `Failed to read selection file ${filePath}: ${err.message}` };
+        }
+      },
+      (evts) => {
+        const selEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTED');
+        if (!selEvt || !selEvt.selection?.filePath) {
+          return { pass: false, message: 'No WINDOW_TEXT_SELECTED to check byte size' };
+        }
+        try {
+          const fileContents = fs.readFileSync(selEvt.selection.filePath, 'utf8');
+          const ok = fileContents.length === selEvt.selection.length;
+          return { pass: ok, message: ok
+            ? `selection.length matches file size (${selEvt.selection.length})`
+            : `selection.length mismatch: event says ${selEvt.selection.length}, file is ${fileContents.length} bytes` };
+        } catch (err) {
+          return { pass: false, message: `Failed to read selection file: ${err.message}` };
+        }
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    // Clear selection by pressing Right arrow
+    log('blue', '[ACTION] Clearing selection with Right arrow...');
+    checkpoint = events.length;
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          key code 124
+        end tell
+      end tell
+    `);
+
+    log('blue', '[ACTION] Waiting 2s for selection clear detection...');
+    await delay(2000);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Text selection cleared', stepEvents, [
+      (evts) => {
+        const clearEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_CLEARED');
+        if (!clearEvt) return { pass: false, message: 'Missing WINDOW_TEXT_SELECTION_CLEARED event' };
+        return { pass: true, message: 'WINDOW_TEXT_SELECTION_CLEARED event captured' };
+      },
+      (evts) => {
+        const clearEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_CLEARED');
+        if (!clearEvt) return { pass: false, message: 'No WINDOW_TEXT_SELECTION_CLEARED to check selection field' };
+        const ok = clearEvt.selection === undefined || clearEvt.selection === null;
+        return { pass: ok, message: ok
+          ? 'WINDOW_TEXT_SELECTION_CLEARED has no selection field (correct)'
+          : `WINDOW_TEXT_SELECTION_CLEARED unexpectedly has selection: ${JSON.stringify(clearEvt.selection)}` };
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    // =========================================================================
     // Window operation tests on UNSAVED document
     // =========================================================================
     log('blue', '\n========================================');

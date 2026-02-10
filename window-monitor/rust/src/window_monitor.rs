@@ -265,6 +265,7 @@ impl WindowMonitor {
                         }
                         m.word_pid = notif.pid;
                         event_models::emit_app_event(EventType::AppLaunched, &m.app_info());
+                        m.cleanup_all_temp_files();
                         m.attach_to_app();
                     }
                     workspace::WorkspaceEvent::AppTerminated => {
@@ -553,7 +554,6 @@ impl WindowMonitor {
         for wid in destroyed {
             self.windows.remove(&wid);
             self.emit_destroyed_event_for_window_id(wid);
-            self.cleanup_window_temp_files(wid);
             if wid == self.last_focused_window_id {
                 self.last_focused_window_id = 0;
             }
@@ -869,16 +869,6 @@ impl WindowMonitor {
             document_path: None,
         };
         event_models::emit_window_event(EventType::WindowDestroyed, &app, window_info);
-    }
-
-    /// Clean up temp files for a specific window.
-    fn cleanup_window_temp_files(&self, window_id: u32) {
-        if let Some(ref tracker) = self.text_selection {
-            tracker.cleanup_window(window_id);
-        }
-        if let Some(ref tracker) = self.document_text {
-            tracker.cleanup_window(window_id);
-        }
     }
 
     /// Clean up all temp files (on shutdown or app terminate).
