@@ -15,6 +15,8 @@ pub type AXError = i32;
 pub const K_AX_ERROR_SUCCESS: AXError = 0;
 
 // AXValue type constants
+const AX_VALUE_TYPE_CGPOINT: u32 = 1;
+const AX_VALUE_TYPE_CGSIZE: u32 = 2;
 const AX_VALUE_TYPE_CGRECT: u32 = 3;
 const AX_VALUE_TYPE_CFRANGE: u32 = 4;
 
@@ -130,6 +132,8 @@ static AX_NUMBER_OF_CHARACTERS: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr(
 static AX_CHILDREN: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXChildren"));
 static AX_SELECTED_TEXT_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSelectedTextRange"));
 static AX_BOUNDS_FOR_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXBoundsForRange"));
+static AX_POSITION: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXPosition"));
+static AX_SIZE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSize"));
 
 // Trusted check option
 static AX_TRUSTED_CHECK_OPTION_PROMPT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXTrustedCheckOptionPrompt"));
@@ -184,6 +188,12 @@ fn k_ax_selected_text_range_attribute() -> core_foundation_sys::string::CFString
 }
 fn k_ax_bounds_for_range_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_BOUNDS_FOR_RANGE.0
+}
+fn k_ax_position_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_POSITION.0
+}
+fn k_ax_size_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_SIZE.0
 }
 fn k_ax_trusted_check_option_prompt() -> core_foundation_sys::string::CFStringRef {
     AX_TRUSTED_CHECK_OPTION_PROMPT.0
@@ -609,6 +619,74 @@ pub fn get_selection_bounds(element: &SafeAXUIElement) -> Option<CGRect> {
         return None;
     }
     get_bounds_for_range(element, &range)
+}
+
+/// Get the screen bounds of an AX element by reading AXPosition + AXSize.
+pub fn get_element_bounds(element: &SafeAXUIElement) -> Option<CGRect> {
+    // Read AXPosition -> CGPoint
+    let mut pos_value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_position_attribute(), &mut pos_value)
+    };
+    if err != K_AX_ERROR_SUCCESS || pos_value.is_null() {
+        return None;
+    }
+    let mut point = core_graphics_types::geometry::CGPoint::default();
+    let ok = unsafe {
+        AXValueGetValue(
+            pos_value,
+            AX_VALUE_TYPE_CGPOINT,
+            &mut point as *mut core_graphics_types::geometry::CGPoint as *mut c_void,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(pos_value);
+    }
+    if !ok {
+        return None;
+    }
+
+    // Read AXSize -> CGSize
+    let mut size_value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_size_attribute(), &mut size_value)
+    };
+    if err != K_AX_ERROR_SUCCESS || size_value.is_null() {
+        return None;
+    }
+    let mut size = core_graphics_types::geometry::CGSize::default();
+    let ok = unsafe {
+        AXValueGetValue(
+            size_value,
+            AX_VALUE_TYPE_CGSIZE,
+            &mut size as *mut core_graphics_types::geometry::CGSize as *mut c_void,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(size_value);
+    }
+    if !ok {
+        return None;
+    }
+
+    Some(CGRect::new(&point, &size))
+}
+
+/// Find the document content area of a window element by selecting the largest
+/// direct child by area. In Microsoft Word, this is the top-level AXSplitGroup
+/// that contains the document viewport (excluding toolbar, ribbon, status bar).
+pub fn find_content_area_child(element: &SafeAXUIElement) -> Option<SafeAXUIElement> {
+    let children = get_children(element);
+    let mut best: Option<(SafeAXUIElement, f64)> = None;
+    for child in children {
+        if let Some(rect) = get_element_bounds(&child) {
+            let area = rect.size.width * rect.size.height;
+            if best.as_ref().map_or(true, |(_, best_area)| area > *best_area) {
+                best = Some((child, area));
+            }
+        }
+    }
+    best.map(|(el, _)| el)
 }
 
 /// DFS to find the first AXTextArea element in a subtree, with a depth limit.

@@ -1401,6 +1401,63 @@ async function runTest() {
     totalFailed++;
   }
 
+  // contentBounds validation: WINDOW_CREATED, WINDOW_EXISTING, and WINDOW_REPOSITIONED
+  // must always have contentBounds with positive dimensions that fit within window bounds.
+  log('blue', '\n[VALIDATE] Checking contentBounds is required for CREATED/EXISTING/REPOSITIONED...');
+  const CONTENT_BOUNDS_REQUIRED_EVENTS = ['WINDOW_CREATED', 'WINDOW_EXISTING', 'WINDOW_REPOSITIONED'];
+  const contentBoundsRequiredErrors = [];
+  let contentBoundsRequiredCount = 0;
+
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (!CONTENT_BOUNDS_REQUIRED_EVENTS.includes(e.event)) continue;
+    contentBoundsRequiredCount++;
+
+    const cb = e.window?.contentBounds;
+    if (!cb) {
+      contentBoundsRequiredErrors.push(
+        `Event index ${i} ${e.event} (window ${e.window?.id}): contentBounds is missing (required)`
+      );
+      continue;
+    }
+
+    // Validate positive dimensions
+    if (cb.width <= 0 || cb.height <= 0) {
+      contentBoundsRequiredErrors.push(
+        `Event index ${i} ${e.event} (window ${e.window.id}): contentBounds has non-positive dimensions (${cb.width}x${cb.height})`
+      );
+    }
+
+    // Validate contentBounds fits within window bounds
+    const wb = e.window.bounds;
+    if (wb) {
+      if (cb.width > wb.width + BOUNDS_TOLERANCE) {
+        contentBoundsRequiredErrors.push(
+          `Event index ${i} ${e.event} (window ${e.window.id}): contentBounds width ${cb.width} exceeds window width ${wb.width}`
+        );
+      }
+      if (cb.height > wb.height + BOUNDS_TOLERANCE) {
+        contentBoundsRequiredErrors.push(
+          `Event index ${i} ${e.event} (window ${e.window.id}): contentBounds height ${cb.height} exceeds window height ${wb.height}`
+        );
+      }
+    }
+  }
+
+  if (contentBoundsRequiredCount > 0 && contentBoundsRequiredErrors.length === 0) {
+    log('green', `[PASS] contentBounds present and valid in all ${contentBoundsRequiredCount} CREATED/EXISTING/REPOSITIONED events`);
+    totalPassed++;
+  } else if (contentBoundsRequiredCount === 0) {
+    log('red', '[FAIL] No WINDOW_CREATED/EXISTING/REPOSITIONED events found to check contentBounds');
+    totalFailed++;
+  } else {
+    log('red', `[FAIL] contentBounds validation errors (${contentBoundsRequiredErrors.length} of ${contentBoundsRequiredCount}):`);
+    for (const err of contentBoundsRequiredErrors) {
+      log('red', `  - ${err}`);
+    }
+    totalFailed++;
+  }
+
   // Schema validation summary (validated in real-time as events arrived)
   log('blue', '\n[VALIDATE] Schema validation summary...');
   if (schemaErrors.length === 0) {

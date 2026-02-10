@@ -32,6 +32,7 @@ const WindowInfoSchema = z.object({
   title: z.string().nullable(),
   documentPath: z.string().nullable(),
   bounds: WindowBoundsSchema.nullable(),
+  contentBounds: WindowBoundsSchema.optional(),
 });
 
 // Window info with required bounds - for most window events
@@ -40,6 +41,7 @@ const WindowInfoWithBoundsSchema = z.object({
   title: z.string().nullable(),
   documentPath: z.string().nullable(),
   bounds: WindowBoundsSchema,
+  contentBounds: WindowBoundsSchema.optional(),
 });
 
 // Base event schema - common fields for all events

@@ -29,6 +29,8 @@ pub struct WindowInfoOutput {
     pub title: Option<String>,
     pub bounds: Option<WindowBounds>,
     pub document_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_bounds: Option<WindowBounds>,
 }
 
 /// App-level event (no window key).

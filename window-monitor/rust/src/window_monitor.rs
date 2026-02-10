@@ -965,6 +965,7 @@ impl WindowMonitor {
             title: None,
             bounds: None,
             document_path: None,
+            content_bounds: None,
         };
         event_models::emit_window_event(EventType::WindowDestroyed, &app, window_info);
     }
@@ -1002,9 +1003,21 @@ impl WindowMonitor {
     /// Create a WindowInfoOutput from a CGWindow entry, enriched with AX attributes.
     fn create_window_info_from_entry(&self, entry: &WindowListEntry) -> WindowInfoOutput {
         let mut document_path = None;
+        let mut content_bounds = None;
 
         if let Some(ax_window) = self.find_ax_window_for_id(entry.window_id) {
             document_path = accessibility::get_document(&ax_window);
+
+            if let Some(content_area) = accessibility::find_content_area_child(&ax_window) {
+                if let Some(rect) = accessibility::get_element_bounds(&content_area) {
+                    content_bounds = Some(WindowBounds {
+                        x: rect.origin.x,
+                        y: rect.origin.y,
+                        width: rect.size.width,
+                        height: rect.size.height,
+                    });
+                }
+            }
         }
 
         WindowInfoOutput {
@@ -1017,6 +1030,7 @@ impl WindowMonitor {
                 height: entry.bounds.height,
             }),
             document_path,
+            content_bounds,
         }
     }
 
