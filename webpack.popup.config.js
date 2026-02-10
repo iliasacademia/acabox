@@ -60,6 +60,11 @@ module.exports = {
       inject: false, // Don't inject - we manually control script loading order
       scriptLoading: 'blocking',
     }),
+    new HtmlWebpackPlugin({
+      template: './src/popup/debugging-red-border-container.html',
+      filename: 'debuggingRedBorderContainer/index.html',
+      chunks: [],
+    }),
     new MiniCssExtractPlugin({
       filename: '[name]/styles.css', // Use predictable filename for manual HTML injection
     }),
