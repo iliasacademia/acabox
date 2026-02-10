@@ -519,6 +519,9 @@ impl WindowMonitor {
         for wid in destroyed {
             self.windows.remove(&wid);
             self.emit_destroyed_event_for_window_id(wid);
+            if wid == self.last_focused_window_id {
+                self.last_focused_window_id = 0;
+            }
         }
     }
 

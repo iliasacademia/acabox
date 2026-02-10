@@ -269,6 +269,21 @@ async function runWindowOperationTests(events, label) {
       }
       return { pass: false, message: 'No repositioning activity detected' };
     },
+    (evts) => {
+      const types = evts.map((e) => e.event);
+      const hasDestroyed = types.includes('WINDOW_DESTROYED');
+      const hasCreated = types.includes('WINDOW_CREATED');
+      const hasFocused = types.includes('WINDOW_FOCUSED');
+
+      if (hasDestroyed && hasCreated) {
+        // Bug path: window was destroyed and recreated during fullscreen
+        return { pass: hasFocused, message: hasFocused
+          ? 'WINDOW_FOCUSED emitted after fullscreen DESTROYED→CREATED transition'
+          : 'Missing WINDOW_FOCUSED after fullscreen DESTROYED→CREATED transition (button will not appear)' };
+      }
+      // Happy path (REPOSITIONING→REPOSITIONED): window wasn't recreated, focus preserved
+      return { pass: true, message: 'Window not destroyed during fullscreen — focus preserved' };
+    },
   ]);
   totalPassed += result.passed;
   totalFailed += result.failed;
@@ -359,6 +374,12 @@ async function runWindowOperationTests(events, label) {
         ? `documentPath preserved: ${fullScreenDocPath}`
         : `documentPath mismatch: expected ${fullScreenDocPath}, got ${created.window.documentPath}` };
     },
+    (evts) => {
+      const focused = evts.find((e) => e.event === 'WINDOW_FOCUSED' && e.window?.id === fullScreenWindowId);
+      return { pass: !!focused, message: focused
+        ? `WINDOW_FOCUSED emitted for window ${fullScreenWindowId} after swipe-back`
+        : `Missing WINDOW_FOCUSED for window ${fullScreenWindowId} after swipe-back (button will not appear)` };
+    },
   ]);
   totalPassed += result.passed;
   totalFailed += result.failed;
@@ -398,6 +419,18 @@ async function runWindowOperationTests(events, label) {
         return { pass: true, message: `Window activity detected: ${types.filter((t) => t.startsWith('WINDOW_')).join(', ')}` };
       }
       return { pass: true, message: 'No window events during exit full-screen (transition may be handled by macOS internally)' };
+    },
+    (evts) => {
+      const types = evts.map((e) => e.event);
+      const hasCreated = types.includes('WINDOW_CREATED');
+      const hasFocused = types.includes('WINDOW_FOCUSED');
+
+      if (hasCreated) {
+        return { pass: hasFocused, message: hasFocused
+          ? 'WINDOW_FOCUSED emitted after fullscreen exit with WINDOW_CREATED'
+          : 'Missing WINDOW_FOCUSED after fullscreen exit WINDOW_CREATED (button will not appear)' };
+      }
+      return { pass: true, message: 'No WINDOW_CREATED during exit — focus preserved' };
     },
   ]);
   totalPassed += result.passed;
