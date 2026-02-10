@@ -14,6 +14,8 @@ pub struct WebviewEntryState {
     pub url: String,
     pub visible: bool,
     pub frame: WebviewFrame,
+    #[serde(default, rename = "ignoresMouseEvents")]
+    pub ignores_mouse_events: bool,
 }
 
 pub type DesiredState = HashMap<String, WebviewEntryState>;

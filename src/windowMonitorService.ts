@@ -21,6 +21,8 @@ const POPUP_WIDTH = 370;
 const POPUP_HEIGHT = 280;
 const POPUP_GAP_ABOVE_BUTTON = 10;
 
+const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY === '1';
+
 const webviewConfigs: WebviewTypeConfig[] = [
   {
     keyPrefix: 'button-v2',
@@ -50,6 +52,23 @@ const webviewConfigs: WebviewTypeConfig[] = [
     },
   },
 ];
+
+if (DEBUG_CONTENT_BOUNDS_OVERLAY) {
+  webviewConfigs.push({
+    keyPrefix: 'debug-content-bounds',
+    pathSuffix: '/ui/popup/debuggingRedBorderContainer/',
+    ignoresMouseEvents: true,
+    computeFrame: (_bounds, screenHeight, contentBounds) => {
+      if (!contentBounds) return null;
+      return {
+        x: contentBounds.x,
+        y: screenHeight - (contentBounds.y + contentBounds.height),
+        width: contentBounds.width,
+        height: contentBounds.height,
+      };
+    },
+  });
+}
 
 function getWindowMonitorBinPath(): string {
   if (app.isPackaged) {

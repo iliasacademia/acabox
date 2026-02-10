@@ -13,6 +13,7 @@ export interface WebviewEntryState {
   url: string;
   visible: boolean;
   frame: WebviewFrame;
+  ignoresMouseEvents?: boolean;
 }
 
 export type DesiredWebviewState = Record<string, WebviewEntryState>;
@@ -20,7 +21,8 @@ export type DesiredWebviewState = Record<string, WebviewEntryState>;
 export interface WebviewTypeConfig {
   keyPrefix: string;
   pathSuffix: string;
-  computeFrame: (bounds: WindowBounds, screenHeight: number) => WebviewFrame;
+  ignoresMouseEvents?: boolean;
+  computeFrame: (bounds: WindowBounds, screenHeight: number, contentBounds: WindowBounds | null) => WebviewFrame | null;
 }
 
 export function computeWebviewState(
@@ -41,11 +43,17 @@ export function computeWebviewState(
       const visible = app.isFocused && window.isFocused && !window.isRepositioning;
 
       for (const config of configs) {
+        const frame = config.computeFrame(window.bounds, screenHeight, window.contentBounds);
+        if (frame === null) continue;
+
         const key = `${config.keyPrefix}-${window.id}`;
         const url = `${baseUrl}${config.pathSuffix}?pid=${app.pid}&wid=${window.id}&token=${authToken}`;
-        const frame = config.computeFrame(window.bounds, screenHeight);
 
-        result[key] = { url, visible, frame };
+        const entry: WebviewEntryState = { url, visible, frame };
+        if (config.ignoresMouseEvents) {
+          entry.ignoresMouseEvents = true;
+        }
+        result[key] = entry;
       }
     }
   }

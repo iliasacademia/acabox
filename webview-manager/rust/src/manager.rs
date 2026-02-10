@@ -17,6 +17,7 @@ struct WebViewEntry {
     url: String,
     visible: bool,
     frame: WebviewFrame,
+    ignores_mouse_events: bool,
 }
 
 pub struct Manager {
@@ -58,9 +59,10 @@ impl Manager {
         for (id, entry_state) in desired {
             if let Some(existing) = self.entries.get(id) {
                 // Entry exists — check what changed
-                if existing.url != entry_state.url {
-                    // URL changed → destroy and recreate
-                    debug_log!("reconcile: URL changed for id={}, recreating", id);
+                if existing.url != entry_state.url || existing.ignores_mouse_events != entry_state.ignores_mouse_events {
+                    // URL or ignores_mouse_events changed → destroy and recreate
+                    debug_log!("reconcile: recreating id={} (url_changed={}, mouse_changed={})",
+                        id, existing.url != entry_state.url, existing.ignores_mouse_events != entry_state.ignores_mouse_events);
                     self.destroy(id);
                     self.create(id, entry_state);
                 } else {
@@ -86,7 +88,7 @@ impl Manager {
             NSPoint::new(state.frame.x, state.frame.y),
             NSSize::new(state.frame.width, state.frame.height),
         );
-        let panel = create_panel(self.mtm, frame);
+        let panel = create_panel(self.mtm, frame, state.ignores_mouse_events);
 
         match create_webview(self.mtm, &panel, &state.url) {
             Ok(webview) => {
@@ -101,6 +103,7 @@ impl Manager {
                         url: state.url.clone(),
                         visible: state.visible,
                         frame: state.frame.clone(),
+                        ignores_mouse_events: state.ignores_mouse_events,
                     },
                 );
                 Response::ok("CREATE", id).emit();

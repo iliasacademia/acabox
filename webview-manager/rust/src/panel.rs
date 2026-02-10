@@ -45,7 +45,7 @@ impl KeyablePanel {
 ///
 /// Style: borderless + non-activating panel, transparent background, floating level + 1,
 /// no shadow, visible on all spaces, never steals focus, canBecomeKeyWindow = YES.
-pub fn create_panel(mtm: MainThreadMarker, frame: NSRect) -> Retained<KeyablePanel> {
+pub fn create_panel(mtm: MainThreadMarker, frame: NSRect, ignores_mouse_events: bool) -> Retained<KeyablePanel> {
     let style = NSWindowStyleMask::Borderless | NSWindowStyleMask::NonactivatingPanel;
 
     let panel = KeyablePanel::init_with_content_rect(
@@ -73,14 +73,16 @@ pub fn create_panel(mtm: MainThreadMarker, frame: NSRect) -> Retained<KeyablePan
     panel.setWorksWhenModal(true);
     panel.setHidesOnDeactivate(false);
 
-    // Enable mouse events
-    panel.setIgnoresMouseEvents(false);
-    panel.setAcceptsMouseMovedEvents(true);
+    // Mouse event handling
+    panel.setIgnoresMouseEvents(ignores_mouse_events);
+    if !ignores_mouse_events {
+        panel.setAcceptsMouseMovedEvents(true);
+    }
 
     debug_log!(
-        "create_panel: frame=({:.0},{:.0},{:.0},{:.0}), level={}, ignoresMouse=false",
+        "create_panel: frame=({:.0},{:.0},{:.0},{:.0}), level={}, ignoresMouse={}",
         frame.origin.x, frame.origin.y, frame.size.width, frame.size.height,
-        NSFloatingWindowLevel + 1
+        NSFloatingWindowLevel + 1, ignores_mouse_events
     );
 
     panel

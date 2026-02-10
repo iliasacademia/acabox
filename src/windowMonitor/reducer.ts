@@ -37,7 +37,7 @@ function upsertWindow(app: AppState, win: WindowInfoWithBounds): AppState {
       ...app,
       windows: app.windows.map((w) =>
         w.id === win.id
-          ? { ...w, title: win.title, documentPath: win.documentPath, bounds: win.bounds }
+          ? { ...w, title: win.title, documentPath: win.documentPath, bounds: win.bounds, contentBounds: win.contentBounds ?? null }
           : w,
       ),
     };
@@ -47,6 +47,7 @@ function upsertWindow(app: AppState, win: WindowInfoWithBounds): AppState {
     title: win.title,
     documentPath: win.documentPath,
     bounds: win.bounds,
+    contentBounds: win.contentBounds ?? null,
     isFocused: false,
     isRepositioning: false,
     selectedText: null,
@@ -75,6 +76,7 @@ function newWindowState(win: WindowInfoWithBounds): WindowState {
     title: win.title,
     documentPath: win.documentPath,
     bounds: win.bounds,
+    contentBounds: win.contentBounds ?? null,
     isFocused: false,
     isRepositioning: false,
     selectedText: null,
@@ -167,6 +169,7 @@ export function reduceWindowMonitorEvent(
                   title: event.window.title,
                   documentPath: event.window.documentPath,
                   bounds: event.window.bounds,
+                  contentBounds: event.window.contentBounds ?? null,
                 }
               : { ...w, isFocused: false },
           ),
@@ -188,7 +191,7 @@ export function reduceWindowMonitorEvent(
           ...a,
           windows: a.windows.map((w) =>
             w.id === event.window.id
-              ? { ...w, isRepositioning: true, bounds: event.window.bounds }
+              ? { ...w, isRepositioning: true, bounds: event.window.bounds, contentBounds: event.window.contentBounds ?? null }
               : w,
           ),
         };
@@ -209,7 +212,7 @@ export function reduceWindowMonitorEvent(
           ...a,
           windows: a.windows.map((w) =>
             w.id === event.window.id
-              ? { ...w, isRepositioning: false, bounds: event.window.bounds }
+              ? { ...w, isRepositioning: false, bounds: event.window.bounds, contentBounds: event.window.contentBounds ?? null }
               : w,
           ),
         };
@@ -235,6 +238,7 @@ export function reduceWindowMonitorEvent(
                   documentPath: event.window.documentPath,
                   title: event.window.title,
                   bounds: event.window.bounds,
+                  contentBounds: event.window.contentBounds ?? null,
                 }
               : w,
           ),
@@ -279,6 +283,12 @@ export function reduceWindowMonitorEvent(
           ),
         };
       });
+      return next;
+    }
+
+    case 'WINDOW_TEXT_SELECTION_REPOSITIONING':
+    case 'WINDOW_TEXT_SELECTION_REPOSITIONED': {
+      // Selection bounds moved — no state change needed, just pass through
       return next;
     }
 

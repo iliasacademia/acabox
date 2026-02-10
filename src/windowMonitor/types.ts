@@ -22,6 +22,7 @@ export interface WindowInfo {
   title: string | null;
   documentPath: string | null;
   bounds: WindowBounds | null;
+  contentBounds?: WindowBounds;
 }
 
 export interface WindowInfoWithBounds {
@@ -29,6 +30,7 @@ export interface WindowInfoWithBounds {
   title: string | null;
   documentPath: string | null;
   bounds: WindowBounds;
+  contentBounds?: WindowBounds;
 }
 
 // --- Event types ---
@@ -110,6 +112,16 @@ export interface WindowTextSelectionClearedEvent extends BaseEvent {
   window: WindowInfoWithBounds;
 }
 
+export interface WindowTextSelectionRepositioningEvent extends BaseEvent {
+  event: 'WINDOW_TEXT_SELECTION_REPOSITIONING';
+  window: WindowInfoWithBounds;
+}
+
+export interface WindowTextSelectionRepositionedEvent extends BaseEvent {
+  event: 'WINDOW_TEXT_SELECTION_REPOSITIONED';
+  window: WindowInfoWithBounds;
+}
+
 export interface DocumentTextInfo {
   filePath: string;
   characterCount: number;
@@ -137,6 +149,8 @@ export type WindowMonitorEvent =
   | WindowDocumentPathChangedEvent
   | WindowTextSelectedEvent
   | WindowTextSelectionClearedEvent
+  | WindowTextSelectionRepositioningEvent
+  | WindowTextSelectionRepositionedEvent
   | WindowDocumentTextChangedEvent;
 
 // --- State types ---
@@ -146,6 +160,7 @@ export interface WindowState {
   title: string | null;
   documentPath: string | null;
   bounds: WindowBounds | null;
+  contentBounds: WindowBounds | null;
   isFocused: boolean;
   isRepositioning: boolean;
   selectedText: TextSelectionInfo | null;
