@@ -178,8 +178,34 @@ function useWordPollWebSocket(
   return { shouldShow, badgeCount };
 }
 
+function postBridge(action: string, payload: Record<string, unknown>) {
+  fetch(`${serverUrl}/bridge`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokenParam}`,
+    },
+    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: widParam }),
+  }).catch((err) => {
+    console.error('[AcademiaNotificationsButtonV2] Bridge post failed:', err);
+  });
+}
+
+const DRAG_THRESHOLD = 3;
+
 const AcademiaNotificationsButtonV2: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const accumulatedOffsetRef = useRef({ dx: 0, dy: 0 });
+  const dragStateRef = useRef<{
+    startScreenX: number;
+    startScreenY: number;
+    baseOffsetX: number;
+    baseOffsetY: number;
+    didDrag: boolean;
+    rafId: number | null;
+  } | null>(null);
+  const didDragRef = useRef(false);
 
   const { shouldShow, badgeCount } = useWordPollWebSocket(
     widParam,
@@ -187,7 +213,71 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
     serverUrl
   );
 
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    setDragging(true);
+    didDragRef.current = false;
+    dragStateRef.current = {
+      startScreenX: e.screenX,
+      startScreenY: e.screenY,
+      baseOffsetX: accumulatedOffsetRef.current.dx,
+      baseOffsetY: accumulatedOffsetRef.current.dy,
+      didDrag: false,
+      rafId: null,
+    };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const ds = dragStateRef.current;
+    if (!ds) return;
+
+    const dx = e.screenX - ds.startScreenX;
+    // Cocoa Y is inverted relative to screen Y
+    const dy = -(e.screenY - ds.startScreenY);
+
+    if (!ds.didDrag && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+      ds.didDrag = true;
+      didDragRef.current = true;
+    }
+
+    if (!ds.didDrag) return;
+
+    if (ds.rafId !== null) return;
+    ds.rafId = requestAnimationFrame(() => {
+      ds.rafId = null;
+      postBridge('setDragOffset', {
+        dx: ds.baseOffsetX + dx,
+        dy: ds.baseOffsetY + dy,
+      });
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const ds = dragStateRef.current;
+    if (ds) {
+      if (ds.rafId !== null) {
+        cancelAnimationFrame(ds.rafId);
+      }
+      if (ds.didDrag) {
+        const dx = e.screenX - ds.startScreenX;
+        const dy = -(e.screenY - ds.startScreenY);
+        const finalDx = ds.baseOffsetX + dx;
+        const finalDy = ds.baseOffsetY + dy;
+        postBridge('setDragOffset', { dx: finalDx, dy: finalDy });
+        accumulatedOffsetRef.current = { dx: finalDx, dy: finalDy };
+      }
+    }
+    dragStateRef.current = null;
+    setDragging(false);
+  };
+
   const handleClick = async () => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
     setLoading(true);
     try {
       await fetch(`${serverUrl}/bridge`, {
@@ -219,6 +309,19 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
         disabled={loading}
         data-node-id="1630:6725"
       >
+        <div
+          className={`drag-handle${dragging ? ' dragging' : ''}`}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+        >
+          <span className="drag-dot" />
+          <span className="drag-dot" />
+          <span className="drag-dot" />
+          <span className="drag-dot" />
+          <span className="drag-dot" />
+          <span className="drag-dot" />
+        </div>
         <div className="logo-section" data-node-id="1630:6720">
           <img src={academiaLogos} alt="Academia" className="logo" data-node-id="1630:6721" />
         </div>

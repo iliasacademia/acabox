@@ -12,7 +12,7 @@ import {
   WebviewTypeConfig,
 } from './windowMonitor/computeWebviewState';
 
-const BUTTON_WIDTH = 150;
+const BUTTON_WIDTH = 170;
 const BUTTON_HEIGHT = 50;
 const BUTTON_LEFT_MARGIN = 50;
 const BUTTON_BOTTOM_MARGIN = 30;
@@ -81,6 +81,8 @@ export class WindowMonitorService {
   private state: SystemState = createInitialState();
   private popupToggledOpen: Set<string> = new Set();
   private popupHeightOverrides: Map<string, number> = new Map();
+  private buttonDragOffsets: Map<string, { dx: number; dy: number }> = new Map();
+  private popupSizeOverrides: Map<string, { width: number; height: number }> = new Map();
   private baseUrl: string | null = null;
   private authToken: string | null = null;
 
@@ -137,6 +139,8 @@ export class WindowMonitorService {
       if (event.event === 'WINDOW_DESTROYED' && event.window) {
         this.popupToggledOpen.delete(event.window.id);
         this.popupHeightOverrides.delete(event.window.id);
+        this.buttonDragOffsets.delete(event.window.id);
+        this.popupSizeOverrides.delete(event.window.id);
       }
 
       logger.info('[WindowMonitorService] State:', newState);
@@ -198,6 +202,65 @@ export class WindowMonitorService {
         if (heightOverride !== undefined) {
           desiredState[key].frame.height = heightOverride;
         }
+        const sizeOverride = this.popupSizeOverrides.get(windowId);
+        if (sizeOverride) {
+          desiredState[key].frame.width = Math.max(desiredState[key].frame.width, sizeOverride.width);
+          desiredState[key].frame.height = Math.max(desiredState[key].frame.height, sizeOverride.height);
+        }
+      }
+    }
+
+    // Apply drag offsets to both button and popup frames, clamped to window bounds
+    for (const [windowId, offset] of this.buttonDragOffsets) {
+      const buttonKey = `button-v2-${windowId}`;
+      const popupKey = `popup-v2-${windowId}`;
+      if (!desiredState[buttonKey]) continue;
+
+      // Find window bounds for clamping
+      let windowBounds: WindowBounds | null = null;
+      for (const app of this.state.apps) {
+        for (const window of app.windows) {
+          if (window.id === windowId) {
+            windowBounds = window.bounds;
+            break;
+          }
+        }
+        if (windowBounds) break;
+      }
+
+      if (windowBounds) {
+        // Cocoa coords: origin is bottom-left of screen, Y increases upward
+        const cocoaWindowBottom = screenHeight - (windowBounds.y + windowBounds.height);
+        const cocoaWindowLeft = windowBounds.x;
+        const cocoaWindowRight = windowBounds.x + windowBounds.width;
+        const cocoaWindowTop = cocoaWindowBottom + windowBounds.height;
+
+        const buttonFrame = desiredState[buttonKey].frame;
+        // Clamp so button stays within window bounds
+        const clampedDx = Math.max(
+          cocoaWindowLeft - buttonFrame.x,
+          Math.min(offset.dx, cocoaWindowRight - buttonFrame.x - buttonFrame.width)
+        );
+        const clampedDy = Math.max(
+          cocoaWindowBottom - buttonFrame.y,
+          Math.min(offset.dy, cocoaWindowTop - buttonFrame.y - buttonFrame.height)
+        );
+
+        desiredState[buttonKey].frame.x += clampedDx;
+        desiredState[buttonKey].frame.y += clampedDy;
+
+        if (desiredState[popupKey]) {
+          desiredState[popupKey].frame.x += clampedDx;
+          desiredState[popupKey].frame.y += clampedDy;
+        }
+      } else {
+        // No bounds info, apply offset without clamping
+        desiredState[buttonKey].frame.x += offset.dx;
+        desiredState[buttonKey].frame.y += offset.dy;
+        if (desiredState[popupKey]) {
+          desiredState[popupKey].frame.x += offset.dx;
+          desiredState[popupKey].frame.y += offset.dy;
+        }
       }
     }
 
@@ -220,6 +283,22 @@ export class WindowMonitorService {
   setPopupHeight(windowId: string, height: number): void {
     this.popupHeightOverrides.set(windowId, height);
     this.pushWebviewState();
+  }
+
+  setButtonDragOffset(windowId: string, dx: number, dy: number): void {
+    this.buttonDragOffsets.set(windowId, { dx, dy });
+    this.pushWebviewState();
+  }
+
+  setPopupSize(windowId: string, width: number, height: number): void {
+    this.popupSizeOverrides.set(windowId, { width, height });
+    this.pushWebviewState();
+  }
+
+  clearPopupSize(windowId: string): void {
+    if (this.popupSizeOverrides.delete(windowId)) {
+      this.pushWebviewState();
+    }
   }
 
   closePopupForWindow(windowId: string): void {
@@ -256,6 +335,8 @@ export class WindowMonitorService {
     this.state = createInitialState();
     this.popupToggledOpen.clear();
     this.popupHeightOverrides.clear();
+    this.buttonDragOffsets.clear();
+    this.popupSizeOverrides.clear();
   }
 }
 

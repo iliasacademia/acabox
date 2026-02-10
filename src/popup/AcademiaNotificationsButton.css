@@ -4,7 +4,7 @@
   position: absolute;
   bottom: 0;
   left: 0;
-  width: 150px;
+  width: 170px;
   height: 50px;
   display: flex;
   align-items: flex-end; /* Push button to bottom */
@@ -33,6 +33,28 @@
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
+}
+
+.drag-handle {
+  display: grid;
+  grid-template-columns: repeat(2, 4px);
+  grid-template-rows: repeat(3, 4px);
+  gap: 2px;
+  cursor: grab;
+  padding: 4px 2px;
+  align-items: center;
+  touch-action: none;
+}
+
+.drag-handle.dragging {
+  cursor: grabbing;
+}
+
+.drag-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.6);
 }
 
 .logo-section {
