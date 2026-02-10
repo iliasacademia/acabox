@@ -48,6 +48,10 @@ struct Cli {
     /// Track document text changes (polls character count, debounces, writes to file)
     #[arg(long = "track-document-text")]
     track_document_text: bool,
+
+    /// AX role to filter content area children (e.g. AXSplitGroup for Microsoft Word)
+    #[arg(long = "content-area-role")]
+    content_area_role: Option<String>,
 }
 
 fn main() {
@@ -76,6 +80,9 @@ fn main() {
     if cli.track_document_text {
         eprintln!("Document text tracking: enabled");
     }
+    if let Some(ref role) = cli.content_area_role {
+        eprintln!("Content area role filter: {}", role);
+    }
     eprintln!("Press Ctrl+C to stop monitoring");
     eprintln!("---");
 
@@ -97,6 +104,7 @@ fn main() {
         cli.track_text_selection,
         cli.track_document_text,
         temp_dir,
+        cli.content_area_role,
     ));
     let monitor_ptr: *mut window_monitor::WindowMonitor = &mut *monitor;
     monitor.start_monitoring(monitor_ptr, &should_exit);

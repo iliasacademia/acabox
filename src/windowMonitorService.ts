@@ -96,7 +96,7 @@ export class WindowMonitorService {
     logger.info('[WindowMonitorService] Starting webview-manager:', wvBin);
 
     // Spawn window-monitor
-    this.windowMonitorProcess = spawn(wmBin, ['--bundle-id', 'com.microsoft.Word', '--track-text-selection', '--track-document-text'], {
+    this.windowMonitorProcess = spawn(wmBin, ['--bundle-id', 'com.microsoft.Word', '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

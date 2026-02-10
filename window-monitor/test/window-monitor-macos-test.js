@@ -536,7 +536,7 @@ async function runTest() {
   let totalFailed = 0;
 
   // Start monitor
-  const monitor = spawn(WINDOW_MONITOR_PATH, ['--bundle-id', BUNDLE_ID, '--track-text-selection', '--track-document-text'], {
+  const monitor = spawn(WINDOW_MONITOR_PATH, ['--bundle-id', BUNDLE_ID, '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -1401,10 +1401,10 @@ async function runTest() {
     totalFailed++;
   }
 
-  // contentBounds validation: WINDOW_CREATED, WINDOW_EXISTING, and WINDOW_REPOSITIONED
+  // contentBounds validation: WINDOW_FOCUSED and WINDOW_REPOSITIONED
   // must always have contentBounds with positive dimensions that fit within window bounds.
-  log('blue', '\n[VALIDATE] Checking contentBounds is required for CREATED/EXISTING/REPOSITIONED...');
-  const CONTENT_BOUNDS_REQUIRED_EVENTS = ['WINDOW_CREATED', 'WINDOW_EXISTING', 'WINDOW_REPOSITIONED'];
+  log('blue', '\n[VALIDATE] Checking contentBounds is required for FOCUSED/REPOSITIONED...');
+  const CONTENT_BOUNDS_REQUIRED_EVENTS = ['WINDOW_FOCUSED', 'WINDOW_REPOSITIONED'];
   const contentBoundsRequiredErrors = [];
   let contentBoundsRequiredCount = 0;
 
@@ -1445,10 +1445,10 @@ async function runTest() {
   }
 
   if (contentBoundsRequiredCount > 0 && contentBoundsRequiredErrors.length === 0) {
-    log('green', `[PASS] contentBounds present and valid in all ${contentBoundsRequiredCount} CREATED/EXISTING/REPOSITIONED events`);
+    log('green', `[PASS] contentBounds present and valid in all ${contentBoundsRequiredCount} FOCUSED/REPOSITIONED events`);
     totalPassed++;
   } else if (contentBoundsRequiredCount === 0) {
-    log('red', '[FAIL] No WINDOW_CREATED/EXISTING/REPOSITIONED events found to check contentBounds');
+    log('red', '[FAIL] No WINDOW_FOCUSED/REPOSITIONED events found to check contentBounds');
     totalFailed++;
   } else {
     log('red', `[FAIL] contentBounds validation errors (${contentBoundsRequiredErrors.length} of ${contentBoundsRequiredCount}):`);

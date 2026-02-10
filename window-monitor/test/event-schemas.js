@@ -44,6 +44,15 @@ const WindowInfoWithBoundsSchema = z.object({
   contentBounds: WindowBoundsSchema.optional(),
 });
 
+// Window info with required bounds and contentBounds - for FOCUSED/REPOSITIONED
+const WindowInfoWithContentBoundsSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().nullable(),
+  documentPath: z.string().nullable(),
+  bounds: WindowBoundsSchema,
+  contentBounds: WindowBoundsSchema,
+});
+
 // Base event schema - common fields for all events
 const BaseEventSchema = z.object({
   timestamp: z.string().datetime(),
@@ -97,7 +106,7 @@ const WindowDestroyedEventSchema = BaseEventSchema.extend({
 
 const WindowFocusedEventSchema = BaseEventSchema.extend({
   event: z.literal('WINDOW_FOCUSED'),
-  window: WindowInfoWithBoundsSchema,
+  window: WindowInfoWithContentBoundsSchema,
 });
 
 const WindowRepositioningEventSchema = BaseEventSchema.extend({
@@ -107,7 +116,7 @@ const WindowRepositioningEventSchema = BaseEventSchema.extend({
 
 const WindowRepositionedEventSchema = BaseEventSchema.extend({
   event: z.literal('WINDOW_REPOSITIONED'),
-  window: WindowInfoWithBoundsSchema,
+  window: WindowInfoWithContentBoundsSchema,
 });
 
 const WindowDocumentPathChangedEventSchema = BaseEventSchema.extend({
@@ -290,6 +299,7 @@ module.exports = {
   SelectionBoundsSchema,
   WindowInfoSchema,
   WindowInfoWithBoundsSchema,
+  WindowInfoWithContentBoundsSchema,
   BaseEventSchema,
   TextSelectionInfoSchema,
   DocumentTextInfoSchema,

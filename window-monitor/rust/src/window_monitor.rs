@@ -150,6 +150,9 @@ pub struct WindowMonitor {
     pub app_display_name: Option<String>,
     pub word_pid: i32,
 
+    // Content area detection config
+    content_area_role: Option<String>,
+
     // Window tracking (single consolidated map)
     windows: HashMap<u32, TrackedWindow>,
 
@@ -183,11 +186,13 @@ impl WindowMonitor {
         track_text_selection: bool,
         track_document_text: bool,
         temp_dir: PathBuf,
+        content_area_role: Option<String>,
     ) -> Self {
         WindowMonitor {
             target_bundle_id: bundle_id.to_string(),
             app_display_name: None,
             word_pid: 0,
+            content_area_role,
             windows: HashMap::new(),
             ax_observer: None,
             app_element: None,
@@ -477,7 +482,7 @@ impl WindowMonitor {
                 continue;
             }
 
-            let window_info = self.create_window_info_from_entry(w);
+            let window_info = self.create_window_info_from_entry(w, false);
 
             let entry = self.windows.get_mut(&w.window_id).unwrap();
             entry.is_emitted = true;
@@ -532,7 +537,7 @@ impl WindowMonitor {
             if !is_emitted {
                 let role = self.get_role_for_window(w.window_id);
                 if role.as_deref() == Some("AXWindow") {
-                    let window_info = self.create_window_info_from_entry(w);
+                    let window_info = self.create_window_info_from_entry(w, false);
 
                     let entry = self.windows.get_mut(&w.window_id).unwrap();
                     entry.is_emitted = true;
@@ -596,7 +601,7 @@ impl WindowMonitor {
                 // NOW update the focused window ID
                 self.last_focused_window_id = w.window_id;
 
-                let window_info = self.create_window_info_from_entry(w);
+                let window_info = self.create_window_info_from_entry(w, true);
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowFocused, &app, window_info);
 
@@ -693,7 +698,7 @@ impl WindowMonitor {
 
             let windows = window_list::get_windows_for_pid(self.word_pid);
             if let Some(entry) = windows.iter().find(|w| w.window_id == window_id) {
-                let window_info = self.create_window_info_from_entry(entry);
+                let window_info = self.create_window_info_from_entry(entry, false);
                 let app = self.app_info();
                 event_models::emit_window_event(
                     EventType::WindowDocumentPathChanged,
@@ -920,7 +925,7 @@ impl WindowMonitor {
         let windows = window_list::get_windows_for_pid(self.word_pid);
         for w in &windows {
             if w.window_id == self.last_focused_window_id {
-                let window_info = self.create_window_info_from_entry(w);
+                let window_info = self.create_window_info_from_entry(w, false);
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowRepositioning, &app, window_info);
                 break;
@@ -940,7 +945,7 @@ impl WindowMonitor {
                 if let Some(entry) = self.windows.get_mut(&w.window_id) {
                     entry.bounds = Some((w.bounds.x, w.bounds.y, w.bounds.width, w.bounds.height));
                 }
-                let window_info = self.create_window_info_from_entry(w);
+                let window_info = self.create_window_info_from_entry(w, true);
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowRepositioned, &app, window_info);
                 break;
@@ -1001,21 +1006,25 @@ impl WindowMonitor {
     }
 
     /// Create a WindowInfoOutput from a CGWindow entry, enriched with AX attributes.
-    fn create_window_info_from_entry(&self, entry: &WindowListEntry) -> WindowInfoOutput {
+    /// When `include_content_bounds` is true, the content area child is located and
+    /// its bounds are included (used for WINDOW_FOCUSED and WINDOW_REPOSITIONED).
+    fn create_window_info_from_entry(&self, entry: &WindowListEntry, include_content_bounds: bool) -> WindowInfoOutput {
         let mut document_path = None;
         let mut content_bounds = None;
 
         if let Some(ax_window) = self.find_ax_window_for_id(entry.window_id) {
             document_path = accessibility::get_document(&ax_window);
 
-            if let Some(content_area) = accessibility::find_content_area_child(&ax_window) {
-                if let Some(rect) = accessibility::get_element_bounds(&content_area) {
-                    content_bounds = Some(WindowBounds {
-                        x: rect.origin.x,
-                        y: rect.origin.y,
-                        width: rect.size.width,
-                        height: rect.size.height,
-                    });
+            if include_content_bounds {
+                if let Some(content_area) = accessibility::find_content_area_child(&ax_window, self.content_area_role.as_deref()) {
+                    if let Some(rect) = accessibility::get_element_bounds(&content_area) {
+                        content_bounds = Some(WindowBounds {
+                            x: rect.origin.x,
+                            y: rect.origin.y,
+                            width: rect.size.width,
+                            height: rect.size.height,
+                        });
+                    }
                 }
             }
         }
@@ -1043,7 +1052,7 @@ impl WindowMonitor {
         windows
             .iter()
             .find(|w| w.window_id == window_id)
-            .map(|w| self.create_window_info_from_entry(w))
+            .map(|w| self.create_window_info_from_entry(w, false))
     }
 
     /// Schedule a deferred window check (100ms after AX notification).

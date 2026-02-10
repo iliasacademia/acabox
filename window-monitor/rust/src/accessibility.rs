@@ -673,12 +673,22 @@ pub fn get_element_bounds(element: &SafeAXUIElement) -> Option<CGRect> {
 }
 
 /// Find the document content area of a window element by selecting the largest
-/// direct child by area. In Microsoft Word, this is the top-level AXSplitGroup
-/// that contains the document viewport (excluding toolbar, ribbon, status bar).
-pub fn find_content_area_child(element: &SafeAXUIElement) -> Option<SafeAXUIElement> {
+/// direct child by area. When `role_filter` is provided, only children matching
+/// that AX role are considered (e.g. "AXSplitGroup" for Microsoft Word). When
+/// `None`, all direct children compete and the largest wins.
+pub fn find_content_area_child(
+    element: &SafeAXUIElement,
+    role_filter: Option<&str>,
+) -> Option<SafeAXUIElement> {
     let children = get_children(element);
     let mut best: Option<(SafeAXUIElement, f64)> = None;
     for child in children {
+        if let Some(required_role) = role_filter {
+            match get_role(&child) {
+                Some(role) if role == required_role => {}
+                _ => continue,
+            }
+        }
         if let Some(rect) = get_element_bounds(&child) {
             let area = rect.size.width * rect.size.height;
             if best.as_ref().map_or(true, |(_, best_area)| area > *best_area) {
