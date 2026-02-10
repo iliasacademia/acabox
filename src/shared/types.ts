@@ -135,9 +135,6 @@ export const IPC_CHANNELS = {
   GET_APP_VERSION: 'get-app-version',
   GET_HTTP_SERVER_INFO: 'get-http-server-info',
 
-  // MS Word popup version
-  GET_MS_WORD_VERSION: 'get-ms-word-version',
-  SET_MS_WORD_VERSION: 'set-ms-word-version',
 } as const;
 
 // Type for valid IPC channel values - enforces compile-time validation
@@ -147,11 +144,7 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 export const FEATURES: {
   CONVERSATIONS_ENABLED: boolean;
   MS_WORD_INTEGRATION_ENABLED: boolean;
-  MS_WORD_V1_ENABLED: boolean;
   MS_WORD_V2_ENABLED: boolean;
-  TEXT_SIDE_BUTTON_ENABLED: boolean;
-  OVERALL_REVIEW_BUTTON_ENABLED: boolean;
-  SCROLL_TRACKING_ENABLED: boolean;
   ZENDESK_WIDGET_ENABLED: boolean;
 } = {
   CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
