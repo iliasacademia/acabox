@@ -1,6 +1,7 @@
 use core_foundation::base::TCFType;
 use core_foundation::runloop::CFRunLoopSource;
 use core_foundation::string::CFString;
+use core_graphics_types::geometry::CGRect;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::LazyLock;
@@ -12,6 +13,17 @@ pub type AXObserverRef = *mut c_void;
 pub type AXError = i32;
 
 pub const K_AX_ERROR_SUCCESS: AXError = 0;
+
+// AXValue type constants
+const AX_VALUE_TYPE_CGRECT: u32 = 3;
+const AX_VALUE_TYPE_CFRANGE: u32 = 4;
+
+/// CFRange struct matching the CoreFoundation layout.
+#[repr(C)]
+pub struct CFRange {
+    pub location: i64,
+    pub length: i64,
+}
 
 /// Callback signature for AXObserver.
 pub type AXObserverCallback = unsafe extern "C" fn(
@@ -58,6 +70,24 @@ extern "C" {
         value: *mut core_foundation_sys::base::CFTypeRef,
     ) -> AXError;
 
+    pub fn AXUIElementCopyParameterizedAttributeValue(
+        element: AXUIElementRef,
+        parameterized_attribute: core_foundation_sys::string::CFStringRef,
+        parameter: core_foundation_sys::base::CFTypeRef,
+        result: *mut core_foundation_sys::base::CFTypeRef,
+    ) -> AXError;
+
+    pub fn AXValueCreate(
+        value_type: u32,
+        value: *const c_void,
+    ) -> core_foundation_sys::base::CFTypeRef;
+
+    pub fn AXValueGetValue(
+        value: core_foundation_sys::base::CFTypeRef,
+        value_type: u32,
+        value_out: *mut c_void,
+    ) -> bool;
+
     /// Private but stable API: get the CGWindowID for an AXUIElement.
     fn _AXUIElementGetWindow(element: AXUIElementRef, window_id: *mut u32) -> AXError;
 }
@@ -98,6 +128,8 @@ static AX_SELECTED_TEXT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSele
 static AX_VALUE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXValue"));
 static AX_NUMBER_OF_CHARACTERS: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXNumberOfCharacters"));
 static AX_CHILDREN: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXChildren"));
+static AX_SELECTED_TEXT_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSelectedTextRange"));
+static AX_BOUNDS_FOR_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXBoundsForRange"));
 
 // Trusted check option
 static AX_TRUSTED_CHECK_OPTION_PROMPT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXTrustedCheckOptionPrompt"));
@@ -146,6 +178,12 @@ fn k_ax_number_of_characters_attribute() -> core_foundation_sys::string::CFStrin
 }
 fn k_ax_children_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_CHILDREN.0
+}
+fn k_ax_selected_text_range_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_SELECTED_TEXT_RANGE.0
+}
+fn k_ax_bounds_for_range_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_BOUNDS_FOR_RANGE.0
 }
 fn k_ax_trusted_check_option_prompt() -> core_foundation_sys::string::CFStringRef {
     AX_TRUSTED_CHECK_OPTION_PROMPT.0
@@ -492,6 +530,85 @@ pub fn find_ax_window_by_id(
         }
     }
     None
+}
+
+/// Get the selected text range (location + length) from a UI element via AXSelectedTextRange.
+pub fn get_selected_text_range(element: &SafeAXUIElement) -> Option<CFRange> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(
+            element.raw(),
+            k_ax_selected_text_range_attribute(),
+            &mut value,
+        )
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let mut range = CFRange {
+        location: 0,
+        length: 0,
+    };
+    let ok = unsafe {
+        AXValueGetValue(
+            value,
+            AX_VALUE_TYPE_CFRANGE,
+            &mut range as *mut CFRange as *mut c_void,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(value);
+    }
+    if ok { Some(range) } else { None }
+}
+
+/// Get the screen bounds (CGRect) for a text range via AXBoundsForRange parameterized attribute.
+pub fn get_bounds_for_range(element: &SafeAXUIElement, range: &CFRange) -> Option<CGRect> {
+    let range_value = unsafe {
+        AXValueCreate(
+            AX_VALUE_TYPE_CFRANGE,
+            range as *const CFRange as *const c_void,
+        )
+    };
+    if range_value.is_null() {
+        return None;
+    }
+    let mut result: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyParameterizedAttributeValue(
+            element.raw(),
+            k_ax_bounds_for_range_attribute(),
+            range_value,
+            &mut result,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(range_value);
+    }
+    if err != K_AX_ERROR_SUCCESS || result.is_null() {
+        return None;
+    }
+    let mut rect = CGRect::default();
+    let ok = unsafe {
+        AXValueGetValue(
+            result,
+            AX_VALUE_TYPE_CGRECT,
+            &mut rect as *mut CGRect as *mut c_void,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(result);
+    }
+    if ok { Some(rect) } else { None }
+}
+
+/// Get the screen bounds of the current text selection (convenience wrapper).
+pub fn get_selection_bounds(element: &SafeAXUIElement) -> Option<CGRect> {
+    let range = get_selected_text_range(element)?;
+    if range.length == 0 {
+        return None;
+    }
+    get_bounds_for_range(element, &range)
 }
 
 /// DFS to find the first AXTextArea element in a subtree, with a depth limit.

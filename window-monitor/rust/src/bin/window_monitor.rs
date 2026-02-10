@@ -34,6 +34,7 @@ Output format:
           WINDOW_EXISTING, WINDOW_CREATED, WINDOW_DESTROYED, WINDOW_FOCUSED,
           WINDOW_REPOSITIONING, WINDOW_REPOSITIONED, WINDOW_DOCUMENT_PATH_CHANGED,
           WINDOW_TEXT_SELECTED, WINDOW_TEXT_SELECTION_CLEARED,
+          WINDOW_TEXT_SELECTION_REPOSITIONING, WINDOW_TEXT_SELECTION_REPOSITIONED,
           WINDOW_DOCUMENT_TEXT_CHANGED")]
 struct Cli {
     /// Bundle ID of the app to monitor
@@ -117,6 +118,7 @@ fn main() {
 
         // 150ms debounce: check if resize/move is finished (before polling can reset timer)
         monitor.check_resize_end();
+        monitor.check_selection_bounds_end();
 
         // 200ms polling: check for missed events
         if last_poll.elapsed().as_millis() >= POLL_INTERVAL_MS {

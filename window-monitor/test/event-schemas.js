@@ -117,9 +117,17 @@ const WindowDocumentPathChangedEventSchema = BaseEventSchema.extend({
 // Text selection event schemas
 // ============================================
 
+const SelectionBoundsSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+
 const TextSelectionInfoSchema = z.object({
   filePath: z.string().min(1),
   length: z.number().int().nonnegative(),
+  bounds: SelectionBoundsSchema.optional(),
 });
 
 const WindowTextSelectedEventSchema = BaseEventSchema.extend({
@@ -131,6 +139,22 @@ const WindowTextSelectedEventSchema = BaseEventSchema.extend({
 const WindowTextSelectionClearedEventSchema = BaseEventSchema.extend({
   event: z.literal('WINDOW_TEXT_SELECTION_CLEARED'),
   window: WindowInfoWithBoundsSchema,
+});
+
+const WindowTextSelectionRepositioningEventSchema = BaseEventSchema.extend({
+  event: z.literal('WINDOW_TEXT_SELECTION_REPOSITIONING'),
+  window: WindowInfoWithBoundsSchema,
+  selection: z.object({
+    bounds: SelectionBoundsSchema,
+  }),
+});
+
+const WindowTextSelectionRepositionedEventSchema = BaseEventSchema.extend({
+  event: z.literal('WINDOW_TEXT_SELECTION_REPOSITIONED'),
+  window: WindowInfoWithBoundsSchema,
+  selection: z.object({
+    bounds: SelectionBoundsSchema,
+  }),
 });
 
 // ============================================
@@ -168,6 +192,8 @@ const WindowMonitorEventSchema = z.discriminatedUnion('event', [
   WindowDocumentPathChangedEventSchema,
   WindowTextSelectedEventSchema,
   WindowTextSelectionClearedEventSchema,
+  WindowTextSelectionRepositioningEventSchema,
+  WindowTextSelectionRepositionedEventSchema,
   WindowDocumentTextChangedEventSchema,
 ]);
 
@@ -193,6 +219,8 @@ const WINDOW_EVENTS = [
   'WINDOW_DOCUMENT_PATH_CHANGED',
   'WINDOW_TEXT_SELECTED',
   'WINDOW_TEXT_SELECTION_CLEARED',
+  'WINDOW_TEXT_SELECTION_REPOSITIONING',
+  'WINDOW_TEXT_SELECTION_REPOSITIONED',
   'WINDOW_DOCUMENT_TEXT_CHANGED',
 ];
 
@@ -212,6 +240,8 @@ const EventSchemaMap = {
   WINDOW_DOCUMENT_PATH_CHANGED: WindowDocumentPathChangedEventSchema,
   WINDOW_TEXT_SELECTED: WindowTextSelectedEventSchema,
   WINDOW_TEXT_SELECTION_CLEARED: WindowTextSelectionClearedEventSchema,
+  WINDOW_TEXT_SELECTION_REPOSITIONING: WindowTextSelectionRepositioningEventSchema,
+  WINDOW_TEXT_SELECTION_REPOSITIONED: WindowTextSelectionRepositionedEventSchema,
   WINDOW_DOCUMENT_TEXT_CHANGED: WindowDocumentTextChangedEventSchema,
 };
 
@@ -255,6 +285,7 @@ module.exports = {
   PlatformSchema,
   AppInfoSchema,
   WindowBoundsSchema,
+  SelectionBoundsSchema,
   WindowInfoSchema,
   WindowInfoWithBoundsSchema,
   BaseEventSchema,
@@ -276,6 +307,8 @@ module.exports = {
   WindowDocumentPathChangedEventSchema,
   WindowTextSelectedEventSchema,
   WindowTextSelectionClearedEventSchema,
+  WindowTextSelectionRepositioningEventSchema,
+  WindowTextSelectionRepositionedEventSchema,
   WindowDocumentTextChangedEventSchema,
 
   // Union schema

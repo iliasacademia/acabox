@@ -817,6 +817,95 @@ async function runTest() {
     totalPassed += result.passed;
     totalFailed += result.failed;
 
+    // =========================================================================
+    // Step 4: Move window with text selected — validate debounced selection repositioning
+    // =========================================================================
+    log('blue', '\n[STEP 4] Move window with text selected — validate selection bounds repositioning');
+
+    // Set window to known starting position
+    log('blue', '[ACTION] Setting window to starting position...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          set position of window 1 to {100, 100}
+          set size of window 1 to {800, 600}
+        end tell
+      end tell
+    `);
+    // Wait long enough for both window (150ms) and selection bounds (300ms) debounce to finish
+    await delay(1000);
+
+    // Move window gradually to shift selection bounds on screen
+    checkpoint = events.length;
+    log('blue', '[ACTION] Moving window gradually to shift selection bounds...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          repeat with i from 1 to 10
+            set position of window 1 to {100 + (i * 10), 100 + (i * 10)}
+            delay 0.05
+          end repeat
+        end tell
+      end tell
+    `);
+
+    log('blue', '[ACTION] Waiting 1.5s for selection bounds debounce...');
+    await delay(1500);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Selection bounds repositioning', stepEvents, [
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        return { pass: has, message: has
+          ? 'WINDOW_TEXT_SELECTION_REPOSITIONING event captured'
+          : 'Missing WINDOW_TEXT_SELECTION_REPOSITIONING event' };
+      },
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        return { pass: has, message: has
+          ? 'WINDOW_TEXT_SELECTION_REPOSITIONED event captured'
+          : 'Missing WINDOW_TEXT_SELECTION_REPOSITIONED event' };
+      },
+      (evts) => {
+        // Should only have one REPOSITIONING (debounce collapses subsequent changes)
+        const count = evts.filter((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING').length;
+        return { pass: count === 1, message: count === 1
+          ? 'Exactly 1 REPOSITIONING (debounce working correctly)'
+          : `Expected 1 REPOSITIONING, got ${count} (debounce may not be working)` };
+      },
+      (evts) => {
+        // Should only have one REPOSITIONED
+        const count = evts.filter((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED').length;
+        return { pass: count === 1, message: count === 1
+          ? 'Exactly 1 REPOSITIONED (single final event)'
+          : `Expected 1 REPOSITIONED, got ${count}` };
+      },
+      (evts) => {
+        // REPOSITIONING should have selection.bounds
+        const repositioning = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        if (!repositioning) return { pass: false, message: 'No REPOSITIONING to check bounds' };
+        const b = repositioning.selection?.bounds;
+        const ok = b && typeof b.x === 'number' && typeof b.y === 'number'
+          && typeof b.width === 'number' && typeof b.height === 'number';
+        return { pass: ok, message: ok
+          ? `REPOSITIONING has bounds (x=${b.x}, y=${b.y}, w=${b.width}, h=${b.height})`
+          : 'REPOSITIONING missing or invalid selection.bounds' };
+      },
+      (evts) => {
+        // REPOSITIONED should have selection.bounds
+        const repositioned = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        if (!repositioned) return { pass: false, message: 'No REPOSITIONED to check bounds' };
+        const b = repositioned.selection?.bounds;
+        const ok = b && typeof b.x === 'number' && typeof b.y === 'number'
+          && typeof b.width === 'number' && typeof b.height === 'number';
+        return { pass: ok, message: ok
+          ? `REPOSITIONED has bounds (x=${b.x}, y=${b.y}, w=${b.width}, h=${b.height})`
+          : 'REPOSITIONED missing or invalid selection.bounds' };
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
     // Clear selection by pressing Right arrow
     log('blue', '[ACTION] Clearing selection with Right arrow...');
     checkpoint = events.length;
@@ -1128,6 +1217,52 @@ async function runTest() {
   } else {
     log('red', '[FAIL] REPOSITIONING/REPOSITIONED pairing errors:');
     for (const err of pairingErrors) {
+      log('red', `  - ${err}`);
+    }
+    totalFailed++;
+  }
+
+  // WINDOW_TEXT_SELECTION_REPOSITIONING/REPOSITIONED pairing
+  log('blue', '\n[VALIDATE] Checking TEXT_SELECTION_REPOSITIONING/REPOSITIONED pairing...');
+  let selPairingOk = true;
+  const selPairingErrors = [];
+
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].event !== 'WINDOW_TEXT_SELECTION_REPOSITIONING') continue;
+    // Look for a matching REPOSITIONED before next REPOSITIONING or end of stream
+    let hasMatching = false;
+    for (let j = i + 1; j < events.length; j++) {
+      if (events[j].event === 'WINDOW_TEXT_SELECTION_REPOSITIONED') {
+        hasMatching = true;
+        break;
+      }
+      if (events[j].event === 'WINDOW_TEXT_SELECTION_REPOSITIONING') break;
+    }
+    // Also acceptable if selection was cleared or changed (force-finishes the reposition)
+    if (!hasMatching) {
+      for (let j = i + 1; j < events.length; j++) {
+        if (events[j].event === 'WINDOW_TEXT_SELECTION_REPOSITIONED') { hasMatching = true; break; }
+        if (events[j].event === 'WINDOW_TEXT_SELECTED' || events[j].event === 'WINDOW_TEXT_SELECTION_CLEARED') {
+          hasMatching = true; // Force-finish emits REPOSITIONED before Selected/Cleared
+          break;
+        }
+        if (events[j].event === 'WINDOW_TEXT_SELECTION_REPOSITIONING') break;
+      }
+    }
+    if (!hasMatching) {
+      selPairingErrors.push(
+        `TEXT_SELECTION_REPOSITIONING at index ${i}: no matching REPOSITIONED`
+      );
+      selPairingOk = false;
+    }
+  }
+
+  if (selPairingOk) {
+    log('green', '[PASS] TEXT_SELECTION_REPOSITIONING/REPOSITIONED pairing is correct');
+    totalPassed++;
+  } else {
+    log('red', '[FAIL] TEXT_SELECTION_REPOSITIONING/REPOSITIONED pairing errors:');
+    for (const err of selPairingErrors) {
       log('red', `  - ${err}`);
     }
     totalFailed++;

@@ -29,6 +29,10 @@ pub enum EventType {
     WindowTextSelected,
     #[serde(rename = "WINDOW_TEXT_SELECTION_CLEARED")]
     WindowTextSelectionCleared,
+    #[serde(rename = "WINDOW_TEXT_SELECTION_REPOSITIONING")]
+    WindowTextSelectionRepositioning,
+    #[serde(rename = "WINDOW_TEXT_SELECTION_REPOSITIONED")]
+    WindowTextSelectionRepositioned,
     #[serde(rename = "WINDOW_DOCUMENT_TEXT_CHANGED")]
     WindowDocumentTextChanged,
     #[serde(rename = "APP_EXISTING")]

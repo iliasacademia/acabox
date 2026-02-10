@@ -1,8 +1,8 @@
 use crate::accessibility::{self, SafeAXObserver, SafeAXUIElement};
 use crate::document_text::DocumentTextTracker;
-use crate::event_models::{self, AppInfoOutput, DocumentTextInfo, TextSelectionInfo, WindowBounds, WindowInfoOutput};
+use crate::event_models::{self, AppInfoOutput, DocumentTextInfo, SelectionBounds, TextSelectionInfo, WindowBounds, WindowInfoOutput};
 use crate::event_types::EventType;
-use crate::text_selection::{TextSelectionChange, TextSelectionTracker};
+use crate::text_selection::{SelectionBoundsAction, TextSelectionChange, TextSelectionTracker};
 use crate::window_list::{self, WindowListEntry};
 use crate::workspace;
 use core_foundation::base::TCFType;
@@ -16,6 +16,7 @@ use std::time::Instant;
 
 const BOUNDS_TOLERANCE: f64 = 2.0;
 const RESIZE_DEBOUNCE_MS: u128 = 150;
+const SELECTION_BOUNDS_DEBOUNCE_MS: u128 = 300;
 const DEFERRED_CHECK_DELAY_MS: u128 = 100;
 
 // --- SendPtr: makes a raw pointer Send+Sync for the workspace callback ---
@@ -504,6 +505,7 @@ impl WindowMonitor {
         self.check_for_bounds_change(&windows);
         self.check_document_path_changed();
         self.check_text_selection_changed();
+        self.check_selection_bounds_end();
         self.check_document_text_changed();
     }
 
@@ -723,27 +725,29 @@ impl WindowMonitor {
             None => return,
         };
 
-        // Build window info for the currently focused window
-        let window_info = {
-            let windows = window_list::get_windows_for_pid(self.word_pid);
-            windows
-                .iter()
-                .find(|w| w.window_id == focused_window_id)
-                .map(|w| self.create_window_info_from_entry(w))
-        };
-
-        let window_info = match window_info {
-            Some(w) => w,
-            None => return,
-        };
-
-        let app = self.app_info();
-
         match change {
-            TextSelectionChange::Selected { file_path, length } => {
+            TextSelectionChange::Selected {
+                file_path,
+                length,
+                bounds,
+            } => {
+                // Force-finish any active bounds reposition before emitting Selected
+                self.finish_selection_bounds_reposition();
+
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
                 let selection = TextSelectionInfo {
                     file_path,
                     length,
+                    bounds: bounds.map(|(x, y, w, h)| SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    }),
                 };
                 event_models::emit_text_selection_event(
                     EventType::WindowTextSelected,
@@ -753,11 +757,105 @@ impl WindowMonitor {
                 );
             }
             TextSelectionChange::Cleared => {
+                // Force-finish any active bounds reposition before emitting Cleared
+                self.finish_selection_bounds_reposition();
+
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
                 event_models::emit_text_selection_event(
                     EventType::WindowTextSelectionCleared,
                     &app,
                     window_info,
                     None,
+                );
+            }
+            TextSelectionChange::BoundsChanged => {
+                let tracker = self.text_selection.as_mut().unwrap();
+                if let SelectionBoundsAction::EmitRepositioning = tracker.on_bounds_changed() {
+                    if let Some(bounds) = tracker.latest_bounds() {
+                        let window_info = match self.build_window_info_for_id(focused_window_id) {
+                            Some(w) => w,
+                            None => return,
+                        };
+                        let app = self.app_info();
+                        let (x, y, w, h) = bounds;
+                        event_models::emit_selection_position_event(
+                            EventType::WindowTextSelectionRepositioning,
+                            &app,
+                            window_info,
+                            SelectionBounds {
+                                x,
+                                y,
+                                width: w,
+                                height: h,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check if selection bounds debounce has elapsed (called from main loop).
+    pub fn check_selection_bounds_end(&mut self) {
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if let SelectionBoundsAction::EmitRepositioned =
+            tracker.check_bounds_end(SELECTION_BOUNDS_DEBOUNCE_MS)
+        {
+            if let Some(bounds) = tracker.latest_bounds() {
+                let focused_window_id = self.last_focused_window_id;
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let (x, y, w, h) = bounds;
+                event_models::emit_selection_position_event(
+                    EventType::WindowTextSelectionRepositioned,
+                    &app,
+                    window_info,
+                    SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Force-finish any active selection bounds reposition, emitting the final event.
+    fn finish_selection_bounds_reposition(&mut self) {
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if let SelectionBoundsAction::EmitRepositioned = tracker.force_finish_bounds() {
+            if let Some(bounds) = tracker.latest_bounds() {
+                let focused_window_id = self.last_focused_window_id;
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let (x, y, w, h) = bounds;
+                event_models::emit_selection_position_event(
+                    EventType::WindowTextSelectionRepositioned,
+                    &app,
+                    window_info,
+                    SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
                 );
             }
         }

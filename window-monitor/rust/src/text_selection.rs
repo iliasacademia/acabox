@@ -2,34 +2,57 @@ use crate::accessibility::{self, SafeAXUIElement};
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Instant;
 
 const MAX_SELECTION_BYTES: usize = 5 * 1024 * 1024; // 5 MB safety cap
+const BOUNDS_TOLERANCE: f64 = 2.0;
 
 /// Represents a change in text selection.
 pub enum TextSelectionChange {
     /// Text was selected — written to file.
-    Selected { file_path: String, length: usize },
+    Selected {
+        file_path: String,
+        length: usize,
+        bounds: Option<(f64, f64, f64, f64)>,
+    },
     /// Selection was cleared (was selected, now empty).
     Cleared,
+    /// Selection bounds changed on screen (text unchanged, e.g. scroll/zoom).
+    /// Raw signal — debounce happens in window_monitor.
+    BoundsChanged,
+}
+
+/// Action returned by debounce state machine methods.
+pub enum SelectionBoundsAction {
+    None,
+    EmitRepositioning,
+    EmitRepositioned,
 }
 
 /// Tracks text selection state and detects changes.
 /// Writes selected text to a temp file instead of returning it inline.
 pub struct TextSelectionTracker {
     last_selected_text: Option<String>,
+    last_bounds: Option<(f64, f64, f64, f64)>,
     temp_dir: PathBuf,
+    // Debounce state for selection bounds movement
+    bounds_reposition_active: bool,
+    bounds_last_change: Option<Instant>,
 }
 
 impl TextSelectionTracker {
     pub fn new(temp_dir: PathBuf) -> Self {
         Self {
             last_selected_text: None,
+            last_bounds: None,
             temp_dir,
+            bounds_reposition_active: false,
+            bounds_last_change: None,
         }
     }
 
     /// Poll for text selection changes on the given app element.
-    /// Returns `Some(change)` if the selection has changed since the last poll.
+    /// Returns `Some(change)` if the selection or its bounds have changed since the last poll.
     pub fn poll(
         &mut self,
         app_element: &SafeAXUIElement,
@@ -41,66 +64,137 @@ impl TextSelectionTracker {
         // Normalize: treat empty string the same as None
         let current_text = current_text.filter(|s| !s.is_empty());
 
-        if current_text == self.last_selected_text {
-            return None;
+        let text_changed = current_text != self.last_selected_text;
+
+        if text_changed {
+            let change = match &current_text {
+                Some(text) => {
+                    let write_text = if text.len() > MAX_SELECTION_BYTES {
+                        let mut end = MAX_SELECTION_BYTES;
+                        while end > 0 && !text.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        &text[..end]
+                    } else {
+                        text.as_str()
+                    };
+                    let length = write_text.len();
+                    let file_path = self.file_path_for_window(focused_window_id);
+                    if atomic_write(&file_path, write_text).is_err() {
+                        eprintln!(
+                            "Failed to write selection text to {}",
+                            file_path.display()
+                        );
+                        return None;
+                    }
+                    // Query bounds for the new selection
+                    let bounds = Self::query_bounds(&focused);
+                    self.last_bounds = bounds;
+                    TextSelectionChange::Selected {
+                        file_path: file_path.to_string_lossy().to_string(),
+                        length,
+                        bounds,
+                    }
+                }
+                None => {
+                    if self.last_selected_text.is_some() {
+                        self.last_bounds = None;
+                        TextSelectionChange::Cleared
+                    } else {
+                        self.last_selected_text = None;
+                        self.last_bounds = None;
+                        return None;
+                    }
+                }
+            };
+
+            self.last_selected_text = current_text;
+            return Some(change);
         }
 
-        let change = match &current_text {
-            Some(text) => {
-                if text.len() > MAX_SELECTION_BYTES {
-                    // Truncate at a char boundary
-                    let mut end = MAX_SELECTION_BYTES;
-                    while end > 0 && !text.is_char_boundary(end) {
-                        end -= 1;
-                    }
-                    let truncated_text = &text[..end];
-                    let length = truncated_text.len();
-                    let file_path = self.file_path_for_window(focused_window_id);
-                    if atomic_write(&file_path, truncated_text).is_err() {
-                        eprintln!(
-                            "Failed to write selection text to {}",
-                            file_path.display()
-                        );
-                        return None;
-                    }
-                    TextSelectionChange::Selected {
-                        file_path: file_path.to_string_lossy().to_string(),
-                        length,
-                    }
-                } else {
-                    let length = text.len();
-                    let file_path = self.file_path_for_window(focused_window_id);
-                    if atomic_write(&file_path, text).is_err() {
-                        eprintln!(
-                            "Failed to write selection text to {}",
-                            file_path.display()
-                        );
-                        return None;
-                    }
-                    TextSelectionChange::Selected {
-                        file_path: file_path.to_string_lossy().to_string(),
-                        length,
-                    }
+        // Text unchanged — check if bounds moved (only when there's an active selection)
+        if self.last_selected_text.is_some() {
+            let current_bounds = Self::query_bounds(&focused);
+            if let (Some(last), Some(current)) = (self.last_bounds, current_bounds) {
+                let moved = (current.0 - last.0).abs() > BOUNDS_TOLERANCE
+                    || (current.1 - last.1).abs() > BOUNDS_TOLERANCE
+                    || (current.2 - last.2).abs() > BOUNDS_TOLERANCE
+                    || (current.3 - last.3).abs() > BOUNDS_TOLERANCE;
+                if moved {
+                    self.last_bounds = Some(current);
+                    return Some(TextSelectionChange::BoundsChanged);
                 }
+            } else if self.last_bounds.is_none() && current_bounds.is_some() {
+                // Bounds became available (e.g. app finished rendering)
+                self.last_bounds = current_bounds;
+                return Some(TextSelectionChange::BoundsChanged);
             }
-            None => {
-                // Only emit Cleared if there was a previous selection
-                if self.last_selected_text.is_some() {
-                    TextSelectionChange::Cleared
-                } else {
-                    self.last_selected_text = None;
-                    return None;
-                }
-            }
-        };
+        }
 
-        self.last_selected_text = current_text;
-        Some(change)
+        None
+    }
+
+    /// Query the screen bounds of the current selection as a tuple.
+    fn query_bounds(focused: &SafeAXUIElement) -> Option<(f64, f64, f64, f64)> {
+        let rect = accessibility::get_selection_bounds(focused)?;
+        Some((
+            rect.origin.x,
+            rect.origin.y,
+            rect.size.width,
+            rect.size.height,
+        ))
+    }
+
+    /// Called when `poll()` returns `BoundsChanged`.
+    /// Returns `EmitRepositioning` on the first change, `None` on subsequent.
+    pub fn on_bounds_changed(&mut self) -> SelectionBoundsAction {
+        self.bounds_last_change = Some(Instant::now());
+        if !self.bounds_reposition_active {
+            self.bounds_reposition_active = true;
+            SelectionBoundsAction::EmitRepositioning
+        } else {
+            SelectionBoundsAction::None
+        }
+    }
+
+    /// Check if selection bounds debounce has elapsed (called from main loop).
+    /// Returns `EmitRepositioned` when movement has stabilized.
+    pub fn check_bounds_end(&mut self, debounce_ms: u128) -> SelectionBoundsAction {
+        if !self.bounds_reposition_active {
+            return SelectionBoundsAction::None;
+        }
+        if let Some(last) = self.bounds_last_change {
+            if last.elapsed().as_millis() >= debounce_ms {
+                self.bounds_reposition_active = false;
+                self.bounds_last_change = None;
+                return SelectionBoundsAction::EmitRepositioned;
+            }
+        }
+        SelectionBoundsAction::None
+    }
+
+    /// Force-finish any active bounds reposition (e.g. on selection clear/change).
+    pub fn force_finish_bounds(&mut self) -> SelectionBoundsAction {
+        if self.bounds_reposition_active {
+            self.bounds_reposition_active = false;
+            self.bounds_last_change = None;
+            SelectionBoundsAction::EmitRepositioned
+        } else {
+            SelectionBoundsAction::None
+        }
+    }
+
+    /// Get the latest known selection bounds.
+    pub fn latest_bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        self.last_bounds
     }
 
     /// Reset tracked state (e.g. when app detaches).
     pub fn reset(&mut self) {
         self.last_selected_text = None;
+        self.last_bounds = None;
+        self.bounds_reposition_active = false;
+        self.bounds_last_change = None;
     }
 
     /// Delete all selection text temp files.
