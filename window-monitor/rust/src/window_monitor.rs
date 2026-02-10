@@ -1,12 +1,15 @@
 use crate::accessibility::{self, SafeAXObserver, SafeAXUIElement};
-use crate::event_models::{self, AppInfoOutput, WindowBounds, WindowInfoOutput};
+use crate::document_text::DocumentTextTracker;
+use crate::event_models::{self, AppInfoOutput, DocumentTextInfo, TextSelectionInfo, WindowBounds, WindowInfoOutput};
 use crate::event_types::EventType;
+use crate::text_selection::{TextSelectionChange, TextSelectionTracker};
 use crate::window_list::{self, WindowListEntry};
 use crate::workspace;
 use core_foundation::base::TCFType;
 use core_foundation::runloop::{CFRunLoop, CFRunLoopSource};
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -162,13 +165,24 @@ pub struct WindowMonitor {
     reposition: RepositionTracker,
     deferred_check: DeferredCheck,
 
+    // Text selection tracking
+    text_selection: Option<TextSelectionTracker>,
+
+    // Document text tracking
+    document_text: Option<DocumentTextTracker>,
+
     // Lifecycle
     workspace_tokens: Option<workspace::WorkspaceObserverTokens>,
     is_monitoring: bool,
 }
 
 impl WindowMonitor {
-    pub fn new(bundle_id: &str) -> Self {
+    pub fn new(
+        bundle_id: &str,
+        track_text_selection: bool,
+        track_document_text: bool,
+        temp_dir: PathBuf,
+    ) -> Self {
         WindowMonitor {
             target_bundle_id: bundle_id.to_string(),
             app_display_name: None,
@@ -181,6 +195,16 @@ impl WindowMonitor {
             last_focused_window_id: 0,
             reposition: RepositionTracker::new(),
             deferred_check: DeferredCheck::new(),
+            text_selection: if track_text_selection {
+                Some(TextSelectionTracker::new(temp_dir.clone()))
+            } else {
+                None
+            },
+            document_text: if track_document_text {
+                Some(DocumentTextTracker::new(temp_dir))
+            } else {
+                None
+            },
             workspace_tokens: None,
             is_monitoring: false,
         }
@@ -246,6 +270,7 @@ impl WindowMonitor {
                     workspace::WorkspaceEvent::AppTerminated => {
                         m.emit_destroyed_events_for_all_tracked_windows();
                         event_models::emit_app_event(EventType::AppTerminated, &m.app_info());
+                        m.cleanup_all_temp_files();
                         m.detach_from_app();
                     }
                     workspace::WorkspaceEvent::AppActivated => {
@@ -289,6 +314,7 @@ impl WindowMonitor {
         self.is_monitoring = false;
         eprintln!("Stopping window monitor...");
 
+        self.cleanup_all_temp_files();
         self.workspace_tokens = None;
         self.detach_from_app();
     }
@@ -377,6 +403,12 @@ impl WindowMonitor {
         self.reposition.reset();
         self.windows.clear();
         self.deferred_check.reset();
+        if let Some(ref mut tracker) = self.text_selection {
+            tracker.reset();
+        }
+        if let Some(ref mut tracker) = self.document_text {
+            tracker.reset();
+        }
     }
 
     /// Register move/resize observers on a specific window element.
@@ -462,7 +494,7 @@ impl WindowMonitor {
         );
     }
 
-    /// Poll for changes: check focus, bounds, window list, and document path.
+    /// Poll for changes: check focus, bounds, window list, document path, text, and document text.
     /// Fetches the window list once and passes it to all sub-checks.
     pub fn poll_for_changes(&mut self) {
         let windows = window_list::get_windows_for_pid(self.word_pid);
@@ -470,6 +502,8 @@ impl WindowMonitor {
         self.check_for_focus_change(&windows);
         self.check_for_bounds_change(&windows);
         self.check_document_path_changed();
+        self.check_text_selection_changed();
+        self.check_document_text_changed();
     }
 
     /// Check for new/destroyed windows.
@@ -519,6 +553,7 @@ impl WindowMonitor {
         for wid in destroyed {
             self.windows.remove(&wid);
             self.emit_destroyed_event_for_window_id(wid);
+            self.cleanup_window_temp_files(wid);
             if wid == self.last_focused_window_id {
                 self.last_focused_window_id = 0;
             }
@@ -562,6 +597,35 @@ impl WindowMonitor {
                 let window_info = self.create_window_info_from_entry(w);
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowFocused, &app, window_info);
+
+                // Trigger immediate document text read on focus
+                self.on_window_focused(w.window_id);
+            }
+        }
+    }
+
+    /// Called when a window gains focus — triggers immediate document text read.
+    fn on_window_focused(&mut self, window_id: u32) {
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el.retain(),
+            None => return,
+        };
+
+        if let Some(ref mut tracker) = self.document_text {
+            if let Some(change) = tracker.on_window_focused(&app_element, window_id) {
+                let window_info = self.build_window_info_for_id(window_id);
+                if let Some(window_info) = window_info {
+                    let app = self.app_info();
+                    event_models::emit_document_text_event(
+                        &app,
+                        window_info,
+                        DocumentTextInfo {
+                            file_path: change.file_path,
+                            character_count: change.character_count,
+                            byte_size: change.byte_size,
+                        },
+                    );
+                }
             }
         }
     }
@@ -638,6 +702,104 @@ impl WindowMonitor {
         }
     }
 
+    /// Check for text selection changes in the focused UI element.
+    fn check_text_selection_changed(&mut self) {
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el,
+            None => return,
+        };
+
+        let focused_window_id = self.last_focused_window_id;
+        if focused_window_id == 0 {
+            return;
+        }
+
+        let change = match tracker.poll(app_element, focused_window_id) {
+            Some(c) => c,
+            None => return,
+        };
+
+        // Build window info for the currently focused window
+        let window_info = {
+            let windows = window_list::get_windows_for_pid(self.word_pid);
+            windows
+                .iter()
+                .find(|w| w.window_id == focused_window_id)
+                .map(|w| self.create_window_info_from_entry(w))
+        };
+
+        let window_info = match window_info {
+            Some(w) => w,
+            None => return,
+        };
+
+        let app = self.app_info();
+
+        match change {
+            TextSelectionChange::Selected { file_path, length } => {
+                let selection = TextSelectionInfo {
+                    file_path,
+                    length,
+                };
+                event_models::emit_text_selection_event(
+                    EventType::WindowTextSelected,
+                    &app,
+                    window_info,
+                    Some(selection),
+                );
+            }
+            TextSelectionChange::Cleared => {
+                event_models::emit_text_selection_event(
+                    EventType::WindowTextSelectionCleared,
+                    &app,
+                    window_info,
+                    None,
+                );
+            }
+        }
+    }
+
+    /// Check for document text changes (poll character count, debounce, read full text).
+    fn check_document_text_changed(&mut self) {
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el.retain(),
+            None => return,
+        };
+
+        let focused_window_id = self.last_focused_window_id;
+
+        let tracker = match self.document_text.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+
+        let change = match tracker.poll(&app_element, focused_window_id) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let window_info = self.build_window_info_for_id(focused_window_id);
+        let window_info = match window_info {
+            Some(w) => w,
+            None => return,
+        };
+
+        let app = self.app_info();
+        event_models::emit_document_text_event(
+            &app,
+            window_info,
+            DocumentTextInfo {
+                file_path: change.file_path,
+                character_count: change.character_count,
+                byte_size: change.byte_size,
+            },
+        );
+    }
+
     /// Handle bounds change: emit REPOSITIONING, start debounce.
     pub fn handle_window_bounds_changed(&mut self) {
         if let RepositionAction::EmitRepositioning = self.reposition.on_bounds_changed() {
@@ -709,6 +871,26 @@ impl WindowMonitor {
         event_models::emit_window_event(EventType::WindowDestroyed, &app, window_info);
     }
 
+    /// Clean up temp files for a specific window.
+    fn cleanup_window_temp_files(&self, window_id: u32) {
+        if let Some(ref tracker) = self.text_selection {
+            tracker.cleanup_window(window_id);
+        }
+        if let Some(ref tracker) = self.document_text {
+            tracker.cleanup_window(window_id);
+        }
+    }
+
+    /// Clean up all temp files (on shutdown or app terminate).
+    fn cleanup_all_temp_files(&self) {
+        if let Some(ref tracker) = self.text_selection {
+            tracker.cleanup_all();
+        }
+        if let Some(ref tracker) = self.document_text {
+            tracker.cleanup_all();
+        }
+    }
+
     /// Get the AXRole for a window identified by its CGWindowID.
     fn get_role_for_window(&self, window_id: u32) -> Option<String> {
         let ax_window = self.find_ax_window_for_id(window_id)?;
@@ -748,6 +930,18 @@ impl WindowMonitor {
             }),
             document_path,
         }
+    }
+
+    /// Build WindowInfoOutput for a window ID using the current window list.
+    fn build_window_info_for_id(&self, window_id: u32) -> Option<WindowInfoOutput> {
+        if window_id == 0 {
+            return None;
+        }
+        let windows = window_list::get_windows_for_pid(self.word_pid);
+        windows
+            .iter()
+            .find(|w| w.window_id == window_id)
+            .map(|w| self.create_window_info_from_entry(w))
     }
 
     /// Schedule a deferred window check (100ms after AX notification).
@@ -799,4 +993,3 @@ pub unsafe extern "C" fn ax_observer_callback(
         _ => {}
     }
 }
-

@@ -93,6 +93,11 @@ static AX_FOCUSED_WINDOW: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFoc
 static AX_WINDOWS: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXWindows"));
 static AX_ROLE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXRole"));
 static AX_DOCUMENT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXDocument"));
+static AX_FOCUSED_UI_ELEMENT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFocusedUIElement"));
+static AX_SELECTED_TEXT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSelectedText"));
+static AX_VALUE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXValue"));
+static AX_NUMBER_OF_CHARACTERS: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXNumberOfCharacters"));
+static AX_CHILDREN: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXChildren"));
 
 // Trusted check option
 static AX_TRUSTED_CHECK_OPTION_PROMPT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXTrustedCheckOptionPrompt"));
@@ -126,6 +131,21 @@ fn k_ax_role_attribute() -> core_foundation_sys::string::CFStringRef {
 }
 fn k_ax_document_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_DOCUMENT.0
+}
+fn k_ax_focused_ui_element_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_FOCUSED_UI_ELEMENT.0
+}
+fn k_ax_selected_text_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_SELECTED_TEXT.0
+}
+fn k_ax_value_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_VALUE.0
+}
+fn k_ax_number_of_characters_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_NUMBER_OF_CHARACTERS.0
+}
+fn k_ax_children_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_CHILDREN.0
 }
 fn k_ax_trusted_check_option_prompt() -> core_foundation_sys::string::CFStringRef {
     AX_TRUSTED_CHECK_OPTION_PROMPT.0
@@ -365,4 +385,144 @@ pub fn get_window_id(element: &SafeAXUIElement) -> Option<u32> {
     } else {
         None
     }
+}
+
+/// Get the focused UI element of an app element (e.g. the text area being edited).
+pub fn get_focused_ui_element(app_element: &SafeAXUIElement) -> Option<SafeAXUIElement> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(
+            app_element.raw(),
+            k_ax_focused_ui_element_attribute(),
+            &mut value,
+        )
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    Some(SafeAXUIElement { raw: value as _ })
+}
+
+/// Get the selected text from a UI element via AXSelectedText.
+pub fn get_selected_text(element: &SafeAXUIElement) -> Option<String> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_selected_text_attribute(), &mut value)
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(value as _) };
+    Some(cf_str.to_string())
+}
+
+/// Get the full text value from a UI element via AXValue.
+pub fn get_text_value(element: &SafeAXUIElement) -> Option<String> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_value_attribute(), &mut value)
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(value as _) };
+    Some(cf_str.to_string())
+}
+
+/// Get the number of characters in a UI element via AXNumberOfCharacters.
+pub fn get_character_count(element: &SafeAXUIElement) -> Option<i64> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(
+            element.raw(),
+            k_ax_number_of_characters_attribute(),
+            &mut value,
+        )
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let number: core_foundation::number::CFNumber =
+        unsafe { TCFType::wrap_under_create_rule(value as _) };
+    number.to_i64()
+}
+
+/// Get all AX children of an element.
+pub fn get_children(element: &SafeAXUIElement) -> Vec<SafeAXUIElement> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_children_attribute(), &mut value)
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return Vec::new();
+    }
+
+    let array_ref = value as core_foundation_sys::array::CFArrayRef;
+    let count = unsafe { core_foundation_sys::array::CFArrayGetCount(array_ref) };
+    let mut result = Vec::new();
+
+    for i in 0..count {
+        let el_ptr = unsafe { core_foundation_sys::array::CFArrayGetValueAtIndex(array_ref, i) };
+        if !el_ptr.is_null() {
+            unsafe {
+                core_foundation_sys::base::CFRetain(el_ptr);
+            }
+            result.push(SafeAXUIElement {
+                raw: el_ptr as AXUIElementRef,
+            });
+        }
+    }
+
+    unsafe {
+        core_foundation_sys::base::CFRelease(value);
+    }
+
+    result
+}
+
+/// Find an AX window element matching a CGWindowID within an app element.
+pub fn find_ax_window_by_id(
+    app_element: &SafeAXUIElement,
+    window_id: u32,
+) -> Option<SafeAXUIElement> {
+    let ax_windows = get_ax_windows(app_element);
+    for ax_win in ax_windows {
+        if get_window_id(&ax_win) == Some(window_id) {
+            return Some(ax_win);
+        }
+    }
+    None
+}
+
+/// DFS to find the first AXTextArea element in a subtree, with a depth limit.
+/// In Microsoft Word, AXTextArea elements are nested inside AXLayoutArea → AXGroup → AXGroup
+/// at ~depth 3-4 from the window's AXScrollArea.
+pub fn find_text_area_in_subtree(
+    element: &SafeAXUIElement,
+    max_depth: u32,
+) -> Option<SafeAXUIElement> {
+    if max_depth == 0 {
+        return None;
+    }
+
+    fn search(element: &SafeAXUIElement, depth_remaining: u32) -> Option<SafeAXUIElement> {
+        if depth_remaining == 0 {
+            return None;
+        }
+
+        let children = get_children(element);
+        for child in children {
+            if let Some(role) = get_role(&child) {
+                if role == "AXTextArea" {
+                    return Some(child);
+                }
+            }
+            if let Some(found) = search(&child, depth_remaining - 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    search(element, max_depth)
 }

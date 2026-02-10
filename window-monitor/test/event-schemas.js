@@ -114,6 +114,42 @@ const WindowDocumentPathChangedEventSchema = BaseEventSchema.extend({
 });
 
 // ============================================
+// Text selection event schemas
+// ============================================
+
+const TextSelectionInfoSchema = z.object({
+  filePath: z.string().min(1),
+  length: z.number().int().nonnegative(),
+});
+
+const WindowTextSelectedEventSchema = BaseEventSchema.extend({
+  event: z.literal('WINDOW_TEXT_SELECTED'),
+  window: WindowInfoWithBoundsSchema,
+  selection: TextSelectionInfoSchema,
+});
+
+const WindowTextSelectionClearedEventSchema = BaseEventSchema.extend({
+  event: z.literal('WINDOW_TEXT_SELECTION_CLEARED'),
+  window: WindowInfoWithBoundsSchema,
+});
+
+// ============================================
+// Document text event schema
+// ============================================
+
+const DocumentTextInfoSchema = z.object({
+  filePath: z.string().min(1),
+  characterCount: z.number().int().nonnegative(),
+  byteSize: z.number().int().nonnegative(),
+});
+
+const WindowDocumentTextChangedEventSchema = BaseEventSchema.extend({
+  event: z.literal('WINDOW_DOCUMENT_TEXT_CHANGED'),
+  window: WindowInfoWithBoundsSchema,
+  document: DocumentTextInfoSchema,
+});
+
+// ============================================
 // Union schema for any event
 // ============================================
 
@@ -130,6 +166,9 @@ const WindowMonitorEventSchema = z.discriminatedUnion('event', [
   WindowRepositioningEventSchema,
   WindowRepositionedEventSchema,
   WindowDocumentPathChangedEventSchema,
+  WindowTextSelectedEventSchema,
+  WindowTextSelectionClearedEventSchema,
+  WindowDocumentTextChangedEventSchema,
 ]);
 
 // ============================================
@@ -152,6 +191,9 @@ const WINDOW_EVENTS = [
   'WINDOW_REPOSITIONING',
   'WINDOW_REPOSITIONED',
   'WINDOW_DOCUMENT_PATH_CHANGED',
+  'WINDOW_TEXT_SELECTED',
+  'WINDOW_TEXT_SELECTION_CLEARED',
+  'WINDOW_DOCUMENT_TEXT_CHANGED',
 ];
 
 // Map event types to their specific schemas
@@ -168,6 +210,9 @@ const EventSchemaMap = {
   WINDOW_REPOSITIONING: WindowRepositioningEventSchema,
   WINDOW_REPOSITIONED: WindowRepositionedEventSchema,
   WINDOW_DOCUMENT_PATH_CHANGED: WindowDocumentPathChangedEventSchema,
+  WINDOW_TEXT_SELECTED: WindowTextSelectedEventSchema,
+  WINDOW_TEXT_SELECTION_CLEARED: WindowTextSelectionClearedEventSchema,
+  WINDOW_DOCUMENT_TEXT_CHANGED: WindowDocumentTextChangedEventSchema,
 };
 
 /**
@@ -213,6 +258,8 @@ module.exports = {
   WindowInfoSchema,
   WindowInfoWithBoundsSchema,
   BaseEventSchema,
+  TextSelectionInfoSchema,
+  DocumentTextInfoSchema,
 
   // Event schemas
   AppExistingEventSchema,
@@ -227,6 +274,9 @@ module.exports = {
   WindowRepositioningEventSchema,
   WindowRepositionedEventSchema,
   WindowDocumentPathChangedEventSchema,
+  WindowTextSelectedEventSchema,
+  WindowTextSelectionClearedEventSchema,
+  WindowDocumentTextChangedEventSchema,
 
   // Union schema
   WindowMonitorEventSchema,

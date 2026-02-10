@@ -1,16 +1,11 @@
-mod accessibility;
-mod event_models;
-mod event_types;
-mod window_list;
-mod window_monitor;
-mod workspace;
-
 use clap::Parser;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+use window_monitor_lib::accessibility;
+use window_monitor_lib::window_monitor;
 
 const POLL_INTERVAL_MS: u128 = 200;
 const RUNLOOP_TIMEOUT_SECS: f64 = 0.1;
@@ -37,11 +32,21 @@ Output format:
   One JSON object per line for each window event.
   Events: APP_EXISTING, APP_LAUNCHED, APP_TERMINATED, APP_FOCUSED, APP_UNFOCUSED,
           WINDOW_EXISTING, WINDOW_CREATED, WINDOW_DESTROYED, WINDOW_FOCUSED,
-          WINDOW_REPOSITIONING, WINDOW_REPOSITIONED, WINDOW_DOCUMENT_PATH_CHANGED")]
+          WINDOW_REPOSITIONING, WINDOW_REPOSITIONED, WINDOW_DOCUMENT_PATH_CHANGED,
+          WINDOW_TEXT_SELECTED, WINDOW_TEXT_SELECTION_CLEARED,
+          WINDOW_DOCUMENT_TEXT_CHANGED")]
 struct Cli {
     /// Bundle ID of the app to monitor
     #[arg(short = 'b', long = "bundle-id", default_value = "com.microsoft.Word")]
     bundle_id: String,
+
+    /// Track text selection changes in the focused UI element
+    #[arg(long = "track-text-selection")]
+    track_text_selection: bool,
+
+    /// Track document text changes (polls character count, debounces, writes to file)
+    #[arg(long = "track-document-text")]
+    track_document_text: bool,
 }
 
 fn main() {
@@ -64,6 +69,12 @@ fn main() {
     }
 
     eprintln!("Window Monitor for {}", cli.bundle_id);
+    if cli.track_text_selection {
+        eprintln!("Text selection tracking: enabled");
+    }
+    if cli.track_document_text {
+        eprintln!("Document text tracking: enabled");
+    }
     eprintln!("Press Ctrl+C to stop monitoring");
     eprintln!("---");
 
@@ -76,8 +87,16 @@ fn main() {
         let _ = NSApplication::sharedApplication(mtm);
     }
 
+    // Use system temp dir for file-based text output
+    let temp_dir = std::env::temp_dir();
+
     // Create monitor and start monitoring
-    let mut monitor = Box::new(window_monitor::WindowMonitor::new(&cli.bundle_id));
+    let mut monitor = Box::new(window_monitor::WindowMonitor::new(
+        &cli.bundle_id,
+        cli.track_text_selection,
+        cli.track_document_text,
+        temp_dir,
+    ));
     let monitor_ptr: *mut window_monitor::WindowMonitor = &mut *monitor;
     monitor.start_monitoring(monitor_ptr, &should_exit);
 

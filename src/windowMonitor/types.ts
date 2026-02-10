@@ -94,6 +94,34 @@ export interface WindowDocumentPathChangedEvent extends BaseEvent {
   window: WindowInfoWithBounds;
 }
 
+export interface TextSelectionInfo {
+  filePath: string;
+  length: number;
+}
+
+export interface WindowTextSelectedEvent extends BaseEvent {
+  event: 'WINDOW_TEXT_SELECTED';
+  window: WindowInfoWithBounds;
+  selection: TextSelectionInfo;
+}
+
+export interface WindowTextSelectionClearedEvent extends BaseEvent {
+  event: 'WINDOW_TEXT_SELECTION_CLEARED';
+  window: WindowInfoWithBounds;
+}
+
+export interface DocumentTextInfo {
+  filePath: string;
+  characterCount: number;
+  byteSize: number;
+}
+
+export interface WindowDocumentTextChangedEvent extends BaseEvent {
+  event: 'WINDOW_DOCUMENT_TEXT_CHANGED';
+  window: WindowInfoWithBounds;
+  document: DocumentTextInfo;
+}
+
 export type WindowMonitorEvent =
   | AppExistingEvent
   | AppLaunchedEvent
@@ -106,7 +134,10 @@ export type WindowMonitorEvent =
   | WindowFocusedEvent
   | WindowRepositioningEvent
   | WindowRepositionedEvent
-  | WindowDocumentPathChangedEvent;
+  | WindowDocumentPathChangedEvent
+  | WindowTextSelectedEvent
+  | WindowTextSelectionClearedEvent
+  | WindowDocumentTextChangedEvent;
 
 // --- State types ---
 
@@ -117,6 +148,8 @@ export interface WindowState {
   bounds: WindowBounds | null;
   isFocused: boolean;
   isRepositioning: boolean;
+  selectedText: TextSelectionInfo | null;
+  documentText: DocumentTextInfo | null;
 }
 
 export interface AppState {

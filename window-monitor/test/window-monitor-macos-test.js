@@ -536,7 +536,7 @@ async function runTest() {
   let totalFailed = 0;
 
   // Start monitor
-  const monitor = spawn(WINDOW_MONITOR_PATH, ['--bundle-id', BUNDLE_ID], {
+  const monitor = spawn(WINDOW_MONITOR_PATH, ['--bundle-id', BUNDLE_ID, '--track-text-selection', '--track-document-text'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -642,6 +642,106 @@ async function runTest() {
     ]);
     totalPassed += result.passed;
     totalFailed += result.failed;
+
+    // =========================================================================
+    // Step 2: Type text and validate WINDOW_DOCUMENT_TEXT_CHANGED
+    // =========================================================================
+    log('blue', '\n[STEP 2] Type text and validate document text tracking');
+
+    // Click into the document body to ensure cursor focus
+    log('blue', '[ACTION] Clicking into document body...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          set frontmost to true
+        end tell
+      end tell
+    `);
+    await delay(500);
+
+    // Type mock sentences
+    const mockText = 'The quick brown fox jumps over the lazy dog. This is a test sentence for document text tracking.';
+    log('blue', `[ACTION] Typing text: "${mockText.slice(0, 50)}..."`);
+    checkpoint = events.length;
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          keystroke "${mockText}"
+        end tell
+      end tell
+    `);
+
+    // Wait for debounce (2s) + buffer
+    log('blue', '[ACTION] Waiting 4s for document text debounce...');
+    await delay(4000);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Document text tracking', stepEvents, [
+      (evts) => {
+        const docTextEvt = evts.find((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+        if (!docTextEvt) return { pass: false, message: 'Missing WINDOW_DOCUMENT_TEXT_CHANGED event' };
+        return { pass: true, message: 'WINDOW_DOCUMENT_TEXT_CHANGED event captured' };
+      },
+      (evts) => {
+        const docTextEvt = evts.find((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+        if (!docTextEvt) return { pass: false, message: 'No WINDOW_DOCUMENT_TEXT_CHANGED to check document field' };
+        const doc = docTextEvt.document;
+        if (!doc) return { pass: false, message: 'WINDOW_DOCUMENT_TEXT_CHANGED missing document field' };
+        const hasFilePath = typeof doc.filePath === 'string' && doc.filePath.length > 0;
+        const hasCharCount = typeof doc.characterCount === 'number' && doc.characterCount > 0;
+        const hasByteSize = typeof doc.byteSize === 'number' && doc.byteSize > 0;
+        const ok = hasFilePath && hasCharCount && hasByteSize;
+        return { pass: ok, message: ok
+          ? `Document metadata: filePath=${doc.filePath}, characterCount=${doc.characterCount}, byteSize=${doc.byteSize}`
+          : `Invalid document metadata: filePath=${doc.filePath}, characterCount=${doc.characterCount}, byteSize=${doc.byteSize}` };
+      },
+      (evts) => {
+        const docTextEvt = evts.find((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+        if (!docTextEvt || !docTextEvt.document?.filePath) {
+          return { pass: false, message: 'No WINDOW_DOCUMENT_TEXT_CHANGED to check file contents' };
+        }
+        const filePath = docTextEvt.document.filePath;
+        try {
+          const fileContents = fs.readFileSync(filePath, 'utf8');
+          // The file should contain the typed text (Word may add formatting characters)
+          const containsText = fileContents.includes(mockText);
+          return { pass: containsText, message: containsText
+            ? `File contains typed text (${fileContents.length} bytes)`
+            : `File does not contain expected text. File contents (first 200 chars): "${fileContents.slice(0, 200)}"` };
+        } catch (err) {
+          return { pass: false, message: `Failed to read file ${filePath}: ${err.message}` };
+        }
+      },
+      (evts) => {
+        const docTextEvt = evts.find((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+        if (!docTextEvt || !docTextEvt.document?.filePath) {
+          return { pass: false, message: 'No WINDOW_DOCUMENT_TEXT_CHANGED to check byte size' };
+        }
+        try {
+          const fileContents = fs.readFileSync(docTextEvt.document.filePath, 'utf8');
+          const ok = fileContents.length === docTextEvt.document.byteSize;
+          return { pass: ok, message: ok
+            ? `byteSize matches file size (${docTextEvt.document.byteSize})`
+            : `byteSize mismatch: event says ${docTextEvt.document.byteSize}, file is ${fileContents.length} bytes` };
+        } catch (err) {
+          return { pass: false, message: `Failed to read file: ${err.message}` };
+        }
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    // Also check that we got the initial WINDOW_DOCUMENT_TEXT_CHANGED on focus
+    // (this would have been emitted earlier, when the window first gained focus)
+    const allDocTextEvents = events.filter((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+    if (allDocTextEvents.length >= 1) {
+      log('green', `[PASS] Document text tracking: ${allDocTextEvents.length} WINDOW_DOCUMENT_TEXT_CHANGED event(s) total`);
+      totalPassed++;
+    } else {
+      log('red', '[FAIL] Document text tracking: expected at least 1 WINDOW_DOCUMENT_TEXT_CHANGED event');
+      totalFailed++;
+    }
 
     // =========================================================================
     // Window operation tests on UNSAVED document

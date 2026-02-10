@@ -71,6 +71,91 @@ pub fn emit_app_event(event_type: EventType, app: &AppInfoOutput) {
     }
 }
 
+/// Text selection info — file-based (selection text written to temp file).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextSelectionInfo {
+    pub file_path: String,
+    pub length: usize,
+}
+
+/// Text selection event (includes window + optional selection info).
+#[derive(Debug, Clone, Serialize)]
+pub struct TextSelectionEventOutput {
+    pub event: EventType,
+    pub timestamp: String,
+    pub platform: String,
+    pub app: AppInfoOutput,
+    pub window: WindowInfoOutput,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub selection: Option<TextSelectionInfo>,
+}
+
+/// Emit a text selection event to stdout.
+pub fn emit_text_selection_event(
+    event_type: EventType,
+    app: &AppInfoOutput,
+    window: WindowInfoOutput,
+    selection: Option<TextSelectionInfo>,
+) {
+    let event = TextSelectionEventOutput {
+        event: event_type,
+        timestamp: now_timestamp(),
+        platform: "macos".to_string(),
+        app: app.clone(),
+        window,
+        selection,
+    };
+    if let Ok(json) = serde_json::to_string(&event) {
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        let _ = writeln!(handle, "{}", json);
+        let _ = handle.flush();
+    }
+}
+
+/// Document text info — metadata about document text written to temp file.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentTextInfo {
+    pub file_path: String,
+    pub character_count: i64,
+    pub byte_size: usize,
+}
+
+/// Document text event (includes window + document text info).
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentTextEventOutput {
+    pub event: EventType,
+    pub timestamp: String,
+    pub platform: String,
+    pub app: AppInfoOutput,
+    pub window: WindowInfoOutput,
+    pub document: DocumentTextInfo,
+}
+
+/// Emit a document text event to stdout.
+pub fn emit_document_text_event(
+    app: &AppInfoOutput,
+    window: WindowInfoOutput,
+    document: DocumentTextInfo,
+) {
+    let event = DocumentTextEventOutput {
+        event: EventType::WindowDocumentTextChanged,
+        timestamp: now_timestamp(),
+        platform: "macos".to_string(),
+        app: app.clone(),
+        window,
+        document,
+    };
+    if let Ok(json) = serde_json::to_string(&event) {
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        let _ = writeln!(handle, "{}", json);
+        let _ = handle.flush();
+    }
+}
+
 /// Emit a window-level event to stdout.
 pub fn emit_window_event(event_type: EventType, app: &AppInfoOutput, window: WindowInfoOutput) {
     let event = WindowEventOutput {

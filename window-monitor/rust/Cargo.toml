@@ -3,6 +3,14 @@ name = "window-monitor"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "window_monitor_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "window-monitor"
+path = "src/bin/window_monitor.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
