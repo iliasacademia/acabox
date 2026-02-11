@@ -134,6 +134,38 @@ impl TextSelectionTracker {
         None
     }
 
+    /// Cheap bounds-only poll: skips text content, only checks if selection bounds moved.
+    /// Returns `BoundsChanged` when bounds have moved, `None` otherwise.
+    /// Call this every main loop iteration for low-latency scroll tracking.
+    pub fn poll_bounds_only(
+        &mut self,
+        app_element: &SafeAXUIElement,
+    ) -> Option<TextSelectionChange> {
+        // No active selection — nothing to track
+        if self.last_selected_text.is_none() {
+            return None;
+        }
+
+        let focused = accessibility::get_focused_ui_element(app_element)?;
+        let current_bounds = Self::query_bounds(&focused);
+
+        if let (Some(last), Some(current)) = (self.last_bounds, current_bounds) {
+            let moved = (current.0 - last.0).abs() > BOUNDS_TOLERANCE
+                || (current.1 - last.1).abs() > BOUNDS_TOLERANCE
+                || (current.2 - last.2).abs() > BOUNDS_TOLERANCE
+                || (current.3 - last.3).abs() > BOUNDS_TOLERANCE;
+            if moved {
+                self.last_bounds = Some(current);
+                return Some(TextSelectionChange::BoundsChanged);
+            }
+        } else if self.last_bounds.is_none() && current_bounds.is_some() {
+            self.last_bounds = current_bounds;
+            return Some(TextSelectionChange::BoundsChanged);
+        }
+
+        None
+    }
+
     /// Query the screen bounds of the current selection as a tuple.
     fn query_bounds(focused: &SafeAXUIElement) -> Option<(f64, f64, f64, f64)> {
         let rect = accessibility::get_selection_bounds(focused)?;
@@ -143,6 +175,21 @@ impl TextSelectionTracker {
             rect.size.width,
             rect.size.height,
         ))
+    }
+
+    /// Called when a scroll event is detected (via NSEvent global monitor).
+    /// Like `on_bounds_changed()` but guards on active selection first.
+    pub fn on_scroll_detected(&mut self) -> SelectionBoundsAction {
+        if self.last_selected_text.is_none() {
+            return SelectionBoundsAction::None;
+        }
+        self.bounds_last_change = Some(Instant::now());
+        if !self.bounds_reposition_active {
+            self.bounds_reposition_active = true;
+            SelectionBoundsAction::EmitRepositioning
+        } else {
+            SelectionBoundsAction::None
+        }
     }
 
     /// Called when `poll()` returns `BoundsChanged`.

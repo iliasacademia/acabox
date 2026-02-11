@@ -25,6 +25,16 @@ const TIMESTAMP_TOLERANCE_MS = 2000; // Allow 2 seconds tolerance for event timi
 const BOUNDS_TOLERANCE = 5; // Allow 5 pixel tolerance for bounds
 const MAX_EVENT_DELAY_MS = 500; // Events should fire within 500ms of action start/end
 
+// Step filtering: ONLY_STEPS=4,5 runs only steps 4 and 5 (step 1 setup always runs)
+// Steps: 1=setup, 2=doc text, 3=text selection, 4=selection bounds move, 5=scroll latency, 6=window ops+save+close
+const ONLY_STEPS = process.env.ONLY_STEPS
+  ? new Set(process.env.ONLY_STEPS.split(',').map(Number))
+  : null;
+if (ONLY_STEPS) console.log(`[INFO] ONLY_STEPS=${process.env.ONLY_STEPS} — running steps: 1 (always), ${[...ONLY_STEPS].join(', ')}`);
+function shouldRunStep(n) {
+  return !ONLY_STEPS || n <= 1 || ONLY_STEPS.has(n);
+}
+
 // Colors for output
 const colors = {
   reset: '\x1b[0m',
@@ -646,6 +656,9 @@ async function runTest() {
     // =========================================================================
     // Step 2: Type text and validate WINDOW_DOCUMENT_TEXT_CHANGED
     // =========================================================================
+    const mockText = 'The quick brown fox jumps over the lazy dog. This is a test sentence for document text tracking.';
+
+    if (shouldRunStep(2)) {
     log('blue', '\n[STEP 2] Type text and validate document text tracking');
 
     // Click into the document body to ensure cursor focus
@@ -658,9 +671,6 @@ async function runTest() {
       end tell
     `);
     await delay(500);
-
-    // Type mock sentences
-    const mockText = 'The quick brown fox jumps over the lazy dog. This is a test sentence for document text tracking.';
     log('blue', `[ACTION] Typing text: "${mockText.slice(0, 50)}..."`);
     checkpoint = events.length;
     runAppleScript(`
@@ -743,9 +753,12 @@ async function runTest() {
       totalFailed++;
     }
 
+    } else { log('blue', '\n[SKIP] Step 2 (ONLY_STEPS filter)'); }
+
     // =========================================================================
     // Step 3: Select all text and validate WINDOW_TEXT_SELECTED / WINDOW_TEXT_SELECTION_CLEARED
     // =========================================================================
+    if (shouldRunStep(3)) {
     log('blue', '\n[STEP 3] Select text and validate text selection tracking');
 
     // Select all text with Cmd+A
@@ -817,9 +830,12 @@ async function runTest() {
     totalPassed += result.passed;
     totalFailed += result.failed;
 
+    } else { log('blue', '\n[SKIP] Step 3 (ONLY_STEPS filter)'); }
+
     // =========================================================================
     // Step 4: Move window with text selected — validate debounced selection repositioning
     // =========================================================================
+    if (shouldRunStep(4)) {
     log('blue', '\n[STEP 4] Move window with text selected — validate selection bounds repositioning');
 
     // Set window to known starting position
@@ -906,6 +922,179 @@ async function runTest() {
     totalPassed += result.passed;
     totalFailed += result.failed;
 
+    } else { log('blue', '\n[SKIP] Step 4 (ONLY_STEPS filter)'); }
+
+    // =========================================================================
+    // Step 5: Scroll with text selected — measure detection latency
+    // =========================================================================
+    if (shouldRunStep(5)) {
+    log('blue', '\n[STEP 5] Scroll with text selected — measure selection repositioning latency');
+
+    // Pre-position mouse to where the window center will be after reset (500, 400)
+    // Do this EARLY so any side-effects settle before the selection is re-established
+    log('blue', '[ACTION] Pre-positioning mouse cursor to window center (500, 400)...');
+    try {
+      execSync(`python3 << 'PYEOF'
+import ctypes
+
+class CGPoint(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+cg.CGWarpMouseCursorPosition.restype = ctypes.c_int32
+cg.CGWarpMouseCursorPosition.argtypes = [CGPoint]
+cg.CGWarpMouseCursorPosition(CGPoint(500.0, 400.0))
+PYEOF`, { encoding: 'utf8', timeout: 5000 });
+    } catch (error) {
+      log('red', `[ERROR] Mouse warp failed: ${error.message}`);
+    }
+    await delay(500);
+
+    // Add enough content to make the document scrollable
+    log('blue', '[ACTION] Adding newlines to make document scrollable...');
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          key code 125 using {command down}
+          repeat 40 times
+            keystroke return
+          end repeat
+        end tell
+      end tell
+    `);
+    await delay(2000);
+
+    // Re-select all text so selection spans the visible area
+    log('blue', '[ACTION] Re-selecting all text with Cmd+A...');
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          keystroke "a" using {command down}
+        end tell
+      end tell
+    `);
+    await delay(1500);
+
+    // Reset window position to a known state — mouse at (500, 400) is now over window center
+    log('blue', '[ACTION] Resetting window position before scroll test...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          set position of window 1 to {100, 100}
+          set size of window 1 to {800, 600}
+        end tell
+      end tell
+    `);
+    await delay(1500);
+
+    // Simulate continuous scroll wheel via CGEvent over 2 seconds — like a real trackpad gesture
+    // NO mouse warp here; cursor is already positioned from earlier step
+    // The script prints the epoch ms timestamp of FIRST scroll event post
+    checkpoint = events.length;
+    log('blue', '[ACTION] Simulating continuous scroll wheel over 2s via CGEvent...');
+    let scrollStartTimestamp;
+    try {
+      const scrollOutput = execSync(`python3 << 'PYEOF'
+import ctypes, time
+
+cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+
+cg.CGEventCreateScrollWheelEvent.restype = ctypes.c_void_p
+cg.CGEventCreateScrollWheelEvent.argtypes = [
+    ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_int32
+]
+cg.CGEventPost.restype = None
+cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+
+# Simulate continuous scroll: 20 small scroll events over 2 seconds (every 100ms)
+# kCGScrollEventUnitLine = 0, kCGHIDEventTap = 0
+first_ts = None
+for i in range(20):
+    event = cg.CGEventCreateScrollWheelEvent(None, 0, 1, -2)
+    cg.CGEventPost(0, event)
+    if first_ts is None:
+        first_ts = int(time.time() * 1000)
+    time.sleep(0.1)
+
+# Print timestamp of first scroll event (excludes Python startup overhead)
+print(first_ts)
+PYEOF`, { encoding: 'utf8', timeout: 10000 }).trim();
+      scrollStartTimestamp = parseInt(scrollOutput, 10);
+      log('blue', `[ACTION] First scroll event posted at timestamp: ${scrollStartTimestamp} (20 events over 2s)`);
+    } catch (error) {
+      log('red', `[ERROR] Scroll wheel simulation failed: ${error.message}`);
+      scrollStartTimestamp = Date.now();
+    }
+
+    log('blue', '[ACTION] Waiting 1.5s for selection bounds debounce after scroll ends...');
+    await delay(1500);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Scroll latency measurement', stepEvents, [
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        return { pass: has, message: has
+          ? 'WINDOW_TEXT_SELECTION_REPOSITIONING event captured after scroll'
+          : 'Missing WINDOW_TEXT_SELECTION_REPOSITIONING event after scroll' };
+      },
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        return { pass: has, message: has
+          ? 'WINDOW_TEXT_SELECTION_REPOSITIONED event captured after scroll'
+          : 'Missing WINDOW_TEXT_SELECTION_REPOSITIONED event after scroll' };
+      },
+      (evts) => {
+        // Measure REPOSITIONING latency from scroll start
+        const repositioning = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        if (!repositioning) return { pass: false, message: 'No REPOSITIONING to measure latency' };
+        const eventTime = new Date(repositioning.timestamp).getTime();
+        const delayMs = eventTime - scrollStartTimestamp;
+        const ok = delayMs <= 1000;
+        const status = ok ? 'PASS' : 'FAIL';
+        log(ok ? 'green' : 'red', `  >>> REPOSITIONING delay: ${delayMs}ms [${status}] (threshold: 1000ms)`);
+        return { pass: ok, message: `REPOSITIONING delay: ${delayMs}ms (${status}, threshold 1000ms)` };
+      },
+      (evts) => {
+        // Measure REPOSITIONED latency from scroll END (scroll lasts ~2s)
+        // AX API takes time to settle after scrolling, so measure from when scrolling stops
+        const repositioned = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        if (!repositioned) return { pass: false, message: 'No REPOSITIONED to measure latency' };
+        const eventTime = new Date(repositioned.timestamp).getTime();
+        const scrollEndTimestamp = scrollStartTimestamp + 2000;
+        const delayMs = eventTime - scrollEndTimestamp;
+        const ok = delayMs <= 3000; // AX settling can take 2-3s after scroll ends
+        const status = ok ? 'PASS' : 'FAIL';
+        log(ok ? 'green' : 'red', `  >>> REPOSITIONED delay from scroll end: ${delayMs}ms [${status}] (threshold: 3000ms)`);
+        return { pass: ok, message: `REPOSITIONED delay from scroll end: ${delayMs}ms (${status}, threshold 3000ms)` };
+      },
+      (evts) => {
+        // REPOSITIONING should have valid selection.bounds
+        const repositioning = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        if (!repositioning) return { pass: false, message: 'No REPOSITIONING to check bounds' };
+        const b = repositioning.selection?.bounds;
+        const ok = b && typeof b.x === 'number' && typeof b.y === 'number'
+          && typeof b.width === 'number' && typeof b.height === 'number';
+        return { pass: ok, message: ok
+          ? `REPOSITIONING has bounds (x=${b.x}, y=${b.y}, w=${b.width}, h=${b.height})`
+          : 'REPOSITIONING missing or invalid selection.bounds' };
+      },
+      (evts) => {
+        // REPOSITIONED should have valid selection.bounds
+        const repositioned = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        if (!repositioned) return { pass: false, message: 'No REPOSITIONED to check bounds' };
+        const b = repositioned.selection?.bounds;
+        const ok = b && typeof b.x === 'number' && typeof b.y === 'number'
+          && typeof b.width === 'number' && typeof b.height === 'number';
+        return { pass: ok, message: ok
+          ? `REPOSITIONED has bounds (x=${b.x}, y=${b.y}, w=${b.width}, h=${b.height})`
+          : 'REPOSITIONED missing or invalid selection.bounds' };
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
     // Clear selection by pressing Right arrow
     log('blue', '[ACTION] Clearing selection with Right arrow...');
     checkpoint = events.length;
@@ -940,9 +1129,12 @@ async function runTest() {
     totalPassed += result.passed;
     totalFailed += result.failed;
 
+    } else { log('blue', '\n[SKIP] Step 5 (ONLY_STEPS filter)'); }
+
     // =========================================================================
     // Window operation tests on UNSAVED document
     // =========================================================================
+    if (shouldRunStep(6)) {
     log('blue', '\n========================================');
     log('blue', '  Window operations: Unsaved document');
     log('blue', '========================================');
@@ -1037,6 +1229,7 @@ async function runTest() {
     ]);
     totalPassed += result.passed;
     totalFailed += result.failed;
+    } else { log('blue', '\n[SKIP] Steps 6-8: Window operations (ONLY_STEPS filter)'); }
   } catch (error) {
     log('yellow', `[WARN] Error during actions: ${error.message}`);
   }

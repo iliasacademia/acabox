@@ -16,7 +16,7 @@ use std::time::Instant;
 
 const BOUNDS_TOLERANCE: f64 = 2.0;
 const RESIZE_DEBOUNCE_MS: u128 = 150;
-const SELECTION_BOUNDS_DEBOUNCE_MS: u128 = 300;
+const SELECTION_BOUNDS_DEBOUNCE_MS: u128 = 150;
 const DEFERRED_CHECK_DELAY_MS: u128 = 100;
 
 // --- SendPtr: makes a raw pointer Send+Sync for the workspace callback ---
@@ -164,6 +164,7 @@ pub struct WindowMonitor {
 
     // Focus tracking
     last_focused_window_id: u32,
+    last_content_bounds: Option<(f64, f64, f64, f64)>,
 
     // Debounce state machines
     reposition: RepositionTracker,
@@ -199,6 +200,7 @@ impl WindowMonitor {
             observed_window_element: None,
             runloop_source: None,
             last_focused_window_id: 0,
+            last_content_bounds: None,
             reposition: RepositionTracker::new(),
             deferred_check: DeferredCheck::new(),
             text_selection: if track_text_selection {
@@ -288,6 +290,7 @@ impl WindowMonitor {
                     workspace::WorkspaceEvent::AppDeactivated => {
                         event_models::emit_app_event(EventType::AppUnfocused, &m.app_info());
                         m.last_focused_window_id = 0;
+                        m.last_content_bounds = None;
                     }
                     workspace::WorkspaceEvent::SpaceChanged => unreachable!(),
                 }
@@ -563,6 +566,7 @@ impl WindowMonitor {
             self.emit_destroyed_event_for_window_id(wid);
             if wid == self.last_focused_window_id {
                 self.last_focused_window_id = 0;
+                self.last_content_bounds = None;
             }
         }
     }
@@ -602,6 +606,7 @@ impl WindowMonitor {
                 self.last_focused_window_id = w.window_id;
 
                 let window_info = self.create_window_info_from_entry(w, true);
+                self.last_content_bounds = window_info.content_bounds.as_ref().map(|b| (b.x, b.y, b.width, b.height));
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowFocused, &app, window_info);
 
@@ -778,28 +783,7 @@ impl WindowMonitor {
                 );
             }
             TextSelectionChange::BoundsChanged => {
-                let tracker = self.text_selection.as_mut().unwrap();
-                if let SelectionBoundsAction::EmitRepositioning = tracker.on_bounds_changed() {
-                    if let Some(bounds) = tracker.latest_bounds() {
-                        let window_info = match self.build_window_info_for_id(focused_window_id) {
-                            Some(w) => w,
-                            None => return,
-                        };
-                        let app = self.app_info();
-                        let (x, y, w, h) = bounds;
-                        event_models::emit_selection_position_event(
-                            EventType::WindowTextSelectionRepositioning,
-                            &app,
-                            window_info,
-                            SelectionBounds {
-                                x,
-                                y,
-                                width: w,
-                                height: h,
-                            },
-                        );
-                    }
-                }
+                self.handle_selection_bounds_change();
             }
         }
     }
@@ -823,6 +807,104 @@ impl WindowMonitor {
                 let (x, y, w, h) = bounds;
                 event_models::emit_selection_position_event(
                     EventType::WindowTextSelectionRepositioned,
+                    &app,
+                    window_info,
+                    SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Handle a BoundsChanged signal: run debounce state machine, emit REPOSITIONING on first change.
+    fn handle_selection_bounds_change(&mut self) {
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if let SelectionBoundsAction::EmitRepositioning = tracker.on_bounds_changed() {
+            if let Some(bounds) = tracker.latest_bounds() {
+                let focused_window_id = self.last_focused_window_id;
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let (x, y, w, h) = bounds;
+                event_models::emit_selection_position_event(
+                    EventType::WindowTextSelectionRepositioning,
+                    &app,
+                    window_info,
+                    SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Fast bounds-only check called every main loop iteration (~100ms).
+    /// Detects selection position changes without the expensive text content poll.
+    pub fn check_selection_bounds_fast(&mut self) {
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el.retain(),
+            None => return,
+        };
+        if self.last_focused_window_id == 0 {
+            return;
+        }
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        let change = tracker.poll_bounds_only(&app_element);
+        if let Some(TextSelectionChange::BoundsChanged) = change {
+            self.handle_selection_bounds_change();
+        }
+    }
+
+    /// Handle a scroll event detected by the CGEvent tap.
+    /// Checks if the mouse is within the content area and emits REPOSITIONING immediately.
+    pub fn on_scroll_event(&mut self) {
+        if self.last_focused_window_id == 0 {
+            return;
+        }
+        // Require valid content bounds — if not yet detected, don't emit
+        let (cx, cy, cw, ch) = match self.last_content_bounds {
+            Some(b) => b,
+            None => return,
+        };
+        // NSEvent.mouseLocation uses AppKit coords (bottom-left origin)
+        // Convert to Quartz coords (top-left origin) to match contentBounds
+        let mouse_loc = objc2_app_kit::NSEvent::mouseLocation();
+        let screen_height = core_graphics::display::CGDisplay::main().bounds().size.height;
+        let mouse_x = mouse_loc.x;
+        let mouse_y = screen_height - mouse_loc.y;
+        if mouse_x < cx || mouse_x > cx + cw || mouse_y < cy || mouse_y > cy + ch {
+            return; // Mouse is outside content area
+        }
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if let SelectionBoundsAction::EmitRepositioning = tracker.on_scroll_detected() {
+            if let Some(bounds) = tracker.latest_bounds() {
+                let focused_window_id = self.last_focused_window_id;
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let (x, y, w, h) = bounds;
+                event_models::emit_selection_position_event(
+                    EventType::WindowTextSelectionRepositioning,
                     &app,
                     window_info,
                     SelectionBounds {
@@ -946,6 +1028,7 @@ impl WindowMonitor {
                     entry.bounds = Some((w.bounds.x, w.bounds.y, w.bounds.width, w.bounds.height));
                 }
                 let window_info = self.create_window_info_from_entry(w, true);
+                self.last_content_bounds = window_info.content_bounds.as_ref().map(|b| (b.x, b.y, b.width, b.height));
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowRepositioned, &app, window_info);
                 break;

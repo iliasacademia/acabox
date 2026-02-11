@@ -1,11 +1,38 @@
 use clap::Parser;
 use signal_hook::consts::{SIGINT, SIGTERM};
 use signal_hook::flag;
+use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 use window_monitor_lib::accessibility;
 use window_monitor_lib::window_monitor;
+
+// Raw FFI for CGEventTap (scroll detection)
+type CGEventRef = *const c_void;
+type CGEventTapProxy = *const c_void;
+
+extern "C" {
+    fn CGEventTapCreate(
+        tap: u32,
+        place: u32,
+        options: u32,
+        events_of_interest: u64,
+        callback: unsafe extern "C" fn(CGEventTapProxy, u32, CGEventRef, *mut c_void) -> CGEventRef,
+        user_info: *mut c_void,
+    ) -> core_foundation_sys::mach_port::CFMachPortRef;
+}
+
+unsafe extern "C" fn scroll_tap_callback(
+    _proxy: CGEventTapProxy,
+    _event_type: u32,
+    event: CGEventRef,
+    user_info: *mut c_void,
+) -> CGEventRef {
+    let flag = &*(user_info as *const AtomicBool);
+    flag.store(true, Ordering::Relaxed);
+    event
+}
 
 const POLL_INTERVAL_MS: u128 = 200;
 const RUNLOOP_TIMEOUT_SECS: f64 = 0.1;
@@ -95,6 +122,38 @@ fn main() {
         let _ = NSApplication::sharedApplication(mtm);
     }
 
+    // Set up CGEvent tap for instant scroll detection
+    let scroll_detected = Arc::new(AtomicBool::new(false));
+    unsafe {
+        let mask: u64 = 1 << 22; // kCGEventScrollWheel
+        let user_info = Arc::as_ptr(&scroll_detected) as *mut c_void;
+        let tap_port = CGEventTapCreate(
+            1, // kCGSessionEventTap
+            0, // kCGHeadInsertEventTap
+            1, // kCGEventTapOptionListenOnly
+            mask,
+            scroll_tap_callback,
+            user_info,
+        );
+        if tap_port.is_null() {
+            eprintln!("WARNING: Failed to create CGEvent tap for scroll detection");
+        } else {
+            let source = core_foundation_sys::mach_port::CFMachPortCreateRunLoopSource(
+                std::ptr::null(),
+                tap_port,
+                0,
+            );
+            if !source.is_null() {
+                core_foundation_sys::runloop::CFRunLoopAddSource(
+                    core_foundation_sys::runloop::CFRunLoopGetCurrent(),
+                    source,
+                    core_foundation_sys::runloop::kCFRunLoopDefaultMode,
+                );
+                eprintln!("CGEvent scroll tap registered successfully");
+            }
+        }
+    }
+
     // Use system temp dir for file-based text output
     let temp_dir = std::env::temp_dir();
 
@@ -124,9 +183,15 @@ fn main() {
             );
         }
 
+        // Instant scroll detection — before other checks
+        if scroll_detected.swap(false, Ordering::Relaxed) {
+            monitor.on_scroll_event();
+        }
+
         // 150ms debounce: check if resize/move is finished (before polling can reset timer)
         monitor.check_resize_end();
         monitor.check_selection_bounds_end();
+        monitor.check_selection_bounds_fast();
 
         // 200ms polling: check for missed events
         if last_poll.elapsed().as_millis() >= POLL_INTERVAL_MS {
