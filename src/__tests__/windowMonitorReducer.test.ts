@@ -366,6 +366,109 @@ describe('Edge cases', () => {
   });
 });
 
+// --- Selection bounds ---
+
+describe('Selection bounds', () => {
+  test('WINDOW_TEXT_SELECTED sets selectionBounds from event', () => {
+    const app = makeApp();
+    const selBounds = { x: 100, y: 200, width: 300, height: 20 };
+    const state = reduce(createInitialState(), [
+      { event: 'APP_EXISTING', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      {
+        event: 'WINDOW_TEXT_SELECTED', timestamp: ts(), platform: 'macos', app,
+        window: makeWindow({ id: '1' }),
+        selection: { filePath: '/tmp/test.docx', length: 10, bounds: selBounds },
+      },
+    ]);
+    expect(state.apps[0].windows[0].selectionBounds).toEqual(selBounds);
+  });
+
+  test('WINDOW_TEXT_SELECTED without bounds sets selectionBounds to null', () => {
+    const app = makeApp();
+    const state = reduce(createInitialState(), [
+      { event: 'APP_EXISTING', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      {
+        event: 'WINDOW_TEXT_SELECTED', timestamp: ts(), platform: 'macos', app,
+        window: makeWindow({ id: '1' }),
+        selection: { filePath: '/tmp/test.docx', length: 10 },
+      },
+    ]);
+    expect(state.apps[0].windows[0].selectionBounds).toBeNull();
+  });
+
+  test('WINDOW_TEXT_SELECTION_CLEARED clears selectionBounds', () => {
+    const app = makeApp();
+    const selBounds = { x: 100, y: 200, width: 300, height: 20 };
+    const state = reduce(createInitialState(), [
+      { event: 'APP_EXISTING', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      {
+        event: 'WINDOW_TEXT_SELECTED', timestamp: ts(), platform: 'macos', app,
+        window: makeWindow({ id: '1' }),
+        selection: { filePath: '/tmp/test.docx', length: 10, bounds: selBounds },
+      },
+      {
+        event: 'WINDOW_TEXT_SELECTION_CLEARED', timestamp: ts(), platform: 'macos', app,
+        window: makeWindow({ id: '1' }),
+      },
+    ]);
+    expect(state.apps[0].windows[0].selectionBounds).toBeNull();
+  });
+
+  test('WINDOW_TEXT_SELECTION_REPOSITIONING updates selectionBounds', () => {
+    const app = makeApp();
+    const initialBounds = { x: 100, y: 200, width: 300, height: 20 };
+    const newBounds = { x: 110, y: 210, width: 300, height: 20 };
+    const state = reduce(createInitialState(), [
+      { event: 'APP_EXISTING', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      {
+        event: 'WINDOW_TEXT_SELECTED', timestamp: ts(), platform: 'macos', app,
+        window: makeWindow({ id: '1' }),
+        selection: { filePath: '/tmp/test.docx', length: 10, bounds: initialBounds },
+      },
+      {
+        event: 'WINDOW_TEXT_SELECTION_REPOSITIONING', timestamp: ts(), platform: 'macos', app,
+        window: makeWindow({ id: '1' }),
+        selection: { bounds: newBounds },
+      },
+    ]);
+    expect(state.apps[0].windows[0].selectionBounds).toEqual(newBounds);
+  });
+
+  test('WINDOW_TEXT_SELECTION_REPOSITIONED updates selectionBounds', () => {
+    const app = makeApp();
+    const initialBounds = { x: 100, y: 200, width: 300, height: 20 };
+    const finalBounds = { x: 120, y: 220, width: 300, height: 20 };
+    const state = reduce(createInitialState(), [
+      { event: 'APP_EXISTING', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      {
+        event: 'WINDOW_TEXT_SELECTED', timestamp: ts(), platform: 'macos', app,
+        window: makeWindow({ id: '1' }),
+        selection: { filePath: '/tmp/test.docx', length: 10, bounds: initialBounds },
+      },
+      {
+        event: 'WINDOW_TEXT_SELECTION_REPOSITIONED', timestamp: ts(), platform: 'macos', app,
+        window: makeWindow({ id: '1' }),
+        selection: { bounds: finalBounds },
+      },
+    ]);
+    expect(state.apps[0].windows[0].selectionBounds).toEqual(finalBounds);
+  });
+
+  test('newWindowState initializes selectionBounds to null', () => {
+    const app = makeApp();
+    const state = reduce(createInitialState(), [
+      { event: 'APP_EXISTING', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+    ]);
+    expect(state.apps[0].windows[0].selectionBounds).toBeNull();
+  });
+});
+
 // --- Realistic event sequence ---
 
 describe('Realistic event sequence', () => {

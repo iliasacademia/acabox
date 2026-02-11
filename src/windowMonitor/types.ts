@@ -99,6 +99,11 @@ export interface WindowDocumentPathChangedEvent extends BaseEvent {
 export interface TextSelectionInfo {
   filePath: string;
   length: number;
+  bounds?: WindowBounds;
+}
+
+export interface SelectionPositionInfo {
+  bounds: WindowBounds;
 }
 
 export interface WindowTextSelectedEvent extends BaseEvent {
@@ -115,11 +120,13 @@ export interface WindowTextSelectionClearedEvent extends BaseEvent {
 export interface WindowTextSelectionRepositioningEvent extends BaseEvent {
   event: 'WINDOW_TEXT_SELECTION_REPOSITIONING';
   window: WindowInfoWithBounds;
+  selection: SelectionPositionInfo;
 }
 
 export interface WindowTextSelectionRepositionedEvent extends BaseEvent {
   event: 'WINDOW_TEXT_SELECTION_REPOSITIONED';
   window: WindowInfoWithBounds;
+  selection: SelectionPositionInfo;
 }
 
 export interface DocumentTextInfo {
@@ -161,6 +168,7 @@ export interface WindowState {
   documentPath: string | null;
   bounds: WindowBounds | null;
   contentBounds: WindowBounds | null;
+  selectionBounds: WindowBounds | null;
   isFocused: boolean;
   isRepositioning: boolean;
   selectedText: TextSelectionInfo | null;

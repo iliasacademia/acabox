@@ -22,7 +22,7 @@ export interface WebviewTypeConfig {
   keyPrefix: string;
   pathSuffix: string;
   ignoresMouseEvents?: boolean;
-  computeFrame: (bounds: WindowBounds, screenHeight: number, contentBounds: WindowBounds | null) => WebviewFrame | null;
+  computeFrame: (bounds: WindowBounds, screenHeight: number, contentBounds: WindowBounds | null, selectionBounds: WindowBounds | null) => WebviewFrame | null;
 }
 
 export function computeWebviewState(
@@ -43,11 +43,12 @@ export function computeWebviewState(
       const visible = app.isFocused && window.isFocused && !window.isRepositioning;
 
       for (const config of configs) {
-        const frame = config.computeFrame(window.bounds, screenHeight, window.contentBounds);
+        const frame = config.computeFrame(window.bounds, screenHeight, window.contentBounds, window.selectionBounds);
         if (frame === null) continue;
 
         const key = `${config.keyPrefix}-${window.id}`;
-        const url = `${baseUrl}${config.pathSuffix}?pid=${app.pid}&wid=${window.id}&token=${authToken}`;
+        const separator = config.pathSuffix.includes('?') ? '&' : '?';
+        const url = `${baseUrl}${config.pathSuffix}${separator}pid=${app.pid}&wid=${window.id}&token=${authToken}`;
 
         const entry: WebviewEntryState = { url, visible, frame };
         if (config.ignoresMouseEvents) {

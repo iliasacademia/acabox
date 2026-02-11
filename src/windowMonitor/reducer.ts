@@ -48,6 +48,7 @@ function upsertWindow(app: AppState, win: WindowInfoWithBounds): AppState {
     documentPath: win.documentPath,
     bounds: win.bounds,
     contentBounds: win.contentBounds ?? null,
+    selectionBounds: null,
     isFocused: false,
     isRepositioning: false,
     selectedText: null,
@@ -77,6 +78,7 @@ function newWindowState(win: WindowInfoWithBounds): WindowState {
     documentPath: win.documentPath,
     bounds: win.bounds,
     contentBounds: win.contentBounds ?? null,
+    selectionBounds: null,
     isFocused: false,
     isRepositioning: false,
     selectedText: null,
@@ -250,17 +252,18 @@ export function reduceWindowMonitorEvent(
     case 'WINDOW_TEXT_SELECTED': {
       next = ensureApp(next, event.app);
       next = updateApp(next, identifier, pid, (a) => {
+        const selectionBounds = event.selection.bounds ?? null;
         if (!a.windows.some((w) => w.id === event.window.id)) {
           return {
             ...a,
-            windows: [...a.windows, { ...newWindowState(event.window), selectedText: event.selection }],
+            windows: [...a.windows, { ...newWindowState(event.window), selectedText: event.selection, selectionBounds }],
           };
         }
         return {
           ...a,
           windows: a.windows.map((w) =>
             w.id === event.window.id
-              ? { ...w, selectedText: event.selection }
+              ? { ...w, selectedText: event.selection, selectionBounds }
               : w,
           ),
         };
@@ -278,7 +281,7 @@ export function reduceWindowMonitorEvent(
           ...a,
           windows: a.windows.map((w) =>
             w.id === event.window.id
-              ? { ...w, selectedText: null }
+              ? { ...w, selectedText: null, selectionBounds: null }
               : w,
           ),
         };
@@ -288,7 +291,23 @@ export function reduceWindowMonitorEvent(
 
     case 'WINDOW_TEXT_SELECTION_REPOSITIONING':
     case 'WINDOW_TEXT_SELECTION_REPOSITIONED': {
-      // Selection bounds moved — no state change needed, just pass through
+      next = ensureApp(next, event.app);
+      next = updateApp(next, identifier, pid, (a) => {
+        if (!a.windows.some((w) => w.id === event.window.id)) {
+          return {
+            ...a,
+            windows: [...a.windows, { ...newWindowState(event.window), selectionBounds: event.selection.bounds }],
+          };
+        }
+        return {
+          ...a,
+          windows: a.windows.map((w) =>
+            w.id === event.window.id
+              ? { ...w, selectionBounds: event.selection.bounds }
+              : w,
+          ),
+        };
+      });
       return next;
     }
 
