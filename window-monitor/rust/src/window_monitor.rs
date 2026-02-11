@@ -165,6 +165,7 @@ pub struct WindowMonitor {
     // Focus tracking
     last_focused_window_id: u32,
     last_content_bounds: Option<(f64, f64, f64, f64)>,
+    last_scroll_time: Option<Instant>,
 
     // Debounce state machines
     reposition: RepositionTracker,
@@ -201,6 +202,7 @@ impl WindowMonitor {
             runloop_source: None,
             last_focused_window_id: 0,
             last_content_bounds: None,
+            last_scroll_time: None,
             reposition: RepositionTracker::new(),
             deferred_check: DeferredCheck::new(),
             text_selection: if track_text_selection {
@@ -890,6 +892,7 @@ impl WindowMonitor {
         if mouse_x < cx || mouse_x > cx + cw || mouse_y < cy || mouse_y > cy + ch {
             return; // Mouse is outside content area
         }
+        self.last_scroll_time = Some(Instant::now());
         let tracker = match self.text_selection.as_mut() {
             Some(t) => t,
             None => return,
@@ -915,6 +918,22 @@ impl WindowMonitor {
                     },
                 );
             }
+        }
+    }
+
+    /// Keep the selection bounds debounce alive while scroll events are still arriving.
+    /// Called every main loop iteration — bridges the gap between discrete scroll events
+    /// so REPOSITIONED doesn't fire mid-scroll.
+    pub fn extend_scroll_debounce(&mut self) {
+        let recent = match self.last_scroll_time {
+            Some(t) if t.elapsed().as_millis() < 250 => true,
+            _ => false,
+        };
+        if !recent {
+            return;
+        }
+        if let Some(ref mut tracker) = self.text_selection {
+            tracker.extend_bounds_debounce();
         }
     }
 

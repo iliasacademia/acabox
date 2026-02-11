@@ -220,6 +220,14 @@ impl TextSelectionTracker {
         SelectionBoundsAction::None
     }
 
+    /// Reset the debounce timer if a reposition is active.
+    /// Used by scroll detection to keep the timer alive between discrete scroll events.
+    pub fn extend_bounds_debounce(&mut self) {
+        if self.bounds_reposition_active {
+            self.bounds_last_change = Some(Instant::now());
+        }
+    }
+
     /// Force-finish any active bounds reposition (e.g. on selection clear/change).
     pub fn force_finish_bounds(&mut self) -> SelectionBoundsAction {
         if self.bounds_reposition_active {

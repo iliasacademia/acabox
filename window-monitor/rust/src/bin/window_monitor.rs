@@ -190,6 +190,7 @@ fn main() {
 
         // 150ms debounce: check if resize/move is finished (before polling can reset timer)
         monitor.check_resize_end();
+        monitor.extend_scroll_debounce();
         monitor.check_selection_bounds_end();
         monitor.check_selection_bounds_fast();
 
