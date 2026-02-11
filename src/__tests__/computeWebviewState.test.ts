@@ -331,6 +331,33 @@ describe('Popup webview', () => {
   });
 });
 
+// --- URL separator ---
+
+describe('URL separator', () => {
+  test('pathSuffix with existing ? uses & separator', () => {
+    const configWithQuery: WebviewTypeConfig = {
+      keyPrefix: 'debug',
+      pathSuffix: '/ui/popup/debuggingRedBorderContainer/?borderColor=blue',
+      computeFrame: (bounds: WindowBounds, screenHeight: number) => ({
+        x: bounds.x,
+        y: screenHeight - (bounds.y + bounds.height),
+        width: bounds.width,
+        height: bounds.height,
+      }),
+    };
+    const app = makeApp();
+    const state = reduce(createInitialState(), [
+      { event: 'APP_FOCUSED', timestamp: ts(), platform: 'macos', app },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      { event: 'WINDOW_FOCUSED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+    ]);
+    const result = computeWebviewState(state, [configWithQuery], BASE_URL, AUTH_TOKEN, SCREEN_HEIGHT);
+    expect(result['debug-1'].url).toBe(
+      'http://localhost:3000/ui/popup/debuggingRedBorderContainer/?borderColor=blue&pid=100&wid=1&token=test-token'
+    );
+  });
+});
+
 // --- Empty configs ---
 
 describe('Empty configs', () => {

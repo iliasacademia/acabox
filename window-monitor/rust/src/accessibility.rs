@@ -1,6 +1,7 @@
 use core_foundation::base::TCFType;
 use core_foundation::runloop::CFRunLoopSource;
 use core_foundation::string::CFString;
+use core_graphics_types::geometry::CGRect;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::LazyLock;
@@ -12,6 +13,19 @@ pub type AXObserverRef = *mut c_void;
 pub type AXError = i32;
 
 pub const K_AX_ERROR_SUCCESS: AXError = 0;
+
+// AXValue type constants
+const AX_VALUE_TYPE_CGPOINT: u32 = 1;
+const AX_VALUE_TYPE_CGSIZE: u32 = 2;
+const AX_VALUE_TYPE_CGRECT: u32 = 3;
+const AX_VALUE_TYPE_CFRANGE: u32 = 4;
+
+/// CFRange struct matching the CoreFoundation layout.
+#[repr(C)]
+pub struct CFRange {
+    pub location: i64,
+    pub length: i64,
+}
 
 /// Callback signature for AXObserver.
 pub type AXObserverCallback = unsafe extern "C" fn(
@@ -58,6 +72,24 @@ extern "C" {
         value: *mut core_foundation_sys::base::CFTypeRef,
     ) -> AXError;
 
+    pub fn AXUIElementCopyParameterizedAttributeValue(
+        element: AXUIElementRef,
+        parameterized_attribute: core_foundation_sys::string::CFStringRef,
+        parameter: core_foundation_sys::base::CFTypeRef,
+        result: *mut core_foundation_sys::base::CFTypeRef,
+    ) -> AXError;
+
+    pub fn AXValueCreate(
+        value_type: u32,
+        value: *const c_void,
+    ) -> core_foundation_sys::base::CFTypeRef;
+
+    pub fn AXValueGetValue(
+        value: core_foundation_sys::base::CFTypeRef,
+        value_type: u32,
+        value_out: *mut c_void,
+    ) -> bool;
+
     /// Private but stable API: get the CGWindowID for an AXUIElement.
     fn _AXUIElementGetWindow(element: AXUIElementRef, window_id: *mut u32) -> AXError;
 }
@@ -93,6 +125,15 @@ static AX_FOCUSED_WINDOW: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFoc
 static AX_WINDOWS: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXWindows"));
 static AX_ROLE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXRole"));
 static AX_DOCUMENT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXDocument"));
+static AX_FOCUSED_UI_ELEMENT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXFocusedUIElement"));
+static AX_SELECTED_TEXT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSelectedText"));
+static AX_VALUE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXValue"));
+static AX_NUMBER_OF_CHARACTERS: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXNumberOfCharacters"));
+static AX_CHILDREN: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXChildren"));
+static AX_SELECTED_TEXT_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSelectedTextRange"));
+static AX_BOUNDS_FOR_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXBoundsForRange"));
+static AX_POSITION: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXPosition"));
+static AX_SIZE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSize"));
 
 // Trusted check option
 static AX_TRUSTED_CHECK_OPTION_PROMPT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXTrustedCheckOptionPrompt"));
@@ -126,6 +167,33 @@ fn k_ax_role_attribute() -> core_foundation_sys::string::CFStringRef {
 }
 fn k_ax_document_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_DOCUMENT.0
+}
+fn k_ax_focused_ui_element_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_FOCUSED_UI_ELEMENT.0
+}
+fn k_ax_selected_text_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_SELECTED_TEXT.0
+}
+fn k_ax_value_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_VALUE.0
+}
+fn k_ax_number_of_characters_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_NUMBER_OF_CHARACTERS.0
+}
+fn k_ax_children_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_CHILDREN.0
+}
+fn k_ax_selected_text_range_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_SELECTED_TEXT_RANGE.0
+}
+fn k_ax_bounds_for_range_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_BOUNDS_FOR_RANGE.0
+}
+fn k_ax_position_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_POSITION.0
+}
+fn k_ax_size_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_SIZE.0
 }
 fn k_ax_trusted_check_option_prompt() -> core_foundation_sys::string::CFStringRef {
     AX_TRUSTED_CHECK_OPTION_PROMPT.0
@@ -365,4 +433,301 @@ pub fn get_window_id(element: &SafeAXUIElement) -> Option<u32> {
     } else {
         None
     }
+}
+
+/// Get the focused UI element of an app element (e.g. the text area being edited).
+pub fn get_focused_ui_element(app_element: &SafeAXUIElement) -> Option<SafeAXUIElement> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(
+            app_element.raw(),
+            k_ax_focused_ui_element_attribute(),
+            &mut value,
+        )
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    Some(SafeAXUIElement { raw: value as _ })
+}
+
+/// Get the selected text from a UI element via AXSelectedText.
+pub fn get_selected_text(element: &SafeAXUIElement) -> Option<String> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_selected_text_attribute(), &mut value)
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(value as _) };
+    Some(cf_str.to_string())
+}
+
+/// Get the full text value from a UI element via AXValue.
+pub fn get_text_value(element: &SafeAXUIElement) -> Option<String> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_value_attribute(), &mut value)
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(value as _) };
+    Some(cf_str.to_string())
+}
+
+/// Get the number of characters in a UI element via AXNumberOfCharacters.
+pub fn get_character_count(element: &SafeAXUIElement) -> Option<i64> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(
+            element.raw(),
+            k_ax_number_of_characters_attribute(),
+            &mut value,
+        )
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let number: core_foundation::number::CFNumber =
+        unsafe { TCFType::wrap_under_create_rule(value as _) };
+    number.to_i64()
+}
+
+/// Get all AX children of an element.
+pub fn get_children(element: &SafeAXUIElement) -> Vec<SafeAXUIElement> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_children_attribute(), &mut value)
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return Vec::new();
+    }
+
+    let array_ref = value as core_foundation_sys::array::CFArrayRef;
+    let count = unsafe { core_foundation_sys::array::CFArrayGetCount(array_ref) };
+    let mut result = Vec::new();
+
+    for i in 0..count {
+        let el_ptr = unsafe { core_foundation_sys::array::CFArrayGetValueAtIndex(array_ref, i) };
+        if !el_ptr.is_null() {
+            unsafe {
+                core_foundation_sys::base::CFRetain(el_ptr);
+            }
+            result.push(SafeAXUIElement {
+                raw: el_ptr as AXUIElementRef,
+            });
+        }
+    }
+
+    unsafe {
+        core_foundation_sys::base::CFRelease(value);
+    }
+
+    result
+}
+
+/// Find an AX window element matching a CGWindowID within an app element.
+pub fn find_ax_window_by_id(
+    app_element: &SafeAXUIElement,
+    window_id: u32,
+) -> Option<SafeAXUIElement> {
+    let ax_windows = get_ax_windows(app_element);
+    for ax_win in ax_windows {
+        if get_window_id(&ax_win) == Some(window_id) {
+            return Some(ax_win);
+        }
+    }
+    None
+}
+
+/// Get the selected text range (location + length) from a UI element via AXSelectedTextRange.
+pub fn get_selected_text_range(element: &SafeAXUIElement) -> Option<CFRange> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(
+            element.raw(),
+            k_ax_selected_text_range_attribute(),
+            &mut value,
+        )
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let mut range = CFRange {
+        location: 0,
+        length: 0,
+    };
+    let ok = unsafe {
+        AXValueGetValue(
+            value,
+            AX_VALUE_TYPE_CFRANGE,
+            &mut range as *mut CFRange as *mut c_void,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(value);
+    }
+    if ok { Some(range) } else { None }
+}
+
+/// Get the screen bounds (CGRect) for a text range via AXBoundsForRange parameterized attribute.
+pub fn get_bounds_for_range(element: &SafeAXUIElement, range: &CFRange) -> Option<CGRect> {
+    let range_value = unsafe {
+        AXValueCreate(
+            AX_VALUE_TYPE_CFRANGE,
+            range as *const CFRange as *const c_void,
+        )
+    };
+    if range_value.is_null() {
+        return None;
+    }
+    let mut result: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyParameterizedAttributeValue(
+            element.raw(),
+            k_ax_bounds_for_range_attribute(),
+            range_value,
+            &mut result,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(range_value);
+    }
+    if err != K_AX_ERROR_SUCCESS || result.is_null() {
+        return None;
+    }
+    let mut rect = CGRect::default();
+    let ok = unsafe {
+        AXValueGetValue(
+            result,
+            AX_VALUE_TYPE_CGRECT,
+            &mut rect as *mut CGRect as *mut c_void,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(result);
+    }
+    if ok { Some(rect) } else { None }
+}
+
+/// Get the screen bounds of the current text selection (convenience wrapper).
+pub fn get_selection_bounds(element: &SafeAXUIElement) -> Option<CGRect> {
+    let range = get_selected_text_range(element)?;
+    if range.length == 0 {
+        return None;
+    }
+    get_bounds_for_range(element, &range)
+}
+
+/// Get the screen bounds of an AX element by reading AXPosition + AXSize.
+pub fn get_element_bounds(element: &SafeAXUIElement) -> Option<CGRect> {
+    // Read AXPosition -> CGPoint
+    let mut pos_value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_position_attribute(), &mut pos_value)
+    };
+    if err != K_AX_ERROR_SUCCESS || pos_value.is_null() {
+        return None;
+    }
+    let mut point = core_graphics_types::geometry::CGPoint::default();
+    let ok = unsafe {
+        AXValueGetValue(
+            pos_value,
+            AX_VALUE_TYPE_CGPOINT,
+            &mut point as *mut core_graphics_types::geometry::CGPoint as *mut c_void,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(pos_value);
+    }
+    if !ok {
+        return None;
+    }
+
+    // Read AXSize -> CGSize
+    let mut size_value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_size_attribute(), &mut size_value)
+    };
+    if err != K_AX_ERROR_SUCCESS || size_value.is_null() {
+        return None;
+    }
+    let mut size = core_graphics_types::geometry::CGSize::default();
+    let ok = unsafe {
+        AXValueGetValue(
+            size_value,
+            AX_VALUE_TYPE_CGSIZE,
+            &mut size as *mut core_graphics_types::geometry::CGSize as *mut c_void,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(size_value);
+    }
+    if !ok {
+        return None;
+    }
+
+    Some(CGRect::new(&point, &size))
+}
+
+/// Find the document content area of a window element by selecting the largest
+/// direct child by area. When `role_filter` is provided, only children matching
+/// that AX role are considered (e.g. "AXSplitGroup" for Microsoft Word). When
+/// `None`, all direct children compete and the largest wins.
+pub fn find_content_area_child(
+    element: &SafeAXUIElement,
+    role_filter: Option<&str>,
+) -> Option<SafeAXUIElement> {
+    let children = get_children(element);
+    let mut best: Option<(SafeAXUIElement, f64)> = None;
+    for child in children {
+        if let Some(required_role) = role_filter {
+            match get_role(&child) {
+                Some(role) if role == required_role => {}
+                _ => continue,
+            }
+        }
+        if let Some(rect) = get_element_bounds(&child) {
+            let area = rect.size.width * rect.size.height;
+            if best.as_ref().map_or(true, |(_, best_area)| area > *best_area) {
+                best = Some((child, area));
+            }
+        }
+    }
+    best.map(|(el, _)| el)
+}
+
+/// DFS to find the first AXTextArea element in a subtree, with a depth limit.
+/// In Microsoft Word, AXTextArea elements are nested inside AXLayoutArea → AXGroup → AXGroup
+/// at ~depth 3-4 from the window's AXScrollArea.
+pub fn find_text_area_in_subtree(
+    element: &SafeAXUIElement,
+    max_depth: u32,
+) -> Option<SafeAXUIElement> {
+    if max_depth == 0 {
+        return None;
+    }
+
+    fn search(element: &SafeAXUIElement, depth_remaining: u32) -> Option<SafeAXUIElement> {
+        if depth_remaining == 0 {
+            return None;
+        }
+
+        let children = get_children(element);
+        for child in children {
+            if let Some(role) = get_role(&child) {
+                if role == "AXTextArea" {
+                    return Some(child);
+                }
+            }
+            if let Some(found) = search(&child, depth_remaining - 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    search(element, max_depth)
 }

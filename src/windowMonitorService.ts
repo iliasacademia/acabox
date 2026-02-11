@@ -21,11 +21,14 @@ const POPUP_WIDTH = 370;
 const POPUP_HEIGHT = 280;
 const POPUP_GAP_ABOVE_BUTTON = 10;
 
+const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY === '1';
+const DEBUG_SELECTION_BOUNDS_OVERLAY = process.env.DEBUG_SELECTION_BOUNDS_OVERLAY === '1';
+
 const webviewConfigs: WebviewTypeConfig[] = [
   {
     keyPrefix: 'button-v2',
     pathSuffix: '/ui/popup/academiaNotificationsButtonV2/',
-    computeFrame: (bounds: WindowBounds, screenHeight: number) => {
+    computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds) => {
       const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
       return {
         x: bounds.x + BUTTON_LEFT_MARGIN,
@@ -38,7 +41,7 @@ const webviewConfigs: WebviewTypeConfig[] = [
   {
     keyPrefix: 'popup-v2',
     pathSuffix: '/ui/popup/academiaNotificationsV2/',
-    computeFrame: (bounds: WindowBounds, screenHeight: number) => {
+    computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds) => {
       const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
       const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
       return {
@@ -50,6 +53,40 @@ const webviewConfigs: WebviewTypeConfig[] = [
     },
   },
 ];
+
+if (DEBUG_CONTENT_BOUNDS_OVERLAY) {
+  webviewConfigs.push({
+    keyPrefix: 'debug-content-bounds',
+    pathSuffix: '/ui/popup/debuggingRedBorderContainer/',
+    ignoresMouseEvents: true,
+    computeFrame: (_bounds, screenHeight, contentBounds, _selectionBounds) => {
+      if (!contentBounds) return null;
+      return {
+        x: contentBounds.x,
+        y: screenHeight - (contentBounds.y + contentBounds.height),
+        width: contentBounds.width,
+        height: contentBounds.height,
+      };
+    },
+  });
+}
+
+if (DEBUG_SELECTION_BOUNDS_OVERLAY) {
+  webviewConfigs.push({
+    keyPrefix: 'debug-selection-bounds',
+    pathSuffix: '/ui/popup/debuggingRedBorderContainer/?borderColor=blue',
+    ignoresMouseEvents: true,
+    computeFrame: (_bounds, screenHeight, _contentBounds, selectionBounds) => {
+      if (!selectionBounds) return null;
+      return {
+        x: selectionBounds.x,
+        y: screenHeight - (selectionBounds.y + selectionBounds.height),
+        width: selectionBounds.width,
+        height: selectionBounds.height,
+      };
+    },
+  });
+}
 
 function getWindowMonitorBinPath(): string {
   if (app.isPackaged) {
@@ -96,7 +133,7 @@ export class WindowMonitorService {
     logger.info('[WindowMonitorService] Starting webview-manager:', wvBin);
 
     // Spawn window-monitor
-    this.windowMonitorProcess = spawn(wmBin, ['--bundle-id', 'com.microsoft.Word'], {
+    this.windowMonitorProcess = spawn(wmBin, ['--bundle-id', 'com.microsoft.Word', '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 

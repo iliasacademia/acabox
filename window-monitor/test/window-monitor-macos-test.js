@@ -25,6 +25,16 @@ const TIMESTAMP_TOLERANCE_MS = 2000; // Allow 2 seconds tolerance for event timi
 const BOUNDS_TOLERANCE = 5; // Allow 5 pixel tolerance for bounds
 const MAX_EVENT_DELAY_MS = 500; // Events should fire within 500ms of action start/end
 
+// Step filtering: ONLY_STEPS=4,5 runs only steps 4 and 5 (step 1 setup always runs)
+// Steps: 1=setup, 2=doc text, 3=text selection, 4=selection bounds move, 5=scroll latency, 6=window ops+save+close
+const ONLY_STEPS = process.env.ONLY_STEPS
+  ? new Set(process.env.ONLY_STEPS.split(',').map(Number))
+  : null;
+if (ONLY_STEPS) console.log(`[INFO] ONLY_STEPS=${process.env.ONLY_STEPS} — running steps: 1 (always), ${[...ONLY_STEPS].join(', ')}`);
+function shouldRunStep(n) {
+  return !ONLY_STEPS || n <= 1 || ONLY_STEPS.has(n);
+}
+
 // Colors for output
 const colors = {
   reset: '\x1b[0m',
@@ -536,7 +546,7 @@ async function runTest() {
   let totalFailed = 0;
 
   // Start monitor
-  const monitor = spawn(WINDOW_MONITOR_PATH, ['--bundle-id', BUNDLE_ID], {
+  const monitor = spawn(WINDOW_MONITOR_PATH, ['--bundle-id', BUNDLE_ID, '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
@@ -644,8 +654,487 @@ async function runTest() {
     totalFailed += result.failed;
 
     // =========================================================================
+    // Step 2: Type text and validate WINDOW_DOCUMENT_TEXT_CHANGED
+    // =========================================================================
+    const mockText = 'The quick brown fox jumps over the lazy dog. This is a test sentence for document text tracking.';
+
+    if (shouldRunStep(2)) {
+    log('blue', '\n[STEP 2] Type text and validate document text tracking');
+
+    // Click into the document body to ensure cursor focus
+    log('blue', '[ACTION] Clicking into document body...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          set frontmost to true
+        end tell
+      end tell
+    `);
+    await delay(500);
+    log('blue', `[ACTION] Typing text: "${mockText.slice(0, 50)}..."`);
+    checkpoint = events.length;
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          keystroke "${mockText}"
+        end tell
+      end tell
+    `);
+
+    // Wait for debounce (2s) + buffer
+    log('blue', '[ACTION] Waiting 4s for document text debounce...');
+    await delay(4000);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Document text tracking', stepEvents, [
+      (evts) => {
+        const docTextEvt = evts.find((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+        if (!docTextEvt) return { pass: false, message: 'Missing WINDOW_DOCUMENT_TEXT_CHANGED event' };
+        return { pass: true, message: 'WINDOW_DOCUMENT_TEXT_CHANGED event captured' };
+      },
+      (evts) => {
+        const docTextEvt = evts.find((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+        if (!docTextEvt) return { pass: false, message: 'No WINDOW_DOCUMENT_TEXT_CHANGED to check document field' };
+        const doc = docTextEvt.document;
+        if (!doc) return { pass: false, message: 'WINDOW_DOCUMENT_TEXT_CHANGED missing document field' };
+        const hasFilePath = typeof doc.filePath === 'string' && doc.filePath.length > 0;
+        const hasCharCount = typeof doc.characterCount === 'number' && doc.characterCount > 0;
+        const hasByteSize = typeof doc.byteSize === 'number' && doc.byteSize > 0;
+        const ok = hasFilePath && hasCharCount && hasByteSize;
+        return { pass: ok, message: ok
+          ? `Document metadata: filePath=${doc.filePath}, characterCount=${doc.characterCount}, byteSize=${doc.byteSize}`
+          : `Invalid document metadata: filePath=${doc.filePath}, characterCount=${doc.characterCount}, byteSize=${doc.byteSize}` };
+      },
+      (evts) => {
+        const docTextEvt = evts.find((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+        if (!docTextEvt || !docTextEvt.document?.filePath) {
+          return { pass: false, message: 'No WINDOW_DOCUMENT_TEXT_CHANGED to check file contents' };
+        }
+        const filePath = docTextEvt.document.filePath;
+        try {
+          const fileContents = fs.readFileSync(filePath, 'utf8');
+          // The file should contain the typed text (Word may add formatting characters)
+          const containsText = fileContents.includes(mockText);
+          return { pass: containsText, message: containsText
+            ? `File contains typed text (${fileContents.length} bytes)`
+            : `File does not contain expected text. File contents (first 200 chars): "${fileContents.slice(0, 200)}"` };
+        } catch (err) {
+          return { pass: false, message: `Failed to read file ${filePath}: ${err.message}` };
+        }
+      },
+      (evts) => {
+        const docTextEvt = evts.find((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+        if (!docTextEvt || !docTextEvt.document?.filePath) {
+          return { pass: false, message: 'No WINDOW_DOCUMENT_TEXT_CHANGED to check byte size' };
+        }
+        try {
+          const fileContents = fs.readFileSync(docTextEvt.document.filePath, 'utf8');
+          const ok = fileContents.length === docTextEvt.document.byteSize;
+          return { pass: ok, message: ok
+            ? `byteSize matches file size (${docTextEvt.document.byteSize})`
+            : `byteSize mismatch: event says ${docTextEvt.document.byteSize}, file is ${fileContents.length} bytes` };
+        } catch (err) {
+          return { pass: false, message: `Failed to read file: ${err.message}` };
+        }
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    // Also check that we got the initial WINDOW_DOCUMENT_TEXT_CHANGED on focus
+    // (this would have been emitted earlier, when the window first gained focus)
+    const allDocTextEvents = events.filter((e) => e.event === 'WINDOW_DOCUMENT_TEXT_CHANGED');
+    if (allDocTextEvents.length >= 1) {
+      log('green', `[PASS] Document text tracking: ${allDocTextEvents.length} WINDOW_DOCUMENT_TEXT_CHANGED event(s) total`);
+      totalPassed++;
+    } else {
+      log('red', '[FAIL] Document text tracking: expected at least 1 WINDOW_DOCUMENT_TEXT_CHANGED event');
+      totalFailed++;
+    }
+
+    } else { log('blue', '\n[SKIP] Step 2 (ONLY_STEPS filter)'); }
+
+    // =========================================================================
+    // Step 3: Select all text and validate WINDOW_TEXT_SELECTED / WINDOW_TEXT_SELECTION_CLEARED
+    // =========================================================================
+    if (shouldRunStep(3)) {
+    log('blue', '\n[STEP 3] Select text and validate text selection tracking');
+
+    // Select all text with Cmd+A
+    log('blue', '[ACTION] Selecting all text with Cmd+A...');
+    checkpoint = events.length;
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          keystroke "a" using command down
+        end tell
+      end tell
+    `);
+
+    log('blue', '[ACTION] Waiting 2s for text selection detection...');
+    await delay(2000);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Text selection', stepEvents, [
+      (evts) => {
+        const selEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTED');
+        if (!selEvt) return { pass: false, message: 'Missing WINDOW_TEXT_SELECTED event' };
+        return { pass: true, message: 'WINDOW_TEXT_SELECTED event captured' };
+      },
+      (evts) => {
+        const selEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTED');
+        if (!selEvt) return { pass: false, message: 'No WINDOW_TEXT_SELECTED to check selection field' };
+        const sel = selEvt.selection;
+        if (!sel) return { pass: false, message: 'WINDOW_TEXT_SELECTED missing selection field' };
+        const hasFilePath = typeof sel.filePath === 'string' && sel.filePath.length > 0;
+        const hasLength = typeof sel.length === 'number' && sel.length > 0;
+        const ok = hasFilePath && hasLength;
+        return { pass: ok, message: ok
+          ? `Selection metadata: filePath=${sel.filePath}, length=${sel.length}`
+          : `Invalid selection metadata: filePath=${sel.filePath}, length=${sel.length}` };
+      },
+      (evts) => {
+        const selEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTED');
+        if (!selEvt || !selEvt.selection?.filePath) {
+          return { pass: false, message: 'No WINDOW_TEXT_SELECTED to check file contents' };
+        }
+        const filePath = selEvt.selection.filePath;
+        try {
+          const fileContents = fs.readFileSync(filePath, 'utf8');
+          const containsText = fileContents.includes(mockText);
+          return { pass: containsText, message: containsText
+            ? `Selection file contains typed text (${fileContents.length} bytes)`
+            : `Selection file does not contain expected text. File contents (first 200 chars): "${fileContents.slice(0, 200)}"` };
+        } catch (err) {
+          return { pass: false, message: `Failed to read selection file ${filePath}: ${err.message}` };
+        }
+      },
+      (evts) => {
+        const selEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTED');
+        if (!selEvt || !selEvt.selection?.filePath) {
+          return { pass: false, message: 'No WINDOW_TEXT_SELECTED to check byte size' };
+        }
+        try {
+          const fileContents = fs.readFileSync(selEvt.selection.filePath, 'utf8');
+          const ok = fileContents.length === selEvt.selection.length;
+          return { pass: ok, message: ok
+            ? `selection.length matches file size (${selEvt.selection.length})`
+            : `selection.length mismatch: event says ${selEvt.selection.length}, file is ${fileContents.length} bytes` };
+        } catch (err) {
+          return { pass: false, message: `Failed to read selection file: ${err.message}` };
+        }
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    } else { log('blue', '\n[SKIP] Step 3 (ONLY_STEPS filter)'); }
+
+    // =========================================================================
+    // Step 4: Move window with text selected — validate debounced selection repositioning
+    // =========================================================================
+    if (shouldRunStep(4)) {
+    log('blue', '\n[STEP 4] Move window with text selected — validate selection bounds repositioning');
+
+    // Set window to known starting position
+    log('blue', '[ACTION] Setting window to starting position...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          set position of window 1 to {100, 100}
+          set size of window 1 to {800, 600}
+        end tell
+      end tell
+    `);
+    // Wait long enough for both window (150ms) and selection bounds (300ms) debounce to finish
+    await delay(1000);
+
+    // Move window gradually to shift selection bounds on screen
+    checkpoint = events.length;
+    log('blue', '[ACTION] Moving window gradually to shift selection bounds...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          repeat with i from 1 to 10
+            set position of window 1 to {100 + (i * 10), 100 + (i * 10)}
+            delay 0.05
+          end repeat
+        end tell
+      end tell
+    `);
+
+    log('blue', '[ACTION] Waiting 1.5s for selection bounds debounce...');
+    await delay(1500);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Selection bounds repositioning', stepEvents, [
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        return { pass: has, message: has
+          ? 'WINDOW_TEXT_SELECTION_REPOSITIONING event captured'
+          : 'Missing WINDOW_TEXT_SELECTION_REPOSITIONING event' };
+      },
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        return { pass: has, message: has
+          ? 'WINDOW_TEXT_SELECTION_REPOSITIONED event captured'
+          : 'Missing WINDOW_TEXT_SELECTION_REPOSITIONED event' };
+      },
+      (evts) => {
+        // Should only have one REPOSITIONING (debounce collapses subsequent changes)
+        const count = evts.filter((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING').length;
+        return { pass: count === 1, message: count === 1
+          ? 'Exactly 1 REPOSITIONING (debounce working correctly)'
+          : `Expected 1 REPOSITIONING, got ${count} (debounce may not be working)` };
+      },
+      (evts) => {
+        // Should only have one REPOSITIONED
+        const count = evts.filter((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED').length;
+        return { pass: count === 1, message: count === 1
+          ? 'Exactly 1 REPOSITIONED (single final event)'
+          : `Expected 1 REPOSITIONED, got ${count}` };
+      },
+      (evts) => {
+        // REPOSITIONING should have selection.bounds
+        const repositioning = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        if (!repositioning) return { pass: false, message: 'No REPOSITIONING to check bounds' };
+        const b = repositioning.selection?.bounds;
+        const ok = b && typeof b.x === 'number' && typeof b.y === 'number'
+          && typeof b.width === 'number' && typeof b.height === 'number';
+        return { pass: ok, message: ok
+          ? `REPOSITIONING has bounds (x=${b.x}, y=${b.y}, w=${b.width}, h=${b.height})`
+          : 'REPOSITIONING missing or invalid selection.bounds' };
+      },
+      (evts) => {
+        // REPOSITIONED should have selection.bounds
+        const repositioned = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        if (!repositioned) return { pass: false, message: 'No REPOSITIONED to check bounds' };
+        const b = repositioned.selection?.bounds;
+        const ok = b && typeof b.x === 'number' && typeof b.y === 'number'
+          && typeof b.width === 'number' && typeof b.height === 'number';
+        return { pass: ok, message: ok
+          ? `REPOSITIONED has bounds (x=${b.x}, y=${b.y}, w=${b.width}, h=${b.height})`
+          : 'REPOSITIONED missing or invalid selection.bounds' };
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    } else { log('blue', '\n[SKIP] Step 4 (ONLY_STEPS filter)'); }
+
+    // =========================================================================
+    // Step 5: Scroll with text selected — measure detection latency
+    // =========================================================================
+    if (shouldRunStep(5)) {
+    log('blue', '\n[STEP 5] Scroll with text selected — measure selection repositioning latency');
+
+    // Pre-position mouse to where the window center will be after reset (500, 400)
+    // Do this EARLY so any side-effects settle before the selection is re-established
+    log('blue', '[ACTION] Pre-positioning mouse cursor to window center (500, 400)...');
+    try {
+      execSync(`python3 << 'PYEOF'
+import ctypes
+
+class CGPoint(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_double), ("y", ctypes.c_double)]
+
+cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+cg.CGWarpMouseCursorPosition.restype = ctypes.c_int32
+cg.CGWarpMouseCursorPosition.argtypes = [CGPoint]
+cg.CGWarpMouseCursorPosition(CGPoint(500.0, 400.0))
+PYEOF`, { encoding: 'utf8', timeout: 5000 });
+    } catch (error) {
+      log('red', `[ERROR] Mouse warp failed: ${error.message}`);
+    }
+    await delay(500);
+
+    // Add enough content to make the document scrollable
+    log('blue', '[ACTION] Adding newlines to make document scrollable...');
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          key code 125 using {command down}
+          repeat 40 times
+            keystroke return
+          end repeat
+        end tell
+      end tell
+    `);
+    await delay(2000);
+
+    // Re-select all text so selection spans the visible area
+    log('blue', '[ACTION] Re-selecting all text with Cmd+A...');
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          keystroke "a" using {command down}
+        end tell
+      end tell
+    `);
+    await delay(1500);
+
+    // Reset window position to a known state — mouse at (500, 400) is now over window center
+    log('blue', '[ACTION] Resetting window position before scroll test...');
+    runAppleScript(`
+      tell application "System Events"
+        tell process "Microsoft Word"
+          set position of window 1 to {100, 100}
+          set size of window 1 to {800, 600}
+        end tell
+      end tell
+    `);
+    await delay(1500);
+
+    // Simulate continuous scroll wheel via CGEvent over 2 seconds — like a real trackpad gesture
+    // NO mouse warp here; cursor is already positioned from earlier step
+    // The script prints the epoch ms timestamp of FIRST scroll event post
+    checkpoint = events.length;
+    log('blue', '[ACTION] Simulating continuous scroll wheel over 2s via CGEvent...');
+    let scrollStartTimestamp;
+    try {
+      const scrollOutput = execSync(`python3 << 'PYEOF'
+import ctypes, time
+
+cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+
+cg.CGEventCreateScrollWheelEvent.restype = ctypes.c_void_p
+cg.CGEventCreateScrollWheelEvent.argtypes = [
+    ctypes.c_void_p, ctypes.c_uint32, ctypes.c_uint32, ctypes.c_int32
+]
+cg.CGEventPost.restype = None
+cg.CGEventPost.argtypes = [ctypes.c_uint32, ctypes.c_void_p]
+
+# Simulate continuous scroll: 20 small scroll events over 2 seconds (every 100ms)
+# kCGScrollEventUnitLine = 0, kCGHIDEventTap = 0
+first_ts = None
+for i in range(20):
+    event = cg.CGEventCreateScrollWheelEvent(None, 0, 1, -2)
+    cg.CGEventPost(0, event)
+    if first_ts is None:
+        first_ts = int(time.time() * 1000)
+    time.sleep(0.1)
+
+# Print timestamp of first scroll event (excludes Python startup overhead)
+print(first_ts)
+PYEOF`, { encoding: 'utf8', timeout: 10000 }).trim();
+      scrollStartTimestamp = parseInt(scrollOutput, 10);
+      log('blue', `[ACTION] First scroll event posted at timestamp: ${scrollStartTimestamp} (20 events over 2s)`);
+    } catch (error) {
+      log('red', `[ERROR] Scroll wheel simulation failed: ${error.message}`);
+      scrollStartTimestamp = Date.now();
+    }
+
+    log('blue', '[ACTION] Waiting 1.5s for selection bounds debounce after scroll ends...');
+    await delay(1500);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Scroll latency measurement', stepEvents, [
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        return { pass: has, message: has
+          ? 'WINDOW_TEXT_SELECTION_REPOSITIONING event captured after scroll'
+          : 'Missing WINDOW_TEXT_SELECTION_REPOSITIONING event after scroll' };
+      },
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        return { pass: has, message: has
+          ? 'WINDOW_TEXT_SELECTION_REPOSITIONED event captured after scroll'
+          : 'Missing WINDOW_TEXT_SELECTION_REPOSITIONED event after scroll' };
+      },
+      (evts) => {
+        // Measure REPOSITIONING latency from scroll start
+        const repositioning = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        if (!repositioning) return { pass: false, message: 'No REPOSITIONING to measure latency' };
+        const eventTime = new Date(repositioning.timestamp).getTime();
+        const delayMs = eventTime - scrollStartTimestamp;
+        const ok = delayMs <= 1000;
+        const status = ok ? 'PASS' : 'FAIL';
+        log(ok ? 'green' : 'red', `  >>> REPOSITIONING delay: ${delayMs}ms [${status}] (threshold: 1000ms)`);
+        return { pass: ok, message: `REPOSITIONING delay: ${delayMs}ms (${status}, threshold 1000ms)` };
+      },
+      (evts) => {
+        // Measure REPOSITIONED latency from scroll END (scroll lasts ~2s)
+        // AX API takes time to settle after scrolling, so measure from when scrolling stops
+        const repositioned = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        if (!repositioned) return { pass: false, message: 'No REPOSITIONED to measure latency' };
+        const eventTime = new Date(repositioned.timestamp).getTime();
+        const scrollEndTimestamp = scrollStartTimestamp + 2000;
+        const delayMs = eventTime - scrollEndTimestamp;
+        const ok = delayMs <= 3000; // AX settling can take 2-3s after scroll ends
+        const status = ok ? 'PASS' : 'FAIL';
+        log(ok ? 'green' : 'red', `  >>> REPOSITIONED delay from scroll end: ${delayMs}ms [${status}] (threshold: 3000ms)`);
+        return { pass: ok, message: `REPOSITIONED delay from scroll end: ${delayMs}ms (${status}, threshold 3000ms)` };
+      },
+      (evts) => {
+        // REPOSITIONING should have valid selection.bounds
+        const repositioning = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONING');
+        if (!repositioning) return { pass: false, message: 'No REPOSITIONING to check bounds' };
+        const b = repositioning.selection?.bounds;
+        const ok = b && typeof b.x === 'number' && typeof b.y === 'number'
+          && typeof b.width === 'number' && typeof b.height === 'number';
+        return { pass: ok, message: ok
+          ? `REPOSITIONING has bounds (x=${b.x}, y=${b.y}, w=${b.width}, h=${b.height})`
+          : 'REPOSITIONING missing or invalid selection.bounds' };
+      },
+      (evts) => {
+        // REPOSITIONED should have valid selection.bounds
+        const repositioned = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_REPOSITIONED');
+        if (!repositioned) return { pass: false, message: 'No REPOSITIONED to check bounds' };
+        const b = repositioned.selection?.bounds;
+        const ok = b && typeof b.x === 'number' && typeof b.y === 'number'
+          && typeof b.width === 'number' && typeof b.height === 'number';
+        return { pass: ok, message: ok
+          ? `REPOSITIONED has bounds (x=${b.x}, y=${b.y}, w=${b.width}, h=${b.height})`
+          : 'REPOSITIONED missing or invalid selection.bounds' };
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    // Clear selection by pressing Right arrow
+    log('blue', '[ACTION] Clearing selection with Right arrow...');
+    checkpoint = events.length;
+    runAppleScript(`
+      tell application "Microsoft Word"
+        activate
+        tell application "System Events"
+          key code 124
+        end tell
+      end tell
+    `);
+
+    log('blue', '[ACTION] Waiting 2s for selection clear detection...');
+    await delay(2000);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Text selection cleared', stepEvents, [
+      (evts) => {
+        const clearEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_CLEARED');
+        if (!clearEvt) return { pass: false, message: 'Missing WINDOW_TEXT_SELECTION_CLEARED event' };
+        return { pass: true, message: 'WINDOW_TEXT_SELECTION_CLEARED event captured' };
+      },
+      (evts) => {
+        const clearEvt = evts.find((e) => e.event === 'WINDOW_TEXT_SELECTION_CLEARED');
+        if (!clearEvt) return { pass: false, message: 'No WINDOW_TEXT_SELECTION_CLEARED to check selection field' };
+        const ok = clearEvt.selection === undefined || clearEvt.selection === null;
+        return { pass: ok, message: ok
+          ? 'WINDOW_TEXT_SELECTION_CLEARED has no selection field (correct)'
+          : `WINDOW_TEXT_SELECTION_CLEARED unexpectedly has selection: ${JSON.stringify(clearEvt.selection)}` };
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    } else { log('blue', '\n[SKIP] Step 5 (ONLY_STEPS filter)'); }
+
+    // =========================================================================
     // Window operation tests on UNSAVED document
     // =========================================================================
+    if (shouldRunStep(6)) {
     log('blue', '\n========================================');
     log('blue', '  Window operations: Unsaved document');
     log('blue', '========================================');
@@ -740,6 +1229,7 @@ async function runTest() {
     ]);
     totalPassed += result.passed;
     totalFailed += result.failed;
+    } else { log('blue', '\n[SKIP] Steps 6-8: Window operations (ONLY_STEPS filter)'); }
   } catch (error) {
     log('yellow', `[WARN] Error during actions: ${error.message}`);
   }
@@ -925,6 +1415,52 @@ async function runTest() {
     totalFailed++;
   }
 
+  // WINDOW_TEXT_SELECTION_REPOSITIONING/REPOSITIONED pairing
+  log('blue', '\n[VALIDATE] Checking TEXT_SELECTION_REPOSITIONING/REPOSITIONED pairing...');
+  let selPairingOk = true;
+  const selPairingErrors = [];
+
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].event !== 'WINDOW_TEXT_SELECTION_REPOSITIONING') continue;
+    // Look for a matching REPOSITIONED before next REPOSITIONING or end of stream
+    let hasMatching = false;
+    for (let j = i + 1; j < events.length; j++) {
+      if (events[j].event === 'WINDOW_TEXT_SELECTION_REPOSITIONED') {
+        hasMatching = true;
+        break;
+      }
+      if (events[j].event === 'WINDOW_TEXT_SELECTION_REPOSITIONING') break;
+    }
+    // Also acceptable if selection was cleared or changed (force-finishes the reposition)
+    if (!hasMatching) {
+      for (let j = i + 1; j < events.length; j++) {
+        if (events[j].event === 'WINDOW_TEXT_SELECTION_REPOSITIONED') { hasMatching = true; break; }
+        if (events[j].event === 'WINDOW_TEXT_SELECTED' || events[j].event === 'WINDOW_TEXT_SELECTION_CLEARED') {
+          hasMatching = true; // Force-finish emits REPOSITIONED before Selected/Cleared
+          break;
+        }
+        if (events[j].event === 'WINDOW_TEXT_SELECTION_REPOSITIONING') break;
+      }
+    }
+    if (!hasMatching) {
+      selPairingErrors.push(
+        `TEXT_SELECTION_REPOSITIONING at index ${i}: no matching REPOSITIONED`
+      );
+      selPairingOk = false;
+    }
+  }
+
+  if (selPairingOk) {
+    log('green', '[PASS] TEXT_SELECTION_REPOSITIONING/REPOSITIONED pairing is correct');
+    totalPassed++;
+  } else {
+    log('red', '[FAIL] TEXT_SELECTION_REPOSITIONING/REPOSITIONED pairing errors:');
+    for (const err of selPairingErrors) {
+      log('red', `  - ${err}`);
+    }
+    totalFailed++;
+  }
+
   // Check identifier in all events
   const hasIdentifier = events.every(
     (e) => e.app && e.app.identifier === BUNDLE_ID && e.app.identifierType === 'bundleId'
@@ -1053,6 +1589,63 @@ async function runTest() {
   } else {
     log('red', `[FAIL] Title/documentPath inconsistencies found:`);
     for (const err of docPathErrors) {
+      log('red', `  - ${err}`);
+    }
+    totalFailed++;
+  }
+
+  // contentBounds validation: WINDOW_FOCUSED and WINDOW_REPOSITIONED
+  // must always have contentBounds with positive dimensions that fit within window bounds.
+  log('blue', '\n[VALIDATE] Checking contentBounds is required for FOCUSED/REPOSITIONED...');
+  const CONTENT_BOUNDS_REQUIRED_EVENTS = ['WINDOW_FOCUSED', 'WINDOW_REPOSITIONED'];
+  const contentBoundsRequiredErrors = [];
+  let contentBoundsRequiredCount = 0;
+
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    if (!CONTENT_BOUNDS_REQUIRED_EVENTS.includes(e.event)) continue;
+    contentBoundsRequiredCount++;
+
+    const cb = e.window?.contentBounds;
+    if (!cb) {
+      contentBoundsRequiredErrors.push(
+        `Event index ${i} ${e.event} (window ${e.window?.id}): contentBounds is missing (required)`
+      );
+      continue;
+    }
+
+    // Validate positive dimensions
+    if (cb.width <= 0 || cb.height <= 0) {
+      contentBoundsRequiredErrors.push(
+        `Event index ${i} ${e.event} (window ${e.window.id}): contentBounds has non-positive dimensions (${cb.width}x${cb.height})`
+      );
+    }
+
+    // Validate contentBounds fits within window bounds
+    const wb = e.window.bounds;
+    if (wb) {
+      if (cb.width > wb.width + BOUNDS_TOLERANCE) {
+        contentBoundsRequiredErrors.push(
+          `Event index ${i} ${e.event} (window ${e.window.id}): contentBounds width ${cb.width} exceeds window width ${wb.width}`
+        );
+      }
+      if (cb.height > wb.height + BOUNDS_TOLERANCE) {
+        contentBoundsRequiredErrors.push(
+          `Event index ${i} ${e.event} (window ${e.window.id}): contentBounds height ${cb.height} exceeds window height ${wb.height}`
+        );
+      }
+    }
+  }
+
+  if (contentBoundsRequiredCount > 0 && contentBoundsRequiredErrors.length === 0) {
+    log('green', `[PASS] contentBounds present and valid in all ${contentBoundsRequiredCount} FOCUSED/REPOSITIONED events`);
+    totalPassed++;
+  } else if (contentBoundsRequiredCount === 0) {
+    log('red', '[FAIL] No WINDOW_FOCUSED/REPOSITIONED events found to check contentBounds');
+    totalFailed++;
+  } else {
+    log('red', `[FAIL] contentBounds validation errors (${contentBoundsRequiredErrors.length} of ${contentBoundsRequiredCount}):`);
+    for (const err of contentBoundsRequiredErrors) {
       log('red', `  - ${err}`);
     }
     totalFailed++;

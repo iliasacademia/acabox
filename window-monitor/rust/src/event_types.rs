@@ -25,6 +25,16 @@ pub enum EventType {
     AppTerminated,
     #[serde(rename = "WINDOW_DOCUMENT_PATH_CHANGED")]
     WindowDocumentPathChanged,
+    #[serde(rename = "WINDOW_TEXT_SELECTED")]
+    WindowTextSelected,
+    #[serde(rename = "WINDOW_TEXT_SELECTION_CLEARED")]
+    WindowTextSelectionCleared,
+    #[serde(rename = "WINDOW_TEXT_SELECTION_REPOSITIONING")]
+    WindowTextSelectionRepositioning,
+    #[serde(rename = "WINDOW_TEXT_SELECTION_REPOSITIONED")]
+    WindowTextSelectionRepositioned,
+    #[serde(rename = "WINDOW_DOCUMENT_TEXT_CHANGED")]
+    WindowDocumentTextChanged,
     #[serde(rename = "APP_EXISTING")]
     AppExisting,
 }

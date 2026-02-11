@@ -13,6 +13,7 @@ export interface WebviewEntryState {
   url: string;
   visible: boolean;
   frame: WebviewFrame;
+  ignoresMouseEvents?: boolean;
 }
 
 export type DesiredWebviewState = Record<string, WebviewEntryState>;
@@ -20,7 +21,8 @@ export type DesiredWebviewState = Record<string, WebviewEntryState>;
 export interface WebviewTypeConfig {
   keyPrefix: string;
   pathSuffix: string;
-  computeFrame: (bounds: WindowBounds, screenHeight: number) => WebviewFrame;
+  ignoresMouseEvents?: boolean;
+  computeFrame: (bounds: WindowBounds, screenHeight: number, contentBounds: WindowBounds | null, selectionBounds: WindowBounds | null) => WebviewFrame | null;
 }
 
 export function computeWebviewState(
@@ -38,14 +40,21 @@ export function computeWebviewState(
     for (const window of app.windows) {
       if (window.bounds === null) continue;
 
-      const visible = app.isFocused && window.isFocused && !window.isRepositioning;
+      const visible = app.isFocused && window.isFocused && !window.isRepositioning && !window.isSelectionRepositioning;
 
       for (const config of configs) {
-        const key = `${config.keyPrefix}-${window.id}`;
-        const url = `${baseUrl}${config.pathSuffix}?pid=${app.pid}&wid=${window.id}&token=${authToken}`;
-        const frame = config.computeFrame(window.bounds, screenHeight);
+        const frame = config.computeFrame(window.bounds, screenHeight, window.contentBounds, window.selectionBounds);
+        if (frame === null) continue;
 
-        result[key] = { url, visible, frame };
+        const key = `${config.keyPrefix}-${window.id}`;
+        const separator = config.pathSuffix.includes('?') ? '&' : '?';
+        const url = `${baseUrl}${config.pathSuffix}${separator}pid=${app.pid}&wid=${window.id}&token=${authToken}`;
+
+        const entry: WebviewEntryState = { url, visible, frame };
+        if (config.ignoresMouseEvents) {
+          entry.ignoresMouseEvents = true;
+        }
+        result[key] = entry;
       }
     }
   }

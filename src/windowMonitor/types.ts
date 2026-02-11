@@ -22,6 +22,7 @@ export interface WindowInfo {
   title: string | null;
   documentPath: string | null;
   bounds: WindowBounds | null;
+  contentBounds?: WindowBounds;
 }
 
 export interface WindowInfoWithBounds {
@@ -29,6 +30,7 @@ export interface WindowInfoWithBounds {
   title: string | null;
   documentPath: string | null;
   bounds: WindowBounds;
+  contentBounds?: WindowBounds;
 }
 
 // --- Event types ---
@@ -94,6 +96,51 @@ export interface WindowDocumentPathChangedEvent extends BaseEvent {
   window: WindowInfoWithBounds;
 }
 
+export interface TextSelectionInfo {
+  filePath: string;
+  length: number;
+  bounds?: WindowBounds;
+}
+
+export interface SelectionPositionInfo {
+  bounds: WindowBounds;
+}
+
+export interface WindowTextSelectedEvent extends BaseEvent {
+  event: 'WINDOW_TEXT_SELECTED';
+  window: WindowInfoWithBounds;
+  selection: TextSelectionInfo;
+}
+
+export interface WindowTextSelectionClearedEvent extends BaseEvent {
+  event: 'WINDOW_TEXT_SELECTION_CLEARED';
+  window: WindowInfoWithBounds;
+}
+
+export interface WindowTextSelectionRepositioningEvent extends BaseEvent {
+  event: 'WINDOW_TEXT_SELECTION_REPOSITIONING';
+  window: WindowInfoWithBounds;
+  selection: SelectionPositionInfo;
+}
+
+export interface WindowTextSelectionRepositionedEvent extends BaseEvent {
+  event: 'WINDOW_TEXT_SELECTION_REPOSITIONED';
+  window: WindowInfoWithBounds;
+  selection: SelectionPositionInfo;
+}
+
+export interface DocumentTextInfo {
+  filePath: string;
+  characterCount: number;
+  byteSize: number;
+}
+
+export interface WindowDocumentTextChangedEvent extends BaseEvent {
+  event: 'WINDOW_DOCUMENT_TEXT_CHANGED';
+  window: WindowInfoWithBounds;
+  document: DocumentTextInfo;
+}
+
 export type WindowMonitorEvent =
   | AppExistingEvent
   | AppLaunchedEvent
@@ -106,7 +153,12 @@ export type WindowMonitorEvent =
   | WindowFocusedEvent
   | WindowRepositioningEvent
   | WindowRepositionedEvent
-  | WindowDocumentPathChangedEvent;
+  | WindowDocumentPathChangedEvent
+  | WindowTextSelectedEvent
+  | WindowTextSelectionClearedEvent
+  | WindowTextSelectionRepositioningEvent
+  | WindowTextSelectionRepositionedEvent
+  | WindowDocumentTextChangedEvent;
 
 // --- State types ---
 
@@ -115,8 +167,13 @@ export interface WindowState {
   title: string | null;
   documentPath: string | null;
   bounds: WindowBounds | null;
+  contentBounds: WindowBounds | null;
+  selectionBounds: WindowBounds | null;
   isFocused: boolean;
   isRepositioning: boolean;
+  isSelectionRepositioning: boolean;
+  selectedText: TextSelectionInfo | null;
+  documentText: DocumentTextInfo | null;
 }
 
 export interface AppState {

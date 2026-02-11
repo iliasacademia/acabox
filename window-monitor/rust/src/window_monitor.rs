@@ -1,18 +1,22 @@
 use crate::accessibility::{self, SafeAXObserver, SafeAXUIElement};
-use crate::event_models::{self, AppInfoOutput, WindowBounds, WindowInfoOutput};
+use crate::document_text::DocumentTextTracker;
+use crate::event_models::{self, AppInfoOutput, DocumentTextInfo, SelectionBounds, TextSelectionInfo, WindowBounds, WindowInfoOutput};
 use crate::event_types::EventType;
+use crate::text_selection::{SelectionBoundsAction, TextSelectionChange, TextSelectionTracker};
 use crate::window_list::{self, WindowListEntry};
 use crate::workspace;
 use core_foundation::base::TCFType;
 use core_foundation::runloop::{CFRunLoop, CFRunLoopSource};
 use std::collections::HashMap;
 use std::ffi::c_void;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 const BOUNDS_TOLERANCE: f64 = 2.0;
 const RESIZE_DEBOUNCE_MS: u128 = 150;
+const SELECTION_BOUNDS_DEBOUNCE_MS: u128 = 150;
 const DEFERRED_CHECK_DELAY_MS: u128 = 100;
 
 // --- SendPtr: makes a raw pointer Send+Sync for the workspace callback ---
@@ -146,6 +150,9 @@ pub struct WindowMonitor {
     pub app_display_name: Option<String>,
     pub word_pid: i32,
 
+    // Content area detection config
+    content_area_role: Option<String>,
+
     // Window tracking (single consolidated map)
     windows: HashMap<u32, TrackedWindow>,
 
@@ -157,10 +164,18 @@ pub struct WindowMonitor {
 
     // Focus tracking
     last_focused_window_id: u32,
+    last_content_bounds: Option<(f64, f64, f64, f64)>,
+    last_scroll_time: Option<Instant>,
 
     // Debounce state machines
     reposition: RepositionTracker,
     deferred_check: DeferredCheck,
+
+    // Text selection tracking
+    text_selection: Option<TextSelectionTracker>,
+
+    // Document text tracking
+    document_text: Option<DocumentTextTracker>,
 
     // Lifecycle
     workspace_tokens: Option<workspace::WorkspaceObserverTokens>,
@@ -168,19 +183,38 @@ pub struct WindowMonitor {
 }
 
 impl WindowMonitor {
-    pub fn new(bundle_id: &str) -> Self {
+    pub fn new(
+        bundle_id: &str,
+        track_text_selection: bool,
+        track_document_text: bool,
+        temp_dir: PathBuf,
+        content_area_role: Option<String>,
+    ) -> Self {
         WindowMonitor {
             target_bundle_id: bundle_id.to_string(),
             app_display_name: None,
             word_pid: 0,
+            content_area_role,
             windows: HashMap::new(),
             ax_observer: None,
             app_element: None,
             observed_window_element: None,
             runloop_source: None,
             last_focused_window_id: 0,
+            last_content_bounds: None,
+            last_scroll_time: None,
             reposition: RepositionTracker::new(),
             deferred_check: DeferredCheck::new(),
+            text_selection: if track_text_selection {
+                Some(TextSelectionTracker::new(temp_dir.clone()))
+            } else {
+                None
+            },
+            document_text: if track_document_text {
+                Some(DocumentTextTracker::new(temp_dir))
+            } else {
+                None
+            },
             workspace_tokens: None,
             is_monitoring: false,
         }
@@ -241,11 +275,13 @@ impl WindowMonitor {
                         }
                         m.word_pid = notif.pid;
                         event_models::emit_app_event(EventType::AppLaunched, &m.app_info());
+                        m.cleanup_all_temp_files();
                         m.attach_to_app();
                     }
                     workspace::WorkspaceEvent::AppTerminated => {
                         m.emit_destroyed_events_for_all_tracked_windows();
                         event_models::emit_app_event(EventType::AppTerminated, &m.app_info());
+                        m.cleanup_all_temp_files();
                         m.detach_from_app();
                     }
                     workspace::WorkspaceEvent::AppActivated => {
@@ -256,6 +292,7 @@ impl WindowMonitor {
                     workspace::WorkspaceEvent::AppDeactivated => {
                         event_models::emit_app_event(EventType::AppUnfocused, &m.app_info());
                         m.last_focused_window_id = 0;
+                        m.last_content_bounds = None;
                     }
                     workspace::WorkspaceEvent::SpaceChanged => unreachable!(),
                 }
@@ -289,6 +326,7 @@ impl WindowMonitor {
         self.is_monitoring = false;
         eprintln!("Stopping window monitor...");
 
+        self.cleanup_all_temp_files();
         self.workspace_tokens = None;
         self.detach_from_app();
     }
@@ -377,6 +415,12 @@ impl WindowMonitor {
         self.reposition.reset();
         self.windows.clear();
         self.deferred_check.reset();
+        if let Some(ref mut tracker) = self.text_selection {
+            tracker.reset();
+        }
+        if let Some(ref mut tracker) = self.document_text {
+            tracker.reset();
+        }
     }
 
     /// Register move/resize observers on a specific window element.
@@ -443,7 +487,7 @@ impl WindowMonitor {
                 continue;
             }
 
-            let window_info = self.create_window_info_from_entry(w);
+            let window_info = self.create_window_info_from_entry(w, false);
 
             let entry = self.windows.get_mut(&w.window_id).unwrap();
             entry.is_emitted = true;
@@ -462,7 +506,7 @@ impl WindowMonitor {
         );
     }
 
-    /// Poll for changes: check focus, bounds, window list, and document path.
+    /// Poll for changes: check focus, bounds, window list, document path, text, and document text.
     /// Fetches the window list once and passes it to all sub-checks.
     pub fn poll_for_changes(&mut self) {
         let windows = window_list::get_windows_for_pid(self.word_pid);
@@ -470,6 +514,9 @@ impl WindowMonitor {
         self.check_for_focus_change(&windows);
         self.check_for_bounds_change(&windows);
         self.check_document_path_changed();
+        self.check_text_selection_changed();
+        self.check_selection_bounds_end();
+        self.check_document_text_changed();
     }
 
     /// Check for new/destroyed windows.
@@ -495,7 +542,7 @@ impl WindowMonitor {
             if !is_emitted {
                 let role = self.get_role_for_window(w.window_id);
                 if role.as_deref() == Some("AXWindow") {
-                    let window_info = self.create_window_info_from_entry(w);
+                    let window_info = self.create_window_info_from_entry(w, false);
 
                     let entry = self.windows.get_mut(&w.window_id).unwrap();
                     entry.is_emitted = true;
@@ -521,6 +568,7 @@ impl WindowMonitor {
             self.emit_destroyed_event_for_window_id(wid);
             if wid == self.last_focused_window_id {
                 self.last_focused_window_id = 0;
+                self.last_content_bounds = None;
             }
         }
     }
@@ -559,9 +607,39 @@ impl WindowMonitor {
                 // NOW update the focused window ID
                 self.last_focused_window_id = w.window_id;
 
-                let window_info = self.create_window_info_from_entry(w);
+                let window_info = self.create_window_info_from_entry(w, true);
+                self.last_content_bounds = window_info.content_bounds.as_ref().map(|b| (b.x, b.y, b.width, b.height));
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowFocused, &app, window_info);
+
+                // Trigger immediate document text read on focus
+                self.on_window_focused(w.window_id);
+            }
+        }
+    }
+
+    /// Called when a window gains focus — triggers immediate document text read.
+    fn on_window_focused(&mut self, window_id: u32) {
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el.retain(),
+            None => return,
+        };
+
+        if let Some(ref mut tracker) = self.document_text {
+            if let Some(change) = tracker.on_window_focused(&app_element, window_id) {
+                let window_info = self.build_window_info_for_id(window_id);
+                if let Some(window_info) = window_info {
+                    let app = self.app_info();
+                    event_models::emit_document_text_event(
+                        &app,
+                        window_info,
+                        DocumentTextInfo {
+                            file_path: change.file_path,
+                            character_count: change.character_count,
+                            byte_size: change.byte_size,
+                        },
+                    );
+                }
             }
         }
     }
@@ -627,7 +705,7 @@ impl WindowMonitor {
 
             let windows = window_list::get_windows_for_pid(self.word_pid);
             if let Some(entry) = windows.iter().find(|w| w.window_id == window_id) {
-                let window_info = self.create_window_info_from_entry(entry);
+                let window_info = self.create_window_info_from_entry(entry, false);
                 let app = self.app_info();
                 event_models::emit_window_event(
                     EventType::WindowDocumentPathChanged,
@@ -636,6 +714,294 @@ impl WindowMonitor {
                 );
             }
         }
+    }
+
+    /// Check for text selection changes in the focused UI element.
+    fn check_text_selection_changed(&mut self) {
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el,
+            None => return,
+        };
+
+        let focused_window_id = self.last_focused_window_id;
+        if focused_window_id == 0 {
+            return;
+        }
+
+        let change = match tracker.poll(app_element, focused_window_id) {
+            Some(c) => c,
+            None => return,
+        };
+
+        match change {
+            TextSelectionChange::Selected {
+                file_path,
+                length,
+                bounds,
+            } => {
+                // Force-finish any active bounds reposition before emitting Selected
+                self.finish_selection_bounds_reposition();
+
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let selection = TextSelectionInfo {
+                    file_path,
+                    length,
+                    bounds: bounds.map(|(x, y, w, h)| SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    }),
+                };
+                event_models::emit_text_selection_event(
+                    EventType::WindowTextSelected,
+                    &app,
+                    window_info,
+                    Some(selection),
+                );
+            }
+            TextSelectionChange::Cleared => {
+                // Force-finish any active bounds reposition before emitting Cleared
+                self.finish_selection_bounds_reposition();
+
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                event_models::emit_text_selection_event(
+                    EventType::WindowTextSelectionCleared,
+                    &app,
+                    window_info,
+                    None,
+                );
+            }
+            TextSelectionChange::BoundsChanged => {
+                self.handle_selection_bounds_change();
+            }
+        }
+    }
+
+    /// Check if selection bounds debounce has elapsed (called from main loop).
+    pub fn check_selection_bounds_end(&mut self) {
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if let SelectionBoundsAction::EmitRepositioned =
+            tracker.check_bounds_end(SELECTION_BOUNDS_DEBOUNCE_MS)
+        {
+            if let Some(bounds) = tracker.latest_bounds() {
+                let focused_window_id = self.last_focused_window_id;
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let (x, y, w, h) = bounds;
+                event_models::emit_selection_position_event(
+                    EventType::WindowTextSelectionRepositioned,
+                    &app,
+                    window_info,
+                    SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Handle a BoundsChanged signal: run debounce state machine, emit REPOSITIONING on first change.
+    fn handle_selection_bounds_change(&mut self) {
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if let SelectionBoundsAction::EmitRepositioning = tracker.on_bounds_changed() {
+            if let Some(bounds) = tracker.latest_bounds() {
+                let focused_window_id = self.last_focused_window_id;
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let (x, y, w, h) = bounds;
+                event_models::emit_selection_position_event(
+                    EventType::WindowTextSelectionRepositioning,
+                    &app,
+                    window_info,
+                    SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Fast bounds-only check called every main loop iteration (~100ms).
+    /// Detects selection position changes without the expensive text content poll.
+    pub fn check_selection_bounds_fast(&mut self) {
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el.retain(),
+            None => return,
+        };
+        if self.last_focused_window_id == 0 {
+            return;
+        }
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        let change = tracker.poll_bounds_only(&app_element);
+        if let Some(TextSelectionChange::BoundsChanged) = change {
+            self.handle_selection_bounds_change();
+        }
+    }
+
+    /// Handle a scroll event detected by the CGEvent tap.
+    /// Checks if the mouse is within the content area and emits REPOSITIONING immediately.
+    pub fn on_scroll_event(&mut self) {
+        if self.last_focused_window_id == 0 {
+            return;
+        }
+        // Require valid content bounds — if not yet detected, don't emit
+        let (cx, cy, cw, ch) = match self.last_content_bounds {
+            Some(b) => b,
+            None => return,
+        };
+        // NSEvent.mouseLocation uses AppKit coords (bottom-left origin)
+        // Convert to Quartz coords (top-left origin) to match contentBounds
+        let mouse_loc = objc2_app_kit::NSEvent::mouseLocation();
+        let screen_height = core_graphics::display::CGDisplay::main().bounds().size.height;
+        let mouse_x = mouse_loc.x;
+        let mouse_y = screen_height - mouse_loc.y;
+        if mouse_x < cx || mouse_x > cx + cw || mouse_y < cy || mouse_y > cy + ch {
+            return; // Mouse is outside content area
+        }
+        self.last_scroll_time = Some(Instant::now());
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if let SelectionBoundsAction::EmitRepositioning = tracker.on_scroll_detected() {
+            if let Some(bounds) = tracker.latest_bounds() {
+                let focused_window_id = self.last_focused_window_id;
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let (x, y, w, h) = bounds;
+                event_models::emit_selection_position_event(
+                    EventType::WindowTextSelectionRepositioning,
+                    &app,
+                    window_info,
+                    SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Keep the selection bounds debounce alive while scroll events are still arriving.
+    /// Called every main loop iteration — bridges the gap between discrete scroll events
+    /// so REPOSITIONED doesn't fire mid-scroll.
+    pub fn extend_scroll_debounce(&mut self) {
+        let recent = match self.last_scroll_time {
+            Some(t) if t.elapsed().as_millis() < 250 => true,
+            _ => false,
+        };
+        if !recent {
+            return;
+        }
+        if let Some(ref mut tracker) = self.text_selection {
+            tracker.extend_bounds_debounce();
+        }
+    }
+
+    /// Force-finish any active selection bounds reposition, emitting the final event.
+    fn finish_selection_bounds_reposition(&mut self) {
+        let tracker = match self.text_selection.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+        if let SelectionBoundsAction::EmitRepositioned = tracker.force_finish_bounds() {
+            if let Some(bounds) = tracker.latest_bounds() {
+                let focused_window_id = self.last_focused_window_id;
+                let window_info = match self.build_window_info_for_id(focused_window_id) {
+                    Some(w) => w,
+                    None => return,
+                };
+                let app = self.app_info();
+                let (x, y, w, h) = bounds;
+                event_models::emit_selection_position_event(
+                    EventType::WindowTextSelectionRepositioned,
+                    &app,
+                    window_info,
+                    SelectionBounds {
+                        x,
+                        y,
+                        width: w,
+                        height: h,
+                    },
+                );
+            }
+        }
+    }
+
+    /// Check for document text changes (poll character count, debounce, read full text).
+    fn check_document_text_changed(&mut self) {
+        let app_element = match self.app_element.as_ref() {
+            Some(el) => el.retain(),
+            None => return,
+        };
+
+        let focused_window_id = self.last_focused_window_id;
+
+        let tracker = match self.document_text.as_mut() {
+            Some(t) => t,
+            None => return,
+        };
+
+        let change = match tracker.poll(&app_element, focused_window_id) {
+            Some(c) => c,
+            None => return,
+        };
+
+        let window_info = self.build_window_info_for_id(focused_window_id);
+        let window_info = match window_info {
+            Some(w) => w,
+            None => return,
+        };
+
+        let app = self.app_info();
+        event_models::emit_document_text_event(
+            &app,
+            window_info,
+            DocumentTextInfo {
+                file_path: change.file_path,
+                character_count: change.character_count,
+                byte_size: change.byte_size,
+            },
+        );
     }
 
     /// Handle bounds change: emit REPOSITIONING, start debounce.
@@ -660,7 +1026,7 @@ impl WindowMonitor {
         let windows = window_list::get_windows_for_pid(self.word_pid);
         for w in &windows {
             if w.window_id == self.last_focused_window_id {
-                let window_info = self.create_window_info_from_entry(w);
+                let window_info = self.create_window_info_from_entry(w, false);
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowRepositioning, &app, window_info);
                 break;
@@ -680,7 +1046,8 @@ impl WindowMonitor {
                 if let Some(entry) = self.windows.get_mut(&w.window_id) {
                     entry.bounds = Some((w.bounds.x, w.bounds.y, w.bounds.width, w.bounds.height));
                 }
-                let window_info = self.create_window_info_from_entry(w);
+                let window_info = self.create_window_info_from_entry(w, true);
+                self.last_content_bounds = window_info.content_bounds.as_ref().map(|b| (b.x, b.y, b.width, b.height));
                 let app = self.app_info();
                 event_models::emit_window_event(EventType::WindowRepositioned, &app, window_info);
                 break;
@@ -705,8 +1072,19 @@ impl WindowMonitor {
             title: None,
             bounds: None,
             document_path: None,
+            content_bounds: None,
         };
         event_models::emit_window_event(EventType::WindowDestroyed, &app, window_info);
+    }
+
+    /// Clean up all temp files (on shutdown or app terminate).
+    fn cleanup_all_temp_files(&self) {
+        if let Some(ref tracker) = self.text_selection {
+            tracker.cleanup_all();
+        }
+        if let Some(ref tracker) = self.document_text {
+            tracker.cleanup_all();
+        }
     }
 
     /// Get the AXRole for a window identified by its CGWindowID.
@@ -730,11 +1108,27 @@ impl WindowMonitor {
     }
 
     /// Create a WindowInfoOutput from a CGWindow entry, enriched with AX attributes.
-    fn create_window_info_from_entry(&self, entry: &WindowListEntry) -> WindowInfoOutput {
+    /// When `include_content_bounds` is true, the content area child is located and
+    /// its bounds are included (used for WINDOW_FOCUSED and WINDOW_REPOSITIONED).
+    fn create_window_info_from_entry(&self, entry: &WindowListEntry, include_content_bounds: bool) -> WindowInfoOutput {
         let mut document_path = None;
+        let mut content_bounds = None;
 
         if let Some(ax_window) = self.find_ax_window_for_id(entry.window_id) {
             document_path = accessibility::get_document(&ax_window);
+
+            if include_content_bounds {
+                if let Some(content_area) = accessibility::find_content_area_child(&ax_window, self.content_area_role.as_deref()) {
+                    if let Some(rect) = accessibility::get_element_bounds(&content_area) {
+                        content_bounds = Some(WindowBounds {
+                            x: rect.origin.x,
+                            y: rect.origin.y,
+                            width: rect.size.width,
+                            height: rect.size.height,
+                        });
+                    }
+                }
+            }
         }
 
         WindowInfoOutput {
@@ -747,7 +1141,20 @@ impl WindowMonitor {
                 height: entry.bounds.height,
             }),
             document_path,
+            content_bounds,
         }
+    }
+
+    /// Build WindowInfoOutput for a window ID using the current window list.
+    fn build_window_info_for_id(&self, window_id: u32) -> Option<WindowInfoOutput> {
+        if window_id == 0 {
+            return None;
+        }
+        let windows = window_list::get_windows_for_pid(self.word_pid);
+        windows
+            .iter()
+            .find(|w| w.window_id == window_id)
+            .map(|w| self.create_window_info_from_entry(w, false))
     }
 
     /// Schedule a deferred window check (100ms after AX notification).
@@ -799,4 +1206,3 @@ pub unsafe extern "C" fn ax_observer_callback(
         _ => {}
     }
 }
-
