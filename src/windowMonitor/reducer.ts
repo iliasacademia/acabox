@@ -51,6 +51,7 @@ function upsertWindow(app: AppState, win: WindowInfoWithBounds): AppState {
     selectionBounds: null,
     isFocused: false,
     isRepositioning: false,
+    isSelectionRepositioning: false,
     selectedText: null,
     documentText: null,
   };
@@ -81,6 +82,7 @@ function newWindowState(win: WindowInfoWithBounds): WindowState {
     selectionBounds: null,
     isFocused: false,
     isRepositioning: false,
+    isSelectionRepositioning: false,
     selectedText: null,
     documentText: null,
   };
@@ -289,7 +291,27 @@ export function reduceWindowMonitorEvent(
       return next;
     }
 
-    case 'WINDOW_TEXT_SELECTION_REPOSITIONING':
+    case 'WINDOW_TEXT_SELECTION_REPOSITIONING': {
+      next = ensureApp(next, event.app);
+      next = updateApp(next, identifier, pid, (a) => {
+        if (!a.windows.some((w) => w.id === event.window.id)) {
+          return {
+            ...a,
+            windows: [...a.windows, { ...newWindowState(event.window), selectionBounds: event.selection.bounds, isSelectionRepositioning: true }],
+          };
+        }
+        return {
+          ...a,
+          windows: a.windows.map((w) =>
+            w.id === event.window.id
+              ? { ...w, selectionBounds: event.selection.bounds, isSelectionRepositioning: true }
+              : w,
+          ),
+        };
+      });
+      return next;
+    }
+
     case 'WINDOW_TEXT_SELECTION_REPOSITIONED': {
       next = ensureApp(next, event.app);
       next = updateApp(next, identifier, pid, (a) => {
@@ -303,7 +325,7 @@ export function reduceWindowMonitorEvent(
           ...a,
           windows: a.windows.map((w) =>
             w.id === event.window.id
-              ? { ...w, selectionBounds: event.selection.bounds }
+              ? { ...w, selectionBounds: event.selection.bounds, isSelectionRepositioning: false }
               : w,
           ),
         };

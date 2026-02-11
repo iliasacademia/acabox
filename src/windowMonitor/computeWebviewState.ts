@@ -40,7 +40,7 @@ export function computeWebviewState(
     for (const window of app.windows) {
       if (window.bounds === null) continue;
 
-      const visible = app.isFocused && window.isFocused && !window.isRepositioning;
+      const visible = app.isFocused && window.isFocused && !window.isRepositioning && !window.isSelectionRepositioning;
 
       for (const config of configs) {
         const frame = config.computeFrame(window.bounds, screenHeight, window.contentBounds, window.selectionBounds);

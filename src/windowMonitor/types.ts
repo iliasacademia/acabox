@@ -171,6 +171,7 @@ export interface WindowState {
   selectionBounds: WindowBounds | null;
   isFocused: boolean;
   isRepositioning: boolean;
+  isSelectionRepositioning: boolean;
   selectedText: TextSelectionInfo | null;
   documentText: DocumentTextInfo | null;
 }
