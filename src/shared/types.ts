@@ -90,6 +90,7 @@ export const IPC_CHANNELS = {
   PROJECT_STARTUP_SYNC_BEGIN: 'project-startup-sync-begin',
   PROJECT_STARTUP_SYNC_PROGRESS: 'project-startup-sync-progress',
   PROJECT_STARTUP_SYNC_COMPLETE: 'project-startup-sync-complete',
+  START_PROJECT_FILE_SYNC: 'start-project-file-sync',
   GET_PROJECT_WATCHER_STATUS: 'get-project-watcher-status',
   PROJECT_WATCHER_STATUS_CHANGED: 'project-watcher-status-changed',
 

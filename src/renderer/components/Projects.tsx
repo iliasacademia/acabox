@@ -159,6 +159,42 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     try {
       console.log('[Projects] Creating project with data:', data);
 
+      // Standalone file path (no folder) — create project with file_path, upload + watch
+      if (data.file && !data.folder) {
+        const newProject = await createProject({
+          name: data.name,
+          description: data.description,
+          file_path: data.file,
+        });
+        console.log(`[Projects] Project created (standalone file): ${JSON.stringify(newProject)}`);
+
+        // Start file sync (upload + watch)
+        const syncResult = await window.electronAPI.invoke(
+          IPC_CHANNELS.START_PROJECT_FILE_SYNC,
+          newProject.id,
+          data.file
+        );
+
+        if (!syncResult.success) {
+          console.error('[Projects] Failed to start file sync:', syncResult.error);
+          setDialog({
+            type: 'alert',
+            title: 'Sync Warning',
+            message: `Project created but file sync failed: ${syncResult.error}`,
+          });
+        }
+
+        // Refresh manuscript paths for Word integration
+        await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+
+        // Navigate to project
+        setProjects([newProject, ...projects]);
+        setShowCreateWizard(false);
+        setSelectedProject(newProject);
+        setCurrentView('detail');
+        return;
+      }
+
       // 1. Create project atomically with single folder
       const newProject = await createProject({
         name: data.name,
