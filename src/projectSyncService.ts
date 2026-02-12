@@ -13,7 +13,7 @@ import { calculateChecksum } from './utils/checksum';
  * Validates that a file path is within the allowed base directory
  * Prevents path traversal attacks including sibling directory access
  */
-function validatePath(basePath: string, targetPath: string): boolean {
+export function validatePath(basePath: string, targetPath: string): boolean {
   const resolvedBase = path.resolve(basePath);
   const resolvedTarget = path.resolve(targetPath);
   const relativePath = path.relative(resolvedBase, resolvedTarget);
@@ -21,6 +21,26 @@ function validatePath(basePath: string, targetPath: string): boolean {
   // Reject if path starts with '..' (parent directory) or is absolute
   // This prevents both parent and sibling directory traversal
   return !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+}
+
+/**
+ * Get MIME type from file extension
+ */
+export function getMimeType(ext: string): string {
+  const mimeTypes: { [key: string]: string } = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.zip': 'application/zip',
+  };
+
+  return mimeTypes[ext] || 'application/octet-stream';
 }
 
 interface WatchedProjectFolder {
@@ -65,13 +85,20 @@ interface ProjectSyncState {
   }>;
 }
 
-class ProjectSyncService {
+export class ProjectSyncService {
   private watchedFolders: Map<string, WatchedProjectFolder> = new Map();
   private watchedFiles: Map<string, WatchedProjectFile> = new Map();
   private mainWindow: BrowserWindow | null = null;
-  private store = new Store<ProjectSyncState>({
-    name: app.isPackaged ? 'project-sync-state' : 'project-sync-state-dev',
-  });
+  private _store: Store<ProjectSyncState> | null = null;
+
+  private get store(): Store<ProjectSyncState> {
+    if (!this._store) {
+      this._store = new Store<ProjectSyncState>({
+        name: app.isPackaged ? 'project-sync-state' : 'project-sync-state-dev',
+      });
+    }
+    return this._store;
+  }
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -942,7 +969,7 @@ class ProjectSyncService {
 
     // Determine MIME type
     const ext = path.extname(filePath).toLowerCase();
-    const mimeType = this.getMimeType(ext);
+    const mimeType = getMimeType(ext);
 
     // Validate MIME type is from allowed list
     const allowedMimeTypes = [
@@ -1122,26 +1149,6 @@ class ProjectSyncService {
     this.sendToRenderer('project-sync-status', status);
   }
 
-  /**
-   * Get MIME type from file extension
-   */
-  private getMimeType(ext: string): string {
-    const mimeTypes: { [key: string]: string } = {
-      '.pdf': 'application/pdf',
-      '.doc': 'application/msword',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.txt': 'text/plain',
-      '.md': 'text/markdown',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.zip': 'application/zip',
-    };
-
-    return mimeTypes[ext] || 'application/octet-stream';
-  }
-
   // ===========================================================================
   // Standalone file watching (no folder required)
   // ===========================================================================
@@ -1293,7 +1300,7 @@ class ProjectSyncService {
     }
 
     const ext = path.extname(filePath).toLowerCase();
-    const mimeType = this.getMimeType(ext);
+    const mimeType = getMimeType(ext);
 
     const formData = new FormData();
     formData.append('rel_path', fileName);
