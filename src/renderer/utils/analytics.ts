@@ -398,3 +398,49 @@ export function trackAcademiaButtonNewReviewClick(
     projectId,
   );
 }
+
+// =============================================================================
+// V2 ONBOARDING EVENTS
+// =============================================================================
+
+/**
+ * Track when user clicks "New file to review" button (V2 flow)
+ */
+export function trackV2FilePickerOpen(): void {
+  sendToBackend("v2_file_picker", "open", "desktop");
+}
+
+/**
+ * Track when user selects a file from native dialog (V2 flow)
+ */
+export function trackV2FileSelected(ext: string): void {
+  sendToBackend("v2_file_selected", "click", "desktop", { file_extension: ext });
+}
+
+/**
+ * Track when project is auto-created from file selection (V2 flow)
+ */
+export function trackV2ProjectCreated(projectId: number): void {
+  sendToBackend("v2_project_created", "created", "desktop", {}, projectId);
+}
+
+/**
+ * Track when supporting materials modal is shown (V2 flow)
+ */
+export function trackSupportingMaterialsView(projectId: number): void {
+  sendToBackend("supporting_materials_modal", "view", "desktop", {}, projectId);
+}
+
+/**
+ * Track when user clicks "Add supporting materials" (V2 flow)
+ */
+export function trackSupportingMaterialsAdd(projectId: number): void {
+  sendToBackend("supporting_materials", "add", "desktop", {}, projectId);
+}
+
+/**
+ * Track when user clicks "Maybe later" on supporting materials (V2 flow)
+ */
+export function trackSupportingMaterialsSkip(projectId: number): void {
+  sendToBackend("supporting_materials", "skip", "desktop", {}, projectId);
+}

@@ -659,10 +659,26 @@ describe('ProjectSyncService', () => {
       expect(watchedFile.status).toBe('synced');
     });
 
-    it('should stop watcher on 404 (project deleted)', async () => {
+    it('should stop watcher on 404 from API GET (project deleted)', async () => {
       const error = new Error('Not found');
       (error as any).response = { status: 404 };
       mockClient.get.mockRejectedValue(error);
+
+      await (service as any).performStartupSyncForFile(1, '/test/file.pdf');
+
+      // Should have removed the watched file
+      expect((service as any).watchedFiles.has('1-/test/file.pdf')).toBe(false);
+    });
+
+    it('should stop watcher on 404 from syncStandaloneFile (project deleted)', async () => {
+      // GET succeeds (file not on backend), but POST returns 404
+      mockClient.get.mockResolvedValue({ data: { files: [] } });
+      (fs.statSync as jest.Mock).mockReturnValue({ size: 100 });
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      mockClient.post.mockResolvedValue({
+        status: 404,
+        data: { errors: ['Project not found'] },
+      });
 
       await (service as any).performStartupSyncForFile(1, '/test/file.pdf');
 
@@ -677,6 +693,111 @@ describe('ProjectSyncService', () => {
 
       const watchedFile = (service as any).watchedFiles.get('1-/test/file.pdf');
       expect(watchedFile.status).toBe('error');
+    });
+  });
+
+  describe('performStartupSync() - 404 detection', () => {
+    beforeEach(async () => {
+      // Set up a watched folder so performStartupSync doesn't bail early
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.readdirSync as jest.Mock).mockReturnValue(['file.pdf']);
+      (fs.statSync as jest.Mock).mockReturnValue({ size: 1024, isDirectory: () => false, isFile: () => true });
+
+      await service.startWatching(1, 10, '/test/folder');
+      service.setMainWindow(mockWindow);
+      mockWatcher.close.mockClear();
+      mockStore.set.mockClear();
+      mockWindow.webContents.send.mockClear();
+    });
+
+    it('should stop watcher when syncFileToProject returns 404', async () => {
+      // getAllFiles returns one file
+      (fs.readdirSync as jest.Mock).mockReturnValue([{ name: 'file.pdf', isDirectory: () => false, isFile: () => true }]);
+      jest.spyOn(service as any, 'getAllFiles').mockReturnValue(['/test/folder/file.pdf']);
+
+      // Backend says file is new (not in file list)
+      mockClient.get.mockResolvedValue({ data: { files: [] } });
+
+      // syncFileToProject POST returns 404
+      mockClient.post.mockResolvedValue({
+        status: 404,
+        data: { errors: ['Project not found'] },
+      });
+
+      await (service as any).performStartupSync(1, 10, '/test/folder');
+
+      // Watcher should have been stopped and cleaned up
+      expect(mockWatcher.close).toHaveBeenCalled();
+      expect(service.getWatcherStatus(1, 10)).toBeNull();
+    });
+
+    it('should not stop watcher on non-404 sync errors', async () => {
+      jest.spyOn(service as any, 'getAllFiles').mockReturnValue(['/test/folder/file.pdf']);
+
+      // Backend says file is new
+      mockClient.get.mockResolvedValue({ data: { files: [] } });
+
+      // syncFileToProject POST returns 500
+      mockClient.post.mockResolvedValue({
+        status: 500,
+        data: { error: 'internal server error' },
+      });
+
+      await (service as any).performStartupSync(1, 10, '/test/folder');
+
+      // Watcher should still be active (not cleaned up)
+      expect(service.getWatcherStatus(1, 10)).not.toBeNull();
+    });
+  });
+
+  describe('performStartupFileSync() - 404 detection', () => {
+    beforeEach(async () => {
+      (fs.existsSync as jest.Mock).mockReturnValue(true);
+      (fs.readdirSync as jest.Mock).mockReturnValue(['file.pdf']);
+      (fs.statSync as jest.Mock).mockReturnValue({ size: 1024 });
+
+      // Start watching to create the folder entry
+      await service.startWatching(1, 10, '/test/folder');
+      service.setMainWindow(mockWindow);
+      mockWatcher.close.mockClear();
+      mockStore.set.mockClear();
+      mockWindow.webContents.send.mockClear();
+    });
+
+    it('should stop watcher on 404 from API GET', async () => {
+      const error = new Error('Not found');
+      (error as any).response = { status: 404 };
+      mockClient.get.mockRejectedValue(error);
+
+      await (service as any).performStartupFileSync(1, 10, '/test/folder', '/test/folder/file.pdf');
+
+      expect(mockWatcher.close).toHaveBeenCalled();
+      expect(service.getWatcherStatus(1, 10)).toBeNull();
+    });
+
+    it('should stop watcher on 404 from syncFileToProject', async () => {
+      // API GET succeeds, file not on backend -> triggers upload
+      mockClient.get.mockResolvedValue({ data: { files: [] } });
+
+      // syncFileToProject POST returns 404
+      mockClient.post.mockResolvedValue({
+        status: 404,
+        data: { errors: ['Project not found'] },
+      });
+
+      await (service as any).performStartupFileSync(1, 10, '/test/folder', '/test/folder/file.pdf');
+
+      expect(mockWatcher.close).toHaveBeenCalled();
+      expect(service.getWatcherStatus(1, 10)).toBeNull();
+    });
+
+    it('should not stop watcher on non-404 errors', async () => {
+      mockClient.get.mockRejectedValue(new Error('network error'));
+
+      await (service as any).performStartupFileSync(1, 10, '/test/folder', '/test/folder/file.pdf');
+
+      // Watcher should still exist (error status, but not cleaned up)
+      expect(service.getWatcherStatus(1, 10)).not.toBeNull();
     });
   });
 
@@ -718,6 +839,40 @@ describe('ProjectSyncService', () => {
       await expect(
         (service as any).syncStandaloneFile(1, '/test/paper.pdf')
       ).rejects.toThrow('Failed to sync standalone file');
+    });
+
+    it('should attach HTTP status to thrown error on non-2xx response', async () => {
+      (fs.statSync as jest.Mock).mockReturnValue({ size: 1024 });
+      mockClient.post.mockResolvedValue({
+        status: 404,
+        data: { errors: ['Project not found'] },
+      });
+
+      try {
+        await (service as any).syncStandaloneFile(1, '/test/paper.pdf');
+        fail('Expected error to be thrown');
+      } catch (error: any) {
+        expect(error.status).toBe(404);
+        expect(error.message).toContain('Failed to sync standalone file');
+      }
+    });
+  });
+
+  describe('syncFileToProject()', () => {
+    it('should attach HTTP status to thrown error on non-2xx response', async () => {
+      (fs.statSync as jest.Mock).mockReturnValue({ size: 1024 });
+      mockClient.post.mockResolvedValue({
+        status: 404,
+        data: { errors: ['Project not found'] },
+      });
+
+      try {
+        await (service as any).syncFileToProject(1, 10, '/test/folder', '/test/folder/file.pdf');
+        fail('Expected error to be thrown');
+      } catch (error: any) {
+        expect(error.status).toBe(404);
+        expect(error.message).toContain('Failed to sync file');
+      }
     });
   });
 

@@ -4,6 +4,7 @@ import ProjectDetail from './ProjectDetail';
 import CreateProjectWizard, {
   ProjectCreationData,
 } from './CreateProjectWizard';
+import SupportingMaterialsModal from './SupportingMaterialsModal';
 import AlertDialog from './AlertDialog';
 import ConfirmDialog from './ConfirmDialog';
 import { SettingsModal } from './SettingsModal';
@@ -18,6 +19,14 @@ import {
 } from '../services/projectsApi';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { ConversationsPageWrapper } from './conversations/ConversationsPageWrapper';
+import {
+  trackV2FilePickerOpen,
+  trackV2FileSelected,
+  trackV2ProjectCreated,
+  trackSupportingMaterialsView,
+  trackSupportingMaterialsAdd,
+  trackSupportingMaterialsSkip,
+} from '../utils/analytics';
 import './Projects.css';
 
 type View = 'list' | 'detail';
@@ -54,6 +63,13 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
   });
   const [pendingConversationId, setPendingConversationId] = useState<number | null>(null);
   const [pendingDiffModal, setPendingDiffModal] = useState<boolean>(false);
+  const [showSupportingMaterialsModal, setShowSupportingMaterialsModal] = useState(false);
+  const [v2PendingFile, setV2PendingFile] = useState<{
+    filePath: string;
+    fileName: string;
+    projectName: string;
+    folderPath: string;
+  } | null>(null);
 
   // Derive isLoggedIn from userId prop
   const isLoggedIn = !!userId;
@@ -150,8 +166,114 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     onLogout();
   };
 
-  const handleCreateProject = () => {
-    setShowCreateWizard(true);
+  const handleCreateProject = async () => {
+    if (FEATURES.ONBOARDING_V2_ENABLED) {
+      await handleV2CreateProject();
+    } else {
+      setShowCreateWizard(true);
+    }
+  };
+
+  const handleV2CreateProject = async () => {
+    trackV2FilePickerOpen();
+
+    // 1. Open native file picker filtered to .docx
+    const filePath = await window.electronAPI.invoke(
+      IPC_CHANNELS.SELECT_FILE,
+      { extensions: ['docx'] }
+    );
+
+    if (!filePath) return; // User cancelled
+
+    // 2. Track file selection
+    const lastSep = filePath.lastIndexOf('/');
+    const fileName = lastSep >= 0 ? filePath.substring(lastSep + 1) : filePath;
+    const dotIdx = fileName.lastIndexOf('.');
+    const ext = dotIdx >= 0 ? fileName.substring(dotIdx + 1).toLowerCase() : '';
+    trackV2FileSelected(ext);
+
+    // 3. Derive project name from filename (strip extension)
+    const projectName = dotIdx >= 0 ? fileName.substring(0, dotIdx) : fileName;
+    const folderPath = lastSep >= 0 ? filePath.substring(0, lastSep) : filePath;
+
+    // 4. Store file info and show modal immediately (no API calls yet)
+    setV2PendingFile({ filePath, fileName, projectName, folderPath });
+    setShowSupportingMaterialsModal(true);
+  };
+
+  const handleSupportingMaterialsResult = async (action: 'add' | 'skip') => {
+    if (!v2PendingFile) return;
+
+    const { filePath, projectName, folderPath } = v2PendingFile;
+
+    setCreatingProject(true);
+    try {
+      // 1. Create the project
+      const newProject = await createProject({
+        name: projectName,
+        folder_path: folderPath,
+      });
+      console.log(`[Projects-V2] Project created: ${JSON.stringify(newProject)}`);
+      trackV2ProjectCreated(newProject.id);
+
+      // 2. Track modal analytics retroactively (now we have the project ID)
+      trackSupportingMaterialsView(newProject.id);
+      if (action === 'add') {
+        trackSupportingMaterialsAdd(newProject.id);
+      } else {
+        trackSupportingMaterialsSkip(newProject.id);
+      }
+
+      // 3. Fetch the created folder ID
+      const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
+        method: 'GET',
+        endpoint: `v0/co_scientist/projects/${newProject.id}/folders`,
+      });
+      const createdFolders = response.folders || [];
+      const folder = createdFolders.find((f: any) => f.folder_path === folderPath);
+
+      if (folder) {
+        // 4. Start single-file sync
+        const syncResult = await window.electronAPI.invoke(
+          IPC_CHANNELS.START_PROJECT_FOLDER_FILE_SYNC,
+          newProject.id,
+          folder.id,
+          folderPath,
+          filePath
+        );
+
+        if (!syncResult.success) {
+          console.error(`[Projects-V2] File sync failed:`, syncResult.error);
+          setDialog({
+            type: 'alert',
+            title: 'Sync Warning',
+            message: `Project created but file sync failed: ${syncResult.error}`,
+          });
+        }
+      } else {
+        console.error(`[Projects-V2] Could not find folder ID for path: ${folderPath}`);
+      }
+
+      // 5. Refresh manuscript paths
+      await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+
+      // 6. Update projects list and navigate to detail
+      setProjects([newProject, ...projects]);
+      setSelectedProject(newProject);
+      setCurrentView('detail');
+    } catch (error) {
+      console.error('[Projects-V2] Error creating project:', error);
+      const errorMessage = extractErrorMessage(error, 'Failed to create project. Please try again.');
+      setDialog({
+        type: 'alert',
+        title: 'Error',
+        message: errorMessage,
+      });
+    } finally {
+      setShowSupportingMaterialsModal(false);
+      setV2PendingFile(null);
+      setCreatingProject(false);
+    }
   };
 
   const handleWizardComplete = async (data: ProjectCreationData) => {
@@ -436,6 +558,15 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
         <CreateProjectWizard
           onClose={() => !creatingProject && setShowCreateWizard(false)}
           onComplete={handleWizardComplete}
+          isCreating={creatingProject}
+        />
+      )}
+
+      {/* V2: Supporting Materials Modal */}
+      {showSupportingMaterialsModal && v2PendingFile && (
+        <SupportingMaterialsModal
+          onAdd={() => handleSupportingMaterialsResult('add')}
+          onSkip={() => handleSupportingMaterialsResult('skip')}
           isCreating={creatingProject}
         />
       )}

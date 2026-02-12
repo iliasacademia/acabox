@@ -71,6 +71,7 @@ module.exports = [
     'process.env.DATADOG_SITE': JSON.stringify(process.env.DATADOG_SITE || 'datadoghq.com'),
     'process.env.ZENDESK_WIDGET_KEY': JSON.stringify(process.env.ZENDESK_WIDGET_KEY || ''),
     'process.env.ZENDESK_ENABLED': JSON.stringify(process.env.ZENDESK_ENABLED || 'false'),
+    'process.env.ONBOARDING_V2_ENABLED': JSON.stringify(process.env.ONBOARDING_V2_ENABLED || 'false'),
   }),
   new CopyWebpackPlugin({
     patterns: [

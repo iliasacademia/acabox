@@ -1888,3 +1888,28 @@ button svg * {
   margin-bottom: 0;
 }
 
+/* ============================================================================
+   V2 ONBOARDING
+   ============================================================================ */
+
+/* V2: Supported file type label next to button */
+.supportedFileTypeLabel {
+  font-size: 14px;
+  color: #666;
+  margin-left: 12px;
+}
+
+/* V2: Supporting materials modal - vertical button layout */
+.supportingMaterialsActions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+}
+
+.supportingMaterialsActions .wizardButtonPrimary,
+.supportingMaterialsActions .wizardButtonSecondary {
+  width: 100%;
+  text-align: center;
+}
+

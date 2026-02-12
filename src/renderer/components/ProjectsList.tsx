@@ -3,6 +3,7 @@ import { Project } from '../services/projectsApi';
 import ProjectCard from './ProjectCard';
 import { categorizeProjects, getCategoryOrder } from '../utils/dateUtils';
 import { trackProjectsView, trackNewProjectClick } from '../utils/analytics';
+import { FEATURES } from '../../shared/types';
 
 interface ProjectsListProps {
   projects: Project[];
@@ -38,10 +39,15 @@ const ProjectsList: React.FC<ProjectsListProps> = ({
       {/* Header Section */}
       <div className="projectsListHeader">
         <h1 className="projectsListTitle">Research projects</h1>
-        <button className="createProjectButton" onClick={handleCreateClick}>
-          <span className="buttonIcon">+</span>
-          Create new project
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <button className="createProjectButton" onClick={handleCreateClick}>
+            <span className="buttonIcon">+</span>
+            {FEATURES.ONBOARDING_V2_ENABLED ? 'New file to review' : 'Create new project'}
+          </button>
+          {FEATURES.ONBOARDING_V2_ENABLED && (
+            <span className="supportedFileTypeLabel">Supported file type: Docx</span>
+          )}
+        </div>
       </div>
 
       {/* Content Section */}
@@ -51,7 +57,9 @@ const ProjectsList: React.FC<ProjectsListProps> = ({
         ) : projects.length === 0 ? (
           <div className="projectsEmpty">
             <p className="projectsEmptyText">
-              No projects yet. Create your first project to get started!
+              {FEATURES.ONBOARDING_V2_ENABLED
+                ? 'No files yet. Select a .docx file to get started!'
+                : 'No projects yet. Create your first project to get started!'}
             </p>
           </div>
         ) : (
