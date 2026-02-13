@@ -13,12 +13,25 @@ export interface MessageContext {
   created_at: string;
 }
 
+export interface FollowUpQuestion {
+  type: 'fact_check_review' | 'text_prompt';
+  // For fact_check_review
+  label?: string;
+  description?: string;
+  review_id?: number;
+  // For text_prompt
+  text?: string;
+}
+
 export interface Message {
   id: number;
   role: string; // 'user' | 'assistant' | 'tool'
   content: string;
   format?: 'markdown' | 'html'; // Content format, defaults to markdown if not specified
-  data: Record<string, unknown> | null; // tool_call data, final flag, etc.
+  data: {
+    extracted_questions?: FollowUpQuestion[];
+    [key: string]: unknown;
+  } | null; // tool_call data, final flag, extracted_questions, etc.
   created_at: string;
   contexts: MessageContext[];
 }
