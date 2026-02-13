@@ -21,8 +21,29 @@ let apiClient: AxiosInstance | null = null;
 function sanitizeForLogging(data: any): any {
   if (!data) return data;
 
-  // If it's FormData, don't try to serialize it
+  // If it's FormData, extract non-file fields for logging
   if (typeof FormData !== 'undefined' && data instanceof FormData) {
+    try {
+      const fields: Record<string, string> = {};
+      const streams: any[] = (data as any)._streams;
+      if (Array.isArray(streams)) {
+        for (let i = 0; i < streams.length; i++) {
+          const header = streams[i];
+          if (typeof header === 'string' && header.includes('Content-Disposition')) {
+            const nameMatch = header.match(/name="([^"]+)"/);
+            const value = streams[i + 1];
+            if (nameMatch) {
+              fields[nameMatch[1]] = typeof value === 'string' ? value : '[File/Stream]';
+            }
+          }
+        }
+      }
+      if (Object.keys(fields).length > 0) {
+        return { '[FormData]': fields };
+      }
+    } catch {
+      // Fall through to default
+    }
     return '[FormData - file upload]';
   }
 

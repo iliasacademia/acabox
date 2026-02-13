@@ -249,7 +249,7 @@ export class ProjectSyncService {
       Promise.all(
         allWatchedFolders.map(folder =>
           (folder.filePath
-            ? this.performStartupFileSync(folder.projectId, folder.folderId, folder.folderPath, folder.filePath)
+            ? this.performStartupFileSync(folder.projectId, folder.folderId, folder.filePath)
             : this.performStartupSync(folder.projectId, folder.folderId, folder.folderPath, folder.manuscriptPath)
           ).catch(error => {
             logger.error(
@@ -625,7 +625,7 @@ export class ProjectSyncService {
     }
 
     // Initial sync: upload just this one file
-    await this.syncFileToProject(projectId, folderId, folderPath, filePath, filePath);
+    await this.syncFileToProject(projectId, null, null, filePath, filePath);
 
     // Notify renderer about initial sync completion
     this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
@@ -748,7 +748,6 @@ export class ProjectSyncService {
   private async performStartupFileSync(
     projectId: number,
     folderId: number,
-    folderPath: string,
     filePath: string,
   ): Promise<void> {
     const key = `${projectId}-${folderId}`;
@@ -781,21 +780,20 @@ export class ProjectSyncService {
       const filesResponse = await client.get(`v0/co_scientist/projects/${projectId}/files`);
       const backendFiles = filesResponse.data?.files || [];
 
-      const relativePath = path.relative(folderPath, filePath);
-      const remoteFile = backendFiles.find((f: any) => f.file_path === relativePath);
+      const remoteFile = backendFiles.find((f: any) => f.file_path === filePath);
 
       if (!remoteFile) {
         // File not on backend yet, upload it
-        logger.debug(`[ProjectSync-Startup] File not on backend, uploading: ${relativePath}`);
-        await this.syncFileToProject(projectId, folderId, folderPath, filePath, filePath);
+        logger.debug(`[ProjectSync-Startup] File not on backend, uploading: ${filePath}`);
+        await this.syncFileToProject(projectId, null, null, filePath, filePath);
       } else {
         // Compare checksums
         const localChecksum = await calculateChecksum(filePath);
         if (localChecksum !== remoteFile.checksum) {
-          logger.debug(`[ProjectSync-Startup] File changed, re-uploading: ${relativePath}`);
-          await this.syncFileToProject(projectId, folderId, folderPath, filePath, filePath);
+          logger.debug(`[ProjectSync-Startup] File changed, re-uploading: ${filePath}`);
+          await this.syncFileToProject(projectId, null, null, filePath, filePath);
         } else {
-          logger.debug(`[ProjectSync-Startup] File unchanged: ${relativePath}`);
+          logger.debug(`[ProjectSync-Startup] File unchanged: ${filePath}`);
         }
       }
 
@@ -1177,25 +1175,30 @@ export class ProjectSyncService {
    */
   private async syncFileToProject(
     projectId: number,
-    folderId: number,
-    folderPath: string,
+    folderId: number | null,
+    folderPath: string | null,
     filePath: string,
     manuscriptPath?: string
   ): Promise<void> {
     const client = await APIclient();
     const csrfToken = await getCsrfToken();
 
-    // Validate path before processing
-    if (!validatePath(folderPath, filePath)) {
-      throw new Error('Invalid file path: traversal attempt detected');
-    }
+    let relPath: string;
+    if (folderPath) {
+      // Validate path before processing
+      if (!validatePath(folderPath, filePath)) {
+        throw new Error('Invalid file path: traversal attempt detected');
+      }
 
-    // Get relative path
-    const relativePath = path.relative(folderPath, filePath);
+      // Get relative path
+      relPath = path.relative(folderPath, filePath);
 
-    // Validate relative path doesn't contain dangerous characters
-    if (/[<>"|?*\x00-\x1f]/.test(relativePath)) {
-      throw new Error('Invalid file path: contains illegal characters');
+      // Validate relative path doesn't contain dangerous characters
+      if (/[<>"|?*\x00-\x1f]/.test(relPath)) {
+        throw new Error('Invalid file path: contains illegal characters');
+      }
+    } else {
+      relPath = filePath;
     }
 
     // Get file stats
@@ -1234,8 +1237,10 @@ export class ProjectSyncService {
 
     // Create form data
     const formData = new FormData();
-    formData.append('project_root_id', folderId.toString());
-    formData.append('rel_path', relativePath);
+    if (folderId != null) {
+      formData.append('project_root_id', folderId.toString());
+    }
+    formData.append('rel_path', relPath);
     formData.append('mime_type', mimeType);
     formData.append('size', size.toString());
     if (isManuscript) {
@@ -1262,7 +1267,7 @@ export class ProjectSyncService {
       throw error;
     }
 
-    logger.debug(`[ProjectSync] File synced: ${relativePath} (uploaded: ${response.data.uploaded})`);
+    logger.debug(`[ProjectSync] File synced: ${relPath} (uploaded: ${response.data.uploaded})`);
   }
 
   /**
@@ -1316,6 +1321,7 @@ export class ProjectSyncService {
       const key = `${projectId}-${folderId}`;
       const watchedFolder = this.watchedFolders.get(key);
       const manuscriptPath = watchedFolder?.manuscriptPath;
+      const isStandaloneFile = !!watchedFolder?.filePath;
       const relativePath = path.relative(folderPath, filePath);
 
       logger.debug(`[ProjectSync]   Relative path: ${relativePath}`);
@@ -1329,7 +1335,13 @@ export class ProjectSyncService {
       }
 
       logger.debug(`[ProjectSync] Syncing file to backend...`);
-      await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
+      await this.syncFileToProject(
+        projectId,
+        isStandaloneFile ? null : folderId,
+        isStandaloneFile ? null : folderPath,
+        filePath,
+        manuscriptPath
+      );
       logger.debug(`[ProjectSync] ✓ File synced successfully to backend`);
 
       // Set status to synced and broadcast
@@ -1533,7 +1545,6 @@ export class ProjectSyncService {
     const client = await APIclient();
     const csrfToken = await getCsrfToken();
 
-    const fileName = path.basename(filePath);
     const stats = fs.statSync(filePath);
     const size = stats.size;
 
@@ -1546,7 +1557,7 @@ export class ProjectSyncService {
     const mimeType = getMimeType(ext);
 
     const formData = new FormData();
-    formData.append('rel_path', fileName);
+    formData.append('rel_path', filePath);
     formData.append('mime_type', mimeType);
     formData.append('size', size.toString());
     formData.append('is_manuscript', 'true');
@@ -1570,7 +1581,7 @@ export class ProjectSyncService {
       throw error;
     }
 
-    logger.debug(`[ProjectSync] Standalone file synced: ${fileName} (uploaded: ${response.data.uploaded})`);
+    logger.debug(`[ProjectSync] Standalone file synced: ${path.basename(filePath)} (uploaded: ${response.data.uploaded})`);
   }
 
   /**
@@ -1590,7 +1601,7 @@ export class ProjectSyncService {
       const backendFiles = filesResponse.data?.files || [];
 
       const fileName = path.basename(filePath);
-      const remoteFile = backendFiles.find((f: any) => f.file_path === fileName);
+      const remoteFile = backendFiles.find((f: any) => f.file_path === filePath);
 
       if (!remoteFile) {
         // File not on backend, upload it
