@@ -731,3 +731,36 @@ pub fn find_text_area_in_subtree(
 
     search(element, max_depth)
 }
+
+/// DFS to find ALL AXTextArea elements in a subtree, with a depth limit.
+/// Word exposes each page as a separate AXTextArea, so we need to collect all of them
+/// to capture the full document text.
+pub fn find_all_text_areas_in_subtree(
+    element: &SafeAXUIElement,
+    max_depth: u32,
+) -> Vec<SafeAXUIElement> {
+    if max_depth == 0 {
+        return Vec::new();
+    }
+
+    fn search(element: &SafeAXUIElement, depth_remaining: u32, result: &mut Vec<SafeAXUIElement>) {
+        if depth_remaining == 0 {
+            return;
+        }
+
+        let children = get_children(element);
+        for child in children {
+            if let Some(role) = get_role(&child) {
+                if role == "AXTextArea" {
+                    result.push(child);
+                    continue; // Don't recurse into text areas
+                }
+            }
+            search(&child, depth_remaining - 1, result);
+        }
+    }
+
+    let mut result = Vec::new();
+    search(element, max_depth, &mut result);
+    result
+}
