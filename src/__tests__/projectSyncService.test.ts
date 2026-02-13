@@ -634,7 +634,7 @@ describe('ProjectSyncService', () => {
 
     it('should re-upload when checksum mismatches', async () => {
       mockClient.get.mockResolvedValue({
-        data: { files: [{ file_path: 'file.pdf', checksum: 'remote-hash' }] },
+        data: { files: [{ file_path: '/test/file.pdf', checksum: 'remote-hash' }] },
       });
       (calculateChecksum as jest.Mock).mockResolvedValue('local-hash');
       (fs.statSync as jest.Mock).mockReturnValue({ size: 100 });
@@ -648,7 +648,7 @@ describe('ProjectSyncService', () => {
 
     it('should skip upload when checksums match', async () => {
       mockClient.get.mockResolvedValue({
-        data: { files: [{ file_path: 'file.pdf', checksum: 'same-hash' }] },
+        data: { files: [{ file_path: '/test/file.pdf', checksum: 'same-hash' }] },
       });
       (calculateChecksum as jest.Mock).mockResolvedValue('same-hash');
 
