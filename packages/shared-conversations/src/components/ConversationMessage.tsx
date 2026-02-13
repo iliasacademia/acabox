@@ -1,16 +1,19 @@
 import React from 'react';
 import Markdown from 'markdown-to-jsx';
 import DOMPurify from 'isomorphic-dompurify';
-import { Message } from '../types/conversation';
+import { Message, FollowUpQuestion } from '../types/conversation';
 
 interface ConversationMessageProps {
   message: Message;
   onShowDiff?: () => void;
   onQuestionClick?: (question: string) => void;
+  onFactCheckClick?: (reviewId: number) => void;
   showQuestions?: boolean;
+  showFactCheck?: boolean; // Whether to show fact-check button
+  isFirstAssistantMessage?: boolean; // Indicates if this is a review message
 }
 
-export function ConversationMessage({ message, onShowDiff, onQuestionClick, showQuestions }: ConversationMessageProps) {
+export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, showQuestions, showFactCheck, isFirstAssistantMessage }: ConversationMessageProps) {
   const isAssistant = message.role === 'assistant';
   const isTool = message.role === 'tool';
 
@@ -19,8 +22,33 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, show
     return null;
   }
 
-  // Extract questions from message.data if present (array of strings)
-  const extractedQuestions = message.data?.extracted_questions as string[] | undefined;
+  // Extract questions from message.data and separate by type
+  // Check both 'extracted_questions' and 'follow_up_actions' (backend may use either)
+  const extractedQuestions = (message.data?.extracted_questions || message.data?.follow_up_actions) as FollowUpQuestion[] | undefined;
+  const factCheckQuestion = extractedQuestions?.find(q => q.type === 'fact_check_review');
+  const textPromptQuestions = extractedQuestions?.filter(q => q.type === 'text_prompt') || [];
+
+  // Determine review_id for fact-check button
+  // Priority: 1) from fact_check_review question, 2) from message.data.review_id, 3) from message.id
+  const reviewId = factCheckQuestion?.review_id ?? (message.data?.review_id as number | undefined) ?? message.id;
+
+  // Get label and description for fact-check button
+  const factCheckLabel = factCheckQuestion?.label || 'Fact check and refine';
+  const factCheckDescription = factCheckQuestion?.description;
+
+  // Debug logging
+  if (isFirstAssistantMessage) {
+    console.log('[ConversationMessage] First assistant message detected:', {
+      messageId: message.id,
+      isFirstAssistantMessage,
+      showQuestions,
+      showFactCheck,
+      reviewId,
+      hasFactCheckQuestion: !!factCheckQuestion,
+      extractedQuestions,
+      messageData: message.data,
+    });
+  }
 
   // Handle clicks on links in HTML content
   const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -139,17 +167,31 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, show
         </div>
       )}
 
+      {/* Show fact-check button for review messages (first assistant message) */}
+      {showFactCheck && onFactCheckClick && (
+        <div className="factCheckButtonContainer">
+          <button
+            type="button"
+            className="factCheckButton"
+            onClick={() => onFactCheckClick(reviewId)}
+            title={factCheckDescription}
+          >
+            {factCheckLabel}
+          </button>
+        </div>
+      )}
+
       {/* Show question pills only when showQuestions is true */}
-      {showQuestions && extractedQuestions && extractedQuestions.length > 0 && (
+      {showQuestions && textPromptQuestions.length > 0 && (
         <div className="questionPills">
-          {extractedQuestions.map((question, index) => (
+          {textPromptQuestions.map((question, index) => (
             <button
-              key={question + index}
+              key={index}
               type="button"
               className="questionPill"
-              onClick={() => handleQuestionClick(question)}
+              onClick={() => question.text && handleQuestionClick(question.text)}
             >
-              {question}
+              {question.text}
             </button>
           ))}
         </div>

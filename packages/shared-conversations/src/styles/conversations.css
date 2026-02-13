@@ -1729,6 +1729,44 @@
     transform: scale(0.98);
 }
 
+/* Fact Check Button */
+.factCheckButtonContainer {
+    margin-top: 12px;
+}
+
+.factCheckButton {
+    background-color: var(--background-white);
+    border: 1px solid var(--text-primary);
+    border-radius: 104px; /* Pill shape - fully rounded */
+    padding: 8px 16px;
+    font-family: var(--font-family-sans);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: all 0.2s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.factCheckButton:hover {
+    background-color: var(--text-primary);
+    color: var(--background-white);
+}
+
+.factCheckButton:active {
+    transform: scale(0.98);
+}
+
+.factCheckButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
 /* Feedback Link */
 .feedbackLink {
     font-family: var(--font-family-sans);

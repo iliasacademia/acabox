@@ -70,7 +70,7 @@ export function ConversationDetail({
   const hasOpenedInitialDiffModal = useRef(false);
 
   const apiClient = useApiClient();
-  const { createConversation, createMessage } = useConversationsApi();
+  const { createConversation, createMessage, factCheckReview } = useConversationsApi();
   const { getFileDiff } = useProjectsApi();
 
   // Open feedback form in browser with conversation ID prefilled
@@ -443,22 +443,63 @@ export function ConversationDetail({
     }
   };
 
-  // Find the last assistant message
+  // Handle fact-check button click - triggers fact-check API
+  const handleFactCheckClick = async (reviewId: number) => {
+    if (!conversation || isDraft(conversation) || isSending) return;
+
+    setIsSending(true);
+    setSendError(null);
+
+    try {
+      // Call fact-check API
+      await factCheckReview(conversation.id, reviewId, projectId);
+
+      // Update timestamps for tracking
+      const now = new Date();
+      lastUserMessageTime.current = now;
+      conversationViewedAt.current = now;
+
+      // Notify parent to update conversation list
+      onConversationUpdate?.();
+
+      // Start polling to get the fact-check response
+      startPolling(conversation.id, projectId);
+    } catch (err: unknown) {
+      const error = err as { message?: string };
+      setSendError(error.message || 'Failed to initiate fact-check. Please try again.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  // Find the first and last assistant messages
+  const firstAssistantMessage = messages.find((m) => m.role === 'assistant');
   const lastAssistantMessage = messages
     .slice()
     .reverse()
     .find((m) => m.role === 'assistant');
 
-  // Check if there's a user message after the last assistant message
+  // Check if there's a user message after the first assistant message (for fact-check button)
+  const firstAssistantIndex = firstAssistantMessage
+    ? messages.findIndex((m) => m.id === firstAssistantMessage.id)
+    : -1;
+
+  const hasUserMessageAfterFirstAssistant = firstAssistantIndex >= 0 &&
+    messages.slice(firstAssistantIndex + 1).some((m) => m.role === 'user');
+
+  // Check if there's a user message after the last assistant message (for question pills)
   const lastAssistantIndex = lastAssistantMessage
     ? messages.findIndex((m) => m.id === lastAssistantMessage.id)
     : -1;
 
-  const hasUserMessageAfter = lastAssistantIndex >= 0 &&
+  const hasUserMessageAfterLastAssistant = lastAssistantIndex >= 0 &&
     messages.slice(lastAssistantIndex + 1).some((m) => m.role === 'user');
 
-  // Only show questions if it's the last assistant message AND no user message follows
-  const shouldShowQuestions = !hasUserMessageAfter;
+  // Show questions on last assistant message if no user message follows
+  const shouldShowQuestions = !hasUserMessageAfterLastAssistant;
+
+  // Show fact-check button on first assistant message if no user message follows it
+  const shouldShowFactCheck = !hasUserMessageAfterFirstAssistant;
 
   // Group consecutive tool messages (no date dividers)
   const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: Message | Message[]; messageIndex: number }> = [];
@@ -598,10 +639,20 @@ export function ConversationDetail({
                     message={item.data as Message}
                     onShowDiff={handleShowDiff}
                     onQuestionClick={handleQuestionClick}
+                    onFactCheckClick={handleFactCheckClick}
                     showQuestions={
                       shouldShowQuestions &&
                       lastAssistantMessage &&
                       (item.data as Message).id === lastAssistantMessage.id
+                    }
+                    showFactCheck={
+                      shouldShowFactCheck &&
+                      firstAssistantMessage &&
+                      (item.data as Message).id === firstAssistantMessage.id
+                    }
+                    isFirstAssistantMessage={
+                      firstAssistantMessage &&
+                      (item.data as Message).id === firstAssistantMessage.id
                     }
                   />
                 ) : (
