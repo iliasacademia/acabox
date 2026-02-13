@@ -21,6 +21,10 @@ const POPUP_WIDTH = 370;
 const POPUP_HEIGHT = 280;
 const POPUP_GAP_ABOVE_BUTTON = 10;
 
+const REVIEW_BUTTON_WIDTH = 90;
+const REVIEW_BUTTON_HEIGHT = 46;
+const REVIEW_BUTTON_GAP = 10;
+
 const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY === '1';
 const DEBUG_SELECTION_BOUNDS_OVERLAY = process.env.DEBUG_SELECTION_BOUNDS_OVERLAY === '1';
 
@@ -50,6 +54,25 @@ const webviewConfigs: WebviewTypeConfig[] = [
         width: POPUP_WIDTH,
         height: POPUP_HEIGHT,
       };
+    },
+  },
+  {
+    keyPrefix: 'review-button',
+    pathSuffix: '/ui/popup/reviewButton/',
+    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds) => {
+      if (!selectionBounds) return null;
+
+      // Right of selection with gap, bottom-aligned
+      const x = selectionBounds.x + selectionBounds.width + REVIEW_BUTTON_GAP;
+      const cocoaY = screenHeight - (selectionBounds.y + selectionBounds.height);
+
+      // Clamp to window bounds
+      const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
+      const cocoaWindowTop = cocoaWindowBottom + _bounds.height;
+      const clampedX = Math.max(_bounds.x, Math.min(x, _bounds.x + _bounds.width - REVIEW_BUTTON_WIDTH));
+      const clampedY = Math.max(cocoaWindowBottom, Math.min(cocoaY, cocoaWindowTop - REVIEW_BUTTON_HEIGHT));
+
+      return { x: clampedX, y: clampedY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
     },
   },
 ];
