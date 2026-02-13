@@ -840,6 +840,18 @@ export function ConversationsPage({
     setSwitchSuccessMessage(null); // Clear any previous success message
 
     try {
+      // Check if file is already tracked in the project
+      const existingFiles = await getProjectFiles(selectedProject.id);
+      const isFileTracked = existingFiles.some((file) => file.file_path === filePath);
+
+      // If NOT tracked, upload it first as a non-manuscript file
+      if (!isFileTracked) {
+        const syncResult = await window.electronAPI?.invoke('sync-project-file-once', selectedProject.id, filePath);
+        if (!syncResult?.success) {
+          throw new Error(syncResult?.error || 'Failed to sync file to project');
+        }
+      }
+
       await switchManuscript(selectedProject.id, filePath);
       // Refresh manuscript file data after switch
       const files = await getProjectFiles(selectedProject.id);
@@ -849,6 +861,11 @@ export function ConversationsPage({
       // Update ProjectSyncService cache with new manuscript path
       if (newManuscript?.file_path) {
         await window.electronAPI?.invoke('update-project-manuscript-path', selectedProject.id, newManuscript.file_path);
+      }
+
+      // If file was not previously tracked, start watching it for ongoing changes
+      if (!isFileTracked) {
+        await window.electronAPI?.invoke('start-project-file-sync', selectedProject.id, filePath);
       }
 
       // Trigger full review if new manuscript exists

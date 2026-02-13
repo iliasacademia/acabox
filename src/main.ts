@@ -1263,6 +1263,16 @@ ipcMain.handle(IPC_CHANNELS.START_PROJECT_FILE_SYNC, async (_event, projectId: n
   }
 });
 
+ipcMain.handle(IPC_CHANNELS.SYNC_PROJECT_FILE_ONCE, async (_event, projectId: number, filePath: string) => {
+  try {
+    await projectSyncService.syncFileOnce(projectId, filePath);
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to sync file once:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle(IPC_CHANNELS.STOP_PROJECT_FOLDER_SYNC, async (_event, projectId: number, folderId: number) => {
   try {
     await projectSyncService.stopWatching(projectId, folderId);

@@ -1446,6 +1446,17 @@ export class ProjectSyncService {
   }
 
   /**
+   * One-time sync of a file to a project without starting a watcher.
+   * Used to pre-upload a file before switching manuscript.
+   */
+  async syncFileOnce(projectId: number, filePath: string): Promise<void> {
+    if (!fs.existsSync(filePath)) {
+      throw new Error('File does not exist');
+    }
+    await this.syncFileToProject(projectId, null, null, filePath, undefined);
+  }
+
+  /**
    * Start watching a file WITHOUT performing initial upload
    * Used during app initialization - sync is handled separately by performStartupSyncForFile
    */
