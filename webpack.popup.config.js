@@ -13,6 +13,7 @@ module.exports = {
   entry: {
     academiaNotificationsButtonV2: './src/popup/AcademiaNotificationsButtonV2.tsx',
     academiaNotificationsV2: './src/popup/AcademiaNotificationsPopupV2.tsx',
+    reviewButton: './src/popup/ReviewButton.tsx',
   },
   output: {
     path: path.resolve(__dirname, 'dist/popup'),
@@ -58,6 +59,13 @@ module.exports = {
       filename: 'academiaNotificationsV2/index.html',
       chunks: ['academiaNotificationsV2'],
       inject: false, // Don't inject - we manually control script loading order
+      scriptLoading: 'blocking',
+    }),
+    new HtmlWebpackPlugin({
+      template: './src/popup/review-button.html',
+      filename: 'reviewButton/index.html',
+      chunks: ['reviewButton'],
+      inject: false,
       scriptLoading: 'blocking',
     }),
     new HtmlWebpackPlugin({

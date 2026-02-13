@@ -101,6 +101,8 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
         }
       } else if (action === 'clearPopupSize' && wid) {
         windowMonitorService.clearPopupSize(wid);
+      } else if (action === 'openPopup' && wid) {
+        windowMonitorService.openPopupForWindow(wid);
       }
 
       reply.send({ success: true });

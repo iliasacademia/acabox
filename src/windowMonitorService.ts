@@ -3,7 +3,7 @@ import { app, screen } from 'electron';
 import * as path from 'path';
 import * as readline from 'readline';
 import { defaultLogger as logger } from './utils/logger';
-import { SystemState, WindowMonitorEvent, WindowBounds } from './windowMonitor/types';
+import { SystemState, WindowMonitorEvent, WindowBounds, TextSelectionInfo, DocumentTextInfo } from './windowMonitor/types';
 import { wordPollEventBus } from './server/events/wordPollEventBus';
 import { createInitialState } from './windowMonitor/initialState';
 import { reduceWindowMonitorEvent } from './windowMonitor/reducer';
@@ -20,6 +20,12 @@ const BUTTON_BOTTOM_MARGIN = 30;
 const POPUP_WIDTH = 370;
 const POPUP_HEIGHT = 280;
 const POPUP_GAP_ABOVE_BUTTON = 10;
+
+const REVIEW_BUTTON_WIDTH = 120;
+const REVIEW_BUTTON_HEIGHT = 46;
+const REVIEW_BUTTON_GAP = 10;
+
+const REVIEWING_BUTTON_V2_WIDTH = 320;
 
 const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY === '1';
 const DEBUG_SELECTION_BOUNDS_OVERLAY = process.env.DEBUG_SELECTION_BOUNDS_OVERLAY === '1';
@@ -50,6 +56,42 @@ const webviewConfigs: WebviewTypeConfig[] = [
         width: POPUP_WIDTH,
         height: POPUP_HEIGHT,
       };
+    },
+  },
+  {
+    keyPrefix: 'review-button',
+    pathSuffix: '/ui/popup/reviewButton/',
+    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds) => {
+      if (!selectionBounds) return null;
+
+      // Right of selection with gap, bottom-aligned
+      const x = selectionBounds.x + selectionBounds.width + REVIEW_BUTTON_GAP;
+      const cocoaY = screenHeight - (selectionBounds.y + selectionBounds.height);
+
+      // Clamp to window bounds
+      const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
+      const cocoaWindowTop = cocoaWindowBottom + _bounds.height;
+      const clampedX = Math.max(_bounds.x, Math.min(x, _bounds.x + _bounds.width - REVIEW_BUTTON_WIDTH));
+      const clampedY = Math.max(cocoaWindowBottom, Math.min(cocoaY, cocoaWindowTop - REVIEW_BUTTON_HEIGHT));
+
+      // Hide if button falls outside content bounds
+      if (_contentBounds) {
+        const contentLeft = _contentBounds.x;
+        const contentRight = _contentBounds.x + _contentBounds.width;
+        const contentBottom = screenHeight - (_contentBounds.y + _contentBounds.height);
+        const contentTop = contentBottom + _contentBounds.height;
+
+        if (
+          clampedX < contentLeft ||
+          clampedX + REVIEW_BUTTON_WIDTH > contentRight ||
+          clampedY < contentBottom ||
+          clampedY + REVIEW_BUTTON_HEIGHT > contentTop
+        ) {
+          return null;
+        }
+      }
+
+      return { x: clampedX, y: clampedY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
     },
   },
 ];
@@ -120,6 +162,12 @@ export class WindowMonitorService {
   private popupHeightOverrides: Map<string, number> = new Map();
   private buttonDragOffsets: Map<string, { dx: number; dy: number }> = new Map();
   private popupSizeOverrides: Map<string, { width: number; height: number }> = new Map();
+  private buttonV2WidthOverrides: Map<string, number> = new Map();
+  private selectedTextReviewState = new Map<string, {
+    projectId: number;
+    projectFileId: number;
+    startedAt: number;
+  }>();
   private baseUrl: string | null = null;
   private authToken: string | null = null;
 
@@ -178,6 +226,8 @@ export class WindowMonitorService {
         this.popupHeightOverrides.delete(event.window.id);
         this.buttonDragOffsets.delete(event.window.id);
         this.popupSizeOverrides.delete(event.window.id);
+        this.buttonV2WidthOverrides.delete(event.window.id);
+        this.selectedTextReviewState.delete(event.window.id);
       }
 
       logger.info('[WindowMonitorService] State:', newState);
@@ -243,6 +293,13 @@ export class WindowMonitorService {
         if (sizeOverride) {
           desiredState[key].frame.width = Math.max(desiredState[key].frame.width, sizeOverride.width);
           desiredState[key].frame.height = Math.max(desiredState[key].frame.height, sizeOverride.height);
+        }
+      }
+      if (key.startsWith('button-v2-')) {
+        const windowId = key.slice('button-v2-'.length);
+        const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
+        if (buttonWidthOverride !== undefined) {
+          desiredState[key].frame.width = buttonWidthOverride;
         }
       }
     }
@@ -338,6 +395,32 @@ export class WindowMonitorService {
     }
   }
 
+  setSelectedTextReviewState(windowId: string, projectId: number, projectFileId: number): void {
+    this.selectedTextReviewState.set(windowId, { projectId, projectFileId, startedAt: Date.now() });
+    this.buttonV2WidthOverrides.set(windowId, REVIEWING_BUTTON_V2_WIDTH);
+    this.pushWebviewState();
+  }
+
+  clearSelectedTextReviewState(windowId: string): void {
+    this.selectedTextReviewState.delete(windowId);
+    this.buttonV2WidthOverrides.delete(windowId);
+    // Note: pushWebviewState() is NOT called here — caller handles native update
+    // timing to avoid disrupting WebSocket delivery of the state change.
+  }
+
+  getSelectedTextReviewState(windowId: string): { projectId: number; projectFileId: number; startedAt: number } | null {
+    return this.selectedTextReviewState.get(windowId) ?? null;
+  }
+
+  getAllSelectedTextReviewStates(): Map<string, { projectId: number; projectFileId: number; startedAt: number }> {
+    return this.selectedTextReviewState;
+  }
+
+  openPopupForWindow(windowId: string): void {
+    this.popupToggledOpen.add(windowId);
+    this.pushWebviewState();
+  }
+
   closePopupForWindow(windowId: string): void {
     if (this.popupToggledOpen.delete(windowId)) {
       this.pushWebviewState();
@@ -352,6 +435,28 @@ export class WindowMonitorService {
             return decodeURIComponent(window.documentPath.slice(7));
           }
           return window.documentPath;
+        }
+      }
+    }
+    return null;
+  }
+
+  getSelectedTextForWindow(windowId: string): TextSelectionInfo | null {
+    for (const app of this.state.apps) {
+      for (const window of app.windows) {
+        if (window.id === windowId) {
+          return window.selectedText;
+        }
+      }
+    }
+    return null;
+  }
+
+  getDocumentTextForWindow(windowId: string): DocumentTextInfo | null {
+    for (const app of this.state.apps) {
+      for (const window of app.windows) {
+        if (window.id === windowId) {
+          return window.documentText;
         }
       }
     }
@@ -374,6 +479,8 @@ export class WindowMonitorService {
     this.popupHeightOverrides.clear();
     this.buttonDragOffsets.clear();
     this.popupSizeOverrides.clear();
+    this.buttonV2WidthOverrides.clear();
+    this.selectedTextReviewState.clear();
   }
 }
 
