@@ -80,6 +80,7 @@ export const IPC_CHANNELS = {
   FILE_SYNC_ERROR: 'file-sync-error',
 
   // Project sync operations
+  START_PROJECT_FOLDER_FILE_SYNC: 'start-project-folder-file-sync',
   START_PROJECT_FOLDER_SYNC: 'start-project-folder-sync',
   STOP_PROJECT_FOLDER_SYNC: 'stop-project-folder-sync',
   STOP_PROJECT_SYNC: 'stop-project-sync',
@@ -90,6 +91,8 @@ export const IPC_CHANNELS = {
   PROJECT_STARTUP_SYNC_BEGIN: 'project-startup-sync-begin',
   PROJECT_STARTUP_SYNC_PROGRESS: 'project-startup-sync-progress',
   PROJECT_STARTUP_SYNC_COMPLETE: 'project-startup-sync-complete',
+  START_PROJECT_FILE_SYNC: 'start-project-file-sync',
+  SYNC_PROJECT_FILE_ONCE: 'sync-project-file-once',
   GET_PROJECT_WATCHER_STATUS: 'get-project-watcher-status',
   PROJECT_WATCHER_STATUS_CHANGED: 'project-watcher-status-changed',
 
@@ -146,11 +149,13 @@ export const FEATURES: {
   MS_WORD_INTEGRATION_ENABLED: boolean;
   MS_WORD_V2_ENABLED: boolean;
   ZENDESK_WIDGET_ENABLED: boolean;
+  ONBOARDING_V2_ENABLED: boolean;
 } = {
   CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
   MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
   MS_WORD_V2_ENABLED: true, // V2: new implementation
   ZENDESK_WIDGET_ENABLED: true, // Toggle Zendesk support widget
+  ONBOARDING_V2_ENABLED: true, // V2 onboarding: single-file picker flow
 };
 
 export interface DesktopNotification {

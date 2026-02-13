@@ -170,8 +170,8 @@ export interface ProjectStatusResponse {
 export interface CreateProjectRequest {
   name: string;
   description?: string;
-  folder_ids?: number[]; // Legacy: Link existing folders (deprecated)
   folder_path?: string; // NEW: Atomic creation with single folder path
+  file_path?: string; // Standalone file path (no folder required)
   primary_manuscript_id?: number;
   collaborator_emails?: string[];
 }

@@ -19,6 +19,7 @@ export interface ProjectCreationData {
   name: string;
   description?: string;
   folder?: string; // Single folder path
+  file?: string; // Standalone file path (no folder required)
   primaryManuscriptPath?: string;
   collaboratorEmails?: string[];
 }

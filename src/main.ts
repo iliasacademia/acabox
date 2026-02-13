@@ -1223,6 +1223,16 @@ ipcMain.handle(IPC_CHANNELS.VERIFY_QR_CODE, async (_event, deviceId: string, cod
 });
 
 // Project Sync IPC handlers
+ipcMain.handle(IPC_CHANNELS.START_PROJECT_FOLDER_FILE_SYNC, async (_event, projectId: number, folderId: number, folderPath: string, filePath: string) => {
+  try {
+    await projectSyncService.startWatchingFolderFile(projectId, folderId, folderPath, filePath);
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to start project file sync:', error);
+    return { success: false, error: error.message };
+  }
+});
+
 ipcMain.handle(IPC_CHANNELS.START_PROJECT_FOLDER_SYNC, async (_event, projectId: number, folderId: number, folderPath: string, manuscriptPath?: string) => {
   try {
     await projectSyncService.startWatching(projectId, folderId, folderPath, manuscriptPath);
@@ -1239,6 +1249,26 @@ ipcMain.handle(IPC_CHANNELS.UPDATE_PROJECT_MANUSCRIPT_PATH, async (_event, proje
     return { success: true };
   } catch (error: any) {
     logger.error('[IPC] Failed to update manuscript path:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.START_PROJECT_FILE_SYNC, async (_event, projectId: number, filePath: string) => {
+  try {
+    await projectSyncService.startWatchingFile(projectId, filePath);
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to start project file sync:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.SYNC_PROJECT_FILE_ONCE, async (_event, projectId: number, filePath: string) => {
+  try {
+    await projectSyncService.syncFileOnce(projectId, filePath);
+    return { success: true };
+  } catch (error: any) {
+    logger.error('[IPC] Failed to sync file once:', error);
     return { success: false, error: error.message };
   }
 });
@@ -1404,15 +1434,19 @@ ipcMain.handle(IPC_CHANNELS.SELECT_FOLDER, async (event) => {
   return result.filePaths[0];
 });
 
-ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, defaultPath?: string) => {
+ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, options?: string | { defaultPath?: string; extensions?: string[] }) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
+
+  // Support both old signature (defaultPath string) and new (options object)
+  const defaultPath = typeof options === 'string' ? options : options?.defaultPath;
+  const extensions = (typeof options === 'object' && options?.extensions) || SUPPORTED_DOCUMENT_EXTENSIONS;
 
   const result = await dialog.showOpenDialog(senderWindow, {
     defaultPath,
     properties: ['openFile'],
     filters: [
-      { name: 'Documents', extensions: SUPPORTED_DOCUMENT_EXTENSIONS }
+      { name: 'Documents', extensions }
     ]
   });
   return result.filePaths[0];

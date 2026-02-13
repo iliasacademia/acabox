@@ -13,7 +13,7 @@ import { calculateChecksum } from './utils/checksum';
  * Validates that a file path is within the allowed base directory
  * Prevents path traversal attacks including sibling directory access
  */
-function validatePath(basePath: string, targetPath: string): boolean {
+export function validatePath(basePath: string, targetPath: string): boolean {
   const resolvedBase = path.resolve(basePath);
   const resolvedTarget = path.resolve(targetPath);
   const relativePath = path.relative(resolvedBase, resolvedTarget);
@@ -21,6 +21,26 @@ function validatePath(basePath: string, targetPath: string): boolean {
   // Reject if path starts with '..' (parent directory) or is absolute
   // This prevents both parent and sibling directory traversal
   return !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+}
+
+/**
+ * Get MIME type from file extension
+ */
+export function getMimeType(ext: string): string {
+  const mimeTypes: { [key: string]: string } = {
+    '.pdf': 'application/pdf',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    '.txt': 'text/plain',
+    '.md': 'text/markdown',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.zip': 'application/zip',
+  };
+
+  return mimeTypes[ext] || 'application/octet-stream';
 }
 
 interface WatchedProjectFolder {
@@ -32,6 +52,7 @@ interface WatchedProjectFolder {
   fileCount: number;
   lastSync: string | null;
   manuscriptPath?: string;
+  filePath?: string; // V2: single file watching mode (when set, only this file is watched)
 }
 
 interface ProjectSyncStatus {
@@ -44,21 +65,42 @@ interface ProjectSyncStatus {
   errorCount: number;
 }
 
+interface WatchedProjectFile {
+  projectId: number;
+  filePath: string;
+  watcher: chokidar.FSWatcher | null;
+  status: 'idle' | 'syncing' | 'synced' | 'error';
+  lastSync: string | null;
+}
+
 interface ProjectSyncState {
   folders: Array<{
     projectId: number;
     folderId: number;
     folderPath: string;
     manuscriptPath?: string;
+    filePath?: string;
+  }>;
+  files?: Array<{
+    projectId: number;
+    filePath: string;
   }>;
 }
 
-class ProjectSyncService {
+export class ProjectSyncService {
   private watchedFolders: Map<string, WatchedProjectFolder> = new Map();
+  private watchedFiles: Map<string, WatchedProjectFile> = new Map();
   private mainWindow: BrowserWindow | null = null;
-  private store = new Store<ProjectSyncState>({
-    name: app.isPackaged ? 'project-sync-state' : 'project-sync-state-dev',
-  });
+  private _store: Store<ProjectSyncState> | null = null;
+
+  private get store(): Store<ProjectSyncState> {
+    if (!this._store) {
+      this._store = new Store<ProjectSyncState>({
+        name: app.isPackaged ? 'project-sync-state' : 'project-sync-state-dev',
+      });
+    }
+    return this._store;
+  }
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -79,9 +121,15 @@ class ProjectSyncService {
       folderId: f.folderId,
       folderPath: f.folderPath,
       manuscriptPath: f.manuscriptPath,
+      filePath: f.filePath,
+    }));
+    const files = Array.from(this.watchedFiles.values()).map(f => ({
+      projectId: f.projectId,
+      filePath: f.filePath,
     }));
     this.store.set('folders', folders);
-    logger.debug(`[ProjectSync] Persisted ${folders.length} folders to disk`);
+    this.store.set('files', files);
+    logger.debug(`[ProjectSync] Persisted ${folders.length} folders and ${files.length} files to disk`);
   }
 
   /**
@@ -113,25 +161,36 @@ class ProjectSyncService {
       folderId: number;
       folderPath: string;
       manuscriptPath?: string;
+      filePath?: string;
     }> = [];
 
     for (const folder of state) {
       try {
-        // Check if local folder still exists
-        if (!fs.existsSync(folder.folderPath)) {
-          logger.warn(`[ProjectSync] Local folder no longer exists: ${folder.folderPath}`);
+        // For file-mode, check the file exists; for folder-mode, check the folder
+        const pathToCheck = folder.filePath || folder.folderPath;
+        if (!fs.existsSync(pathToCheck)) {
+          logger.warn(`[ProjectSync] Local path no longer exists: ${pathToCheck}`);
           continue;
         }
 
         validatedFolders.push(folder);
 
         // Start watcher (without performing initial sync yet)
-        await this.startWatchingOnly(
-          folder.projectId,
-          folder.folderId,
-          folder.folderPath,
-          folder.manuscriptPath
-        );
+        if (folder.filePath) {
+          await this.startWatchingFolderFileOnly(
+            folder.projectId,
+            folder.folderId,
+            folder.folderPath,
+            folder.filePath
+          );
+        } else {
+          await this.startWatchingOnly(
+            folder.projectId,
+            folder.folderId,
+            folder.folderPath,
+            folder.manuscriptPath
+          );
+        }
 
         logger.debug(
           `[ProjectSync] Restored watcher for project ${folder.projectId}, folder ${folder.folderId}`
@@ -145,6 +204,34 @@ class ProjectSyncService {
     if (validatedFolders.length !== state.length) {
       this.store.set('folders', validatedFolders);
       logger.debug(`[ProjectSync] Updated persisted state: ${validatedFolders.length} valid folders`);
+    }
+
+    // Restore file watchers from persisted state
+    const fileState = this.store.get('files', []);
+    logger.debug(`[ProjectSync] Found ${fileState.length} persisted files`);
+
+    const validatedFiles: Array<{ projectId: number; filePath: string }> = [];
+
+    for (const file of fileState) {
+      try {
+        if (!fs.existsSync(file.filePath)) {
+          logger.warn(`[ProjectSync] Standalone file no longer exists: ${file.filePath}`);
+          continue;
+        }
+
+        validatedFiles.push(file);
+
+        // Start watcher without initial upload
+        await this.startWatchingFileOnly(file.projectId, file.filePath);
+        logger.debug(`[ProjectSync] Restored file watcher for project ${file.projectId}, file ${file.filePath}`);
+      } catch (error) {
+        logger.error(`[ProjectSync] Error restoring file watcher for ${file.filePath}:`, error);
+      }
+    }
+
+    if (validatedFiles.length !== fileState.length) {
+      this.store.set('files', validatedFiles);
+      logger.debug(`[ProjectSync] Updated persisted file state: ${validatedFiles.length} valid files`);
     }
 
     // Try to restore any folders from backend that aren't in local state
@@ -161,11 +248,9 @@ class ProjectSyncService {
       // Don't await - let startup sync happen in background
       Promise.all(
         allWatchedFolders.map(folder =>
-          this.performStartupSync(
-            folder.projectId,
-            folder.folderId,
-            folder.folderPath,
-            folder.manuscriptPath
+          (folder.filePath
+            ? this.performStartupFileSync(folder.projectId, folder.folderId, folder.filePath)
+            : this.performStartupSync(folder.projectId, folder.folderId, folder.folderPath, folder.manuscriptPath)
           ).catch(error => {
             logger.error(
               `[ProjectSync] Startup sync failed for project ${folder.projectId}, folder ${folder.folderId}:`,
@@ -174,7 +259,26 @@ class ProjectSyncService {
           })
         )
       ).then(() => {
-        logger.debug('[ProjectSync] All startup syncs complete');
+        logger.debug('[ProjectSync] All folder startup syncs complete');
+      });
+    }
+
+    // Perform startup sync for standalone files (async, non-blocking)
+    const allWatchedFiles = Array.from(this.watchedFiles.values());
+    if (allWatchedFiles.length > 0) {
+      logger.debug(`[ProjectSync] Starting async startup sync for ${allWatchedFiles.length} standalone files`);
+
+      Promise.all(
+        allWatchedFiles.map(file =>
+          this.performStartupSyncForFile(file.projectId, file.filePath).catch(error => {
+            logger.error(
+              `[ProjectSync] Startup sync failed for project ${file.projectId}, file ${file.filePath}:`,
+              error
+            );
+          })
+        )
+      ).then(() => {
+        logger.debug('[ProjectSync] All file startup syncs complete');
       });
     }
 
@@ -320,7 +424,7 @@ class ProjectSyncService {
   updateManuscriptPath(projectId: number, manuscriptPath: string): void {
     let updated = false;
 
-    for (const [key, folder] of this.watchedFolders.entries()) {
+    for (const [_key, folder] of this.watchedFolders.entries()) {
       if (folder.projectId === projectId) {
         folder.manuscriptPath = manuscriptPath;
         updated = true;
@@ -504,6 +608,222 @@ class ProjectSyncService {
   }
 
   /**
+   * Start watching a single file and sync it to the project (V2 onboarding)
+   */
+  async startWatchingFolderFile(projectId: number, folderId: number, folderPath: string, filePath: string) {
+    const key = `${projectId}-${folderId}`;
+
+    logger.debug(`[ProjectSync] Starting to watch file: ${filePath} for project ${projectId}`);
+
+    if (!fs.existsSync(filePath)) {
+      throw new Error('File does not exist');
+    }
+
+    if (this.watchedFolders.has(key)) {
+      logger.debug(`[ProjectSync] Already watching for project ${projectId}`);
+      return;
+    }
+
+    // Initial sync: upload just this one file
+    await this.syncFileToProject(projectId, null, null, filePath, filePath);
+
+    // Notify renderer about initial sync completion
+    this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
+      projectId,
+      folderId,
+      filePath: path.relative(folderPath, filePath),
+      action: 'initial-sync',
+    });
+
+    // Watch the single file with chokidar
+    const watcher = chokidar.watch(filePath, {
+      persistent: true,
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 100 },
+    });
+
+    const watchedFolder: WatchedProjectFolder = {
+      projectId,
+      folderId,
+      folderPath,
+      watcher,
+      status: 'synced',
+      fileCount: 1,
+      lastSync: new Date().toISOString(),
+      manuscriptPath: filePath,
+      filePath, // marks this as file-mode
+    };
+
+    this.watchedFolders.set(key, watchedFolder);
+    this.persistState();
+
+    watcher.on('change', () => this.handleFileChanged(projectId, folderId, folderPath, filePath));
+    watcher.on('unlink', () => this.handleFileDeleted(projectId, folderId, folderPath, filePath));
+    watcher.on('ready', () => {
+      logger.debug(`[ProjectSync] File watcher ready: ${filePath}`);
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: true,
+        status: watchedFolder.status,
+      });
+    });
+    watcher.on('error', (error) => {
+      logger.error(`[ProjectSync] File watcher error for ${filePath}:`, error);
+      watchedFolder.status = 'error';
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: false,
+        status: 'error',
+      });
+    });
+
+    logger.debug(`[ProjectSync] File watcher started: ${filePath}`);
+  }
+
+  /**
+   * Start watching a single file WITHOUT performing initial sync
+   * Used during app initialization - sync is handled separately by performStartupFileSync
+   */
+  private async startWatchingFolderFileOnly(projectId: number, folderId: number, folderPath: string, filePath: string): Promise<void> {
+    const key = `${projectId}-${folderId}`;
+
+    if (this.watchedFolders.has(key)) {
+      logger.debug(`[ProjectSync] Already watching file for project ${projectId}`);
+      return;
+    }
+
+    logger.debug(`[ProjectSync] Starting file watcher (no initial sync): ${filePath}`);
+
+    const watcher = chokidar.watch(filePath, {
+      persistent: true,
+      ignoreInitial: true,
+      awaitWriteFinish: { stabilityThreshold: 2000, pollInterval: 100 },
+    });
+
+    const watchedFolder: WatchedProjectFolder = {
+      projectId,
+      folderId,
+      folderPath,
+      watcher,
+      status: 'idle',
+      fileCount: 1,
+      lastSync: null,
+      manuscriptPath: filePath,
+      filePath,
+    };
+
+    this.watchedFolders.set(key, watchedFolder);
+
+    watcher.on('change', () => this.handleFileChanged(projectId, folderId, folderPath, filePath));
+    watcher.on('unlink', () => this.handleFileDeleted(projectId, folderId, folderPath, filePath));
+    watcher.on('ready', () => {
+      logger.debug(`[ProjectSync] File watcher ready: ${filePath}`);
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: true,
+        status: watchedFolder.status,
+      });
+    });
+    watcher.on('error', (error) => {
+      logger.error(`[ProjectSync] File watcher error for ${filePath}:`, error);
+      watchedFolder.status = 'error';
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_WATCHER_STATUS_CHANGED, {
+        projectId,
+        folderId,
+        watcherActive: false,
+        status: 'error',
+      });
+    });
+
+    logger.debug(`[ProjectSync] File watcher started (no sync): ${filePath}`);
+  }
+
+  /**
+   * Perform startup sync for a single-file watched project
+   * Checks if the file changed while the app was closed using checksums
+   */
+  private async performStartupFileSync(
+    projectId: number,
+    folderId: number,
+    filePath: string,
+  ): Promise<void> {
+    const key = `${projectId}-${folderId}`;
+    const folder = this.watchedFolders.get(key);
+    if (!folder) return;
+
+    logger.debug(`[ProjectSync-Startup] Starting file sync for project ${projectId}, file ${filePath}`);
+    folder.status = 'syncing';
+    this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_BEGIN, {
+      projectId,
+      folderId,
+      message: 'Checking for changes...',
+    });
+
+    try {
+      if (!fs.existsSync(filePath)) {
+        logger.warn(`[ProjectSync-Startup] File no longer exists: ${filePath}`);
+        folder.status = 'error';
+        this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {
+          projectId,
+          folderId,
+          status: 'error',
+          error: 'File no longer exists',
+        });
+        return;
+      }
+
+      // Get backend file list with checksums
+      const client = await APIclient();
+      const filesResponse = await client.get(`v0/co_scientist/projects/${projectId}/files`);
+      const backendFiles = filesResponse.data?.files || [];
+
+      const remoteFile = backendFiles.find((f: any) => f.file_path === filePath);
+
+      if (!remoteFile) {
+        // File not on backend yet, upload it
+        logger.debug(`[ProjectSync-Startup] File not on backend, uploading: ${filePath}`);
+        await this.syncFileToProject(projectId, null, null, filePath, filePath);
+      } else {
+        // Compare checksums
+        const localChecksum = await calculateChecksum(filePath);
+        if (localChecksum !== remoteFile.checksum) {
+          logger.debug(`[ProjectSync-Startup] File changed, re-uploading: ${filePath}`);
+          await this.syncFileToProject(projectId, null, null, filePath, filePath);
+        } else {
+          logger.debug(`[ProjectSync-Startup] File unchanged: ${filePath}`);
+        }
+      }
+
+      folder.status = 'synced';
+      folder.lastSync = new Date().toISOString();
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {
+        projectId,
+        folderId,
+        status: 'completed',
+        message: 'File up to date',
+      });
+    } catch (error: any) {
+      if (error?.response?.status === 404 || error?.status === 404) {
+        logger.warn(`[ProjectSync-Startup] Project ${projectId} no longer exists (404), stopping watcher`);
+        await this.stopWatching(projectId, folderId);
+        return;
+      }
+
+      logger.error(`[ProjectSync-Startup] File sync error for project ${projectId}:`, error);
+      folder.status = 'error';
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_STARTUP_SYNC_COMPLETE, {
+        projectId,
+        folderId,
+        status: 'error',
+        error: error.message,
+      });
+    }
+  }
+
+  /**
    * Stop watching a project folder
    */
   async stopWatching(projectId: number, folderId: number) {
@@ -654,14 +974,25 @@ class ProjectSyncService {
         );
 
         // Process results
+        let projectNotFound = false;
         results.forEach((result, index) => {
           if (result.status === 'fulfilled') {
             syncedCount++;
           } else {
+            if (result.reason?.status === 404) {
+              projectNotFound = true;
+            }
             logger.error(`[ProjectSync-Startup] Failed to sync ${chunk[index].path}:`, result.reason);
             errorCount++;
           }
         });
+
+        if (projectNotFound) {
+          logger.warn(`[ProjectSync-Startup] Project ${projectId} no longer exists (404), stopping watcher`);
+          folder.status = 'idle';
+          await this.stopWatching(projectId, folderId);
+          return;
+        }
       }
 
       folder.status = 'synced';
@@ -844,25 +1175,30 @@ class ProjectSyncService {
    */
   private async syncFileToProject(
     projectId: number,
-    folderId: number,
-    folderPath: string,
+    folderId: number | null,
+    folderPath: string | null,
     filePath: string,
     manuscriptPath?: string
   ): Promise<void> {
     const client = await APIclient();
     const csrfToken = await getCsrfToken();
 
-    // Validate path before processing
-    if (!validatePath(folderPath, filePath)) {
-      throw new Error('Invalid file path: traversal attempt detected');
-    }
+    let relPath: string;
+    if (folderPath) {
+      // Validate path before processing
+      if (!validatePath(folderPath, filePath)) {
+        throw new Error('Invalid file path: traversal attempt detected');
+      }
 
-    // Get relative path
-    const relativePath = path.relative(folderPath, filePath);
+      // Get relative path
+      relPath = path.relative(folderPath, filePath);
 
-    // Validate relative path doesn't contain dangerous characters
-    if (/[<>"|?*\x00-\x1f]/.test(relativePath)) {
-      throw new Error('Invalid file path: contains illegal characters');
+      // Validate relative path doesn't contain dangerous characters
+      if (/[<>"|?*\x00-\x1f]/.test(relPath)) {
+        throw new Error('Invalid file path: contains illegal characters');
+      }
+    } else {
+      relPath = filePath;
     }
 
     // Get file stats
@@ -877,7 +1213,7 @@ class ProjectSyncService {
 
     // Determine MIME type
     const ext = path.extname(filePath).toLowerCase();
-    const mimeType = this.getMimeType(ext);
+    const mimeType = getMimeType(ext);
 
     // Validate MIME type is from allowed list
     const allowedMimeTypes = [
@@ -901,8 +1237,10 @@ class ProjectSyncService {
 
     // Create form data
     const formData = new FormData();
-    formData.append('project_root_id', folderId.toString());
-    formData.append('rel_path', relativePath);
+    if (folderId != null) {
+      formData.append('project_root_id', folderId.toString());
+    }
+    formData.append('rel_path', relPath);
     formData.append('mime_type', mimeType);
     formData.append('size', size.toString());
     if (isManuscript) {
@@ -924,10 +1262,12 @@ class ProjectSyncService {
     );
 
     if (response.status < 200 || response.status >= 300) {
-      throw new Error(`Failed to sync file: ${response.status} - ${JSON.stringify(response.data)}`);
+      const error: any = new Error(`Failed to sync file: ${response.status} - ${JSON.stringify(response.data)}`);
+      error.status = response.status;
+      throw error;
     }
 
-    logger.debug(`[ProjectSync] File synced: ${relativePath} (uploaded: ${response.data.uploaded})`);
+    logger.debug(`[ProjectSync] File synced: ${relPath} (uploaded: ${response.data.uploaded})`);
   }
 
   /**
@@ -981,6 +1321,7 @@ class ProjectSyncService {
       const key = `${projectId}-${folderId}`;
       const watchedFolder = this.watchedFolders.get(key);
       const manuscriptPath = watchedFolder?.manuscriptPath;
+      const isStandaloneFile = !!watchedFolder?.filePath;
       const relativePath = path.relative(folderPath, filePath);
 
       logger.debug(`[ProjectSync]   Relative path: ${relativePath}`);
@@ -994,7 +1335,13 @@ class ProjectSyncService {
       }
 
       logger.debug(`[ProjectSync] Syncing file to backend...`);
-      await this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath);
+      await this.syncFileToProject(
+        projectId,
+        isStandaloneFile ? null : folderId,
+        isStandaloneFile ? null : folderPath,
+        filePath,
+        manuscriptPath
+      );
       logger.debug(`[ProjectSync] ✓ File synced successfully to backend`);
 
       // Set status to synced and broadcast
@@ -1057,24 +1404,246 @@ class ProjectSyncService {
     this.sendToRenderer('project-sync-status', status);
   }
 
+  // ===========================================================================
+  // Standalone file watching (no folder required)
+  // ===========================================================================
+
   /**
-   * Get MIME type from file extension
+   * Start watching a standalone file and sync it to the project
+   * Validates file exists, performs initial upload, starts chokidar watcher
    */
-  private getMimeType(ext: string): string {
-    const mimeTypes: { [key: string]: string } = {
-      '.pdf': 'application/pdf',
-      '.doc': 'application/msword',
-      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      '.txt': 'text/plain',
-      '.md': 'text/markdown',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.png': 'image/png',
-      '.gif': 'image/gif',
-      '.zip': 'application/zip',
+  async startWatchingFile(projectId: number, filePath: string): Promise<void> {
+    const key = `${projectId}-${filePath}`;
+
+    logger.debug(`[ProjectSync] Starting to watch file: ${filePath} for project ${projectId}`);
+
+    if (!fs.existsSync(filePath)) {
+      throw new Error('File does not exist');
+    }
+
+    if (this.watchedFiles.has(key)) {
+      logger.debug(`[ProjectSync] Already watching file ${filePath} for project ${projectId}`);
+      return;
+    }
+
+    // Perform initial upload
+    await this.syncStandaloneFile(projectId, filePath);
+
+    // Start watching the file
+    await this.startWatchingFileOnly(projectId, filePath);
+
+    // Persist state
+    this.persistState();
+
+    // Notify renderer about the initial sync
+    this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
+      projectId,
+      filePath: path.basename(filePath),
+      action: 'initial-sync',
+    });
+
+    logger.debug(`[ProjectSync] File watcher started and initial upload complete: ${filePath}`);
+  }
+
+  /**
+   * One-time sync of a file to a project without starting a watcher.
+   * Used to pre-upload a file before switching manuscript.
+   */
+  async syncFileOnce(projectId: number, filePath: string): Promise<void> {
+    if (!fs.existsSync(filePath)) {
+      throw new Error('File does not exist');
+    }
+    await this.syncFileToProject(projectId, null, null, filePath, undefined);
+  }
+
+  /**
+   * Start watching a file WITHOUT performing initial upload
+   * Used during app initialization - sync is handled separately by performStartupSyncForFile
+   */
+  private async startWatchingFileOnly(projectId: number, filePath: string): Promise<void> {
+    const key = `${projectId}-${filePath}`;
+
+    if (this.watchedFiles.has(key)) {
+      logger.debug(`[ProjectSync] Already watching file ${filePath} for project ${projectId}`);
+      return;
+    }
+
+    logger.debug(`[ProjectSync] Starting file watcher (no initial upload): ${filePath}`);
+
+    const watcher = chokidar.watch(filePath, {
+      persistent: true,
+      ignoreInitial: true,
+      followSymlinks: true,
+      awaitWriteFinish: {
+        stabilityThreshold: 2000,
+        pollInterval: 100,
+      },
+    });
+
+    const watchedFile: WatchedProjectFile = {
+      projectId,
+      filePath,
+      watcher,
+      status: 'idle',
+      lastSync: null,
     };
 
-    return mimeTypes[ext] || 'application/octet-stream';
+    this.watchedFiles.set(key, watchedFile);
+
+    watcher.on('change', async () => {
+      logger.debug(`[ProjectSync] Standalone file changed: ${filePath}`);
+      try {
+        watchedFile.status = 'syncing';
+        await this.syncStandaloneFile(projectId, filePath);
+        watchedFile.status = 'synced';
+        watchedFile.lastSync = new Date().toISOString();
+
+        this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
+          projectId,
+          filePath: path.basename(filePath),
+          action: 'changed',
+        });
+      } catch (error) {
+        logger.error(`[ProjectSync] Failed to sync standalone file on change:`, error);
+        watchedFile.status = 'error';
+      }
+    });
+
+    watcher.on('unlink', () => {
+      logger.debug(`[ProjectSync] Standalone file deleted: ${filePath}`);
+      this.sendToRenderer(IPC_CHANNELS.PROJECT_FILE_SYNCED, {
+        projectId,
+        filePath: path.basename(filePath),
+        action: 'deleted',
+      });
+    });
+
+    watcher.on('error', (error) => {
+      logger.error(`[ProjectSync] File watcher error for ${filePath}:`, error);
+      watchedFile.status = 'error';
+    });
+
+    logger.debug(`[ProjectSync] File watcher started: ${filePath}`);
+  }
+
+  /**
+   * Stop watching a standalone file
+   */
+  async stopWatchingFile(projectId: number, filePath: string): Promise<void> {
+    const key = `${projectId}-${filePath}`;
+    const watchedFile = this.watchedFiles.get(key);
+
+    if (!watchedFile) return;
+
+    if (watchedFile.watcher) {
+      await watchedFile.watcher.close();
+    }
+
+    this.watchedFiles.delete(key);
+    this.persistState();
+
+    logger.debug(`[ProjectSync] Stopped watching file for project ${projectId}: ${filePath}`);
+  }
+
+  /**
+   * Upload a standalone file to the project
+   * Uses POST /v0/co_scientist/projects/{projectId}/files with:
+   * - No project_root_id
+   * - rel_path = filename only
+   * - is_manuscript = 'true'
+   */
+  private async syncStandaloneFile(projectId: number, filePath: string): Promise<void> {
+    const client = await APIclient();
+    const csrfToken = await getCsrfToken();
+
+    const stats = fs.statSync(filePath);
+    const size = stats.size;
+
+    const MAX_FILE_SIZE = 500 * 1024 * 1024;
+    if (size > MAX_FILE_SIZE) {
+      throw new Error(`File too large: ${size} bytes exceeds ${MAX_FILE_SIZE} bytes`);
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const mimeType = getMimeType(ext);
+
+    const formData = new FormData();
+    formData.append('rel_path', filePath);
+    formData.append('mime_type', mimeType);
+    formData.append('size', size.toString());
+    formData.append('is_manuscript', 'true');
+    formData.append('file', fs.createReadStream(filePath));
+
+    const response = await client.post(
+      `v0/co_scientist/projects/${projectId}/files`,
+      formData,
+      {
+        headers: {
+          'x-csrf-token': csrfToken,
+          ...formData.getHeaders(),
+        },
+        validateStatus: () => true,
+      }
+    );
+
+    if (response.status < 200 || response.status >= 300) {
+      const error: any = new Error(`Failed to sync standalone file: ${response.status} - ${JSON.stringify(response.data)}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    logger.debug(`[ProjectSync] Standalone file synced: ${path.basename(filePath)} (uploaded: ${response.data.uploaded})`);
+  }
+
+  /**
+   * On app restart, check if a standalone file changed (checksum vs backend) and re-upload if needed
+   */
+  private async performStartupSyncForFile(projectId: number, filePath: string): Promise<void> {
+    const key = `${projectId}-${filePath}`;
+    const watchedFile = this.watchedFiles.get(key);
+    if (!watchedFile) return;
+
+    logger.debug(`[ProjectSync-Startup] Checking standalone file: ${filePath} for project ${projectId}`);
+
+    try {
+      // Get backend file list
+      const client = await APIclient();
+      const filesResponse = await client.get(`v0/co_scientist/projects/${projectId}/files`);
+      const backendFiles = filesResponse.data?.files || [];
+
+      const fileName = path.basename(filePath);
+      const remoteFile = backendFiles.find((f: any) => f.file_path === filePath);
+
+      if (!remoteFile) {
+        // File not on backend, upload it
+        logger.debug(`[ProjectSync-Startup] Standalone file not on backend, uploading: ${fileName}`);
+        await this.syncStandaloneFile(projectId, filePath);
+        watchedFile.status = 'synced';
+        watchedFile.lastSync = new Date().toISOString();
+        return;
+      }
+
+      // Compare checksums
+      const localChecksum = await calculateChecksum(filePath);
+      if (localChecksum !== remoteFile.checksum) {
+        logger.debug(`[ProjectSync-Startup] Standalone file changed, re-uploading: ${fileName}`);
+        await this.syncStandaloneFile(projectId, filePath);
+        watchedFile.status = 'synced';
+        watchedFile.lastSync = new Date().toISOString();
+      } else {
+        logger.debug(`[ProjectSync-Startup] Standalone file unchanged: ${fileName}`);
+        watchedFile.status = 'synced';
+      }
+    } catch (error: any) {
+      if (error?.response?.status === 404 || error?.status === 404) {
+        logger.warn(`[ProjectSync-Startup] Project ${projectId} no longer exists (404), stopping file watcher`);
+        await this.stopWatchingFile(projectId, filePath);
+        return;
+      }
+
+      logger.error(`[ProjectSync-Startup] Error syncing standalone file ${filePath}:`, error);
+      watchedFile.status = 'error';
+    }
   }
 
   /**
@@ -1100,6 +1669,18 @@ class ProjectSyncService {
 
     for (const folder of folders) {
       await this.stopWatching(folder.projectId, folder.folderId);
+    }
+
+    // Also stop any standalone file watchers for this project
+    const fileKeys = Array.from(this.watchedFiles.entries())
+      .filter(([_, f]) => f.projectId === projectId)
+      .map(([key, _]) => key);
+
+    for (const key of fileKeys) {
+      const file = this.watchedFiles.get(key);
+      if (file) {
+        await this.stopWatchingFile(file.projectId, file.filePath);
+      }
     }
   }
 
