@@ -100,10 +100,16 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
         let selectedText: string;
         let fullDocumentText: string;
         try {
-          [selectedText, fullDocumentText] = await Promise.all([
-            fs.readFile(selectedTextInfo.filePath, 'utf-8'),
-            fs.readFile(documentTextInfo.filePath, 'utf-8'),
-          ]);
+          selectedText = await fs.readFile(selectedTextInfo.filePath, 'utf-8');
+
+          const cachedContent = windowMonitorService.getDocumentTextContent(wid);
+          if (cachedContent) {
+            fullDocumentText = cachedContent;
+            logger.info(`[SelectedTextReview] Using cached document text for window ${wid}: ${fullDocumentText.length} bytes`);
+          } else {
+            fullDocumentText = await fs.readFile(documentTextInfo.filePath, 'utf-8');
+            logger.info(`[SelectedTextReview] Using file document text for window ${wid}: ${fullDocumentText.length} bytes`);
+          }
         } catch (err) {
           logger.error('[SelectedTextReview] Failed to read temp files:', err);
           reply.code(500).send({
@@ -113,6 +119,18 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
           });
           return;
         }
+
+        if (fullDocumentText.length <= 1) {
+          logger.error(`[SelectedTextReview] Document text is trivially small (${fullDocumentText.length} bytes) for window ${wid}, aborting`);
+          reply.code(400).send({
+            error: 'BadRequest',
+            message: 'Document text is empty or trivially small',
+            statusCode: 400,
+          });
+          return;
+        }
+
+        logger.info(`[SelectedTextReview] Uploading: selectedText=${selectedText.length} bytes, fullDocumentText=${fullDocumentText.length} bytes`);
 
         // Set reviewing state early so UI updates immediately (before network calls)
         windowMonitorService.setSelectedTextReviewState(wid, project_id, project_file_id);
@@ -152,6 +170,9 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
         const fullDocumentUrl = fullDocumentPresigned.data.presigned_url;
         const fullDocumentS3Path = fullDocumentPresigned.data.s3_key;
 
+        logger.info(`[SelectedTextReview] Got presigned URLs for window ${wid}`);
+        logger.info(`[SelectedTextReview] S3 paths: selectedText=${selectedTextS3Path}, fullDocument=${fullDocumentS3Path}`);
+
         // Step 4: Upload to S3 (plain axios, no cookie jar)
         try {
           await Promise.all([
@@ -174,6 +195,8 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
           });
           return;
         }
+
+        logger.info(`[SelectedTextReview] S3 upload complete for window ${wid}`);
 
         // Step 5: Trigger review
         let triggerResponse: any;
