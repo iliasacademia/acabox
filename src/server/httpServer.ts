@@ -25,6 +25,7 @@ import { registerWordV2Routes } from './routes/wordV2';
 import { registerWebSocketRoutes } from './routes/websocket';
 import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerBridgeRoutes } from './routes/bridge';
+import { registerSelectedTextReviewRoutes } from './routes/selectedTextReview';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
@@ -205,6 +206,9 @@ export class AcademiaHttpServer {
 
     // Register bridge routes (V2 popup bridge actions via HTTP)
     await registerBridgeRoutes(this.fastify);
+
+    // Register selected text review routes
+    await registerSelectedTextReviewRoutes(this.fastify);
 
     // Register navigation routes (if handler is set)
     if (this.navigationHandler) {

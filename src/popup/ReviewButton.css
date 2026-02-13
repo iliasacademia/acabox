@@ -38,3 +38,8 @@
 .review-button:active {
   background-color: #0a0a09;
 }
+
+.review-button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}

@@ -133,8 +133,8 @@ export interface WordPollResponse {
   notificationCount?: number;
   /** Whether this PID is the active/focused one */
   isActive: boolean;
-  /** Full review notification (if any) - agent_name contains "full" */
-  fullReviewNotification?: {
+  /** Up to 2 most recent review notifications (any type: full, diff, selected_text) */
+  recentReviewNotifications?: Array<{
     id: number;
     project_id: number;
     conversation_id: number;
@@ -143,18 +143,11 @@ export interface WordPollResponse {
     title: string;
     body_html?: string;
     isRead: boolean;
-  } | null;
-  /** Diff review notification (if any) - agent_name contains "diff" */
-  diffReviewNotification?: {
-    id: number;
-    project_id: number;
-    conversation_id: number;
-    conversation_title?: string;
-    created_at: number;
-    title: string;
-    body_html?: string;
-    isRead: boolean;
-  } | null;
+  }>;
+  /** Whether a selected text review is currently in progress for this window */
+  isReviewingSelectedText?: boolean;
+  /** Timestamp (ms) when the selected text review was triggered */
+  selectedTextReviewStartedAt?: number;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
 }

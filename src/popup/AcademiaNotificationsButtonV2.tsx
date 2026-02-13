@@ -19,6 +19,8 @@ interface WordPollResponse {
   projectFileId?: number;
   notificationCount: number;
   isActive: boolean;
+  isReviewingSelectedText?: boolean;
+  selectedTextReviewStartedAt?: number;
 }
 
 interface WebSocketMessage {
@@ -39,9 +41,11 @@ function useWordPollWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { shouldShow: boolean; badgeCount: number } {
+): { shouldShow: boolean; badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null } {
   const [shouldShow, setShouldShow] = useState(false);
   const [badgeCount, setBadgeCount] = useState(0);
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
 
   useEffect(() => {
     if (!wid || !token) {
@@ -60,6 +64,8 @@ function useWordPollWebSocket(
       if (cleanedUp) return;
       setShouldShow(data.shouldShow);
       setBadgeCount(data.notificationCount);
+      setIsReviewing(data.isReviewingSelectedText ?? false);
+      setReviewStartedAt(data.selectedTextReviewStartedAt ?? null);
     }
 
     // --- HTTP polling fallback (same as V1) ---
@@ -175,7 +181,7 @@ function useWordPollWebSocket(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { shouldShow, badgeCount };
+  return { shouldShow, badgeCount, isReviewing, reviewStartedAt };
 }
 
 function postBridge(action: string, payload: Record<string, unknown>) {
@@ -193,6 +199,8 @@ function postBridge(action: string, payload: Record<string, unknown>) {
 
 const DRAG_THRESHOLD = 3;
 
+type ReviewPhase = 'idle' | 'reviewing' | 'completing';
+
 const AcademiaNotificationsButtonV2: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -207,11 +215,47 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   } | null>(null);
   const didDragRef = useRef(false);
 
-  const { shouldShow, badgeCount } = useWordPollWebSocket(
+  const { shouldShow, badgeCount, isReviewing, reviewStartedAt } = useWordPollWebSocket(
     widParam,
     tokenParam,
     serverUrl
   );
+
+  // Phase state machine: idle → reviewing → completing → idle
+  const [phase, setPhase] = useState<ReviewPhase>('idle');
+  const [progress, setProgress] = useState(0);
+
+  useEffect(() => {
+    if (isReviewing && phase === 'idle') {
+      setPhase('reviewing');
+      setProgress(0);
+    } else if (!isReviewing && phase === 'reviewing') {
+      setPhase('completing');
+      setProgress(100);
+    }
+  }, [isReviewing, phase]);
+
+  // completing → idle after 1s
+  useEffect(() => {
+    if (phase !== 'completing') return;
+    const timer = setTimeout(() => {
+      setPhase('idle');
+      setProgress(0);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [phase]);
+
+  // Progress animation during reviewing phase
+  useEffect(() => {
+    if (phase !== 'reviewing' || !reviewStartedAt) return;
+    const tick = () => {
+      const elapsed = Date.now() - reviewStartedAt;
+      setProgress(Math.min(99, (elapsed / 60000) * 100));
+    };
+    tick();
+    const interval = setInterval(tick, 200);
+    return () => clearInterval(interval);
+  }, [phase, reviewStartedAt]);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -309,6 +353,14 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
         disabled={loading}
         data-node-id="1630:6725"
       >
+        {phase !== 'idle' && (
+          <div className="progress-bar-track">
+            <div
+              className={`progress-bar-fill${phase === 'completing' ? ' completing' : ''}`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        )}
         <div
           className={`drag-handle${dragging ? ' dragging' : ''}`}
           onPointerDown={handlePointerDown}
@@ -325,7 +377,9 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
         <div className="logo-section" data-node-id="1630:6720">
           <img src={academiaLogos} alt="Academia" className="logo" data-node-id="1630:6721" />
         </div>
-        <span className="feedback-text" data-node-id="1630:6722">Feedback</span>
+        <span className="feedback-text" data-node-id="1630:6722">
+          {phase === 'reviewing' ? 'Reviewing selected text' : 'Feedback'}
+        </span>
         {badgeCount > 0 && (
           <div className="badge" data-node-id="1630:6723">
             <span className="badge-text" data-node-id="1630:6724">

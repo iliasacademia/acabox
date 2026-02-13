@@ -44,13 +44,15 @@ export function computeWebviewState(
 
       for (const config of configs) {
         const frame = config.computeFrame(window.bounds, screenHeight, window.contentBounds, window.selectionBounds);
-        if (frame === null) continue;
 
         const key = `${config.keyPrefix}-${window.id}`;
         const separator = config.pathSuffix.includes('?') ? '&' : '?';
         const url = `${baseUrl}${config.pathSuffix}${separator}pid=${app.pid}&wid=${window.id}&token=${authToken}`;
 
-        const entry: WebviewEntryState = { url, visible, frame };
+        const entry: WebviewEntryState = frame !== null
+          ? { url, visible, frame }
+          : { url, visible: false, frame: { x: -10000, y: -10000, width: 1, height: 1 } };
+
         if (config.ignoresMouseEvents) {
           entry.ignoresMouseEvents = true;
         }

@@ -130,7 +130,7 @@ type NotificationData = {
   conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
   body_html?: string; // HTML content for notification display
   isRead: boolean;
-} | null;
+};
 
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
@@ -139,26 +139,7 @@ interface WordPollResponse {
   projectFileId?: number;
   notificationCount?: number;
   isActive: boolean;
-  fullReviewNotification?: {
-    id: number;
-    project_id: number;
-    conversation_id: number;
-    created_at: number;
-    title: string; // Notification title (e.g., "New thoughts on your research!")
-    conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
-    body_html?: string; // HTML content for notification display
-    isRead: boolean;
-  } | null;
-  diffReviewNotification?: {
-    id: number;
-    project_id: number;
-    conversation_id: number;
-    created_at: number;
-    title: string; // Notification title (e.g., "New thoughts on your research!")
-    conversation_title?: string; // Conversation title (e.g., "Daily Feedback | Tue, 13 Jan 2026")
-    body_html?: string; // HTML content for notification display
-    isRead: boolean;
-  } | null;
+  recentReviewNotifications?: NotificationData[];
   activeDocumentPath?: string | null;
 }
 
@@ -369,12 +350,8 @@ function useWordPollWebSocket(
 }
 
 const AcademiaNotificationsPopupV2: React.FC = () => {
-  // State for review notifications (separate for full and diff reviews)
-  const [fullReviewNotification, setFullReviewNotification] = useState<NotificationData>(null);
-  const [diffReviewNotification, setDiffReviewNotification] = useState<NotificationData>(null);
-
-  // Computed value for backward compatibility
-  const hasUnreadReview = fullReviewNotification !== null || diffReviewNotification !== null;
+  // State for review notifications (up to 2 most recent, any type)
+  const [recentReviewNotifications, setRecentReviewNotifications] = useState<NotificationData[]>([]);
 
   // State for project file info (fetched from /word/:pid/poll)
   const [projectId, setProjectId] = useState<number | null>(null);
@@ -390,8 +367,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // Track previous height to avoid unnecessary resize calls (prevents infinite loop)
   const previousHeightRef = useRef<number>(POPUP_HEIGHT_NO_NOTIFICATIONS);
   // Track logged notification IDs to avoid stale closure logging issues
-  const loggedFullReviewIdRef = useRef<number | null>(null);
-  const loggedDiffReviewIdRef = useRef<number | null>(null);
+  const loggedReviewIdsRef = useRef<Set<number>>(new Set());
 
   // Resize state — persists user-chosen size across gestures
   const accumulatedSizeRef = useRef<{ width: number; height: number } | null>(null);
@@ -406,7 +382,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // State for inline review view
   const [viewMode, setViewMode] = useState<ViewMode>('menu');
-  const [activeReviewType, setActiveReviewType] = useState<'full' | 'diff' | null>(null);
+  const [activeNotification, setActiveNotification] = useState<NotificationData | null>(null);
   const [conversationData, setConversationData] = useState<ConversationData | null>(null);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
 
@@ -594,35 +570,19 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       setFileId(pollData.projectFileId);
       setIsLoading(false);
 
-      // Handle full review notification (use refs to avoid stale closure issues)
-      if (pollData.fullReviewNotification) {
-        if (loggedFullReviewIdRef.current !== pollData.fullReviewNotification.id) {
-          console.log('[AcademiaNotificationsPopupV2] Found NEW full review notification:', pollData.fullReviewNotification);
-          loggedFullReviewIdRef.current = pollData.fullReviewNotification.id;
-        }
-        setFullReviewNotification(pollData.fullReviewNotification);
-      } else {
-        if (loggedFullReviewIdRef.current !== null) {
-          console.log('[AcademiaNotificationsPopupV2] Full review notification cleared');
-          loggedFullReviewIdRef.current = null;
-        }
-        setFullReviewNotification(null);
-      }
+      // Handle recent review notifications
+      const incoming = pollData.recentReviewNotifications || [];
+      const incomingIds = new Set(incoming.map(n => n.id));
 
-      // Handle diff review notification (use refs to avoid stale closure issues)
-      if (pollData.diffReviewNotification) {
-        if (loggedDiffReviewIdRef.current !== pollData.diffReviewNotification.id) {
-          console.log('[AcademiaNotificationsPopupV2] Found NEW diff review notification:', pollData.diffReviewNotification);
-          loggedDiffReviewIdRef.current = pollData.diffReviewNotification.id;
+      // Log new notifications
+      for (const n of incoming) {
+        if (!loggedReviewIdsRef.current.has(n.id)) {
+          console.log('[AcademiaNotificationsPopupV2] Found NEW review notification:', n);
         }
-        setDiffReviewNotification(pollData.diffReviewNotification);
-      } else {
-        if (loggedDiffReviewIdRef.current !== null) {
-          console.log('[AcademiaNotificationsPopupV2] Diff review notification cleared');
-          loggedDiffReviewIdRef.current = null;
-        }
-        setDiffReviewNotification(null);
       }
+      loggedReviewIdsRef.current = incomingIds;
+
+      setRecentReviewNotifications(incoming);
     } else {
       // Not showing or missing ID - keep minimal state or hide
       setIsLoading(false);
@@ -653,9 +613,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (viewMode === 'review') {
       // Taller height for inline review content
       height = POPUP_HEIGHT_REVIEW_VIEW;
-    } else if (fullReviewNotification && diffReviewNotification) {
+    } else if (recentReviewNotifications.length >= 2) {
       height = POPUP_HEIGHT_TWO_NOTIFICATIONS;
-    } else if (fullReviewNotification || diffReviewNotification) {
+    } else if (recentReviewNotifications.length === 1) {
       height = POPUP_HEIGHT_ONE_NOTIFICATION;
     } else {
       height = POPUP_HEIGHT_NO_NOTIFICATIONS;
@@ -666,102 +626,49 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       previousHeightRef.current = height;
       postBridge('resizeWindow', { height });
     }
-  }, [viewMode, fullReviewNotification, diffReviewNotification]);
+  }, [viewMode, recentReviewNotifications]);
 
-  // Handle clicking on full review notification card - show inline review
-  const handleViewFullReviewFeedback = async () => {
-    if (!fullReviewNotification) {
-      console.error('[AcademiaNotificationsPopupV2] No full review notification to view');
-      return;
-    }
-
-    console.log('[AcademiaNotificationsPopupV2] View full review feedback clicked:', fullReviewNotification);
+  // Handle clicking on a review notification card - show inline review
+  const handleViewReviewFeedback = async (notification: NotificationData) => {
+    console.log('[AcademiaNotificationsPopupV2] View review feedback clicked:', notification);
 
     // Fetch conversation data for inline display
     const data = await fetchConversation(
-      fullReviewNotification.conversation_id,
-      fullReviewNotification.project_id
+      notification.conversation_id,
+      notification.project_id
     );
 
     if (data) {
       // Mark notification as read if not already
-      if (!fullReviewNotification.isRead) {
+      if (!notification.isRead) {
         try {
           const headers: Record<string, string> = { 'Content-Type': 'application/json' };
           if (tokenParam) {
             headers['Authorization'] = `Bearer ${tokenParam}`;
           }
 
-          await fetch(`${serverUrl}/api/notifications/${fullReviewNotification.id}`, {
+          await fetch(`${serverUrl}/api/notifications/${notification.id}`, {
             method: 'PATCH',
             headers,
             body: JSON.stringify({ status: 'read' }),
           });
 
           // Update local state to reflect read status
-          setFullReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
-          console.log('[AcademiaNotificationsPopupV2] Full review notification marked as read');
+          setRecentReviewNotifications(prev =>
+            prev.map(n => n.id === notification.id ? { ...n, isRead: true } : n)
+          );
+          console.log('[AcademiaNotificationsPopupV2] Review notification marked as read');
         } catch (err) {
           console.error('[AcademiaNotificationsPopupV2] Error marking notification as read:', err);
         }
       }
 
       setConversationData({
-        title: fullReviewNotification.conversation_title || fullReviewNotification.title || 'Full review',
-        createdAt: fullReviewNotification.created_at,
+        title: notification.conversation_title || notification.title || 'Review',
+        createdAt: notification.created_at,
         messages: data.messages,
       });
-      setActiveReviewType('full');
-      setViewMode('review');
-    } else {
-      console.error('[AcademiaNotificationsPopupV2] Failed to fetch conversation data');
-    }
-  };
-
-  // Handle clicking on diff review notification card - show inline review
-  const handleViewDiffReviewFeedback = async () => {
-    if (!diffReviewNotification) {
-      console.error('[AcademiaNotificationsPopupV2] No diff review notification to view');
-      return;
-    }
-
-    console.log('[AcademiaNotificationsPopupV2] View diff review feedback clicked:', diffReviewNotification);
-
-    // Fetch conversation data for inline display
-    const data = await fetchConversation(
-      diffReviewNotification.conversation_id,
-      diffReviewNotification.project_id
-    );
-
-    if (data) {
-      // Mark notification as read if not already
-      if (!diffReviewNotification.isRead) {
-        try {
-          const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-          if (tokenParam) {
-            headers['Authorization'] = `Bearer ${tokenParam}`;
-          }
-
-          await fetch(`${serverUrl}/api/notifications/${diffReviewNotification.id}`, {
-            method: 'PATCH',
-            headers,
-            body: JSON.stringify({ status: 'read' }),
-          });
-
-          // Update local state to reflect read status
-          setDiffReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
-          console.log('[AcademiaNotificationsPopupV2] Diff review notification marked as read');
-        } catch (err) {
-          console.error('[AcademiaNotificationsPopupV2] Error marking notification as read:', err);
-        }
-      }
-
-      setConversationData({
-        title: diffReviewNotification.conversation_title || diffReviewNotification.title || 'Diff review',
-        createdAt: diffReviewNotification.created_at,
-        messages: data.messages,
-      });
-      setActiveReviewType('diff');
+      setActiveNotification(notification);
       setViewMode('review');
     } else {
       console.error('[AcademiaNotificationsPopupV2] Failed to fetch conversation data');
@@ -802,33 +709,28 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     // Return to menu view (notification remains visible with isRead state from poll)
     setViewMode('menu');
     setConversationData(null);
-    setActiveReviewType(null);
+    setActiveNotification(null);
   };
 
   // Handle clicking "Ask follow up" button - navigate to main window
   const handleAskFollowUp = async () => {
     console.log('[AcademiaNotificationsPopupV2] Ask follow up clicked');
 
-    // Get the current notification being viewed
-    const notification = activeReviewType === 'full'
-      ? fullReviewNotification
-      : diffReviewNotification;
-
-    if (!notification) {
+    if (!activeNotification) {
       console.error('[AcademiaNotificationsPopupV2] No notification for follow up');
       return;
     }
 
     try {
       // Mark the notification as read (not dismissed, so it stays visible)
-      if (!notification.isRead) {
+      if (!activeNotification.isRead) {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (tokenParam) {
           headers['Authorization'] = `Bearer ${tokenParam}`;
         }
 
         await fetch(
-          `${serverUrl}/api/notifications/${notification.id}`,
+          `${serverUrl}/api/notifications/${activeNotification.id}`,
           {
             method: 'PATCH',
             headers,
@@ -837,19 +739,17 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         );
 
         // Update local state to reflect read status
-        if (activeReviewType === 'full') {
-          setFullReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
-        } else {
-          setDiffReviewNotification(prev => prev ? { ...prev, isRead: true } : null);
-        }
+        setRecentReviewNotifications(prev =>
+          prev.map(n => n.id === activeNotification.id ? { ...n, isRead: true } : n)
+        );
       }
 
       // Close popup and navigate to main window via HTTP API
       await postBridge('closeWindow');
       await navigateToPage({
         page: 'conversation',
-        projectId: notification.project_id,
-        conversationId: notification.conversation_id,
+        projectId: activeNotification.project_id,
+        conversationId: activeNotification.conversation_id,
       }, tokenParam);
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Error in handleAskFollowUp:', err);
@@ -860,14 +760,12 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const handleViewEdits = async () => {
     console.log('[AcademiaNotificationsPopupV2] View edits clicked');
 
-    const notification = activeReviewType === 'full'
-      ? fullReviewNotification
-      : diffReviewNotification;
-
-    if (!notification) {
+    if (!activeNotification) {
       console.error('[AcademiaNotificationsPopupV2] No notification for view edits');
       return;
     }
+
+    const notification = activeNotification;
 
     try {
       console.log('[AcademiaNotificationsPopupV2] Navigating to conversation with diff modal:', true);
@@ -1057,10 +955,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // Render the review view (inline feedback content)
   const renderReviewView = () => {
-    const notification = activeReviewType === 'full'
-      ? fullReviewNotification
-      : diffReviewNotification;
-
     return (
       <>
         {/* Header with Back and Close */}
@@ -1087,11 +981,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         <div style={styles.reviewScrollArea}>
           {/* Title and Date */}
           <h2 style={styles.reviewTitle}>
-            {activeReviewType === 'full' ? 'Full review' : 'Diff review'}
+            {activeNotification?.conversation_title || activeNotification?.title || 'Review'}
           </h2>
-          {notification && (
+          {activeNotification && (
             <p style={styles.reviewDate}>
-              This feedback is from {formatNotificationDate(notification.created_at)}
+              This feedback is from {formatNotificationDate(activeNotification.created_at)}
             </p>
           )}
 
@@ -1135,9 +1029,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           <button
             style={styles.provideFeedbackLink}
             onClick={() => {
-              const notification = activeReviewType === 'full' ? fullReviewNotification : diffReviewNotification;
-              const feedbackUrl = notification
-                ? `${FEEDBACK_FORM_URL}?usp=pp_url&entry.744362453=${encodeURIComponent(String(notification.conversation_id))}`
+              const feedbackUrl = activeNotification
+                ? `${FEEDBACK_FORM_URL}?usp=pp_url&entry.744362453=${encodeURIComponent(String(activeNotification.conversation_id))}`
                 : FEEDBACK_FORM_URL;
               navigateToPage({ page: 'external', url: feedbackUrl }, tokenParam);
             }}
@@ -1168,53 +1061,31 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           <span style={styles.sectionHeaderText}>Feedback</span>
         </div>
         <div style={styles.feedbackContent}>
-          {/* Notification cards (if any) */}
-          {fullReviewNotification && (
+          {/* Notification cards (up to 2 most recent) */}
+          {recentReviewNotifications.map((notification) => (
             <button
+              key={notification.id}
               style={styles.notificationCard}
-              onClick={handleViewFullReviewFeedback}
-              aria-label="View full review feedback"
+              onClick={() => handleViewReviewFeedback(notification)}
+              aria-label="View review feedback"
             >
-              {!fullReviewNotification.isRead && <div style={styles.blueDot} />}
+              {!notification.isRead && <div style={styles.blueDot} />}
               <div style={styles.notificationContent as React.CSSProperties}>
                 <span
                   style={styles.notificationTitle}
                   dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(fullReviewNotification.body_html || fullReviewNotification.conversation_title || fullReviewNotification.title || 'Feedback on your entire manuscript')
+                    __html: DOMPurify.sanitize(notification.body_html || notification.conversation_title || notification.title || 'Feedback on your manuscript')
                   }}
                 />
                 <span style={styles.notificationDate}>
-                  {formatNotificationDate(fullReviewNotification.created_at)}
+                  {formatNotificationDate(notification.created_at)}
                 </span>
               </div>
               <div style={styles.arrowIcon}>
                 <ArrowForwardIcon />
               </div>
             </button>
-          )}
-          {diffReviewNotification && (
-            <button
-              style={styles.notificationCard}
-              onClick={handleViewDiffReviewFeedback}
-              aria-label="View diff review feedback"
-            >
-              {!diffReviewNotification.isRead && <div style={styles.blueDot} />}
-              <div style={styles.notificationContent as React.CSSProperties}>
-                <span
-                  style={styles.notificationTitle}
-                  dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(diffReviewNotification.body_html || diffReviewNotification.conversation_title || diffReviewNotification.title || 'Feedback on recent changes')
-                  }}
-                />
-                <span style={styles.notificationDate}>
-                  {formatNotificationDate(diffReviewNotification.created_at)}
-                </span>
-              </div>
-              <div style={styles.arrowIcon}>
-                <ArrowForwardIcon />
-              </div>
-            </button>
-          )}
+          ))}
           {/* View previous feedback row (always visible) */}
           <button
             style={styles.viewPreviousRow}
