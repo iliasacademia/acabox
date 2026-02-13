@@ -1,5 +1,6 @@
 import { ChildProcess, spawn } from 'child_process';
 import { app, screen } from 'electron';
+import { readFileSync } from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import { defaultLogger as logger } from './utils/logger';
@@ -168,6 +169,7 @@ export class WindowMonitorService {
     projectFileId: number;
     startedAt: number;
   }>();
+  private documentTextContentCache = new Map<string, string>();
   private baseUrl: string | null = null;
   private authToken: string | null = null;
 
@@ -221,6 +223,24 @@ export class WindowMonitorService {
         wordPollEventBus.emit('change', 'window-document-path-changed');
       }
 
+      // Cache document text content in memory when it changes.
+      // At this moment the Rust side just wrote the file, so the content is fresh.
+      if (event.event === 'WINDOW_DOCUMENT_TEXT_CHANGED' && event.document) {
+        const { filePath } = event.document;
+        const windowId = event.window.id;
+        try {
+          const content = readFileSync(filePath, 'utf-8');
+          if (content.length > 1) {
+            this.documentTextContentCache.set(windowId, content);
+            logger.info(`[WindowMonitorService] Cached document text for window ${windowId}: ${content.length} bytes`);
+          } else {
+            logger.warn(`[WindowMonitorService] Ignoring trivially small document text for window ${windowId}: ${content.length} bytes`);
+          }
+        } catch (err) {
+          logger.error(`[WindowMonitorService] Failed to cache document text for window ${windowId}:`, err);
+        }
+      }
+
       if (event.event === 'WINDOW_DESTROYED' && event.window) {
         this.popupToggledOpen.delete(event.window.id);
         this.popupHeightOverrides.delete(event.window.id);
@@ -228,6 +248,7 @@ export class WindowMonitorService {
         this.popupSizeOverrides.delete(event.window.id);
         this.buttonV2WidthOverrides.delete(event.window.id);
         this.selectedTextReviewState.delete(event.window.id);
+        this.documentTextContentCache.delete(event.window.id);
       }
 
       logger.info('[WindowMonitorService] State:', newState);
@@ -452,6 +473,10 @@ export class WindowMonitorService {
     return null;
   }
 
+  getDocumentTextContent(windowId: string): string | null {
+    return this.documentTextContentCache.get(windowId) ?? null;
+  }
+
   getDocumentTextForWindow(windowId: string): DocumentTextInfo | null {
     for (const app of this.state.apps) {
       for (const window of app.windows) {
@@ -481,6 +506,7 @@ export class WindowMonitorService {
     this.popupSizeOverrides.clear();
     this.buttonV2WidthOverrides.clear();
     this.selectedTextReviewState.clear();
+    this.documentTextContentCache.clear();
   }
 }
 

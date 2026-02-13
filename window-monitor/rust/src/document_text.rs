@@ -53,8 +53,14 @@ impl DocumentTextTracker {
             return None;
         }
 
-        let text_area = self.find_text_area(app_element, focused_window_id)?;
-        let char_count = accessibility::get_character_count(&text_area)?;
+        let text_areas = self.find_text_areas(app_element, focused_window_id);
+        if text_areas.is_empty() {
+            return None;
+        }
+        let char_count: i64 = text_areas
+            .iter()
+            .filter_map(|ta| accessibility::get_character_count(ta))
+            .sum();
 
         if char_count == 0 {
             return None;
@@ -66,7 +72,7 @@ impl DocumentTextTracker {
                 if let Some(since) = self.dirty_since {
                     if since.elapsed() >= self.debounce_duration {
                         self.dirty_since = None;
-                        return self.read_and_write(&text_area, focused_window_id, char_count);
+                        return self.read_and_write(&text_areas, focused_window_id, char_count);
                     }
                 }
                 None
@@ -86,16 +92,31 @@ impl DocumentTextTracker {
     }
 
     /// Called when a window gains focus. Does an immediate read (no debounce).
+    /// Skips re-read if the same window regains focus (e.g., after overlay click
+    /// causes deactivation/reactivation), since the temp file already has valid
+    /// content and the accessibility API may return incomplete data during rapid
+    /// focus transitions.
     pub fn on_window_focused(
         &mut self,
         app_element: &SafeAXUIElement,
         window_id: u32,
     ) -> Option<DocumentTextChange> {
+        let is_same_window = window_id == self.last_window_id;
         self.last_window_id = window_id;
         self.dirty_since = None;
 
-        let text_area = self.find_text_area(app_element, window_id)?;
-        let char_count = accessibility::get_character_count(&text_area)?;
+        if is_same_window {
+            return None;
+        }
+
+        let text_areas = self.find_text_areas(app_element, window_id);
+        if text_areas.is_empty() {
+            return None;
+        }
+        let char_count: i64 = text_areas
+            .iter()
+            .filter_map(|ta| accessibility::get_character_count(ta))
+            .sum();
 
         if char_count == 0 {
             self.last_char_count = Some(0);
@@ -103,7 +124,7 @@ impl DocumentTextTracker {
         }
 
         self.last_char_count = Some(char_count);
-        self.read_and_write(&text_area, window_id, char_count)
+        self.read_and_write(&text_areas, window_id, char_count)
     }
 
     /// Reset tracked state (e.g. when app detaches).
@@ -126,22 +147,33 @@ impl DocumentTextTracker {
         }
     }
 
-    fn find_text_area(
+    fn find_text_areas(
         &self,
         app_element: &SafeAXUIElement,
         window_id: u32,
-    ) -> Option<SafeAXUIElement> {
-        let ax_window = accessibility::find_ax_window_by_id(app_element, window_id)?;
-        accessibility::find_text_area_in_subtree(&ax_window, 10)
+    ) -> Vec<SafeAXUIElement> {
+        let Some(ax_window) = accessibility::find_ax_window_by_id(app_element, window_id) else {
+            return Vec::new();
+        };
+        accessibility::find_all_text_areas_in_subtree(&ax_window, 10)
     }
 
     fn read_and_write(
         &self,
-        text_area: &SafeAXUIElement,
+        text_areas: &[SafeAXUIElement],
         window_id: u32,
         char_count: i64,
     ) -> Option<DocumentTextChange> {
-        let text = accessibility::get_text_value(text_area)?;
+        let texts: Vec<String> = text_areas
+            .iter()
+            .filter_map(|ta| accessibility::get_text_value(ta))
+            .collect();
+
+        if texts.is_empty() {
+            return None;
+        }
+
+        let text = texts.join("\n");
 
         if text.len() > MAX_TEXT_BYTES {
             eprintln!(
