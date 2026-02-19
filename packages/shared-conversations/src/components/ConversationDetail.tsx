@@ -118,7 +118,7 @@ export function ConversationDetail({
     }
   };
 
-  const { messages, isPolling, isLoading, error, startPolling, stopPolling, initializeMessages, addOptimisticMessage } =
+  const { messages, conversation: polledConversation, isPolling, isLoading, error, startPolling, stopPolling, initializeMessages, addOptimisticMessage } =
     useConversationPolling(pollingOptions);
 
   // Helper to check if conversation is a draft
@@ -367,7 +367,7 @@ export function ConversationDetail({
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage(e as unknown as React.FormEvent);
@@ -600,6 +600,35 @@ export function ConversationDetail({
         )}
       </div>
 
+      {/* Selected Text (for selection reviews) */}
+      {(() => {
+        // Find selected text from various sources
+        const userMessageWithSelectedText = messages.find(m => m.role === 'user' && m.data?.selected_text);
+        const messageSelectedText = userMessageWithSelectedText?.data?.selected_text as string | undefined;
+
+        const selectedText = polledConversation?.selected_text ||
+          conversation?.selected_text ||
+          messageSelectedText;
+
+        if (!selectedText || currentIsDraft) {
+          return null;
+        }
+
+        return (
+          <div className="selectedTextSection" style={{
+            backgroundColor: '#EEF2F9',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            margin: '0 24px 16px 24px',
+            fontSize: '16px',
+            lineHeight: '20px',
+            color: '#141413',
+          }}>
+            {selectedText}
+          </div>
+        );
+      })()}
+
       {/* Messages */}
       <div className="conversationMessages" ref={messagesContainerRef}>
         {error && (
@@ -694,7 +723,7 @@ export function ConversationDetail({
               className="messageInput"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
-              onKeyPress={handleKeyPress}
+              onKeyDown={handleKeyDown}
               placeholder={
                 disableMessageInput && previousManuscriptName
                   ? `Input disabled because this conversation is based on a previous manuscript: ${previousManuscriptName}`

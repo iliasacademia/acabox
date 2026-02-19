@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useConversationsApi } from '../api/useConversationsApi';
-import { Message } from '../types/conversation';
+import { Message, Conversation } from '../types/conversation';
 
 const POLL_INTERVAL = 2000; // 2 seconds
 
@@ -24,6 +24,7 @@ export interface UseConversationPollingOptions {
 
 export interface UseConversationPollingResult {
   messages: Message[];
+  conversation: Conversation | null;
   isPolling: boolean;
   isLoading: boolean;
   error: string | null;
@@ -57,6 +58,7 @@ export function useConversationPolling(
   options?: UseConversationPollingOptions
 ): UseConversationPollingResult {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [conversation, setConversation] = useState<Conversation | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -82,19 +84,24 @@ export function useConversationPolling(
 
     try {
       setIsLoading(true);
-      const conversation = await getConversation(
+      const response = await getConversation(
         conversationIdRef.current,
         projectIdRef.current
       );
 
-      if (!conversation) {
+      if (!response) {
         console.error('[ConversationPolling] Conversation not found');
         setError('Conversation not found');
         stopPolling();
         return;
       }
-      // Handle different possible response structures
-      const messagesArray = conversation.messages || [];
+
+      // Extract conversation and messages from response
+      // Response structure: { conversation: {...}, messages: [...] }
+      const conversationData = (response as any).conversation || response;
+      const messagesArray = (response as any).messages || [];
+
+      setConversation(conversationData);
       setMessages(messagesArray);
       setError(null); // Clear any previous errors
 
@@ -152,6 +159,7 @@ export function useConversationPolling(
 
       // Clear messages and store IDs
       setMessages([]);
+      setConversation(null);
       conversationIdRef.current = conversationId;
       projectIdRef.current = projectId;
 
@@ -160,10 +168,16 @@ export function useConversationPolling(
       setError(null);
 
       try {
-        const conversation = await getConversation(conversationId, projectId);
+        const response = await getConversation(conversationId, projectId);
 
-        if (conversation && conversation.messages) {
-          setMessages(conversation.messages);
+        if (response) {
+          // Extract conversation and messages from response
+          // Response structure: { conversation: {...}, messages: [...] }
+          const conversationData = (response as any).conversation || response;
+          const messagesArray = (response as any).messages || [];
+
+          setConversation(conversationData);
+          setMessages(messagesArray);
         }
       } catch (err: unknown) {
         const error = err as { message?: string };
@@ -218,6 +232,7 @@ export function useConversationPolling(
 
   return {
     messages,
+    conversation,
     isPolling,
     isLoading,
     error,

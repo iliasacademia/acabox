@@ -159,20 +159,17 @@ function useWordPoll(
 
 const ReviewButton: React.FC = () => {
   const { shouldShow, isReviewing: serverIsReviewing } = useWordPoll(widParam, tokenParam, serverUrl);
-  const [localIsReviewing, setLocalIsReviewing] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Once server confirms reviewing, hand off to server state
-  useEffect(() => {
-    if (serverIsReviewing) {
-      setLocalIsReviewing(false);
+  const handleClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isSubmitting || serverIsReviewing || !widParam) {
+      return;
     }
-  }, [serverIsReviewing]);
 
-  const isReviewing = serverIsReviewing || localIsReviewing;
-
-  const handleClick = async () => {
-    if (isReviewing || !widParam) return;
-    setLocalIsReviewing(true);
+    setIsSubmitting(true);
 
     try {
       const res = await fetch(`${serverUrl}/api/selected-text-review/${widParam}`, {
@@ -182,24 +179,30 @@ const ReviewButton: React.FC = () => {
       const data = await res.json();
       if (!res.ok) {
         console.error('[ReviewButton] Review request failed:', data);
-        setLocalIsReviewing(false);
+        setIsSubmitting(false);
         return;
       }
-      console.log('[ReviewButton] Review triggered:', data);
+      console.log('[ReviewButton] Review triggered successfully');
+      // Keep isSubmitting true - let serverIsReviewing take over
     } catch (err) {
       console.error('[ReviewButton] Review request error:', err);
-      setLocalIsReviewing(false);
+      setIsSubmitting(false);
     }
   };
 
-  if (!shouldShow) {
+  // Hide if not showing or if review is in progress
+  if (!shouldShow || isSubmitting || serverIsReviewing) {
     return null;
   }
 
   return (
     <div className="review-button-container">
-      <button className="review-button" onClick={handleClick} disabled={isReviewing}>
-        {isReviewing ? 'Reviewing' : 'Review'}
+      <button
+        className="review-button"
+        onClick={handleClick}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        Review
       </button>
     </div>
   );

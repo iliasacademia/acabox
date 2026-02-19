@@ -83,7 +83,8 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
       if (action === 'buttonClicked' && wid) {
         windowMonitorService.togglePopupForWindow(wid);
       } else if (action === 'closeWindow' && wid) {
-        windowMonitorService.closePopupForWindow(wid);
+        const clearReviewState = payload.clearReviewState !== false; // Default to true
+        windowMonitorService.closePopupForWindow(wid, clearReviewState);
       } else if (action === 'resizeWindow' && wid) {
         const height = payload.height;
         if (typeof height === 'number' && height > 0) {
@@ -103,6 +104,22 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
         windowMonitorService.clearPopupSize(wid);
       } else if (action === 'openPopup' && wid) {
         windowMonitorService.openPopupForWindow(wid);
+      } else if (action === 'setReviewState' && wid) {
+        const { projectId, reviewType, selectedText } = payload;
+        if (projectId && reviewType) {
+          // Get project file ID from the backend data (we need this for the review state)
+          // For now, we'll use a placeholder - the overlay doesn't strictly need it
+          windowMonitorService.setSelectedTextReviewState(
+            wid,
+            projectId as number,
+            0, // projectFileId placeholder
+            reviewType as 'full-paper' | 'selected-text' | 'review-changes',
+            selectedText as string | undefined
+          );
+        }
+      } else if (action === 'clearReview' && wid) {
+        // Clear review state when user dismisses the overlay
+        windowMonitorService.clearSelectedTextReviewState(wid);
       }
 
       reply.send({ success: true });

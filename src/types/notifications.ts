@@ -49,6 +49,8 @@ export interface Notification {
     agent_name?: string;
     conversation_id?: number;
     conversation_title?: string;
+    selected_text?: string;
+    review_type?: 'full-paper' | 'selected-text' | 'review-changes';
   };
 }
 
