@@ -143,11 +143,18 @@ export interface WordPollResponse {
     title: string;
     body_html?: string;
     isRead: boolean;
+    selected_text?: string;
+    review_type?: 'full-paper' | 'selected-text' | 'review-changes';
+    isInProgress?: boolean;
   }>;
   /** Whether a selected text review is currently in progress for this window */
   isReviewingSelectedText?: boolean;
   /** Timestamp (ms) when the selected text review was triggered */
   selectedTextReviewStartedAt?: number;
+  /** Type of review currently in progress */
+  reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
+  /** Selected text for the current review */
+  selectedText?: string;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
 }

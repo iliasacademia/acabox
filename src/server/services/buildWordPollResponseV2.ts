@@ -93,6 +93,8 @@ export function buildWordPollResponseV2(
           title: n.title,
           body_html: n.body_html,
           isRead: n.status !== 'unread',
+          selected_text: n.data?.selected_text,
+          review_type: n.data?.review_type,
         }));
       } catch (err) {
         logger.error(`[WORD-POLL-V2] Error fetching notifications for wid ${wid}:`, err);
@@ -109,6 +111,7 @@ export function buildWordPollResponseV2(
     recentReviewNotifications,
     isReviewingSelectedText: reviewState !== null,
     selectedTextReviewStartedAt: reviewState?.startedAt,
+    reviewType: reviewState ? 'selected-text' : undefined,
     activeDocumentPath: documentPath,
   };
 }
