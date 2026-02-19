@@ -71,3 +71,59 @@
   color: #c33;
   font-size: 14px;
 }
+
+.settingsSectionLabel {
+  font-size: 14px;
+  font-weight: 600;
+  color: #535366;
+  margin-top: 20px;
+  margin-bottom: 4px;
+}
+
+.zoteroSettingItem {
+  cursor: default;
+  align-items: center;
+}
+
+.zoteroSettingItem:hover {
+  border-color: #e0e0e0;
+  background-color: #ffffff;
+}
+
+.zoteroAction {
+  flex-shrink: 0;
+}
+
+.zoteroButton {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: background-color 0.2s;
+}
+
+.zoteroButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.zoteroButtonConnect {
+  background-color: #0645b1;
+  color: #ffffff;
+}
+
+.zoteroButtonConnect:hover:not(:disabled) {
+  background-color: #0538a0;
+}
+
+.zoteroButtonDisconnect {
+  background-color: #f5f5f5;
+  color: #535366;
+  border: 1px solid #e0e0e0;
+}
+
+.zoteroButtonDisconnect:hover:not(:disabled) {
+  background-color: #ebebeb;
+}
