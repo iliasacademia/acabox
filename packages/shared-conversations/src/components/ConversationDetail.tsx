@@ -501,6 +501,9 @@ export function ConversationDetail({
   // Show fact-check button on first assistant message if no user message follows it
   const shouldShowFactCheck = !hasUserMessageAfterFirstAssistant;
 
+  // Extract review_id from conversation (check both polledConversation and conversation prop)
+  const conversationReviewId = polledConversation?.review_id ?? conversation?.review_id ?? undefined;
+
   // Group consecutive tool messages (no date dividers)
   const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: Message | Message[]; messageIndex: number }> = [];
   let currentToolGroup: Message[] = [];
@@ -669,6 +672,7 @@ export function ConversationDetail({
                     onShowDiff={handleShowDiff}
                     onQuestionClick={handleQuestionClick}
                     onFactCheckClick={handleFactCheckClick}
+                    conversationReviewId={conversationReviewId}
                     showQuestions={
                       shouldShowQuestions &&
                       lastAssistantMessage &&
