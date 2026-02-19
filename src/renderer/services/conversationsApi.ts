@@ -38,6 +38,7 @@ export interface Conversation {
   updated_at: string;
   parent_id?: number | null;
   parent_type?: string | null;
+  selected_text?: string | null;
 }
 
 export interface ConversationResponse {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import './ReviewButton.css';
 
@@ -160,18 +160,36 @@ function useWordPoll(
 const ReviewButton: React.FC = () => {
   const { shouldShow, isReviewing: serverIsReviewing } = useWordPoll(widParam, tokenParam, serverUrl);
   const [localIsReviewing, setLocalIsReviewing] = useState(false);
+  const [hasShownOnce, setHasShownOnce] = useState(false);
+  const clickInProgressRef = useRef(false);
 
-  // Once server confirms reviewing, hand off to server state
+  // Once we show the button, keep it shown (don't hide on transient shouldShow changes)
+  useEffect(() => {
+    if (shouldShow) {
+      setHasShownOnce(true);
+    }
+  }, [shouldShow]);
+
+  // Once server confirms reviewing, hand off to server state and hide button
   useEffect(() => {
     if (serverIsReviewing) {
       setLocalIsReviewing(false);
+      setHasShownOnce(false); // Reset so button can show again for next selection
     }
   }, [serverIsReviewing]);
 
   const isReviewing = serverIsReviewing || localIsReviewing;
 
-  const handleClick = async () => {
-    if (isReviewing || !widParam) return;
+  const handleClick = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Prevent duplicate clicks
+    if (clickInProgressRef.current || isReviewing || !widParam) {
+      return;
+    }
+
+    clickInProgressRef.current = true;
     setLocalIsReviewing(true);
 
     try {
@@ -183,23 +201,29 @@ const ReviewButton: React.FC = () => {
       if (!res.ok) {
         console.error('[ReviewButton] Review request failed:', data);
         setLocalIsReviewing(false);
+        clickInProgressRef.current = false;
         return;
       }
-      console.log('[ReviewButton] Review triggered:', data);
     } catch (err) {
       console.error('[ReviewButton] Review request error:', err);
       setLocalIsReviewing(false);
+      clickInProgressRef.current = false;
     }
   };
 
-  if (!shouldShow) {
+  // Hide button if not shown yet, or if reviewing is in progress
+  if (!hasShownOnce || isReviewing) {
     return null;
   }
 
   return (
     <div className="review-button-container">
-      <button className="review-button" onClick={handleClick} disabled={isReviewing}>
-        {isReviewing ? 'Reviewing' : 'Review'}
+      <button
+        className="review-button"
+        onClick={handleClick}
+        onMouseDown={(e) => e.stopPropagation()}
+      >
+        Review
       </button>
     </div>
   );

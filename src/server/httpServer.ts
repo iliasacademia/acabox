@@ -26,6 +26,7 @@ import { registerWebSocketRoutes } from './routes/websocket';
 import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerBridgeRoutes } from './routes/bridge';
 import { registerSelectedTextReviewRoutes } from './routes/selectedTextReview';
+import { registerReviewRoutes } from './routes/reviewRoutes';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
@@ -209,6 +210,9 @@ export class AcademiaHttpServer {
 
     // Register selected text review routes
     await registerSelectedTextReviewRoutes(this.fastify);
+
+    // Register review routes (full paper and diff)
+    await registerReviewRoutes(this.fastify);
 
     // Register navigation routes (if handler is set)
     if (this.navigationHandler) {

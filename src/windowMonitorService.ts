@@ -22,6 +22,9 @@ const POPUP_WIDTH = 370;
 const POPUP_HEIGHT = 280;
 const POPUP_GAP_ABOVE_BUTTON = 10;
 
+const REVIEW_STATUS_OVERLAY_HEIGHT = 250;
+const REVIEW_STATUS_OVERLAY_GAP = 4;
+
 const REVIEW_BUTTON_WIDTH = 120;
 const REVIEW_BUTTON_HEIGHT = 46;
 const REVIEW_BUTTON_GAP = 10;
@@ -31,105 +34,141 @@ const REVIEWING_BUTTON_V2_WIDTH = 320;
 const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY === '1';
 const DEBUG_SELECTION_BOUNDS_OVERLAY = process.env.DEBUG_SELECTION_BOUNDS_OVERLAY === '1';
 
-const webviewConfigs: WebviewTypeConfig[] = [
-  {
-    keyPrefix: 'button-v2',
-    pathSuffix: '/ui/popup/academiaNotificationsButtonV2/',
-    computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds) => {
-      const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
-      return {
-        x: bounds.x + BUTTON_LEFT_MARGIN,
-        y: cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN,
-        width: BUTTON_WIDTH,
-        height: BUTTON_HEIGHT,
-      };
+function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
+  const configs: WebviewTypeConfig[] = [
+    {
+      keyPrefix: 'button-v2',
+      pathSuffix: '/ui/popup/academiaNotificationsButtonV2/',
+      computeFrame: (bounds: WindowBounds, screenHeight: number) => {
+        const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
+        return {
+          x: bounds.x + BUTTON_LEFT_MARGIN,
+          y: cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN,
+          width: BUTTON_WIDTH,
+          height: BUTTON_HEIGHT,
+        };
+      },
     },
-  },
-  {
-    keyPrefix: 'popup-v2',
-    pathSuffix: '/ui/popup/academiaNotificationsV2/',
-    computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds) => {
-      const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
-      const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
-      return {
-        x: bounds.x + BUTTON_LEFT_MARGIN,
-        y: buttonTopEdge + POPUP_GAP_ABOVE_BUTTON,
-        width: POPUP_WIDTH,
-        height: POPUP_HEIGHT,
-      };
-    },
-  },
-  {
-    keyPrefix: 'review-button',
-    pathSuffix: '/ui/popup/reviewButton/',
-    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds) => {
-      if (!selectionBounds) return null;
-
-      // Right of selection with gap, bottom-aligned
-      const x = selectionBounds.x + selectionBounds.width + REVIEW_BUTTON_GAP;
-      const cocoaY = screenHeight - (selectionBounds.y + selectionBounds.height);
-
-      // Clamp to window bounds
-      const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
-      const cocoaWindowTop = cocoaWindowBottom + _bounds.height;
-      const clampedX = Math.max(_bounds.x, Math.min(x, _bounds.x + _bounds.width - REVIEW_BUTTON_WIDTH));
-      const clampedY = Math.max(cocoaWindowBottom, Math.min(cocoaY, cocoaWindowTop - REVIEW_BUTTON_HEIGHT));
-
-      // Hide if button falls outside content bounds
-      if (_contentBounds) {
-        const contentLeft = _contentBounds.x;
-        const contentRight = _contentBounds.x + _contentBounds.width;
-        const contentBottom = screenHeight - (_contentBounds.y + _contentBounds.height);
-        const contentTop = contentBottom + _contentBounds.height;
-
-        if (
-          clampedX < contentLeft ||
-          clampedX + REVIEW_BUTTON_WIDTH > contentRight ||
-          clampedY < contentBottom ||
-          clampedY + REVIEW_BUTTON_HEIGHT > contentTop
-        ) {
+    {
+      keyPrefix: 'review-status-overlay',
+      pathSuffix: '/ui/popup/reviewStatusOverlay/',
+      computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
+        // Don't show if popup is open (they overlap)
+        if (windowId && service['popupToggledOpen'].has(windowId)) {
           return null;
         }
-      }
 
-      return { x: clampedX, y: clampedY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
-    },
-  },
-];
+        // Only show if there's an active review for this window
+        if (!windowId || !service['selectedTextReviewState'].has(windowId)) {
+          return null;
+        }
 
-if (DEBUG_CONTENT_BOUNDS_OVERLAY) {
-  webviewConfigs.push({
-    keyPrefix: 'debug-content-bounds',
-    pathSuffix: '/ui/popup/debuggingRedBorderContainer/',
-    ignoresMouseEvents: true,
-    computeFrame: (_bounds, screenHeight, contentBounds, _selectionBounds) => {
-      if (!contentBounds) return null;
-      return {
-        x: contentBounds.x,
-        y: screenHeight - (contentBounds.y + contentBounds.height),
-        width: contentBounds.width,
-        height: contentBounds.height,
-      };
+        const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
+        const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
+
+        return {
+          x: bounds.x + BUTTON_LEFT_MARGIN,
+          y: buttonTopEdge + REVIEW_STATUS_OVERLAY_GAP,
+          width: POPUP_WIDTH,
+          height: REVIEW_STATUS_OVERLAY_HEIGHT,
+        };
+      },
     },
-  });
+    {
+      keyPrefix: 'popup-v2',
+      pathSuffix: '/ui/popup/academiaNotificationsV2/',
+      computeFrame: (bounds: WindowBounds, screenHeight: number) => {
+        const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
+        const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
+        return {
+          x: bounds.x + BUTTON_LEFT_MARGIN,
+          y: buttonTopEdge + POPUP_GAP_ABOVE_BUTTON,
+          width: POPUP_WIDTH,
+          height: POPUP_HEIGHT,
+        };
+      },
+    },
+    {
+      keyPrefix: 'review-button',
+      pathSuffix: '/ui/popup/reviewButton/',
+      computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
+        // Use cached selection bounds if there's an active review and current selection is null
+        let effectiveBounds = selectionBounds;
+        if (!effectiveBounds && windowId && service['selectedTextReviewState'].has(windowId)) {
+          effectiveBounds = service['lastSelectionBounds'].get(windowId) || null;
+        }
+
+        if (!effectiveBounds) return null;
+
+        // Right of selection with gap, bottom-aligned
+        const x = effectiveBounds.x + effectiveBounds.width + REVIEW_BUTTON_GAP;
+        const cocoaY = screenHeight - (effectiveBounds.y + effectiveBounds.height);
+
+        // Clamp to window bounds
+        const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
+        const cocoaWindowTop = cocoaWindowBottom + _bounds.height;
+        const clampedX = Math.max(_bounds.x, Math.min(x, _bounds.x + _bounds.width - REVIEW_BUTTON_WIDTH));
+        const clampedY = Math.max(cocoaWindowBottom, Math.min(cocoaY, cocoaWindowTop - REVIEW_BUTTON_HEIGHT));
+
+        // Hide if button falls outside content bounds
+        if (_contentBounds) {
+          const contentLeft = _contentBounds.x;
+          const contentRight = _contentBounds.x + _contentBounds.width;
+          const contentBottom = screenHeight - (_contentBounds.y + _contentBounds.height);
+          const contentTop = contentBottom + _contentBounds.height;
+
+          if (
+            clampedX < contentLeft ||
+            clampedX + REVIEW_BUTTON_WIDTH > contentRight ||
+            clampedY < contentBottom ||
+            clampedY + REVIEW_BUTTON_HEIGHT > contentTop
+          ) {
+            return null;
+          }
+        }
+
+        return { x: clampedX, y: clampedY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
+      },
+    },
+  ];
+
+  if (DEBUG_CONTENT_BOUNDS_OVERLAY) {
+    configs.push({
+      keyPrefix: 'debug-content-bounds',
+      pathSuffix: '/ui/popup/debuggingRedBorderContainer/',
+      ignoresMouseEvents: true,
+      computeFrame: (_bounds: WindowBounds, screenHeight: number, contentBounds) => {
+        if (!contentBounds) return null;
+        return {
+          x: contentBounds.x,
+          y: screenHeight - (contentBounds.y + contentBounds.height),
+          width: contentBounds.width,
+          height: contentBounds.height,
+        };
+      },
+    });
+  }
+
+  if (DEBUG_SELECTION_BOUNDS_OVERLAY) {
+    configs.push({
+      keyPrefix: 'debug-selection-bounds',
+      pathSuffix: '/ui/popup/debuggingRedBorderContainer/?borderColor=blue',
+      ignoresMouseEvents: true,
+      computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds) => {
+        if (!selectionBounds) return null;
+        return {
+          x: selectionBounds.x,
+          y: screenHeight - (selectionBounds.y + selectionBounds.height),
+          width: selectionBounds.width,
+          height: selectionBounds.height,
+        };
+      },
+    });
+  }
+
+  return configs;
 }
 
-if (DEBUG_SELECTION_BOUNDS_OVERLAY) {
-  webviewConfigs.push({
-    keyPrefix: 'debug-selection-bounds',
-    pathSuffix: '/ui/popup/debuggingRedBorderContainer/?borderColor=blue',
-    ignoresMouseEvents: true,
-    computeFrame: (_bounds, screenHeight, _contentBounds, selectionBounds) => {
-      if (!selectionBounds) return null;
-      return {
-        x: selectionBounds.x,
-        y: screenHeight - (selectionBounds.y + selectionBounds.height),
-        width: selectionBounds.width,
-        height: selectionBounds.height,
-      };
-    },
-  });
-}
 
 function getWindowMonitorBinPath(): string {
   if (app.isPackaged) {
@@ -168,7 +207,10 @@ export class WindowMonitorService {
     projectId: number;
     projectFileId: number;
     startedAt: number;
+    reviewType: 'full-paper' | 'selected-text' | 'review-changes';
+    selectedText?: string;
   }>();
+  private lastSelectionBounds = new Map<string, WindowBounds>();
   private documentTextContentCache = new Map<string, string>();
   private baseUrl: string | null = null;
   private authToken: string | null = null;
@@ -219,6 +261,19 @@ export class WindowMonitorService {
       }
       this.state = newState;
 
+      // Cache selection bounds when text is selected
+      if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.bounds) {
+        this.lastSelectionBounds.set(event.window.id, event.selection.bounds);
+      }
+
+      // Clear cached selection bounds when selection is cleared
+      if (event.event === 'WINDOW_TEXT_SELECTION_CLEARED' && event.window) {
+        // Don't clear if there's an active review - keep the bounds for the button to stay visible
+        if (!this.selectedTextReviewState.has(event.window.id)) {
+          this.lastSelectionBounds.delete(event.window.id);
+        }
+      }
+
       if (documentPathMappingChanged) {
         wordPollEventBus.emit('change', 'window-document-path-changed');
       }
@@ -248,6 +303,7 @@ export class WindowMonitorService {
         this.popupSizeOverrides.delete(event.window.id);
         this.buttonV2WidthOverrides.delete(event.window.id);
         this.selectedTextReviewState.delete(event.window.id);
+        this.lastSelectionBounds.delete(event.window.id);
         this.documentTextContentCache.delete(event.window.id);
       }
 
@@ -298,14 +354,29 @@ export class WindowMonitorService {
     if (!this.baseUrl || !this.authToken) return;
 
     const screenHeight = screen.getPrimaryDisplay().bounds.height;
-    const desiredState = computeWebviewState(this.state, webviewConfigs, this.baseUrl, this.authToken, screenHeight);
+    const desiredState = computeWebviewState(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
+
+    // Auto-close popups when Word loses focus
+    const wordApp = this.state.apps.find(app => app.identifier === 'com.microsoft.Word');
+    const wordIsFocused = wordApp?.isFocused ?? false;
 
     for (const key of Object.keys(desiredState)) {
       if (key.startsWith('popup-v2-')) {
         const windowId = key.slice('popup-v2-'.length);
-        if (!this.popupToggledOpen.has(windowId)) {
+        const isToggledOpen = this.popupToggledOpen.has(windowId);
+
+        // Auto-close popup if Word loses focus
+        if (isToggledOpen && !wordIsFocused) {
+          this.popupToggledOpen.delete(windowId);
           desiredState[key].visible = false;
+          logger.info(`[WindowMonitor] Auto-closing popup ${key} because Word lost focus`);
+        } else {
+          // If toggled open and Word is focused, show. Otherwise hide.
+          desiredState[key].visible = isToggledOpen;
         }
+
+        logger.debug(`[WindowMonitor] Popup ${key}: toggled=${isToggledOpen}, visible=${desiredState[key].visible}`);
+
         const heightOverride = this.popupHeightOverrides.get(windowId);
         if (heightOverride !== undefined) {
           desiredState[key].frame.height = heightOverride;
@@ -325,10 +396,11 @@ export class WindowMonitorService {
       }
     }
 
-    // Apply drag offsets to both button and popup frames, clamped to window bounds
+    // Apply drag offsets to button, popup, and review status overlay frames, clamped to window bounds
     for (const [windowId, offset] of this.buttonDragOffsets) {
       const buttonKey = `button-v2-${windowId}`;
       const popupKey = `popup-v2-${windowId}`;
+      const reviewStatusKey = `review-status-overlay-${windowId}`;
       if (!desiredState[buttonKey]) continue;
 
       // Find window bounds for clamping
@@ -368,6 +440,11 @@ export class WindowMonitorService {
           desiredState[popupKey].frame.x += clampedDx;
           desiredState[popupKey].frame.y += clampedDy;
         }
+
+        if (desiredState[reviewStatusKey]) {
+          desiredState[reviewStatusKey].frame.x += clampedDx;
+          desiredState[reviewStatusKey].frame.y += clampedDy;
+        }
       } else {
         // No bounds info, apply offset without clamping
         desiredState[buttonKey].frame.x += offset.dx;
@@ -375,6 +452,10 @@ export class WindowMonitorService {
         if (desiredState[popupKey]) {
           desiredState[popupKey].frame.x += offset.dx;
           desiredState[popupKey].frame.y += offset.dy;
+        }
+        if (desiredState[reviewStatusKey]) {
+          desiredState[reviewStatusKey].frame.x += offset.dx;
+          desiredState[reviewStatusKey].frame.y += offset.dy;
         }
       }
     }
@@ -387,10 +468,13 @@ export class WindowMonitorService {
   }
 
   togglePopupForWindow(windowId: string): void {
-    if (this.popupToggledOpen.has(windowId)) {
+    const wasOpen = this.popupToggledOpen.has(windowId);
+    if (wasOpen) {
       this.popupToggledOpen.delete(windowId);
+      logger.info(`[WindowMonitor] Popup closed for window ${windowId}`);
     } else {
       this.popupToggledOpen.add(windowId);
+      logger.info(`[WindowMonitor] Popup opened for window ${windowId}`);
     }
     this.pushWebviewState();
   }
@@ -416,8 +500,14 @@ export class WindowMonitorService {
     }
   }
 
-  setSelectedTextReviewState(windowId: string, projectId: number, projectFileId: number): void {
-    this.selectedTextReviewState.set(windowId, { projectId, projectFileId, startedAt: Date.now() });
+  setSelectedTextReviewState(
+    windowId: string,
+    projectId: number,
+    projectFileId: number,
+    reviewType: 'full-paper' | 'selected-text' | 'review-changes' = 'selected-text',
+    selectedText?: string
+  ): void {
+    this.selectedTextReviewState.set(windowId, { projectId, projectFileId, startedAt: Date.now(), reviewType, selectedText });
     this.buttonV2WidthOverrides.set(windowId, REVIEWING_BUTTON_V2_WIDTH);
     this.pushWebviewState();
   }
@@ -425,25 +515,38 @@ export class WindowMonitorService {
   clearSelectedTextReviewState(windowId: string): void {
     this.selectedTextReviewState.delete(windowId);
     this.buttonV2WidthOverrides.delete(windowId);
+    this.lastSelectionBounds.delete(windowId);
     // Note: pushWebviewState() is NOT called here — caller handles native update
     // timing to avoid disrupting WebSocket delivery of the state change.
   }
 
-  getSelectedTextReviewState(windowId: string): { projectId: number; projectFileId: number; startedAt: number } | null {
+  getSelectedTextReviewState(windowId: string): {
+    projectId: number;
+    projectFileId: number;
+    startedAt: number;
+    reviewType: 'full-paper' | 'selected-text' | 'review-changes';
+    selectedText?: string;
+  } | null {
     return this.selectedTextReviewState.get(windowId) ?? null;
   }
 
-  getAllSelectedTextReviewStates(): Map<string, { projectId: number; projectFileId: number; startedAt: number }> {
+  getAllSelectedTextReviewStates(): Map<string, { projectId: number; projectFileId: number; startedAt: number; reviewType: 'full-paper' | 'selected-text' | 'review-changes'; selectedText?: string }> {
     return this.selectedTextReviewState;
   }
 
   openPopupForWindow(windowId: string): void {
+    logger.info(`[WindowMonitor] Opening popup for window ${windowId}`);
     this.popupToggledOpen.add(windowId);
     this.pushWebviewState();
   }
 
-  closePopupForWindow(windowId: string): void {
+  closePopupForWindow(windowId: string, clearReviewState: boolean = true): void {
     if (this.popupToggledOpen.delete(windowId)) {
+      // Clear review state if requested (e.g., user clicking close button)
+      // Don't clear if closing to show review status overlay (e.g., clicking in-progress review)
+      if (clearReviewState) {
+        this.clearSelectedTextReviewState(windowId);
+      }
       this.pushWebviewState();
     }
   }

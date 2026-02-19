@@ -319,4 +319,44 @@ export async function registerNotificationRoutes(
       }
     }
   );
+
+  /**
+   * POST /api/notifications/sync
+   *
+   * Trigger an immediate notification sync with the backend
+   *
+   * Returns:
+   * {
+   *   success: boolean
+   * }
+   */
+  fastify.post(
+    '/api/notifications/sync',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const userId = currentUserId();
+
+      if (!userId) {
+        reply.code(400).send({
+          error: 'BadRequest',
+          message: 'No user logged in',
+          statusCode: 400,
+        });
+        return;
+      }
+
+      try {
+        // Trigger immediate sync
+        await notificationManager.syncWithBackend(userId);
+
+        reply.send({ success: true });
+      } catch (error) {
+        logger.error('[Notifications API] Error syncing notifications:', error);
+        reply.code(500).send({
+          error: 'InternalServerError',
+          message: 'Failed to sync notifications',
+          statusCode: 500,
+        });
+      }
+    }
+  );
 }

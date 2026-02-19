@@ -151,9 +151,9 @@ export interface WordPollResponse {
   isReviewingSelectedText?: boolean;
   /** Timestamp (ms) when the selected text review was triggered */
   selectedTextReviewStartedAt?: number;
-  /** Type of review currently in progress */
+  /** Type of review in progress */
   reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
-  /** Selected text for the current review */
+  /** The selected text being reviewed (if available) */
   selectedText?: string;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;

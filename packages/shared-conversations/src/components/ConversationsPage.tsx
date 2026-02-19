@@ -123,6 +123,7 @@ export function ConversationsPage({
   const [fileExistsLocally, setFileExistsLocally] = useState(true);
   const [isSwitchingManuscript, setIsSwitchingManuscript] = useState(false);
   const [switchSuccessMessage, setSwitchSuccessMessage] = useState<string | null>(null);
+  const [pendingConversationId, setPendingConversationId] = useState<number | null>(null);
 
   const apiClient = useApiClient();
 
@@ -132,7 +133,6 @@ export function ConversationsPage({
   // Responsive sidebar collapse
   const windowSize = useWindowSize();
   const { collapsed, toggleCollapsed } = useSidebarCollapse(windowSize.width);
-  const { getConversation } = useConversationsApi();
   const {
     getProjectFiles,
     getProjectStatus,
@@ -622,41 +622,12 @@ export function ConversationsPage({
   }, [selectedProject, fileSyncEventName, apiClient]);
 
   // Handle initial conversation navigation from notification click
+  // Store the ID to select once conversations are loaded
   useEffect(() => {
-    if (!initialConversationId || !selectedProject) return;
-    const fetchAndSelectConversation = async () => {
-      try {
-        const conversationDetail = await getConversation(
-          initialConversationId,
-          selectedProject.id,
-        );
-        if (conversationDetail) {
-          // Convert to Conversation type (getConversation returns ConversationDetail which has messages)
-          const { conversation } = conversationDetail;
-          setSelectedConversation(conversation);
-          // Mark conversations as loaded since we have a specific one selected
-          setConversationsLoaded(true);
-        } else {
-          console.warn(
-            "[ConversationsPage] Conversation not found:",
-            initialConversationId,
-          );
-        }
-      } catch (error) {
-        console.error(
-          "[ConversationsPage] Error fetching conversation for navigation:",
-          error,
-        );
-      } finally {
-        // Clear the pending navigation after handling
-        if (onConversationNavigated) {
-          onConversationNavigated();
-        }
-      }
-    };
-
-    fetchAndSelectConversation();
-  }, [initialConversationId, selectedProject, onConversationNavigated]);
+    if (initialConversationId) {
+      setPendingConversationId(initialConversationId);
+    }
+  }, [initialConversationId]);
 
   const handleSelectConversation = (conversation: Conversation) => {
     setSelectedConversation(conversation);
@@ -695,6 +666,25 @@ export function ConversationsPage({
     // Track if there are any conversations
     setHasConversations(conversations.length > 0);
     setConversationsLoaded(true);
+
+    // If we have a pending conversation ID (from notification), select it from the list
+    if (pendingConversationId && conversations.length > 0) {
+      const targetConversation = conversations.find(c => c.id === pendingConversationId);
+      if (targetConversation) {
+        setSelectedConversation(targetConversation);
+        setPendingConversationId(null);
+        // Clear the pending navigation after handling
+        if (onConversationNavigated) {
+          onConversationNavigated();
+        }
+      } else {
+        console.warn(
+          "[ConversationsPage] Conversation not found in list:",
+          pendingConversationId,
+        );
+      }
+      return;
+    }
 
     // Auto-select the first conversation if none is selected
     if (conversations.length > 0 && !selectedConversation) {

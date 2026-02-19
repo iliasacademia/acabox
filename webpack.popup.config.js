@@ -14,6 +14,7 @@ module.exports = {
     academiaNotificationsButtonV2: './src/popup/AcademiaNotificationsButtonV2.tsx',
     academiaNotificationsV2: './src/popup/AcademiaNotificationsPopupV2.tsx',
     reviewButton: './src/popup/ReviewButton.tsx',
+    reviewStatusOverlay: './src/popup/ReviewStatusOverlay.tsx',
   },
   output: {
     path: path.resolve(__dirname, 'dist/popup'),
@@ -65,6 +66,13 @@ module.exports = {
       template: './src/popup/review-button.html',
       filename: 'reviewButton/index.html',
       chunks: ['reviewButton'],
+      inject: false,
+      scriptLoading: 'blocking',
+    }),
+    new HtmlWebpackPlugin({
+      template: './src/popup/review-status-overlay.html',
+      filename: 'reviewStatusOverlay/index.html',
+      chunks: ['reviewStatusOverlay'],
       inject: false,
       scriptLoading: 'blocking',
     }),

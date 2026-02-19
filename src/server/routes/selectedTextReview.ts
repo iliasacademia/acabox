@@ -133,7 +133,7 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
         logger.info(`[SelectedTextReview] Uploading: selectedText=${selectedText.length} bytes, fullDocumentText=${fullDocumentText.length} bytes`);
 
         // Set reviewing state early so UI updates immediately (before network calls)
-        windowMonitorService.setSelectedTextReviewState(wid, project_id, project_file_id);
+        windowMonitorService.setSelectedTextReviewState(wid, project_id, project_file_id, 'selected-text', selectedText);
         wordPollEventBus.emit('change', 'reviewing-state-changed');
 
         // Step 3: Get presigned S3 URLs

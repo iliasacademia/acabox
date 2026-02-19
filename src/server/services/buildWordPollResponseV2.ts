@@ -34,6 +34,34 @@ export function buildWordPollResponseV2(
   // Read reviewing state
   const reviewState = windowMonitorService.getSelectedTextReviewState(wid);
 
+  // Check if selection review completed: if there's a local review state but a notification exists for it, clear the local state
+  if (reviewState && reviewState.reviewType === 'selected-text' && notificationManager && currentUserId) {
+    const userId = currentUserId();
+    if (userId) {
+      try {
+        const allNotifications = notificationManager.getNotificationsByStatus(userId);
+        const completedReview = allNotifications.find(
+          (n: CachedNotification) =>
+            n.project_file_id === projectFile?.project_file_id &&
+            // Check both review_type and agent_name to detect selection reviews
+            (n.data?.review_type === 'selected-text' || n.data?.agent_name === 'selected_text_review') &&
+            n.data?.conversation_id != null &&
+            // Notification was created after the review started
+            (typeof n.created_at === 'number' ? n.created_at : new Date(n.created_at).getTime()) > reviewState.startedAt
+        );
+
+        if (completedReview) {
+          logger.info(`[WORD-POLL-V2] Selection review completed for window ${wid}, clearing local state`);
+          windowMonitorService.clearSelectedTextReviewState(wid);
+          // Return fresh response without in-progress review
+          return buildWordPollResponseV2(wid, notificationManager, currentUserId);
+        }
+      } catch (err) {
+        logger.error(`[WORD-POLL-V2] Error checking for completed review for wid ${wid}:`, err);
+      }
+    }
+  }
+
   // If no document path or no project file, hide the button
   if (!projectFile) {
     return {
@@ -58,6 +86,9 @@ export function buildWordPollResponseV2(
     title: string;
     body_html?: string;
     isRead: boolean;
+    selected_text?: string;
+    review_type?: 'full-paper' | 'selected-text' | 'review-changes';
+    isInProgress?: boolean;
   }> = [];
 
   if (notificationManager && currentUserId) {
@@ -102,6 +133,25 @@ export function buildWordPollResponseV2(
     }
   }
 
+  // Add in-progress review to the notification list
+  if (reviewState && reviewState.reviewType === 'selected-text') {
+    const inProgressReview = {
+      id: -1, // Temporary ID for in-progress review
+      project_id: reviewState.projectId,
+      conversation_id: -1, // No conversation yet
+      created_at: reviewState.startedAt,
+      title: 'Selection review',
+      body_html: 'Review in progress...',
+      isRead: true, // Shown as read since it's in progress
+      selected_text: reviewState.selectedText,
+      review_type: reviewState.reviewType,
+      isInProgress: true,
+    };
+
+    // Add to front of list, limit total to 2 items
+    recentReviewNotifications = [inProgressReview, ...recentReviewNotifications.slice(0, 1)];
+  }
+
   return {
     shouldShow: true,
     projectId: projectFile.project_id,
@@ -111,7 +161,8 @@ export function buildWordPollResponseV2(
     recentReviewNotifications,
     isReviewingSelectedText: reviewState !== null,
     selectedTextReviewStartedAt: reviewState?.startedAt,
-    reviewType: reviewState ? 'selected-text' : undefined,
+    reviewType: reviewState?.reviewType,
+    selectedText: reviewState?.selectedText,
     activeDocumentPath: documentPath,
   };
 }

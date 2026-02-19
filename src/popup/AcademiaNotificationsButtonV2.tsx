@@ -215,7 +215,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   } | null>(null);
   const didDragRef = useRef(false);
 
-  const { shouldShow, badgeCount, isReviewing, reviewStartedAt } = useWordPollWebSocket(
+  const { shouldShow, badgeCount, isReviewing } = useWordPollWebSocket(
     widParam,
     tokenParam,
     serverUrl
@@ -223,15 +223,12 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
 
   // Phase state machine: idle → reviewing → completing → idle
   const [phase, setPhase] = useState<ReviewPhase>('idle');
-  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
     if (isReviewing && phase === 'idle') {
       setPhase('reviewing');
-      setProgress(0);
     } else if (!isReviewing && phase === 'reviewing') {
       setPhase('completing');
-      setProgress(100);
     }
   }, [isReviewing, phase]);
 
@@ -240,22 +237,12 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
     if (phase !== 'completing') return;
     const timer = setTimeout(() => {
       setPhase('idle');
-      setProgress(0);
     }, 1000);
     return () => clearTimeout(timer);
   }, [phase]);
 
   // Progress animation during reviewing phase
-  useEffect(() => {
-    if (phase !== 'reviewing' || !reviewStartedAt) return;
-    const tick = () => {
-      const elapsed = Date.now() - reviewStartedAt;
-      setProgress(Math.min(99, (elapsed / 60000) * 100));
-    };
-    tick();
-    const interval = setInterval(tick, 200);
-    return () => clearInterval(interval);
-  }, [phase, reviewStartedAt]);
+  // Progress tracking removed - now shown in review status overlay
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -330,7 +317,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${tokenParam}`,
         },
-        body: JSON.stringify({ action: 'buttonClicked', payload: {}, pid: Number(pidParam), wid: widParam }),
+        body: JSON.stringify({ action: 'openPopup', payload: {}, pid: Number(pidParam), wid: widParam }),
       });
     } catch (err) {
       console.error('[AcademiaNotificationsButtonV2] Click failed:', err);
@@ -353,14 +340,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
         disabled={loading}
         data-node-id="1630:6725"
       >
-        {phase !== 'idle' && (
-          <div className="progress-bar-track">
-            <div
-              className={`progress-bar-fill${phase === 'completing' ? ' completing' : ''}`}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        )}
+        {/* Progress bar removed - now shown in review status overlay */}
         <div
           className={`drag-handle${dragging ? ' dragging' : ''}`}
           onPointerDown={handlePointerDown}
@@ -378,7 +358,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           <img src={academiaLogos} alt="Academia" className="logo" data-node-id="1630:6721" />
         </div>
         <span className="feedback-text" data-node-id="1630:6722">
-          {phase === 'reviewing' ? 'Reviewing selected text' : 'Feedback'}
+          Feedback
         </span>
         {badgeCount > 0 && (
           <div className="badge" data-node-id="1630:6723">
