@@ -161,6 +161,13 @@ const ReviewButton: React.FC = () => {
   const { shouldShow, isReviewing: serverIsReviewing } = useWordPoll(widParam, tokenParam, serverUrl);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Reset isSubmitting once server confirms review is in progress
+  useEffect(() => {
+    if (serverIsReviewing) {
+      setIsSubmitting(false);
+    }
+  }, [serverIsReviewing]);
+
   const handleClick = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
