@@ -146,7 +146,7 @@ describe('Visibility', () => {
     expect(result['button-v2-1'].visible).toBe(false);
   });
 
-  test('repositioning → visible: false', () => {
+  test('repositioning → visible: true (stable buttons ignore repositioning to avoid flicker)', () => {
     const app = makeApp();
     const state = reduce(createInitialState(), [
       { event: 'APP_FOCUSED', timestamp: ts(), platform: 'macos', app },
@@ -155,7 +155,8 @@ describe('Visibility', () => {
       { event: 'WINDOW_REPOSITIONING', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1', bounds: { x: 10, y: 10, width: 800, height: 600 } }) },
     ]);
     const result = computeWebviewState(state, configs, BASE_URL, AUTH_TOKEN, SCREEN_HEIGHT);
-    expect(result['button-v2-1'].visible).toBe(false);
+    // button-v2 is a stable button that ignores repositioning flags to avoid flicker
+    expect(result['button-v2-1'].visible).toBe(true);
   });
 });
 
