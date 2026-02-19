@@ -1596,6 +1596,73 @@ export class ProjectSyncService {
   }
 
   /**
+   * Upload a supporting material file to the project
+   * Uses POST /v0/co_scientist/projects/{projectId}/files with:
+   * - No project_root_id (standalone file)
+   * - rel_path = absolute file path
+   * - is_manuscript = false (or omitted)
+   * - category = reference | note | proposal | other
+   */
+  async uploadSupportingMaterial(
+    projectId: number,
+    filePath: string,
+    category: string = 'reference'
+  ): Promise<{ success: boolean; file?: any; error?: string }> {
+    try {
+      const client = await APIclient();
+      const csrfToken = await getCsrfToken();
+
+      // Check if file exists
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+
+      const stats = fs.statSync(filePath);
+      const size = stats.size;
+
+      const MAX_FILE_SIZE = 500 * 1024 * 1024;
+      if (size > MAX_FILE_SIZE) {
+        throw new Error(`File too large: ${size} bytes exceeds ${MAX_FILE_SIZE} bytes`);
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeType = getMimeType(ext);
+
+      const formData = new FormData();
+      formData.append('rel_path', filePath);
+      formData.append('mime_type', mimeType);
+      formData.append('size', size.toString());
+      formData.append('is_manuscript', 'false'); // Supporting materials are not manuscripts
+      formData.append('category', category);
+      formData.append('file', fs.createReadStream(filePath));
+
+      const response = await client.post(
+        `v0/co_scientist/projects/${projectId}/files`,
+        formData,
+        {
+          headers: {
+            'x-csrf-token': csrfToken,
+            ...formData.getHeaders(),
+          },
+          validateStatus: () => true,
+        }
+      );
+
+      if (response.status < 200 || response.status >= 300) {
+        const error = `Failed to upload supporting material: ${response.status} - ${JSON.stringify(response.data)}`;
+        logger.error(`[ProjectSync] ${error}`);
+        return { success: false, error };
+      }
+
+      logger.debug(`[ProjectSync] Supporting material uploaded: ${path.basename(filePath)}`);
+      return { success: true, file: response.data };
+    } catch (error: any) {
+      logger.error(`[ProjectSync] Error uploading supporting material:`, error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
    * On app restart, check if a standalone file changed (checksum vs backend) and re-upload if needed
    */
   private async performStartupSyncForFile(projectId: number, filePath: string): Promise<void> {

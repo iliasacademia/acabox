@@ -17,6 +17,12 @@ interface ConversationsSidebarProps {
   collapsed?: boolean;
   /** Optional: Toggle collapsed state */
   onToggleCollapsed?: () => void;
+  /** Supporting materials count */
+  supportingMaterialsCount?: number;
+  /** Selected view type */
+  selectedView?: 'conversation' | 'supporting-materials';
+  /** Callback when supporting materials is selected */
+  onSelectSupportingMaterials?: () => void;
 }
 
 export function ConversationsSidebar({
@@ -30,6 +36,9 @@ export function ConversationsSidebar({
   onRegisterRefresh,
   collapsed = false,
   onToggleCollapsed,
+  supportingMaterialsCount = 0,
+  selectedView = 'conversation',
+  onSelectSupportingMaterials,
 }: ConversationsSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -145,6 +154,30 @@ export function ConversationsSidebar({
   return (
     <>
       <div className={`conversationsSidebar ${collapsed ? 'collapsed' : ''}`}>
+      {/* Supporting Materials Section */}
+      {!collapsed && (
+        <div className="sidebarSection">
+          <div
+            className={`supportingMaterialsCard ${
+              selectedView === 'supporting-materials' ? 'selected' : ''
+            }`}
+            onClick={onSelectSupportingMaterials}
+          >
+            <h3 className="supportingMaterialsCardTitle">Supporting materials</h3>
+            <p className="supportingMaterialsCardSubtitle">
+              {supportingMaterialsCount} connected {supportingMaterialsCount === 1 ? 'file' : 'files'}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Manuscript Feedback Section */}
+      {!collapsed && (
+        <div className="sidebarSection">
+          <h3 className="sidebarSectionTitle">Manuscript feedback</h3>
+        </div>
+      )}
+
       {/* Conversations List */}
       {!collapsed && (
         <div className="conversationsList">

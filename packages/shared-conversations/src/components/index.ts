@@ -9,3 +9,11 @@ export { default as DiffModal } from './DiffModal';
 export { default as SplitDiffViewer } from './SplitDiffViewer';
 export { DateDivider } from './DateDivider';
 export { formatConversationTitle, generateDailyFeedbackTitle } from './utils';
+
+// Supporting Materials Components
+export { SupportingMaterialsSidebar } from './SupportingMaterialsSidebar';
+export type { SupportingMaterialsSidebarProps } from './SupportingMaterialsSidebar';
+export { SupportingMaterialsContent } from './SupportingMaterialsContent';
+export type { SupportingMaterialsContentProps } from './SupportingMaterialsContent';
+export { SupportingMaterialsTable } from './SupportingMaterialsTable';
+export type { SupportingMaterialsTableProps } from './SupportingMaterialsTable';

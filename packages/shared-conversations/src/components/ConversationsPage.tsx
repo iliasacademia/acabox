@@ -2,11 +2,14 @@ import React, { useState, useEffect } from "react";
 import type { UseConversationPollingOptions } from "../hooks/useConversationPolling";
 import { Conversation, DraftConversation } from "../types/conversation";
 import { Project, ProjectFile, AgentRun } from "../types/project";
+import { SupportingMaterial } from "../types/supportingMaterials";
 import { useConversationsApi } from "../api/useConversationsApi";
 import { useProjectsApi } from "../api/useProjectsApi";
+import { useSupportingMaterialsApi } from "../api/useSupportingMaterialsApi";
 import { useApiClient } from "../context/ApiContext";
 import { ConversationsSidebar } from "./ConversationsSidebar";
 import { ConversationDetail } from "./ConversationDetail";
+import { SupportingMaterialsContent } from "./SupportingMaterialsContent";
 import { generateDailyFeedbackTitle } from "./utils";
 import { useWindowSize } from "../hooks/useWindowSize";
 import { useSidebarCollapse } from "../hooks/useSidebarCollapse";
@@ -92,6 +95,10 @@ export function ConversationsPage({
   onRegisterConversationsRefresh,
   onRegisterReviewStateUpdates,
 }: ConversationsPageProps) {
+  // Selected view type: conversation or supporting-materials
+  const [selectedView, setSelectedView] = useState<'conversation' | 'supporting-materials'>('conversation');
+  const [supportingMaterials, setSupportingMaterials] = useState<SupportingMaterial[]>([]);
+
   const [selectedConversation, setSelectedConversation] = useState<
     Conversation | DraftConversation | null
   >(null);
@@ -141,6 +148,8 @@ export function ConversationsPage({
     switchManuscript,
   } = useProjectsApi();
 
+  const { getSupportingMaterials } = useSupportingMaterialsApi();
+
   // Refresh manuscript file data
   const refreshManuscriptFile = async () => {
     if (!selectedProject) return;
@@ -154,6 +163,24 @@ export function ConversationsPage({
       console.error("Failed to refresh manuscript file:", error);
     }
   };
+
+  // Fetch supporting materials
+  const refreshSupportingMaterials = async () => {
+    if (!selectedProject) return;
+    try {
+      const materials = await getSupportingMaterials(selectedProject.id);
+      setSupportingMaterials(materials);
+    } catch (error) {
+      console.error("Failed to refresh supporting materials:", error);
+    }
+  };
+
+  // Fetch supporting materials when project changes
+  useEffect(() => {
+    if (selectedProject) {
+      refreshSupportingMaterials();
+    }
+  }, [selectedProject]);
 
   // Check if there are diffs since last review
   const hasDiffsSinceLastReview = (): boolean => {
@@ -1094,12 +1121,12 @@ export function ConversationsPage({
       {!(isReviewInProgress && !hasConversations) && (
         <div className="manuscriptFeedbackSection">
           <div className="conversationsContent">
-            {/* Sidebar with Header */}
+            {/* Unified Sidebar */}
             <div
               className={`sidebarWithHeader ${collapsed ? "collapsed" : ""}`}
             >
               <div className="manuscriptFeedbackHeader">
-                <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
+                <h2 className="manuscriptFeedbackTitle">Supporting materials</h2>
                 <button
                   onClick={toggleCollapsed}
                   className="panelCollapseButton"
@@ -1118,7 +1145,10 @@ export function ConversationsPage({
               <ConversationsSidebar
                 projectId={selectedProject.id}
                 selectedConversationId={selectedConversation?.id || null}
-                onSelectConversation={handleSelectConversation}
+                onSelectConversation={(conv) => {
+                  handleSelectConversation(conv);
+                  setSelectedView('conversation');
+                }}
                 onNewConversation={handleNewConversation}
                 refreshTrigger={refreshTrigger}
                 onConversationsLoaded={handleConversationsLoaded}
@@ -1126,26 +1156,36 @@ export function ConversationsPage({
                 onRegisterRefresh={onRegisterConversationsRefresh}
                 collapsed={collapsed}
                 onToggleCollapsed={toggleCollapsed}
+                supportingMaterialsCount={supportingMaterials.length}
+                selectedView={selectedView}
+                onSelectSupportingMaterials={() => setSelectedView('supporting-materials')}
               />
             </div>
 
-            {/* Detail Panel */}
-            <ConversationDetail
-              conversation={selectedConversation}
-              projectId={selectedProject.id}
-              primaryManuscriptId={manuscriptFile?.id}
-              manuscriptFile={manuscriptFile}
-              onConversationCreated={handleConversationCreated}
-              onConversationUpdate={handleConversationUpdate}
-              isReviewInProgress={isReviewInProgress}
-              isInitialLoading={isLoadingFiles || !conversationsLoaded}
-              onMessageSent={onMessageSent}
-              onMessageReceived={onMessageReceived}
-              feedbackFormUrl={feedbackFormUrl}
-              pollingOptions={pollingOptions}
-              initialOpenDiffModal={initialOpenDiffModal}
-              onDiffModalOpened={onDiffModalOpened}
-            />
+            {/* Main Content - Shows either conversation or supporting materials */}
+            {selectedView === 'supporting-materials' ? (
+              <SupportingMaterialsContent
+                projectId={selectedProject.id}
+                onMaterialsChange={refreshSupportingMaterials}
+              />
+            ) : (
+              <ConversationDetail
+                conversation={selectedConversation}
+                projectId={selectedProject.id}
+                primaryManuscriptId={manuscriptFile?.id}
+                manuscriptFile={manuscriptFile}
+                onConversationCreated={handleConversationCreated}
+                onConversationUpdate={handleConversationUpdate}
+                isReviewInProgress={isReviewInProgress}
+                isInitialLoading={isLoadingFiles || !conversationsLoaded}
+                onMessageSent={onMessageSent}
+                onMessageReceived={onMessageReceived}
+                feedbackFormUrl={feedbackFormUrl}
+                pollingOptions={pollingOptions}
+                initialOpenDiffModal={initialOpenDiffModal}
+                onDiffModalOpened={onDiffModalOpened}
+              />
+            )}
           </div>
         </div>
       )}
