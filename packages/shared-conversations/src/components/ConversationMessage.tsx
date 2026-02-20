@@ -8,13 +8,12 @@ interface ConversationMessageProps {
   onShowDiff?: () => void;
   onQuestionClick?: (question: string) => void;
   onFactCheckClick?: (reviewId: number) => void;
+  conversationReviewId?: number; // Review ID from conversation.review_id
   showQuestions?: boolean;
   showFactCheck?: boolean; // Whether to show fact-check button
-  isFirstAssistantMessage?: boolean; // Indicates if this is a review message
 }
 
-export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, showQuestions, showFactCheck, isFirstAssistantMessage }: ConversationMessageProps) {
-  const isAssistant = message.role === 'assistant';
+export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, conversationReviewId, showQuestions, showFactCheck }: ConversationMessageProps) {
   const isTool = message.role === 'tool';
 
   // Tool messages are handled by ToolMessageAccordion, skip rendering here
@@ -28,27 +27,12 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFa
   const factCheckQuestion = extractedQuestions?.find(q => q.type === 'fact_check_review');
   const textPromptQuestions = extractedQuestions?.filter(q => q.type === 'text_prompt') || [];
 
-  // Determine review_id for fact-check button
-  // Priority: 1) from fact_check_review question, 2) from message.data.review_id, 3) from message.id
-  const reviewId = factCheckQuestion?.review_id ?? (message.data?.review_id as number | undefined) ?? message.id;
+  // Use review_id from conversation only
+  const reviewId = conversationReviewId;
 
   // Get label and description for fact-check button
   const factCheckLabel = factCheckQuestion?.label || 'Fact check and refine';
   const factCheckDescription = factCheckQuestion?.description;
-
-  // Debug logging
-  if (isFirstAssistantMessage) {
-    console.log('[ConversationMessage] First assistant message detected:', {
-      messageId: message.id,
-      isFirstAssistantMessage,
-      showQuestions,
-      showFactCheck,
-      reviewId,
-      hasFactCheckQuestion: !!factCheckQuestion,
-      extractedQuestions,
-      messageData: message.data,
-    });
-  }
 
   // Handle clicks on links in HTML content
   const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -168,7 +152,7 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFa
       )}
 
       {/* Show fact-check button for review messages (first assistant message) */}
-      {showFactCheck && onFactCheckClick && (
+      {showFactCheck && onFactCheckClick && reviewId != null && (
         <div className="factCheckButtonContainer">
           <button
             type="button"

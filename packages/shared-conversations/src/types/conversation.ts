@@ -46,6 +46,7 @@ export interface Conversation {
   parent_id?: number | null;
   parent_type?: string | null;
   selected_text?: string | null;
+  review_id?: number | null;
 }
 
 export interface ConversationResponse {
