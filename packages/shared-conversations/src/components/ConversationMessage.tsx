@@ -11,11 +11,9 @@ interface ConversationMessageProps {
   conversationReviewId?: number; // Review ID from conversation.review_id
   showQuestions?: boolean;
   showFactCheck?: boolean; // Whether to show fact-check button
-  isFirstAssistantMessage?: boolean; // Indicates if this is a review message
 }
 
-export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, conversationReviewId, showQuestions, showFactCheck, isFirstAssistantMessage }: ConversationMessageProps) {
-  const isAssistant = message.role === 'assistant';
+export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, conversationReviewId, showQuestions, showFactCheck }: ConversationMessageProps) {
   const isTool = message.role === 'tool';
 
   // Tool messages are handled by ToolMessageAccordion, skip rendering here
