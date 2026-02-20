@@ -683,10 +683,6 @@ export function ConversationDetail({
                       firstAssistantMessage &&
                       (item.data as Message).id === firstAssistantMessage.id
                     }
-                    isFirstAssistantMessage={
-                      firstAssistantMessage &&
-                      (item.data as Message).id === firstAssistantMessage.id
-                    }
                   />
                 ) : (
                   <ToolMessageAccordion messages={item.data as Message[]} />
