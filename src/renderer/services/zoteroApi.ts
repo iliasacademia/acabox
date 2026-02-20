@@ -29,6 +29,14 @@ export async function disconnectZotero(): Promise<{ success: boolean }> {
   return response;
 }
 
+export async function syncZotero(): Promise<{ success: boolean; job_id: string }> {
+  const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
+    method: 'POST',
+    endpoint: 'v0/co_scientist/zotero/sync',
+  });
+  return response;
+}
+
 export function getZoteroAuthorizeUrl(): string {
   const isDev = process.env.NODE_ENV === 'development';
   const host = isDev ? 'https://devdemia.com' : 'https://academia.edu';

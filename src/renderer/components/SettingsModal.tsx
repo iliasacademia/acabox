@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
-import { getZoteroStatus, disconnectZotero, getZoteroAuthorizeUrl, ZoteroStatus } from '../services/zoteroApi';
+import { getZoteroStatus, disconnectZotero, syncZotero, getZoteroAuthorizeUrl, ZoteroStatus } from '../services/zoteroApi';
 import { IPC_CHANNELS } from '../../shared/types';
 import './SettingsModal.css';
 
@@ -22,6 +22,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [zoteroStatus, setZoteroStatus] = useState<ZoteroStatus | null>(null);
   const [isPolling, setIsPolling] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
 
@@ -80,6 +81,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     const url = getZoteroAuthorizeUrl();
     window.electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
     startPolling();
+  };
+
+  const handleSyncZotero = async () => {
+    setIsSyncing(true);
+    try {
+      await syncZotero();
+    } catch (err: any) {
+      console.error('[SettingsModal] Zotero sync failed:', err);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleDisconnectZotero = async () => {
@@ -171,13 +183,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
               <div className="zoteroAction">
                 {isConnected ? (
-                  <button
-                    className="zoteroButton zoteroButtonDisconnect"
-                    onClick={handleDisconnectZotero}
-                    disabled={isDisconnecting}
-                  >
-                    {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                  </button>
+                  <>
+                    <button
+                      className="zoteroButton zoteroButtonSync"
+                      onClick={handleSyncZotero}
+                      disabled={isSyncing}
+                    >
+                      {isSyncing ? 'Syncing...' : 'Sync'}
+                    </button>
+                    <button
+                      className="zoteroButton zoteroButtonDisconnect"
+                      onClick={handleDisconnectZotero}
+                      disabled={isDisconnecting}
+                    >
+                      {isDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                    </button>
+                  </>
                 ) : (
                   <button
                     className="zoteroButton zoteroButtonConnect"
