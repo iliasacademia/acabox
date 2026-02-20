@@ -32,27 +32,14 @@ export function SupportingMaterialsTable({
 
   const formatDate = (timestamp: string): string => {
     const date = new Date(timestamp);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / 60000);
-    const diffHours = Math.floor(diffMs / 3600000);
-    const diffDays = Math.floor(diffMs / 86400000);
 
-    if (diffMins < 5) {
-      return 'Just now';
-    } else if (diffMins < 60) {
-      return `${diffMins} min ago`;
-    } else if (diffHours < 24) {
-      return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-    } else if (diffDays < 7) {
-      return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-    } else {
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: date.getFullYear() !== now.getFullYear() ? 'numeric' : undefined,
-      });
-    }
+    // Format: "Jan 15, 03:52"
+    const month = date.toLocaleDateString('en-US', { month: 'short' });
+    const day = date.getDate();
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+
+    return `${month} ${day}, ${hours}:${minutes}`;
   };
 
   const isRecentlyUpdated = (timestamp: string): boolean => {
@@ -64,8 +51,25 @@ export function SupportingMaterialsTable({
   };
 
   const handleCategoryChange = (id: number, event: React.ChangeEvent<HTMLSelectElement>) => {
-    const newCategory = event.target.value as SupportingMaterialCategory;
-    onCategoryChange(id, newCategory);
+    const newCategory = event.target.value;
+    if (newCategory && newCategory !== '') {
+      onCategoryChange(id, newCategory as SupportingMaterialCategory);
+    }
+  };
+
+  const handleOpenFile = async (filePath: string) => {
+    try {
+      if (!window.electronAPI?.invoke) {
+        console.error('Electron API not available');
+        return;
+      }
+      const result = await window.electronAPI.invoke('open-file', filePath);
+      if (result && !result.success) {
+        console.error('Failed to open file:', result.error);
+      }
+    } catch (error) {
+      console.error('Failed to open file:', error);
+    }
   };
 
   const handleDelete = (id: number, fileName: string) => {
@@ -104,7 +108,7 @@ export function SupportingMaterialsTable({
             >
               Last updated {sortOrder === 'desc' ? '↓' : '↑'}
             </th>
-            <th>Category</th>
+            <th style={{ width: '50px' }}></th>
             <th style={{ width: '50px' }}></th>
           </tr>
         </thead>
@@ -115,24 +119,48 @@ export function SupportingMaterialsTable({
                 <span className="materialFileName">{material.file_name}</span>
               </td>
               <td>
-                <div className="materialUpdatedAt">
-                  {isRecentlyUpdated(material.updated_at) && (
-                    <span className="materialUpdatedStatus" />
-                  )}
-                  Updated: {formatDate(material.updated_at)}
+                <div className="materialUpdatedAtRow">
+                  <div className="materialUpdatedAt">
+                    {isRecentlyUpdated(material.updated_at) && (
+                      <span className="materialUpdatedStatus" />
+                    )}
+                    <span>Updated: {formatDate(material.updated_at)}</span>
+                  </div>
+                  <select
+                    className="materialCategoryDropdown"
+                    value={material.category || ''}
+                    onChange={(e) => handleCategoryChange(material.id, e)}
+                  >
+                    <option value="">Select category</option>
+                    <option value="reference">Reference</option>
+                    <option value="note">Note</option>
+                    <option value="proposal">Proposal</option>
+                    <option value="other">Other</option>
+                  </select>
                 </div>
               </td>
               <td>
-                <select
-                  className="materialCategoryDropdown"
-                  value={material.category}
-                  onChange={(e) => handleCategoryChange(material.id, e)}
+                <button
+                  className="materialOpenButton"
+                  onClick={() => handleOpenFile(material.file_path)}
+                  aria-label="Open file"
                 >
-                  <option value="reference">Reference</option>
-                  <option value="note">Note</option>
-                  <option value="proposal">Proposal</option>
-                  <option value="other">Other</option>
-                </select>
+                  <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    xmlns="http://www.w3.org/2000/svg"
+                  >
+                    <path
+                      d="M15.8333 10.8333V15C15.8333 15.442 15.6577 15.866 15.3452 16.1785C15.0326 16.4911 14.6087 16.6667 14.1667 16.6667H5C4.55797 16.6667 4.13405 16.4911 3.82149 16.1785C3.50893 15.866 3.33333 15.442 3.33333 15V5.83333C3.33333 5.3913 3.50893 4.96738 3.82149 4.65482C4.13405 4.34226 4.55797 4.16667 5 4.16667H9.16667M12.5 3.33333H16.6667M16.6667 3.33333V7.5M16.6667 3.33333L8.33333 11.6667"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </button>
               </td>
               <td>
                 <button

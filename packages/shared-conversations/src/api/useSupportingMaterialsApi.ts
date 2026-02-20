@@ -3,6 +3,7 @@ import { useApiClient } from '../context/ApiContext';
 import {
   SupportingMaterial,
   SupportingMaterialCategory,
+  UploadResponse,
 } from '../types/supportingMaterials';
 
 /**
@@ -42,29 +43,38 @@ export function useSupportingMaterialsApi() {
 
     /**
      * Upload supporting material
-     * Uses existing IPC channel to upload file
-     * Note: Supporting materials are identified by NOT setting is_primary_manuscript=true
+     * POST /v0/co_scientist/projects/:projectId/files
+     * Uploads a file and returns the file info with upload_status: "pending"
+     *
+     * After upload, file upload events will be sent through the existing events polling system:
+     * - file_upload_started: Job picked up, S3 copy in progress
+     * - file_upload_completed: File at final S3 path, tagging/embedding queued
+     * - file_upload_failed: Upload failed with error
+     *
+     * Listen for these events using useCoScientistEvents hook.
+     *
      * @param projectId - Project ID
-     * @param filePath - Local file path
-     * @param category - Material category (reference, note, proposal, other)
+     * @param filePath - Local file path (absolute path)
+     * @param category - Optional material category
+     * @returns Upload response with file info including ID
      */
     uploadSupportingMaterial: async (
       projectId: number,
       filePath: string,
-      category: SupportingMaterialCategory
-    ): Promise<void> => {
-      // Use existing IPC channel through the API client
-      // For supporting materials, we set is_manuscript to false
-      await client.invoke({
+      category?: SupportingMaterialCategory
+    ): Promise<UploadResponse> => {
+      // Use IPC channel to upload file through main process
+      // The main process will handle multipart form upload to backend
+      const response = await client.invoke<UploadResponse>({
         method: 'POST',
-        endpoint: 'upload-files',
+        endpoint: 'upload-supporting-material',
         data: {
-          filePath,
           projectId,
-          is_manuscript: false,
-          category
+          filePath,
+          category,
         },
       });
+      return response;
     },
 
     /**

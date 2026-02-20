@@ -21,6 +21,11 @@ export class ElectronApiClient implements ConversationsApiClient {
       return window.electronAPI.invoke(IPC_CHANNELS.SHOW_FILE_IN_FOLDER, data.filePath) as Promise<T>;
     }
 
+    // Handle supporting material upload via IPC
+    if (endpoint === 'upload-supporting-material' && data && 'projectId' in data && 'filePath' in data) {
+      return window.electronAPI.invoke(IPC_CHANNELS.UPLOAD_SUPPORTING_MATERIAL, data) as Promise<T>;
+    }
+
     // Default: proxy through HTTP server
     return window.electronAPI.invoke(IPC_CHANNELS.API_CALL, options);
   }

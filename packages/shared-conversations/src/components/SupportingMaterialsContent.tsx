@@ -9,11 +9,13 @@ import { SupportingMaterialsTable } from './SupportingMaterialsTable';
 export interface SupportingMaterialsContentProps {
   projectId: number;
   onMaterialsChange?: () => void;
+  refreshTrigger?: number;
 }
 
 export function SupportingMaterialsContent({
   projectId,
   onMaterialsChange,
+  refreshTrigger,
 }: SupportingMaterialsContentProps) {
   const [materials, setMaterials] = useState<SupportingMaterial[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,6 +33,13 @@ export function SupportingMaterialsContent({
   useEffect(() => {
     fetchMaterials();
   }, [projectId]);
+
+  // Refresh materials when refreshTrigger changes
+  useEffect(() => {
+    if (refreshTrigger !== undefined && refreshTrigger > 0) {
+      fetchMaterials();
+    }
+  }, [refreshTrigger]);
 
   const fetchMaterials = async () => {
     try {
@@ -52,12 +61,10 @@ export function SupportingMaterialsContent({
       setError(null);
 
       // Trigger file selection via IPC
-      // @ts-ignore - electronAPI is defined in global.d.ts in the main app
       if (!window.electronAPI?.invoke) {
         throw new Error('File selection not available');
       }
 
-      // @ts-ignore - electronAPI is defined in global.d.ts in the main app
       const filePath = await window.electronAPI.invoke('select-file', {
         extensions: ['pdf', 'doc', 'docx', 'txt'],
       });
@@ -132,102 +139,111 @@ export function SupportingMaterialsContent({
       {/* Error Message */}
       {error && <div className="supportingMaterialsError">{error}</div>}
 
-      {/* Upload Section */}
-      <div className="supportingMaterialsUploadSection">
-        {/* Upload from Computer */}
-        <button
-          className="uploadOption"
-          onClick={handleUploadFromComputer}
-          disabled={isUploading}
-        >
-          <div className="uploadOptionIcon">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M17 8L12 3L7 8"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M12 3V15"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-          <div className="uploadOptionContent">
-            <h3 className="uploadOptionTitle">
-              {isUploading ? 'Uploading...' : 'Upload from your computer'}
-            </h3>
-            <p className="uploadOptionSubtitle">PDF, DOCX, TXT</p>
-          </div>
-        </button>
-
-        {/* Zotero Integration (Coming Soon) */}
-        <button className="uploadOption disabled" disabled>
-          <div className="uploadOptionIcon">
-            <svg
-              width="24"
-              height="24"
-              viewBox="0 0 24 24"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                d="M12 2L2 7L12 12L22 7L12 2Z"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M2 17L12 22L22 17"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M2 12L12 17L22 12"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </div>
-          <div className="uploadOptionContent">
-            <h3 className="uploadOptionTitle">Choose from Zotero</h3>
-            <p className="uploadOptionSubtitle">Coming soon</p>
-          </div>
-        </button>
-      </div>
-
-      {/* Materials Table */}
+      {/* Loading State */}
       {isLoading ? (
         <div className="supportingMaterialsLoading">Loading materials...</div>
       ) : (
-        <SupportingMaterialsTable
-          materials={materials}
-          onDelete={handleDelete}
-          onCategoryChange={handleCategoryChange}
-        />
+        <>
+          {/* Upload Section - Always visible */}
+          <div className="supportingMaterialsUploadSection">
+            {/* Upload from Computer */}
+            <button
+              className="uploadOption"
+              onClick={handleUploadFromComputer}
+              disabled={isUploading}
+            >
+              <div className="uploadOptionIcon">
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M21 15V19C21 19.5304 20.7893 20.0391 20.4142 20.4142C20.0391 20.7893 19.5304 21 19 21H5C4.46957 21 3.96086 20.7893 3.58579 20.4142C3.21071 20.0391 3 19.5304 3 19V15"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M17 8L12 3L7 8"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M12 3V15"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <div className="uploadOptionContent">
+                <h3 className="uploadOptionTitle">
+                  {isUploading ? 'Uploading...' : 'Upload from computer'}
+                </h3>
+                <p className="uploadOptionSubtitle">PDF, DOCX, TXT</p>
+              </div>
+            </button>
+
+            {/* Zotero Integration */}
+            <button className="uploadOption disabled" disabled>
+              <div className="uploadOptionIcon">
+                <svg
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M12 2L2 7L12 12L22 7L12 2Z"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M2 17L12 22L22 17"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M2 12L12 17L22 12"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </div>
+              <div className="uploadOptionContent">
+                <h3 className="uploadOptionTitle">Choose from Zotero</h3>
+                <p className="uploadOptionSubtitle">Status: Connected</p>
+              </div>
+            </button>
+          </div>
+
+          {/* Materials Table or Empty State */}
+          {materials.length === 0 ? (
+            <div className="supportingMaterialsEmpty">
+              <p className="supportingMaterialsEmptyText">0 materials added</p>
+            </div>
+          ) : (
+            <SupportingMaterialsTable
+              materials={materials}
+              onDelete={handleDelete}
+              onCategoryChange={handleCategoryChange}
+            />
+          )}
+        </>
       )}
     </div>
   );

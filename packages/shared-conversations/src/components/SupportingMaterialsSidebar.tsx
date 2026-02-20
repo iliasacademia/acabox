@@ -1,4 +1,3 @@
-import React from 'react';
 import { SupportingMaterial } from '../types/supportingMaterials';
 
 export interface SupportingMaterialsSidebarProps {
@@ -88,21 +87,15 @@ export function SupportingMaterialsSidebar({
           <button className="supportingMaterialsGetStarted" onClick={onGetStarted}>
             Get started
             <svg
-              width="20"
-              height="20"
-              viewBox="0 0 20 20"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
+              style={{ marginLeft: '4px' }}
             >
               <path
-                d="M4.16669 10H15.8334"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <path
-                d="M10 4.16669L15.8333 10L10 15.8334"
+                d="M6 12L10 8L6 4"
                 stroke="currentColor"
                 strokeWidth="2"
                 strokeLinecap="round"

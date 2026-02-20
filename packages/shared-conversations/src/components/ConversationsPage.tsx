@@ -14,6 +14,7 @@ import { generateDailyFeedbackTitle } from "./utils";
 import { useWindowSize } from "../hooks/useWindowSize";
 import { useSidebarCollapse } from "../hooks/useSidebarCollapse";
 import { useUserPreferences } from "../../../../src/renderer/contexts/UserPreferencesContext";
+import { useCoScientistEvents } from "../../../../src/renderer/hooks/useCoScientistEvents";
 
 export interface ConversationsPageProps {
   selectedProject: Project | null;
@@ -98,6 +99,8 @@ export function ConversationsPage({
   // Selected view type: conversation or supporting-materials
   const [selectedView, setSelectedView] = useState<'conversation' | 'supporting-materials'>('conversation');
   const [supportingMaterials, setSupportingMaterials] = useState<SupportingMaterial[]>([]);
+  const [supportingMaterialsLoading, setSupportingMaterialsLoading] = useState(false);
+  const [supportingMaterialsRefreshTrigger, setSupportingMaterialsRefreshTrigger] = useState(0);
 
   const [selectedConversation, setSelectedConversation] = useState<
     Conversation | DraftConversation | null
@@ -167,11 +170,14 @@ export function ConversationsPage({
   // Fetch supporting materials
   const refreshSupportingMaterials = async () => {
     if (!selectedProject) return;
+    setSupportingMaterialsLoading(true);
     try {
       const materials = await getSupportingMaterials(selectedProject.id);
       setSupportingMaterials(materials);
     } catch (error) {
       console.error("Failed to refresh supporting materials:", error);
+    } finally {
+      setSupportingMaterialsLoading(false);
     }
   };
 
@@ -181,6 +187,24 @@ export function ConversationsPage({
       refreshSupportingMaterials();
     }
   }, [selectedProject]);
+
+  // Listen for file upload events to refresh materials list
+  useCoScientistEvents({
+    onFileUploadCompleted: (event) => {
+      console.log('[ConversationsPage] File upload completed:', event.data);
+      // Refresh materials list to show the completed upload
+      refreshSupportingMaterials();
+      // Trigger refresh in SupportingMaterialsContent
+      setSupportingMaterialsRefreshTrigger((prev) => prev + 1);
+    },
+    onFileUploadFailed: (event) => {
+      console.log('[ConversationsPage] File upload failed:', event.data);
+      // Refresh materials list to show the failed upload (don't skip it)
+      refreshSupportingMaterials();
+      // Trigger refresh in SupportingMaterialsContent
+      setSupportingMaterialsRefreshTrigger((prev) => prev + 1);
+    },
+  });
 
   // Check if there are diffs since last review
   const hasDiffsSinceLastReview = (): boolean => {
@@ -1126,7 +1150,6 @@ export function ConversationsPage({
               className={`sidebarWithHeader ${collapsed ? "collapsed" : ""}`}
             >
               <div className="manuscriptFeedbackHeader">
-                <h2 className="manuscriptFeedbackTitle">Supporting materials</h2>
                 <button
                   onClick={toggleCollapsed}
                   className="panelCollapseButton"
@@ -1157,6 +1180,7 @@ export function ConversationsPage({
                 collapsed={collapsed}
                 onToggleCollapsed={toggleCollapsed}
                 supportingMaterialsCount={supportingMaterials.length}
+                supportingMaterialsLoading={supportingMaterialsLoading}
                 selectedView={selectedView}
                 onSelectSupportingMaterials={() => setSelectedView('supporting-materials')}
               />
@@ -1167,6 +1191,7 @@ export function ConversationsPage({
               <SupportingMaterialsContent
                 projectId={selectedProject.id}
                 onMaterialsChange={refreshSupportingMaterials}
+                refreshTrigger={supportingMaterialsRefreshTrigger}
               />
             ) : (
               <ConversationDetail

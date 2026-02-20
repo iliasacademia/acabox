@@ -19,6 +19,8 @@ interface ConversationsSidebarProps {
   onToggleCollapsed?: () => void;
   /** Supporting materials count */
   supportingMaterialsCount?: number;
+  /** Supporting materials loading state */
+  supportingMaterialsLoading?: boolean;
   /** Selected view type */
   selectedView?: 'conversation' | 'supporting-materials';
   /** Callback when supporting materials is selected */
@@ -37,6 +39,7 @@ export function ConversationsSidebar({
   collapsed = false,
   onToggleCollapsed,
   supportingMaterialsCount = 0,
+  supportingMaterialsLoading = false,
   selectedView = 'conversation',
   onSelectSupportingMaterials,
 }: ConversationsSidebarProps) {
@@ -157,17 +160,52 @@ export function ConversationsSidebar({
       {/* Supporting Materials Section */}
       {!collapsed && (
         <div className="sidebarSection">
-          <div
-            className={`supportingMaterialsCard ${
-              selectedView === 'supporting-materials' ? 'selected' : ''
-            }`}
-            onClick={onSelectSupportingMaterials}
-          >
-            <h3 className="supportingMaterialsCardTitle">Supporting materials</h3>
-            <p className="supportingMaterialsCardSubtitle">
-              {supportingMaterialsCount} connected {supportingMaterialsCount === 1 ? 'file' : 'files'}
-            </p>
-          </div>
+          <h3 className="sidebarSectionTitle">Supporting materials</h3>
+          {supportingMaterialsLoading ? (
+            <div className="sidebarLoading">
+              <div className="loadingSpinner"></div>
+              <p>Loading materials...</p>
+            </div>
+          ) : supportingMaterialsCount === 0 ? (
+            <div className="supportingMaterialsEmptyState">
+              <p className="supportingMaterialsEmptyText">
+                Improve reviews by adding supporting materials, such as references or notes.
+              </p>
+              <button
+                className="supportingMaterialsGetStarted"
+                onClick={onSelectSupportingMaterials}
+              >
+                Get started
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  style={{ marginLeft: '4px' }}
+                >
+                  <path
+                    d="M6 12L10 8L6 4"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </button>
+            </div>
+          ) : (
+            <div
+              className={`supportingMaterialsCard ${
+                selectedView === 'supporting-materials' ? 'selected' : ''
+              }`}
+              onClick={onSelectSupportingMaterials}
+            >
+              <p className="supportingMaterialsCardSubtitle">
+                {supportingMaterialsCount} connected {supportingMaterialsCount === 1 ? 'file' : 'files'}
+              </p>
+            </div>
+          )}
         </div>
       )}
 

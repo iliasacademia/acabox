@@ -1452,6 +1452,32 @@ ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, options?: string | { defa
   return result.filePaths[0];
 });
 
+// Upload supporting material
+ipcMain.handle(IPC_CHANNELS.UPLOAD_SUPPORTING_MATERIAL, async (_event, data: { projectId: number; filePath: string; category?: string }) => {
+  try {
+    logger.debug(`[IPC] Uploading supporting material: ${data.filePath} for project ${data.projectId}`);
+    const result = await projectSyncService.uploadSupportingMaterial(
+      data.projectId,
+      data.filePath,
+      data.category || 'reference'
+    );
+
+    if (result.success) {
+      logger.debug(`[IPC] Successfully uploaded supporting material, file ID: ${result.file?.id}`);
+      return {
+        file: result.file,
+        uploaded: true
+      };
+    } else {
+      logger.error(`[IPC] Failed to upload supporting material: ${result.error}`);
+      throw new Error(result.error || 'Upload failed');
+    }
+  } catch (error: any) {
+    logger.error('[IPC] Error uploading supporting material:', error);
+    throw error;
+  }
+});
+
 // Scan folder for files
 ipcMain.handle(IPC_CHANNELS.SCAN_FOLDER_FOR_FILES, async (_event, folderPaths: string[]) => {
   try {
