@@ -87,13 +87,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   const handleSyncZotero = async () => {
     setIsSyncing(true);
+    const previousSyncedAt = zoteroStatus?.last_synced_at ?? null;
     try {
       await syncZotero();
-      const status = await getZoteroStatus();
-      setZoteroStatus(status);
+      const pollStart = Date.now();
+      const pollForSync = async () => {
+        const status = await getZoteroStatus();
+        setZoteroStatus(status);
+        if (
+          status.last_synced_at !== previousSyncedAt ||
+          Date.now() - pollStart > MAX_POLL_DURATION_MS
+        ) {
+          setIsSyncing(false);
+          return;
+        }
+        setTimeout(pollForSync, POLL_INTERVAL_MS);
+      };
+      setTimeout(pollForSync, POLL_INTERVAL_MS);
     } catch (err: any) {
       console.error('[SettingsModal] Zotero sync failed:', err);
-    } finally {
       setIsSyncing(false);
     }
   };
