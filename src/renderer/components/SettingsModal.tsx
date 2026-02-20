@@ -23,6 +23,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [isPolling, setIsPolling] = useState(false);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
 
@@ -31,7 +32,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     if (isOpen) {
       setAutoDiffReview(currentPreferences.auto_diff_review);
       setError(null);
-      getZoteroStatus().then(setZoteroStatus);
+      setIsLoadingStatus(true);
+      getZoteroStatus().then(setZoteroStatus).finally(() => setIsLoadingStatus(false));
     } else {
       // Stop polling when modal closes
       stopPolling();
@@ -87,6 +89,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     setIsSyncing(true);
     try {
       await syncZotero();
+      const status = await getZoteroStatus();
+      setZoteroStatus(status);
     } catch (err: any) {
       console.error('[SettingsModal] Zotero sync failed:', err);
     } finally {
@@ -173,16 +177,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   Zotero
                 </div>
                 <div className="settingDescription">
-                  {isPolling
-                    ? 'Waiting for authorization...'
-                    : isConnected
-                      ? `Connected as ${zoteroStatus?.zotero_username || 'user'}`
-                      : 'Connect your Zotero library to sync references'
+                  {isLoadingStatus
+                    ? 'Checking connection...'
+                    : isPolling
+                      ? 'Waiting for authorization...'
+                      : isConnected
+                        ? `Connected as ${zoteroStatus?.zotero_username || 'user'}${zoteroStatus?.last_synced_at ? ` · Last synced ${new Date(zoteroStatus.last_synced_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`
+                        : 'Connect your Zotero library to sync references'
                   }
                 </div>
               </div>
               <div className="zoteroAction">
-                {isConnected ? (
+                {isLoadingStatus ? null : isConnected ? (
                   <>
                     <button
                       className="zoteroButton zoteroButtonSync"

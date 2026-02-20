@@ -6,6 +6,7 @@ export interface ZoteroStatus {
   zotero_user_id: string | null;
   write_access: boolean;
   last_sync_version: number | null;
+  last_synced_at: string | null;
 }
 
 export async function getZoteroStatus(): Promise<ZoteroStatus> {
@@ -17,7 +18,7 @@ export async function getZoteroStatus(): Promise<ZoteroStatus> {
     return response;
   } catch (error) {
     console.error('[ZoteroAPI] Failed to get status:', error);
-    return { connected: false, zotero_username: null, zotero_user_id: null, write_access: false, last_sync_version: null };
+    return { connected: false, zotero_username: null, zotero_user_id: null, write_access: false, last_sync_version: null, last_synced_at: null };
   }
 }
 
