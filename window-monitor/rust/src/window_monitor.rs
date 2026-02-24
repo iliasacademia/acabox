@@ -872,7 +872,7 @@ impl WindowMonitor {
             Some(t) => t,
             None => return,
         };
-        let change = tracker.poll_bounds_only(&app_element);
+        let change = tracker.poll_bounds_only(&app_element, self.last_focused_window_id);
         if let Some(TextSelectionChange::BoundsChanged) = change {
             self.handle_selection_bounds_change();
         }
