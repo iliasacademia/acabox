@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useRef } from 'react';
 import { IPC_CHANNELS } from '../../shared/types';
 import { CoScientistEvent } from '../../types/events';
 
@@ -21,7 +21,6 @@ interface EventHandlers {
  * Hook to listen for Co-Scientist events from the main process
  *
  * @param handlers - Object with event-specific callbacks
- * @param dependencies - Dependencies array for handlers (optional)
  *
  * @example
  * useCoScientistEvents({
@@ -75,91 +74,75 @@ interface EventHandlers {
  *   }
  * });
  */
-export function useCoScientistEvents(
-  handlers: EventHandlers,
-  dependencies: React.DependencyList = []
-): void {
-  // Memoize the event handler
-  const handleEvent = useCallback((event: any, coScientistEvent: CoScientistEvent) => {
-    console.log('[useCoScientistEvents] Received event:', {
-      event_name: coScientistEvent.event_name,
-      project_id: coScientistEvent.project_id,
-      user_id: coScientistEvent.user_id,
-      timestamp: coScientistEvent.timestamp,
-      data: coScientistEvent.data,
-    });
-
-    // Call generic handler if provided
-    if (handlers.onAllEvents) {
-      handlers.onAllEvents(coScientistEvent);
-    }
-
-    // Call specific handlers based on event_name
-    switch (coScientistEvent.event_name) {
-      case 'review_started':
-        if (handlers.onReviewStarted) {
-          handlers.onReviewStarted(coScientistEvent);
-        }
-        break;
-
-      case 'review_completed':
-        if (handlers.onReviewCompleted) {
-          handlers.onReviewCompleted(coScientistEvent);
-        }
-        break;
-
-      case 'review_failed':
-        if (handlers.onReviewFailed) {
-          handlers.onReviewFailed(coScientistEvent);
-        }
-        break;
-
-      case 'message_sent':
-        if (handlers.onMessageSent) {
-          handlers.onMessageSent(coScientistEvent);
-        }
-        break;
-
-      case 'response_received':
-        if (handlers.onResponseReceived) {
-          handlers.onResponseReceived(coScientistEvent);
-        }
-        break;
-
-      case 'conversation_added':
-        if (handlers.onConversationAdded) {
-          handlers.onConversationAdded(coScientistEvent);
-        }
-        break;
-
-      case 'file_upload_started':
-        if (handlers.onFileUploadStarted) {
-          handlers.onFileUploadStarted(coScientistEvent);
-        }
-        break;
-
-      case 'file_upload_completed':
-        if (handlers.onFileUploadCompleted) {
-          handlers.onFileUploadCompleted(coScientistEvent);
-        }
-        break;
-
-      case 'file_upload_failed':
-        if (handlers.onFileUploadFailed) {
-          handlers.onFileUploadFailed(coScientistEvent);
-        }
-        break;
-
-      default:
-        console.log('[useCoScientistEvents] Unknown event type:', coScientistEvent.event_name);
-        break;
-    }
-  }, [handlers.onReviewStarted, handlers.onReviewCompleted, handlers.onReviewFailed, handlers.onMessageSent, handlers.onResponseReceived, handlers.onConversationAdded, handlers.onFileUploadStarted, handlers.onFileUploadCompleted, handlers.onFileUploadFailed, handlers.onAllEvents, ...dependencies]);
+export function useCoScientistEvents(handlers: EventHandlers): void {
+  // Store handlers in a ref so the IPC listener always sees the latest callbacks
+  // without needing to re-register on every render
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
 
   useEffect(() => {
-    // Register event listener
-    window.electronAPI.on(IPC_CHANNELS.CO_SCIENTIST_EVENT, handleEvent);
+    const handleEvent = (_event: any, coScientistEvent: CoScientistEvent) => {
+      const h = handlersRef.current;
 
+      console.log('[useCoScientistEvents] Received event:', {
+        event_name: coScientistEvent.event_name,
+        project_id: coScientistEvent.project_id,
+        user_id: coScientistEvent.user_id,
+        timestamp: coScientistEvent.timestamp,
+        data: coScientistEvent.data,
+      });
+
+      // Call generic handler if provided
+      if (h.onAllEvents) {
+        h.onAllEvents(coScientistEvent);
+      }
+
+      // Call specific handlers based on event_name
+      switch (coScientistEvent.event_name) {
+        case 'review_started':
+          h.onReviewStarted?.(coScientistEvent);
+          break;
+
+        case 'review_completed':
+          h.onReviewCompleted?.(coScientistEvent);
+          break;
+
+        case 'review_failed':
+          h.onReviewFailed?.(coScientistEvent);
+          break;
+
+        case 'message_sent':
+          h.onMessageSent?.(coScientistEvent);
+          break;
+
+        case 'response_received':
+          h.onResponseReceived?.(coScientistEvent);
+          break;
+
+        case 'conversation_added':
+          h.onConversationAdded?.(coScientistEvent);
+          break;
+
+        case 'file_upload_started':
+          h.onFileUploadStarted?.(coScientistEvent);
+          break;
+
+        case 'file_upload_completed':
+          h.onFileUploadCompleted?.(coScientistEvent);
+          break;
+
+        case 'file_upload_failed':
+          h.onFileUploadFailed?.(coScientistEvent);
+          break;
+
+        default:
+          console.log('[useCoScientistEvents] Unknown event type:', coScientistEvent.event_name);
+          break;
+      }
+    };
+
+    // Register event listener once
+    window.electronAPI.on(IPC_CHANNELS.CO_SCIENTIST_EVENT, handleEvent);
     console.log('[useCoScientistEvents] Registered event listener');
 
     // Cleanup on unmount
@@ -167,5 +150,5 @@ export function useCoScientistEvents(
       window.electronAPI.removeListener(IPC_CHANNELS.CO_SCIENTIST_EVENT, handleEvent);
       console.log('[useCoScientistEvents] Unregistered event listener');
     };
-  }, [handleEvent]);
+  }, []);
 }
