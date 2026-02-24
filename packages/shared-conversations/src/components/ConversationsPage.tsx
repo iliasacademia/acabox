@@ -194,15 +194,15 @@ export function ConversationsPage({
   useCoScientistEvents({
     onFileUploadCompleted: (event) => {
       console.log('[ConversationsPage] File upload completed:', event.data);
-      // Pass the file data to SupportingMaterialsContent
+      // Pass the file data to SupportingMaterialsContent to update in-place
       if (event.data?.file) {
         setFileUploadEvent({
           file: event.data.file,
           timestamp: Date.now(),
         });
       }
-      // Also refresh the sidebar count
-      refreshSupportingMaterials();
+      // Each completed file event increments the count — correct for multiple files
+      setSupportingMaterialsTotalCount((prev) => prev + 1);
     },
     onFileUploadFailed: (event) => {
       console.log('[ConversationsPage] File upload failed:', event.data);

@@ -85,33 +85,6 @@ export function SupportingMaterialsTable({
     }
   };
 
-  const getStatusDisplay = (status: UploadingFile['status']) => {
-    switch (status) {
-      case 'uploading':
-        return { text: 'Uploading...', className: 'uploading' };
-      case 'processing':
-        return { text: 'Processing...', className: 'processing' };
-      case 'completed':
-        return { text: 'Completed', className: 'completed' };
-      case 'failed':
-        return { text: 'Failed', className: 'failed' };
-    }
-  };
-
-  const getMaterialStatusDisplay = (material: SupportingMaterial) => {
-    // Check the upload_status from the database
-    switch (material.upload_status) {
-      case 'pending':
-        return { text: 'Processing...', className: 'processing' };
-      case 'failed':
-        return { text: 'Failed', className: 'failed' };
-      case 'completed':
-      case null:
-      default:
-        return { text: 'Ready', className: 'completed' };
-    }
-  };
-
   if (materials.length === 0 && filteredUploadingFiles.length === 0) {
     return (
       <div className="supportingMaterialsEmpty">
@@ -132,7 +105,6 @@ export function SupportingMaterialsTable({
         <thead>
           <tr>
             <th>Name</th>
-            <th>Status</th>
             <th
               className="sortable"
               onClick={toggleSortOrder}
@@ -147,19 +119,16 @@ export function SupportingMaterialsTable({
         <tbody>
           {/* Uploading files first */}
           {filteredUploadingFiles.map((uploadingFile) => {
-            const statusDisplay = getStatusDisplay(uploadingFile.status);
             return (
               <tr key={uploadingFile.tempId} className="uploadingRow">
                 <td>
                   <span className="materialFileName">{uploadingFile.fileName}</span>
                 </td>
                 <td>
-                  <div className={`materialUploadStatus ${statusDisplay.className}`}>
-                    {statusDisplay.text}
+                  <div className="materialUpdatedAt materialUpdatedLoading">
+                    <span className="materialLoadingDot" />
+                    <span>Loading...</span>
                   </div>
-                </td>
-                <td>
-                  <span className="materialUpdatedAt">—</span>
                 </td>
                 <td>
                   <span className="materialTag">—</span>
@@ -171,7 +140,6 @@ export function SupportingMaterialsTable({
 
           {/* Regular materials */}
           {sortedMaterials.map((material) => {
-            const statusDisplay = getMaterialStatusDisplay(material);
             const isProcessing = material.upload_status === 'pending';
 
             return (
@@ -180,18 +148,20 @@ export function SupportingMaterialsTable({
                   <span className="materialFileName">{material.file_name}</span>
                 </td>
                 <td>
-                  <div className={`materialUploadStatus ${statusDisplay.className}`}>
-                    {statusDisplay.text}
-                  </div>
-                </td>
-                <td>
                   <div className="materialUpdatedAt">
-                    {!isProcessing && isRecentlyUpdated(material.updated_at) && (
-                      <span className="materialUpdatedStatus" />
+                    {isProcessing ? (
+                      <>
+                        <span className="materialLoadingDot" />
+                        <span>Loading...</span>
+                      </>
+                    ) : (
+                      <>
+                        {isRecentlyUpdated(material.updated_at) && (
+                          <span className="materialUpdatedStatus" />
+                        )}
+                        <span>Updated: {formatDate(material.updated_at)}</span>
+                      </>
                     )}
-                    <span>
-                      {isProcessing ? '—' : `Updated: ${formatDate(material.updated_at)}`}
-                    </span>
                   </div>
                 </td>
                 <td>
