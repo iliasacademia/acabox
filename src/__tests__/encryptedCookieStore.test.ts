@@ -89,17 +89,53 @@ describe('EncryptedCookieStore', () => {
     });
 
     it('dev vs production derive different keys (app.isPackaged toggle)', async () => {
+      const devCookiePath = path.join(tmpDir, 'backendCookies.dev.encrypted');
+      const prodCookiePath = path.join(tmpDir, 'backendCookies.encrypted');
+
       mockIsPackaged = false;
-      const devStore = new EncryptedCookieStore(cookiePath);
+      const devStore = new EncryptedCookieStore(devCookiePath);
       await devStore.putCookie(makeCookie({ key: 'k', domain: 'd.com', value: 'v' }));
 
-      // Switch to production — same machine-id but different salt
+      // Switch to production — same machine-id but different salt, reading dev file
       mockIsPackaged = true;
-      const prodStore = new EncryptedCookieStore(cookiePath);
+      const prodStore = new EncryptedCookieStore(devCookiePath);
       const cookie = await prodStore.findCookie('d.com', '/', 'k');
 
       // Should fail to decrypt dev cookies with production key
       expect(cookie).toBeUndefined();
+    });
+
+    it('dev and production use separate files and do not overwrite each other', async () => {
+      const devCookiePath = path.join(tmpDir, 'backendCookies.dev.encrypted');
+      const prodCookiePath = path.join(tmpDir, 'backendCookies.encrypted');
+
+      // Dev build writes a cookie
+      mockIsPackaged = false;
+      const devStore = new EncryptedCookieStore(devCookiePath);
+      await devStore.putCookie(makeCookie({ key: 'token', domain: 'academia.edu', value: 'dev-token' }));
+
+      // Production build writes a cookie to its own file
+      mockIsPackaged = true;
+      const prodStore = new EncryptedCookieStore(prodCookiePath);
+      await prodStore.putCookie(makeCookie({ key: 'token', domain: 'academia.edu', value: 'prod-token' }));
+
+      // Both files exist independently
+      expect(fs.existsSync(devCookiePath)).toBe(true);
+      expect(fs.existsSync(prodCookiePath)).toBe(true);
+
+      // Dev cookie is still intact
+      mockIsPackaged = false;
+      const devStore2 = new EncryptedCookieStore(devCookiePath);
+      const devCookie = await devStore2.findCookie('academia.edu', '/', 'token');
+      expect(devCookie).toBeDefined();
+      expect(devCookie!.value).toBe('dev-token');
+
+      // Production cookie is still intact
+      mockIsPackaged = true;
+      const prodStore2 = new EncryptedCookieStore(prodCookiePath);
+      const prodCookie = await prodStore2.findCookie('academia.edu', '/', 'token');
+      expect(prodCookie).toBeDefined();
+      expect(prodCookie!.value).toBe('prod-token');
     });
 
     it('falls back to random UUID if machine-id file creation fails', () => {

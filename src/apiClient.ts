@@ -108,7 +108,8 @@ export const APIclient = async (enableLogging = true): Promise<AxiosInstance> =>
   }
   axiosCookieJarSupport(axios);
   // Use encrypted cookie store instead of plaintext FileCookieStore
-  const cookieStore = new EncryptedCookieStore(path.join(app.getPath('userData'), 'backendCookies.encrypted'));
+  const cookieFileName = app.isPackaged ? 'backendCookies.encrypted' : 'backendCookies.dev.encrypted';
+  const cookieStore = new EncryptedCookieStore(path.join(app.getPath('userData'), cookieFileName));
   const cookieJar = new CookieJar(cookieStore);
   const agentArgs = {
     cookies: { jar: cookieJar },
@@ -274,7 +275,8 @@ export const login = async (email: string, password: string) => {
 
 export const logout = async () => {
   await APIclient();
-  const cookieJarPath = path.join(app.getPath('userData'), 'backendCookies.encrypted');
+  const cookieFileName = app.isPackaged ? 'backendCookies.encrypted' : 'backendCookies.dev.encrypted';
+  const cookieJarPath = path.join(app.getPath('userData'), cookieFileName);
 
   // Clear cookies from the jar
   if (fs.existsSync(cookieJarPath)) {
