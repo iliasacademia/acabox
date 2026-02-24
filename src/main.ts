@@ -1434,22 +1434,56 @@ ipcMain.handle(IPC_CHANNELS.SELECT_FOLDER, async (event) => {
   return result.filePaths[0];
 });
 
-ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, options?: string | { defaultPath?: string; extensions?: string[] }) => {
+ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, options?: string | { defaultPath?: string; extensions?: string[]; multiSelection?: boolean }) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
 
   // Support both old signature (defaultPath string) and new (options object)
   const defaultPath = typeof options === 'string' ? options : options?.defaultPath;
   const extensions = (typeof options === 'object' && options?.extensions) || SUPPORTED_DOCUMENT_EXTENSIONS;
+  const multiSelection = typeof options === 'object' && options?.multiSelection;
+
+  const properties: ('openFile' | 'multiSelections')[] = ['openFile'];
+  if (multiSelection) {
+    properties.push('multiSelections');
+  }
 
   const result = await dialog.showOpenDialog(senderWindow, {
     defaultPath,
-    properties: ['openFile'],
+    properties,
     filters: [
       { name: 'Documents', extensions }
     ]
   });
-  return result.filePaths[0];
+
+  // Return array if multiSelection, single path otherwise for backwards compatibility
+  return multiSelection ? result.filePaths : result.filePaths[0];
+});
+
+// Upload supporting material
+ipcMain.handle(IPC_CHANNELS.UPLOAD_SUPPORTING_MATERIAL, async (_event, data: { projectId: number; filePath: string; category?: string }) => {
+  try {
+    logger.debug(`[IPC] Uploading supporting material: ${data.filePath} for project ${data.projectId}`);
+    const result = await projectSyncService.uploadSupportingMaterial(
+      data.projectId,
+      data.filePath,
+      data.category || 'reference'
+    );
+
+    if (result.success) {
+      logger.debug(`[IPC] Successfully uploaded supporting material, file ID: ${result.file?.id}`);
+      return {
+        file: result.file,
+        uploaded: true
+      };
+    } else {
+      logger.error(`[IPC] Failed to upload supporting material: ${result.error}`);
+      throw new Error(result.error || 'Upload failed');
+    }
+  } catch (error: any) {
+    logger.error('[IPC] Error uploading supporting material:', error);
+    throw error;
+  }
 });
 
 // Scan folder for files

@@ -2,15 +2,19 @@ import React, { useState, useEffect } from "react";
 import type { UseConversationPollingOptions } from "../hooks/useConversationPolling";
 import { Conversation, DraftConversation } from "../types/conversation";
 import { Project, ProjectFile, AgentRun } from "../types/project";
+import { SupportingMaterial } from "../types/supportingMaterials";
 import { useConversationsApi } from "../api/useConversationsApi";
 import { useProjectsApi } from "../api/useProjectsApi";
+import { useSupportingMaterialsApi } from "../api/useSupportingMaterialsApi";
 import { useApiClient } from "../context/ApiContext";
 import { ConversationsSidebar } from "./ConversationsSidebar";
 import { ConversationDetail } from "./ConversationDetail";
+import { SupportingMaterialsContent } from "./SupportingMaterialsContent";
 import { generateDailyFeedbackTitle } from "./utils";
 import { useWindowSize } from "../hooks/useWindowSize";
 import { useSidebarCollapse } from "../hooks/useSidebarCollapse";
 import { useUserPreferences } from "../../../../src/renderer/contexts/UserPreferencesContext";
+import { useCoScientistEvents } from "../../../../src/renderer/hooks/useCoScientistEvents";
 
 export interface ConversationsPageProps {
   selectedProject: Project | null;
@@ -92,6 +96,13 @@ export function ConversationsPage({
   onRegisterConversationsRefresh,
   onRegisterReviewStateUpdates,
 }: ConversationsPageProps) {
+  // Selected view type: conversation or supporting-materials
+  const [selectedView, setSelectedView] = useState<'conversation' | 'supporting-materials'>('conversation');
+  const [supportingMaterials, setSupportingMaterials] = useState<SupportingMaterial[]>([]);
+  const [supportingMaterialsLoading, setSupportingMaterialsLoading] = useState(false);
+  const [fileUploadEvent, setFileUploadEvent] = useState<{ file: any; timestamp: number } | null>(null);
+  const [supportingMaterialsTotalCount, setSupportingMaterialsTotalCount] = useState(0);
+
   const [selectedConversation, setSelectedConversation] = useState<
     Conversation | DraftConversation | null
   >(null);
@@ -141,6 +152,8 @@ export function ConversationsPage({
     switchManuscript,
   } = useProjectsApi();
 
+  const { getSupportingMaterials } = useSupportingMaterialsApi();
+
   // Refresh manuscript file data
   const refreshManuscriptFile = async () => {
     if (!selectedProject) return;
@@ -154,6 +167,54 @@ export function ConversationsPage({
       console.error("Failed to refresh manuscript file:", error);
     }
   };
+
+  // Fetch supporting materials
+  const refreshSupportingMaterials = async () => {
+    if (!selectedProject) return;
+    setSupportingMaterialsLoading(true);
+    try {
+      const { materials, totalCount } = await getSupportingMaterials(selectedProject.id);
+      setSupportingMaterials(materials);
+      setSupportingMaterialsTotalCount(totalCount);
+    } catch (error) {
+      console.error("Failed to refresh supporting materials:", error);
+    } finally {
+      setSupportingMaterialsLoading(false);
+    }
+  };
+
+  // Fetch supporting materials when project changes
+  useEffect(() => {
+    if (selectedProject) {
+      refreshSupportingMaterials();
+    }
+  }, [selectedProject]);
+
+  // Listen for file upload events to refresh materials
+  useCoScientistEvents({
+    onFileUploadCompleted: (event) => {
+      console.log('[ConversationsPage] File upload completed:', event.data);
+      // Pass the file data to SupportingMaterialsContent
+      if (event.data?.file) {
+        setFileUploadEvent({
+          file: event.data.file,
+          timestamp: Date.now(),
+        });
+      }
+      // Also refresh the sidebar count
+      refreshSupportingMaterials();
+    },
+    onFileUploadFailed: (event) => {
+      console.log('[ConversationsPage] File upload failed:', event.data);
+      // Pass the failure event to SupportingMaterialsContent
+      if (event.data?.file_id) {
+        setFileUploadEvent({
+          file: { id: event.data.file_id, status: 'failed' },
+          timestamp: Date.now(),
+        });
+      }
+    },
+  });
 
   // Check if there are diffs since last review
   const hasDiffsSinceLastReview = (): boolean => {
@@ -1094,12 +1155,11 @@ export function ConversationsPage({
       {!(isReviewInProgress && !hasConversations) && (
         <div className="manuscriptFeedbackSection">
           <div className="conversationsContent">
-            {/* Sidebar with Header */}
+            {/* Unified Sidebar */}
             <div
               className={`sidebarWithHeader ${collapsed ? "collapsed" : ""}`}
             >
               <div className="manuscriptFeedbackHeader">
-                <h2 className="manuscriptFeedbackTitle">Manuscript feedback</h2>
                 <button
                   onClick={toggleCollapsed}
                   className="panelCollapseButton"
@@ -1118,7 +1178,10 @@ export function ConversationsPage({
               <ConversationsSidebar
                 projectId={selectedProject.id}
                 selectedConversationId={selectedConversation?.id || null}
-                onSelectConversation={handleSelectConversation}
+                onSelectConversation={(conv) => {
+                  handleSelectConversation(conv);
+                  setSelectedView('conversation');
+                }}
                 onNewConversation={handleNewConversation}
                 refreshTrigger={refreshTrigger}
                 onConversationsLoaded={handleConversationsLoaded}
@@ -1126,26 +1189,38 @@ export function ConversationsPage({
                 onRegisterRefresh={onRegisterConversationsRefresh}
                 collapsed={collapsed}
                 onToggleCollapsed={toggleCollapsed}
+                supportingMaterialsCount={supportingMaterialsTotalCount}
+                supportingMaterialsLoading={supportingMaterialsLoading}
+                selectedView={selectedView}
+                onSelectSupportingMaterials={() => setSelectedView('supporting-materials')}
               />
             </div>
 
-            {/* Detail Panel */}
-            <ConversationDetail
-              conversation={selectedConversation}
-              projectId={selectedProject.id}
-              primaryManuscriptId={manuscriptFile?.id}
-              manuscriptFile={manuscriptFile}
-              onConversationCreated={handleConversationCreated}
-              onConversationUpdate={handleConversationUpdate}
-              isReviewInProgress={isReviewInProgress}
-              isInitialLoading={isLoadingFiles || !conversationsLoaded}
-              onMessageSent={onMessageSent}
-              onMessageReceived={onMessageReceived}
-              feedbackFormUrl={feedbackFormUrl}
-              pollingOptions={pollingOptions}
-              initialOpenDiffModal={initialOpenDiffModal}
-              onDiffModalOpened={onDiffModalOpened}
-            />
+            {/* Main Content - Shows either conversation or supporting materials */}
+            {selectedView === 'supporting-materials' ? (
+              <SupportingMaterialsContent
+                projectId={selectedProject.id}
+                onMaterialsChange={refreshSupportingMaterials}
+                fileUploadEvent={fileUploadEvent}
+              />
+            ) : (
+              <ConversationDetail
+                conversation={selectedConversation}
+                projectId={selectedProject.id}
+                primaryManuscriptId={manuscriptFile?.id}
+                manuscriptFile={manuscriptFile}
+                onConversationCreated={handleConversationCreated}
+                onConversationUpdate={handleConversationUpdate}
+                isReviewInProgress={isReviewInProgress}
+                isInitialLoading={isLoadingFiles || !conversationsLoaded}
+                onMessageSent={onMessageSent}
+                onMessageReceived={onMessageReceived}
+                feedbackFormUrl={feedbackFormUrl}
+                pollingOptions={pollingOptions}
+                initialOpenDiffModal={initialOpenDiffModal}
+                onDiffModalOpened={onDiffModalOpened}
+              />
+            )}
           </div>
         </div>
       )}

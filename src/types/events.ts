@@ -36,6 +36,19 @@ export interface CoScientistEvent {
    *
    * For 'conversation_added' events (when new conversation is created):
    * - conversation_id: number - ID of the newly created conversation
+   *
+   * For 'file_upload_started' events (when file upload job starts):
+   * - file_id: number - ID of the file being uploaded
+   * - file_name: string - Name of the file
+   *
+   * For 'file_upload_completed' events (when file upload completes):
+   * - file_id: number - ID of the uploaded file
+   * - file_name: string - Name of the file
+   *
+   * For 'file_upload_failed' events (when file upload fails):
+   * - file_id: number - ID of the file that failed
+   * - file_name: string - Name of the file
+   * - error: string - Error message describing the failure
    */
   data: Record<string, any>;
   timestamp: string; // ISO 8601 format
@@ -46,4 +59,5 @@ export interface CoScientistEvent {
  */
 export interface PollEventsResponse {
   events: CoScientistEvent[];
+  server_timestamp: string; // ISO 8601 format - server's current time
 }

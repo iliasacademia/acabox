@@ -46,20 +46,11 @@ class EventsManager {
 
   /**
    * Update the stored timestamp on disk
-   * Adds 1 millisecond to ensure the next poll doesn't return the same event
+   * Uses the server's timestamp directly to avoid clock skew issues
    */
   private updateStoredTimestamp(timestamp: string): void {
-    // Parse timestamp and add 1ms to avoid re-fetching the same event
-    // This handles the case where backend uses >= instead of > for timestamp comparison
-    const date = new Date(timestamp);
-    date.setMilliseconds(date.getMilliseconds() + 1);
-    const incrementedTimestamp = date.toISOString();
-
-    this.store.set('last_ts', incrementedTimestamp);
-    logger.debug('[EventsManager] Updated last_ts:', {
-      original: timestamp,
-      incremented: incrementedTimestamp,
-    });
+    this.store.set('last_ts', timestamp);
+    logger.debug('[EventsManager] Updated last_ts:', timestamp);
   }
 
   /**
@@ -94,16 +85,9 @@ class EventsManager {
   /**
    * Sync events from backend API
    *
-   * IMPORTANT: This method updates the `last_ts` timestamp after processing EACH event,
-   * including events that are skipped due to user_id mismatch. This ensures that the
-   * same events are not returned on subsequent polls.
-   *
-   * Example: If events arrive for users [456, 789, 456] and current user is 456:
-   * - Event 1 (user 456): processed, timestamp updated
-   * - Event 2 (user 789): skipped, but timestamp still updated to mark as "seen"
-   * - Event 3 (user 456): processed, timestamp updated
-   *
-   * Next poll will use the timestamp of Event 3, ensuring none of these events are re-fetched.
+   * Uses server_timestamp from the poll response to avoid clock skew issues.
+   * The server timestamp is stored and used for the next poll, ensuring events
+   * created between polls are never missed due to client/server clock differences.
    */
   async syncWithBackend(): Promise<void> {
     if (this.isSyncing) {
@@ -126,6 +110,7 @@ class EventsManager {
       logger.info('[EventsManager] Fetched events', {
         count: response.events.length,
         last_ts: lastTimestamp || 'none (full sync)',
+        server_timestamp: response.server_timestamp,
       });
 
       // Process events in order (oldest to newest)
@@ -137,22 +122,20 @@ class EventsManager {
             currentUserId: this.currentUserId,
             eventName: event.event_name,
           });
-          // Still update timestamp to mark this event as "seen"
-          // so we don't keep polling it on every request
-          this.updateStoredTimestamp(event.timestamp);
           continue;
         }
 
         // Send to renderer
         this.sendEventToRenderer(event);
-
-        // Update last_ts after successfully processing event
-        // This ensures next poll won't return events we've already seen
-        this.updateStoredTimestamp(event.timestamp);
       }
+
+      // Update last_ts with server's timestamp (not event timestamps)
+      // This uses the server's clock throughout to avoid clock skew
+      this.updateStoredTimestamp(response.server_timestamp);
 
       logger.info('[EventsManager] Sync complete', {
         eventsProcessed: response.events.length,
+        next_last_ts: response.server_timestamp,
       });
     } catch (error: any) {
       logger.error('[EventsManager] Failed to sync events:', error);

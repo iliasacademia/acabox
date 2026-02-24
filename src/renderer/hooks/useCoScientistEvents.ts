@@ -11,6 +11,9 @@ interface EventHandlers {
   onMessageSent?: (event: CoScientistEvent) => void;
   onResponseReceived?: (event: CoScientistEvent) => void;
   onConversationAdded?: (event: CoScientistEvent) => void;
+  onFileUploadStarted?: (event: CoScientistEvent) => void;
+  onFileUploadCompleted?: (event: CoScientistEvent) => void;
+  onFileUploadFailed?: (event: CoScientistEvent) => void;
   onAllEvents?: (event: CoScientistEvent) => void;
 }
 
@@ -129,11 +132,29 @@ export function useCoScientistEvents(
         }
         break;
 
+      case 'file_upload_started':
+        if (handlers.onFileUploadStarted) {
+          handlers.onFileUploadStarted(coScientistEvent);
+        }
+        break;
+
+      case 'file_upload_completed':
+        if (handlers.onFileUploadCompleted) {
+          handlers.onFileUploadCompleted(coScientistEvent);
+        }
+        break;
+
+      case 'file_upload_failed':
+        if (handlers.onFileUploadFailed) {
+          handlers.onFileUploadFailed(coScientistEvent);
+        }
+        break;
+
       default:
         console.log('[useCoScientistEvents] Unknown event type:', coScientistEvent.event_name);
         break;
     }
-  }, [handlers.onReviewStarted, handlers.onReviewCompleted, handlers.onReviewFailed, handlers.onMessageSent, handlers.onResponseReceived, handlers.onConversationAdded, handlers.onAllEvents, ...dependencies]);
+  }, [handlers.onReviewStarted, handlers.onReviewCompleted, handlers.onReviewFailed, handlers.onMessageSent, handlers.onResponseReceived, handlers.onConversationAdded, handlers.onFileUploadStarted, handlers.onFileUploadCompleted, handlers.onFileUploadFailed, handlers.onAllEvents, ...dependencies]);
 
   useEffect(() => {
     // Register event listener
