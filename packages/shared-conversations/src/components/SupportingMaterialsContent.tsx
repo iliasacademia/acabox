@@ -402,7 +402,7 @@ export function SupportingMaterialsContent({
           </div>
 
           {/* Materials Table or Empty State */}
-          {materials.length === 0 ? (
+          {materials.length === 0 && uploadingFiles.length === 0 ? (
             <div className="supportingMaterialsEmpty">
               <p className="supportingMaterialsEmptyText">0 materials added</p>
             </div>

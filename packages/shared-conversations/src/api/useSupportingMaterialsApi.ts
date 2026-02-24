@@ -25,8 +25,8 @@ export function useSupportingMaterialsApi() {
   return useMemo(() => ({
     /**
      * Get supporting materials for a project
-     * GET /v0/co_scientist/projects/:id/files
-     * Filters response to only include supporting materials (files where is_manuscript is false or omitted)
+     * GET /v0/co_scientist/projects/:id/files?exclude_manuscripts=true
+     * Backend filters response to only include supporting materials (excludes manuscripts)
      * Maps API's 'tag' field to 'category' for UI consistency
      *
      * @param projectId - Project ID
@@ -41,7 +41,14 @@ export function useSupportingMaterialsApi() {
       hasMore: boolean;
       totalCount: number;
     }> => {
-      const params = page > 1 ? `?page=${page}` : '';
+      const queryParams = new URLSearchParams({
+        exclude_manuscripts: 'true',
+      });
+
+      if (page > 1) {
+        queryParams.set('page', page.toString());
+      }
+
       const response = await client.invoke<{
         files?: any[];
         pagination?: {
@@ -50,17 +57,11 @@ export function useSupportingMaterialsApi() {
         };
       }>({
         method: 'GET',
-        endpoint: `v0/co_scientist/projects/${projectId}/files${params}`,
+        endpoint: `v0/co_scientist/projects/${projectId}/files?${queryParams.toString()}`,
       });
 
-      // Filter to only supporting materials (exclude primary manuscript)
-      const allFiles = response.files || [];
-      const supportingMaterials = allFiles.filter((file: any) =>
-        !file.is_primary_manuscript
-      );
-
       // Map 'tag' field from API to 'category' field for UI
-      const materials = supportingMaterials.map((file: any) => ({
+      const materials = (response.files || []).map((file: any) => ({
         ...file,
         category: file.tag || file.category, // Use tag if available, fallback to category
       })) as SupportingMaterial[];
