@@ -137,7 +137,19 @@ export function reduceWindowMonitorEvent(
     case 'WINDOW_EXISTING':
     case 'WINDOW_CREATED': {
       next = ensureApp(next, event.app);
-      next = updateApp(next, identifier, pid, (a) => upsertWindow(a, event.window));
+      next = updateApp(next, identifier, pid, (a) => {
+        const updated = upsertWindow(a, event.window);
+        if (updated.isFocused && !updated.windows.some((w) => w.isFocused)) {
+          return {
+            ...updated,
+            focusedWindowId: event.window.id,
+            windows: updated.windows.map((w) =>
+              w.id === event.window.id ? { ...w, isFocused: true } : w,
+            ),
+          };
+        }
+        return updated;
+      });
       return next;
     }
 
