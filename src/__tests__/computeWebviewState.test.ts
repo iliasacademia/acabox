@@ -141,9 +141,12 @@ describe('Visibility', () => {
     const state = reduce(createInitialState(), [
       { event: 'APP_FOCUSED', timestamp: ts(), platform: 'macos', app },
       { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '1' }) },
+      { event: 'WINDOW_CREATED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '2' }) },
+      { event: 'WINDOW_FOCUSED', timestamp: ts(), platform: 'macos', app, window: makeWindow({ id: '2' }) },
     ]);
     const result = computeWebviewState(state, configs, BASE_URL, AUTH_TOKEN, SCREEN_HEIGHT);
     expect(result['button-v2-1'].visible).toBe(false);
+    expect(result['button-v2-2'].visible).toBe(true);
   });
 
   test('repositioning → visible: true (stable buttons ignore repositioning to avoid flicker)', () => {
