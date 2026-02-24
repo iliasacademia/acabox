@@ -91,6 +91,9 @@ describe('ProjectSyncService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
 
+    // Default: GET /files returns empty list (used by startWatchingFile's duplicate check)
+    mockClient.get.mockResolvedValue({ data: { files: [] } });
+
     // Reset mockWatcher.on so we get fresh handler registrations per test
     mockWatcher.on.mockReset().mockReturnThis();
     mockWatcher.close.mockReset().mockResolvedValue(undefined);
