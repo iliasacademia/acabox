@@ -1601,7 +1601,7 @@ export class ProjectSyncService {
    * - No project_root_id (standalone file)
    * - rel_path = absolute file path
    * - is_manuscript = false (or omitted)
-   * - category = reference | note | proposal | other
+   * - tag = reference | note | proposal | other (API uses 'tag' field)
    */
   async uploadSupportingMaterial(
     projectId: number,
@@ -1633,7 +1633,7 @@ export class ProjectSyncService {
       formData.append('mime_type', mimeType);
       formData.append('size', size.toString());
       formData.append('is_manuscript', 'false'); // Supporting materials are not manuscripts
-      formData.append('category', category);
+      formData.append('tag', category); // API uses 'tag' field instead of 'category'
       formData.append('file', fs.createReadStream(filePath));
 
       const response = await client.post(

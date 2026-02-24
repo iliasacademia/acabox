@@ -27,18 +27,49 @@ export function useSupportingMaterialsApi() {
      * Get supporting materials for a project
      * GET /v0/co_scientist/projects/:id/files
      * Filters response to only include supporting materials (files where is_manuscript is false or omitted)
+     * Maps API's 'tag' field to 'category' for UI consistency
+     *
+     * @param projectId - Project ID
+     * @param page - Optional page number for pagination (default: 1)
+     * @returns Object containing materials array and pagination info
      */
-    getSupportingMaterials: async (projectId: number): Promise<SupportingMaterial[]> => {
-      const response = await client.invoke<{ files?: SupportingMaterial[] }>({
+    getSupportingMaterials: async (
+      projectId: number,
+      page: number = 1
+    ): Promise<{
+      materials: SupportingMaterial[];
+      hasMore: boolean;
+      totalCount: number;
+    }> => {
+      const params = page > 1 ? `?page=${page}` : '';
+      const response = await client.invoke<{
+        files?: any[];
+        pagination?: {
+          has_more: boolean;
+          total_count: number;
+        };
+      }>({
         method: 'GET',
-        endpoint: `v0/co_scientist/projects/${projectId}/files`,
+        endpoint: `v0/co_scientist/projects/${projectId}/files${params}`,
       });
 
       // Filter to only supporting materials (exclude primary manuscript)
       const allFiles = response.files || [];
-      return allFiles.filter((file: any) =>
+      const supportingMaterials = allFiles.filter((file: any) =>
         !file.is_primary_manuscript
-      ) as SupportingMaterial[];
+      );
+
+      // Map 'tag' field from API to 'category' field for UI
+      const materials = supportingMaterials.map((file: any) => ({
+        ...file,
+        category: file.tag || file.category, // Use tag if available, fallback to category
+      })) as SupportingMaterial[];
+
+      return {
+        materials,
+        hasMore: response.pagination?.has_more || false,
+        totalCount: response.pagination?.total_count || materials.length,
+      };
     },
 
     /**
@@ -94,6 +125,7 @@ export function useSupportingMaterialsApi() {
     /**
      * Update material category
      * PUT /v0/co_scientist/projects/:projectId/files/:fileId
+     * Sends 'tag' field to API (API uses 'tag', UI uses 'category')
      */
     updateMaterialCategory: async (
       projectId: number,
@@ -103,7 +135,7 @@ export function useSupportingMaterialsApi() {
       await client.invoke({
         method: 'PUT',
         endpoint: `v0/co_scientist/projects/${projectId}/files/${fileId}`,
-        data: { category },
+        data: { tag: category }, // API expects 'tag' field
       });
     },
   }), [client]);

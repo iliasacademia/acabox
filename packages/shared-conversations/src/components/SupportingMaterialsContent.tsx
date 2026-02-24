@@ -6,21 +6,35 @@ import {
 } from '../types/supportingMaterials';
 import { SupportingMaterialsTable } from './SupportingMaterialsTable';
 
+interface UploadingFile {
+  tempId: string;
+  fileName: string;
+  status: 'uploading' | 'processing' | 'completed' | 'failed';
+  fileId?: number;
+}
+
 export interface SupportingMaterialsContentProps {
   projectId: number;
   onMaterialsChange?: () => void;
-  refreshTrigger?: number;
+  fileUploadEvent?: { file: any; timestamp: number } | null;
 }
 
 export function SupportingMaterialsContent({
   projectId,
   onMaterialsChange,
-  refreshTrigger,
+  fileUploadEvent,
 }: SupportingMaterialsContentProps) {
   const [materials, setMaterials] = useState<SupportingMaterial[]>([]);
+  const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const tableContainerRef = React.useRef<HTMLDivElement>(null);
 
   const {
     getSupportingMaterials,
@@ -34,19 +48,82 @@ export function SupportingMaterialsContent({
     fetchMaterials();
   }, [projectId]);
 
-  // Refresh materials when refreshTrigger changes
+  // Handle file upload events (from events polling)
   useEffect(() => {
-    if (refreshTrigger !== undefined && refreshTrigger > 0) {
-      fetchMaterials();
+    if (!fileUploadEvent) return;
+
+    const { file } = fileUploadEvent;
+
+    console.log('[SupportingMaterialsContent] File upload event:', file);
+
+    // Check if this is a failed upload
+    if (file.status === 'failed' || file.upload_status === 'failed') {
+      // Mark the uploading file as failed
+      setUploadingFiles((prev) =>
+        prev.map((uf) =>
+          uf.fileId === file.id ? { ...uf, status: 'failed' } : uf
+        )
+      );
+
+      // Also update existing material if it's already in the list
+      setMaterials((prev) =>
+        prev.map((m) =>
+          m.id === file.id ? { ...m, upload_status: 'failed' } : m
+        )
+      );
+      return;
     }
-  }, [refreshTrigger]);
+
+    // File upload completed - remove from uploadingFiles and update materials
+    if (file.id) {
+      // Remove from uploading files by fileId AND by fileName as fallback
+      setUploadingFiles((prev) =>
+        prev.filter((uf) => uf.fileId !== file.id && uf.fileName !== file.file_name)
+      );
+
+      // Map the file data (tag → category)
+      const material: SupportingMaterial = {
+        ...file,
+        category: file.tag || file.category,
+      };
+
+      // Update existing material or add new one (prevent duplicates)
+      setMaterials((prev) => {
+        // Check if file already exists by ID or file_name
+        const existingIndex = prev.findIndex((m) =>
+          m.id === material.id || m.file_name === material.file_name
+        );
+
+        if (existingIndex >= 0) {
+          // File already exists - update it in place
+          console.log('[SupportingMaterialsContent] Updating existing file at index', existingIndex);
+          const updated = [...prev];
+          updated[existingIndex] = material;
+          return updated;
+        } else {
+          // New file - add to top
+          console.log('[SupportingMaterialsContent] Adding new file to materials');
+          return [material, ...prev];
+        }
+      });
+
+      // Notify parent when materials change
+      if (onMaterialsChange) {
+        onMaterialsChange();
+      }
+    }
+  }, [fileUploadEvent]);
 
   const fetchMaterials = async () => {
     try {
       setIsLoading(true);
       setError(null);
-      const data = await getSupportingMaterials(projectId);
+      setCurrentPage(1);
+      const { materials: data, hasMore: more, totalCount: count } =
+        await getSupportingMaterials(projectId, 1);
       setMaterials(data);
+      setHasMore(more);
+      setTotalCount(count);
     } catch (err) {
       console.error('Failed to load supporting materials:', err);
       setError('Failed to load supporting materials. Please try again.');
@@ -58,37 +135,59 @@ export function SupportingMaterialsContent({
   const handleUploadFromComputer = async () => {
     try {
       setIsUploading(true);
+      setUploadProgress(null);
       setError(null);
 
-      // Trigger file selection via IPC
+      // Trigger file selection via IPC with multiple selection enabled
       if (!window.electronAPI?.invoke) {
         throw new Error('File selection not available');
       }
 
-      const filePath = await window.electronAPI.invoke('select-file', {
+      const filePaths = await window.electronAPI.invoke('select-file', {
         extensions: ['pdf', 'doc', 'docx', 'txt'],
+        multiSelection: true,
       });
 
-      if (!filePath) {
+      if (!filePaths || (Array.isArray(filePaths) && filePaths.length === 0)) {
         setIsUploading(false);
         return; // User cancelled
       }
 
-      // Upload file with default category 'reference'
-      await uploadSupportingMaterial(projectId, filePath, 'reference');
+      // Handle single or multiple files
+      const files = Array.isArray(filePaths) ? filePaths : [filePaths];
 
-      // Refresh materials list
-      await fetchMaterials();
+      // Create placeholder rows for each file
+      const placeholders: UploadingFile[] = files.map((filePath) => {
+        const fileName = filePath.split('/').pop() || filePath;
+        return {
+          tempId: `temp-${Date.now()}-${Math.random()}`,
+          fileName,
+          status: 'uploading' as const,
+        };
+      });
 
-      // Notify parent of changes
-      if (onMaterialsChange) {
-        onMaterialsChange();
+      setUploadingFiles(placeholders);
+
+      // Upload files sequentially with progress tracking
+      for (let i = 0; i < files.length; i++) {
+        setUploadProgress({ current: i + 1, total: files.length });
+        const response = await uploadSupportingMaterial(projectId, files[i], 'reference');
+
+        // Update placeholder with fileId and change status to processing
+        setUploadingFiles((prev) =>
+          prev.map((file, idx) =>
+            idx === i ? { ...file, fileId: response.file.id, status: 'processing' } : file
+          )
+        );
       }
+
+      // Files will be updated via events polling
     } catch (err) {
       console.error('Failed to upload file:', err);
       setError('Failed to upload file. Please try again.');
     } finally {
       setIsUploading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -125,6 +224,73 @@ export function SupportingMaterialsContent({
       await fetchMaterials(); // Revert on error
     }
   };
+
+  const loadMoreMaterials = async () => {
+    if (!hasMore || isLoadingMore) {
+      console.log('[loadMoreMaterials] Skipping:', { hasMore, isLoadingMore, currentPage });
+      return;
+    }
+
+    const nextPage = currentPage + 1;
+    console.log('[loadMoreMaterials] Loading page:', nextPage);
+
+    try {
+      setIsLoadingMore(true);
+      setError(null);
+      const { materials: newMaterials, hasMore: more, totalCount: count } =
+        await getSupportingMaterials(projectId, nextPage);
+
+      console.log('[loadMoreMaterials] Received:', {
+        page: nextPage,
+        newMaterialsCount: newMaterials.length,
+        hasMore: more,
+        totalCount: count
+      });
+
+      setMaterials((prev) => [...prev, ...newMaterials]);
+      setHasMore(more);
+      setCurrentPage(nextPage);
+      setTotalCount(count);
+    } catch (err) {
+      console.error('Failed to load more materials:', err);
+      setError('Failed to load more materials.');
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  // Handle scroll for infinite loading
+  useEffect(() => {
+    const container = tableContainerRef.current;
+    if (!container) return;
+
+    let scrollTimeout: NodeJS.Timeout;
+
+    const handleScroll = () => {
+      // Clear previous timeout
+      clearTimeout(scrollTimeout);
+
+      // Debounce scroll events
+      scrollTimeout = setTimeout(() => {
+        // Don't load if already loading or no more items
+        if (isLoadingMore || !hasMore) {
+          return;
+        }
+
+        const { scrollTop, scrollHeight, clientHeight } = container;
+        // Load more when scrolled to within 100px of bottom
+        if (scrollHeight - scrollTop - clientHeight < 100) {
+          loadMoreMaterials();
+        }
+      }, 150);
+    };
+
+    container.addEventListener('scroll', handleScroll);
+    return () => {
+      clearTimeout(scrollTimeout);
+      container.removeEventListener('scroll', handleScroll);
+    };
+  }, [hasMore, isLoadingMore, currentPage]);
 
   return (
     <div className="supportingMaterialsContent">
@@ -185,7 +351,11 @@ export function SupportingMaterialsContent({
               </div>
               <div className="uploadOptionContent">
                 <h3 className="uploadOptionTitle">
-                  {isUploading ? 'Uploading...' : 'Upload from computer'}
+                  {isUploading
+                    ? uploadProgress
+                      ? `Uploading ${uploadProgress.current}/${uploadProgress.total} files...`
+                      : 'Uploading...'
+                    : 'Upload from computer'}
                 </h3>
                 <p className="uploadOptionSubtitle">PDF, DOCX, TXT</p>
               </div>
@@ -237,11 +407,22 @@ export function SupportingMaterialsContent({
               <p className="supportingMaterialsEmptyText">0 materials added</p>
             </div>
           ) : (
-            <SupportingMaterialsTable
-              materials={materials}
-              onDelete={handleDelete}
-              onCategoryChange={handleCategoryChange}
-            />
+            <div
+              ref={tableContainerRef}
+              className="supportingMaterialsTableContainer"
+            >
+              <SupportingMaterialsTable
+                materials={materials}
+                uploadingFiles={uploadingFiles}
+                onDelete={handleDelete}
+                onCategoryChange={handleCategoryChange}
+              />
+              {isLoadingMore && (
+                <div className="supportingMaterialsLoadingMore">
+                  Loading more materials...
+                </div>
+              )}
+            </div>
           )}
         </>
       )}

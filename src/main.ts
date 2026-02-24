@@ -1434,22 +1434,30 @@ ipcMain.handle(IPC_CHANNELS.SELECT_FOLDER, async (event) => {
   return result.filePaths[0];
 });
 
-ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, options?: string | { defaultPath?: string; extensions?: string[] }) => {
+ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, options?: string | { defaultPath?: string; extensions?: string[]; multiSelection?: boolean }) => {
   const senderWindow = BrowserWindow.fromWebContents(event.sender);
   if (!senderWindow) return;
 
   // Support both old signature (defaultPath string) and new (options object)
   const defaultPath = typeof options === 'string' ? options : options?.defaultPath;
   const extensions = (typeof options === 'object' && options?.extensions) || SUPPORTED_DOCUMENT_EXTENSIONS;
+  const multiSelection = typeof options === 'object' && options?.multiSelection;
+
+  const properties: ('openFile' | 'multiSelections')[] = ['openFile'];
+  if (multiSelection) {
+    properties.push('multiSelections');
+  }
 
   const result = await dialog.showOpenDialog(senderWindow, {
     defaultPath,
-    properties: ['openFile'],
+    properties,
     filters: [
       { name: 'Documents', extensions }
     ]
   });
-  return result.filePaths[0];
+
+  // Return array if multiSelection, single path otherwise for backwards compatibility
+  return multiSelection ? result.filePaths : result.filePaths[0];
 });
 
 // Upload supporting material

@@ -100,7 +100,8 @@ export function ConversationsPage({
   const [selectedView, setSelectedView] = useState<'conversation' | 'supporting-materials'>('conversation');
   const [supportingMaterials, setSupportingMaterials] = useState<SupportingMaterial[]>([]);
   const [supportingMaterialsLoading, setSupportingMaterialsLoading] = useState(false);
-  const [supportingMaterialsRefreshTrigger, setSupportingMaterialsRefreshTrigger] = useState(0);
+  const [fileUploadEvent, setFileUploadEvent] = useState<{ file: any; timestamp: number } | null>(null);
+  const [supportingMaterialsTotalCount, setSupportingMaterialsTotalCount] = useState(0);
 
   const [selectedConversation, setSelectedConversation] = useState<
     Conversation | DraftConversation | null
@@ -172,8 +173,9 @@ export function ConversationsPage({
     if (!selectedProject) return;
     setSupportingMaterialsLoading(true);
     try {
-      const materials = await getSupportingMaterials(selectedProject.id);
+      const { materials, totalCount } = await getSupportingMaterials(selectedProject.id);
       setSupportingMaterials(materials);
+      setSupportingMaterialsTotalCount(totalCount);
     } catch (error) {
       console.error("Failed to refresh supporting materials:", error);
     } finally {
@@ -188,21 +190,29 @@ export function ConversationsPage({
     }
   }, [selectedProject]);
 
-  // Listen for file upload events to refresh materials list
+  // Listen for file upload events to refresh materials
   useCoScientistEvents({
     onFileUploadCompleted: (event) => {
       console.log('[ConversationsPage] File upload completed:', event.data);
-      // Refresh materials list to show the completed upload
+      // Pass the file data to SupportingMaterialsContent
+      if (event.data?.file) {
+        setFileUploadEvent({
+          file: event.data.file,
+          timestamp: Date.now(),
+        });
+      }
+      // Also refresh the sidebar count
       refreshSupportingMaterials();
-      // Trigger refresh in SupportingMaterialsContent
-      setSupportingMaterialsRefreshTrigger((prev) => prev + 1);
     },
     onFileUploadFailed: (event) => {
       console.log('[ConversationsPage] File upload failed:', event.data);
-      // Refresh materials list to show the failed upload (don't skip it)
-      refreshSupportingMaterials();
-      // Trigger refresh in SupportingMaterialsContent
-      setSupportingMaterialsRefreshTrigger((prev) => prev + 1);
+      // Pass the failure event to SupportingMaterialsContent
+      if (event.data?.file_id) {
+        setFileUploadEvent({
+          file: { id: event.data.file_id, status: 'failed' },
+          timestamp: Date.now(),
+        });
+      }
     },
   });
 
@@ -1179,7 +1189,7 @@ export function ConversationsPage({
                 onRegisterRefresh={onRegisterConversationsRefresh}
                 collapsed={collapsed}
                 onToggleCollapsed={toggleCollapsed}
-                supportingMaterialsCount={supportingMaterials.length}
+                supportingMaterialsCount={supportingMaterialsTotalCount}
                 supportingMaterialsLoading={supportingMaterialsLoading}
                 selectedView={selectedView}
                 onSelectSupportingMaterials={() => setSelectedView('supporting-materials')}
@@ -1191,7 +1201,7 @@ export function ConversationsPage({
               <SupportingMaterialsContent
                 projectId={selectedProject.id}
                 onMaterialsChange={refreshSupportingMaterials}
-                refreshTrigger={supportingMaterialsRefreshTrigger}
+                fileUploadEvent={fileUploadEvent}
               />
             ) : (
               <ConversationDetail

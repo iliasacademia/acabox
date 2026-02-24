@@ -59,4 +59,5 @@ export interface CoScientistEvent {
  */
 export interface PollEventsResponse {
   events: CoScientistEvent[];
+  server_timestamp: string; // ISO 8601 format - server's current time
 }
