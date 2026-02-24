@@ -64,7 +64,7 @@ describe('EventsManager', () => {
     it('should start polling with 10 second interval', async () => {
       jest.useFakeTimers();
 
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       eventsManager.startPolling(1, 10000);
@@ -84,7 +84,7 @@ describe('EventsManager', () => {
     });
 
     it('should perform immediate sync on startPolling()', async () => {
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       eventsManager.startPolling(1, 10000);
@@ -98,7 +98,7 @@ describe('EventsManager', () => {
     it('should clear existing interval before starting new one', async () => {
       jest.useFakeTimers();
 
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       // Start first time
@@ -121,7 +121,7 @@ describe('EventsManager', () => {
     });
 
     it('should stop polling and clear interval', () => {
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       eventsManager.startPolling(1, 10000);
@@ -132,7 +132,7 @@ describe('EventsManager', () => {
     });
 
     it('should NOT clear stored timestamp on stopPolling()', () => {
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       eventsManager.startPolling(1, 10000);
@@ -165,6 +165,7 @@ describe('EventsManager', () => {
             timestamp: '2026-01-13T12:30:00.000Z',
           },
         ],
+        server_timestamp: '2026-01-13T12:30:05.000Z',
       };
 
       mockPollEvents.mockResolvedValue(mockEvents);
@@ -174,13 +175,13 @@ describe('EventsManager', () => {
 
       await eventsManager.syncWithBackend();
 
-      // Should update timestamp to event's timestamp + 1ms to avoid re-fetching
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:30:00.001Z');
+      // Should update timestamp to server's timestamp
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:30:05.000Z');
     });
 
     it('should handle missing timestamp (null) gracefully', async () => {
       mockStore.get.mockReturnValue(null);
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       await eventsManager.syncWithBackend();
@@ -189,7 +190,7 @@ describe('EventsManager', () => {
       expect(mockPollEvents).toHaveBeenCalledWith(undefined);
     });
 
-    it('should update timestamp to latest event timestamp', async () => {
+    it('should update timestamp to server timestamp once per poll', async () => {
       const mockEvents = {
         events: [
           {
@@ -214,6 +215,7 @@ describe('EventsManager', () => {
             timestamp: '2026-01-13T13:00:00.000Z',
           },
         ],
+        server_timestamp: '2026-01-13T13:00:05.000Z',
       };
 
       mockPollEvents.mockResolvedValue(mockEvents);
@@ -223,10 +225,9 @@ describe('EventsManager', () => {
 
       await eventsManager.syncWithBackend();
 
-      // Should update timestamp for each event with +1ms increment
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00.001Z');
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:30:00.001Z');
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T13:00:00.001Z');
+      // Should update timestamp once with server's timestamp (not per event)
+      expect(mockStore.set).toHaveBeenCalledTimes(1);
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T13:00:05.000Z');
     });
   });
 
@@ -250,7 +251,7 @@ describe('EventsManager', () => {
     it('should fetch events with last_ts parameter', async () => {
       const mockTimestamp = '2026-01-13T12:00:00Z';
       mockStore.get.mockReturnValue(mockTimestamp);
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       await eventsManager.syncWithBackend();
@@ -260,7 +261,7 @@ describe('EventsManager', () => {
 
     it('should fetch without timestamp on first sync (null)', async () => {
       mockStore.get.mockReturnValue(null);
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       await eventsManager.syncWithBackend();
@@ -314,6 +315,7 @@ describe('EventsManager', () => {
             timestamp: '2026-01-13T12:00:00.000Z',
           },
         ],
+        server_timestamp: '2026-01-13T12:00:05.000Z',
       };
 
       mockPollEvents.mockResolvedValue(mockEvents);
@@ -326,8 +328,8 @@ describe('EventsManager', () => {
       // Should not send any events
       expect(mockWindow.webContents.send).not.toHaveBeenCalled();
 
-      // But should still update timestamp to mark event as "seen" with +1ms
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00.001Z');
+      // But should still update timestamp with server's timestamp
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:05.000Z');
     });
 
     it('should send events to renderer individually', async () => {
@@ -348,6 +350,7 @@ describe('EventsManager', () => {
             timestamp: '2026-01-13T12:30:00Z',
           },
         ],
+        server_timestamp: '2026-01-13T12:30:05.000Z',
       };
 
       mockPollEvents.mockResolvedValue(mockEvents);
@@ -371,7 +374,7 @@ describe('EventsManager', () => {
       );
     });
 
-    it('should update last_ts after each event', async () => {
+    it('should update last_ts with server timestamp', async () => {
       const mockEvents = {
         events: [
           {
@@ -382,6 +385,7 @@ describe('EventsManager', () => {
             timestamp: '2026-01-13T12:00:00.000Z',
           },
         ],
+        server_timestamp: '2026-01-13T12:00:05.000Z',
       };
 
       mockPollEvents.mockResolvedValue(mockEvents);
@@ -391,10 +395,10 @@ describe('EventsManager', () => {
 
       await eventsManager.syncWithBackend();
 
-      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00.001Z');
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:05.000Z');
     });
 
-    it('should update timestamp for all events including skipped ones', async () => {
+    it('should update timestamp once with server timestamp regardless of skipped events', async () => {
       const mockEvents = {
         events: [
           {
@@ -419,6 +423,7 @@ describe('EventsManager', () => {
             timestamp: '2026-01-13T12:10:00.000Z',
           },
         ],
+        server_timestamp: '2026-01-13T12:10:05.000Z',
       };
 
       mockPollEvents.mockResolvedValue(mockEvents);
@@ -435,11 +440,9 @@ describe('EventsManager', () => {
         mockEvents.events[1]
       );
 
-      // But should update timestamp to the latest event (including skipped ones) with +1ms
-      expect(mockStore.set).toHaveBeenCalledTimes(3);
-      expect(mockStore.set).toHaveBeenNthCalledWith(1, 'last_ts', '2026-01-13T12:00:00.001Z');
-      expect(mockStore.set).toHaveBeenNthCalledWith(2, 'last_ts', '2026-01-13T12:05:00.001Z');
-      expect(mockStore.set).toHaveBeenNthCalledWith(3, 'last_ts', '2026-01-13T12:10:00.001Z');
+      // Should update timestamp once with server's timestamp
+      expect(mockStore.set).toHaveBeenCalledTimes(1);
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:10:05.000Z');
     });
 
     it('should handle API errors gracefully without stopping', async () => {
@@ -471,16 +474,19 @@ describe('EventsManager', () => {
       jest.useRealTimers();
     });
 
-    it('should handle empty events array', async () => {
-      mockPollEvents.mockResolvedValue({ events: [] });
+    it('should handle empty events array and still update server timestamp', async () => {
+      mockPollEvents.mockResolvedValue({
+        events: [],
+        server_timestamp: '2026-01-13T12:00:00.000Z',
+      });
       eventsManager.setMainWindow(mockWindow);
 
       await eventsManager.syncWithBackend();
 
       // Should not send any events
       expect(mockWindow.webContents.send).not.toHaveBeenCalled();
-      // Should not update timestamp
-      expect(mockStore.set).not.toHaveBeenCalled();
+      // Should still update timestamp with server's timestamp
+      expect(mockStore.set).toHaveBeenCalledWith('last_ts', '2026-01-13T12:00:00.000Z');
     });
 
     it('should process multiple events in order', async () => {
@@ -508,6 +514,7 @@ describe('EventsManager', () => {
             timestamp: '2026-01-13T13:00:00Z',
           },
         ],
+        server_timestamp: '2026-01-13T13:00:05.000Z',
       };
 
       mockPollEvents.mockResolvedValue(mockEvents);
@@ -535,7 +542,7 @@ describe('EventsManager', () => {
         timestamp: '2026-01-13T12:00:00Z',
       };
 
-      mockPollEvents.mockResolvedValue({ events: [mockEvent] });
+      mockPollEvents.mockResolvedValue({ events: [mockEvent], server_timestamp: '2026-01-13T12:00:05.000Z' });
       mockStore.get.mockReturnValue(null);
       eventsManager.setMainWindow(mockWindow);
       eventsManager.startPolling(1);
@@ -556,7 +563,7 @@ describe('EventsManager', () => {
 
       mockWindow.isDestroyed.mockReturnValue(true);
 
-      mockPollEvents.mockResolvedValue({ events: [mockEvent] });
+      mockPollEvents.mockResolvedValue({ events: [mockEvent], server_timestamp: '2026-01-13T12:00:05.000Z' });
       mockStore.get.mockReturnValue(null);
       eventsManager.setMainWindow(mockWindow);
       eventsManager.startPolling(1);
@@ -578,7 +585,7 @@ describe('EventsManager', () => {
 
       mockWindow.webContents.isDestroyed.mockReturnValue(true);
 
-      mockPollEvents.mockResolvedValue({ events: [mockEvent] });
+      mockPollEvents.mockResolvedValue({ events: [mockEvent], server_timestamp: '2026-01-13T12:00:05.000Z' });
       mockStore.get.mockReturnValue(null);
       eventsManager.setMainWindow(mockWindow);
       eventsManager.startPolling(1);
@@ -598,7 +605,7 @@ describe('EventsManager', () => {
         timestamp: '2026-01-13T12:00:00Z',
       };
 
-      mockPollEvents.mockResolvedValue({ events: [mockEvent] });
+      mockPollEvents.mockResolvedValue({ events: [mockEvent], server_timestamp: '2026-01-13T12:00:05.000Z' });
       mockStore.get.mockReturnValue(null);
       eventsManager.setMainWindow(null);
       eventsManager.startPolling(1);
@@ -624,7 +631,7 @@ describe('EventsManager', () => {
         timestamp: '2026-01-13T12:00:00Z',
       };
 
-      mockPollEvents.mockResolvedValue({ events: [mockEvent] });
+      mockPollEvents.mockResolvedValue({ events: [mockEvent], server_timestamp: '2026-01-13T12:00:05.000Z' });
       mockStore.get.mockReturnValue(null);
       eventsManager.setMainWindow(mockWindow);
       eventsManager.startPolling(1, 10000);
@@ -651,7 +658,7 @@ describe('EventsManager', () => {
         timestamp: '2026-01-13T12:00:00Z',
       };
 
-      mockPollEvents.mockResolvedValue({ events: [mockEvent] });
+      mockPollEvents.mockResolvedValue({ events: [mockEvent], server_timestamp: '2026-01-13T12:00:05.000Z' });
       mockStore.get.mockReturnValue(null);
       eventsManager.setMainWindow(mockWindow);
       eventsManager.startPolling(1);
@@ -686,7 +693,7 @@ describe('EventsManager', () => {
     });
 
     it('should close and cleanup resources', () => {
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       eventsManager.startPolling(1, 10000);
@@ -697,7 +704,7 @@ describe('EventsManager', () => {
     });
 
     it('should stop polling on close()', () => {
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       eventsManager.startPolling(1, 10000);
@@ -772,7 +779,7 @@ describe('EventsManager', () => {
 
   describe('Edge Cases', () => {
     it('should handle concurrent polling attempts', async () => {
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       // Start polling twice
@@ -786,7 +793,7 @@ describe('EventsManager', () => {
     });
 
     it('should handle rapid start/stop calls', () => {
-      mockPollEvents.mockResolvedValue({ events: [] });
+      mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
       // Rapid start/stop
