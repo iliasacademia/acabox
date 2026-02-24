@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import * as os from 'os';
 import { Cookie, Store } from 'tough-cookie';
 import { app } from 'electron';
 import { defaultLogger as logger } from './utils/logger';
@@ -33,25 +32,18 @@ export class EncryptedCookieStore extends Store {
    */
   private deriveEncryptionKey(): Buffer {
     try {
-      // Gather machine-specific data
       const machineId = this.getOrCreateMachineId();
-      const appPath = app.getPath('userData');
-
-      // Create a deterministic key using PBKDF2
-      // Using a combination of machine ID and app path as the "password"
-      // Salt is derived from hostname to add another layer
-      const password = `${machineId}:${appPath}`;
-      const salt = crypto.createHash('sha256').update(os.hostname()).digest();
-
-      // Derive a 32-byte key (256 bits for AES-256)
+      const password = machineId;
+      const env = app.isPackaged ? 'production' : 'development';
+      const salt = crypto.createHash('sha256').update(`academia-electron-cookie-store:${env}`).digest();
       const key = crypto.pbkdf2Sync(password, salt, 100000, 32, 'sha256');
 
       return key;
     } catch (error) {
       logger.error('[EncryptedCookieStore] Error deriving encryption key:', error);
-      // Fallback to a basic key (less secure but functional)
-      const fallbackData = `${os.hostname()}:${os.platform()}:${app.getPath('userData')}`;
-      return crypto.createHash('sha256').update(fallbackData).digest();
+      // No usable key — cookies cannot be encrypted/decrypted
+      // Return a random key so encrypt/decrypt calls fail gracefully
+      return crypto.randomBytes(32);
     }
   }
 
@@ -87,8 +79,8 @@ export class EncryptedCookieStore extends Store {
       return newId;
     } catch (error) {
       logger.error('[EncryptedCookieStore] Error managing machine ID:', error);
-      // Fallback to hostname-based ID if file operations fail
-      return `fallback-${os.hostname()}`;
+      // Fallback to a random ID if file operations fail
+      return `fallback-${crypto.randomUUID()}`;
     }
   }
 
@@ -176,7 +168,6 @@ export class EncryptedCookieStore extends Store {
 
       if (errorMessage.includes('unable to authenticate data') || errorMessage.includes('Unsupported state')) {
         logger.warn('[EncryptedCookieStore] Cookie decryption failed - encryption key mismatch');
-        logger.warn('[EncryptedCookieStore] This is expected after app updates. Please log in again.');
       } else {
         logger.error('[EncryptedCookieStore] Unexpected error loading cookies:', error);
       }
