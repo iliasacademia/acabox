@@ -285,6 +285,12 @@ impl WindowMonitor {
                         m.detach_from_app();
                     }
                     workspace::WorkspaceEvent::AppActivated => {
+                        // After APP_TERMINATED, word_pid is 0. AppActivated may
+                        // fire before AppLaunched during relaunch, so update PID
+                        // from the notification to avoid emitting pid 0.
+                        if m.word_pid == 0 && notif.pid > 0 {
+                            m.word_pid = notif.pid;
+                        }
                         event_models::emit_app_event(EventType::AppFocused, &m.app_info());
                         let windows = window_list::get_windows_for_pid(m.word_pid);
                         m.check_for_focus_change(&windows);
@@ -1167,6 +1173,7 @@ impl WindowMonitor {
         if self.deferred_check.should_execute(DEFERRED_CHECK_DELAY_MS) {
             let windows = window_list::get_windows_for_pid(self.word_pid);
             self.check_for_window_changes(&windows);
+            self.check_for_focus_change(&windows);
         }
     }
 }

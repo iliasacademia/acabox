@@ -26,7 +26,7 @@ const BOUNDS_TOLERANCE = 5; // Allow 5 pixel tolerance for bounds
 const MAX_EVENT_DELAY_MS = 500; // Events should fire within 500ms of action start/end
 
 // Step filtering: ONLY_STEPS=4,5 runs only steps 4 and 5 (step 1 setup always runs)
-// Steps: 1=setup, 2=doc text, 3=text selection, 4=selection bounds move, 5=scroll latency, 6=window ops+save+close
+// Steps: 1=setup, 2=doc text, 3=text selection, 4=selection bounds move, 5=scroll latency, 6=window ops+save+close, 7=quit+reopen
 const ONLY_STEPS = process.env.ONLY_STEPS
   ? new Set(process.env.ONLY_STEPS.split(',').map(Number))
   : null;
@@ -1230,6 +1230,81 @@ PYEOF`, { encoding: 'utf8', timeout: 10000 }).trim();
     totalPassed += result.passed;
     totalFailed += result.failed;
     } else { log('blue', '\n[SKIP] Steps 6-8: Window operations (ONLY_STEPS filter)'); }
+
+    // =========================================================================
+    // Step 7: Quit Word completely, reopen file — validate WINDOW_FOCUSED fires
+    // This tests the fix for Bug A: when Word is not running and a file is
+    // opened (e.g. via shell.openPath), WINDOW_FOCUSED must fire so the
+    // Academia button overlay becomes visible.
+    // =========================================================================
+    if (shouldRunStep(7) && fs.existsSync(testDocPath)) {
+    log('blue', '\n========================================');
+    log('blue', '  Step 7: Quit Word and reopen file');
+    log('blue', '========================================');
+
+    // Quit Word completely
+    log('blue', '[ACTION] Quitting Microsoft Word completely...');
+    runAppleScript('tell application "Microsoft Word" to quit saving no');
+    await delay(5000);
+
+    // Verify Word is not running
+    const wordRunning = runAppleScript(
+      'tell application "System Events" to (name of processes) contains "Microsoft Word"'
+    );
+    if (wordRunning === 'true') {
+      log('yellow', '[WARN] Word is still running after quit, force killing...');
+      try { execSync('killall "Microsoft Word"', { encoding: 'utf8' }); } catch {}
+      await delay(3000);
+    }
+    log('blue', '[ACTION] Word has been quit');
+
+    // Reopen the saved file (simulates shell.openPath() from Electron)
+    checkpoint = events.length;
+    log('blue', `[ACTION] Opening file: ${testDocPath}`);
+    try {
+      execSync(`open "${testDocPath}"`, { encoding: 'utf8', timeout: 15000 });
+    } catch (err) {
+      log('yellow', `[WARN] open command error: ${err.message}`);
+    }
+
+    // Wait for Word to launch and open the file
+    log('blue', '[ACTION] Waiting for Word to launch and open file...');
+    await delay(8000);
+
+    stepEvents = events.slice(checkpoint);
+    result = validateStepEvents('Quit and reopen file', stepEvents, [
+      (evts) => {
+        const has = evts.some((e) => e.event === 'APP_LAUNCHED' || e.event === 'APP_FOCUSED');
+        return { pass: has, message: has
+          ? 'APP_LAUNCHED or APP_FOCUSED event captured after reopen'
+          : 'Missing APP_LAUNCHED/APP_FOCUSED event after reopen' };
+      },
+      (evts) => {
+        const has = evts.some((e) => e.event === 'WINDOW_CREATED' || e.event === 'WINDOW_EXISTING');
+        return { pass: has, message: has
+          ? 'WINDOW_CREATED or WINDOW_EXISTING event captured after reopen'
+          : 'Missing WINDOW_CREATED/WINDOW_EXISTING event after reopen' };
+      },
+      (evts) => {
+        const focused = evts.find((e) => e.event === 'WINDOW_FOCUSED');
+        return { pass: !!focused, message: focused
+          ? `WINDOW_FOCUSED event captured after reopen (window ${focused.window?.id})`
+          : 'Missing WINDOW_FOCUSED event after reopen (button will not appear — this is Bug A)' };
+      },
+    ]);
+    totalPassed += result.passed;
+    totalFailed += result.failed;
+
+    // Close the reopened document before cleanup
+    log('blue', '[ACTION] Closing reopened document...');
+    runAppleScript('tell application "Microsoft Word" to close document 1 saving no');
+    await delay(2000);
+
+    } else if (shouldRunStep(7)) {
+      log('blue', '\n[SKIP] Step 7 (test file does not exist — step 6 may not have run)');
+    } else {
+      log('blue', '\n[SKIP] Step 7 (ONLY_STEPS filter)');
+    }
   } catch (error) {
     log('yellow', `[WARN] Error during actions: ${error.message}`);
   }
