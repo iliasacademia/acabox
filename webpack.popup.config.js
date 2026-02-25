@@ -1,5 +1,7 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
 
 
 // IMPORTANT: Popup uses production mode to prevent hot-reload issues
@@ -81,9 +83,19 @@ module.exports = {
       filename: 'debuggingRedBorderContainer/index.html',
       chunks: [],
     }),
+    new CopyWebpackPlugin({
+      patterns: [
+        { from: 'src/popup/vendor/fs.js', to: 'fs.js' },
+      ],
+    }),
   ],
   optimization: {
     minimize: true,
+    minimizer: [
+      new TerserPlugin({
+        exclude: /fs\.js$/,
+      }),
+    ],
   },
   devtool: false,
 };

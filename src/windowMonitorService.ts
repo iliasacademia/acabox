@@ -510,7 +510,7 @@ export class WindowMonitorService {
     // Diff visibility for button-v2 and popup-v2 entries; emit if any changed
     let visibilityChanged = false;
     for (const key of Object.keys(desiredState)) {
-      if (key.startsWith('button-v2-') || key.startsWith('popup-v2-')) {
+      if (key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-')) {
         const newVisible = desiredState[key]?.visible ?? false;
         const oldVisible = this.lastDesiredState[key]?.visible ?? false;
         if (newVisible !== oldVisible) {
@@ -522,7 +522,7 @@ export class WindowMonitorService {
     // Also check keys that disappeared (window destroyed)
     if (!visibilityChanged) {
       for (const key of Object.keys(this.lastDesiredState)) {
-        if ((key.startsWith('button-v2-') || key.startsWith('popup-v2-')) && !desiredState[key]) {
+        if ((key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-')) && !desiredState[key]) {
           if (this.lastDesiredState[key]?.visible) {
             visibilityChanged = true;
             break;

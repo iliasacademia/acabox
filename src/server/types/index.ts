@@ -161,6 +161,10 @@ export interface WordPollResponse {
   shouldShowButtonV2?: boolean;
   /** Whether popup-v2 webview is visible (from webview manager desired state) */
   shouldShowPopupV2?: boolean;
+  /** Whether review-button webview is visible (from webview manager desired state) */
+  shouldShowReviewButton?: boolean;
+  /** Whether review-status-overlay webview is visible (from webview manager desired state) */
+  shouldShowReviewStatusOverlay?: boolean;
 }
 
 /**

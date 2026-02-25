@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
+import { onVisibilityChanged } from './utils/fullstory';
 import './ReviewButton.css';
 
 const serverUrl = window.location.origin;
@@ -11,6 +12,7 @@ const tokenParam = urlParams.get('token');
 interface WordPollResponse {
   shouldShow: boolean;
   isReviewingSelectedText?: boolean;
+  shouldShowReviewButton?: boolean;
 }
 
 interface WebSocketMessage {
@@ -28,9 +30,10 @@ function useWordPoll(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { shouldShow: boolean; isReviewing: boolean } {
+): { shouldShow: boolean; isReviewing: boolean; shouldShowReviewButton: boolean } {
   const [shouldShow, setShouldShow] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
+  const [shouldShowReviewButton, setShouldShowReviewButton] = useState(false);
 
   useEffect(() => {
     if (!wid || !token) {
@@ -49,6 +52,7 @@ function useWordPoll(
       if (cleanedUp) return;
       setShouldShow(data.shouldShow);
       setIsReviewing(data.isReviewingSelectedText ?? false);
+      setShouldShowReviewButton(data.shouldShowReviewButton ?? false);
     }
 
     function startFallbackPolling() {
@@ -154,12 +158,16 @@ function useWordPoll(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { shouldShow, isReviewing };
+  return { shouldShow, isReviewing, shouldShowReviewButton };
 }
 
 const ReviewButton: React.FC = () => {
-  const { shouldShow, isReviewing: serverIsReviewing } = useWordPoll(widParam, tokenParam, serverUrl);
+  const { shouldShow, isReviewing: serverIsReviewing, shouldShowReviewButton } = useWordPoll(widParam, tokenParam, serverUrl);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    onVisibilityChanged('review-button', shouldShowReviewButton);
+  }, [shouldShowReviewButton]);
 
   // Reset isSubmitting once server confirms review is in progress
   useEffect(() => {

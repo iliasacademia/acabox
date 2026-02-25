@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import academiaLogos from '../assets/academia-logos.svg';
+import { onVisibilityChanged } from './utils/fullstory';
 import './AcademiaNotificationsButton.css';
 
 // Get serverUrl from window.location.origin
@@ -43,11 +44,12 @@ function useWordPollWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { shouldShow: boolean; badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null } {
+): { shouldShow: boolean; badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean } {
   const [shouldShow, setShouldShow] = useState(false);
   const [badgeCount, setBadgeCount] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
+  const [shouldShowButtonV2, setShouldShowButtonV2] = useState(false);
 
   useEffect(() => {
     if (!wid || !token) {
@@ -68,6 +70,7 @@ function useWordPollWebSocket(
       setBadgeCount(data.notificationCount);
       setIsReviewing(data.isReviewingSelectedText ?? false);
       setReviewStartedAt(data.selectedTextReviewStartedAt ?? null);
+      setShouldShowButtonV2(data.shouldShowButtonV2 ?? false);
     }
 
     // --- HTTP polling fallback (same as V1) ---
@@ -183,7 +186,7 @@ function useWordPollWebSocket(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { shouldShow, badgeCount, isReviewing, reviewStartedAt };
+  return { shouldShow, badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2 };
 }
 
 function postBridge(action: string, payload: Record<string, unknown>) {
@@ -217,11 +220,15 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   } | null>(null);
   const didDragRef = useRef(false);
 
-  const { shouldShow, badgeCount, isReviewing } = useWordPollWebSocket(
+  const { shouldShow, badgeCount, isReviewing, shouldShowButtonV2 } = useWordPollWebSocket(
     widParam,
     tokenParam,
     serverUrl
   );
+
+  useEffect(() => {
+    onVisibilityChanged('button', shouldShowButtonV2);
+  }, [shouldShowButtonV2]);
 
   // Phase state machine: idle → reviewing → completing → idle
   const [phase, setPhase] = useState<ReviewPhase>('idle');

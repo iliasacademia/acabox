@@ -2,12 +2,12 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import DOMPurify from 'isomorphic-dompurify';
 import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
-import { onPopupVisibilityChanged } from './utils/fullstory';
+import { onVisibilityChanged } from './utils/fullstory';
 import { FEEDBACK_FORM_URL } from '../shared/constants';
 
 console.log('[AcademiaNotificationsPopupV2] Initializing...');
 
-// FullStory is lazily initialized on first popup show via onPopupVisibilityChanged()
+// FullStory is lazily initialized on first popup show via onVisibilityChanged()
 
 // Get serverUrl from window.location.origin (popup is served from the HTTP server)
 // This ensures we use the correct port even when server binds to fallback port
@@ -605,7 +605,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (!pollData) return;
 
     setShouldShow(pollData.shouldShow);
-    onPopupVisibilityChanged(pollData.shouldShowPopupV2 ?? pollData.shouldShow);
+    onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? pollData.shouldShow);
 
     if (!pollData.shouldShow) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShow=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
@@ -763,7 +763,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       }, tokenParam);
 
       // Close popup (fire-and-forget)
-      onPopupVisibilityChanged(false);
+      onVisibilityChanged('popup', false);
       postBridge('closeWindow').catch(() => {});
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Error in handleViewPreviousFeedback:', err);
@@ -818,7 +818,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       }
 
       // Close popup and navigate to main window via HTTP API
-      onPopupVisibilityChanged(false);
+      onVisibilityChanged('popup', false);
       await postBridge('closeWindow');
       await navigateToPage({
         page: 'conversation',
@@ -1015,7 +1015,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     console.log('[AcademiaNotificationsPopupV2] Close button clicked');
 
     try {
-      onPopupVisibilityChanged(false);
+      onVisibilityChanged('popup', false);
       await postBridge('closeWindow');
       console.log('[AcademiaNotificationsPopupV2] Close window request sent');
     } catch (err) {
