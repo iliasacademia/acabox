@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
+import { onVisibilityChanged } from './utils/fullstory';
 import './ReviewStatusOverlay.css';
 
 const serverUrl = window.location.origin;
@@ -15,6 +16,7 @@ interface WordPollResponse {
   reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
   selectedText?: string;
   selectedTextReviewStartedAt?: number;
+  shouldShowReviewStatusOverlay?: boolean;
 }
 
 interface WebSocketMessage {
@@ -28,10 +30,11 @@ function useWordPoll(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { shouldShow: boolean; reviewType: string | null; selectedText: string | null } {
+): { shouldShow: boolean; reviewType: string | null; selectedText: string | null; shouldShowReviewStatusOverlay: boolean } {
   const [shouldShow, setShouldShow] = useState(false);
   const [reviewType, setReviewType] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState<string | null>(null);
+  const [shouldShowReviewStatusOverlay, setShouldShowReviewStatusOverlay] = useState(false);
 
   useEffect(() => {
     if (!wid || !token) {
@@ -52,6 +55,7 @@ function useWordPoll(
       setShouldShow(isReviewing);
       setReviewType(isReviewing ? (data.reviewType || 'selected-text') : null);
       setSelectedText(data.selectedText || null);
+      setShouldShowReviewStatusOverlay(data.shouldShowReviewStatusOverlay ?? false);
     }
 
     function startFallbackPolling() {
@@ -157,13 +161,17 @@ function useWordPoll(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { shouldShow, reviewType, selectedText };
+  return { shouldShow, reviewType, selectedText, shouldShowReviewStatusOverlay };
 }
 
 const ReviewStatusOverlay: React.FC = () => {
-  const { shouldShow, reviewType, selectedText } = useWordPoll(widParam, tokenParam, serverUrl);
+  const { shouldShow, reviewType, selectedText, shouldShowReviewStatusOverlay } = useWordPoll(widParam, tokenParam, serverUrl);
   const [progress, setProgress] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
+
+  useEffect(() => {
+    onVisibilityChanged('review-status-overlay', shouldShowReviewStatusOverlay);
+  }, [shouldShowReviewStatusOverlay]);
 
   // Simulate progress for now (in production, this would come from the API)
   React.useEffect(() => {

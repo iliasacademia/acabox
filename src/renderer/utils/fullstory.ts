@@ -17,15 +17,30 @@ export async function initFullStory(): Promise<void> {
     // Get app info to determine if we're in development mode
     const appInfo = await window.electronAPI.invoke(IPC_CHANNELS.GET_APP_INFO);
     const isDevMode = !appInfo.isPackaged;
+    const forceRecording = process.env.FULLSTORY_FORCE_RECORDING === 'true';
 
     init({
       orgId: '17I9',
-      // Disable recording in development (unpackaged) builds
-      devMode: isDevMode,
+      // Disable recording in development (unpackaged) builds unless forced
+      devMode: forceRecording ? false : isDevMode,
     });
 
     isInitialized = true;
-    console.log('[FullStory] Initialized', isDevMode ? '(dev mode - recording disabled)' : '');
+    if (forceRecording && isDevMode) {
+      console.log('[FullStory] Initialized (FORCED recording enabled)');
+    } else {
+      console.log('[FullStory] Initialized', isDevMode ? '(dev mode - recording disabled)' : '');
+    }
+
+    // Log diagnostic info for debugging session visibility
+    console.log('[FullStory] Page URL:', window.location.href);
+    console.log('[FullStory] devMode passed to init:', forceRecording ? false : isDevMode);
+    try {
+      const sessionUrl = FullStory('getSession');
+      console.log('[FullStory] Session URL:', sessionUrl || '(not available yet)');
+    } catch {
+      console.log('[FullStory] Session URL: (not available yet)');
+    }
   } catch (error) {
     console.error('[FullStory] Failed to initialize:', error);
   }
@@ -64,7 +79,13 @@ export function identifyUser(
       },
     });
 
-    console.log('[FullStory] User identified:', userId, deviceId ? `(device: ${deviceId})` : '', appVersion ? `(v${appVersion})` : '');
+    console.log('[FullStory] User identified:', { userId, email, displayName, deviceId, appVersion });
+    try {
+      const sessionUrl = FullStory('getSession');
+      console.log('[FullStory] Session URL after identify:', sessionUrl || '(not available)');
+    } catch {
+      console.log('[FullStory] Session URL after identify: (not available)');
+    }
   } catch (error) {
     console.error('[FullStory] Failed to identify user:', error);
   }

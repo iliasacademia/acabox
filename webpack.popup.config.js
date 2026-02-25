@@ -1,6 +1,8 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const CopyWebpackPlugin = require('copy-webpack-plugin');
+const TerserPlugin = require('terser-webpack-plugin');
+
 
 // IMPORTANT: Popup uses production mode to prevent hot-reload issues
 // During development:
@@ -36,7 +38,7 @@ module.exports = {
       },
       {
         test: /\.css$/,
-        use: [MiniCssExtractPlugin.loader, 'css-loader'],
+        use: ['style-loader', 'css-loader'],
       },
       {
         test: /\.svg$/,
@@ -81,12 +83,19 @@ module.exports = {
       filename: 'debuggingRedBorderContainer/index.html',
       chunks: [],
     }),
-    new MiniCssExtractPlugin({
-      filename: '[name]/styles.css', // Use predictable filename for manual HTML injection
+    new CopyWebpackPlugin({
+      patterns: [
+        { from: 'src/popup/vendor/fs.js', to: 'fs.js' },
+      ],
     }),
   ],
   optimization: {
     minimize: true,
+    minimizer: [
+      new TerserPlugin({
+        exclude: /fs\.js$/,
+      }),
+    ],
   },
   devtool: false,
 };
