@@ -143,9 +143,9 @@ function sendPollToV2Client(
         ...response,
         fullStoryConfig: {
           ...fullStoryStaticConfig,
-          userId: cached?.userId ?? (currentUserId ? currentUserId() : null),
+          userId: cached?.id ?? (currentUserId ? currentUserId() : null),
           email: cached?.email ?? '',
-          displayName: cached?.displayName ?? '',
+          displayName: cached?.first_name || cached?.name || '',
         },
       };
     }

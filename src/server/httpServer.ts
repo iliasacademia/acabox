@@ -186,9 +186,9 @@ export class AcademiaHttpServer {
     this.fastify.get('/api/user-info', async (request, reply) => {
       const cached = getCachedUserData();
       reply.send({
-        userId: cached?.userId ?? this.currentUserId(),
+        userId: cached?.id ?? this.currentUserId(),
         email: cached?.email ?? '',
-        displayName: cached?.displayName ?? '',
+        displayName: cached?.first_name || cached?.name || '',
         deviceId: getDeviceId(),
         appVersion: app.getVersion(),
       });
