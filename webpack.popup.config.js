@@ -1,6 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+
 
 // IMPORTANT: Popup uses production mode to prevent hot-reload issues
 // During development:
@@ -36,7 +36,7 @@ module.exports = {
       },
       {
         test: /\.css$/,
-        use: [MiniCssExtractPlugin.loader, 'css-loader'],
+        use: ['style-loader', 'css-loader'],
       },
       {
         test: /\.svg$/,
@@ -80,9 +80,6 @@ module.exports = {
       template: './src/popup/debugging-red-border-container.html',
       filename: 'debuggingRedBorderContainer/index.html',
       chunks: [],
-    }),
-    new MiniCssExtractPlugin({
-      filename: '[name]/styles.css', // Use predictable filename for manual HTML injection
     }),
   ],
   optimization: {

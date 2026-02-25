@@ -31,6 +31,8 @@ import { registerNavigationRoutes, NavigationHandler } from './routes/navigation
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
 import { defaultLogger as logger } from '../utils/logger';
+import { getCurrentUser } from '../apiClient';
+import { getDeviceId } from '../utils/deviceId';
 
 /**
  * Academia HTTP Server
@@ -169,6 +171,39 @@ export class AcademiaHttpServer {
         timestamp: Date.now(),
       };
       reply.send(response);
+    });
+
+    // App info endpoint — used by popup FullStory to detect dev mode
+    this.fastify.get('/api/app-info', async (request, reply) => {
+      reply.send({
+        isPackaged: app.isPackaged,
+        version: app.getVersion(),
+        forceFullStoryRecording: process.env.FULLSTORY_FORCE_RECORDING === 'true',
+      });
+    });
+
+    // User info endpoint — used by popup FullStory for user identification
+    this.fastify.get('/api/user-info', async (request, reply) => {
+      try {
+        const userId = this.currentUserId();
+        const user = await getCurrentUser();
+        reply.send({
+          userId: user?.id ?? userId,
+          email: (user as any)?.email ?? '',
+          displayName: (user as any)?.first_name || (user as any)?.name || '',
+          deviceId: getDeviceId(),
+          appVersion: app.getVersion(),
+        });
+      } catch (error) {
+        logger.error('[HTTP Server] Failed to get user info:', error);
+        reply.send({
+          userId: this.currentUserId(),
+          email: '',
+          displayName: '',
+          deviceId: getDeviceId(),
+          appVersion: app.getVersion(),
+        });
+      }
     });
 
     // Dev endpoint - only registered in development mode
