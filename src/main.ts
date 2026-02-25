@@ -24,6 +24,9 @@ import { getDeviceId } from './utils/deviceId';
 import { windowMonitorService } from './windowMonitorService';
 import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { activityTracker } from './activityTracker';
+import { sessionSyncService } from './sessionSyncService';
+
+const ACTIVITY_FLUSH_INTERVAL_MS = 300_000; // 5 minutes
 
 // Supported document extensions (without dots) for file selection and scanning
 const SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'tex', 'rtf'];
@@ -745,8 +748,11 @@ function checkForUpdatesManually(): void {
 
 app.whenReady().then(async () => {
   // Start activity tracking (before login — app session with user_id = null)
-  activityTracker.recordAppStarted();
-  activityTracker.startPeriodicFlush(300_000); // 5 minutes
+  if (FEATURES.SESSION_CAPTURE_ENABLED) {
+    activityTracker.recordAppStarted();
+    activityTracker.startPeriodicFlush(ACTIVITY_FLUSH_INTERVAL_MS);
+    sessionSyncService.start(activityTracker, ACTIVITY_FLUSH_INTERVAL_MS);
+  }
 
   // Create main window (always)
   createMainWindow();
@@ -1095,7 +1101,10 @@ ipcMain.handle(IPC_CHANNELS.LOGOUT, async () => {
   // Clear Word integration only after successful logout
   if (result.success) {
     // Close activity sessions and start new user-less app session
-    activityTracker.recordUserLoggedOut();
+    if (FEATURES.SESSION_CAPTURE_ENABLED) {
+      activityTracker.recordUserLoggedOut();
+      sessionSyncService.stop();
+    }
 
     // Stop polling
     notificationManager.stopPolling();
@@ -1595,7 +1604,10 @@ ipcMain.handle(IPC_CHANNELS.GET_NOTIFICATIONS, async (_event, options?: { status
 
 ipcMain.handle(IPC_CHANNELS.START_NOTIFICATION_POLLING, async (_event, userId: number) => {
   try {
-    activityTracker.recordUserLoggedIn(userId);
+    if (FEATURES.SESSION_CAPTURE_ENABLED) {
+      activityTracker.recordUserLoggedIn(userId);
+      sessionSyncService.start(activityTracker, ACTIVITY_FLUSH_INTERVAL_MS);
+    }
     notificationManager.startPolling(userId, 30000); // 30 second interval
     return { success: true };
   } catch (error: any) {
@@ -1721,8 +1733,11 @@ app.on('before-quit', async (event) => {
 
   try {
     // Close all activity sessions and stop periodic flush
-    activityTracker.recordAppStopping();
-    activityTracker.stopPeriodicFlush();
+    if (FEATURES.SESSION_CAPTURE_ENABLED) {
+      activityTracker.recordAppStopping();
+      activityTracker.stopPeriodicFlush();
+      sessionSyncService.stop();
+    }
 
     // Stop window monitor service (V2 Rust processes)
     windowMonitorService.stop();

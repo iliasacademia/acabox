@@ -5,6 +5,8 @@ export interface SessionDb {
   insertSession: Database.Statement;
   updateEndTime: Database.Statement;
   setUserId: Database.Statement;
+  getUnsyncedSessions: Database.Statement;
+  markSynced: Database.Statement;
 }
 
 export function createSessionDb(db: Database.Database): SessionDb {
@@ -20,7 +22,8 @@ export function createSessionDb(db: Database.Database): SessionDb {
       data TEXT NOT NULL DEFAULT '{}',
       device_id TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT '',
-      updated_at TEXT NOT NULL DEFAULT ''
+      updated_at TEXT NOT NULL DEFAULT '',
+      synced_at TEXT DEFAULT NULL
     )
   `);
 
@@ -31,6 +34,12 @@ export function createSessionDb(db: Database.Database): SessionDb {
     } catch {
       // Column already exists
     }
+  }
+
+  try {
+    db.exec(`ALTER TABLE sessions ADD COLUMN synced_at TEXT DEFAULT NULL`);
+  } catch {
+    // Column already exists
   }
 
   const insertSession = db.prepare(
@@ -46,5 +55,13 @@ export function createSessionDb(db: Database.Database): SessionDb {
     `UPDATE sessions SET user_id = ?, updated_at = ? WHERE session_id = ?`
   );
 
-  return { db, insertSession, updateEndTime, setUserId };
+  const getUnsyncedSessions = db.prepare(
+    `SELECT * FROM sessions WHERE user_id IS NOT NULL AND (synced_at IS NULL OR updated_at > synced_at)`
+  );
+
+  const markSynced = db.prepare(
+    `UPDATE sessions SET synced_at = ? WHERE session_id = ?`
+  );
+
+  return { db, insertSession, updateEndTime, setUserId, getUnsyncedSessions, markSynced };
 }

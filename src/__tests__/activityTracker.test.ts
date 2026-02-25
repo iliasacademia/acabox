@@ -264,4 +264,62 @@ describe('activityTracker', () => {
     // Clean up
     tracker.recordAppStopping();
   });
+
+  describe('fetchSessionsToSync', () => {
+    it('returns sessions with user_id where synced_at is null', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+      tracker.recordUserLoggedIn(100);
+      tracker.processEvent(makeEvent({ event: 'APP_LAUNCHED' }));
+
+      const toSync = tracker.fetchSessionsToSync();
+      expect(toSync.length).toBe(2); // app + word_app
+      for (const row of toSync) {
+        expect(row.user_id).toBe(100);
+        expect(row.synced_at).toBeNull();
+      }
+    });
+
+    it('excludes sessions without user_id', () => {
+      const { tracker } = harness;
+      tracker.recordAppStarted(); // no login — user_id is null
+
+      const toSync = tracker.fetchSessionsToSync();
+      expect(toSync).toHaveLength(0);
+    });
+
+    it('excludes sessions that have been synced and not updated', () => {
+      const { tracker } = harness;
+      tracker.recordAppStarted();
+      tracker.recordUserLoggedIn(100);
+
+      const before = tracker.fetchSessionsToSync();
+      expect(before).toHaveLength(1);
+
+      tracker.updateSessionSyncTime(before.map(s => s.session_id));
+
+      const after = tracker.fetchSessionsToSync();
+      expect(after).toHaveLength(0);
+    });
+
+    it('returns sessions again after updated_at is bumped past synced_at', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+      tracker.recordUserLoggedIn(100);
+
+      const before = tracker.fetchSessionsToSync();
+      tracker.updateSessionSyncTime(before.map(s => s.session_id));
+      expect(tracker.fetchSessionsToSync()).toHaveLength(0);
+
+      // Simulate periodic flush bumping updated_at
+      const sessionId = before[0].session_id;
+      const futureTime = new Date(Date.now() + 60_000).toISOString();
+      db.prepare('UPDATE sessions SET end_time = ?, updated_at = ? WHERE session_id = ?')
+        .run(futureTime, futureTime, sessionId);
+
+      const after = tracker.fetchSessionsToSync();
+      expect(after).toHaveLength(1);
+      expect(after[0].session_id).toBe(sessionId);
+    });
+  });
 });

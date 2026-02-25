@@ -5,6 +5,19 @@ import { getDeviceId } from './utils/deviceId';
 import { WindowMonitorEvent } from './windowMonitor/types';
 import type { SessionDb } from './sessionDbFactory';
 
+export interface SessionRow {
+  session_id: string;
+  session_type: string;
+  user_id: number | null;
+  start_time: string;
+  end_time: string;
+  data: string;
+  device_id: string;
+  created_at: string;
+  updated_at: string;
+  synced_at: string | null;
+}
+
 export interface ActivityTracker {
   recordAppStarted(): void;
   recordUserLoggedIn(userId: number): void;
@@ -13,6 +26,8 @@ export interface ActivityTracker {
   processEvent(event: WindowMonitorEvent): void;
   startPeriodicFlush(intervalMs: number): void;
   stopPeriodicFlush(): void;
+  fetchSessionsToSync(): SessionRow[];
+  updateSessionSyncTime(sessionIds: string[]): void;
 }
 
 export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
@@ -227,6 +242,17 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
     }
   }
 
+  function fetchSessionsToSync(): SessionRow[] {
+    return sessionDb.getUnsyncedSessions.all() as SessionRow[];
+  }
+
+  function updateSessionSyncTime(sessionIds: string[]): void {
+    const timestamp = now();
+    for (const id of sessionIds) {
+      sessionDb.markSynced.run(timestamp, id);
+    }
+  }
+
   function extendActiveSessions(): void {
     const timestamp = now();
     if (appSessionId) {
@@ -248,5 +274,7 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
     processEvent,
     startPeriodicFlush,
     stopPeriodicFlush,
+    fetchSessionsToSync,
+    updateSessionSyncTime,
   };
 }

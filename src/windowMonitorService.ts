@@ -9,6 +9,7 @@ import { wordPollEventBus } from './server/events/wordPollEventBus';
 import { createInitialState } from './windowMonitor/initialState';
 import { reduceWindowMonitorEvent } from './windowMonitor/reducer';
 import { activityTracker } from './activityTracker';
+import { FEATURES } from './shared/types';
 import {
   computeWebviewState,
   DesiredWebviewState,
@@ -289,7 +290,9 @@ export class WindowMonitorService {
       this.state = newState;
 
       // Track activity sessions
-      activityTracker.processEvent(event);
+      if (FEATURES.SESSION_CAPTURE_ENABLED) {
+        activityTracker.processEvent(event);
+      }
 
       // Cache selection bounds when text is selected (only for real selections, not cursor positions)
       if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.bounds) {
