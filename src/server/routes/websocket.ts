@@ -17,6 +17,8 @@ import { wordPollEventBus, WordPollChangeReason } from '../events/wordPollEventB
 import { buildWordPollResponseV2 } from '../services/buildWordPollResponseV2';
 import { TokenManager } from '../middleware/auth';
 import { defaultLogger as logger } from '../../utils/logger';
+import { getCachedUserData } from '../../userDataCache';
+import { FullStoryStaticConfig } from './wordV2';
 
 interface V2ClientInfo {
   wid: string;
@@ -36,7 +38,8 @@ export async function registerWebSocketRoutes(
   fastify: FastifyInstance,
   tokenManager: TokenManager,
   notificationManager?: any,
-  currentUserId?: () => number | null
+  currentUserId?: () => number | null,
+  fullStoryStaticConfig?: FullStoryStaticConfig
 ): Promise<void> {
   // Debounced broadcast: coalesce rapid events into a single push
   let broadcastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -45,7 +48,7 @@ export async function registerWebSocketRoutes(
     if (broadcastTimer) return; // already scheduled
     broadcastTimer = setTimeout(() => {
       broadcastTimer = null;
-      broadcastToAll(notificationManager, currentUserId);
+      broadcastToAll(notificationManager, currentUserId, fullStoryStaticConfig);
     }, 200);
   }
 
@@ -92,14 +95,14 @@ export async function registerWebSocketRoutes(
       logger.debug(`[WS-V2] Client connected for wid ${wid} (total: ${v2Clients.size})`);
 
       // Send initial poll response immediately
-      sendPollToV2Client(socket, wid, notificationManager, currentUserId);
+      sendPollToV2Client(socket, wid, notificationManager, currentUserId, fullStoryStaticConfig);
 
       // Handle incoming messages
       socket.on('message', (raw: Buffer | string) => {
         try {
           const msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString());
           if (msg.type === 'refresh') {
-            sendPollToV2Client(socket, wid, notificationManager, currentUserId);
+            sendPollToV2Client(socket, wid, notificationManager, currentUserId, fullStoryStaticConfig);
           }
         } catch {
           // Ignore malformed messages
@@ -127,11 +130,25 @@ function sendPollToV2Client(
   ws: WebSocket,
   wid: string,
   notificationManager?: any,
-  currentUserId?: () => number | null
+  currentUserId?: () => number | null,
+  fullStoryStaticConfig?: FullStoryStaticConfig
 ): void {
   if (ws.readyState !== 1) return;
   try {
-    const data = buildWordPollResponseV2(wid, notificationManager, currentUserId);
+    const response = buildWordPollResponseV2(wid, notificationManager, currentUserId);
+    let data: any = response;
+    if (fullStoryStaticConfig) {
+      const cached = getCachedUserData();
+      data = {
+        ...response,
+        fullStoryConfig: {
+          ...fullStoryStaticConfig,
+          userId: cached?.userId ?? (currentUserId ? currentUserId() : null),
+          email: cached?.email ?? '',
+          displayName: cached?.displayName ?? '',
+        },
+      };
+    }
     ws.send(JSON.stringify({ type: 'poll', data }));
   } catch (err) {
     logger.error(`[WS-V2] Error building poll response for wid ${wid}:`, err);
@@ -143,9 +160,10 @@ function sendPollToV2Client(
  */
 function broadcastToAll(
   notificationManager?: any,
-  currentUserId?: () => number | null
+  currentUserId?: () => number | null,
+  fullStoryStaticConfig?: FullStoryStaticConfig
 ): void {
   for (const [ws, info] of v2Clients) {
-    sendPollToV2Client(ws, info.wid, notificationManager, currentUserId);
+    sendPollToV2Client(ws, info.wid, notificationManager, currentUserId, fullStoryStaticConfig);
   }
 }

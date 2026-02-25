@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
-import { onVisibilityChanged } from './utils/fullstory';
+import { onVisibilityChanged, cacheFullStoryConfig, FullStoryConfig } from './utils/fullstory';
 import './ReviewStatusOverlay.css';
 
 const serverUrl = window.location.origin;
@@ -17,6 +17,7 @@ interface WordPollResponse {
   selectedText?: string;
   selectedTextReviewStartedAt?: number;
   shouldShowReviewStatusOverlay?: boolean;
+  fullStoryConfig?: FullStoryConfig;
 }
 
 interface WebSocketMessage {
@@ -51,6 +52,7 @@ function useWordPoll(
 
     function applyPollData(data: WordPollResponse) {
       if (cleanedUp) return;
+      if (data.fullStoryConfig) cacheFullStoryConfig(data.fullStoryConfig);
       const isReviewing = data.isReviewingSelectedText ?? false;
       setShouldShow(isReviewing);
       setReviewType(isReviewing ? (data.reviewType || 'selected-text') : null);

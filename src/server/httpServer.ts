@@ -31,8 +31,8 @@ import { registerNavigationRoutes, NavigationHandler } from './routes/navigation
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
 import { defaultLogger as logger } from '../utils/logger';
-import { getCurrentUser } from '../apiClient';
 import { getDeviceId } from '../utils/deviceId';
+import { getCachedUserData } from '../userDataCache';
 
 /**
  * Academia HTTP Server
@@ -184,26 +184,14 @@ export class AcademiaHttpServer {
 
     // User info endpoint — used by popup FullStory for user identification
     this.fastify.get('/api/user-info', async (request, reply) => {
-      try {
-        const userId = this.currentUserId();
-        const user = await getCurrentUser();
-        reply.send({
-          userId: user?.id ?? userId,
-          email: (user as any)?.email ?? '',
-          displayName: (user as any)?.first_name || (user as any)?.name || '',
-          deviceId: getDeviceId(),
-          appVersion: app.getVersion(),
-        });
-      } catch (error) {
-        logger.error('[HTTP Server] Failed to get user info:', error);
-        reply.send({
-          userId: this.currentUserId(),
-          email: '',
-          displayName: '',
-          deviceId: getDeviceId(),
-          appVersion: app.getVersion(),
-        });
-      }
+      const cached = getCachedUserData();
+      reply.send({
+        userId: cached?.userId ?? this.currentUserId(),
+        email: cached?.email ?? '',
+        displayName: cached?.displayName ?? '',
+        deviceId: getDeviceId(),
+        appVersion: app.getVersion(),
+      });
     });
 
     // Dev endpoint - only registered in development mode
@@ -226,15 +214,24 @@ export class AcademiaHttpServer {
     // Register proxy routes
     await registerProxyRoutes(this.fastify);
 
+    // Static FullStory config (constant per session)
+    const fullStoryStaticConfig = {
+      deviceId: getDeviceId(),
+      appVersion: app.getVersion(),
+      isPackaged: app.isPackaged,
+      forceFullStoryRecording: process.env.FULLSTORY_FORCE_RECORDING === 'true',
+    };
+
     // Register V2 Word integration routes (wid-based)
-    await registerWordV2Routes(this.fastify, this.notificationManager, this.currentUserId);
+    await registerWordV2Routes(this.fastify, this.notificationManager, this.currentUserId, fullStoryStaticConfig);
 
     // Register WebSocket routes (real-time push for Word poll updates)
     await registerWebSocketRoutes(
       this.fastify,
       this.tokenManager,
       this.notificationManager,
-      this.currentUserId
+      this.currentUserId,
+      fullStoryStaticConfig
     );
 
     // Register analytics routes

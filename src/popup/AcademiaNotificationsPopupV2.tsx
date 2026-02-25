@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import DOMPurify from 'isomorphic-dompurify';
 import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
-import { onVisibilityChanged } from './utils/fullstory';
+import { onVisibilityChanged, cacheFullStoryConfig, FullStoryConfig } from './utils/fullstory';
 import { FEEDBACK_FORM_URL } from '../shared/constants';
 
 console.log('[AcademiaNotificationsPopupV2] Initializing...');
@@ -162,6 +162,7 @@ interface WordPollResponse {
   selectedText?: string;
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
+  fullStoryConfig?: FullStoryConfig;
 }
 
 interface WebSocketMessage {
@@ -604,6 +605,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     console.log('[AcademiaNotificationsPopupV2] pollData changed:', pollData);
     if (!pollData) return;
 
+    if (pollData.fullStoryConfig) cacheFullStoryConfig(pollData.fullStoryConfig);
     setShouldShow(pollData.shouldShow);
     onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? pollData.shouldShow);
 

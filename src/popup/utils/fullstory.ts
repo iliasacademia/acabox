@@ -3,6 +3,51 @@ import { FullStory, init } from '@fullstory/browser';
 let isInitialized = false;
 let initInProgress = false;
 
+export interface FullStoryConfig {
+  userId: number | null;
+  email: string;
+  displayName: string;
+  deviceId: string;
+  appVersion: string;
+  isPackaged: boolean;
+  forceFullStoryRecording: boolean;
+}
+
+let cachedConfig: FullStoryConfig | null = null;
+let identifiedUserId: number | null = null;
+
+/**
+ * Cache the FullStory config received from poll data.
+ * Always updates cachedConfig so new user data is stored.
+ * If FullStory is already initialized and the userId changed,
+ * re-identifies with the new user or shuts down.
+ */
+export function cacheFullStoryConfig(config: FullStoryConfig): void {
+  cachedConfig = config;
+
+  // Re-identify if userId changed (e.g. logout → login with different account)
+  if (isInitialized && config.userId !== identifiedUserId) {
+    if (config.userId) {
+      FullStory('setIdentity', {
+        uid: String(config.userId),
+        properties: {
+          email: config.email || '',
+          displayName: config.displayName || '',
+          deviceId: config.deviceId || '',
+          appVersion: config.appVersion || '',
+        },
+      });
+      console.log(`[FullStory] Re-identified user: ${config.userId}`);
+      identifiedUserId = config.userId;
+    } else {
+      console.warn('[FullStory] User logged out, shutting down');
+      FullStory('shutdown');
+      isInitialized = false;
+      identifiedUserId = null;
+    }
+  }
+}
+
 /**
  * Notify FullStory of webview visibility changes.
  *
@@ -100,33 +145,24 @@ function interceptFullStoryScript(localSrc: string): void {
 }
 
 /**
- * Internal: initialize FullStory, set identity, set page properties.
- * All API calls happen after init() completes.
+ * Internal: initialize FullStory using cached config from poll data.
+ * No HTTP fetches — all data comes from the module-level cachedConfig.
  */
 async function initFullStory(context: string): Promise<void> {
   const label = context.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
   const logPrefix = `[FullStory:${label}]`;
 
-  const serverUrl = window.location.origin;
-  const urlParams = new URLSearchParams(window.location.search);
-  const token = urlParams.get('token');
-  const wid = urlParams.get('wid');
-
-  if (!token) {
-    console.warn(`${logPrefix} No auth token found in URL params, skipping init`);
+  if (!cachedConfig) {
+    console.warn(`${logPrefix} No FullStory config cached, shutting down`);
     return;
   }
 
-  const headers = {
-    'Authorization': `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  };
+  const serverUrl = window.location.origin;
+  const urlParams = new URLSearchParams(window.location.search);
+  const wid = urlParams.get('wid');
 
-  // Fetch app info to determine dev mode
-  const appInfoRes = await fetch(`${serverUrl}/api/app-info`, { headers });
-  const appInfo = await appInfoRes.json();
-  const isDevMode = !appInfo.isPackaged;
-  const forceRecording = appInfo.forceFullStoryRecording === true;
+  const isDevMode = !cachedConfig.isPackaged;
+  const forceRecording = cachedConfig.forceFullStoryRecording === true;
 
   // Intercept the <script> tag that @fullstory/snippet will create, redirecting
   // it from the FullStory CDN to our locally-served copy for instant loading.
@@ -144,34 +180,22 @@ async function initFullStory(context: string): Promise<void> {
     console.log(`${logPrefix} Initialized`, isDevMode ? '(dev mode - recording disabled)' : '');
   }
 
-  // Identify user — if this fails, shut down FullStory to prevent anonymous sessions
-  let identified = false;
-  try {
-    const userInfoRes = await fetch(`${serverUrl}/api/user-info`, { headers });
-    const userInfo = await userInfoRes.json();
-
-    if (userInfo.userId) {
-      FullStory('setIdentity', {
-        uid: String(userInfo.userId),
-        properties: {
-          email: userInfo.email || '',
-          displayName: userInfo.displayName || '',
-          deviceId: userInfo.deviceId || '',
-          appVersion: userInfo.appVersion || '',
-          context,
-        },
-      });
-      console.log(`${logPrefix} User identified:`, userInfo.userId);
-      identified = true;
-    } else {
-      console.warn(`${logPrefix} No userId returned from /api/user-info`);
-    }
-  } catch (error) {
-    console.warn(`${logPrefix} Failed to identify user:`, error);
-  }
-
-  if (!identified) {
-    console.warn(`${logPrefix} Shutting down FullStory — user not identified`);
+  // Identify user — if no userId, shut down FullStory to prevent anonymous sessions
+  if (cachedConfig.userId) {
+    FullStory('setIdentity', {
+      uid: String(cachedConfig.userId),
+      properties: {
+        email: cachedConfig.email || '',
+        displayName: cachedConfig.displayName || '',
+        deviceId: cachedConfig.deviceId || '',
+        appVersion: cachedConfig.appVersion || '',
+        context,
+      },
+    });
+    identifiedUserId = cachedConfig.userId;
+    console.log(`${logPrefix} User identified:`, cachedConfig.userId);
+  } else {
+    console.warn(`${logPrefix} Shutting down FullStory — no userId in config`);
     FullStory('shutdown');
     return;
   }

@@ -11,14 +11,23 @@ import { windowMonitorService } from '../../windowMonitorService';
 import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
 import { WordProjectFileResponse } from '../types';
 import { buildWordPollResponseV2 } from '../services/buildWordPollResponseV2';
+import { getCachedUserData } from '../../userDataCache';
 
 /**
  * Register V2 Word integration routes on a Fastify instance
  */
+export interface FullStoryStaticConfig {
+  deviceId: string;
+  appVersion: string;
+  isPackaged: boolean;
+  forceFullStoryRecording: boolean;
+}
+
 export async function registerWordV2Routes(
   fastify: FastifyInstance,
   notificationManager?: any,
-  currentUserId?: () => number | null
+  currentUserId?: () => number | null,
+  fullStoryStaticConfig?: FullStoryStaticConfig
 ): Promise<void> {
   /**
    * GET /word/v2/:wid/project_file
@@ -101,7 +110,20 @@ export async function registerWordV2Routes(
     ) => {
       const { wid } = request.params;
       const response = buildWordPollResponseV2(wid, notificationManager, currentUserId);
-      reply.send(response);
+      if (fullStoryStaticConfig) {
+        const cached = getCachedUserData();
+        reply.send({
+          ...response,
+          fullStoryConfig: {
+            ...fullStoryStaticConfig,
+            userId: cached?.userId ?? (currentUserId ? currentUserId() : null),
+            email: cached?.email ?? '',
+            displayName: cached?.displayName ?? '',
+          },
+        });
+      } else {
+        reply.send(response);
+      }
     }
   );
 }
