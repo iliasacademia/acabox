@@ -172,9 +172,7 @@ const ReviewButton: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (isSubmitting || serverIsReviewing || !widParam) {
-      return;
-    }
+    if (isSubmitting || serverIsReviewing || !widParam) return;
 
     setIsSubmitting(true);
 
@@ -206,8 +204,7 @@ const ReviewButton: React.FC = () => {
     <div className="review-button-container">
       <button
         className="review-button"
-        onClick={handleClick}
-        onMouseDown={(e) => e.stopPropagation()}
+        onMouseDown={handleClick}
       >
         Review
       </button>
