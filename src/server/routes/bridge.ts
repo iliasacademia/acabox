@@ -103,6 +103,7 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
       } else if (action === 'clearPopupSize' && wid) {
         windowMonitorService.clearPopupSize(wid);
       } else if (action === 'openPopup' && wid) {
+        logger.info(`[Bridge API] Dispatching openPopup for wid: ${wid}`);
         windowMonitorService.openPopupForWindow(wid);
       } else if (action === 'setReviewState' && wid) {
         const { projectId, reviewType, selectedText } = payload;
@@ -120,6 +121,8 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
       } else if (action === 'clearReview' && wid) {
         // Clear review state when user dismisses the overlay
         windowMonitorService.clearSelectedTextReviewState(wid);
+      } else {
+        logger.info(`[Bridge API] Unhandled action: ${action}, wid: ${wid}`);
       }
 
       reply.send({ success: true });

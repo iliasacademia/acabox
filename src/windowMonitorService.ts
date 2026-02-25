@@ -411,13 +411,14 @@ export class WindowMonitorService {
         if (isToggledOpen && !wordIsFocused) {
           this.popupToggledOpen.delete(windowId);
           desiredState[key].visible = false;
-          logger.info(`[WindowMonitor] Auto-closing popup ${key} because Word lost focus`);
+          logger.info(`[WindowMonitor] Popup ${key}: auto-closed (Word unfocused)`);
         } else {
           // If toggled open and Word is focused, show. Otherwise hide.
           desiredState[key].visible = isToggledOpen;
+          if (isToggledOpen) {
+            logger.info(`[WindowMonitor] Popup ${key}: showing (toggled=true, wordFocused=${wordIsFocused})`);
+          }
         }
-
-        logger.debug(`[WindowMonitor] Popup ${key}: toggled=${isToggledOpen}, visible=${desiredState[key].visible}`);
 
         const heightOverride = this.popupHeightOverrides.get(windowId);
         if (heightOverride !== undefined) {
@@ -506,6 +507,8 @@ export class WindowMonitorService {
 
     if (this.webviewManagerProcess?.stdin?.writable) {
       this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
+    } else {
+      logger.info('[WindowMonitorService] Cannot send state to webview-manager: stdin not writable');
     }
   }
 
@@ -577,19 +580,20 @@ export class WindowMonitorService {
   }
 
   openPopupForWindow(windowId: string): void {
-    logger.info(`[WindowMonitor] Opening popup for window ${windowId}`);
+    logger.info(`[WindowMonitor] Opening popup for window ${windowId}, already open: ${this.popupToggledOpen.has(windowId)}`);
     this.popupToggledOpen.add(windowId);
     this.pushWebviewState();
   }
 
   closePopupForWindow(windowId: string, clearReviewState: boolean = true): void {
+    logger.info(`[WindowMonitor] Closing popup for window ${windowId}, clearReviewState=${clearReviewState}`);
     if (this.popupToggledOpen.delete(windowId)) {
-      // Clear review state if requested (e.g., user clicking close button)
-      // Don't clear if closing to show review status overlay (e.g., clicking in-progress review)
       if (clearReviewState) {
         this.clearSelectedTextReviewState(windowId);
       }
       this.pushWebviewState();
+    } else {
+      logger.info(`[WindowMonitor] Popup for window ${windowId} was not open`);
     }
   }
 
