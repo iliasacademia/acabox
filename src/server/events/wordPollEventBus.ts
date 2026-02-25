@@ -16,7 +16,8 @@ export type WordPollChangeReason =
   | 'project-file-cache-changed'
   | 'v2-project-file-cache-changed'
   | 'window-document-path-changed'
-  | 'reviewing-state-changed';
+  | 'reviewing-state-changed'
+  | 'webview-visibility-changed';
 
 interface WordPollEvents {
   change: [reason: WordPollChangeReason];

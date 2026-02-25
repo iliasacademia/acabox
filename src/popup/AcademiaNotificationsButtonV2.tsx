@@ -21,6 +21,8 @@ interface WordPollResponse {
   isActive: boolean;
   isReviewingSelectedText?: boolean;
   selectedTextReviewStartedAt?: number;
+  shouldShowButtonV2?: boolean;
+  shouldShowPopupV2?: boolean;
 }
 
 interface WebSocketMessage {

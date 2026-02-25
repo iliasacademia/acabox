@@ -157,6 +157,10 @@ export interface WordPollResponse {
   selectedText?: string;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
+  /** Whether button-v2 webview is visible (from webview manager desired state) */
+  shouldShowButtonV2?: boolean;
+  /** Whether popup-v2 webview is visible (from webview manager desired state) */
+  shouldShowPopupV2?: boolean;
 }
 
 /**

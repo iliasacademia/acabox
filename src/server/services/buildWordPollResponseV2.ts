@@ -23,6 +23,10 @@ export function buildWordPollResponseV2(
   notificationManager?: any,
   currentUserId?: () => number | null
 ): WordPollResponse {
+  // Compute webview visibility from desired state
+  const shouldShowButtonV2 = windowMonitorService.getDesiredWebviewVisibility('button-v2', wid);
+  const shouldShowPopupV2 = windowMonitorService.getDesiredWebviewVisibility('popup-v2', wid);
+
   // 1. Resolve documentPath from window monitor state
   const documentPath = windowMonitorService.getDocumentPathForWindow(wid);
 
@@ -72,6 +76,8 @@ export function buildWordPollResponseV2(
       isReviewingSelectedText: false,
       selectedTextReviewStartedAt: undefined,
       activeDocumentPath: documentPath,
+      shouldShowButtonV2,
+      shouldShowPopupV2,
     };
   }
 
@@ -164,5 +170,7 @@ export function buildWordPollResponseV2(
     reviewType: reviewState?.reviewType,
     selectedText: reviewState?.selectedText,
     activeDocumentPath: documentPath,
+    shouldShowButtonV2,
+    shouldShowPopupV2,
   };
 }

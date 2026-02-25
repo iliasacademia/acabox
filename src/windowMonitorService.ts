@@ -10,6 +10,7 @@ import { createInitialState } from './windowMonitor/initialState';
 import { reduceWindowMonitorEvent } from './windowMonitor/reducer';
 import {
   computeWebviewState,
+  DesiredWebviewState,
   WebviewTypeConfig,
 } from './windowMonitor/computeWebviewState';
 
@@ -214,6 +215,7 @@ export class WindowMonitorService {
   private documentTextContentCache = new Map<string, string>();
   private selectedTextContentCache = new Map<string, string>();
   private selectionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private lastDesiredState: DesiredWebviewState = {};
   private baseUrl: string | null = null;
   private authToken: string | null = null;
 
@@ -505,6 +507,34 @@ export class WindowMonitorService {
 
     logger.info('[WindowMonitorService] Desired state:', desiredState);
 
+    // Diff visibility for button-v2 and popup-v2 entries; emit if any changed
+    let visibilityChanged = false;
+    for (const key of Object.keys(desiredState)) {
+      if (key.startsWith('button-v2-') || key.startsWith('popup-v2-')) {
+        const newVisible = desiredState[key]?.visible ?? false;
+        const oldVisible = this.lastDesiredState[key]?.visible ?? false;
+        if (newVisible !== oldVisible) {
+          visibilityChanged = true;
+          break;
+        }
+      }
+    }
+    // Also check keys that disappeared (window destroyed)
+    if (!visibilityChanged) {
+      for (const key of Object.keys(this.lastDesiredState)) {
+        if ((key.startsWith('button-v2-') || key.startsWith('popup-v2-')) && !desiredState[key]) {
+          if (this.lastDesiredState[key]?.visible) {
+            visibilityChanged = true;
+            break;
+          }
+        }
+      }
+    }
+    this.lastDesiredState = desiredState;
+    if (visibilityChanged) {
+      wordPollEventBus.emit('change', 'webview-visibility-changed');
+    }
+
     if (this.webviewManagerProcess?.stdin?.writable) {
       this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
     } else {
@@ -597,6 +627,10 @@ export class WindowMonitorService {
     }
   }
 
+  getDesiredWebviewVisibility(keyPrefix: string, windowId: string): boolean {
+    return this.lastDesiredState[`${keyPrefix}-${windowId}`]?.visible ?? false;
+  }
+
   getDocumentPathForWindow(windowId: string): string | null {
     for (const app of this.state.apps) {
       for (const window of app.windows) {
@@ -659,6 +693,7 @@ export class WindowMonitorService {
     this.popupSizeOverrides.clear();
     this.buttonV2WidthOverrides.clear();
     this.selectedTextReviewState.clear();
+    this.lastDesiredState = {};
     this.documentTextContentCache.clear();
     this.selectedTextContentCache.clear();
     for (const timer of this.selectionClearTimers.values()) clearTimeout(timer);
