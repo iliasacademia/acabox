@@ -23,6 +23,7 @@ import { IPC_CHANNELS, NavigateToPagePayload, FEATURES } from './shared/types';
 import { getDeviceId } from './utils/deviceId';
 import { windowMonitorService } from './windowMonitorService';
 import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
+import { activityTracker } from './activityTracker';
 
 // Supported document extensions (without dots) for file selection and scanning
 const SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'tex', 'rtf'];
@@ -743,6 +744,10 @@ function checkForUpdatesManually(): void {
 }
 
 app.whenReady().then(async () => {
+  // Start activity tracking (before login — app session with user_id = null)
+  activityTracker.recordAppStarted();
+  activityTracker.startPeriodicFlush(300_000); // 5 minutes
+
   // Create main window (always)
   createMainWindow();
 
@@ -1089,6 +1094,9 @@ ipcMain.handle(IPC_CHANNELS.LOGOUT, async () => {
 
   // Clear Word integration only after successful logout
   if (result.success) {
+    // Close activity sessions and start new user-less app session
+    activityTracker.recordUserLoggedOut();
+
     // Stop polling
     notificationManager.stopPolling();
     eventsManager.stopPolling();
@@ -1587,6 +1595,7 @@ ipcMain.handle(IPC_CHANNELS.GET_NOTIFICATIONS, async (_event, options?: { status
 
 ipcMain.handle(IPC_CHANNELS.START_NOTIFICATION_POLLING, async (_event, userId: number) => {
   try {
+    activityTracker.recordUserLoggedIn(userId);
     notificationManager.startPolling(userId, 30000); // 30 second interval
     return { success: true };
   } catch (error: any) {
@@ -1711,6 +1720,10 @@ app.on('before-quit', async (event) => {
   }, 5000); // 5 second timeout
 
   try {
+    // Close all activity sessions and stop periodic flush
+    activityTracker.recordAppStopping();
+    activityTracker.stopPeriodicFlush();
+
     // Stop window monitor service (V2 Rust processes)
     windowMonitorService.stop();
 
