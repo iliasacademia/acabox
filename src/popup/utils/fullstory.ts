@@ -138,27 +138,14 @@ async function initFullStory(context: string): Promise<void> {
     devMode: forceRecording ? false : isDevMode,
   });
 
-  isInitialized = true;
   if (forceRecording && isDevMode) {
     console.log(`${logPrefix} Initialized (FORCED recording enabled)`);
   } else {
     console.log(`${logPrefix} Initialized`, isDevMode ? '(dev mode - recording disabled)' : '');
   }
 
-  // Set page properties
-  try {
-    FullStory('setProperties', {
-      type: 'page',
-      properties: {
-        context,
-        wid: wid || '',
-      },
-    });
-  } catch {
-    // Non-critical — continue without properties
-  }
-
-  // Identify user
+  // Identify user — if this fails, shut down FullStory to prevent anonymous sessions
+  let identified = false;
   try {
     const userInfoRes = await fetch(`${serverUrl}/api/user-info`, { headers });
     const userInfo = await userInfoRes.json();
@@ -175,8 +162,32 @@ async function initFullStory(context: string): Promise<void> {
         },
       });
       console.log(`${logPrefix} User identified:`, userInfo.userId);
+      identified = true;
+    } else {
+      console.warn(`${logPrefix} No userId returned from /api/user-info`);
     }
   } catch (error) {
     console.warn(`${logPrefix} Failed to identify user:`, error);
+  }
+
+  if (!identified) {
+    console.warn(`${logPrefix} Shutting down FullStory — user not identified`);
+    FullStory('shutdown');
+    return;
+  }
+
+  isInitialized = true;
+
+  // Set page properties
+  try {
+    FullStory('setProperties', {
+      type: 'page',
+      properties: {
+        context,
+        wid: wid || '',
+      },
+    });
+  } catch {
+    // Non-critical — continue without properties
   }
 }
