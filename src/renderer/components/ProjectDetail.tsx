@@ -102,7 +102,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
         setReviewError('Review generation failed');
       }
     },
-  }, [project.id, manuscript?.id]);
+  });
 
   const loadProjectData = async () => {
     setLoading(true);

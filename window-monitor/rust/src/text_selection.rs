@@ -29,6 +29,14 @@ pub enum SelectionBoundsAction {
     EmitRepositioned,
 }
 
+/// Internal enum to track where bounds should be queried from.
+enum BoundsSource {
+    /// Multiple text areas found (multi-page Word document).
+    AllPages(Vec<SafeAXUIElement>),
+    /// Single focused element (fallback).
+    Focused(Option<SafeAXUIElement>),
+}
+
 /// Tracks text selection state and detects changes.
 /// Writes selected text to a temp file instead of returning it inline.
 pub struct TextSelectionTracker {
@@ -58,11 +66,23 @@ impl TextSelectionTracker {
         app_element: &SafeAXUIElement,
         focused_window_id: u32,
     ) -> Option<TextSelectionChange> {
-        let focused = accessibility::get_focused_ui_element(app_element)?;
-        let current_text = accessibility::get_selected_text(&focused);
+        // Try multi-page approach: collect selected text from all AXTextArea elements.
+        // This handles Word documents where each page is a separate AXTextArea.
+        let (current_text, text_areas) =
+            self.collect_selected_text_from_all_pages(app_element, focused_window_id);
 
-        // Normalize: treat empty string the same as None
-        let current_text = current_text.filter(|s| !s.is_empty());
+        // Fallback: if multi-page approach returned nothing, try focused element
+        let (current_text, bounds_source) = if current_text.is_some() {
+            (current_text, BoundsSource::AllPages(text_areas))
+        } else {
+            let focused = accessibility::get_focused_ui_element(app_element);
+            let text = focused
+                .as_ref()
+                .and_then(|f| accessibility::get_selected_text(f));
+            // Normalize: treat empty string the same as None
+            let text = text.filter(|s| !s.is_empty());
+            (text, BoundsSource::Focused(focused))
+        };
 
         let text_changed = current_text != self.last_selected_text;
 
@@ -88,7 +108,7 @@ impl TextSelectionTracker {
                         return None;
                     }
                     // Query bounds for the new selection
-                    let bounds = Self::query_bounds(&focused);
+                    let bounds = Self::query_bounds_for_source(&bounds_source);
                     self.last_bounds = bounds;
                     TextSelectionChange::Selected {
                         file_path: file_path.to_string_lossy().to_string(),
@@ -114,7 +134,7 @@ impl TextSelectionTracker {
 
         // Text unchanged — check if bounds moved (only when there's an active selection)
         if self.last_selected_text.is_some() {
-            let current_bounds = Self::query_bounds(&focused);
+            let current_bounds = Self::query_bounds_for_source(&bounds_source);
             if let (Some(last), Some(current)) = (self.last_bounds, current_bounds) {
                 let moved = (current.0 - last.0).abs() > BOUNDS_TOLERANCE
                     || (current.1 - last.1).abs() > BOUNDS_TOLERANCE
@@ -140,14 +160,21 @@ impl TextSelectionTracker {
     pub fn poll_bounds_only(
         &mut self,
         app_element: &SafeAXUIElement,
+        focused_window_id: u32,
     ) -> Option<TextSelectionChange> {
         // No active selection — nothing to track
         if self.last_selected_text.is_none() {
             return None;
         }
 
-        let focused = accessibility::get_focused_ui_element(app_element)?;
-        let current_bounds = Self::query_bounds(&focused);
+        // Try multi-page bounds first, then fall back to focused element
+        let current_bounds = self
+            .get_all_page_text_areas(app_element, focused_window_id)
+            .and_then(|text_areas| Self::query_bounds_from_text_areas(&text_areas))
+            .or_else(|| {
+                accessibility::get_focused_ui_element(app_element)
+                    .and_then(|f| Self::query_bounds(&f))
+            });
 
         if let (Some(last), Some(current)) = (self.last_bounds, current_bounds) {
             let moved = (current.0 - last.0).abs() > BOUNDS_TOLERANCE
@@ -166,15 +193,98 @@ impl TextSelectionTracker {
         None
     }
 
-    /// Query the screen bounds of the current selection as a tuple.
-    fn query_bounds(focused: &SafeAXUIElement) -> Option<(f64, f64, f64, f64)> {
-        let rect = accessibility::get_selection_bounds(focused)?;
+    /// Query the screen bounds of the current selection from a single element.
+    fn query_bounds(element: &SafeAXUIElement) -> Option<(f64, f64, f64, f64)> {
+        let rect = accessibility::get_selection_bounds(element)?;
         Some((
             rect.origin.x,
             rect.origin.y,
             rect.size.width,
             rect.size.height,
         ))
+    }
+
+    /// Query bounds from the appropriate source (multi-page or single focused element).
+    fn query_bounds_for_source(source: &BoundsSource) -> Option<(f64, f64, f64, f64)> {
+        match source {
+            BoundsSource::AllPages(text_areas) => {
+                Self::query_bounds_from_text_areas(text_areas)
+            }
+            BoundsSource::Focused(focused) => {
+                focused.as_ref().and_then(|f| Self::query_bounds(f))
+            }
+        }
+    }
+
+    /// Compute the union bounding box across all text areas that have a selection.
+    fn query_bounds_from_text_areas(
+        text_areas: &[SafeAXUIElement],
+    ) -> Option<(f64, f64, f64, f64)> {
+        let mut union_rect: Option<(f64, f64, f64, f64)> = None;
+        for ta in text_areas {
+            if let Some(rect) = accessibility::get_selection_bounds(ta) {
+                if rect.size.width == 0.0 && rect.size.height == 0.0 {
+                    continue;
+                }
+                match union_rect {
+                    None => {
+                        union_rect = Some((
+                            rect.origin.x,
+                            rect.origin.y,
+                            rect.size.width,
+                            rect.size.height,
+                        ));
+                    }
+                    Some((x, y, w, h)) => {
+                        let min_x = x.min(rect.origin.x);
+                        let min_y = y.min(rect.origin.y);
+                        let max_x = (x + w).max(rect.origin.x + rect.size.width);
+                        let max_y = (y + h).max(rect.origin.y + rect.size.height);
+                        union_rect = Some((min_x, min_y, max_x - min_x, max_y - min_y));
+                    }
+                }
+            }
+        }
+        union_rect
+    }
+
+    /// Collect selected text from all AXTextArea elements in the focused window.
+    /// Returns the concatenated selection and the text areas that were found.
+    fn collect_selected_text_from_all_pages(
+        &self,
+        app_element: &SafeAXUIElement,
+        window_id: u32,
+    ) -> (Option<String>, Vec<SafeAXUIElement>) {
+        let text_areas = match self.get_all_page_text_areas(app_element, window_id) {
+            Some(areas) => areas,
+            None => return (None, Vec::new()),
+        };
+
+        let selections: Vec<String> = text_areas
+            .iter()
+            .filter_map(|ta| accessibility::get_selected_text(ta))
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if selections.is_empty() {
+            return (None, text_areas);
+        }
+
+        (Some(selections.join("\n")), text_areas)
+    }
+
+    /// Find all AXTextArea elements in the window matching the given window ID.
+    fn get_all_page_text_areas(
+        &self,
+        app_element: &SafeAXUIElement,
+        window_id: u32,
+    ) -> Option<Vec<SafeAXUIElement>> {
+        let ax_window = accessibility::find_ax_window_by_id(app_element, window_id)?;
+        let text_areas = accessibility::find_all_text_areas_in_subtree(&ax_window, 10);
+        if text_areas.is_empty() {
+            return None;
+        }
+        Some(text_areas)
     }
 
     /// Called when a scroll event is detected (via NSEvent global monitor).

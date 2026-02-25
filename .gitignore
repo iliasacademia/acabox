@@ -47,7 +47,7 @@ src/native/build/
 
 src/native/build/SimpleTests
 
-.claude/settings.local.json
+.claude
 
 # Rust build artifacts
 window-monitor/rust/target/

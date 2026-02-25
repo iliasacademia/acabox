@@ -76,17 +76,38 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
 
         const { project_id, project_file_id } = projectFile;
 
-        // Step 2: Read text from temp files
-        const selectedTextInfo = windowMonitorService.getSelectedTextForWindow(wid);
-        if (!selectedTextInfo) {
-          reply.code(400).send({
-            error: 'BadRequest',
-            message: 'No text selected',
-            statusCode: 400,
-          });
-          return;
+        // Step 2: Read selected text — prefer in-memory cache, fall back to file
+        let selectedText: string;
+        const cachedSelectedText = windowMonitorService.getSelectedTextContent(wid);
+
+        if (cachedSelectedText) {
+          selectedText = cachedSelectedText;
+          logger.info(`[SelectedTextReview] Using cached selected text for window ${wid}: ${selectedText.length} bytes`);
+        } else {
+          const selectedTextInfo = windowMonitorService.getSelectedTextForWindow(wid);
+          if (!selectedTextInfo) {
+            reply.code(400).send({
+              error: 'BadRequest',
+              message: 'No text selected',
+              statusCode: 400,
+            });
+            return;
+          }
+          try {
+            selectedText = await fs.readFile(selectedTextInfo.filePath, 'utf-8');
+            logger.info(`[SelectedTextReview] Using file selected text for window ${wid}: ${selectedText.length} bytes`);
+          } catch (err) {
+            logger.error('[SelectedTextReview] Failed to read selected text temp file:', err);
+            reply.code(500).send({
+              error: 'InternalServerError',
+              message: 'Cannot read selected text temp file',
+              statusCode: 500,
+            });
+            return;
+          }
         }
 
+        // Read document text — prefer in-memory cache, fall back to file
         const documentTextInfo = windowMonitorService.getDocumentTextForWindow(wid);
         if (!documentTextInfo) {
           reply.code(400).send({
@@ -97,27 +118,24 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
           return;
         }
 
-        let selectedText: string;
         let fullDocumentText: string;
-        try {
-          selectedText = await fs.readFile(selectedTextInfo.filePath, 'utf-8');
-
-          const cachedContent = windowMonitorService.getDocumentTextContent(wid);
-          if (cachedContent) {
-            fullDocumentText = cachedContent;
-            logger.info(`[SelectedTextReview] Using cached document text for window ${wid}: ${fullDocumentText.length} bytes`);
-          } else {
+        const cachedDocContent = windowMonitorService.getDocumentTextContent(wid);
+        if (cachedDocContent) {
+          fullDocumentText = cachedDocContent;
+          logger.info(`[SelectedTextReview] Using cached document text for window ${wid}: ${fullDocumentText.length} bytes`);
+        } else {
+          try {
             fullDocumentText = await fs.readFile(documentTextInfo.filePath, 'utf-8');
             logger.info(`[SelectedTextReview] Using file document text for window ${wid}: ${fullDocumentText.length} bytes`);
+          } catch (err) {
+            logger.error('[SelectedTextReview] Failed to read document text temp file:', err);
+            reply.code(500).send({
+              error: 'InternalServerError',
+              message: 'Cannot read document text temp file',
+              statusCode: 500,
+            });
+            return;
           }
-        } catch (err) {
-          logger.error('[SelectedTextReview] Failed to read temp files:', err);
-          reply.code(500).send({
-            error: 'InternalServerError',
-            message: 'Cannot read temp file',
-            statusCode: 500,
-          });
-          return;
         }
 
         if (fullDocumentText.length <= 1) {

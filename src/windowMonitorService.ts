@@ -212,6 +212,8 @@ export class WindowMonitorService {
   }>();
   private lastSelectionBounds = new Map<string, WindowBounds>();
   private documentTextContentCache = new Map<string, string>();
+  private selectedTextContentCache = new Map<string, string>();
+  private selectionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private baseUrl: string | null = null;
   private authToken: string | null = null;
 
@@ -247,6 +249,28 @@ export class WindowMonitorService {
 
       logger.info('[WindowMonitorService] Event:', event);
 
+      // Debounce WINDOW_TEXT_SELECTION_CLEARED: delay processing by 1s so the
+      // review button stays visible long enough for a click to register.
+      if (event.event === 'WINDOW_TEXT_SELECTION_CLEARED' && event.window) {
+        const windowId = event.window.id;
+        // Cancel any existing debounce timer for this window
+        const existingTimer = this.selectionClearTimers.get(windowId);
+        if (existingTimer) clearTimeout(existingTimer);
+
+        const timer = setTimeout(() => {
+          this.selectionClearTimers.delete(windowId);
+          // Now apply the deferred clear
+          const deferredState = reduceWindowMonitorEvent(this.state, event);
+          this.state = deferredState;
+          if (!this.selectedTextReviewState.has(windowId)) {
+            this.lastSelectionBounds.delete(windowId);
+          }
+          this.pushWebviewState();
+        }, 500);
+        this.selectionClearTimers.set(windowId, timer);
+        return; // Skip immediate processing
+      }
+
       const newState = reduceWindowMonitorEvent(this.state, event);
 
       // Detect window→documentPath mapping changes and notify poll subscribers
@@ -261,16 +285,28 @@ export class WindowMonitorService {
       }
       this.state = newState;
 
-      // Cache selection bounds when text is selected
+      // Cache selection bounds when text is selected (only for real selections, not cursor positions)
       if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.bounds) {
-        this.lastSelectionBounds.set(event.window.id, event.selection.bounds);
+        if (event.selection.length > 0) {
+          this.lastSelectionBounds.set(event.window.id, event.selection.bounds);
+          // Cancel any pending selection-clear debounce (new selection supersedes it)
+          const pendingTimer = this.selectionClearTimers.get(event.window.id);
+          if (pendingTimer) {
+            clearTimeout(pendingTimer);
+            this.selectionClearTimers.delete(event.window.id);
+          }
+        }
       }
 
-      // Clear cached selection bounds when selection is cleared
-      if (event.event === 'WINDOW_TEXT_SELECTION_CLEARED' && event.window) {
-        // Don't clear if there's an active review - keep the bounds for the button to stay visible
-        if (!this.selectedTextReviewState.has(event.window.id)) {
-          this.lastSelectionBounds.delete(event.window.id);
+      // Cache selected text content in memory when it changes (same pattern as documentTextContentCache).
+      if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.length > 0) {
+        try {
+          const content = readFileSync(event.selection.filePath, 'utf-8');
+          if (content.length > 0) {
+            this.selectedTextContentCache.set(event.window.id, content);
+          }
+        } catch (err) {
+          logger.error(`[WindowMonitorService] Failed to cache selected text for window ${event.window.id}:`, err);
         }
       }
 
@@ -305,6 +341,12 @@ export class WindowMonitorService {
         this.selectedTextReviewState.delete(event.window.id);
         this.lastSelectionBounds.delete(event.window.id);
         this.documentTextContentCache.delete(event.window.id);
+        this.selectedTextContentCache.delete(event.window.id);
+        const destroyTimer = this.selectionClearTimers.get(event.window.id);
+        if (destroyTimer) {
+          clearTimeout(destroyTimer);
+          this.selectionClearTimers.delete(event.window.id);
+        }
       }
 
       logger.info('[WindowMonitorService] State:', newState);
@@ -580,6 +622,10 @@ export class WindowMonitorService {
     return this.documentTextContentCache.get(windowId) ?? null;
   }
 
+  getSelectedTextContent(windowId: string): string | null {
+    return this.selectedTextContentCache.get(windowId) ?? null;
+  }
+
   getDocumentTextForWindow(windowId: string): DocumentTextInfo | null {
     for (const app of this.state.apps) {
       for (const window of app.windows) {
@@ -610,6 +656,9 @@ export class WindowMonitorService {
     this.buttonV2WidthOverrides.clear();
     this.selectedTextReviewState.clear();
     this.documentTextContentCache.clear();
+    this.selectedTextContentCache.clear();
+    for (const timer of this.selectionClearTimers.values()) clearTimeout(timer);
+    this.selectionClearTimers.clear();
   }
 }
 

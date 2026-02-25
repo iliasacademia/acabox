@@ -785,13 +785,13 @@ export class ProjectSyncService {
       if (!remoteFile) {
         // File not on backend yet, upload it
         logger.debug(`[ProjectSync-Startup] File not on backend, uploading: ${filePath}`);
-        await this.syncFileToProject(projectId, null, null, filePath, filePath);
+        await this.syncFileToProject(projectId, null, null, filePath, undefined);
       } else {
         // Compare checksums
         const localChecksum = await calculateChecksum(filePath);
         if (localChecksum !== remoteFile.checksum) {
           logger.debug(`[ProjectSync-Startup] File changed, re-uploading: ${filePath}`);
-          await this.syncFileToProject(projectId, null, null, filePath, filePath);
+          await this.syncFileToProject(projectId, null, null, filePath, undefined);
         } else {
           logger.debug(`[ProjectSync-Startup] File unchanged: ${filePath}`);
         }
@@ -969,7 +969,7 @@ export class ProjectSyncService {
         // Upload all files in this chunk in parallel
         const results = await Promise.allSettled(
           chunk.map(({ path: filePath }) =>
-            this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath)
+            this.syncFileToProject(projectId, folderId, folderPath, filePath, undefined)
           )
         );
 
@@ -1426,8 +1426,28 @@ export class ProjectSyncService {
       return;
     }
 
-    // Perform initial upload
-    await this.syncStandaloneFile(projectId, filePath);
+    // Check if backend already has this file (prevents duplicate creation)
+    const client = await APIclient();
+    const filesResponse = await client.get(`v0/co_scientist/projects/${projectId}/files`);
+    const backendFiles = filesResponse.data?.files || [];
+    const fileName = path.basename(filePath);
+    const existingFile = backendFiles.find(
+      (f: any) => f.file_path === filePath || path.basename(f.file_path) === fileName
+    );
+
+    if (existingFile) {
+      // File already exists on backend — sync content only if checksum differs
+      const localChecksum = await calculateChecksum(filePath);
+      if (localChecksum !== existingFile.checksum) {
+        logger.debug(`[ProjectSync] File already on backend but content differs, syncing content: ${fileName}`);
+        await this.syncStandaloneFile(projectId, filePath, false);
+      } else {
+        logger.debug(`[ProjectSync] File already on backend and unchanged, skipping upload: ${fileName}`);
+      }
+    } else {
+      // File not on backend, perform initial upload with is_manuscript
+      await this.syncStandaloneFile(projectId, filePath, true);
+    }
 
     // Start watching the file
     await this.startWatchingFileOnly(projectId, filePath);
@@ -1494,7 +1514,7 @@ export class ProjectSyncService {
       logger.debug(`[ProjectSync] Standalone file changed: ${filePath}`);
       try {
         watchedFile.status = 'syncing';
-        await this.syncStandaloneFile(projectId, filePath);
+        await this.syncStandaloneFile(projectId, filePath, false);
         watchedFile.status = 'synced';
         watchedFile.lastSync = new Date().toISOString();
 
@@ -1550,9 +1570,10 @@ export class ProjectSyncService {
    * Uses POST /v0/co_scientist/projects/{projectId}/files with:
    * - No project_root_id
    * - rel_path = filename only
-   * - is_manuscript = 'true'
+   * - is_manuscript = 'true' only when isManuscript is true (e.g. initial creation)
+   * Omitting is_manuscript preserves the existing backend status (content-only sync).
    */
-  private async syncStandaloneFile(projectId: number, filePath: string): Promise<void> {
+  private async syncStandaloneFile(projectId: number, filePath: string, isManuscript: boolean = true): Promise<void> {
     const client = await APIclient();
     const csrfToken = await getCsrfToken();
 
@@ -1571,7 +1592,9 @@ export class ProjectSyncService {
     formData.append('rel_path', filePath);
     formData.append('mime_type', mimeType);
     formData.append('size', size.toString());
-    formData.append('is_manuscript', 'true');
+    if (isManuscript) {
+      formData.append('is_manuscript', 'true');
+    }
     formData.append('file', fs.createReadStream(filePath));
 
     const response = await client.post(
@@ -1684,7 +1707,7 @@ export class ProjectSyncService {
       if (!remoteFile) {
         // File not on backend, upload it
         logger.debug(`[ProjectSync-Startup] Standalone file not on backend, uploading: ${fileName}`);
-        await this.syncStandaloneFile(projectId, filePath);
+        await this.syncStandaloneFile(projectId, filePath, false);
         watchedFile.status = 'synced';
         watchedFile.lastSync = new Date().toISOString();
         return;
@@ -1694,7 +1717,7 @@ export class ProjectSyncService {
       const localChecksum = await calculateChecksum(filePath);
       if (localChecksum !== remoteFile.checksum) {
         logger.debug(`[ProjectSync-Startup] Standalone file changed, re-uploading: ${fileName}`);
-        await this.syncStandaloneFile(projectId, filePath);
+        await this.syncStandaloneFile(projectId, filePath, false);
         watchedFile.status = 'synced';
         watchedFile.lastSync = new Date().toISOString();
       } else {
