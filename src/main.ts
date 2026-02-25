@@ -6,7 +6,8 @@ import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
 import { defaultLogger as logger, getChannelFromVersion } from './utils/logger';
-import { login, logout, checkLogin, getCurrentUser, APIclient, getCsrfToken } from './apiClient';
+import { login, logout, checkLogin, APIclient, getCsrfToken } from './apiClient';
+import { clearCachedUserData, fetchAndUpdateCache } from './userDataCache';
 import { uploadFile, searchFiles, getStatus, addFolder, removeFolder, listFiles } from './uploader';
 import { syncService } from './syncService';
 import { projectSyncService } from './projectSyncService';
@@ -1092,6 +1093,9 @@ ipcMain.handle(IPC_CHANNELS.LOGOUT, async () => {
     notificationManager.stopPolling();
     eventsManager.stopPolling();
 
+    // Clear cached user data
+    clearCachedUserData();
+
     // Clear Word integration data
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
       wordIntegrationDataStoreV2.setProjectFileCache(new Map());
@@ -1649,13 +1653,7 @@ ipcMain.handle(IPC_CHANNELS.DISMISS_NOTIFICATION, async (_event, id: number) => 
 });
 
 ipcMain.handle(IPC_CHANNELS.GET_CURRENT_USER, async () => {
-  try {
-    const user = await getCurrentUser();
-    return user;
-  } catch (error: any) {
-    logger.error('[IPC] Failed to get current user:', error);
-    return null;
-  }
+  return await fetchAndUpdateCache();
 });
 
 // System IPC handlers

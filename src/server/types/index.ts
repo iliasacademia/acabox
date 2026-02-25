@@ -165,6 +165,16 @@ export interface WordPollResponse {
   shouldShowReviewButton?: boolean;
   /** Whether review-status-overlay webview is visible (from webview manager desired state) */
   shouldShowReviewStatusOverlay?: boolean;
+  /** FullStory configuration for popup initialization (avoids extra HTTP calls) */
+  fullStoryConfig?: {
+    userId: number | null;
+    email: string;
+    displayName: string;
+    deviceId: string;
+    appVersion: string;
+    isPackaged: boolean;
+    forceFullStoryRecording: boolean;
+  };
 }
 
 /**

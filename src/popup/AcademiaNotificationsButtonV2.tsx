@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import academiaLogos from '../assets/academia-logos.svg';
-import { onVisibilityChanged } from './utils/fullstory';
+import { onVisibilityChanged, cacheFullStoryConfig, FullStoryConfig } from './utils/fullstory';
 import './AcademiaNotificationsButton.css';
 
 // Get serverUrl from window.location.origin
@@ -24,6 +24,7 @@ interface WordPollResponse {
   selectedTextReviewStartedAt?: number;
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
+  fullStoryConfig?: FullStoryConfig;
 }
 
 interface WebSocketMessage {
@@ -66,6 +67,7 @@ function useWordPollWebSocket(
 
     function applyPollData(data: WordPollResponse) {
       if (cleanedUp) return;
+      if (data.fullStoryConfig) cacheFullStoryConfig(data.fullStoryConfig);
       setShouldShow(data.shouldShow);
       setBadgeCount(data.notificationCount);
       setIsReviewing(data.isReviewingSelectedText ?? false);
