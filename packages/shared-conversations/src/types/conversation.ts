@@ -5,6 +5,27 @@
  * Extracted from src/renderer/services/conversationsApi.ts
  */
 
+export interface SearchFilesChunk {
+  page: string;
+  section?: string; // present for PDFs (Grobid), absent for DOCX
+  text: string;
+  relevance: number; // 0–1 float
+}
+
+export interface SearchFilesMatchedFile {
+  file_id: number;
+  file_name: string;
+  local_path?: string; // present for local files — mutually exclusive with url
+  url?: string;        // present for Zotero files — mutually exclusive with local_path
+  chunks: SearchFilesChunk[];
+}
+
+export interface SearchFilesData {
+  message_type: 'search_files_progress' | 'search_files_result' | 'search_files_error';
+  final: boolean;
+  matched_files?: SearchFilesMatchedFile[]; // absent on initial progress and on result/error messages
+}
+
 export interface MessageContext {
   id: number;
   target_type: string | null;

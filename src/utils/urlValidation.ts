@@ -65,6 +65,11 @@ export function validateExternalUrl(
     };
   }
 
+  // Allow trusted app deep-link protocols that don't involve network requests
+  if (url.protocol === 'zotero:') {
+    return { isValid: true };
+  }
+
   // Only allow HTTPS protocol (or HTTP in development mode)
   if (url.protocol !== 'https:' && !(isDev && url.protocol === 'http:')) {
     return {

@@ -68,7 +68,8 @@ const CreateProjectWizard: React.FC<CreateProjectWizardProps> = ({
       if (selectedFolderPath) {
         const files = await window.electronAPI.invoke(IPC_CHANNELS.SCAN_FOLDER_FOR_FILES, [selectedFolderPath]);
         console.log('[Wizard] Scanned files from folder:', files);
-        setAvailableFiles(files || []);
+        const docxFiles = (files || []).filter((f: LocalFile) => f.name.toLowerCase().endsWith('.docx'));
+        setAvailableFiles(docxFiles);
       } else {
         setAvailableFiles([]);
       }

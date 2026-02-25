@@ -105,14 +105,10 @@ export function useConversationPolling(
       setMessages(messagesArray);
       setError(null); // Clear any previous errors
 
-      // Check if the AI response is complete
-      // If the last message is from assistant and has final: true, stop polling
+      // Check if the AI response is complete.
+      // Stop polling when any last message has data.final === true.
       const lastMessage = messagesArray[messagesArray.length - 1];
-      if (
-        lastMessage &&
-        lastMessage.role === 'assistant' &&
-        (lastMessage.data as { final?: boolean })?.final === true
-      ) {
+      if (lastMessage && (lastMessage.data as { final?: boolean })?.final === true) {
         stopPolling();
       }
     } catch (err: unknown) {

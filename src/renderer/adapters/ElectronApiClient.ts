@@ -14,7 +14,7 @@ export class ElectronApiClient implements ConversationsApiClient {
 
     // Handle file operations via IPC
     if (endpoint === 'open-file' && data && 'filePath' in data) {
-      return window.electronAPI.invoke(IPC_CHANNELS.OPEN_FILE, data.filePath) as Promise<T>;
+      return window.electronAPI.invoke(IPC_CHANNELS.OPEN_FILE, data.filePath, data.page ?? undefined) as Promise<T>;
     }
 
     if (endpoint === 'show-file-in-folder' && data && 'filePath' in data) {

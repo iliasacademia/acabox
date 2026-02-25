@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, Conversation, DraftConversation } from '../types/conversation';
+import { Message, Conversation, DraftConversation, SearchFilesMatchedFile } from '../types/conversation';
 import { ProjectFile, DiffResponse } from '../types/project';
 import { useConversationsApi } from '../api/useConversationsApi';
 import { useProjectsApi } from '../api/useProjectsApi';
@@ -84,6 +84,29 @@ export function ConversationDetail({
     } else {
       // Fallback for web: open in new tab
       window.open(formUrl, '_blank');
+    }
+  };
+
+  // Open a search-result file — optionally jump to a specific page.
+  // local PDF: shell.openExternal with #page fragment; Zotero: zotero://open-pdf?page=N deep link.
+  const handleOpenFile = async (file: SearchFilesMatchedFile, page?: string) => {
+    if (file.local_path) {
+      await apiClient.invoke({
+        method: 'POST',
+        endpoint: 'open-file',
+        data: { filePath: file.local_path, page: page ? parseInt(page, 10) : undefined },
+      });
+    } else if (file.url && apiClient.openExternalUrl) {
+      const zoteroKey = file.url.match(/api\.zotero\.org\/(?:users|groups)\/\d+\/items\/([A-Z0-9]+)/i)?.[1];
+      if (zoteroKey) {
+        // With page → open Zotero PDF reader at that page; without → select item in library
+        const openUrl = page
+          ? `zotero://open-pdf/library/items/${zoteroKey}?page=${page}`
+          : `zotero://select/library/items/${zoteroKey}`;
+        apiClient.openExternalUrl(openUrl);
+      } else {
+        apiClient.openExternalUrl(file.url);
+      }
     }
   };
 
@@ -504,12 +527,27 @@ export function ConversationDetail({
   // Extract review_id from conversation (check both polledConversation and conversation prop)
   const conversationReviewId = polledConversation?.review_id ?? conversation?.review_id ?? undefined;
 
+  // Only keep the last search_files_progress message — each new one supersedes the previous.
+  // search_files_result renders as normal HTML and is always kept.
+  const hasSearchResult = messages.some(
+    (m) => (m.data as { message_type?: string } | null)?.message_type === 'search_files_result'
+  );
+  const lastSearchProgressId = messages.reduce<number | null>((lastId, m) => {
+    const mt = (m.data as { message_type?: string } | null)?.message_type;
+    return mt === 'search_files_progress' ? m.id : lastId;
+  }, null);
+  const displayMessages = messages.filter((m) => {
+    const mt = (m.data as { message_type?: string } | null)?.message_type;
+    if (mt === 'search_files_progress') return m.id === lastSearchProgressId;
+    return true;
+  });
+
   // Group consecutive tool messages (no date dividers)
   const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: Message | Message[]; messageIndex: number }> = [];
   let currentToolGroup: Message[] = [];
   let messageIndex = 0;
 
-  messages.forEach((message) => {
+  displayMessages.forEach((message) => {
     if (message.role === 'tool') {
       currentToolGroup.push(message);
     } else {
@@ -672,6 +710,8 @@ export function ConversationDetail({
                     onShowDiff={handleShowDiff}
                     onQuestionClick={handleQuestionClick}
                     onFactCheckClick={handleFactCheckClick}
+                    onOpenFile={handleOpenFile}
+                    isSearchComplete={hasSearchResult}
                     conversationReviewId={conversationReviewId}
                     showQuestions={
                       shouldShowQuestions &&
@@ -692,8 +732,9 @@ export function ConversationDetail({
           </>
         )}
 
-        {/* Show loading indicator when AI is responding */}
-        {isPolling && groupedMessages.length > 0 && (
+        {/* Show loading indicator when AI is responding.
+            Suppressed during search: SearchFilesMessage shows its own "Reading content…" banner. */}
+        {isPolling && groupedMessages.length > 0 && lastSearchProgressId === null && (
           <div className="conversationMessage assistant">
             <div className="messageContent">
               <div className="messageLoading">

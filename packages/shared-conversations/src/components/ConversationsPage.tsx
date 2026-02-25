@@ -884,7 +884,7 @@ export function ConversationsPage({
       ? manuscriptFile.file_path.substring(0, manuscriptFile.file_path.lastIndexOf('/'))
       : undefined;
 
-    const filePath = await window.electronAPI?.invoke('select-file', defaultDir);
+    const filePath = await window.electronAPI?.invoke('select-file', { defaultPath: defaultDir, extensions: ['docx'] });
     if (!filePath) return; // User cancelled
 
     setIsSwitchingManuscript(true);
