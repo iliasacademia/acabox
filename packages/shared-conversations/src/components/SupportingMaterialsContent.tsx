@@ -32,9 +32,9 @@ export function SupportingMaterialsContent({
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const tableContainerRef = React.useRef<HTMLDivElement>(null);
+  const hadUploadsRef = React.useRef(false);
 
   const {
     getSupportingMaterials,
@@ -71,6 +71,7 @@ export function SupportingMaterialsContent({
           m.id === file.id ? { ...m, upload_status: 'failed' } : m
         )
       );
+
       return;
     }
 
@@ -89,41 +90,50 @@ export function SupportingMaterialsContent({
 
       // Update existing material or add new one (prevent duplicates)
       setMaterials((prev) => {
-        // Check if file already exists by ID or file_name
         const existingIndex = prev.findIndex((m) =>
           m.id === material.id || m.file_name === material.file_name
         );
-
         if (existingIndex >= 0) {
-          // File already exists - update it in place
-          console.log('[SupportingMaterialsContent] Updating existing file at index', existingIndex);
           const updated = [...prev];
           updated[existingIndex] = material;
           return updated;
-        } else {
-          // New file - add to top
-          console.log('[SupportingMaterialsContent] Adding new file to materials');
-          return [material, ...prev];
         }
+        return [material, ...prev];
       });
-
-      // Notify parent when materials change
-      if (onMaterialsChange) {
-        onMaterialsChange();
-      }
     }
   }, [fileUploadEvent]);
+
+  // When all uploading files finish processing, silently refresh materials from server
+  useEffect(() => {
+    if (uploadingFiles.length !== 0) {
+      hadUploadsRef.current = true;
+      return;
+    }
+    if (!hadUploadsRef.current) return;
+    hadUploadsRef.current = false;
+    silentRefreshMaterials();
+  }, [uploadingFiles.length]);
+
+  const silentRefreshMaterials = async () => {
+    try {
+      const { materials: data, hasMore: more } = await getSupportingMaterials(projectId, 1);
+      setMaterials(data);
+      setHasMore(more);
+      setCurrentPage(1);
+    } catch (err) {
+      console.error('Failed to refresh supporting materials:', err);
+    }
+  };
 
   const fetchMaterials = async () => {
     try {
       setIsLoading(true);
       setError(null);
       setCurrentPage(1);
-      const { materials: data, hasMore: more, totalCount: count } =
+      const { materials: data, hasMore: more } =
         await getSupportingMaterials(projectId, 1);
       setMaterials(data);
       setHasMore(more);
-      setTotalCount(count);
     } catch (err) {
       console.error('Failed to load supporting materials:', err);
       setError('Failed to load supporting materials. Please try again.');
@@ -237,20 +247,18 @@ export function SupportingMaterialsContent({
     try {
       setIsLoadingMore(true);
       setError(null);
-      const { materials: newMaterials, hasMore: more, totalCount: count } =
+      const { materials: newMaterials, hasMore: more } =
         await getSupportingMaterials(projectId, nextPage);
 
       console.log('[loadMoreMaterials] Received:', {
         page: nextPage,
         newMaterialsCount: newMaterials.length,
         hasMore: more,
-        totalCount: count
       });
 
       setMaterials((prev) => [...prev, ...newMaterials]);
       setHasMore(more);
       setCurrentPage(nextPage);
-      setTotalCount(count);
     } catch (err) {
       console.error('Failed to load more materials:', err);
       setError('Failed to load more materials.');
