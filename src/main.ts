@@ -1117,8 +1117,15 @@ ipcMain.handle(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS, async () => {
 });
 
 // Open file in default application (Word for .docx)
-ipcMain.handle(IPC_CHANNELS.OPEN_FILE, async (_event, filePath: string) => {
+ipcMain.handle(IPC_CHANNELS.OPEN_FILE, async (_event, filePath: string, page?: number) => {
   try {
+    // If a page number is provided and the file is a PDF, use openExternal with a #page fragment.
+    // shell.openPath does not support URL fragments.
+    if (page && filePath.toLowerCase().endsWith('.pdf')) {
+      const fileUrl = `file://${encodeURI(filePath)}#page=${page}`;
+      await shell.openExternal(fileUrl);
+      return { success: true };
+    }
     const result = await shell.openPath(filePath);
     if (result) {
       // result is an error string if it failed, empty string if success

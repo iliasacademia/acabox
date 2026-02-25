@@ -2031,6 +2031,202 @@
     color: #333333;
 }
 
+/* ============================================================================
+   SEARCH FILES MESSAGE
+   ============================================================================ */
+
+/* No-files state: spinner while semantic search runs */
+.searchFilesSearching {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background-color: var(--background-light-blue);
+    border-radius: var(--radius-sm);
+}
+
+.searchFilesSearchingText {
+    font-size: var(--type-body-sm);
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.searchFilesSpinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid var(--stroke-grey);
+    border-top-color: #667eea;
+    border-radius: 50%;
+    animation: searchSpin 0.8s linear infinite;
+    flex-shrink: 0;
+    margin-top: 3px;
+}
+
+@keyframes searchSpin {
+    to { transform: rotate(360deg); }
+}
+
+.searchFilesProgressBody {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+/* Shared file name */
+.searchFilesFileName {
+    font-size: var(--type-body-sm);
+    font-weight: 500;
+    color: var(--text-primary);
+    font-family: var(--font-family-sans);
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Open button */
+.searchFilesOpenButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: 1px solid var(--stroke-grey);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: var(--font-family-sans);
+    transition: color 0.15s, border-color 0.15s;
+    flex-shrink: 0;
+}
+
+.searchFilesOpenButton:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+/* Progress state: files found, still synthesising */
+.searchFilesWithFiles {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.searchFilesReadingBanner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.searchFilesReadingText {
+    font-size: var(--type-body-sm);
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+/* Error state */
+.searchFilesError {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 14px;
+    background-color: #fff1f0;
+    border: 1px solid #ffa39e;
+    border-radius: var(--radius-sm);
+    font-size: var(--type-body-sm);
+    color: #cf1322;
+    line-height: var(--type-body-sm-line-height);
+}
+
+.searchFilesErrorIcon {
+    flex-shrink: 0;
+    font-style: normal;
+}
+
+.searchFilesList {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.searchFilesItem {
+    border: 1px solid var(--stroke-grey);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+
+.searchFilesItemHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 14px;
+    background-color: var(--background-beige);
+    border-bottom: 1px solid var(--stroke-grey);
+}
+
+.searchFilesChunks {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.searchFilesChunk {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--stroke-grey);
+}
+
+.searchFilesChunk:last-child {
+    border-bottom: none;
+}
+
+.searchFilesChunkMeta {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+    font-family: var(--font-family-sans);
+}
+
+.searchFilesChunkSection {
+    font-style: italic;
+}
+
+.searchFilesPageLink {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: inherit;
+    font-family: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.searchFilesPageLink:hover {
+    color: var(--text-primary);
+}
+
+.searchFilesChunkText {
+    margin: 0;
+    padding-left: 10px;
+    border-left: 2px solid var(--stroke-grey);
+    font-size: var(--type-body-sm);
+    color: var(--text-primary);
+    line-height: var(--type-body-sm-line-height);
+    font-style: italic;
+}
+
 /* Input */
 .conversationInput {
     padding: 0;

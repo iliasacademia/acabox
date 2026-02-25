@@ -11,6 +11,7 @@ export { ConversationDetail } from './components/ConversationDetail';
 export { ConversationsSidebar } from './components/ConversationsSidebar';
 export { ConversationMessage } from './components/ConversationMessage';
 export { ToolMessageAccordion } from './components/ToolMessageAccordion';
+export { SearchFilesMessage } from './components/SearchFilesMessage';
 export { default as DiffModal } from './components/DiffModal';
 export { default as SplitDiffViewer } from './components/SplitDiffViewer';
 export { DateDivider } from './components/DateDivider';
@@ -38,6 +39,9 @@ export type {
   DraftConversation,
   ConversationDetail as ConversationDetailType,
   ListConversationsResponse,
+  SearchFilesChunk,
+  SearchFilesMatchedFile,
+  SearchFilesData,
 } from './types/conversation';
 
 export type {

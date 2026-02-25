@@ -1,24 +1,60 @@
 import React from 'react';
 import Markdown from 'markdown-to-jsx';
 import DOMPurify from 'isomorphic-dompurify';
-import { Message, FollowUpQuestion } from '../types/conversation';
+import { Message, FollowUpQuestion, SearchFilesData, SearchFilesMatchedFile } from '../types/conversation';
+import { SearchFilesMessage } from './SearchFilesMessage';
 
 interface ConversationMessageProps {
   message: Message;
   onShowDiff?: () => void;
   onQuestionClick?: (question: string) => void;
   onFactCheckClick?: (reviewId: number) => void;
+  onOpenFile?: (file: SearchFilesMatchedFile, page?: string) => void;
+  /** True once a search_files_result message has arrived for this search */
+  isSearchComplete?: boolean;
   conversationReviewId?: number; // Review ID from conversation.review_id
   showQuestions?: boolean;
   showFactCheck?: boolean; // Whether to show fact-check button
 }
 
-export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, conversationReviewId, showQuestions, showFactCheck }: ConversationMessageProps) {
+export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, onOpenFile, isSearchComplete, conversationReviewId, showQuestions, showFactCheck }: ConversationMessageProps) {
   const isTool = message.role === 'tool';
 
   // Tool messages are handled by ToolMessageAccordion, skip rendering here
   if (isTool) {
     return null;
+  }
+
+  // Search agent: progress messages render as structured file list
+  // search_files_result falls through to normal HTML rendering below
+  // search_files_error renders an error banner
+  const msgType = (message.data as { message_type?: string } | null)?.message_type;
+
+  if (msgType === 'search_files_progress') {
+    return (
+      <div className="conversationMessage assistant">
+        <div className="messageContent">
+          <SearchFilesMessage
+            data={message.data as unknown as SearchFilesData}
+            onOpenFile={onOpenFile}
+            isSearchComplete={isSearchComplete}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (msgType === 'search_files_error') {
+    return (
+      <div className="conversationMessage assistant">
+        <div className="messageContent">
+          <div className="searchFilesError">
+            <span className="searchFilesErrorIcon" aria-hidden="true">⚠</span>
+            <span>{message.content || 'Search failed. Please try again.'}</span>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Extract questions from message.data and separate by type
@@ -46,6 +82,11 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFa
     }
   };
 
+  // Strip markdown code fences if the LLM accidentally wraps its HTML output (e.g. ```html\n...\n```)
+  const htmlContent = message.format === 'html' && message.content
+    ? message.content.replace(/^```[a-z]*\n?/i, '').replace(/\n?```$/, '').trim()
+    : message.content;
+
   // Handle question pill click
   const handleQuestionClick = (question: string) => {
     if (onQuestionClick) {
@@ -63,7 +104,7 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFa
               className="htmlContent"
               onClick={handleHtmlClick}
               dangerouslySetInnerHTML={{
-                __html: DOMPurify.sanitize(message.content, {
+                __html: DOMPurify.sanitize(htmlContent, {
                   ALLOWED_TAGS: [
                     'p', 'br', 'strong', 'em', 'u', 's', 'code', 'pre',
                     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -72,6 +113,10 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFa
                     'blockquote',
                     'table', 'thead', 'tbody', 'tr', 'th', 'td',
                     'div', 'span',
+                    'sup', 'sub',   // citation superscripts, chemical subscripts
+                    'mark',         // highlighted text
+                    'abbr',         // abbreviations with title tooltip
+                    'hr',           // section dividers
                   ],
                   ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
                   ALLOW_DATA_ATTR: false,
