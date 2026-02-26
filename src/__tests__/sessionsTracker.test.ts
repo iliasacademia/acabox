@@ -850,6 +850,69 @@ describe('sessionsTracker', () => {
     });
   });
 
+  describe('minimum session duration', () => {
+    it('guarantees at least 1-second duration for a session created and immediately closed', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // Immediately close the session
+      tracker.processEvent(makeEvent({ event: 'APP_UNFOCUSED' } as any));
+
+      const focused = sessionsByType(db, 'word_window_focused');
+      expect(focused).toHaveLength(1);
+
+      const startMs = new Date(focused[0].start_time).getTime();
+      const endMs = new Date(focused[0].end_time).getTime();
+      expect(endMs - startMs).toBeGreaterThanOrEqual(1000);
+    });
+
+    it('guarantees at least 1-second duration for desktop_app session closed immediately', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+      tracker.recordAppStopping();
+
+      const appSessions = sessionsByType(db, 'desktop_app');
+      expect(appSessions).toHaveLength(1);
+
+      const startMs = new Date(appSessions[0].start_time).getTime();
+      const endMs = new Date(appSessions[0].end_time).getTime();
+      expect(endMs - startMs).toBeGreaterThanOrEqual(1000);
+    });
+
+    it('guarantees at least 1-second duration for document_text_change session closed immediately', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_CREATED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // Immediately destroy the window to close the text change session
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DESTROYED',
+        window: { id: 'win-1', title: null, documentPath: null, bounds: null },
+      } as any));
+
+      const textChangeSessions = sessionsByType(db, 'document_text_change');
+      expect(textChangeSessions).toHaveLength(1);
+
+      const startMs = new Date(textChangeSessions[0].start_time).getTime();
+      const endMs = new Date(textChangeSessions[0].end_time).getTime();
+      expect(endMs - startMs).toBeGreaterThanOrEqual(1000);
+    });
+  });
+
   describe('fetchSessionsToSync', () => {
     it('returns sessions with user_id where synced_at is null', () => {
       const { db, tracker } = harness;

@@ -52,7 +52,7 @@ export function createSessionDb(db: Database.Database): SessionDb {
   );
 
   const updateEndTime = db.prepare(
-    `UPDATE sessions SET end_time = ?, updated_at = ? WHERE session_id = ?`
+    `UPDATE sessions SET end_time = MAX(?, end_time), updated_at = ? WHERE session_id = ?`
   );
 
   const updateSessionData = db.prepare(

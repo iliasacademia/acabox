@@ -68,8 +68,10 @@ export function createSessionsTracker(sessionDb: SessionDb): SessionsTracker {
     data: Record<string, unknown> = {}
   ): string {
     const id = ulid();
-    const timestamp = now();
-    sessionDb.insertSession.run(id, sessionType, currentUserId, timestamp, timestamp, JSON.stringify(data), getDeviceId(), timestamp, timestamp, app.getVersion());
+    const startMs = Date.now();
+    const timestamp = new Date(startMs).toISOString();
+    const minEndTime = new Date(startMs + 1000).toISOString();
+    sessionDb.insertSession.run(id, sessionType, currentUserId, timestamp, minEndTime, JSON.stringify(data), getDeviceId(), timestamp, timestamp, app.getVersion());
     return id;
   }
 
