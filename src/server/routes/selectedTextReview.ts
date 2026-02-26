@@ -257,6 +257,27 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
 
         logger.info(`[SelectedTextReview] Review triggered for window ${wid}, agentRunId: ${agentRunId}`);
 
+        // Fire analytics event (fire-and-forget, don't block the response)
+        client.post('v0/arbitrary_event', {
+          arbitrary_event: {
+            event_type: 'DesktopAppEvent',
+            data: {
+              event_name: 'trigger_selected_text_review',
+              action: 'click',
+              source: 'overlay',
+              metadata: { file_id: project_file_id },
+              project_id,
+            },
+          },
+        }, {
+          headers: {
+            'x-csrf-token': csrfToken,
+            'content-type': 'application/json',
+          },
+        }).catch((err: unknown) => {
+          logger.error('[SelectedTextReview] Analytics event failed:', err);
+        });
+
         // Step 7: Return result
         reply.send({
           success: true,
