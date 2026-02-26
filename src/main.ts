@@ -750,6 +750,14 @@ function setupAutoUpdater(): Promise<UpdateResult> {
         logger.error('[Auto-Updater] Resume check failed:', err);
       });
     });
+
+    // Check for updates when screen is unlocked (covers lock-without-sleep case)
+    powerMonitor.on('unlock-screen', () => {
+      logger.info('[Auto-Updater] Screen unlocked, checking for updates...');
+      autoUpdater.checkForUpdates().catch((err) => {
+        logger.error('[Auto-Updater] Unlock-screen check failed:', err);
+      });
+    });
   });
 }
 
