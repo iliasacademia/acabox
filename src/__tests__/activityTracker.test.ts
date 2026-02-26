@@ -265,6 +265,193 @@ describe('activityTracker', () => {
     tracker.recordAppStopping();
   });
 
+  describe('document_text_change sessions', () => {
+    let dateNowSpy: jest.SpyInstance;
+
+    afterEach(() => {
+      if (dateNowSpy) dateNowSpy.mockRestore();
+    });
+
+    it('creates a session on WINDOW_DOCUMENT_TEXT_CHANGED', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      // Need a window registered so windowToApp is populated
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_CREATED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const textChangeSessions = sessionsByType(db, 'document_text_change');
+      expect(textChangeSessions).toHaveLength(1);
+      const data = JSON.parse(textChangeSessions[0].data);
+      expect(data.document_path).toBe('/known/project/doc.docx');
+      expect(data.project_id).toBe(42);
+      expect(data.project_file_id).toBe(100);
+      expect(data.window_id).toBe('win-1');
+    });
+
+    it('groups events within 1 minute into the same session', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      const baseTime = 1000000;
+      dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(baseTime);
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // 30 seconds later — within gap
+      dateNowSpy.mockReturnValue(baseTime + 30_000);
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const textChangeSessions = sessionsByType(db, 'document_text_change');
+      expect(textChangeSessions).toHaveLength(1);
+      // end_time should have been updated (extended)
+      expect(textChangeSessions[0].end_time >= textChangeSessions[0].start_time).toBe(true);
+    });
+
+    it('splits into a new session after > 1 minute gap', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      const baseTime = 1000000;
+      dateNowSpy = jest.spyOn(Date, 'now').mockReturnValue(baseTime);
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // 61 seconds later — exceeds gap
+      dateNowSpy.mockReturnValue(baseTime + 61_000);
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const textChangeSessions = sessionsByType(db, 'document_text_change');
+      expect(textChangeSessions).toHaveLength(2);
+      expect(textChangeSessions[0].session_id).not.toBe(textChangeSessions[1].session_id);
+    });
+
+    it('cleans up on WINDOW_DESTROYED', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_CREATED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      let textChangeSessions = sessionsByType(db, 'document_text_change');
+      expect(textChangeSessions).toHaveLength(1);
+      const sessionId = textChangeSessions[0].session_id;
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DESTROYED',
+        window: { id: 'win-1', title: null, documentPath: null, bounds: null },
+      } as any));
+
+      textChangeSessions = sessionsByType(db, 'document_text_change');
+      const closed = textChangeSessions.find(s => s.session_id === sessionId)!;
+      expect(closed.end_time >= closed.start_time).toBe(true);
+      expect(closed.updated_at >= closed.created_at).toBe(true);
+    });
+
+    it('cleans up on APP_TERMINATED', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+      tracker.processEvent(makeEvent({ event: 'APP_LAUNCHED' }));
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_CREATED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      let textChangeSessions = sessionsByType(db, 'document_text_change');
+      expect(textChangeSessions).toHaveLength(1);
+      const sessionId = textChangeSessions[0].session_id;
+
+      tracker.processEvent(makeEvent({ event: 'APP_TERMINATED' }));
+
+      textChangeSessions = sessionsByType(db, 'document_text_change');
+      const closed = textChangeSessions.find(s => s.session_id === sessionId)!;
+      expect(closed.end_time >= closed.start_time).toBe(true);
+    });
+
+    it('backfills user_id on login', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      let textChangeSessions = sessionsByType(db, 'document_text_change');
+      expect(textChangeSessions).toHaveLength(1);
+      expect(textChangeSessions[0].user_id).toBeNull();
+
+      tracker.recordUserLoggedIn(789);
+
+      textChangeSessions = sessionsByType(db, 'document_text_change');
+      expect(textChangeSessions[0].user_id).toBe(789);
+    });
+
+    it('does not extend text change sessions during periodic flush', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_TEXT_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const textChangeSessions = sessionsByType(db, 'document_text_change');
+      const endTimeBefore = textChangeSessions[0].end_time;
+      const updatedAtBefore = textChangeSessions[0].updated_at;
+
+      // Trigger periodic flush via startPeriodicFlush + manual interval
+      // Instead, we directly call recordAppStopping and check that text change sessions
+      // are handled separately. For flush specifically, we check that extendActiveSessions
+      // does NOT touch text change sessions by examining the end_time via a raw query.
+      // Simulate a flush by updating app/word_app/document sessions only.
+      // The simplest way: read the session after flush timer fires.
+      jest.useFakeTimers();
+      tracker.startPeriodicFlush(1000);
+      jest.advanceTimersByTime(1000);
+      tracker.stopPeriodicFlush();
+      jest.useRealTimers();
+
+      const after = sessionsByType(db, 'document_text_change');
+      expect(after[0].end_time).toBe(endTimeBefore);
+      expect(after[0].updated_at).toBe(updatedAtBefore);
+    });
+  });
+
   describe('fetchSessionsToSync', () => {
     it('returns sessions with user_id where synced_at is null', () => {
       const { db, tracker } = harness;

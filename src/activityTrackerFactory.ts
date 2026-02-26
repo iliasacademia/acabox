@@ -43,6 +43,11 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
   /** windowId → appPid (for cleanup on APP_TERMINATED) */
   const windowToApp = new Map<string, number>();
 
+  const TEXT_CHANGE_SESSION_GAP_MS = 60_000; // 1 minute
+
+  /** windowId → { sessionId, lastEventTime } */
+  const textChangeSessions = new Map<string, { sessionId: string; lastEventTime: number }>();
+
   let flushInterval: ReturnType<typeof setInterval> | null = null;
 
   // --- Helpers ---
@@ -52,7 +57,7 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
   }
 
   function createSession(
-    sessionType: 'app' | 'word_app' | 'document',
+    sessionType: 'app' | 'word_app' | 'document' | 'document_text_change',
     data: Record<string, unknown> = {}
   ): string {
     const id = ulid();
@@ -85,6 +90,9 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
     for (const sessionId of documentSessions.values()) {
       sessionDb.setUserId.run(userId, timestamp, sessionId);
     }
+    for (const { sessionId } of textChangeSessions.values()) {
+      sessionDb.setUserId.run(userId, timestamp, sessionId);
+    }
     logger.info('[ActivityTracker] User logged in:', userId);
   }
 
@@ -101,6 +109,10 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
       closeSession(sessionId);
     }
     documentSessions.clear();
+    for (const { sessionId } of textChangeSessions.values()) {
+      closeSession(sessionId);
+    }
+    textChangeSessions.clear();
     windowToApp.clear();
 
     currentUserId = null;
@@ -123,6 +135,10 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
       sessionDb.updateEndTime.run(timestamp, timestamp, sessionId);
     }
     documentSessions.clear();
+    for (const { sessionId } of textChangeSessions.values()) {
+      sessionDb.updateEndTime.run(timestamp, timestamp, sessionId);
+    }
+    textChangeSessions.clear();
     windowToApp.clear();
     logger.info('[ActivityTracker] App stopping — all sessions closed');
   }
@@ -157,6 +173,11 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
               closeSession(docSessionId);
               documentSessions.delete(windowId);
               logger.info('[ActivityTracker] Document session closed (app terminated):', docSessionId);
+            }
+            const textChangeEntry = textChangeSessions.get(windowId);
+            if (textChangeEntry) {
+              closeSession(textChangeEntry.sessionId);
+              textChangeSessions.delete(windowId);
             }
             windowToApp.delete(windowId);
           }
@@ -202,7 +223,40 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
           documentSessions.delete(windowId);
           logger.info('[ActivityTracker] Document session closed (window destroyed):', docSessionId);
         }
+        const textChangeEntry = textChangeSessions.get(windowId);
+        if (textChangeEntry) {
+          closeSession(textChangeEntry.sessionId);
+          textChangeSessions.delete(windowId);
+        }
         windowToApp.delete(windowId);
+        break;
+      }
+
+      case 'WINDOW_DOCUMENT_TEXT_CHANGED': {
+        const windowId = event.window.id;
+        const eventTime = Date.now();
+        const existing = textChangeSessions.get(windowId);
+
+        if (existing && (eventTime - existing.lastEventTime) < TEXT_CHANGE_SESSION_GAP_MS) {
+          // Extend existing session
+          closeSession(existing.sessionId);
+          textChangeSessions.set(windowId, { sessionId: existing.sessionId, lastEventTime: eventTime });
+        } else {
+          // Gap exceeded or no existing session — start new session
+          const documentPath = event.window.documentPath;
+          const projectFile = documentPath
+            ? wordIntegrationDataStoreV2.getProjectFileForPath(documentPath)
+            : null;
+          const data: Record<string, unknown> = {
+            document_path: documentPath ?? null,
+            project_id: projectFile?.project_id ?? null,
+            project_file_id: projectFile?.project_file_id ?? null,
+            window_id: windowId,
+          };
+          const sessionId = createSession('document_text_change', data);
+          textChangeSessions.set(windowId, { sessionId, lastEventTime: eventTime });
+          logger.info('[ActivityTracker] Document text change session started:', sessionId, 'window:', windowId);
+        }
         break;
       }
 
