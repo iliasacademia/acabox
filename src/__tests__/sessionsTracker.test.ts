@@ -31,7 +31,7 @@ jest.mock('../wordIntegrationDataStoreV2', () => ({
 // --- Imports (resolved AFTER mocks are registered) ---
 
 import { createSessionDb } from '../sessionDbFactory';
-import { createActivityTracker, type ActivityTracker } from '../activityTrackerFactory';
+import { createSessionsTracker, type SessionsTracker } from '../sessionsTrackerFactory';
 
 // --- Helpers ---
 
@@ -62,7 +62,7 @@ function sessionsByType(db: Database.Database, type: string): SessionRow[] {
 function createTestHarness() {
   const db = new Database(':memory:');
   const sessionDb = createSessionDb(db);
-  const tracker = createActivityTracker(sessionDb);
+  const tracker = createSessionsTracker(sessionDb);
   return { db, tracker };
 }
 
@@ -86,7 +86,7 @@ function makeEvent(overrides: Partial<WindowMonitorEvent> & { event: string }): 
 
 // --- Tests ---
 
-describe('activityTracker', () => {
+describe('sessionsTracker', () => {
   let harness: ReturnType<typeof createTestHarness>;
 
   beforeEach(() => {
@@ -97,15 +97,15 @@ describe('activityTracker', () => {
     harness.db.close();
   });
 
-  it('tracks the full lifecycle: app start → login → Word events → logout → app stop', () => {
+  it('tracks the full lifecycle: app start → login → WINDOW_FOCUSED → APP_UNFOCUSED → logout → app stop', () => {
     const { db, tracker } = harness;
 
-    // Step 1: recordAppStarted → 1 row, app session, user_id=null
+    // Step 1: recordAppStarted → 1 row, desktop_app session, user_id=null
     tracker.recordAppStarted();
     let rows = allSessions(db);
     expect(rows).toHaveLength(1);
     expect(rows[0].session_id).toMatch(ULID_RE);
-    expect(rows[0].session_type).toBe('app');
+    expect(rows[0].session_type).toBe('desktop_app');
     expect(rows[0].user_id).toBeNull();
     expect(rows[0].device_id).toBe('test-device-id');
     expect(rows[0].created_at).toBe(rows[0].start_time);
@@ -114,109 +114,64 @@ describe('activityTracker', () => {
 
     // Step 2: recordUserLoggedIn → app session now has user_id=123
     tracker.recordUserLoggedIn(123);
-    let appSessions = sessionsByType(db, 'app');
+    let appSessions = sessionsByType(db, 'desktop_app');
     expect(appSessions[0].user_id).toBe(123);
     expect(appSessions[0].updated_at >= appSessions[0].created_at).toBe(true);
 
-    // Step 3: processEvent(APP_LAUNCHED) → 2 rows: app + word_app
+    // Step 3: APP_LAUNCHED is now a no-op
     tracker.processEvent(makeEvent({ event: 'APP_LAUNCHED' }));
     rows = allSessions(db);
-    expect(rows).toHaveLength(2);
-    let wordApps = sessionsByType(db, 'word_app');
-    expect(wordApps).toHaveLength(1);
-    expect(wordApps[0].session_id).toMatch(ULID_RE);
-    expect(wordApps[0].user_id).toBe(123);
-    expect(wordApps[0].device_id).toBe('test-device-id');
-    const wordAppSessionId = wordApps[0].session_id;
+    expect(rows).toHaveLength(1); // still just desktop_app
 
-    // Step 4: processEvent(APP_LAUNCHED same PID) → still 2 rows (deduped)
-    tracker.processEvent(makeEvent({ event: 'APP_LAUNCHED' }));
-    rows = allSessions(db);
-    expect(rows).toHaveLength(2);
-
-    // Step 5: processEvent(WINDOW_CREATED with known project path) → 3 rows
+    // Step 4: WINDOW_CREATED populates windowToApp but no session
     tracker.processEvent(makeEvent({
       event: 'WINDOW_CREATED',
       window: { id: 'win-1', title: 'Document', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
     } as any));
     rows = allSessions(db);
-    expect(rows).toHaveLength(3);
-    let docs = sessionsByType(db, 'document');
-    expect(docs).toHaveLength(1);
-    expect(docs[0].session_id).toMatch(ULID_RE);
-    const docData = JSON.parse(docs[0].data);
-    expect(docData.project_id).toBe(42);
-    expect(docData.project_file_id).toBe(100);
-    expect(docData.document_path).toBe('/known/project/doc.docx');
-    const firstDocId = docs[0].session_id;
+    expect(rows).toHaveLength(1); // still just desktop_app
 
-    // Step 6: processEvent(WINDOW_DOCUMENT_PATH_CHANGED to unknown path) → 4 rows
-    tracker.processEvent(makeEvent({
-      event: 'WINDOW_DOCUMENT_PATH_CHANGED',
-      window: { id: 'win-1', title: 'New Doc', documentPath: '/unknown/doc.docx', bounds: defaultBounds },
-    } as any));
-    rows = allSessions(db);
-    expect(rows).toHaveLength(4);
-    docs = sessionsByType(db, 'document');
-    expect(docs).toHaveLength(2);
-    // Old doc session should be closed
-    const closedDoc = docs.find(d => d.session_id === firstDocId)!;
-    expect(closedDoc.end_time >= closedDoc.start_time).toBe(true);
-    // New doc session should have null project_id
-    const newDoc = docs.find(d => d.session_id !== firstDocId)!;
-    expect(newDoc.session_id).toMatch(ULID_RE);
-    const newDocData = JSON.parse(newDoc.data);
-    expect(newDocData.project_id).toBeNull();
-    const secondDocId = newDoc.session_id;
-
-    // Step 7: processEvent(WINDOW_DESTROYED) → new doc session has end_time set
-    tracker.processEvent(makeEvent({
-      event: 'WINDOW_DESTROYED',
-      window: { id: 'win-1', title: null, documentPath: null, bounds: null },
-    } as any));
-    rows = allSessions(db);
-    expect(rows).toHaveLength(4);
-    docs = sessionsByType(db, 'document');
-    const destroyedDoc = docs.find(d => d.session_id === secondDocId)!;
-    expect(destroyedDoc.end_time >= destroyedDoc.start_time).toBe(true);
-    expect(destroyedDoc.updated_at >= destroyedDoc.created_at).toBe(true);
-
-    // Step 8: processEvent(APP_TERMINATED) → word_app session has end_time set
-    tracker.processEvent(makeEvent({ event: 'APP_TERMINATED' }));
-    rows = allSessions(db);
-    expect(rows).toHaveLength(4);
-    wordApps = sessionsByType(db, 'word_app');
-    expect(wordApps[0].end_time >= wordApps[0].start_time).toBe(true);
-
-    // Step 9: processEvent(WINDOW_FOCUSED) → same row count (ignored event)
+    // Step 5: WINDOW_FOCUSED creates word_window_focused session
     tracker.processEvent(makeEvent({
       event: 'WINDOW_FOCUSED',
-      window: { id: 'win-99', title: 'Some Doc', documentPath: null, bounds: defaultBounds },
+      window: { id: 'win-1', title: 'Document', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
     } as any));
     rows = allSessions(db);
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(2);
+    let focused = sessionsByType(db, 'word_window_focused');
+    expect(focused).toHaveLength(1);
+    expect(focused[0].user_id).toBe(123);
+    const focusedData = JSON.parse(focused[0].data);
+    expect(focusedData.document_path).toBe('/known/project/doc.docx');
+    expect(focusedData.project_id).toBe(42);
+    expect(focusedData.project_file_id).toBe(100);
+    expect(focusedData.window_id).toBe('win-1');
+    const focusedSessionId = focused[0].session_id;
 
-    // Step 10: recordUserLoggedOut → all prior sessions closed, new app session with user_id=null
+    // Step 6: APP_UNFOCUSED closes the focused session
+    tracker.processEvent(makeEvent({ event: 'APP_UNFOCUSED' } as any));
+    focused = sessionsByType(db, 'word_window_focused');
+    const closedFocused = focused.find(s => s.session_id === focusedSessionId)!;
+    expect(closedFocused.end_time >= closedFocused.start_time).toBe(true);
+
+    // Step 7: recordUserLoggedOut → all prior sessions closed, new desktop_app session with user_id=null
     tracker.recordUserLoggedOut();
     rows = allSessions(db);
-    expect(rows).toHaveLength(5);
-    appSessions = sessionsByType(db, 'app');
+    expect(rows).toHaveLength(3); // original desktop_app + word_window_focused + new desktop_app
+    appSessions = sessionsByType(db, 'desktop_app');
     expect(appSessions).toHaveLength(2);
-    // Old app session should be closed
     const closedApp = appSessions.find(s => s.session_id === appSessionId)!;
     expect(closedApp.end_time >= closedApp.start_time).toBe(true);
-    // New app session should have user_id=null
     const newApp = appSessions.find(s => s.session_id !== appSessionId)!;
     expect(newApp.session_id).toMatch(ULID_RE);
     expect(newApp.user_id).toBeNull();
-    expect(newApp.device_id).toBe('test-device-id');
     const newAppSessionId = newApp.session_id;
 
-    // Step 11: recordAppStopping → all sessions have final end_time
+    // Step 8: recordAppStopping → new app session has final end_time
     tracker.recordAppStopping();
     rows = allSessions(db);
-    expect(rows).toHaveLength(5);
-    appSessions = sessionsByType(db, 'app');
+    expect(rows).toHaveLength(3);
+    appSessions = sessionsByType(db, 'desktop_app');
     const finalApp = appSessions.find(s => s.session_id === newAppSessionId)!;
     expect(finalApp.end_time >= finalApp.start_time).toBe(true);
     // Verify all sessions are properly populated
@@ -238,31 +193,314 @@ describe('activityTracker', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].user_id).toBeNull();
 
-    // Word launches before login
-    tracker.processEvent(makeEvent({ event: 'APP_LAUNCHED' }));
-    let wordApps = sessionsByType(db, 'word_app');
-    expect(wordApps).toHaveLength(1);
-    expect(wordApps[0].user_id).toBeNull();
-
-    // Document opens before login
+    // Window focused before login
     tracker.processEvent(makeEvent({
-      event: 'WINDOW_CREATED',
+      event: 'WINDOW_FOCUSED',
       window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
     } as any));
-    let docs = sessionsByType(db, 'document');
-    expect(docs).toHaveLength(1);
-    expect(docs[0].user_id).toBeNull();
+    let focused = sessionsByType(db, 'word_window_focused');
+    expect(focused).toHaveLength(1);
+    expect(focused[0].user_id).toBeNull();
 
-    // Now user logs in — all 3 active sessions should get user_id backfilled
+    // Now user logs in — both active sessions should get user_id backfilled
     tracker.recordUserLoggedIn(456);
     rows = allSessions(db);
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(2); // desktop_app + word_window_focused
     for (const row of rows) {
       expect(row.user_id).toBe(456);
     }
 
     // Clean up
     tracker.recordAppStopping();
+  });
+
+  describe('word_window_focused sessions', () => {
+    it('creates a session on WINDOW_FOCUSED with document_path data', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const focused = sessionsByType(db, 'word_window_focused');
+      expect(focused).toHaveLength(1);
+      const data = JSON.parse(focused[0].data);
+      expect(data.document_path).toBe('/known/project/doc.docx');
+      expect(data.project_id).toBe(42);
+      expect(data.project_file_id).toBe(100);
+      expect(data.window_id).toBe('win-1');
+    });
+
+    it('creates a session with null document_path', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Untitled', documentPath: null, bounds: defaultBounds },
+      } as any));
+
+      const focused = sessionsByType(db, 'word_window_focused');
+      expect(focused).toHaveLength(1);
+      const data = JSON.parse(focused[0].data);
+      expect(data.document_path).toBeNull();
+      expect(data.project_id).toBeNull();
+    });
+
+    it('closes on APP_UNFOCUSED', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      const sessionId = before[0].session_id;
+
+      tracker.processEvent(makeEvent({ event: 'APP_UNFOCUSED' } as any));
+
+      const after = sessionsByType(db, 'word_window_focused');
+      const closed = after.find(s => s.session_id === sessionId)!;
+      expect(closed.end_time >= closed.start_time).toBe(true);
+    });
+
+    it('closes on APP_TERMINATED', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      // Register the window so windowToApp maps it
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_CREATED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      const sessionId = before[0].session_id;
+
+      tracker.processEvent(makeEvent({ event: 'APP_TERMINATED' }));
+
+      const after = sessionsByType(db, 'word_window_focused');
+      const closed = after.find(s => s.session_id === sessionId)!;
+      expect(closed.end_time >= closed.start_time).toBe(true);
+    });
+
+    it('switches windows: closes old session and opens new', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc1', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const firstFocused = sessionsByType(db, 'word_window_focused');
+      expect(firstFocused).toHaveLength(1);
+      const firstSessionId = firstFocused[0].session_id;
+
+      // Focus a different window
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-2', title: 'Doc2', documentPath: '/unknown/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const allFocused = sessionsByType(db, 'word_window_focused');
+      expect(allFocused).toHaveLength(2);
+
+      // First should be closed
+      const closed = allFocused.find(s => s.session_id === firstSessionId)!;
+      expect(closed.end_time >= closed.start_time).toBe(true);
+
+      // Second should be open with the new path
+      const newSession = allFocused.find(s => s.session_id !== firstSessionId)!;
+      const data = JSON.parse(newSession.data);
+      expect(data.document_path).toBe('/unknown/doc.docx');
+      expect(data.window_id).toBe('win-2');
+    });
+
+    it('closes on WINDOW_DESTROYED of focused window', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_CREATED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      const sessionId = before[0].session_id;
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DESTROYED',
+        window: { id: 'win-1', title: null, documentPath: null, bounds: null },
+      } as any));
+
+      const after = sessionsByType(db, 'word_window_focused');
+      const closed = after.find(s => s.session_id === sessionId)!;
+      expect(closed.end_time >= closed.start_time).toBe(true);
+    });
+
+    it('WINDOW_DOCUMENT_PATH_CHANGED: null → path updates session data', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      // Focus a window with no document path
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Untitled', documentPath: null, bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      expect(before).toHaveLength(1);
+      const sessionId = before[0].session_id;
+      expect(JSON.parse(before[0].data).document_path).toBeNull();
+
+      // Path becomes available (Save As)
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_PATH_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // Should still be 1 session (data updated, not closed+reopened)
+      const after = sessionsByType(db, 'word_window_focused');
+      expect(after).toHaveLength(1);
+      expect(after[0].session_id).toBe(sessionId);
+      const data = JSON.parse(after[0].data);
+      expect(data.document_path).toBe('/known/project/doc.docx');
+      expect(data.project_id).toBe(42);
+      expect(data.project_file_id).toBe(100);
+    });
+
+    it('WINDOW_DOCUMENT_PATH_CHANGED: path → path closes and reopens session', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      // Focus a window with a document path
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      expect(before).toHaveLength(1);
+      const firstSessionId = before[0].session_id;
+
+      // Path changes to a different document
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_PATH_CHANGED',
+        window: { id: 'win-1', title: 'New Doc', documentPath: '/unknown/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // Should be 2 sessions: first closed, second opened
+      const after = sessionsByType(db, 'word_window_focused');
+      expect(after).toHaveLength(2);
+
+      const closed = after.find(s => s.session_id === firstSessionId)!;
+      expect(closed.end_time >= closed.start_time).toBe(true);
+
+      const newSession = after.find(s => s.session_id !== firstSessionId)!;
+      const data = JSON.parse(newSession.data);
+      expect(data.document_path).toBe('/unknown/doc.docx');
+      expect(data.project_id).toBeNull();
+    });
+
+    it('WINDOW_DOCUMENT_PATH_CHANGED is a no-op for non-focused window', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      // Focus win-1
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      expect(before).toHaveLength(1);
+
+      // Path changes on a different (non-focused) window
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_PATH_CHANGED',
+        window: { id: 'win-2', title: 'Other', documentPath: '/other/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // Still only 1 focused session, unchanged
+      const after = sessionsByType(db, 'word_window_focused');
+      expect(after).toHaveLength(1);
+      expect(after[0].session_id).toBe(before[0].session_id);
+    });
+
+    it('extends focused session during periodic flush', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      const endTimeBefore = before[0].end_time;
+
+      jest.useFakeTimers();
+      tracker.startPeriodicFlush(1000);
+      jest.advanceTimersByTime(1000);
+      tracker.stopPeriodicFlush();
+      jest.useRealTimers();
+
+      const after = sessionsByType(db, 'word_window_focused');
+      expect(after[0].end_time >= endTimeBefore).toBe(true);
+    });
+
+    it('backfills user_id on login', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      let focused = sessionsByType(db, 'word_window_focused');
+      expect(focused[0].user_id).toBeNull();
+
+      tracker.recordUserLoggedIn(789);
+
+      focused = sessionsByType(db, 'word_window_focused');
+      expect(focused[0].user_id).toBe(789);
+    });
+
+    it('closes on logout', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+      tracker.recordUserLoggedIn(100);
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      const sessionId = before[0].session_id;
+
+      tracker.recordUserLoggedOut();
+
+      const after = sessionsByType(db, 'word_window_focused');
+      const closed = after.find(s => s.session_id === sessionId)!;
+      expect(closed.end_time >= closed.start_time).toBe(true);
+    });
   });
 
   describe('document_text_change sessions', () => {
@@ -379,7 +617,6 @@ describe('activityTracker', () => {
     it('cleans up on APP_TERMINATED', () => {
       const { db, tracker } = harness;
       tracker.recordAppStarted();
-      tracker.processEvent(makeEvent({ event: 'APP_LAUNCHED' }));
 
       tracker.processEvent(makeEvent({
         event: 'WINDOW_CREATED',
@@ -434,12 +671,6 @@ describe('activityTracker', () => {
       const endTimeBefore = textChangeSessions[0].end_time;
       const updatedAtBefore = textChangeSessions[0].updated_at;
 
-      // Trigger periodic flush via startPeriodicFlush + manual interval
-      // Instead, we directly call recordAppStopping and check that text change sessions
-      // are handled separately. For flush specifically, we check that extendActiveSessions
-      // does NOT touch text change sessions by examining the end_time via a raw query.
-      // Simulate a flush by updating app/word_app/document sessions only.
-      // The simplest way: read the session after flush timer fires.
       jest.useFakeTimers();
       tracker.startPeriodicFlush(1000);
       jest.advanceTimersByTime(1000);
@@ -483,7 +714,7 @@ describe('activityTracker', () => {
       db.prepare(
         `INSERT INTO sessions (session_id, session_type, user_id, start_time, end_time, data, device_id, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(`old-${endTime}`, 'app', null, endTime, endTime, '{}', 'test-device', endTime, endTime);
+      ).run(`old-${endTime}`, 'desktop_app', null, endTime, endTime, '{}', 'test-device', endTime, endTime);
     }
 
     it('deletes sessions older than 14 days', () => {
@@ -497,10 +728,10 @@ describe('activityTracker', () => {
 
       tracker.recordAppStarted(); // triggers purge
 
-      // Old session should be deleted, only the new app session remains
+      // Old session should be deleted, only the new desktop_app session remains
       const rows = allSessions(db);
       expect(rows).toHaveLength(1);
-      expect(rows[0].session_type).toBe('app');
+      expect(rows[0].session_type).toBe('desktop_app');
       expect(rows[0].session_id).not.toBe(`old-${oldTime}`);
 
       db.close();
@@ -517,7 +748,7 @@ describe('activityTracker', () => {
 
       tracker.recordAppStarted(); // triggers purge
 
-      // Recent session should survive + new app session
+      // Recent session should survive + new desktop_app session
       const rows = allSessions(db);
       expect(rows).toHaveLength(2);
       expect(rows.some(r => r.session_id === `old-${recentTime}`)).toBe(true);
@@ -585,10 +816,9 @@ describe('activityTracker', () => {
       const { db, tracker } = harness;
       tracker.recordAppStarted();
       tracker.recordUserLoggedIn(100);
-      tracker.processEvent(makeEvent({ event: 'APP_LAUNCHED' }));
 
       const toSync = tracker.fetchSessionsToSync();
-      expect(toSync.length).toBe(2); // app + word_app
+      expect(toSync.length).toBe(1); // desktop_app only
       for (const row of toSync) {
         expect(row.user_id).toBe(100);
         expect(row.synced_at).toBeNull();

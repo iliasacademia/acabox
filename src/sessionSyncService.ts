@@ -1,9 +1,9 @@
 import { defaultLogger as logger } from './utils/logger';
-import type { ActivityTracker } from './activityTrackerFactory';
+import type { SessionsTracker } from './sessionsTrackerFactory';
 
 let syncInterval: ReturnType<typeof setInterval> | null = null;
 
-function syncSessions(tracker: ActivityTracker): void {
+function syncSessions(tracker: SessionsTracker): void {
   const sessions = tracker.fetchSessionsToSync();
   if (sessions.length === 0) return;
 
@@ -11,7 +11,7 @@ function syncSessions(tracker: ActivityTracker): void {
   logger.info(`[SessionSync] ${sessions.length} session(s) pending sync`);
 }
 
-function start(tracker: ActivityTracker, intervalMs: number): void {
+function start(tracker: SessionsTracker, intervalMs: number): void {
   if (syncInterval) clearInterval(syncInterval);
   syncInterval = setInterval(() => { syncSessions(tracker); }, intervalMs);
 }

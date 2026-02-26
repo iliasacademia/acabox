@@ -23,7 +23,7 @@ import { IPC_CHANNELS, NavigateToPagePayload, FEATURES } from './shared/types';
 import { getDeviceId } from './utils/deviceId';
 import { windowMonitorService } from './windowMonitorService';
 import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
-import { activityTracker } from './activityTracker';
+import { sessionsTracker } from './sessionsTracker';
 import { sessionSyncService } from './sessionSyncService';
 
 const ACTIVITY_FLUSH_INTERVAL_MS = 300_000; // 5 minutes
@@ -749,9 +749,9 @@ function checkForUpdatesManually(): void {
 app.whenReady().then(async () => {
   // Start activity tracking (before login — app session with user_id = null)
   if (FEATURES.SESSION_CAPTURE_ENABLED) {
-    activityTracker.recordAppStarted();
-    activityTracker.startPeriodicFlush(ACTIVITY_FLUSH_INTERVAL_MS);
-    sessionSyncService.start(activityTracker, ACTIVITY_FLUSH_INTERVAL_MS);
+    sessionsTracker.recordAppStarted();
+    sessionsTracker.startPeriodicFlush(ACTIVITY_FLUSH_INTERVAL_MS);
+    sessionSyncService.start(sessionsTracker, ACTIVITY_FLUSH_INTERVAL_MS);
   }
 
   // Create main window (always)
@@ -1102,7 +1102,7 @@ ipcMain.handle(IPC_CHANNELS.LOGOUT, async () => {
   if (result.success) {
     // Close activity sessions and start new user-less app session
     if (FEATURES.SESSION_CAPTURE_ENABLED) {
-      activityTracker.recordUserLoggedOut();
+      sessionsTracker.recordUserLoggedOut();
       sessionSyncService.stop();
     }
 
@@ -1605,8 +1605,8 @@ ipcMain.handle(IPC_CHANNELS.GET_NOTIFICATIONS, async (_event, options?: { status
 ipcMain.handle(IPC_CHANNELS.START_NOTIFICATION_POLLING, async (_event, userId: number) => {
   try {
     if (FEATURES.SESSION_CAPTURE_ENABLED) {
-      activityTracker.recordUserLoggedIn(userId);
-      sessionSyncService.start(activityTracker, ACTIVITY_FLUSH_INTERVAL_MS);
+      sessionsTracker.recordUserLoggedIn(userId);
+      sessionSyncService.start(sessionsTracker, ACTIVITY_FLUSH_INTERVAL_MS);
     }
     notificationManager.startPolling(userId, 30000); // 30 second interval
     return { success: true };
@@ -1734,8 +1734,8 @@ app.on('before-quit', async (event) => {
   try {
     // Close all activity sessions and stop periodic flush
     if (FEATURES.SESSION_CAPTURE_ENABLED) {
-      activityTracker.recordAppStopping();
-      activityTracker.stopPeriodicFlush();
+      sessionsTracker.recordAppStopping();
+      sessionsTracker.stopPeriodicFlush();
       sessionSyncService.stop();
     }
 

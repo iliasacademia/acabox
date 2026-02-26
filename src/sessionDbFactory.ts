@@ -4,6 +4,7 @@ export interface SessionDb {
   db: Database.Database;
   insertSession: Database.Statement;
   updateEndTime: Database.Statement;
+  updateSessionData: Database.Statement;
   setUserId: Database.Statement;
   getUnsyncedSessions: Database.Statement;
   markSynced: Database.Statement;
@@ -61,6 +62,10 @@ export function createSessionDb(db: Database.Database): SessionDb {
     `UPDATE sessions SET end_time = ?, updated_at = ? WHERE session_id = ?`
   );
 
+  const updateSessionData = db.prepare(
+    `UPDATE sessions SET data = ?, updated_at = ? WHERE session_id = ?`
+  );
+
   const setUserId = db.prepare(
     `UPDATE sessions SET user_id = ?, updated_at = ? WHERE session_id = ?`
   );
@@ -85,5 +90,5 @@ export function createSessionDb(db: Database.Database): SessionDb {
     `INSERT OR REPLACE INTO session_metadata (key, value) VALUES (?, ?)`
   );
 
-  return { db, insertSession, updateEndTime, setUserId, getUnsyncedSessions, markSynced, deleteOldSessions, getMetadata, setMetadata };
+  return { db, insertSession, updateEndTime, updateSessionData, setUserId, getUnsyncedSessions, markSynced, deleteOldSessions, getMetadata, setMetadata };
 }

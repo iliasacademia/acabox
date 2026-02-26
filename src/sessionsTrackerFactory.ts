@@ -18,7 +18,7 @@ export interface SessionRow {
   synced_at: string | null;
 }
 
-export interface ActivityTracker {
+export interface SessionsTracker {
   recordAppStarted(): void;
   recordUserLoggedIn(userId: number): void;
   recordUserLoggedOut(): void;
@@ -32,15 +32,18 @@ export interface ActivityTracker {
 
 const SESSION_RETENTION_DAYS = 14;
 
-export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
+export function createSessionsTracker(sessionDb: SessionDb): SessionsTracker {
   let currentUserId: number | null = null;
   let appSessionId: string | null = null;
 
-  /** pid → word_app session_id */
-  const wordAppSessions = new Map<number, string>();
+  /** The current word_window_focused session */
+  let focusedSessionId: string | null = null;
 
-  /** windowId → document session_id */
-  const documentSessions = new Map<string, string>();
+  /** The window ID of the current focused session */
+  let focusedWindowId: string | null = null;
+
+  /** The document path of the current focused window (for null→path vs path→path detection) */
+  let focusedDocumentPath: string | null = null;
 
   /** windowId → appPid (for cleanup on APP_TERMINATED) */
   const windowToApp = new Map<string, number>();
@@ -59,7 +62,7 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
   }
 
   function createSession(
-    sessionType: 'app' | 'word_app' | 'document' | 'document_text_change',
+    sessionType: 'desktop_app' | 'word_window_focused' | 'document_text_change',
     data: Record<string, unknown> = {}
   ): string {
     const id = ulid();
@@ -82,15 +85,30 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
     const cutoff = new Date(Date.now() - SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const result = sessionDb.deleteOldSessions.run(cutoff);
     sessionDb.setMetadata.run('last_cleanup_date', today);
-    logger.info('[ActivityTracker] Purged expired sessions:', result.changes, 'rows deleted');
+    logger.info('[SessionsTracker] Purged expired sessions:', result.changes, 'rows deleted');
+  }
+
+  function lookupProjectFile(documentPath: string | null) {
+    if (!documentPath) return null;
+    return wordIntegrationDataStoreV2.getProjectFileForPath(documentPath);
+  }
+
+  function closeFocusedSession(): void {
+    if (focusedSessionId) {
+      closeSession(focusedSessionId);
+      logger.info('[SessionsTracker] Focused session closed:', focusedSessionId);
+      focusedSessionId = null;
+      focusedWindowId = null;
+      focusedDocumentPath = null;
+    }
   }
 
   // --- App lifecycle ---
 
   function recordAppStarted(): void {
     purgeExpiredSessions();
-    appSessionId = createSession('app');
-    logger.info('[ActivityTracker] App session started:', appSessionId);
+    appSessionId = createSession('desktop_app');
+    logger.info('[SessionsTracker] App session started:', appSessionId);
   }
 
   function recordUserLoggedIn(userId: number): void {
@@ -99,16 +117,13 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
     if (appSessionId) {
       sessionDb.setUserId.run(userId, timestamp, appSessionId);
     }
-    for (const sessionId of wordAppSessions.values()) {
-      sessionDb.setUserId.run(userId, timestamp, sessionId);
-    }
-    for (const sessionId of documentSessions.values()) {
-      sessionDb.setUserId.run(userId, timestamp, sessionId);
+    if (focusedSessionId) {
+      sessionDb.setUserId.run(userId, timestamp, focusedSessionId);
     }
     for (const { sessionId } of textChangeSessions.values()) {
       sessionDb.setUserId.run(userId, timestamp, sessionId);
     }
-    logger.info('[ActivityTracker] User logged in:', userId);
+    logger.info('[SessionsTracker] User logged in:', userId);
   }
 
   function recordUserLoggedOut(): void {
@@ -116,14 +131,7 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
       closeSession(appSessionId);
       appSessionId = null;
     }
-    for (const sessionId of wordAppSessions.values()) {
-      closeSession(sessionId);
-    }
-    wordAppSessions.clear();
-    for (const sessionId of documentSessions.values()) {
-      closeSession(sessionId);
-    }
-    documentSessions.clear();
+    closeFocusedSession();
     for (const { sessionId } of textChangeSessions.values()) {
       closeSession(sessionId);
     }
@@ -132,8 +140,8 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
 
     currentUserId = null;
 
-    appSessionId = createSession('app');
-    logger.info('[ActivityTracker] User logged out. New app session:', appSessionId);
+    appSessionId = createSession('desktop_app');
+    logger.info('[SessionsTracker] User logged out. New app session:', appSessionId);
   }
 
   function recordAppStopping(): void {
@@ -142,20 +150,18 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
       sessionDb.updateEndTime.run(timestamp, timestamp, appSessionId);
       appSessionId = null;
     }
-    for (const sessionId of wordAppSessions.values()) {
-      sessionDb.updateEndTime.run(timestamp, timestamp, sessionId);
+    if (focusedSessionId) {
+      sessionDb.updateEndTime.run(timestamp, timestamp, focusedSessionId);
+      focusedSessionId = null;
+      focusedWindowId = null;
+      focusedDocumentPath = null;
     }
-    wordAppSessions.clear();
-    for (const sessionId of documentSessions.values()) {
-      sessionDb.updateEndTime.run(timestamp, timestamp, sessionId);
-    }
-    documentSessions.clear();
     for (const { sessionId } of textChangeSessions.values()) {
       sessionDb.updateEndTime.run(timestamp, timestamp, sessionId);
     }
     textChangeSessions.clear();
     windowToApp.clear();
-    logger.info('[ActivityTracker] App stopping — all sessions closed');
+    logger.info('[SessionsTracker] App stopping — all sessions closed');
   }
 
   // --- Window monitor events ---
@@ -164,31 +170,51 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
     switch (event.event) {
       case 'APP_LAUNCHED':
       case 'APP_EXISTING': {
-        const pid = event.app.pid;
-        if (!wordAppSessions.has(pid)) {
-          const sessionId = createSession('word_app');
-          wordAppSessions.set(pid, sessionId);
-          logger.info('[ActivityTracker] Word app session started:', sessionId, 'pid:', pid);
-        }
+        // No-op: focused sessions are created by WINDOW_FOCUSED
+        break;
+      }
+
+      case 'WINDOW_FOCUSED': {
+        const windowId = event.window.id;
+        const documentPath = event.window.documentPath;
+
+        // Close previous focused session (if any)
+        closeFocusedSession();
+
+        // Create new word_window_focused session
+        const projectFile = lookupProjectFile(documentPath);
+        const data: Record<string, unknown> = {
+          document_path: documentPath ?? null,
+          project_id: projectFile?.project_id ?? null,
+          project_file_id: projectFile?.project_file_id ?? null,
+          window_id: windowId,
+        };
+        focusedSessionId = createSession('word_window_focused', data);
+        focusedWindowId = windowId;
+        focusedDocumentPath = documentPath ?? null;
+        logger.info('[SessionsTracker] Focused session started:', focusedSessionId, 'window:', windowId);
+        break;
+      }
+
+      case 'APP_UNFOCUSED': {
+        closeFocusedSession();
         break;
       }
 
       case 'APP_TERMINATED': {
         const pid = event.app.pid;
-        const wordSessionId = wordAppSessions.get(pid);
-        if (wordSessionId) {
-          closeSession(wordSessionId);
-          wordAppSessions.delete(pid);
-          logger.info('[ActivityTracker] Word app session closed:', wordSessionId);
+
+        // Close focused session if the focused window belongs to this app
+        if (focusedWindowId) {
+          const focusedPid = windowToApp.get(focusedWindowId);
+          if (focusedPid === pid) {
+            closeFocusedSession();
+          }
         }
+
+        // Close text_change sessions and clean up windowToApp for this pid
         for (const [windowId, appPid] of windowToApp) {
           if (appPid === pid) {
-            const docSessionId = documentSessions.get(windowId);
-            if (docSessionId) {
-              closeSession(docSessionId);
-              documentSessions.delete(windowId);
-              logger.info('[ActivityTracker] Document session closed (app terminated):', docSessionId);
-            }
             const textChangeEntry = textChangeSessions.get(windowId);
             if (textChangeEntry) {
               closeSession(textChangeEntry.sessionId);
@@ -203,13 +229,8 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
       case 'WINDOW_CREATED':
       case 'WINDOW_EXISTING': {
         const windowId = event.window.id;
-        const documentPath = event.window.documentPath;
         const pid = event.app.pid;
         windowToApp.set(windowId, pid);
-
-        if (documentPath) {
-          openDocumentSession(windowId, documentPath);
-        }
         break;
       }
 
@@ -217,27 +238,48 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
         const windowId = event.window.id;
         const newDocumentPath = event.window.documentPath;
 
-        const existingSessionId = documentSessions.get(windowId);
-        if (existingSessionId) {
-          closeSession(existingSessionId);
-          documentSessions.delete(windowId);
-          logger.info('[ActivityTracker] Document session closed (path changed):', existingSessionId);
-        }
+        // Only act if this is the focused window
+        if (windowId === focusedWindowId && focusedSessionId) {
+          if (focusedDocumentPath === null && newDocumentPath) {
+            // null → path: update existing session's data
+            const projectFile = lookupProjectFile(newDocumentPath);
+            const data = JSON.stringify({
+              document_path: newDocumentPath,
+              project_id: projectFile?.project_id ?? null,
+              project_file_id: projectFile?.project_file_id ?? null,
+              window_id: windowId,
+            });
+            sessionDb.updateSessionData.run(data, now(), focusedSessionId);
+            focusedDocumentPath = newDocumentPath;
+            logger.info('[SessionsTracker] Focused session data updated (null→path):', focusedSessionId);
+          } else if (focusedDocumentPath !== null && newDocumentPath) {
+            // path → path: close + reopen
+            closeFocusedSession();
 
-        if (newDocumentPath) {
-          openDocumentSession(windowId, newDocumentPath);
+            const projectFile = lookupProjectFile(newDocumentPath);
+            const data: Record<string, unknown> = {
+              document_path: newDocumentPath,
+              project_id: projectFile?.project_id ?? null,
+              project_file_id: projectFile?.project_file_id ?? null,
+              window_id: windowId,
+            };
+            focusedSessionId = createSession('word_window_focused', data);
+            focusedWindowId = windowId;
+            focusedDocumentPath = newDocumentPath;
+            logger.info('[SessionsTracker] Focused session reopened (path→path):', focusedSessionId);
+          }
         }
         break;
       }
 
       case 'WINDOW_DESTROYED': {
         const windowId = event.window.id;
-        const docSessionId = documentSessions.get(windowId);
-        if (docSessionId) {
-          closeSession(docSessionId);
-          documentSessions.delete(windowId);
-          logger.info('[ActivityTracker] Document session closed (window destroyed):', docSessionId);
+
+        // Close focused session if it was the destroyed window
+        if (windowId === focusedWindowId) {
+          closeFocusedSession();
         }
+
         const textChangeEntry = textChangeSessions.get(windowId);
         if (textChangeEntry) {
           closeSession(textChangeEntry.sessionId);
@@ -259,9 +301,7 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
         } else {
           // Gap exceeded or no existing session — start new session
           const documentPath = event.window.documentPath;
-          const projectFile = documentPath
-            ? wordIntegrationDataStoreV2.getProjectFileForPath(documentPath)
-            : null;
+          const projectFile = lookupProjectFile(documentPath);
           const data: Record<string, unknown> = {
             document_path: documentPath ?? null,
             project_id: projectFile?.project_id ?? null,
@@ -270,7 +310,7 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
           };
           const sessionId = createSession('document_text_change', data);
           textChangeSessions.set(windowId, { sessionId, lastEventTime: eventTime });
-          logger.info('[ActivityTracker] Document text change session started:', sessionId, 'window:', windowId);
+          logger.info('[SessionsTracker] Document text change session started:', sessionId, 'window:', windowId);
         }
         break;
       }
@@ -278,19 +318,6 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
       default:
         break;
     }
-  }
-
-  function openDocumentSession(windowId: string, documentPath: string): void {
-    const projectFile = wordIntegrationDataStoreV2.getProjectFileForPath(documentPath);
-    const data: Record<string, unknown> = {
-      document_path: documentPath,
-      project_id: projectFile?.project_id ?? null,
-      project_file_id: projectFile?.project_file_id ?? null,
-      window_id: windowId,
-    };
-    const sessionId = createSession('document', data);
-    documentSessions.set(windowId, sessionId);
-    logger.info('[ActivityTracker] Document session started:', sessionId, 'path:', documentPath);
   }
 
   // --- Periodic flush ---
@@ -327,11 +354,8 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
     if (appSessionId) {
       sessionDb.updateEndTime.run(timestamp, timestamp, appSessionId);
     }
-    for (const sessionId of wordAppSessions.values()) {
-      sessionDb.updateEndTime.run(timestamp, timestamp, sessionId);
-    }
-    for (const sessionId of documentSessions.values()) {
-      sessionDb.updateEndTime.run(timestamp, timestamp, sessionId);
+    if (focusedSessionId) {
+      sessionDb.updateEndTime.run(timestamp, timestamp, focusedSessionId);
     }
   }
 

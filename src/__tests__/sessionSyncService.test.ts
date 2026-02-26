@@ -1,4 +1,4 @@
-import type { ActivityTracker, SessionRow } from '../activityTrackerFactory';
+import type { SessionsTracker, SessionRow } from '../sessionsTrackerFactory';
 
 // --- Mocks ---
 
@@ -18,7 +18,7 @@ import { sessionSyncService } from '../sessionSyncService';
 
 // --- Helpers ---
 
-function makeMockTracker(sessions: SessionRow[] = []): ActivityTracker {
+function makeMockTracker(sessions: SessionRow[] = []): SessionsTracker {
   return {
     recordAppStarted: jest.fn(),
     recordUserLoggedIn: jest.fn(),
@@ -35,7 +35,7 @@ function makeMockTracker(sessions: SessionRow[] = []): ActivityTracker {
 function makeSession(overrides: Partial<SessionRow> = {}): SessionRow {
   return {
     session_id: 'test-session-1',
-    session_type: 'app',
+    session_type: 'desktop_app',
     user_id: 100,
     start_time: '2025-01-01T00:00:00.000Z',
     end_time: '2025-01-01T00:05:00.000Z',

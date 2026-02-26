@@ -8,7 +8,7 @@ import { SystemState, WindowMonitorEvent, WindowBounds, TextSelectionInfo, Docum
 import { wordPollEventBus } from './server/events/wordPollEventBus';
 import { createInitialState } from './windowMonitor/initialState';
 import { reduceWindowMonitorEvent } from './windowMonitor/reducer';
-import { activityTracker } from './activityTracker';
+import { sessionsTracker } from './sessionsTracker';
 import { FEATURES } from './shared/types';
 import {
   computeWebviewState,
@@ -291,7 +291,7 @@ export class WindowMonitorService {
 
       // Track activity sessions
       if (FEATURES.SESSION_CAPTURE_ENABLED) {
-        activityTracker.processEvent(event);
+        sessionsTracker.processEvent(event);
       }
 
       // Cache selection bounds when text is selected (only for real selections, not cursor positions)
