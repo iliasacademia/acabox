@@ -61,7 +61,7 @@ module.exports = {
       const path = require('path');
 
       // Copy canvas and its dependencies to the build
-      const modulesToCopy = ['canvas', 'better-sqlite3'];
+      const modulesToCopy = ['canvas', 'better-sqlite3', 'bindings', 'file-uri-to-path'];
       for (const module of modulesToCopy) {
         const src = path.join(__dirname, 'node_modules', module);
         const dest = path.join(buildPath, 'node_modules', module);
