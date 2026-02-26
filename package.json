@@ -15,12 +15,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
     "lint:applescript": "find src/applescripts -name '*.applescript' -exec osacompile -o /dev/null {} \\;",
-    "test": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest",
-    "test:watch": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest --watch",
-    "test:coverage": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest --coverage",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "test:window-monitor": "node window-monitor/test/window-monitor-macos-test.js",
-    "cleanup:sessions": "node scripts/cleanup-sessions.js",
-    "db:dev": "sqlite3 -column -header ~/Library/Application\\ Support/academia-electron/sessions-dev.db",
     "prebuild": "npm run build:native && npm run build:popup",
     "package": "electron-forge package",
     "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - --identifier com.electron.academia-electron {} \\;",
@@ -31,8 +29,7 @@
     "logs:stable:watch": "tail -f ~/Library/Logs/academia-electron/main-stable.log",
     "logs:beta:watch": "tail -f ~/Library/Logs/academia-electron/main-beta.log",
     "reset-permissions": "tccutil reset All com.electron.academia-electron",
-    "fresh-install": "rm -rf /Applications/academia-electron.app; tccutil reset All com.electron.academia-electron; rm -rf ~/Library/Preferences/com.electron.academia-electron* ~/Library/Application\\ Support/academia-electron ~/Library/Application\\ Support/com.electron.academia-electron* ~/Library/Caches/com.electron.academia-electron ~/Library/Logs/academia-electron out/",
-    "postinstall": "electron-rebuild -f -w better-sqlite3"
+    "fresh-install": "rm -rf /Applications/academia-electron.app; tccutil reset All com.electron.academia-electron; rm -rf ~/Library/Preferences/com.electron.academia-electron* ~/Library/Application\\ Support/academia-electron ~/Library/Application\\ Support/com.electron.academia-electron* ~/Library/Caches/com.electron.academia-electron ~/Library/Logs/academia-electron out/"
   },
   "author": "Academia.edu",
   "license": "UNLICENSED",
@@ -51,7 +48,6 @@
     "@electron/fuses": "^1.8.0",
     "@electron/osx-sign": "^2.2.0",
     "@types/auto-launch": "^5.0.5",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/jest": "^30.0.0",
     "@types/node": "^24.7.2",
     "@types/qrcode": "^1.5.5",
@@ -94,7 +90,6 @@
     "auto-launch": "^5.0.6",
     "axios": "^1.10.0",
     "axios-cookiejar-support": "^6.0.4",
-    "better-sqlite3": "^12.6.2",
     "canvas": "^3.2.0",
     "chokidar": "^4.0.3",
     "diff": "^8.0.2",
@@ -116,7 +111,6 @@
     "serialize-error": "^12.0.0",
     "tesseract.js-core": "^6.0.0",
     "tough-cookie": "^5.1.2",
-    "tough-cookie-file-store": "^3.2.1",
-    "ulid": "^3.0.2"
+    "tough-cookie-file-store": "^3.2.1"
   }
 }

@@ -11,7 +11,7 @@ const platform = os.platform();
 
 const packagerConfig = {
   asar: {
-    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*}',
+    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*}',
   },
   extraResource: [
     ...(platform === 'darwin' ? [
@@ -61,7 +61,7 @@ module.exports = {
       const path = require('path');
 
       // Copy canvas and its dependencies to the build
-      const modulesToCopy = ['canvas', 'better-sqlite3'];
+      const modulesToCopy = ['canvas'];
       for (const module of modulesToCopy) {
         const src = path.join(__dirname, 'node_modules', module);
         const dest = path.join(buildPath, 'node_modules', module);
