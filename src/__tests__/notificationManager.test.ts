@@ -27,6 +27,8 @@ describe('NotificationManager', () => {
   let mockUpdateNotification: jest.SpyInstance;
 
   beforeEach(() => {
+    jest.useFakeTimers();
+
     // Clear any previous state
     notificationManager.stopPolling();
     notificationManager.clearNotifications(1);
@@ -46,6 +48,7 @@ describe('NotificationManager', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.clearAllMocks();
     notificationManager.stopPolling();
   });
@@ -540,7 +543,7 @@ describe('NotificationManager', () => {
       notificationManager.startPolling(1, 30000);
 
       // Initial sync should be called immediately
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await jest.advanceTimersByTimeAsync(100);
       expect(mockGetNotifications).toHaveBeenCalled();
     });
 

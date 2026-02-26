@@ -314,8 +314,9 @@ export class AcademiaHttpServer {
 
     try {
       // Create a timeout promise (5 seconds)
+      let timeoutId: NodeJS.Timeout;
       const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error('Server close timeout after 5 seconds')), 5000);
+        timeoutId = setTimeout(() => reject(new Error('Server close timeout after 5 seconds')), 5000);
       });
 
       // Race between close and timeout
@@ -323,6 +324,7 @@ export class AcademiaHttpServer {
         this.fastify.close(),
         timeoutPromise
       ]);
+      clearTimeout(timeoutId!);
 
       this.fastify = null;
       this.actualPort = null;
