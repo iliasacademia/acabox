@@ -3,6 +3,12 @@ import type { WindowMonitorEvent } from '../windowMonitor/types';
 
 // --- Mocks (hoisted by Jest before imports) ---
 
+jest.mock('electron', () => ({
+  app: {
+    getVersion: jest.fn(() => '1.0.0-test'),
+  },
+}));
+
 jest.mock('../utils/logger', () => ({
   defaultLogger: {
     info: jest.fn(),
@@ -45,6 +51,7 @@ interface SessionRow {
   device_id: string;
   created_at: string;
   updated_at: string;
+  app_version: string;
 }
 
 const ULID_RE = /^[0-9A-HJKMNP-TV-Z]{26}$/;
@@ -482,6 +489,21 @@ describe('sessionsTracker', () => {
       expect(focused[0].user_id).toBe(789);
     });
 
+    it('records app_version on created sessions', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const rows = allSessions(db);
+      for (const row of rows) {
+        expect(row.app_version).toBe('1.0.0-test');
+      }
+    });
+
     it('normalizes file:// URLs to plain paths for project lookup', () => {
       const { db, tracker } = harness;
       tracker.recordAppStarted();
@@ -729,9 +751,9 @@ describe('sessionsTracker', () => {
 
     function insertOldSession(db: Database.Database, endTime: string): void {
       db.prepare(
-        `INSERT INTO sessions (session_id, session_type, user_id, start_time, end_time, data, device_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(`old-${endTime}`, 'desktop_app', null, endTime, endTime, '{}', 'test-device', endTime, endTime);
+        `INSERT INTO sessions (session_id, session_type, user_id, start_time, end_time, data, device_id, created_at, updated_at, app_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(`old-${endTime}`, 'desktop_app', null, endTime, endTime, '{}', 'test-device', endTime, endTime, '0.0.0');
     }
 
     it('deletes sessions older than 14 days', () => {

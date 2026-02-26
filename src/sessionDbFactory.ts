@@ -27,7 +27,8 @@ export function createSessionDb(db: Database.Database): SessionDb {
       device_id TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT '',
-      synced_at TEXT DEFAULT NULL
+      synced_at TEXT DEFAULT NULL,
+      app_version TEXT NOT NULL DEFAULT ''
     )
   `);
 
@@ -43,10 +44,11 @@ export function createSessionDb(db: Database.Database): SessionDb {
   try { db.exec('ALTER TABLE sessions ADD COLUMN created_at TEXT NOT NULL DEFAULT ""'); } catch { /* already exists */ }
   try { db.exec('ALTER TABLE sessions ADD COLUMN updated_at TEXT NOT NULL DEFAULT ""'); } catch { /* already exists */ }
   try { db.exec('ALTER TABLE sessions ADD COLUMN synced_at TEXT DEFAULT NULL'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE sessions ADD COLUMN app_version TEXT NOT NULL DEFAULT ""'); } catch { /* already exists */ }
 
   const insertSession = db.prepare(
-    `INSERT INTO sessions (session_id, session_type, user_id, start_time, end_time, data, device_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO sessions (session_id, session_type, user_id, start_time, end_time, data, device_id, created_at, updated_at, app_version)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
   const updateEndTime = db.prepare(

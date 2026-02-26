@@ -44,6 +44,7 @@ function makeSession(overrides: Partial<SessionRow> = {}): SessionRow {
     created_at: '2025-01-01T00:00:00.000Z',
     updated_at: '2025-01-01T00:05:00.000Z',
     synced_at: null,
+    app_version: '1.0.0-test',
     ...overrides,
   };
 }

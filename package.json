@@ -15,9 +15,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
     "lint:applescript": "find src/applescripts -name '*.applescript' -exec osacompile -o /dev/null {} \\;",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:coverage": "jest --coverage",
+    "test": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest",
+    "test:watch": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest --watch",
+    "test:coverage": "ELECTRON_RUN_AS_NODE=1 electron node_modules/.bin/jest --coverage",
     "test:window-monitor": "node window-monitor/test/window-monitor-macos-test.js",
     "cleanup:sessions": "node scripts/cleanup-sessions.js",
     "db:dev": "sqlite3 -column -header ~/Library/Application\\ Support/academia-electron/sessions-dev.db",
@@ -31,7 +31,8 @@
     "logs:stable:watch": "tail -f ~/Library/Logs/academia-electron/main-stable.log",
     "logs:beta:watch": "tail -f ~/Library/Logs/academia-electron/main-beta.log",
     "reset-permissions": "tccutil reset All com.electron.academia-electron",
-    "fresh-install": "rm -rf /Applications/academia-electron.app; tccutil reset All com.electron.academia-electron; rm -rf ~/Library/Preferences/com.electron.academia-electron* ~/Library/Application\\ Support/academia-electron ~/Library/Application\\ Support/com.electron.academia-electron* ~/Library/Caches/com.electron.academia-electron ~/Library/Logs/academia-electron out/"
+    "fresh-install": "rm -rf /Applications/academia-electron.app; tccutil reset All com.electron.academia-electron; rm -rf ~/Library/Preferences/com.electron.academia-electron* ~/Library/Application\\ Support/academia-electron ~/Library/Application\\ Support/com.electron.academia-electron* ~/Library/Caches/com.electron.academia-electron ~/Library/Logs/academia-electron out/",
+    "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "author": "Academia.edu",
   "license": "UNLICENSED",

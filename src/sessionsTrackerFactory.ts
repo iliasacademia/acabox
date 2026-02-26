@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import { ulid } from 'ulid';
 import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { defaultLogger as logger } from './utils/logger';
@@ -16,6 +17,7 @@ export interface SessionRow {
   created_at: string;
   updated_at: string;
   synced_at: string | null;
+  app_version: string;
 }
 
 export interface SessionsTracker {
@@ -67,7 +69,7 @@ export function createSessionsTracker(sessionDb: SessionDb): SessionsTracker {
   ): string {
     const id = ulid();
     const timestamp = now();
-    sessionDb.insertSession.run(id, sessionType, currentUserId, timestamp, timestamp, JSON.stringify(data), getDeviceId(), timestamp, timestamp);
+    sessionDb.insertSession.run(id, sessionType, currentUserId, timestamp, timestamp, JSON.stringify(data), getDeviceId(), timestamp, timestamp, app.getVersion());
     return id;
   }
 
