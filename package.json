@@ -32,6 +32,7 @@
     "logs:beta:watch": "tail -f ~/Library/Logs/academia-electron/main-beta.log",
     "reset-permissions": "tccutil reset All com.electron.academia-electron",
     "fresh-install": "rm -rf /Applications/academia-electron.app; tccutil reset All com.electron.academia-electron; rm -rf ~/Library/Preferences/com.electron.academia-electron* ~/Library/Application\\ Support/academia-electron ~/Library/Application\\ Support/com.electron.academia-electron* ~/Library/Caches/com.electron.academia-electron ~/Library/Logs/academia-electron out/",
+    "check:native-deps": "node scripts/check-native-deps.js",
     "postinstall": "electron-rebuild -f -w better-sqlite3"
   },
   "author": "Academia.edu",
