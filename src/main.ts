@@ -26,6 +26,7 @@ import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { sessionsTracker } from './sessionsTracker';
 import { sessionSyncService } from './sessionSyncService';
 
+const isSmokeTest = process.argv.includes('--smoke-test');
 const ACTIVITY_FLUSH_INTERVAL_MS = 300_000; // 5 minutes
 
 // Supported document extensions (without dots) for file selection and scanning
@@ -844,6 +845,11 @@ app.whenReady().then(async () => {
     }
   } catch (error) {
     logger.error('[HTTP Server] ✗ Failed to start server:', error);
+  }
+
+  if (isSmokeTest) {
+    console.log('[SMOKE TEST] All services started — shutting down');
+    app.quit();
   }
 });
 
