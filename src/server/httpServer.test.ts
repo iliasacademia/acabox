@@ -20,6 +20,21 @@ jest.mock('./routes/proxy', () => ({
   registerProxyRoutes: jest.fn(),
 }));
 
+// Mock sessionDb to avoid SQLite side-effect at import time
+jest.mock('../sessionDb', () => ({
+  sessionDb: {
+    db: {},
+    insertSession: { run: jest.fn() },
+    updateEndTime: { run: jest.fn() },
+    setUserId: { run: jest.fn() },
+  },
+  db: {},
+  insertSession: { run: jest.fn() },
+  updateEndTime: { run: jest.fn() },
+  setUserId: { run: jest.fn() },
+  createSessionDb: jest.fn(),
+}));
+
 import { AcademiaHttpServer } from './httpServer';
 
 // Mock NotificationManager for testing
