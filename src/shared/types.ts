@@ -151,14 +151,12 @@ export const FEATURES: {
   MS_WORD_V2_ENABLED: boolean;
   ZENDESK_WIDGET_ENABLED: boolean;
   ONBOARDING_V2_ENABLED: boolean;
-  SESSION_CAPTURE_ENABLED: boolean;
 } = {
   CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
   MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
   MS_WORD_V2_ENABLED: true, // V2: new implementation
   ZENDESK_WIDGET_ENABLED: true, // Toggle Zendesk support widget
   ONBOARDING_V2_ENABLED: false, // V2 onboarding: single-file picker flow
-  SESSION_CAPTURE_ENABLED: true, // Toggle local activity session tracking
 };
 
 export interface DesktopNotification {
