@@ -482,6 +482,23 @@ describe('sessionsTracker', () => {
       expect(focused[0].user_id).toBe(789);
     });
 
+    it('normalizes file:// URLs to plain paths for project lookup', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: 'file:///known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const focused = sessionsByType(db, 'word_window_focused');
+      expect(focused).toHaveLength(1);
+      const data = JSON.parse(focused[0].data);
+      expect(data.document_path).toBe('file:///known/project/doc.docx');
+      expect(data.project_id).toBe(42);
+      expect(data.project_file_id).toBe(100);
+    });
+
     it('closes on logout', () => {
       const { db, tracker } = harness;
       tracker.recordAppStarted();

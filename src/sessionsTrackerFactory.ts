@@ -90,7 +90,11 @@ export function createSessionsTracker(sessionDb: SessionDb): SessionsTracker {
 
   function lookupProjectFile(documentPath: string | null) {
     if (!documentPath) return null;
-    return wordIntegrationDataStoreV2.getProjectFileForPath(documentPath);
+    // AXDocument reports file:// URLs; the cache uses plain filesystem paths.
+    const normalizedPath = documentPath.startsWith('file://')
+      ? decodeURIComponent(documentPath.slice(7))
+      : documentPath;
+    return wordIntegrationDataStoreV2.getProjectFileForPath(normalizedPath);
   }
 
   function closeFocusedSession(): void {
