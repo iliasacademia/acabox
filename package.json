@@ -20,6 +20,7 @@
     "test:coverage": "jest --coverage",
     "test:window-monitor": "node window-monitor/test/window-monitor-macos-test.js",
     "cleanup:sessions": "node scripts/cleanup-sessions.js",
+    "db:dev": "sqlite3 -column -header ~/Library/Application\\ Support/academia-electron/sessions-dev.db",
     "prebuild": "npm run build:native && npm run build:popup",
     "package": "electron-forge package",
     "codesign": "find out -name '*.app' -maxdepth 2 -type d -exec codesign --force --deep --sign - --identifier com.electron.academia-electron {} \\;",
