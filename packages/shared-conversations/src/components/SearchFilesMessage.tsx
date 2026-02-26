@@ -44,31 +44,33 @@ export function SearchFilesMessage({ data, onOpenFile, isSearchComplete }: Searc
                   aria-label={`Open ${file.file_name}`}
                 >
                   <OpenExternalIcon />
-                  <span>Open</span>
+                  <span>Open File</span>
                 </button>
               )}
             </div>
             <ul className="searchFilesChunks">
               {file.chunks.map((chunk, i) => (
                 <li key={i} className="searchFilesChunk">
+                  <blockquote className="searchFilesChunkText">{chunk.text}</blockquote>
                   <span className="searchFilesChunkMeta">
-                    {onOpenFile && (file.local_path || file.url) ? (
-                      <button
-                        type="button"
-                        className="searchFilesPageLink"
-                        onClick={() => onOpenFile(file, chunk.page)}
-                        title={`Open at page ${chunk.page}`}
-                      >
-                        p.&nbsp;{chunk.page}
-                      </button>
-                    ) : (
-                      <>p.&nbsp;{chunk.page}</>
-                    )}
-                    {chunk.section && (
+                    Page&nbsp;{chunk.page}
+                    {chunk.section && chunk.section !== 'unknown' && (
                       <> &middot; <span className="searchFilesChunkSection">{chunk.section}</span></>
                     )}
+                    {onOpenFile && (file.local_path || file.url) && (
+                      <>
+                        {' '}|{' '}
+                        <button
+                          type="button"
+                          className="searchFilesPageLink"
+                          onClick={() => onOpenFile(file, chunk.page)}
+                          title={`Open at page ${chunk.page}`}
+                        >
+                          View Source
+                        </button>
+                      </>
+                    )}
                   </span>
-                  <blockquote className="searchFilesChunkText">{chunk.text}</blockquote>
                 </li>
               ))}
             </ul>
