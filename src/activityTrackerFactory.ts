@@ -30,6 +30,8 @@ export interface ActivityTracker {
   updateSessionSyncTime(sessionIds: string[]): void;
 }
 
+const SESSION_RETENTION_DAYS = 14;
+
 export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
   let currentUserId: number | null = null;
   let appSessionId: string | null = null;
@@ -71,9 +73,22 @@ export function createActivityTracker(sessionDb: SessionDb): ActivityTracker {
     sessionDb.updateEndTime.run(timestamp, timestamp, sessionId);
   }
 
+  function purgeExpiredSessions(): void {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const row = sessionDb.getMetadata.get('last_cleanup_date') as { value: string } | undefined;
+
+    if (row?.value === today) return;
+
+    const cutoff = new Date(Date.now() - SESSION_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+    const result = sessionDb.deleteOldSessions.run(cutoff);
+    sessionDb.setMetadata.run('last_cleanup_date', today);
+    logger.info('[ActivityTracker] Purged expired sessions:', result.changes, 'rows deleted');
+  }
+
   // --- App lifecycle ---
 
   function recordAppStarted(): void {
+    purgeExpiredSessions();
     appSessionId = createSession('app');
     logger.info('[ActivityTracker] App session started:', appSessionId);
   }

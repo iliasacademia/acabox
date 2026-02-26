@@ -452,6 +452,134 @@ describe('activityTracker', () => {
     });
   });
 
+  describe('session retention', () => {
+    const REAL_DATE_NOW = Date.now;
+    const REAL_DATE = global.Date;
+
+    afterEach(() => {
+      global.Date = REAL_DATE;
+      Date.now = REAL_DATE_NOW;
+    });
+
+    function mockDate(isoDate: string): void {
+      const fixedTime = new REAL_DATE(isoDate).getTime();
+      jest.spyOn(Date, 'now').mockReturnValue(fixedTime);
+      const OrigDate = REAL_DATE;
+      const MockDate = function (...args: unknown[]) {
+        if (args.length === 0) {
+          return new OrigDate(fixedTime);
+        }
+        // @ts-expect-error — spread into Date constructor
+        return new OrigDate(...args);
+      } as unknown as DateConstructor;
+      MockDate.now = () => fixedTime;
+      MockDate.parse = OrigDate.parse;
+      MockDate.UTC = OrigDate.UTC;
+      Object.defineProperty(MockDate, 'prototype', { value: OrigDate.prototype });
+      global.Date = MockDate;
+    }
+
+    function insertOldSession(db: Database.Database, endTime: string): void {
+      db.prepare(
+        `INSERT INTO sessions (session_id, session_type, user_id, start_time, end_time, data, device_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(`old-${endTime}`, 'app', null, endTime, endTime, '{}', 'test-device', endTime, endTime);
+    }
+
+    it('deletes sessions older than 14 days', () => {
+      const { db, tracker } = createTestHarness();
+
+      // Insert a session with end_time 20 days ago
+      const oldTime = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+      insertOldSession(db, oldTime);
+
+      expect(allSessions(db)).toHaveLength(1);
+
+      tracker.recordAppStarted(); // triggers purge
+
+      // Old session should be deleted, only the new app session remains
+      const rows = allSessions(db);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].session_type).toBe('app');
+      expect(rows[0].session_id).not.toBe(`old-${oldTime}`);
+
+      db.close();
+    });
+
+    it('keeps sessions newer than 14 days', () => {
+      const { db, tracker } = createTestHarness();
+
+      // Insert a session with end_time 5 days ago (within retention)
+      const recentTime = new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString();
+      insertOldSession(db, recentTime);
+
+      expect(allSessions(db)).toHaveLength(1);
+
+      tracker.recordAppStarted(); // triggers purge
+
+      // Recent session should survive + new app session
+      const rows = allSessions(db);
+      expect(rows).toHaveLength(2);
+      expect(rows.some(r => r.session_id === `old-${recentTime}`)).toBe(true);
+
+      db.close();
+    });
+
+    it('only runs cleanup once per day', () => {
+      const { db, tracker } = createTestHarness();
+
+      mockDate('2026-02-20T10:00:00.000Z');
+
+      tracker.recordAppStarted(); // first call — runs purge
+
+      // Check metadata was set
+      const meta = db.prepare('SELECT value FROM session_metadata WHERE key = ?').get('last_cleanup_date') as { value: string };
+      expect(meta.value).toBe('2026-02-20');
+
+      // Insert an old session AFTER first purge
+      const oldTime = new Date(new REAL_DATE('2026-02-01T00:00:00.000Z')).toISOString();
+      insertOldSession(db, oldTime);
+
+      // Second recordAppStarted same day — should NOT purge
+      tracker.recordAppStopping();
+      tracker.recordAppStarted();
+
+      // The old session should still be there (cleanup was skipped)
+      const rows = allSessions(db);
+      expect(rows.some(r => r.session_id === `old-${oldTime}`)).toBe(true);
+
+      db.close();
+    });
+
+    it('runs cleanup again the next day', () => {
+      const { db, tracker } = createTestHarness();
+
+      mockDate('2026-02-20T10:00:00.000Z');
+
+      tracker.recordAppStarted(); // day 1 purge
+
+      // Insert an old session after day 1 purge
+      const oldTime = new REAL_DATE('2026-02-01T00:00:00.000Z').toISOString();
+      insertOldSession(db, oldTime);
+
+      // Advance to next day
+      tracker.recordAppStopping();
+      mockDate('2026-02-21T10:00:00.000Z');
+
+      tracker.recordAppStarted(); // day 2 purge — should run
+
+      // The old session should now be deleted
+      const rows = allSessions(db);
+      expect(rows.every(r => r.session_id !== `old-${oldTime}`)).toBe(true);
+
+      // Metadata should reflect the new date
+      const meta = db.prepare('SELECT value FROM session_metadata WHERE key = ?').get('last_cleanup_date') as { value: string };
+      expect(meta.value).toBe('2026-02-21');
+
+      db.close();
+    });
+  });
+
   describe('fetchSessionsToSync', () => {
     it('returns sessions with user_id where synced_at is null', () => {
       const { db, tracker } = harness;
