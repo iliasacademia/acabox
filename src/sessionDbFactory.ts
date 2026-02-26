@@ -39,19 +39,10 @@ export function createSessionDb(db: Database.Database): SessionDb {
   `);
 
   // Migration for existing databases: add new columns if missing
-  for (const col of ['device_id', 'created_at', 'updated_at']) {
-    try {
-      db.exec(`ALTER TABLE sessions ADD COLUMN ${col} TEXT NOT NULL DEFAULT ''`);
-    } catch {
-      // Column already exists
-    }
-  }
-
-  try {
-    db.exec(`ALTER TABLE sessions ADD COLUMN synced_at TEXT DEFAULT NULL`);
-  } catch {
-    // Column already exists
-  }
+  try { db.exec('ALTER TABLE sessions ADD COLUMN device_id TEXT NOT NULL DEFAULT ""'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE sessions ADD COLUMN created_at TEXT NOT NULL DEFAULT ""'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE sessions ADD COLUMN updated_at TEXT NOT NULL DEFAULT ""'); } catch { /* already exists */ }
+  try { db.exec('ALTER TABLE sessions ADD COLUMN synced_at TEXT DEFAULT NULL'); } catch { /* already exists */ }
 
   const insertSession = db.prepare(
     `INSERT INTO sessions (session_id, session_type, user_id, start_time, end_time, data, device_id, created_at, updated_at)
