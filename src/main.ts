@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell, powerMonitor } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { createCanvas } from 'canvas';
@@ -686,6 +686,7 @@ function setupAutoUpdater(): Promise<UpdateResult> {
         mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_DOWNLOADED);
         setTimeout(() => {
           logger.info('[Auto-Updater] Auto-restarting to install update...');
+          store.set('updateRestartWindowVisible', mainWindow?.isVisible() ?? true);
           isQuittingForUpdate = true;
           autoUpdater.quitAndInstall(true, true);
         }, 1500);
@@ -741,6 +742,14 @@ function setupAutoUpdater(): Promise<UpdateResult> {
         logger.error('[Auto-Updater] Hourly check failed:', err);
       });
     }, 3600000);
+
+    // Check for updates when system resumes from sleep
+    powerMonitor.on('resume', () => {
+      logger.info('[Auto-Updater] System resumed from sleep, checking for updates...');
+      autoUpdater.checkForUpdates().catch((err) => {
+        logger.error('[Auto-Updater] Resume check failed:', err);
+      });
+    });
   });
 }
 
@@ -819,8 +828,11 @@ app.whenReady().then(async () => {
     return;
   }
 
-  // Startup update phase is done — show the window if it hasn't shown yet
-  if (mainWindow && !mainWindow.isDestroyed()) {
+  // Check if previous launch saved a window-visibility preference (from update restart)
+  const shouldShowWindow = store.get('updateRestartWindowVisible', true) as boolean;
+  store.delete('updateRestartWindowVisible'); // One-time flag, clean up
+
+  if (shouldShowWindow && mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
   }
 
