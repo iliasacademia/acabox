@@ -129,8 +129,9 @@ const App: React.FC = () => {
     const handleUpdateAvailable = (_event: any, data: { version: string; formattedVersion: string }) => {
       setUpdateState({
         show: true,
-        status: 'available',
+        status: 'downloading',
         version: data.formattedVersion,
+        progress: 0,
       });
     };
 
