@@ -1,6 +1,47 @@
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
+
+// Root native modules that need to be copied outside the asar archive.
+// Transitive runtime dependencies are resolved automatically.
+const nativeModuleRoots = ['canvas', 'better-sqlite3'];
+
+// Packages only needed at install/build time — never needed at runtime.
+const installTimeOnly = new Set([
+  'prebuild-install', 'node-addon-api', 'node-gyp', 'node-gyp-build',
+]);
+
+/**
+ * Recursively resolve runtime dependencies for a list of root modules.
+ * Returns a flat, deduplicated list of module names to copy.
+ */
+function resolveRuntimeDeps(roots) {
+  const resolved = new Set();
+  const queue = [...roots];
+
+  while (queue.length > 0) {
+    const mod = queue.shift();
+    if (resolved.has(mod) || installTimeOnly.has(mod)) continue;
+
+    const pkgPath = path.join(__dirname, 'node_modules', mod, 'package.json');
+    if (!fs.existsSync(pkgPath)) continue;
+
+    resolved.add(mod);
+
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    if (pkg.dependencies) {
+      for (const dep of Object.keys(pkg.dependencies)) {
+        if (!resolved.has(dep) && !installTimeOnly.has(dep)) {
+          queue.push(dep);
+        }
+      }
+    }
+  }
+
+  return [...resolved];
+}
 
 // Check if we have a valid code signing identity
 // Use environment variable or fall back to undefined for local development
@@ -11,7 +52,7 @@ const platform = os.platform();
 
 const packagerConfig = {
   asar: {
-    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*}',
+    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*}',
   },
   extraResource: [
     ...(platform === 'darwin' ? [
@@ -57,17 +98,14 @@ module.exports = {
   rebuildConfig: {},
   hooks: {
     packageAfterCopy: async (config, buildPath) => {
-      const fs = require('fs');
-      const path = require('path');
-
-      // Copy canvas and its dependencies to the build
-      const modulesToCopy = ['canvas'];
-      for (const module of modulesToCopy) {
-        const src = path.join(__dirname, 'node_modules', module);
-        const dest = path.join(buildPath, 'node_modules', module);
+      // Automatically resolve all transitive runtime deps of native modules
+      const modulesToCopy = resolveRuntimeDeps(nativeModuleRoots);
+      for (const mod of modulesToCopy) {
+        const src = path.join(__dirname, 'node_modules', mod);
+        const dest = path.join(buildPath, 'node_modules', mod);
         if (fs.existsSync(src)) {
           fs.cpSync(src, dest, { recursive: true });
-          console.log(`Copied ${module} to package`);
+          console.log(`Copied ${mod} to package`);
         }
       }
     },

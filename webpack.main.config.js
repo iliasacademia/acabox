@@ -1,3 +1,5 @@
+const webpack = require('webpack');
+
 module.exports = {
   entry: './src/main.ts',
   module: {
@@ -25,5 +27,21 @@ module.exports = {
       callback();
     },
   ],
-  plugins: require('./webpack.plugins'),
+  plugins: [
+    ...require('./webpack.plugins'),
+    // Inject an early uncaught-exception handler for smoke tests.
+    // This runs before any require() in the bundle, so it catches native
+    // module load failures before Electron shows a blocking error dialog.
+    new webpack.BannerPlugin({
+      banner: [
+        'if (process.argv.includes("--smoke-test")) {',
+        '  process.on("uncaughtException", function(err) {',
+        '    process.stderr.write("[SMOKE TEST] Fatal: " + err.stack + "\\n");',
+        '    process.exit(1);',
+        '  });',
+        '}',
+      ].join('\n'),
+      raw: true,
+    }),
+  ],
 };
