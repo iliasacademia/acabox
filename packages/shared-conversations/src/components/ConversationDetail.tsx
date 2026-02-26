@@ -97,12 +97,15 @@ export function ConversationDetail({
         data: { filePath: file.local_path, page: page ? parseInt(page, 10) : undefined },
       });
     } else if (file.url && apiClient.openExternalUrl) {
-      const zoteroKey = file.url.match(/api\.zotero\.org\/(?:users|groups)\/\d+\/items\/([A-Z0-9]+)/i)?.[1];
-      if (zoteroKey) {
-        // With page → open Zotero PDF reader at that page; without → select item in library
+      const zoteroMatch = file.url.match(/api\.zotero\.org\/(users|groups)\/(\d+)\/items\/([A-Z0-9]+)/i);
+      if (zoteroMatch) {
+        const [, ownerType, ownerId, itemKey] = zoteroMatch;
+        // Personal library uses "library"; group libraries use "groups/GROUPID"
+        const libraryPath = ownerType.toLowerCase() === 'groups' ? `groups/${ownerId}` : 'library';
+        // Zotero's open-pdf deep link uses 0-based page index, so subtract 1.
         const openUrl = page
-          ? `zotero://open-pdf/library/items/${zoteroKey}?page=${page}`
-          : `zotero://select/library/items/${zoteroKey}`;
+          ? `zotero://open-pdf/${libraryPath}/items/${itemKey}?page=${parseInt(page, 10) - 1}`
+          : `zotero://open-pdf/${libraryPath}/items/${itemKey}`;
         apiClient.openExternalUrl(openUrl);
       } else {
         apiClient.openExternalUrl(file.url);
