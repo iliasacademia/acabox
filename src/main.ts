@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell, powerMonitor } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { createCanvas } from 'canvas';
@@ -82,6 +82,8 @@ let httpServer: AcademiaHttpServer | null = null;
 // Flags for app lifecycle management
 let isQuitting = false;
 let isQuittingForUpdate = false;
+let startupUpdatePhase: 'checking' | 'done' = 'done';
+let updateCheckSource: 'startup' | 'hourly' | 'event' = 'startup';
 
 const createWindow = async (): Promise<void> => {
   const isDevelopment = !app.isPackaged;
@@ -247,9 +249,10 @@ const createMainWindow = async (): Promise<void> => {
     }
   });
 
-  // Show window when ready to prevent visual flash
+  // Show window when ready — but only if the startup update phase is done.
+  // If an update check is in progress, the window will be shown after it completes.
   mainWindow.once('ready-to-show', () => {
-    if (mainWindow) {
+    if (mainWindow && startupUpdatePhase === 'done') {
       mainWindow.show();
     }
   });
@@ -560,15 +563,19 @@ const positionWindowMiddleRight = (): void => {
 };
 
 // Auto-updater configuration and setup
-function setupAutoUpdater(): void {
+// Returns a Promise that resolves when the startup update check is complete.
+// During startup, updates are downloaded silently and installed before the window shows.
+type UpdateResult = 'update-installing' | 'no-update' | 'error' | 'timeout';
+
+function setupAutoUpdater(): Promise<UpdateResult> {
   // Only enable auto-updater in production (packaged app)
   if (!app.isPackaged) {
     logger.info('[Auto-Updater] Disabled in development mode');
-    return;
+    return Promise.resolve('no-update');
   }
 
   // Configure electron-updater
-  autoUpdater.autoDownload = false; // Don't auto-download, ask user first
+  autoUpdater.autoDownload = true; // Auto-download for seamless startup updates
   autoUpdater.autoInstallOnAppQuit = true; // Install update when app quits
 
   // Detect update channel from version string (stable vs beta)
@@ -584,7 +591,7 @@ function setupAutoUpdater(): void {
   // Security validation: Ensure CLOUDFRONT_DOMAIN is configured
   if (!cloudFrontDomain) {
     logger.error('[Auto-Updater] CLOUDFRONT_DOMAIN not configured - auto-updates disabled');
-    return;
+    return Promise.resolve('no-update');
   }
 
   // Security validation: Verify domain matches CloudFront pattern
@@ -595,7 +602,7 @@ function setupAutoUpdater(): void {
       'Domain must match *.cloudfront.net pattern',
       'Auto-updates have been disabled to prevent malicious update server redirection'
     );
-    return;
+    return Promise.resolve('no-update');
   }
 
   // electron-updater will automatically append platform-specific manifest:
@@ -616,87 +623,155 @@ function setupAutoUpdater(): void {
     url: feedUrl,
   });
 
-  // Event: Checking for updates
-  autoUpdater.on('checking-for-update', () => {
-    logger.info('[Auto-Updater] Checking for updates...');
-  });
+  // Mark that we're in the startup update phase
+  startupUpdatePhase = 'checking';
 
-  // Event: Update available - send to renderer for banner display
-  autoUpdater.on('update-available', (info) => {
-    logger.info('[Auto-Updater] Update available:', info.version);
+  return new Promise<UpdateResult>((resolve) => {
+    let settled = false;
+    const settle = (result: UpdateResult) => {
+      if (settled) return;
+      settled = true;
+      startupUpdatePhase = 'done';
+      autoUpdater.autoDownload = false; // Disable auto-download after startup
+      resolve(result);
+    };
 
-    const formattedVersion = formatTimestampVersion(info.version);
+    // 30-second timeout — if check+download isn't complete, show the app
+    const startupTimeout = setTimeout(() => {
+      logger.info('[Auto-Updater] Startup timeout reached (30s), showing app');
+      settle('timeout');
+    }, 30000);
 
-    // Send to renderer to show banner (non-disruptive)
-    mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_AVAILABLE, {
-      version: info.version,
-      formattedVersion: formattedVersion,
-    });
-  });
+    const clearStartupTimeout = () => clearTimeout(startupTimeout);
 
-  // Event: Update not available - silent, just log
-  autoUpdater.on('update-not-available', (info) => {
-    logger.info('[Auto-Updater] No updates available. Current version is latest:', info.version);
-    // Silent - no dialog, no banner when already on latest version
-  });
-
-  // Event: Update downloaded - notify renderer and auto-restart
-  autoUpdater.on('update-downloaded', (info) => {
-    logger.info('[Auto-Updater] Update downloaded:', info.version);
-
-    // Notify renderer that download is complete
-    mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_DOWNLOADED);
-
-    // Auto-restart after short delay to show completion state in banner
-    setTimeout(() => {
-      logger.info('[Auto-Updater] Auto-restarting to install update...');
-      isQuittingForUpdate = true; // Set flag to skip cleanup during update quit
-      autoUpdater.quitAndInstall(true, true); // isSilent=true, isForceRunAfter=true
-    }, 1500);
-  });
-
-  // Event: Error - send to renderer for banner display
-  autoUpdater.on('error', (error) => {
-    // Log comprehensive error information for debugging
-    logger.error('[Auto-Updater] Error occurred:', {
-      message: error.message,
-      code: (error as any).code,
-      stack: error.stack,
-      name: error.name,
+    // Event: Checking for updates
+    autoUpdater.on('checking-for-update', () => {
+      logger.info('[Auto-Updater] Checking for updates...');
     });
 
-    // Send to renderer to show error in banner
-    mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_ERROR, {
-      message: error.message || 'Download failed',
+    // Event: Update available - during startup, download is automatic (autoDownload=true)
+    // During running mode (hourly checks), send to renderer for banner display
+    autoUpdater.on('update-available', (info) => {
+      logger.info('[Auto-Updater] Update available:', info.version);
+
+      const formattedVersion = formatTimestampVersion(info.version);
+
+      // Only act if startup phase is done (mid-session checks)
+      if (startupUpdatePhase === 'done') {
+        if (updateCheckSource === 'event') {
+          // Resume/unlock: auto-download silently
+          autoUpdater.downloadUpdate().catch((err) => {
+            logger.error('[Auto-Updater] Auto-download after event check failed:', err);
+          });
+        } else {
+          // Hourly: show banner, wait for user to click Download
+          mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_AVAILABLE, {
+            version: info.version,
+            formattedVersion: formattedVersion,
+          });
+        }
+      }
     });
-  });
 
-  // Event: Download progress - send to renderer for banner display
-  autoUpdater.on('download-progress', (progressInfo) => {
-    const percent = Math.round(progressInfo.percent);
-    logger.info(`[Auto-Updater] Download progress: ${percent}%`);
-
-    // Send progress to renderer for banner
-    mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS, {
-      percent: percent,
+    // Event: Update not available - silent, just log
+    autoUpdater.on('update-not-available', (info) => {
+      logger.info('[Auto-Updater] No updates available. Current version is latest:', info.version);
+      clearStartupTimeout();
+      settle('no-update');
     });
-  });
 
-  // Check for updates on startup (with delay to avoid blocking app initialization)
-  setTimeout(() => {
+    // Event: Update downloaded - during startup, restart immediately; during running, show banner
+    autoUpdater.on('update-downloaded', (info) => {
+      logger.info('[Auto-Updater] Update downloaded:', info.version);
+      clearStartupTimeout();
+
+      if (!settled) {
+        // Startup phase: restart immediately before the window ever shows
+        logger.info('[Auto-Updater] Startup: installing update immediately...');
+        isQuittingForUpdate = true;
+        settle('update-installing');
+        autoUpdater.quitAndInstall(true, true); // isSilent=true, isForceRunAfter=true
+      } else {
+        // Running mode (hourly check or timeout): notify renderer and restart after delay
+        mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_DOWNLOADED);
+        setTimeout(() => {
+          logger.info('[Auto-Updater] Auto-restarting to install update...');
+          store.set('updateRestartWindowVisible', mainWindow?.isVisible() ?? true);
+          isQuittingForUpdate = true;
+          autoUpdater.quitAndInstall(true, true);
+        }, 1500);
+      }
+    });
+
+    // Event: Error - during startup, show app normally; during running, show banner
+    autoUpdater.on('error', (error) => {
+      logger.error('[Auto-Updater] Error occurred:', {
+        message: error.message,
+        code: (error as any).code,
+        stack: error.stack,
+        name: error.name,
+      });
+
+      clearStartupTimeout();
+
+      if (!settled) {
+        // Startup phase: show app normally
+        settle('error');
+      } else {
+        // Running mode: send to renderer for banner
+        mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_ERROR, {
+          message: error.message || 'Download failed',
+        });
+      }
+    });
+
+    // Event: Download progress - only send to renderer if startup phase is done
+    autoUpdater.on('download-progress', (progressInfo) => {
+      const percent = Math.round(progressInfo.percent);
+      logger.info(`[Auto-Updater] Download progress: ${percent}%`);
+
+      if (startupUpdatePhase === 'done') {
+        mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_DOWNLOAD_PROGRESS, {
+          percent: percent,
+        });
+      }
+    });
+
+    // Check for updates immediately on startup (no delay)
     logger.info('[Auto-Updater] Performing initial update check...');
     autoUpdater.checkForUpdates().catch((err) => {
       logger.error('[Auto-Updater] Failed to check for updates:', err);
+      clearStartupTimeout();
+      settle('error');
     });
-  }, 3000); // 3 second delay
 
-  // Check for updates every hour (3600000ms = 1 hour)
-  setInterval(() => {
-    logger.info('[Auto-Updater] Performing hourly update check...');
-    autoUpdater.checkForUpdates().catch((err) => {
-      logger.error('[Auto-Updater] Hourly check failed:', err);
+    // Check for updates every hour (3600000ms = 1 hour)
+    setInterval(() => {
+      logger.info('[Auto-Updater] Performing hourly update check...');
+      updateCheckSource = 'hourly';
+      autoUpdater.checkForUpdates().catch((err) => {
+        logger.error('[Auto-Updater] Hourly check failed:', err);
+      });
+    }, 3600000);
+
+    // Check for updates when system resumes from sleep
+    powerMonitor.on('resume', () => {
+      logger.info('[Auto-Updater] System resumed from sleep, checking for updates...');
+      updateCheckSource = 'event';
+      autoUpdater.checkForUpdates().catch((err) => {
+        logger.error('[Auto-Updater] Resume check failed:', err);
+      });
     });
-  }, 3600000);
+
+    // Check for updates when screen is unlocked (covers lock-without-sleep case)
+    powerMonitor.on('unlock-screen', () => {
+      logger.info('[Auto-Updater] Screen unlocked, checking for updates...');
+      updateCheckSource = 'event';
+      autoUpdater.checkForUpdates().catch((err) => {
+        logger.error('[Auto-Updater] Unlock-screen check failed:', err);
+      });
+    });
+  });
 }
 
 // Helper function to format timestamp version for display
@@ -764,8 +839,23 @@ app.whenReady().then(async () => {
   }
   createTray();
 
-  // Setup auto-updater
-  setupAutoUpdater();
+  // Setup auto-updater — wait for startup update check before showing the window.
+  // If an update is downloaded during startup, the app restarts before showing anything.
+  const updateResult = await setupAutoUpdater();
+  logger.info(`[Auto-Updater] Startup update result: ${updateResult}`);
+
+  if (updateResult === 'update-installing') {
+    // App is about to quit and restart with the new version — don't show window or start services
+    return;
+  }
+
+  // Check if previous launch saved a window-visibility preference (from update restart)
+  const shouldShowWindow = store.get('updateRestartWindowVisible', true) as boolean;
+  store.delete('updateRestartWindowVisible'); // One-time flag, clean up
+
+  if (shouldShowWindow && mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+  }
 
   // Start HTTP server for data fetching
   logger.debug('[HTTP Server] Starting HTTP server...');

@@ -30,6 +30,8 @@ describe('EventsManager', () => {
   let mockStore: jest.Mocked<Store>;
 
   beforeEach(() => {
+    jest.useFakeTimers();
+
     // Clear any previous state
     eventsManager.stopPolling();
 
@@ -55,6 +57,7 @@ describe('EventsManager', () => {
   });
 
   afterEach(() => {
+    jest.useRealTimers();
     jest.clearAllMocks();
     jest.clearAllTimers();
     eventsManager.stopPolling();
@@ -62,8 +65,6 @@ describe('EventsManager', () => {
 
   describe('Polling', () => {
     it('should start polling with 10 second interval', async () => {
-      jest.useFakeTimers();
-
       mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
@@ -79,8 +80,6 @@ describe('EventsManager', () => {
 
       // Should have been called again
       expect(mockPollEvents).toHaveBeenCalledTimes(2);
-
-      jest.useRealTimers();
     });
 
     it('should perform immediate sync on startPolling()', async () => {
@@ -90,14 +89,12 @@ describe('EventsManager', () => {
       eventsManager.startPolling(1, 10000);
 
       // Wait for immediate sync
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await jest.advanceTimersByTimeAsync(100);
 
       expect(mockPollEvents).toHaveBeenCalled();
     });
 
     it('should clear existing interval before starting new one', async () => {
-      jest.useFakeTimers();
-
       mockPollEvents.mockResolvedValue({ events: [], server_timestamp: '2026-01-13T12:00:00.000Z' });
       eventsManager.setMainWindow(mockWindow);
 
@@ -116,8 +113,6 @@ describe('EventsManager', () => {
 
       // Should have been called with new interval
       expect(mockPollEvents).toHaveBeenCalled();
-
-      jest.useRealTimers();
     });
 
     it('should stop polling and clear interval', () => {
@@ -242,6 +237,8 @@ describe('EventsManager', () => {
       const sync1 = eventsManager.syncWithBackend();
       const sync2 = eventsManager.syncWithBackend();
 
+      // Advance fake timers to let the mock setTimeout resolve
+      await jest.advanceTimersByTimeAsync(1000);
       await Promise.all([sync1, sync2]);
 
       // Should only call pollEvents once (second call skipped)
@@ -454,8 +451,6 @@ describe('EventsManager', () => {
     });
 
     it('should handle network errors and continue polling', async () => {
-      jest.useFakeTimers();
-
       mockPollEvents
         .mockRejectedValueOnce(new Error('Network error'))
         .mockResolvedValueOnce({ events: [] });
@@ -470,8 +465,6 @@ describe('EventsManager', () => {
 
       // Second sync should succeed
       expect(mockPollEvents).toHaveBeenCalledTimes(2);
-
-      jest.useRealTimers();
     });
 
     it('should handle empty events array and still update server timestamp', async () => {
@@ -617,8 +610,6 @@ describe('EventsManager', () => {
     });
 
     it('should continue polling if IPC send fails', async () => {
-      jest.useFakeTimers();
-
       mockWindow.webContents.send.mockImplementationOnce(() => {
         throw new Error('IPC send failed');
       });
@@ -645,8 +636,6 @@ describe('EventsManager', () => {
 
       // Should have tried polling again
       expect(mockPollEvents).toHaveBeenCalledTimes(2);
-
-      jest.useRealTimers();
     });
 
     it('should send correct event structure to renderer', async () => {
@@ -751,8 +740,6 @@ describe('EventsManager', () => {
     });
 
     it('should continue polling after errors', async () => {
-      jest.useFakeTimers();
-
       mockPollEvents
         .mockRejectedValueOnce(new Error('Error 1'))
         .mockRejectedValueOnce(new Error('Error 2'))
@@ -772,8 +759,6 @@ describe('EventsManager', () => {
 
       // Should have tried 3 times
       expect(mockPollEvents).toHaveBeenCalledTimes(3);
-
-      jest.useRealTimers();
     });
   });
 
@@ -786,7 +771,7 @@ describe('EventsManager', () => {
       eventsManager.startPolling(1, 10000);
       eventsManager.startPolling(1, 10000);
 
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await jest.advanceTimersByTimeAsync(100);
 
       // Should not cause issues
       expect(true).toBe(true);
