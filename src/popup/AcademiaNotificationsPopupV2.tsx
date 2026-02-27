@@ -37,6 +37,7 @@ const POPUP_HEIGHT_NO_NOTIFICATIONS = 240;    // "View previous feedback" row + 
 const POPUP_HEIGHT_ONE_NOTIFICATION = 320;    // 1 notification card + above
 const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400;   // 2 notification cards + above
 const POPUP_HEIGHT_REVIEW_VIEW = 660;         // Height when showing inline review content
+const POPUP_HEIGHT_ENABLE_FEEDBACK = 220;     // Height for enable feedback view
 const REVIEW_STATUS_CARD_HEIGHT = 72;         // Height of review status card (60px card + 12px gap)
 
 // Arrow Forward Icon component
@@ -163,6 +164,7 @@ interface WordPollResponse {
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
   fullStoryConfig?: FullStoryConfig;
+  isEnableFeedback?: boolean;
 }
 
 interface WebSocketMessage {
@@ -392,6 +394,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [error, setError] = useState<string | null>(null);
   const [shouldShow, setShouldShow] = useState<boolean>(true); // Default to true, update via poll
+  const [isEnableFeedback, setIsEnableFeedback] = useState(false);
 
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
@@ -609,7 +612,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setShouldShow(pollData.shouldShow);
     onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? pollData.shouldShow);
 
-    if (!pollData.shouldShow) {
+    setIsEnableFeedback(pollData.isEnableFeedback ?? false);
+
+    if (!pollData.shouldShow && !pollData.isEnableFeedback) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShow=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
       postBridge('closeWindow').catch(() => {});
       return;
@@ -660,7 +665,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   useEffect(() => {
     let height: number;
 
-    if (viewMode === 'review') {
+    if (isEnableFeedback) {
+      height = POPUP_HEIGHT_ENABLE_FEEDBACK;
+    } else if (viewMode === 'review') {
       // Taller height for inline review content
       height = POPUP_HEIGHT_REVIEW_VIEW;
     } else if (recentReviewNotifications.length >= 2) {
@@ -682,7 +689,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       previousHeightRef.current = height;
       postBridge('resizeWindow', { height });
     }
-  }, [viewMode, recentReviewNotifications, pollData]);
+  }, [isEnableFeedback, viewMode, recentReviewNotifications, pollData]);
 
   // Handle clicking on a review notification card - show inline review
   const handleViewReviewFeedback = async (notification: NotificationData) => {
@@ -1264,6 +1271,33 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     </>
   );
 
+  const renderEnableFeedbackView = () => (
+    <>
+      <button
+        style={styles.closeButton}
+        onClick={() => postBridge('closeWindow').catch(() => {})}
+        aria-label="Close popup"
+      >
+        <CloseIcon />
+      </button>
+      <div style={styles.enableFeedbackTitle}>
+        Share this document for feedback?
+      </div>
+      <div style={styles.enableFeedbackDescription}>
+        This document hasn't been shared with Writing Agent yet. Share it to start getting feedback.
+      </div>
+      <button
+        style={styles.enableFeedbackShareButton}
+        onClick={() => {
+          console.log('[AcademiaNotificationsPopupV2] Share to enable feedback clicked');
+          postBridge('shareToEnableFeedback').catch(() => {});
+        }}
+      >
+        <span style={styles.enableFeedbackShareButtonText}>Share to enable feedback</span>
+      </button>
+    </>
+  );
+
   return (
     <div style={styles.container}>
       <div style={styles.modal}>
@@ -1279,7 +1313,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
             onPointerUp={handleResizePointerUp}
           />
         )}
-        {viewMode === 'review' ? renderReviewView() : renderMenuView()}
+        {isEnableFeedback
+          ? renderEnableFeedbackView()
+          : viewMode === 'review'
+            ? renderReviewView()
+            : renderMenuView()}
       </div>
     </div>
   );
@@ -1802,6 +1840,42 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 400,
     padding: 0,
     marginLeft: '4px',
+  },
+  // Enable feedback view styles
+  enableFeedbackTitle: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '24px',
+    fontWeight: 400,
+    lineHeight: '29px',
+    color: '#141413',
+    paddingBottom: '16px',
+  },
+  enableFeedbackDescription: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 400,
+    lineHeight: '20px',
+    color: '#141413',
+    paddingBottom: '16px',
+  },
+  enableFeedbackShareButton: {
+    height: '48px',
+    backgroundColor: '#0645b1',
+    border: 'none',
+    borderRadius: '16px',
+    padding: '0 20px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  enableFeedbackShareButtonText: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 600,
+    lineHeight: '20px',
+    color: '#ffffff',
   },
 };
 
