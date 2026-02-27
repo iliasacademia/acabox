@@ -14,6 +14,8 @@ interface EventHandlers {
   onFileUploadStarted?: (event: CoScientistEvent) => void;
   onFileUploadCompleted?: (event: CoScientistEvent) => void;
   onFileUploadFailed?: (event: CoScientistEvent) => void;
+  onZoteroFileSynced?: (event: CoScientistEvent) => void;
+  onZoteroDisconnected?: (event: CoScientistEvent) => void;
   onAllEvents?: (event: CoScientistEvent) => void;
 }
 
@@ -133,6 +135,14 @@ export function useCoScientistEvents(handlers: EventHandlers): void {
 
         case 'file_upload_failed':
           h.onFileUploadFailed?.(coScientistEvent);
+          break;
+
+        case 'zotero_file_synced':
+          h.onZoteroFileSynced?.(coScientistEvent);
+          break;
+
+        case 'zotero_disconnected':
+          h.onZoteroDisconnected?.(coScientistEvent);
           break;
 
         default:

@@ -13,16 +13,40 @@ interface UploadingFile {
   fileId?: number;
 }
 
+export interface ZoteroStatusProps {
+  connected: boolean;
+  zotero_username: string | null;
+  last_synced_at: string | null;
+}
+
 export interface SupportingMaterialsContentProps {
   projectId: number;
   onMaterialsChange?: () => void;
   fileUploadEvent?: { file: any; timestamp: number } | null;
+  zoteroSyncEvent?: { timestamp: number } | null;
+  zoteroStatus?: ZoteroStatusProps | null;
+  isZoteroStatusLoading?: boolean;
+  isZoteroPolling?: boolean;
+  isZoteroSyncing?: boolean;
+  isZoteroDisconnecting?: boolean;
+  onConnectZotero?: () => void;
+  onSyncZotero?: () => void;
+  onDisconnectZotero?: () => void;
 }
 
 export function SupportingMaterialsContent({
   projectId,
   onMaterialsChange,
   fileUploadEvent,
+  zoteroSyncEvent,
+  zoteroStatus,
+  isZoteroStatusLoading,
+  isZoteroPolling,
+  isZoteroSyncing,
+  isZoteroDisconnecting,
+  onConnectZotero,
+  onSyncZotero,
+  onDisconnectZotero,
 }: SupportingMaterialsContentProps) {
   const [materials, setMaterials] = useState<SupportingMaterial[]>([]);
   const [uploadingFiles, setUploadingFiles] = useState<UploadingFile[]>([]);
@@ -102,6 +126,12 @@ export function SupportingMaterialsContent({
       });
     }
   }, [fileUploadEvent]);
+
+  // Handle Zotero sync events — silently refresh the list for each synced file
+  useEffect(() => {
+    if (!zoteroSyncEvent) return;
+    silentRefreshMaterials();
+  }, [zoteroSyncEvent]);
 
   // When all uploading files finish processing, silently refresh materials from server
   useEffect(() => {
@@ -370,43 +400,61 @@ export function SupportingMaterialsContent({
             </button>
 
             {/* Zotero Integration */}
-            <button className="uploadOption disabled" disabled>
-              <div className="uploadOptionIcon">
-                <svg
-                  width="24"
-                  height="24"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  xmlns="http://www.w3.org/2000/svg"
-                >
-                  <path
-                    d="M12 2L2 7L12 12L22 7L12 2Z"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M2 17L12 22L22 17"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <path
-                    d="M2 12L12 17L22 12"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
-              <div className="uploadOptionContent">
-                <h3 className="uploadOptionTitle">Choose from Zotero</h3>
-                <p className="uploadOptionSubtitle">Status: Connected</p>
-              </div>
-            </button>
+            {(() => {
+              const isZoteroConnected = zoteroStatus?.connected ?? false;
+              const statusText = isZoteroStatusLoading
+                ? 'Checking connection...'
+                : isZoteroPolling
+                  ? 'Waiting for authorization...'
+                  : isZoteroConnected
+                    ? `Connected as ${zoteroStatus?.zotero_username || 'user'}${zoteroStatus?.last_synced_at ? ` · Last synced ${new Date(zoteroStatus.last_synced_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}` : ''}`
+                    : 'Connect your Zotero library to sync references';
+              return (
+                <div className="zoteroOptionWrapper">
+                  <div className="zoteroStatusRow">
+                    <div className="zoteroStatusText">
+                      <div className="zoteroStatusLabel">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'text-bottom', marginRight: 5 }}>
+                          <text x="12" y="17" textAnchor="middle" fontFamily="DM Sans, sans-serif" fontSize="16" fontWeight="700" fill="#CC2936">Z</text>
+                        </svg>
+                        Zotero
+                      </div>
+                      <div className="zoteroStatusDescription">{statusText}</div>
+                    </div>
+                    {!isZoteroStatusLoading && (
+                      <div className="zoteroStatusActions">
+                        {isZoteroConnected ? (
+                          <>
+                            <button
+                              className="smZoteroButton smZoteroButtonSync"
+                              onClick={onSyncZotero}
+                              disabled={isZoteroSyncing}
+                            >
+                              {isZoteroSyncing ? 'Syncing...' : 'Sync'}
+                            </button>
+                            <button
+                              className="smZoteroButton smZoteroButtonDisconnect"
+                              onClick={onDisconnectZotero}
+                              disabled={isZoteroDisconnecting}
+                            >
+                              {isZoteroDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="smZoteroButton smZoteroButtonConnect"
+                            onClick={onConnectZotero}
+                            disabled={isZoteroPolling}
+                          >
+                            {isZoteroPolling ? 'Waiting...' : 'Connect'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* Materials Table or Empty State */}

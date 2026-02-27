@@ -49,6 +49,14 @@ export interface CoScientistEvent {
    * - file_id: number - ID of the file that failed
    * - file_name: string - Name of the file
    * - error: string - Error message describing the failure
+   *
+   * For 'zotero_file_synced' events (when a file is synced from Zotero):
+   * - file_id: number - ID of the synced file
+   * - file_name: string - Name of the file
+   * - url: string - Zotero URL of the file
+   *
+   * For 'zotero_disconnected' events (when Zotero account is disconnected):
+   * (no additional data)
    */
   data: Record<string, any>;
   timestamp: string; // ISO 8601 format
