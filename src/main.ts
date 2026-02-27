@@ -83,6 +83,7 @@ let httpServer: AcademiaHttpServer | null = null;
 let isQuitting = false;
 let isQuittingForUpdate = false;
 let startupUpdatePhase: 'checking' | 'done' = 'done';
+let updateCheckSource: 'startup' | 'hourly' | 'event' = 'startup';
 
 const createWindow = async (): Promise<void> => {
   const isDevelopment = !app.isPackaged;
@@ -631,6 +632,7 @@ function setupAutoUpdater(): Promise<UpdateResult> {
       if (settled) return;
       settled = true;
       startupUpdatePhase = 'done';
+      autoUpdater.autoDownload = false; // Disable auto-download after startup
       resolve(result);
     };
 
@@ -654,12 +656,20 @@ function setupAutoUpdater(): Promise<UpdateResult> {
 
       const formattedVersion = formatTimestampVersion(info.version);
 
-      // Only send to renderer if startup phase is done (hourly checks)
+      // Only act if startup phase is done (mid-session checks)
       if (startupUpdatePhase === 'done') {
-        mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_AVAILABLE, {
-          version: info.version,
-          formattedVersion: formattedVersion,
-        });
+        if (updateCheckSource === 'event') {
+          // Resume/unlock: auto-download silently
+          autoUpdater.downloadUpdate().catch((err) => {
+            logger.error('[Auto-Updater] Auto-download after event check failed:', err);
+          });
+        } else {
+          // Hourly: show banner, wait for user to click Download
+          mainWindow?.webContents.send(IPC_CHANNELS.UPDATE_AVAILABLE, {
+            version: info.version,
+            formattedVersion: formattedVersion,
+          });
+        }
       }
     });
 
@@ -738,6 +748,7 @@ function setupAutoUpdater(): Promise<UpdateResult> {
     // Check for updates every hour (3600000ms = 1 hour)
     setInterval(() => {
       logger.info('[Auto-Updater] Performing hourly update check...');
+      updateCheckSource = 'hourly';
       autoUpdater.checkForUpdates().catch((err) => {
         logger.error('[Auto-Updater] Hourly check failed:', err);
       });
@@ -746,6 +757,7 @@ function setupAutoUpdater(): Promise<UpdateResult> {
     // Check for updates when system resumes from sleep
     powerMonitor.on('resume', () => {
       logger.info('[Auto-Updater] System resumed from sleep, checking for updates...');
+      updateCheckSource = 'event';
       autoUpdater.checkForUpdates().catch((err) => {
         logger.error('[Auto-Updater] Resume check failed:', err);
       });
@@ -754,6 +766,7 @@ function setupAutoUpdater(): Promise<UpdateResult> {
     // Check for updates when screen is unlocked (covers lock-without-sleep case)
     powerMonitor.on('unlock-screen', () => {
       logger.info('[Auto-Updater] Screen unlocked, checking for updates...');
+      updateCheckSource = 'event';
       autoUpdater.checkForUpdates().catch((err) => {
         logger.error('[Auto-Updater] Unlock-screen check failed:', err);
       });

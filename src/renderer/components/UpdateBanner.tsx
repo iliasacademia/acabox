@@ -21,7 +21,7 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({
   const getMessage = () => {
     switch (status) {
       case 'available':
-        return `Downloading update${version ? ` (${version})` : ''}...`;
+        return `Update available${version ? ` (${version})` : ''}. Download and restart now`;
       case 'downloading':
         return `Downloading${progress !== undefined ? `... ${Math.round(progress)}%` : '...'}`;
       case 'downloaded':
@@ -34,6 +34,11 @@ export const UpdateBanner: React.FC<UpdateBannerProps> = ({
   return (
     <div className={`updateBanner updateBanner--${status}`}>
       <span className="updateBanner__message">{getMessage()}</span>
+      {status === 'available' && (
+        <button className="updateBanner__button" onClick={onDownloadClick}>
+          Download
+        </button>
+      )}
       {status === 'error' && (
         <button className="updateBanner__button" onClick={onRetryClick}>
           Retry
