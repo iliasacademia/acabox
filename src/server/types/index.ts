@@ -125,6 +125,8 @@ export interface WordProjectFileResponse {
 export interface WordPollResponse {
   /** Whether the button should be shown */
   shouldShow: boolean;
+  /** Whether this is an "Enable feedback" button (document exists but no project) */
+  isEnableFeedback?: boolean;
   /** Project ID (if valid manuscript) */
   projectId?: number;
   /** Project File ID (if valid manuscript) */

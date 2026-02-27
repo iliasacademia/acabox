@@ -9,6 +9,7 @@ import { wordPollEventBus } from './server/events/wordPollEventBus';
 import { createInitialState } from './windowMonitor/initialState';
 import { reduceWindowMonitorEvent } from './windowMonitor/reducer';
 import { sessionsTracker } from './sessionsTracker';
+import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { FEATURES } from './shared/types';
 import {
   computeWebviewState,
@@ -34,6 +35,7 @@ const REVIEW_BUTTON_HEIGHT = 46;
 const REVIEW_BUTTON_GAP = 10;
 
 const REVIEWING_BUTTON_V2_WIDTH = 320;
+const ENABLE_FEEDBACK_BUTTON_WIDTH = 220;
 
 const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY === '1';
 const DEBUG_SELECTION_BOUNDS_OVERLAY = process.env.DEBUG_SELECTION_BOUNDS_OVERLAY === '1';
@@ -481,6 +483,12 @@ export class WindowMonitorService {
         const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
         if (buttonWidthOverride !== undefined) {
           desiredState[key].frame.width = buttonWidthOverride;
+        } else {
+          // Widen for "Enable feedback" if document exists but has no project
+          const docPath = this.getDocumentPathForWindow(windowId);
+          if (docPath && !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
+            desiredState[key].frame.width = ENABLE_FEEDBACK_BUTTON_WIDTH;
+          }
         }
       }
     }

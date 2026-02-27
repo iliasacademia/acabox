@@ -118,6 +118,8 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
             selectedText as string | undefined
           );
         }
+      } else if (action === 'enableFeedbackClicked' && wid) {
+        logger.info(`[Bridge API] Enable feedback clicked for wid: ${wid}`);
       } else if (action === 'clearReview' && wid) {
         // Clear review state when user dismisses the overlay
         windowMonitorService.clearSelectedTextReviewState(wid);

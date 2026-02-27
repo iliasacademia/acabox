@@ -69,13 +69,31 @@ export function buildWordPollResponseV2(
     }
   }
 
-  // If no document path or no project file, hide the button
+  // If no document path at all (unsaved file), hide the button
+  if (!documentPath) {
+    return {
+      shouldShow: false,
+      notificationCount: 0,
+      isActive: true,
+      recentReviewNotifications: [],
+      isReviewingSelectedText: false,
+      selectedTextReviewStartedAt: undefined,
+      activeDocumentPath: documentPath,
+      shouldShowButtonV2,
+      shouldShowPopupV2,
+      shouldShowReviewButton,
+      shouldShowReviewStatusOverlay,
+    };
+  }
+
+  // If document path exists but no project file, show "Enable feedback" button
   if (!projectFile) {
-    if (documentPath && remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
       logger.info(`[VERBOSE] [WORD-POLL-V2] No project file found for path: "${documentPath}" (cache size: ${wordIntegrationDataStoreV2.getCacheSize()}, keys: ${wordIntegrationDataStoreV2.getCacheKeys().join(', ')})`);
     }
     return {
-      shouldShow: false,
+      shouldShow: true,
+      isEnableFeedback: true,
       notificationCount: 0,
       isActive: true,
       recentReviewNotifications: [],
