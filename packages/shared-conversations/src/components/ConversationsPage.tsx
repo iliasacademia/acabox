@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import type { UseConversationPollingOptions } from "../hooks/useConversationPolling";
 import { Conversation, DraftConversation } from "../types/conversation";
 import { Project, ProjectFile, AgentRun } from "../types/project";
@@ -10,11 +10,14 @@ import { useApiClient } from "../context/ApiContext";
 import { ConversationsSidebar } from "./ConversationsSidebar";
 import { ConversationDetail } from "./ConversationDetail";
 import { SupportingMaterialsContent } from "./SupportingMaterialsContent";
+import type { ZoteroStatusProps } from "./SupportingMaterialsContent";
 import { generateDailyFeedbackTitle } from "./utils";
 import { useWindowSize } from "../hooks/useWindowSize";
 import { useSidebarCollapse } from "../hooks/useSidebarCollapse";
 import { useUserPreferences } from "../../../../src/renderer/contexts/UserPreferencesContext";
 import { useCoScientistEvents } from "../../../../src/renderer/hooks/useCoScientistEvents";
+import { getZoteroStatus, getZoteroAuthorizeUrl, syncZotero, disconnectZotero } from "../../../../src/renderer/services/zoteroApi";
+import { IPC_CHANNELS } from "../../../../src/shared/types";
 
 export interface ConversationsPageProps {
   selectedProject: Project | null;
@@ -101,6 +104,7 @@ export function ConversationsPage({
   const [supportingMaterials, setSupportingMaterials] = useState<SupportingMaterial[]>([]);
   const [supportingMaterialsLoading, setSupportingMaterialsLoading] = useState(false);
   const [fileUploadEvent, setFileUploadEvent] = useState<{ file: any; timestamp: number } | null>(null);
+  const [zoteroSyncEvent, setZoteroSyncEvent] = useState<{ timestamp: number } | null>(null);
   const [supportingMaterialsTotalCount, setSupportingMaterialsTotalCount] = useState(0);
 
   const [selectedConversation, setSelectedConversation] = useState<
@@ -135,6 +139,15 @@ export function ConversationsPage({
   const [isSwitchingManuscript, setIsSwitchingManuscript] = useState(false);
   const [switchSuccessMessage, setSwitchSuccessMessage] = useState<string | null>(null);
   const [pendingConversationId, setPendingConversationId] = useState<number | null>(null);
+
+  // Zotero state
+  const [zoteroStatus, setZoteroStatus] = useState<ZoteroStatusProps | null>(null);
+  const [isZoteroStatusLoading, setIsZoteroStatusLoading] = useState(false);
+  const [isZoteroPolling, setIsZoteroPolling] = useState(false);
+  const [isZoteroSyncing, setIsZoteroSyncing] = useState(false);
+  const [isZoteroDisconnecting, setIsZoteroDisconnecting] = useState(false);
+  const zoteroPollerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const zoteroPollingStartRef = useRef<number>(0);
 
   const apiClient = useApiClient();
 
@@ -190,6 +203,83 @@ export function ConversationsPage({
     }
   }, [selectedProject]);
 
+  // Fetch Zotero status on mount
+  useEffect(() => {
+    setIsZoteroStatusLoading(true);
+    getZoteroStatus().then(setZoteroStatus).finally(() => setIsZoteroStatusLoading(false));
+  }, []);
+
+  const stopZoteroPolling = useCallback(() => {
+    if (zoteroPollerRef.current) {
+      clearTimeout(zoteroPollerRef.current);
+      zoteroPollerRef.current = null;
+    }
+    setIsZoteroPolling(false);
+  }, []);
+
+  const startZoteroPolling = useCallback(() => {
+    const MAX_POLL_DURATION_MS = 5 * 60 * 1000;
+    const POLL_INTERVAL_MS = 3000;
+    setIsZoteroPolling(true);
+    zoteroPollingStartRef.current = Date.now();
+
+    const poll = async () => {
+      if (Date.now() - zoteroPollingStartRef.current > MAX_POLL_DURATION_MS) {
+        stopZoteroPolling();
+        return;
+      }
+      const status = await getZoteroStatus();
+      setZoteroStatus(status);
+      if (status.connected) {
+        stopZoteroPolling();
+        return;
+      }
+      zoteroPollerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+    };
+
+    zoteroPollerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+  }, [stopZoteroPolling]);
+
+  const handleConnectZotero = useCallback(() => {
+    const url = getZoteroAuthorizeUrl();
+    window.electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
+    startZoteroPolling();
+  }, [startZoteroPolling]);
+
+  const handleSyncZotero = useCallback(async () => {
+    setIsZoteroSyncing(true);
+    const previousSyncedAt = zoteroStatus?.last_synced_at ?? null;
+    try {
+      await syncZotero();
+      const pollStart = Date.now();
+      const MAX_POLL = 5 * 60 * 1000;
+      const INTERVAL = 3000;
+      const pollForSync = async () => {
+        const status = await getZoteroStatus();
+        setZoteroStatus(status);
+        if (status.last_synced_at !== previousSyncedAt || Date.now() - pollStart > MAX_POLL) {
+          setIsZoteroSyncing(false);
+          return;
+        }
+        setTimeout(pollForSync, INTERVAL);
+      };
+      setTimeout(pollForSync, INTERVAL);
+    } catch {
+      setIsZoteroSyncing(false);
+    }
+  }, [zoteroStatus]);
+
+  const handleDisconnectZotero = useCallback(async () => {
+    setIsZoteroDisconnecting(true);
+    try {
+      await disconnectZotero();
+      const status = await getZoteroStatus();
+      setZoteroStatus(status);
+    } finally {
+      setIsZoteroDisconnecting(false);
+    }
+  }, []);
+
   // Listen for file upload events to refresh materials
   useCoScientistEvents({
     onFileUploadCompleted: (event) => {
@@ -213,6 +303,17 @@ export function ConversationsPage({
           timestamp: Date.now(),
         });
       }
+    },
+    onZoteroFileSynced: (event) => {
+      console.log('[ConversationsPage] Zotero file synced:', event.data);
+      setZoteroSyncEvent({ timestamp: Date.now() });
+      refreshSupportingMaterials();
+    },
+    onZoteroDisconnected: () => {
+      console.log('[ConversationsPage] Zotero disconnected');
+      getZoteroStatus().then(setZoteroStatus);
+      setZoteroSyncEvent({ timestamp: Date.now() });
+      refreshSupportingMaterials();
     },
   });
 
@@ -1202,6 +1303,15 @@ export function ConversationsPage({
                 projectId={selectedProject.id}
                 onMaterialsChange={refreshSupportingMaterials}
                 fileUploadEvent={fileUploadEvent}
+                zoteroSyncEvent={zoteroSyncEvent}
+                zoteroStatus={zoteroStatus}
+                isZoteroStatusLoading={isZoteroStatusLoading}
+                isZoteroPolling={isZoteroPolling}
+                isZoteroSyncing={isZoteroSyncing}
+                isZoteroDisconnecting={isZoteroDisconnecting}
+                onConnectZotero={handleConnectZotero}
+                onSyncZotero={handleSyncZotero}
+                onDisconnectZotero={handleDisconnectZotero}
               />
             ) : (
               <ConversationDetail
