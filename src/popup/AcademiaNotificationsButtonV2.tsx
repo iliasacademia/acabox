@@ -341,7 +341,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
     }
   };
 
-  if (!shouldShow) {
+  if (!shouldShowButtonV2) {
     return null;
   }
 

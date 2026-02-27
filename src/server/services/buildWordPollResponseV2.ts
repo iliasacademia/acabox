@@ -79,7 +79,7 @@ export function buildWordPollResponseV2(
       isReviewingSelectedText: false,
       selectedTextReviewStartedAt: undefined,
       activeDocumentPath: documentPath,
-      shouldShowButtonV2,
+      shouldShowButtonV2: false,
       shouldShowPopupV2,
       shouldShowReviewButton,
       shouldShowReviewStatusOverlay,
@@ -92,7 +92,7 @@ export function buildWordPollResponseV2(
       logger.info(`[VERBOSE] [WORD-POLL-V2] No project file found for path: "${documentPath}" (cache size: ${wordIntegrationDataStoreV2.getCacheSize()}, keys: ${wordIntegrationDataStoreV2.getCacheKeys().join(', ')})`);
     }
     return {
-      shouldShow: true,
+      shouldShow: false,
       isEnableFeedback: true,
       notificationCount: 0,
       isActive: true,
@@ -100,7 +100,7 @@ export function buildWordPollResponseV2(
       isReviewingSelectedText: false,
       selectedTextReviewStartedAt: undefined,
       activeDocumentPath: documentPath,
-      shouldShowButtonV2,
+      shouldShowButtonV2: true,
       shouldShowPopupV2,
       shouldShowReviewButton,
       shouldShowReviewStatusOverlay,
