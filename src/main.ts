@@ -493,6 +493,12 @@ const createTray = (): void => {
             shell.openExternal(`${baseUrl}/dev?token=${token}`);
           }
         },
+      },
+      {
+        label: 'Sync Sessions',
+        click: () => {
+          sessionSyncService.syncNow(sessionsTracker);
+        },
       }
     );
   }
