@@ -188,27 +188,27 @@ describe('sessionSyncService', () => {
     expect(mockError).toHaveBeenCalledWith('[SessionSync] Sync failed:', expect.any(Error));
   });
 
-  it('start sets up an interval and stop clears it', () => {
+  it('start syncs immediately then on interval, and stop clears it', () => {
     jest.useFakeTimers();
     const sessions = [makeSession()];
     const tracker = makeMockTracker(sessions);
 
     sessionSyncService.start(tracker, 1000);
 
-    // No call yet
-    expect(tracker.fetchSessionsToSync).not.toHaveBeenCalled();
+    // Immediate sync on start
+    expect(tracker.fetchSessionsToSync).toHaveBeenCalledTimes(1);
 
     // Advance timer
     jest.advanceTimersByTime(1000);
-    expect(tracker.fetchSessionsToSync).toHaveBeenCalledTimes(1);
+    expect(tracker.fetchSessionsToSync).toHaveBeenCalledTimes(2);
 
     jest.advanceTimersByTime(1000);
-    expect(tracker.fetchSessionsToSync).toHaveBeenCalledTimes(2);
+    expect(tracker.fetchSessionsToSync).toHaveBeenCalledTimes(3);
 
     // Stop should prevent further calls
     sessionSyncService.stop();
     jest.advanceTimersByTime(1000);
-    expect(tracker.fetchSessionsToSync).toHaveBeenCalledTimes(2);
+    expect(tracker.fetchSessionsToSync).toHaveBeenCalledTimes(3);
 
     jest.useRealTimers();
   });
