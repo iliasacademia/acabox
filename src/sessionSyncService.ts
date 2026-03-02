@@ -48,6 +48,7 @@ async function syncSessions(tracker: SessionsTracker): Promise<void> {
 
 function start(tracker: SessionsTracker, intervalMs: number): void {
   if (syncInterval) clearInterval(syncInterval);
+  syncSessions(tracker);
   syncInterval = setInterval(() => { syncSessions(tracker); }, intervalMs);
 }
 
