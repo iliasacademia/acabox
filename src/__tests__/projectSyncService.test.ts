@@ -57,6 +57,16 @@ jest.mock('form-data', () => {
   }));
 });
 
+// Mock shared/types — set ONBOARDING_V2_ENABLED: false so folder-restore tests
+// (which test V1 behavior) still exercise the folder-watching code paths.
+jest.mock('../shared/types', () => ({
+  ...jest.requireActual('../shared/types'),
+  FEATURES: {
+    ...jest.requireActual('../shared/types').FEATURES,
+    ONBOARDING_V2_ENABLED: false,
+  },
+}));
+
 // Mock checksum
 jest.mock('../utils/checksum', () => ({
   calculateChecksum: jest.fn(),
