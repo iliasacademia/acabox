@@ -3,6 +3,7 @@ import { APIclient } from './apiClient';
 import { CoScientistEvent, PollEventsResponse } from './types/events';
 import { defaultLogger as logger } from './utils/logger';
 import Store from 'electron-store';
+import { remoteFeatureFlags } from './remoteFeatureFlags';
 
 interface EventsState {
   last_ts: string | null;
@@ -122,6 +123,18 @@ class EventsManager {
             currentUserId: this.currentUserId,
             eventName: event.event_name,
           });
+          continue;
+        }
+
+        // Intercept feature flag events (main-process only, not forwarded to renderer)
+        if (event.event_name === 'desktop_feature_flag_changed') {
+          if (event.data && typeof event.data.flags === 'object' && event.data.flags !== null) {
+            remoteFeatureFlags.setFlags(event.data.flags);
+          } else {
+            logger.warn('[EventsManager] Malformed feature flag event: missing data.flags', {
+              eventData: event.data,
+            });
+          }
           continue;
         }
 
