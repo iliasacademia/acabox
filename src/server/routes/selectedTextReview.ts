@@ -51,11 +51,13 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
       reply: FastifyReply
     ) => {
       const { wid } = request.params;
+      logger.info(`[SelectedTextReview] Review requested for window ${wid}`);
 
       try {
         // Step 1: Resolve window to project file
         const documentPath = windowMonitorService.getDocumentPathForWindow(wid);
         if (!documentPath) {
+          logger.warn(`[SelectedTextReview] Window ${wid} not found in monitor state`);
           reply.code(404).send({
             error: 'NotFound',
             message: 'Window not found in monitor state',
@@ -66,6 +68,7 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
 
         const projectFile = wordIntegrationDataStoreV2.getProjectFileForPath(documentPath);
         if (!projectFile) {
+          logger.warn(`[SelectedTextReview] No project file mapped for document: ${documentPath}`);
           reply.code(404).send({
             error: 'NotFound',
             message: 'No project file mapped for this document',
@@ -86,6 +89,7 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
         } else {
           const selectedTextInfo = windowMonitorService.getSelectedTextForWindow(wid);
           if (!selectedTextInfo) {
+            logger.warn(`[SelectedTextReview] No selected text info for window ${wid}`);
             reply.code(400).send({
               error: 'BadRequest',
               message: 'No text selected',
@@ -110,6 +114,7 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
         // Read document text — prefer in-memory cache, fall back to file
         const documentTextInfo = windowMonitorService.getDocumentTextForWindow(wid);
         if (!documentTextInfo) {
+          logger.warn(`[SelectedTextReview] No document text available for window ${wid}, documentPath: ${documentPath}`);
           reply.code(400).send({
             error: 'BadRequest',
             message: 'No document text available',
