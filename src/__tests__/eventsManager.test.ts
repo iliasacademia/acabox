@@ -811,7 +811,7 @@ describe('EventsManager', () => {
       const mockEvents = {
         events: [
           {
-            project_id: 0,
+            project_id: null,
             user_id: 1,
             event_name: 'desktop_feature_flag_changed',
             data: { flags: { verbose_window_monitor_logging: true } },
@@ -834,7 +834,7 @@ describe('EventsManager', () => {
       const mockEvents = {
         events: [
           {
-            project_id: 0,
+            project_id: null,
             user_id: 1,
             event_name: 'desktop_feature_flag_changed',
             data: { flags: { verbose_window_monitor_logging: true } },
@@ -865,7 +865,7 @@ describe('EventsManager', () => {
       const mockEvents = {
         events: [
           {
-            project_id: 0,
+            project_id: null,
             user_id: 1,
             event_name: 'desktop_feature_flag_changed',
             data: { flags: { verbose_window_monitor_logging: true } },
@@ -894,7 +894,7 @@ describe('EventsManager', () => {
       const mockEvents = {
         events: [
           {
-            project_id: 0,
+            project_id: null,
             user_id: 1,
             event_name: 'desktop_feature_flag_changed',
             data: {},
@@ -920,7 +920,7 @@ describe('EventsManager', () => {
       const mockEvents = {
         events: [
           {
-            project_id: 0,
+            project_id: null,
             user_id: 1,
             event_name: 'desktop_feature_flag_changed',
             data: { flags: 'not_an_object' },
