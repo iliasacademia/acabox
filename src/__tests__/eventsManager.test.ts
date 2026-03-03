@@ -10,9 +10,17 @@ jest.mock('../apiClient', () => ({
 // Mock electron-store
 jest.mock('electron-store');
 
+// Mock remoteFeatureFlags
+jest.mock('../remoteFeatureFlags', () => ({
+  remoteFeatureFlags: {
+    setFlags: jest.fn(),
+  },
+}));
+
 import { eventsManager } from '../eventsManager';
 import * as eventsManagerModule from '../eventsManager';
 import Store from 'electron-store';
+import { remoteFeatureFlags } from '../remoteFeatureFlags';
 
 // Mock Electron's BrowserWindow and app
 jest.mock('electron', () => ({
@@ -789,6 +797,147 @@ describe('EventsManager', () => {
 
       // Should not throw
       expect(true).toBe(true);
+    });
+  });
+
+  describe('Feature Flag Events', () => {
+    const mockSetFlags = remoteFeatureFlags.setFlags as jest.Mock;
+
+    beforeEach(() => {
+      mockSetFlags.mockClear();
+    });
+
+    it('should update remote flag store on desktop_feature_flag_changed events', async () => {
+      const mockEvents = {
+        events: [
+          {
+            project_id: null,
+            user_id: 1,
+            event_name: 'desktop_feature_flag_changed',
+            data: { flags: { verbose_window_monitor_logging: true } },
+            timestamp: '2026-03-02T10:00:00.000Z',
+          },
+        ],
+        server_timestamp: '2026-03-02T10:00:05.000Z',
+      };
+
+      mockPollEvents.mockResolvedValue(mockEvents);
+      eventsManager.setMainWindow(mockWindow);
+      eventsManager.startPolling(1);
+
+      await eventsManager.syncWithBackend();
+
+      expect(mockSetFlags).toHaveBeenCalledWith({ verbose_window_monitor_logging: true });
+    });
+
+    it('should NOT forward feature flag events to renderer', async () => {
+      const mockEvents = {
+        events: [
+          {
+            project_id: null,
+            user_id: 1,
+            event_name: 'desktop_feature_flag_changed',
+            data: { flags: { verbose_window_monitor_logging: true } },
+            timestamp: '2026-03-02T10:00:00.000Z',
+          },
+        ],
+        server_timestamp: '2026-03-02T10:00:05.000Z',
+      };
+
+      mockPollEvents.mockResolvedValue(mockEvents);
+      eventsManager.setMainWindow(mockWindow);
+      eventsManager.startPolling(1);
+
+      await eventsManager.syncWithBackend();
+
+      expect(mockWindow.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('should still forward normal events in the same batch', async () => {
+      const normalEvent = {
+        project_id: 123,
+        user_id: 1,
+        event_name: 'review_completed',
+        data: { review_id: 789 },
+        timestamp: '2026-03-02T10:00:01.000Z',
+      };
+
+      const mockEvents = {
+        events: [
+          {
+            project_id: null,
+            user_id: 1,
+            event_name: 'desktop_feature_flag_changed',
+            data: { flags: { verbose_window_monitor_logging: true } },
+            timestamp: '2026-03-02T10:00:00.000Z',
+          },
+          normalEvent,
+        ],
+        server_timestamp: '2026-03-02T10:00:05.000Z',
+      };
+
+      mockPollEvents.mockResolvedValue(mockEvents);
+      eventsManager.setMainWindow(mockWindow);
+      eventsManager.startPolling(1);
+
+      await eventsManager.syncWithBackend();
+
+      // Feature flag event should update store
+      expect(mockSetFlags).toHaveBeenCalledWith({ verbose_window_monitor_logging: true });
+
+      // Normal event should be forwarded to renderer
+      expect(mockWindow.webContents.send).toHaveBeenCalledTimes(1);
+      expect(mockWindow.webContents.send).toHaveBeenCalledWith('co-scientist-event', normalEvent);
+    });
+
+    it('should handle malformed flag events (missing data.flags) gracefully', async () => {
+      const mockEvents = {
+        events: [
+          {
+            project_id: null,
+            user_id: 1,
+            event_name: 'desktop_feature_flag_changed',
+            data: {},
+            timestamp: '2026-03-02T10:00:00.000Z',
+          },
+        ],
+        server_timestamp: '2026-03-02T10:00:05.000Z',
+      };
+
+      mockPollEvents.mockResolvedValue(mockEvents);
+      eventsManager.setMainWindow(mockWindow);
+      eventsManager.startPolling(1);
+
+      await eventsManager.syncWithBackend();
+
+      // Should not call setFlags
+      expect(mockSetFlags).not.toHaveBeenCalled();
+      // Should not forward to renderer
+      expect(mockWindow.webContents.send).not.toHaveBeenCalled();
+    });
+
+    it('should handle flag events where data.flags is not an object', async () => {
+      const mockEvents = {
+        events: [
+          {
+            project_id: null,
+            user_id: 1,
+            event_name: 'desktop_feature_flag_changed',
+            data: { flags: 'not_an_object' },
+            timestamp: '2026-03-02T10:00:00.000Z',
+          },
+        ],
+        server_timestamp: '2026-03-02T10:00:05.000Z',
+      };
+
+      mockPollEvents.mockResolvedValue(mockEvents);
+      eventsManager.setMainWindow(mockWindow);
+      eventsManager.startPolling(1);
+
+      await eventsManager.syncWithBackend();
+
+      expect(mockSetFlags).not.toHaveBeenCalled();
+      expect(mockWindow.webContents.send).not.toHaveBeenCalled();
     });
   });
 });

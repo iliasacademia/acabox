@@ -15,6 +15,7 @@ import {
   DesiredWebviewState,
   WebviewTypeConfig,
 } from './windowMonitor/computeWebviewState';
+import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 
 const BUTTON_WIDTH = 170;
 const BUTTON_HEIGHT = 50;
@@ -251,7 +252,9 @@ export class WindowMonitorService {
         return;
       }
 
-      logger.info('[WindowMonitorService] Event:', event);
+      if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+        logger.info('[VERBOSE] [WindowMonitorService] Event:', event);
+      }
 
       // Debounce WINDOW_TEXT_SELECTION_CLEARED: delay processing by 1s so the
       // review button stays visible long enough for a click to register.
@@ -333,6 +336,15 @@ export class WindowMonitorService {
           if (content.length > 1) {
             this.documentTextContentCache.set(windowId, content);
             logger.info(`[WindowMonitorService] Cached document text for window ${windowId}: ${content.length} bytes`);
+            if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+              logger.info('[VERBOSE] [WindowMonitorService] Document text cache set', {
+                windowId,
+                filePath,
+                contentLength: content.length,
+                cacheSize: this.documentTextContentCache.size,
+                allCachedWindows: Array.from(this.documentTextContentCache.keys()),
+              });
+            }
           } else {
             logger.warn(`[WindowMonitorService] Ignoring trivially small document text for window ${windowId}: ${content.length} bytes`);
           }
@@ -342,6 +354,13 @@ export class WindowMonitorService {
       }
 
       if (event.event === 'WINDOW_DESTROYED' && event.window) {
+        if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+          logger.info('[VERBOSE] [WindowMonitorService] WINDOW_DESTROYED cleanup', {
+            windowId: event.window.id,
+            hadDocumentTextCache: this.documentTextContentCache.has(event.window.id),
+            hadSelectedTextCache: this.selectedTextContentCache.has(event.window.id),
+          });
+        }
         this.popupToggledOpen.delete(event.window.id);
         this.popupHeightOverrides.delete(event.window.id);
         this.buttonDragOffsets.delete(event.window.id);
@@ -358,7 +377,9 @@ export class WindowMonitorService {
         }
       }
 
-      logger.info('[WindowMonitorService] State:', newState);
+      if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+        logger.info('[VERBOSE] [WindowMonitorService] State:', newState);
+      }
 
       this.pushWebviewState();
     });
@@ -512,7 +533,9 @@ export class WindowMonitorService {
       }
     }
 
-    logger.info('[WindowMonitorService] Desired state:', desiredState);
+    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+      logger.info('[VERBOSE] [WindowMonitorService] Desired state:', desiredState);
+    }
 
     // Diff visibility for button-v2 and popup-v2 entries; emit if any changed
     let visibilityChanged = false;

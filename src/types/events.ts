@@ -2,7 +2,7 @@
  * Event from the Co-Scientist events polling API
  */
 export interface CoScientistEvent {
-  project_id: number;
+  project_id: number | null;
   user_id: number;
   event_name: string;
   /**
