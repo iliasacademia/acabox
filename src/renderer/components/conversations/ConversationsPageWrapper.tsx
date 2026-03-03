@@ -24,6 +24,7 @@ interface ConversationsPageWrapperProps {
   onConversationNavigated?: () => void;
   initialOpenDiffModal?: boolean;
   onDiffModalOpened?: () => void;
+  initialView?: 'conversation' | 'supporting-materials';
 }
 
 /**
@@ -37,6 +38,7 @@ export function ConversationsPageWrapper({
   onConversationNavigated,
   initialOpenDiffModal,
   onDiffModalOpened,
+  initialView,
 }: ConversationsPageWrapperProps) {
   // Track folder sync status for the current project
   const folderSyncStatus = useProjectSyncStatus(selectedProject?.id || null);
@@ -142,6 +144,7 @@ export function ConversationsPageWrapper({
         onRegisterReviewStateUpdates={onRegisterReviewStateUpdates}
         initialOpenDiffModal={initialOpenDiffModal}
         onDiffModalOpened={onDiffModalOpened}
+        initialView={initialView}
         // Analytics callbacks
         onProjectView={trackProjectView}
         onTriggerFullReview={(projectId, fileId) => trackTriggerFullReview('desktop', projectId, fileId)}
