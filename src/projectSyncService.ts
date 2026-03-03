@@ -969,7 +969,7 @@ export class ProjectSyncService {
         // Upload all files in this chunk in parallel
         const results = await Promise.allSettled(
           chunk.map(({ path: filePath }) =>
-            this.syncFileToProject(projectId, folderId, folderPath, filePath, undefined)
+            this.syncFileToProject(projectId, folderId, folderPath, filePath, manuscriptPath)
           )
         );
 
@@ -1436,11 +1436,13 @@ export class ProjectSyncService {
     );
 
     if (existingFile) {
-      // File already exists on backend — sync content only if checksum differs
+      // File already exists on backend — sync if content changed or manuscript flag is missing.
+      // createProject sets file_path metadata but does not set is_manuscript, so we must
+      // explicitly sync on initial watch setup to ensure the flag is applied.
       const localChecksum = await calculateChecksum(filePath);
-      if (localChecksum !== existingFile.checksum) {
-        logger.debug(`[ProjectSync] File already on backend but content differs, syncing content: ${fileName}`);
-        await this.syncStandaloneFile(projectId, filePath, false);
+      if (localChecksum !== existingFile.checksum || !existingFile.is_manuscript) {
+        logger.debug(`[ProjectSync] File already on backend but needs sync (content changed or manuscript flag missing): ${fileName}`);
+        await this.syncStandaloneFile(projectId, filePath, true);
       } else {
         logger.debug(`[ProjectSync] File already on backend and unchanged, skipping upload: ${fileName}`);
       }
