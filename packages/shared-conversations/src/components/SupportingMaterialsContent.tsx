@@ -184,7 +184,7 @@ export function SupportingMaterialsContent({
       }
 
       const filePaths = await window.electronAPI.invoke('select-file', {
-        extensions: ['pdf', 'doc', 'docx', 'txt'],
+        extensions: ['pdf', 'docx', 'txt'],
         multiSelection: true,
       });
 

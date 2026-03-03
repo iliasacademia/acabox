@@ -23,6 +23,7 @@ export interface ConversationsPageProps {
   selectedProject: Project | null;
   onBack?: () => void;
   initialConversationId?: number | null;
+  initialView?: 'conversation' | 'supporting-materials';
   onConversationNavigated?: () => void;
   initialOpenDiffModal?: boolean;
   onDiffModalOpened?: () => void;
@@ -98,9 +99,10 @@ export function ConversationsPage({
   pollingOptions,
   onRegisterConversationsRefresh,
   onRegisterReviewStateUpdates,
+  initialView,
 }: ConversationsPageProps) {
   // Selected view type: conversation or supporting-materials
-  const [selectedView, setSelectedView] = useState<'conversation' | 'supporting-materials'>('conversation');
+  const [selectedView, setSelectedView] = useState<'conversation' | 'supporting-materials'>(initialView ?? 'conversation');
   const [supportingMaterials, setSupportingMaterials] = useState<SupportingMaterial[]>([]);
   const [supportingMaterialsLoading, setSupportingMaterialsLoading] = useState(false);
   const [fileUploadEvent, setFileUploadEvent] = useState<{ file: any; timestamp: number } | null>(null);
@@ -1252,101 +1254,95 @@ export function ConversationsPage({
       {reviewError && <div className="reviewErrorMessage">{reviewError}</div>}
       {switchSuccessMessage && <div className="switchSuccessMessage">{switchSuccessMessage}</div>}
 
-      {/* Manuscript Feedback Section - Hide when review is in progress with no conversations */}
-      {!(isReviewInProgress && !hasConversations) && (
-        <div className="manuscriptFeedbackSection">
-          <div className="conversationsContent">
-            {/* Unified Sidebar */}
-            <div
-              className={`sidebarWithHeader ${collapsed ? "collapsed" : ""}`}
-            >
-              <div className="manuscriptFeedbackHeader">
-                <button
-                  onClick={toggleCollapsed}
-                  className="panelCollapseButton"
-                  aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-                >
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <mask id="mask0_2500_461" style={{ maskType: "alpha" }} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
-                      <rect width="24" height="24" fill="#D9D9D9"/>
-                    </mask>
-                    <g mask="url(#mask0_2500_461)">
-                      <path d="M12.5 8V16L16.5 12L12.5 8ZM5 21C4.45 21 3.97917 20.8042 3.5875 20.4125C3.19583 20.0208 3 19.55 3 19V5C3 4.45 3.19583 3.97917 3.5875 3.5875C3.97917 3.19583 4.45 3 5 3H19C19.55 3 20.0208 3.19583 20.4125 3.5875C20.8042 3.97917 21 4.45 21 5V19C21 19.55 20.8042 20.0208 20.4125 20.4125C20.0208 20.8042 19.55 21 19 21H5ZM8 19V5H5V19H8ZM10 19H19V5H10V19Z" fill="currentColor"/>
-                    </g>
-                  </svg>
-                </button>
-              </div>
-              <ConversationsSidebar
-                projectId={selectedProject.id}
-                selectedConversationId={selectedConversation?.id || null}
-                onSelectConversation={(conv) => {
-                  handleSelectConversation(conv);
-                  setSelectedView('conversation');
-                }}
-                onNewConversation={handleNewConversation}
-                refreshTrigger={refreshTrigger}
-                onConversationsLoaded={handleConversationsLoaded}
-                onConversationView={onConversationView}
-                onRegisterRefresh={onRegisterConversationsRefresh}
-                collapsed={collapsed}
-                onToggleCollapsed={toggleCollapsed}
-                supportingMaterialsCount={supportingMaterialsTotalCount}
-                supportingMaterialsLoading={supportingMaterialsLoading}
-                selectedView={selectedView}
-                onSelectSupportingMaterials={() => setSelectedView('supporting-materials')}
-              />
+      {/* Manuscript Feedback Section - always visible so sidebar is always accessible */}
+      <div className="manuscriptFeedbackSection">
+        <div className="conversationsContent">
+          {/* Unified Sidebar */}
+          <div
+            className={`sidebarWithHeader ${collapsed ? "collapsed" : ""}`}
+          >
+            <div className="manuscriptFeedbackHeader">
+              <button
+                onClick={toggleCollapsed}
+                className="panelCollapseButton"
+                aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <mask id="mask0_2500_461" style={{ maskType: "alpha" }} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+                    <rect width="24" height="24" fill="#D9D9D9"/>
+                  </mask>
+                  <g mask="url(#mask0_2500_461)">
+                    <path d="M12.5 8V16L16.5 12L12.5 8ZM5 21C4.45 21 3.97917 20.8042 3.5875 20.4125C3.19583 20.0208 3 19.55 3 19V5C3 4.45 3.19583 3.97917 3.5875 3.5875C3.97917 3.19583 4.45 3 5 3H19C19.55 3 20.0208 3.19583 20.4125 3.5875C20.8042 3.97917 21 4.45 21 5V19C21 19.55 20.8042 20.0208 20.4125 20.4125C20.0208 20.8042 19.55 21 19 21H5ZM8 19V5H5V19H8ZM10 19H19V5H10V19Z" fill="currentColor"/>
+                  </g>
+                </svg>
+              </button>
             </div>
-
-            {/* Main Content - Shows either conversation or supporting materials */}
-            {selectedView === 'supporting-materials' ? (
-              <SupportingMaterialsContent
-                projectId={selectedProject.id}
-                onMaterialsChange={refreshSupportingMaterials}
-                fileUploadEvent={fileUploadEvent}
-                zoteroSyncEvent={zoteroSyncEvent}
-                zoteroStatus={zoteroStatus}
-                isZoteroStatusLoading={isZoteroStatusLoading}
-                isZoteroPolling={isZoteroPolling}
-                isZoteroSyncing={isZoteroSyncing}
-                isZoteroDisconnecting={isZoteroDisconnecting}
-                onConnectZotero={handleConnectZotero}
-                onSyncZotero={handleSyncZotero}
-                onDisconnectZotero={handleDisconnectZotero}
-              />
-            ) : (
-              <ConversationDetail
-                conversation={selectedConversation}
-                projectId={selectedProject.id}
-                primaryManuscriptId={manuscriptFile?.id}
-                manuscriptFile={manuscriptFile}
-                onConversationCreated={handleConversationCreated}
-                onConversationUpdate={handleConversationUpdate}
-                isReviewInProgress={isReviewInProgress}
-                isInitialLoading={isLoadingFiles || !conversationsLoaded}
-                onMessageSent={onMessageSent}
-                onMessageReceived={onMessageReceived}
-                feedbackFormUrl={feedbackFormUrl}
-                pollingOptions={pollingOptions}
-                initialOpenDiffModal={initialOpenDiffModal}
-                onDiffModalOpened={onDiffModalOpened}
-              />
-            )}
+            <ConversationsSidebar
+              projectId={selectedProject.id}
+              selectedConversationId={selectedConversation?.id || null}
+              onSelectConversation={(conv) => {
+                handleSelectConversation(conv);
+                setSelectedView('conversation');
+              }}
+              onNewConversation={handleNewConversation}
+              refreshTrigger={refreshTrigger}
+              onConversationsLoaded={handleConversationsLoaded}
+              onConversationView={onConversationView}
+              onRegisterRefresh={onRegisterConversationsRefresh}
+              collapsed={collapsed}
+              onToggleCollapsed={toggleCollapsed}
+              supportingMaterialsCount={supportingMaterialsTotalCount}
+              supportingMaterialsLoading={supportingMaterialsLoading}
+              selectedView={selectedView}
+              onSelectSupportingMaterials={() => setSelectedView('supporting-materials')}
+              isReviewInProgress={isReviewInProgress}
+            />
           </div>
-        </div>
-      )}
 
-      {/* Show review in progress message when no conversations exist */}
-      {isReviewInProgress && !hasConversations && (
-        <div className="emptyStateContainer">
-          <div className="emptyState">
-            <div className="emptyStateIcon">⏳</div>
-            <h3>Review in progress</h3>
-            <p>
-              Your manuscript is being reviewed. This may take a few minutes.
-            </p>
-          </div>
+          {/* Main Content - supporting materials, review-in-progress placeholder, or conversation */}
+          {selectedView === 'supporting-materials' ? (
+            <SupportingMaterialsContent
+              projectId={selectedProject.id}
+              onMaterialsChange={refreshSupportingMaterials}
+              fileUploadEvent={fileUploadEvent}
+              zoteroSyncEvent={zoteroSyncEvent}
+              zoteroStatus={zoteroStatus}
+              isZoteroStatusLoading={isZoteroStatusLoading}
+              isZoteroPolling={isZoteroPolling}
+              isZoteroSyncing={isZoteroSyncing}
+              isZoteroDisconnecting={isZoteroDisconnecting}
+              onConnectZotero={handleConnectZotero}
+              onSyncZotero={handleSyncZotero}
+              onDisconnectZotero={handleDisconnectZotero}
+            />
+          ) : isReviewInProgress && !hasConversations ? (
+            <div className="emptyStateContainer">
+              <div className="emptyState">
+                <div className="emptyStateIcon">⏳</div>
+                <h3>Review in progress</h3>
+                <p>Your manuscript is being reviewed. This may take a few minutes.</p>
+              </div>
+            </div>
+          ) : (
+            <ConversationDetail
+              conversation={selectedConversation}
+              projectId={selectedProject.id}
+              primaryManuscriptId={manuscriptFile?.id}
+              manuscriptFile={manuscriptFile}
+              onConversationCreated={handleConversationCreated}
+              onConversationUpdate={handleConversationUpdate}
+              isReviewInProgress={isReviewInProgress}
+              isInitialLoading={isLoadingFiles || !conversationsLoaded}
+              onMessageSent={onMessageSent}
+              onMessageReceived={onMessageReceived}
+              feedbackFormUrl={feedbackFormUrl}
+              pollingOptions={pollingOptions}
+              initialOpenDiffModal={initialOpenDiffModal}
+              onDiffModalOpened={onDiffModalOpened}
+            />
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

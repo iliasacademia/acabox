@@ -25,6 +25,8 @@ interface ConversationsSidebarProps {
   selectedView?: 'conversation' | 'supporting-materials';
   /** Callback when supporting materials is selected */
   onSelectSupportingMaterials?: () => void;
+  /** Whether a review is currently in progress */
+  isReviewInProgress?: boolean;
 }
 
 export function ConversationsSidebar({
@@ -42,6 +44,7 @@ export function ConversationsSidebar({
   supportingMaterialsLoading = false,
   selectedView = 'conversation',
   onSelectSupportingMaterials,
+  isReviewInProgress = false,
 }: ConversationsSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -238,12 +241,16 @@ export function ConversationsSidebar({
             <h3>
               {searchQuery
                 ? 'No feedback found'
-                : 'No feedback yet'}
+                : isReviewInProgress
+                  ? 'Review in progress'
+                  : 'No feedback yet'}
             </h3>
             <p>
               {searchQuery
                 ? 'Try a different search term'
-                : 'Upload your manuscript to get started'}
+                : isReviewInProgress
+                  ? 'Your manuscript is being reviewed'
+                  : 'Upload your manuscript to get started'}
             </p>
           </div>
         ) : (

@@ -63,6 +63,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
   });
   const [pendingConversationId, setPendingConversationId] = useState<number | null>(null);
   const [pendingDiffModal, setPendingDiffModal] = useState<boolean>(false);
+  const [pendingInitialView, setPendingInitialView] = useState<'conversation' | 'supporting-materials' | undefined>(undefined);
   const [showSupportingMaterialsModal, setShowSupportingMaterialsModal] = useState(false);
   const [v2PendingFile, setV2PendingFile] = useState<{
     filePath: string;
@@ -244,6 +245,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
       // 5. Update projects list and navigate to detail
       setProjects([newProject, ...projects]);
       setSelectedProject(newProject);
+      setPendingInitialView(action === 'add' ? 'supporting-materials' : undefined);
       setCurrentView('detail');
     } catch (error) {
       console.error('[Projects-V2] Error creating project:', error);
@@ -450,6 +452,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     setSelectedProject(null);
     setPendingConversationId(null);
     setPendingDiffModal(false);
+    setPendingInitialView(undefined);
   };
 
   // Clear pending conversation ID after it's been used by ConversationsPage
@@ -529,6 +532,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
                 onConversationNavigated={handleConversationNavigated}
                 initialOpenDiffModal={pendingDiffModal}
                 onDiffModalOpened={handleDiffModalOpened}
+                initialView={pendingInitialView}
               />
             ) : (
               <ProjectDetail project={selectedProject} onBack={handleBackToList} />

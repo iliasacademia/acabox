@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { app, BrowserWindow } from 'electron';
 import { APIclient, getCsrfToken, checkLogin } from './apiClient';
-import { IPC_CHANNELS } from './shared/types';
+import { IPC_CHANNELS, FEATURES } from './shared/types';
 import FormData from 'form-data';
 import { defaultLogger as logger } from './utils/logger';
 import Store from 'electron-store';
@@ -155,7 +155,7 @@ export class ProjectSyncService {
       return;
     }
 
-    // Validate and restore watchers for each folder
+    // In V2, only files are watched (not whole folders)
     const validatedFolders: Array<{
       projectId: number;
       folderId: number;
@@ -164,39 +164,41 @@ export class ProjectSyncService {
       filePath?: string;
     }> = [];
 
-    for (const folder of state) {
-      try {
-        // For file-mode, check the file exists; for folder-mode, check the folder
-        const pathToCheck = folder.filePath || folder.folderPath;
-        if (!fs.existsSync(pathToCheck)) {
-          logger.warn(`[ProjectSync] Local path no longer exists: ${pathToCheck}`);
-          continue;
-        }
+    if (!FEATURES.ONBOARDING_V2_ENABLED) {
+      for (const folder of state) {
+        try {
+          // For file-mode, check the file exists; for folder-mode, check the folder
+          const pathToCheck = folder.filePath || folder.folderPath;
+          if (!fs.existsSync(pathToCheck)) {
+            logger.warn(`[ProjectSync] Local path no longer exists: ${pathToCheck}`);
+            continue;
+          }
 
-        validatedFolders.push(folder);
+          validatedFolders.push(folder);
 
-        // Start watcher (without performing initial sync yet)
-        if (folder.filePath) {
-          await this.startWatchingFolderFileOnly(
-            folder.projectId,
-            folder.folderId,
-            folder.folderPath,
-            folder.filePath
+          // Start watcher (without performing initial sync yet)
+          if (folder.filePath) {
+            await this.startWatchingFolderFileOnly(
+              folder.projectId,
+              folder.folderId,
+              folder.folderPath,
+              folder.filePath
+            );
+          } else {
+            await this.startWatchingOnly(
+              folder.projectId,
+              folder.folderId,
+              folder.folderPath,
+              folder.manuscriptPath
+            );
+          }
+
+          logger.debug(
+            `[ProjectSync] Restored watcher for project ${folder.projectId}, folder ${folder.folderId}`
           );
-        } else {
-          await this.startWatchingOnly(
-            folder.projectId,
-            folder.folderId,
-            folder.folderPath,
-            folder.manuscriptPath
-          );
+        } catch (error) {
+          logger.error(`[ProjectSync] Error restoring watcher for folder ${folder.folderPath}:`, error);
         }
-
-        logger.debug(
-          `[ProjectSync] Restored watcher for project ${folder.projectId}, folder ${folder.folderId}`
-        );
-      } catch (error) {
-        logger.error(`[ProjectSync] Error restoring watcher for folder ${folder.folderPath}:`, error);
       }
     }
 
@@ -552,6 +554,11 @@ export class ProjectSyncService {
    * This handles the case where user logs in on a new machine or after clearing app data
    */
   private async restoreFoldersFromBackend(): Promise<void> {
+    if (FEATURES.ONBOARDING_V2_ENABLED) {
+      logger.debug('[ProjectSync] V2 enabled — skipping folder restore from backend');
+      return;
+    }
+
     try {
       const client = await APIclient();
 
@@ -785,13 +792,13 @@ export class ProjectSyncService {
       if (!remoteFile) {
         // File not on backend yet, upload it
         logger.debug(`[ProjectSync-Startup] File not on backend, uploading: ${filePath}`);
-        await this.syncFileToProject(projectId, null, null, filePath, undefined);
+        await this.syncFileToProject(projectId, null, null, filePath, filePath);
       } else {
         // Compare checksums
         const localChecksum = await calculateChecksum(filePath);
         if (localChecksum !== remoteFile.checksum) {
           logger.debug(`[ProjectSync-Startup] File changed, re-uploading: ${filePath}`);
-          await this.syncFileToProject(projectId, null, null, filePath, undefined);
+          await this.syncFileToProject(projectId, null, null, filePath, filePath);
         } else {
           logger.debug(`[ProjectSync-Startup] File unchanged: ${filePath}`);
         }
@@ -1516,7 +1523,7 @@ export class ProjectSyncService {
       logger.debug(`[ProjectSync] Standalone file changed: ${filePath}`);
       try {
         watchedFile.status = 'syncing';
-        await this.syncStandaloneFile(projectId, filePath, false);
+        await this.syncStandaloneFile(projectId, filePath, true);
         watchedFile.status = 'synced';
         watchedFile.lastSync = new Date().toISOString();
 
@@ -1709,7 +1716,7 @@ export class ProjectSyncService {
       if (!remoteFile) {
         // File not on backend, upload it
         logger.debug(`[ProjectSync-Startup] Standalone file not on backend, uploading: ${fileName}`);
-        await this.syncStandaloneFile(projectId, filePath, false);
+        await this.syncStandaloneFile(projectId, filePath, true);
         watchedFile.status = 'synced';
         watchedFile.lastSync = new Date().toISOString();
         return;
@@ -1719,7 +1726,7 @@ export class ProjectSyncService {
       const localChecksum = await calculateChecksum(filePath);
       if (localChecksum !== remoteFile.checksum) {
         logger.debug(`[ProjectSync-Startup] Standalone file changed, re-uploading: ${fileName}`);
-        await this.syncStandaloneFile(projectId, filePath, false);
+        await this.syncStandaloneFile(projectId, filePath, true);
         watchedFile.status = 'synced';
         watchedFile.lastSync = new Date().toISOString();
       } else {
