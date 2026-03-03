@@ -52,6 +52,13 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
     ) => {
       const { wid } = request.params;
       logger.info(`[SelectedTextReview] Review requested for window ${wid}`);
+      logger.info(`[SelectedTextReview] Window ${wid} state snapshot`, {
+        documentTextInfo: windowMonitorService.getDocumentTextForWindow(wid),
+        hasDocumentTextContent: windowMonitorService.getDocumentTextContent(wid) !== null,
+        selectedTextInfo: windowMonitorService.getSelectedTextForWindow(wid),
+        hasSelectedTextContent: windowMonitorService.getSelectedTextContent(wid) !== null,
+        documentPath: windowMonitorService.getDocumentPathForWindow(wid),
+      });
 
       try {
         // Step 1: Resolve window to project file
