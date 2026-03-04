@@ -1,5 +1,7 @@
 use crate::accessibility::{self, SafeAXUIElement};
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -16,6 +18,7 @@ pub struct DocumentTextChange {
 /// Tracks document text content and detects changes via character count polling + debounce.
 pub struct DocumentTextTracker {
     last_char_count: Option<i64>,
+    last_content_hash: Option<u64>,
     last_window_id: u32,
     dirty_since: Option<Instant>,
     debounce_duration: Duration,
@@ -26,6 +29,7 @@ impl DocumentTextTracker {
     pub fn new(temp_dir: PathBuf) -> Self {
         Self {
             last_char_count: None,
+            last_content_hash: None,
             last_window_id: 0,
             dirty_since: None,
             debounce_duration: Duration::from_secs(2),
@@ -49,6 +53,7 @@ impl DocumentTextTracker {
         if focused_window_id != self.last_window_id {
             self.dirty_since = None;
             self.last_char_count = None;
+            self.last_content_hash = None;
             self.last_window_id = focused_window_id;
             return None;
         }
@@ -109,6 +114,8 @@ impl DocumentTextTracker {
             return None;
         }
 
+        self.last_content_hash = None;
+
         let text_areas = self.find_text_areas(app_element, window_id);
         if text_areas.is_empty() {
             return None;
@@ -130,6 +137,7 @@ impl DocumentTextTracker {
     /// Reset tracked state (e.g. when app detaches).
     pub fn reset(&mut self) {
         self.last_char_count = None;
+        self.last_content_hash = None;
         self.last_window_id = 0;
         self.dirty_since = None;
     }
@@ -159,7 +167,7 @@ impl DocumentTextTracker {
     }
 
     fn read_and_write(
-        &self,
+        &mut self,
         text_areas: &[SafeAXUIElement],
         window_id: u32,
         char_count: i64,
@@ -182,6 +190,16 @@ impl DocumentTextTracker {
             );
             return None;
         }
+
+        // Skip emission if content hasn't actually changed
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        let content_hash = hasher.finish();
+
+        if self.last_content_hash == Some(content_hash) {
+            return None;
+        }
+        self.last_content_hash = Some(content_hash);
 
         let byte_size = text.len();
         let file_path = self.file_path_for_window(window_id);
