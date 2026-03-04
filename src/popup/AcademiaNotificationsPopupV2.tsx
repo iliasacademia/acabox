@@ -899,6 +899,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         {
           method: 'POST',
           headers,
+          body: '{}',
         }
       );
 
@@ -943,6 +944,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         {
           method: 'POST',
           headers,
+          body: '{}',
         }
       );
 
