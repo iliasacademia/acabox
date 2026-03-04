@@ -89,8 +89,10 @@ impl DocumentTextTracker {
                 None
             }
             None => {
-                // First poll after focus — don't emit here, on_window_focused handles it
+                // First poll detecting text — start debounce so we read after stabilization.
+                // on_window_focused may have missed the initial read if accessibility wasn't ready.
                 self.last_char_count = Some(char_count);
+                self.dirty_since = Some(Instant::now());
                 None
             }
         }
@@ -115,6 +117,7 @@ impl DocumentTextTracker {
         }
 
         self.last_content_hash = None;
+        self.last_char_count = None;
 
         let text_areas = self.find_text_areas(app_element, window_id);
         if text_areas.is_empty() {
