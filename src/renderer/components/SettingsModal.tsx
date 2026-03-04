@@ -27,11 +27,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
 
+  // Manuscript refresh state
+  const [isRefreshingManuscripts, setIsRefreshingManuscripts] = useState(false);
+  const [manuscriptRefreshError, setManuscriptRefreshError] = useState<string | null>(null);
+  const [manuscriptRefreshSuccess, setManuscriptRefreshSuccess] = useState(false);
+
   // Sync local state with context when modal opens
   useEffect(() => {
     if (isOpen) {
       setAutoDiffReview(currentPreferences.auto_diff_review);
       setError(null);
+      setManuscriptRefreshError(null);
+      setManuscriptRefreshSuccess(false);
       setIsLoadingStatus(true);
       getZoteroStatus().then(setZoteroStatus).finally(() => setIsLoadingStatus(false));
     } else {
@@ -107,6 +114,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     } catch (err: any) {
       console.error('[SettingsModal] Zotero sync failed:', err);
       setIsSyncing(false);
+    }
+  };
+
+  const handleRefreshManuscriptData = async () => {
+    setIsRefreshingManuscripts(true);
+    setManuscriptRefreshError(null);
+    setManuscriptRefreshSuccess(false);
+    try {
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+      if (result.success) {
+        setManuscriptRefreshSuccess(true);
+      } else {
+        setManuscriptRefreshError(result.error || 'Failed to refresh manuscript data');
+      }
+    } catch (err: any) {
+      setManuscriptRefreshError(err.message || 'Failed to refresh manuscript data');
+    } finally {
+      setIsRefreshingManuscripts(false);
     }
   };
 
@@ -226,6 +251,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                     {isPolling ? 'Waiting...' : 'Connect'}
                   </button>
                 )}
+              </div>
+            </div>
+          </div>
+
+          <div className="settingsSection">
+            <div className="settingItem zoteroSettingItem">
+              <div className="settingContent">
+                <div className="settingLabel">Manuscript Data</div>
+                <div className="settingDescription">
+                  Refresh the cached manuscript file paths used for Word integration
+                </div>
+                {manuscriptRefreshSuccess && (
+                  <div className="manuscriptRefreshSuccess">Refreshed successfully</div>
+                )}
+                {manuscriptRefreshError && (
+                  <div className="manuscriptRefreshError">{manuscriptRefreshError}</div>
+                )}
+              </div>
+              <div className="zoteroAction">
+                <button
+                  className="zoteroButton zoteroButtonSync"
+                  onClick={handleRefreshManuscriptData}
+                  disabled={isRefreshingManuscripts}
+                >
+                  {isRefreshingManuscripts ? 'Refreshing...' : 'Refresh'}
+                </button>
               </div>
             </div>
           </div>

@@ -10,6 +10,7 @@ import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
 import { WordPollResponse } from '../types';
 import { CachedNotification } from '../../notificationManager';
 import { defaultLogger as logger } from '../../utils/logger';
+import { remoteFeatureFlags, REMOTE_FLAGS } from '../../remoteFeatureFlags';
 
 /**
  * Build a WordPollResponse for the given window ID.
@@ -70,6 +71,9 @@ export function buildWordPollResponseV2(
 
   // If no document path or no project file, hide the button
   if (!projectFile) {
+    if (documentPath && remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+      logger.info(`[VERBOSE] [WORD-POLL-V2] No project file found for path: "${documentPath}" (cache size: ${wordIntegrationDataStoreV2.getCacheSize()}, keys: ${wordIntegrationDataStoreV2.getCacheKeys().join(', ')})`);
+    }
     return {
       shouldShow: false,
       notificationCount: 0,
