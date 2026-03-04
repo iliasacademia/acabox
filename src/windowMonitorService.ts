@@ -269,6 +269,9 @@ export class WindowMonitorService {
           // Now apply the deferred clear
           const deferredState = reduceWindowMonitorEvent(this.state, event);
           this.state = deferredState;
+          if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+            logger.info('[VERBOSE] [WindowMonitorService] State:', deferredState);
+          }
           if (!this.selectedTextReviewState.has(windowId)) {
             this.lastSelectionBounds.delete(windowId);
           }
