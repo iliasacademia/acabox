@@ -478,8 +478,14 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
       {/* Header with logo and avatar - only show on list view */}
       {currentView === 'list' && (
         <div className="projectsHeader">
-          <div className="projectsLogo">
-            <span className="logoText">A</span>
+          <div className="projectsLogoArea">
+            <div className="projectsLogoIcon">
+              <svg width="17" height="16" viewBox="0 0 14 13" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path fillRule="evenodd" clipRule="evenodd" d="M13.0758 11.4492V12.1006H7.20687V11.4492C8.188 11.432 8.66917 11.2266 8.66917 10.6775C8.66917 10.4893 8.59762 10.2659 8.50908 10.0089L7.84635 8.41137H3.27788C2.89598 9.36869 2.60978 10.0837 2.56954 10.1808C2.14113 11.2215 2.73053 11.3486 3.73938 11.4483C3.74206 11.4483 3.74385 11.4492 3.74564 11.4492V12.1006H0V11.4492C0.482068 11.3633 0.873804 11.2782 1.03479 10.815L4.85198 1.35348L4.28137 0H7.51006L12.0231 10.815C12.1832 11.2429 12.5758 11.3633 13.0758 11.4492ZM7.57017 7.0056L5.81738 2.54749C5.52921 3.308 4.78117 5.28498 4.12919 7.0056H7.57017Z" fill="white"/>
+              </svg>
+            </div>
+            <div className="projectsLogoDivider" />
+            <span className="projectsLogoName">Writing Agent</span>
           </div>
           <div className="projectsUserMenu">
             <div className="userAvatar" onClick={() => setShowUserMenu(!showUserMenu)}>

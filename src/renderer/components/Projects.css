@@ -26,20 +26,36 @@ button svg * {
   position: relative;
 }
 
-.projectsLogo {
+.projectsLogoArea {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.projectsLogoIcon {
   width: 32px;
-  height: 28px;
+  height: 32px;
+  background-color: #141413;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #000000;
-  border-radius: 4px;
+  flex-shrink: 0;
 }
 
-.logoText {
-  color: #ffffff;
-  font-size: 20px;
-  font-weight: bold;
+.projectsLogoDivider {
+  width: 1px;
+  height: 20px;
+  background-color: #e0e0e0;
+  flex-shrink: 0;
+}
+
+.projectsLogoName {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 17px;
+  font-weight: 400;
+  color: #000000;
+  white-space: nowrap;
 }
 
 .projectsBackButton {
