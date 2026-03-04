@@ -240,7 +240,11 @@ const App: React.FC = () => {
           }
         }
         // Refresh manuscript paths for Word integration tracking on app startup
-        await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+        try {
+          await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+        } catch (error) {
+          console.error('[App] Failed to refresh manuscript paths:', error);
+        }
       }
     } finally {
       setAuthLoading(false);
@@ -313,7 +317,11 @@ const App: React.FC = () => {
       }
 
       // Refresh manuscript paths for Word integration tracking
-      await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+      try {
+        await window.electronAPI.invoke(IPC_CHANNELS.REFRESH_MANUSCRIPT_PATHS);
+      } catch (error) {
+        console.error('[App] Failed to refresh manuscript paths:', error);
+      }
       // Reinitialize sync services now that user is logged in
       // This handles the case where app started without a user logged in
       await window.electronAPI.invoke(IPC_CHANNELS.REINITIALIZE_SYNC);

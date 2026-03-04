@@ -24,6 +24,7 @@ import { getDeviceId } from './utils/deviceId';
 import { windowMonitorService } from './windowMonitorService';
 import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { sessionsTracker } from './sessionsTracker';
+import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 import { sessionSyncService } from './sessionSyncService';
 
 // Set display name for menu bar (needed in dev mode where the binary is named "Electron")
@@ -987,6 +988,9 @@ app.on('activate', () => {
  */
 async function refreshManuscriptPaths(): Promise<void> {
   if (!(FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED)) {
+    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+      logger.info('[VERBOSE] [MANUSCRIPT-PATHS] Feature disabled, skipping');
+    }
     return;
   }
   try {
@@ -1005,6 +1009,9 @@ async function refreshManuscriptPaths(): Promise<void> {
     const projects = projectsResponse.data?.projects || [];
 
     if (projects.length === 0) {
+      if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+        logger.info('[VERBOSE] [MANUSCRIPT-PATHS] No projects found, cache empty');
+      }
       wordIntegrationDataStoreV2.setProjectFileCache(new Map());
       return;
     }
@@ -1040,6 +1047,9 @@ async function refreshManuscriptPaths(): Promise<void> {
     }
 
     wordIntegrationDataStoreV2.setProjectFileCache(projectFileCache);
+    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+      logger.info(`[VERBOSE] [MANUSCRIPT-PATHS] Cache populated with ${projectFileCache.size} entries: ${Array.from(projectFileCache.keys()).join(', ')}`);
+    }
 
   } catch (error) {
     logger.error('[MANUSCRIPT-PATHS] Error refreshing manuscript paths:', error);
