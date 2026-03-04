@@ -1053,7 +1053,7 @@ async function refreshManuscriptPaths(): Promise<void> {
 
   } catch (error) {
     logger.error('[MANUSCRIPT-PATHS] Error refreshing manuscript paths:', error);
-    wordIntegrationDataStoreV2.setProjectFileCache(new Map());
+    throw error;
   }
 }
 

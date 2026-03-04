@@ -138,3 +138,15 @@
 .zoteroButtonDisconnect:hover:not(:disabled) {
   background-color: #ebebeb;
 }
+
+.manuscriptRefreshSuccess {
+  color: #2e7d32;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.manuscriptRefreshError {
+  color: #c33;
+  font-size: 13px;
+  margin-top: 4px;
+}
