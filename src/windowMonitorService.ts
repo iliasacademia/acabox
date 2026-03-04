@@ -218,6 +218,7 @@ export class WindowMonitorService {
   private documentTextContentCache = new Map<string, string>();
   private selectedTextContentCache = new Map<string, string>();
   private selectionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private documentTextCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private lastDesiredState: DesiredWebviewState = {};
   private baseUrl: string | null = null;
   private authToken: string | null = null;
@@ -338,6 +339,12 @@ export class WindowMonitorService {
           const content = readFileSync(filePath, 'utf-8');
           if (content.length > 1) {
             this.documentTextContentCache.set(windowId, content);
+            // Cancel any pending delayed cleanup for this window (from a prior WINDOW_DESTROYED)
+            const pendingCleanup = this.documentTextCacheCleanupTimers.get(windowId);
+            if (pendingCleanup) {
+              clearTimeout(pendingCleanup);
+              this.documentTextCacheCleanupTimers.delete(windowId);
+            }
             logger.info(`[WindowMonitorService] Cached document text for window ${windowId}: ${content.length} bytes`);
             if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
               logger.info('[VERBOSE] [WindowMonitorService] Document text cache set', {
@@ -371,7 +378,13 @@ export class WindowMonitorService {
         this.buttonV2WidthOverrides.delete(event.window.id);
         this.selectedTextReviewState.delete(event.window.id);
         this.lastSelectionBounds.delete(event.window.id);
-        this.documentTextContentCache.delete(event.window.id);
+        // Delay documentTextContentCache cleanup by 24h so the cache survives
+        // window destroy/recreate cycles (the review button needs it).
+        const cleanupTimer = setTimeout(() => {
+          this.documentTextContentCache.delete(event.window.id);
+          this.documentTextCacheCleanupTimers.delete(event.window.id);
+        }, 24 * 60 * 60 * 1000);
+        this.documentTextCacheCleanupTimers.set(event.window.id, cleanupTimer);
         this.selectedTextContentCache.delete(event.window.id);
         const destroyTimer = this.selectionClearTimers.get(event.window.id);
         if (destroyTimer) {
@@ -731,6 +744,8 @@ export class WindowMonitorService {
     this.selectedTextContentCache.clear();
     for (const timer of this.selectionClearTimers.values()) clearTimeout(timer);
     this.selectionClearTimers.clear();
+    for (const timer of this.documentTextCacheCleanupTimers.values()) clearTimeout(timer);
+    this.documentTextCacheCleanupTimers.clear();
   }
 }
 
