@@ -707,11 +707,30 @@ impl WindowMonitor {
         };
 
         if tracked.document_path != current_doc_path {
-            tracked.document_path = current_doc_path;
+            // Suppress Some→None transitions: the AX API can transiently return null
+            // during saves or title changes. The next poll cycle will re-check.
+            if tracked.document_path.is_some() && current_doc_path.is_none() {
+                return;
+            }
 
+            tracked.document_path = current_doc_path.clone();
+
+            // Build WindowInfoOutput directly using the already-fetched document path
+            // to avoid a double-fetch from the AX API (which could return a different value).
             let windows = window_list::get_windows_for_pid(self.word_pid);
             if let Some(entry) = windows.iter().find(|w| w.window_id == window_id) {
-                let window_info = self.create_window_info_from_entry(entry, false);
+                let window_info = WindowInfoOutput {
+                    id: entry.window_id.to_string(),
+                    title: entry.name.clone(),
+                    bounds: Some(WindowBounds {
+                        x: entry.bounds.x,
+                        y: entry.bounds.y,
+                        width: entry.bounds.width,
+                        height: entry.bounds.height,
+                    }),
+                    document_path: current_doc_path,
+                    content_bounds: None,
+                };
                 let app = self.app_info();
                 event_models::emit_window_event(
                     EventType::WindowDocumentPathChanged,

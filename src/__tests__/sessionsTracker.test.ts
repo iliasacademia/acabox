@@ -424,6 +424,100 @@ describe('sessionsTracker', () => {
       expect(data.project_id).toBeNull();
     });
 
+    it('WINDOW_DOCUMENT_PATH_CHANGED: path → null keeps session open', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      // Focus a window with a document path
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      expect(before).toHaveLength(1);
+      const sessionId = before[0].session_id;
+
+      // Path goes null (transient AX glitch)
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_PATH_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: null, bounds: defaultBounds },
+      } as any));
+
+      // Session should still be open — no close+reopen (still 1 session, same ID)
+      const after = sessionsByType(db, 'word_window_focused');
+      expect(after).toHaveLength(1);
+      expect(after[0].session_id).toBe(sessionId);
+    });
+
+    it('WINDOW_DOCUMENT_PATH_CHANGED: path → null → same path updates session data without reopen', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      // Focus a window with a document path
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      expect(before).toHaveLength(1);
+      const sessionId = before[0].session_id;
+
+      // Path goes null (transient AX glitch)
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_PATH_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: null, bounds: defaultBounds },
+      } as any));
+
+      // Path recovers to same value (goes through null→path branch)
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_PATH_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // Should still be 1 session (data updated via null→path, not closed+reopened)
+      const after = sessionsByType(db, 'word_window_focused');
+      expect(after).toHaveLength(1);
+      expect(after[0].session_id).toBe(sessionId);
+      const data = JSON.parse(after[0].data);
+      expect(data.document_path).toBe('/known/project/doc.docx');
+    });
+
+    it('WINDOW_DOCUMENT_PATH_CHANGED: path → null → different path updates session data', () => {
+      const { db, tracker } = harness;
+      tracker.recordAppStarted();
+
+      // Focus a window with a document path
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_FOCUSED',
+        window: { id: 'win-1', title: 'Doc', documentPath: '/known/project/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      const before = sessionsByType(db, 'word_window_focused');
+      expect(before).toHaveLength(1);
+      const sessionId = before[0].session_id;
+
+      // Path goes null (transient AX glitch)
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_PATH_CHANGED',
+        window: { id: 'win-1', title: 'Doc', documentPath: null, bounds: defaultBounds },
+      } as any));
+
+      // Path recovers to a different value (goes through null→path branch)
+      tracker.processEvent(makeEvent({
+        event: 'WINDOW_DOCUMENT_PATH_CHANGED',
+        window: { id: 'win-1', title: 'New Doc', documentPath: '/unknown/doc.docx', bounds: defaultBounds },
+      } as any));
+
+      // Should still be 1 session with updated data
+      const after = sessionsByType(db, 'word_window_focused');
+      expect(after).toHaveLength(1);
+      expect(after[0].session_id).toBe(sessionId);
+      const data = JSON.parse(after[0].data);
+      expect(data.document_path).toBe('/unknown/doc.docx');
+    });
+
     it('WINDOW_DOCUMENT_PATH_CHANGED is a no-op for non-focused window', () => {
       const { db, tracker } = harness;
       tracker.recordAppStarted();

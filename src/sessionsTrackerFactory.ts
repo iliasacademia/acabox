@@ -260,6 +260,11 @@ export function createSessionsTracker(sessionDb: SessionDb): SessionsTracker {
             sessionDb.updateSessionData.run(data, now(), focusedSessionId);
             focusedDocumentPath = newDocumentPath;
             logger.info('[SessionsTracker] Focused session data updated (null→path):', focusedSessionId);
+          } else if (focusedDocumentPath !== null && !newDocumentPath) {
+            // path → null: transient AX glitch, keep session open but track the null
+            // so when the path recovers it goes through null→path (update) not path→path (reopen)
+            focusedDocumentPath = null;
+            logger.info('[SessionsTracker] Focused document path went null (transient), keeping session open:', focusedSessionId);
           } else if (focusedDocumentPath !== null && newDocumentPath) {
             // path → path: close + reopen
             closeFocusedSession();
