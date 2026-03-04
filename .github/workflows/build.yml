@@ -354,10 +354,10 @@ jobs:
             if [ -n "$DMG_FILES" ]; then
               echo "Found DMG file(s):"
               echo "$DMG_FILES"
-              for dmg in $DMG_FILES; do
+              while IFS= read -r dmg; do
                 echo "Uploading DMG: $dmg"
                 aws s3 cp "$dmg" s3://${BUCKET}/${CHANNEL}/${ARCH}/${VERSION}/
-              done
+              done <<< "$DMG_FILES"
             else
               echo "WARNING: No DMG files found to upload"
             fi
