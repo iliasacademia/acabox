@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import dockIcon from '../../assets/icons/dock-icon.png';
 import ProjectsList from './ProjectsList';
 import ProjectDetail from './ProjectDetail';
 import CreateProjectWizard, {
@@ -478,8 +479,10 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
       {/* Header with logo and avatar - only show on list view */}
       {currentView === 'list' && (
         <div className="projectsHeader">
-          <div className="projectsLogo">
-            <span className="logoText">A</span>
+          <div className="projectsLogoArea">
+            <img src={dockIcon} className="projectsLogoIcon" alt="Writing Agent" />
+            <div className="projectsLogoDivider" />
+            <span className="projectsLogoName">Writing Agent</span>
           </div>
           <div className="projectsUserMenu">
             <div className="userAvatar" onClick={() => setShowUserMenu(!showUserMenu)}>

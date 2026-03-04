@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell, powerMonitor } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { createCanvas } from 'canvas';
+import { createCanvas, loadImage } from 'canvas';
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
@@ -25,6 +25,11 @@ import { windowMonitorService } from './windowMonitorService';
 import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { sessionsTracker } from './sessionsTracker';
 import { sessionSyncService } from './sessionSyncService';
+
+// Set display name for menu bar (needed in dev mode where the binary is named "Electron")
+app.setName('Writing Agent');
+// Lock userData to the original path so renaming productName doesn't break existing user data
+app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron'));
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 const ACTIVITY_FLUSH_INTERVAL_MS = 300_000; // 5 minutes
@@ -343,6 +348,8 @@ const createTextIcon = (letter: string): Electron.NativeImage | null => {
     return null;
   }
 };
+
+const DOCK_ICON_PATH = path.join(__dirname, '../../src/assets/icons/dock-icon.png');
 
 // Helper function to create icon based on type
 // Available icon types with different shapes:
@@ -844,6 +851,12 @@ app.whenReady().then(async () => {
     createWindow();
   }
   createTray();
+
+  // Set dock icon to the Academia logo on black background
+  const dock = process.platform === 'darwin' ? app.dock : null;
+  if (dock) {
+    dock.setIcon(nativeImage.createFromPath(DOCK_ICON_PATH));
+  }
 
   // Setup auto-updater — wait for startup update check before showing the window.
   // If an update is downloaded during startup, the app restarts before showing anything.

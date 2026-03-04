@@ -1,5 +1,6 @@
 {
   "name": "academia-electron",
+  "productName": "Writing Agent",
   "version": "0.0.1",
   "description": "Demo Academia Electron App",
   "main": ".webpack/main",

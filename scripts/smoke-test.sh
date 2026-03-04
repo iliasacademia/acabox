@@ -2,17 +2,18 @@
 set -euo pipefail
 
 # Find the packaged .app in out/
-APP_PATH=$(find out -name "academia-electron.app" -maxdepth 3 -type d | head -1)
+APP_PATH=$(find out -name "*.app" -maxdepth 3 -type d | head -1)
 
 if [ -z "$APP_PATH" ]; then
-  echo "ERROR: Could not find academia-electron.app in out/"
+  echo "ERROR: Could not find any .app in out/"
   exit 1
 fi
 
 echo "Found app: $APP_PATH"
 
-# Resolve the binary inside
-BINARY="$APP_PATH/Contents/MacOS/academia-electron"
+# Resolve the binary inside (name matches the .app bundle name without extension)
+APP_NAME=$(basename "$APP_PATH" .app)
+BINARY="$APP_PATH/Contents/MacOS/$APP_NAME"
 
 if [ ! -x "$BINARY" ]; then
   echo "ERROR: Binary not found or not executable: $BINARY"
