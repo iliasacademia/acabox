@@ -25,6 +25,14 @@ class WordIntegrationDataStoreV2 {
   getProjectFileForPath(filePath: string): ProjectFileInfo | null {
     return this.projectFileCache.get(filePath) || null;
   }
+
+  getCacheSize(): number {
+    return this.projectFileCache.size;
+  }
+
+  getCacheKeys(): string[] {
+    return Array.from(this.projectFileCache.keys());
+  }
 }
 
 export const wordIntegrationDataStoreV2 = new WordIntegrationDataStoreV2();
