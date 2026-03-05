@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useSupportingMaterialsApi } from '../api/useSupportingMaterialsApi';
+import { useApiClient } from '../context/ApiContext';
 import {
   SupportingMaterial,
   SupportingMaterialCategory,
@@ -59,6 +60,8 @@ export function SupportingMaterialsContent({
   const [error, setError] = useState<string | null>(null);
   const tableContainerRef = React.useRef<HTMLDivElement>(null);
   const hadUploadsRef = React.useRef(false);
+
+  const apiClient = useApiClient();
 
   const {
     getSupportingMaterials,
@@ -169,6 +172,37 @@ export function SupportingMaterialsContent({
       setError('Failed to load supporting materials. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleOpenFile = async (filePath: string) => {
+    try {
+      setError(null);
+
+      // Zotero-synced files: open via zotero:// deep link
+      const zoteroMatch = filePath.match(/api\.zotero\.org\/(users|groups)\/(\d+)\/items\/([A-Z0-9]+)/i);
+      if (zoteroMatch) {
+        const [, ownerType, ownerId, itemKey] = zoteroMatch;
+        const libraryPath = ownerType.toLowerCase() === 'groups' ? `groups/${ownerId}` : 'library';
+        const openUrl = `zotero://open-pdf/${libraryPath}/items/${itemKey}`;
+        if (apiClient.openExternalUrl) {
+          apiClient.openExternalUrl(openUrl);
+        }
+        return;
+      }
+
+      // Local files: open via shell
+      const result = await apiClient.invoke<{ success: boolean; error?: string }>({
+        method: 'POST',
+        endpoint: 'open-file',
+        data: { filePath },
+      });
+      if (!result.success) {
+        setError('Could not open file. It may have been moved or deleted.');
+      }
+    } catch (err) {
+      console.error('Failed to open file:', err);
+      setError('Could not open file. It may have been moved or deleted.');
     }
   };
 
@@ -472,6 +506,7 @@ export function SupportingMaterialsContent({
                 uploadingFiles={uploadingFiles}
                 onDelete={handleDelete}
                 onCategoryChange={handleCategoryChange}
+                onOpenFile={handleOpenFile}
               />
               {isLoadingMore && (
                 <div className="supportingMaterialsLoadingMore">

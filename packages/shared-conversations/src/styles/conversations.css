@@ -3621,6 +3621,15 @@
   color: var(--text-primary);
 }
 
+.materialFileNameClickable {
+  cursor: pointer;
+}
+
+.materialFileNameClickable:hover {
+  text-decoration: underline;
+  color: var(--accent-primary, #4a90d9);
+}
+
 .materialUpdatedAt {
   color: var(--text-secondary);
   display: flex;
