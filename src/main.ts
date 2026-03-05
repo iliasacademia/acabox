@@ -1,7 +1,8 @@
 import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell, powerMonitor } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
@@ -1982,6 +1983,26 @@ ipcMain.handle(IPC_CHANNELS.GET_ALL_NOTIFICATIONS, async () => {
   }
 });
 
+const execAsync = promisify(exec);
+
+async function isZoteroRunning(): Promise<boolean> {
+  try {
+    await execAsync('pgrep -ix zotero');
+    return true;
+  } catch {
+    return false; // pgrep exits with code 1 if no match
+  }
+}
+
+async function waitForZotero(timeoutMs = 3000, intervalMs = 500): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await isZoteroRunning()) return;
+    await new Promise(resolve => setTimeout(resolve, intervalMs));
+  }
+  // Proceed anyway after timeout — Zotero may still handle it
+}
+
 ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
   try {
     // Validate URL against whitelist before opening
@@ -1989,6 +2010,20 @@ ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
     if (!validation.isValid) {
       logger.error('[Main] URL validation failed:', validation.error);
       return { success: false, error: validation.error };
+    }
+
+    // For zotero:// deep links, ensure Zotero is running before sending the link
+    if (url.startsWith('zotero://')) {
+      const isRunning = await isZoteroRunning();
+      if (!isRunning) {
+        logger.info('[Main] Zotero not running, launching and waiting before sending deep link');
+        // Launch Zotero by opening the deep link
+        await shell.openExternal(url);
+        // Wait for Zotero to initialize, then re-send the deep link
+        await waitForZotero();
+        await shell.openExternal(url);
+        return { success: true };
+      }
     }
 
     await shell.openExternal(url);

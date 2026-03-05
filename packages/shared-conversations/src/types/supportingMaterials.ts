@@ -27,6 +27,7 @@ export interface SupportingMaterial {
   updated_at: string;
   is_primary_manuscript?: boolean; // false for supporting materials, true for manuscripts
   upload_status?: UploadStatus; // Upload progress status
+  url?: string | null; // Zotero API URL for Zotero-synced files
   summary?: string | null; // AI-generated 2-3 sentence summary (PDF/DOCX only)
   last_review?: string | null;
 }

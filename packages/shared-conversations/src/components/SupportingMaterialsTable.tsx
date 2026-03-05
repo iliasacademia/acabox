@@ -16,6 +16,7 @@ export interface SupportingMaterialsTableProps {
   uploadingFiles: UploadingFile[];
   onDelete: (id: number) => void;
   onCategoryChange: (id: number, category: SupportingMaterialCategory) => void;
+  onOpenFile?: (filePath: string) => void;
 }
 
 export function SupportingMaterialsTable({
@@ -23,6 +24,7 @@ export function SupportingMaterialsTable({
   uploadingFiles,
   onDelete,
   onCategoryChange,
+  onOpenFile,
 }: SupportingMaterialsTableProps) {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -141,11 +143,20 @@ export function SupportingMaterialsTable({
           {/* Regular materials */}
           {sortedMaterials.map((material) => {
             const isProcessing = material.upload_status === 'pending';
-
+            const isPdf = material.file_name.toLowerCase().endsWith('.pdf');
+            const isLocalFile = !!material.file_path?.startsWith('/');
+            const isZoteroFile = !!material.url;
+            const isClickable =
+              !isProcessing && isPdf && (isLocalFile || isZoteroFile);
             return (
               <tr key={material.id} className={isProcessing ? 'uploadingRow' : ''}>
                 <td>
-                  <span className="materialFileName">{material.file_name}</span>
+                  <span
+                    className={`materialFileName${isClickable ? ' materialFileNameClickable' : ''}`}
+                    onClick={isClickable && onOpenFile ? () => onOpenFile(isLocalFile ? material.file_path : material.url!) : undefined}
+                  >
+                    {material.file_name}
+                  </span>
                 </td>
                 <td>
                   <div className="materialUpdatedAt">
