@@ -5,7 +5,7 @@ const DevelopmentBanner: React.FC = () => {
   return (
     <div className="development-banner">
       <span className="development-banner-text">
-        Development Mode
+        Development Mode (port {window.location.port})
       </span>
     </div>
   );
