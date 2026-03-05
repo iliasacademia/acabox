@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import UploadSection from './UploadSection';
 import SearchSection from './SearchSection';
 import SyncSection from './SyncSection';
-import TrayIconSwitcher from './TrayIconSwitcher';
 import PositionDebugger from './PositionDebugger';
 
-type Page = 'positionDebugger' | 'uploader' | 'notifications' | 'sync' | 'trayIconSwitcher';
+type Page = 'positionDebugger' | 'uploader' | 'notifications' | 'sync';
 
 interface DevToolsProps {
   onLogout: () => void;
@@ -50,12 +49,7 @@ const DevTools: React.FC<DevToolsProps> = ({ onLogout }) => {
             >
               Sync Agent
             </button>
-            <button
-              className={`menuItem ${currentPage === 'trayIconSwitcher' ? 'active' : ''}`}
-              onClick={() => setCurrentPage('trayIconSwitcher')}
-            >
-              Tray Icon
-            </button>
+
           </nav>
           <button id="logoutButton" onClick={onLogout}>
             Logout
@@ -86,7 +80,6 @@ const DevTools: React.FC<DevToolsProps> = ({ onLogout }) => {
             </>
           )}
           {currentPage === 'sync' && <SyncSection />}
-          {currentPage === 'trayIconSwitcher' && <TrayIconSwitcher />}
         </div>
       </div>
     </div>

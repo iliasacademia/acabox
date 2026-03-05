@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell, powerMonitor } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { createCanvas, loadImage } from 'canvas';
+
 import { autoUpdater } from 'electron-updater';
 import Store from 'electron-store';
 import AutoLaunch from 'auto-launch';
@@ -285,149 +285,14 @@ const createMainWindow = async (): Promise<void> => {
   });
 };
 
-// Helper function to create text-based icon
-const createTextIcon = (letter: string): Electron.NativeImage | null => {
-  try {
-    // Render at 3x resolution for crisp, anti-aliased text
-    // Then resize down to 18x18 for the final icon
-    const finalSize = 18;
-    const renderScale = 3;
-    const renderSize = finalSize * renderScale; // 54x54
-
-    const canvas = createCanvas(renderSize, renderSize);
-    const ctx = canvas.getContext('2d');
-
-    // Enable high-quality rendering
-    ctx.antialias = 'subpixel';
-    ctx.patternQuality = 'best';
-    ctx.textDrawingMode = 'path';
-
-    // Clear canvas with transparent background
-    ctx.clearRect(0, 0, renderSize, renderSize);
-
-    // Set text properties - scale font size with render size
-    ctx.fillStyle = '#000000'; // Black text (will be inverted by template mode)
-    // Use 85% of canvas size for better fill
-    const fontSize = Math.floor(renderSize * 0.85);
-    // Note: node-canvas has limited font support, use simple font family
-    ctx.font = `bold ${fontSize}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Measure the actual text dimensions
-    const letterToRender = letter.toUpperCase();
-
-    // Draw the letter centered
-    ctx.fillText(letterToRender, renderSize / 2, renderSize / 2);
-
-    // Get image data from high-res canvas
-    const imageData = ctx.getImageData(0, 0, renderSize, renderSize);
-    const buffer = Buffer.from(imageData.data);
-
-    // Create NativeImage from high-resolution bitmap
-    let icon = nativeImage.createFromBitmap(buffer, {
-      width: renderSize,
-      height: renderSize
-    });
-
-    if (icon.isEmpty()) {
-      logger.error('[TRAY] Text icon is empty after creation');
-      return null;
-    }
-
-    // Resize down to final size for sharp, anti-aliased result
-    icon = icon.resize({
-      width: finalSize,
-      height: finalSize,
-      quality: 'best'
-    });
-
-    // Set as template image for proper dark mode support
-    icon.setTemplateImage(true);
-
-    return icon;
-  } catch (error) {
-    logger.error('[TRAY] ERROR creating text icon:', error);
-    logger.error('[TRAY] Error message:', (error as Error).message);
-    logger.error('[TRAY] Error stack:', (error as Error).stack);
-    return null;
-  }
-};
-
-const DOCK_ICON_PATH = path.join(__dirname, '../../src/assets/icons/dock-icon.png');
-
-// Helper function to create icon based on type
-// Available icon types with different shapes:
-// - 'dot' (status dot)
-// - 'gear' (action/settings)
-// - 'bookmark' (bookmark/saved)
-// - 'lock' (locked)
-// - 'unlock' (unlocked)
-// - 'add' (plus sign)
-// - 'remove' (minus sign)
-// - 'refresh' (circular arrow)
-// - 'text' (letter "A")
-type TrayIconType = 'dot' | 'gear' | 'bookmark' | 'lock' | 'unlock' | 'add' | 'remove' | 'refresh' | 'text';
-
-const createTrayIcon = (iconType: TrayIconType): Electron.NativeImage | null => {
-  let icon: Electron.NativeImage;
-
-  // Handle text icon separately
-  if (iconType === 'text') {
-    const textIcon = createTextIcon('A');
-    if (!textIcon) {
-      logger.error('[TRAY] Failed to create text icon');
-      return null;
-    }
-    return textIcon;
-  }
-
-  // Map icon type to macOS system template name
-  const iconNameMap: Record<Exclude<TrayIconType, 'text'>, string> = {
-    'dot': 'NSImageNameStatusAvailable',
-    'gear': 'NSImageNameActionTemplate',
-    'bookmark': 'NSImageNameBookmarksTemplate',
-    'lock': 'NSImageNameLockLockedTemplate',
-    'unlock': 'NSImageNameLockUnlockedTemplate',
-    'add': 'NSImageNameAddTemplate',
-    'remove': 'NSImageNameRemoveTemplate',
-    'refresh': 'NSImageNameRefreshTemplate'
-  };
-
-  const systemIconName = iconNameMap[iconType as Exclude<TrayIconType, 'text'>];
-
-  try {
-    icon = nativeImage.createFromNamedImage(systemIconName);
-  } catch (error) {
-    logger.error('[TRAY] ERROR creating icon from named image:', error);
-    logger.error('[TRAY] Error stack:', (error as Error).stack);
-    return null;
-  }
-
-  // Resize icon to match standard menu bar icon size (18pt for normal, 36pt for retina)
-  // macOS menu bar icons are typically 18x18 points
-  try {
-    icon = icon.resize({ width: 18, height: 18 });
-  } catch (error) {
-    logger.error('[TRAY] ERROR resizing icon:', error);
-  }
-
-  // Set as template image for proper dark mode support
-  try {
-    icon.setTemplateImage(true);
-  } catch (error) {
-    logger.error('[TRAY] ERROR setting template image:', error);
-  }
-
-  return icon;
-};
-
 const createTray = (): void => {
-  const icon = createTrayIcon('text'); // Default to letter "A"
-  if (!icon) {
-    logger.error('[TRAY] Failed to create icon, aborting tray creation');
+  const iconPath = path.join(__dirname, '../../src/assets/icons/dock-icon.png');
+  let icon = nativeImage.createFromPath(iconPath);
+  if (icon.isEmpty()) {
+    logger.error('[TRAY] Failed to load dock icon from', iconPath);
     return;
   }
+  icon = icon.resize({ width: 18, height: 18 });
 
   // Create tray
   try {
@@ -860,7 +725,7 @@ app.whenReady().then(async () => {
   // Set dock icon to the Academia logo on black background
   const dock = process.platform === 'darwin' ? app.dock : null;
   if (dock) {
-    dock.setIcon(nativeImage.createFromPath(DOCK_ICON_PATH));
+    dock.setIcon(nativeImage.createFromPath(path.join(__dirname, '../../src/assets/icons/dock-icon.png')));
   }
 
   // Setup auto-updater — wait for startup update check before showing the window.
@@ -2051,28 +1916,6 @@ ipcMain.handle(IPC_CHANNELS.GET_FOLDER_FILES, async (_event, folderId: string) =
   } catch (error: any) {
     logger.error('[GET-FOLDER-FILES] Failed to get folder files:', error);
     return { success: false, error: error.message, files: [] };
-  }
-});
-
-// Handle tray icon change
-ipcMain.handle(IPC_CHANNELS.CHANGE_TRAY_ICON, async (_event, iconType: TrayIconType) => {
-  if (!tray) {
-    logger.error('[TRAY] Tray not initialized, cannot change icon');
-    return { success: false, error: 'Tray not initialized' };
-  }
-
-  try {
-    const newIcon = createTrayIcon(iconType);
-    if (!newIcon) {
-      logger.error('[TRAY] Failed to create new icon');
-      return { success: false, error: 'Failed to create icon' };
-    }
-
-    tray.setImage(newIcon);
-    return { success: true };
-  } catch (error) {
-    logger.error('[TRAY] ERROR changing icon:', error);
-    return { success: false, error: (error as Error).message };
   }
 });
 

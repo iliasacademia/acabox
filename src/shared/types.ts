@@ -105,7 +105,6 @@ export const IPC_CHANNELS = {
   BUTTON_ACTION: "button-action",
 
   // Window and UI
-  CHANGE_TRAY_ICON: "change-tray-icon",
   MINIMIZE_WINDOW: "minimize-window",
   CLOSE_WINDOW: "close-window",
   GET_POSITION_DEBUG_INFO: "get-position-debug-info",
