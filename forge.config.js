@@ -3,6 +3,27 @@ const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
+const { execSync } = require('child_process');
+
+function isPortInUse(port) {
+  try {
+    execSync(`lsof -i :${port} -sTCP:LISTEN`, { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function findAvailablePort(startPort) {
+  let port = startPort;
+  while (isPortInUse(port)) {
+    port++;
+  }
+  return port;
+}
+
+const devServerPort = findAvailablePort(3000);
+const loggerPort = findAvailablePort(devServerPort + 1000);
 
 // Root native modules that need to be copied outside the asar archive.
 // Transitive runtime dependencies are resolved automatically.
@@ -147,6 +168,8 @@ module.exports = {
     {
       name: '@electron-forge/plugin-webpack',
       config: {
+        port: devServerPort,
+        loggerPort: loggerPort,
         mainConfig: './webpack.main.config.js',
         renderer: {
           config: './webpack.renderer.config.js',

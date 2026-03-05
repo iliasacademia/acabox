@@ -93,12 +93,14 @@ let updateCheckSource: 'startup' | 'hourly' | 'event' = 'startup';
 
 const createWindow = async (): Promise<void> => {
   const isDevelopment = !app.isPackaged;
+  const devPort = isDevelopment ? new URL(MAIN_WINDOW_WEBPACK_ENTRY).port : '';
+  const devTitle = devPort ? `Development Mode (port ${devPort})` : 'Development Mode';
 
   devWindow = new BrowserWindow({
     width: 800,
     height: 600,
     frame: true, // Use native window frame with full title bar and border
-    title: isDevelopment ? 'Development Mode' : '', // Show "Development Mode" in dev, empty in production
+    title: isDevelopment ? devTitle : '', // Show "Development Mode" in dev, empty in production
     show: false, // Hidden on startup
     transparent: false, // Opaque background
     hasShadow: true, // Add shadow for visual separation
@@ -154,12 +156,14 @@ const createWindow = async (): Promise<void> => {
 // Create main window (Projects UI)
 const createMainWindow = async (): Promise<void> => {
   const isDevelopment = !app.isPackaged;
+  const devPort = isDevelopment ? new URL(MAIN_WINDOW_WEBPACK_ENTRY).port : '';
+  const devTitle = devPort ? `Development Mode (port ${devPort})` : 'Development Mode';
 
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
     frame: true, // Use native window frame with full title bar and border
-    title: isDevelopment ? 'Development Mode' : '', // Show "Development Mode" in dev, empty in production
+    title: isDevelopment ? devTitle : '', // Show "Development Mode" in dev, empty in production
     show: false, // Hidden on startup
     transparent: false, // Opaque background
     hasShadow: true, // Add shadow for visual separation
