@@ -292,7 +292,7 @@ const createTray = (): void => {
     logger.error('[TRAY] Failed to load dock icon from', iconPath);
     return;
   }
-  icon = icon.resize({ width: 18, height: 18 });
+  icon = icon.resize({ width: 22, height: 22 });
 
   // Create tray
   try {
