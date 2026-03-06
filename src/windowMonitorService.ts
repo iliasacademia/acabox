@@ -98,6 +98,8 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       keyPrefix: 'review-button',
       pathSuffix: '/ui/popup/reviewButton/',
       computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
+        if (!_contentBounds) return null;
+
         // Use cached selection bounds if there's an active review and current selection is null
         let effectiveBounds = selectionBounds;
         if (!effectiveBounds && windowId && service['selectedTextReviewState'].has(windowId)) {

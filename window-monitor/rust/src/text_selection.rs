@@ -78,6 +78,7 @@ impl TextSelectionTracker {
             let focused = accessibility::get_focused_ui_element(app_element);
             let text = focused
                 .as_ref()
+                .filter(|f| accessibility::get_role(f).as_deref() == Some("AXTextArea"))
                 .and_then(|f| accessibility::get_selected_text(f));
             // Normalize: treat empty string the same as None
             let text = text.filter(|s| !s.is_empty());
