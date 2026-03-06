@@ -287,7 +287,7 @@ const createMainWindow = async (): Promise<void> => {
 };
 
 const createTray = (): void => {
-  const iconPath = path.join(__dirname, '../../src/assets/icons/dock-icon.png');
+  const iconPath = path.join(__dirname, 'assets/icons/dock-icon.png');
   let icon = nativeImage.createFromPath(iconPath);
   if (icon.isEmpty()) {
     logger.error('[TRAY] Failed to load dock icon from', iconPath);
@@ -726,7 +726,7 @@ app.whenReady().then(async () => {
   // Set dock icon to the Academia logo on black background
   const dock = process.platform === 'darwin' ? app.dock : null;
   if (dock) {
-    dock.setIcon(nativeImage.createFromPath(path.join(__dirname, '../../src/assets/icons/dock-icon.png')));
+    dock.setIcon(nativeImage.createFromPath(path.join(__dirname, 'assets/icons/dock-icon.png')));
   }
 
   // Setup auto-updater — wait for startup update check before showing the window.
