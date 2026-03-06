@@ -123,8 +123,6 @@ export interface WordProjectFileResponse {
  * Response for GET /word/:pid/poll
  */
 export interface WordPollResponse {
-  /** Whether the button should be shown */
-  shouldShow: boolean;
   /** Whether this is an "Enable feedback" button (document exists but no project) */
   isEnableFeedback?: boolean;
   /** Whether the document is unsaved (no file path from accessibility API) */

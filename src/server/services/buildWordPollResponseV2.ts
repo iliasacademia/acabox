@@ -72,7 +72,6 @@ export function buildWordPollResponseV2(
   // If no document path at all (unsaved file), show "Enable feedback" button but mark as unsaved
   if (!documentPath) {
     return {
-      shouldShow: false,
       isEnableFeedback: true,
       isUnsavedDocument: true,
       notificationCount: 0,
@@ -94,7 +93,6 @@ export function buildWordPollResponseV2(
       logger.info(`[VERBOSE] [WORD-POLL-V2] No project file found for path: "${documentPath}" (cache size: ${wordIntegrationDataStoreV2.getCacheSize()}, keys: ${wordIntegrationDataStoreV2.getCacheKeys().join(', ')})`);
     }
     return {
-      shouldShow: false,
       isEnableFeedback: true,
       notificationCount: 0,
       isActive: true,
@@ -187,7 +185,6 @@ export function buildWordPollResponseV2(
   }
 
   return {
-    shouldShow: true,
     projectId: projectFile.project_id,
     projectFileId: projectFile.project_file_id,
     notificationCount: count,

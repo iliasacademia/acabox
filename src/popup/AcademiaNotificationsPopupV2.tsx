@@ -151,7 +151,6 @@ type NotificationData = {
 
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
-  shouldShow: boolean;
   projectId?: number;
   projectFileId?: number;
   notificationCount?: number;
@@ -279,7 +278,7 @@ function useWordPollWebSocket(
           };
           const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, { headers });
           if (!res.ok) {
-            setPollData(prev => prev ? { ...prev, shouldShow: false } : null);
+            setPollData(prev => prev ? { ...prev, shouldShowPopupV2: false } : null);
             return;
           }
           const data: WordPollResponse = await res.json();
@@ -395,7 +394,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [error, setError] = useState<string | null>(null);
-  const [shouldShow, setShouldShow] = useState<boolean>(true); // Default to true, update via poll
   const [isEnableFeedback, setIsEnableFeedback] = useState(false);
   const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
 
@@ -615,14 +613,13 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (!pollData) return;
 
     if (pollData.fullStoryConfig) cacheFullStoryConfig(pollData.fullStoryConfig);
-    setShouldShow(pollData.shouldShow);
-    onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? pollData.shouldShow);
+    onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? false);
 
     setIsEnableFeedback(pollData.isEnableFeedback ?? false);
     setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
 
-    if (!pollData.shouldShow && !pollData.isEnableFeedback) {
-      console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShow=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
+    if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback) {
+      console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShowPopupV2=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
       postBridge('closeWindow').catch(() => {});
       return;
     }

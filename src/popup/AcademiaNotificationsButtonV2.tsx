@@ -15,7 +15,6 @@ const tokenParam = urlParams.get('token');
 
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
-  shouldShow: boolean;
   isEnableFeedback?: boolean;
   projectId?: number;
   projectFileId?: number;
@@ -46,8 +45,7 @@ function useWordPollWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { shouldShow: boolean; badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; isEnableFeedback: boolean } {
-  const [shouldShow, setShouldShow] = useState(false);
+): { badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; isEnableFeedback: boolean } {
   const [badgeCount, setBadgeCount] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
@@ -56,7 +54,6 @@ function useWordPollWebSocket(
 
   useEffect(() => {
     if (!wid || !token) {
-      setShouldShow(false);
       return;
     }
 
@@ -70,7 +67,6 @@ function useWordPollWebSocket(
     function applyPollData(data: WordPollResponse) {
       if (cleanedUp) return;
       if (data.fullStoryConfig) cacheFullStoryConfig(data.fullStoryConfig);
-      setShouldShow(data.shouldShow);
       setBadgeCount(data.notificationCount);
       setIsReviewing(data.isReviewingSelectedText ?? false);
       setReviewStartedAt(data.selectedTextReviewStartedAt ?? null);
@@ -90,7 +86,7 @@ function useWordPollWebSocket(
           const headers: Record<string, string> = { Accept: 'application/json' };
           headers['Authorization'] = `Bearer ${token}`;
           const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, { headers });
-          if (!res.ok) { setShouldShow(false); return; }
+          if (!res.ok) { return; }
           const data: WordPollResponse = await res.json();
           applyPollData(data);
         } catch {
@@ -191,7 +187,7 @@ function useWordPollWebSocket(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { shouldShow, badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, isEnableFeedback };
+  return { badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, isEnableFeedback };
 }
 
 function postBridge(action: string, payload: Record<string, unknown>) {
@@ -225,7 +221,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   } | null>(null);
   const didDragRef = useRef(false);
 
-  const { shouldShow, badgeCount, isReviewing, shouldShowButtonV2, isEnableFeedback } = useWordPollWebSocket(
+  const { badgeCount, isReviewing, shouldShowButtonV2, isEnableFeedback } = useWordPollWebSocket(
     widParam,
     tokenParam,
     serverUrl

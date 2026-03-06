@@ -10,7 +10,6 @@ const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
 
 interface WordPollResponse {
-  shouldShow: boolean;
   isReviewingSelectedText?: boolean;
   shouldShowReviewButton?: boolean;
   fullStoryConfig?: FullStoryConfig;
@@ -31,14 +30,12 @@ function useWordPoll(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { shouldShow: boolean; isReviewing: boolean; shouldShowReviewButton: boolean } {
-  const [shouldShow, setShouldShow] = useState(false);
+): { isReviewing: boolean; shouldShowReviewButton: boolean } {
   const [isReviewing, setIsReviewing] = useState(false);
   const [shouldShowReviewButton, setShouldShowReviewButton] = useState(false);
 
   useEffect(() => {
     if (!wid || !token) {
-      setShouldShow(false);
       return;
     }
 
@@ -52,7 +49,6 @@ function useWordPoll(
     function applyPollData(data: WordPollResponse) {
       if (cleanedUp) return;
       if (data.fullStoryConfig) cacheFullStoryConfig(data.fullStoryConfig);
-      setShouldShow(data.shouldShow);
       setIsReviewing(data.isReviewingSelectedText ?? false);
       setShouldShowReviewButton(data.shouldShowReviewButton ?? false);
     }
@@ -68,7 +64,7 @@ function useWordPoll(
           const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, {
             headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
           });
-          if (!res.ok) { setShouldShow(false); return; }
+          if (!res.ok) { return; }
           const data: WordPollResponse = await res.json();
           applyPollData(data);
         } catch {
@@ -160,11 +156,11 @@ function useWordPoll(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { shouldShow, isReviewing, shouldShowReviewButton };
+  return { isReviewing, shouldShowReviewButton };
 }
 
 const ReviewButton: React.FC = () => {
-  const { shouldShow, isReviewing: serverIsReviewing, shouldShowReviewButton } = useWordPoll(widParam, tokenParam, serverUrl);
+  const { isReviewing: serverIsReviewing, shouldShowReviewButton } = useWordPoll(widParam, tokenParam, serverUrl);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -206,7 +202,7 @@ const ReviewButton: React.FC = () => {
   };
 
   // Hide if not showing or if review is in progress
-  if (!shouldShow || isSubmitting || serverIsReviewing) {
+  if (!shouldShowReviewButton || isSubmitting || serverIsReviewing) {
     return null;
   }
 
