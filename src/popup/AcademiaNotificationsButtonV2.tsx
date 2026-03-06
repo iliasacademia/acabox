@@ -373,7 +373,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           <img src={academiaLogos} alt="Academia" className="logo" data-node-id="1630:6721" />
         </div>
         <span className="feedback-text" data-node-id="1630:6722">
-          {isEnableFeedback ? 'Enable feedback' : 'Feedback'}
+          {isEnableFeedback ? 'Enable feedback' : 'Get Feedback'}
         </span>
         {!isEnableFeedback && badgeCount > 0 && (
           <div className="badge" data-node-id="1630:6723">

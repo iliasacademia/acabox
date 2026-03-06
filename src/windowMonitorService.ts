@@ -18,7 +18,7 @@ import {
 } from './windowMonitor/computeWebviewState';
 import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 
-const BUTTON_WIDTH = 170;
+const BUTTON_WIDTH = 210;
 const BUTTON_HEIGHT = 50;
 const BUTTON_LEFT_MARGIN = 50;
 const BUTTON_BOTTOM_MARGIN = 30;
