@@ -603,6 +603,16 @@ impl WindowMonitor {
         };
 
         if focused_window_id != self.last_focused_window_id {
+            // Only emit focus for windows that passed the AXWindow role filter
+            let is_known = self.windows.get(&focused_window_id).is_some_and(|tw| tw.is_emitted);
+            if !is_known {
+                // Window not yet tracked as AXWindow — check its role before emitting
+                let role = self.get_role_for_window(focused_window_id);
+                if role.as_deref() != Some("AXWindow") {
+                    return;
+                }
+            }
+
             // Find the matching CGWindow entry for event data
             if let Some(w) = current_windows.iter().find(|w| w.window_id == focused_window_id) {
                 // Register new observers first (unregisters old, finishing any pending
@@ -1220,8 +1230,8 @@ pub unsafe extern "C" fn ax_observer_callback(
         }
         "AXFocusedWindowChanged" => {
             let windows = window_list::get_windows_for_pid(monitor.word_pid);
-            monitor.check_for_focus_change(&windows);
             monitor.check_for_window_changes(&windows);
+            monitor.check_for_focus_change(&windows);
         }
         "AXMoved" | "AXResized" => {
             monitor.handle_window_bounds_changed();
