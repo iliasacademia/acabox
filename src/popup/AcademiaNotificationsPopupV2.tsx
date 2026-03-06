@@ -37,7 +37,7 @@ const POPUP_HEIGHT_NO_NOTIFICATIONS = 240;    // "View previous feedback" row + 
 const POPUP_HEIGHT_ONE_NOTIFICATION = 320;    // 1 notification card + above
 const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400;   // 2 notification cards + above
 const POPUP_HEIGHT_REVIEW_VIEW = 660;         // Height when showing inline review content
-const POPUP_HEIGHT_ENABLE_FEEDBACK = 220;     // Height for enable feedback view
+const POPUP_HEIGHT_ENABLE_FEEDBACK = 250;     // Height for enable feedback view
 const REVIEW_STATUS_CARD_HEIGHT = 72;         // Height of review status card (60px card + 12px gap)
 
 // Arrow Forward Icon component
@@ -1860,6 +1860,7 @@ const styles: { [key: string]: React.CSSProperties } = {
   },
   enableFeedbackShareButton: {
     height: '48px',
+    flexShrink: 0,
     backgroundColor: '#0645b1',
     border: 'none',
     borderRadius: '16px',
