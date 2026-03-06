@@ -238,7 +238,7 @@ export class AcademiaHttpServer {
     await registerAnalyticsRoutes(this.fastify);
 
     // Register bridge routes (V2 popup bridge actions via HTTP)
-    await registerBridgeRoutes(this.fastify);
+    await registerBridgeRoutes(this.fastify, this.navigationHandler);
 
     // Register selected text review routes
     await registerSelectedTextReviewRoutes(this.fastify);

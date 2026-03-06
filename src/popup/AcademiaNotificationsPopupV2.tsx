@@ -37,6 +37,8 @@ const POPUP_HEIGHT_NO_NOTIFICATIONS = 240;    // "View previous feedback" row + 
 const POPUP_HEIGHT_ONE_NOTIFICATION = 320;    // 1 notification card + above
 const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400;   // 2 notification cards + above
 const POPUP_HEIGHT_REVIEW_VIEW = 660;         // Height when showing inline review content
+const POPUP_HEIGHT_ENABLE_FEEDBACK = 250;     // Height for enable feedback view
+const POPUP_HEIGHT_UNSAVED_DOCUMENT = 190;    // Height for unsaved document view (no CTA button)
 const REVIEW_STATUS_CARD_HEIGHT = 72;         // Height of review status card (60px card + 12px gap)
 
 // Arrow Forward Icon component
@@ -149,7 +151,6 @@ type NotificationData = {
 
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
-  shouldShow: boolean;
   projectId?: number;
   projectFileId?: number;
   notificationCount?: number;
@@ -163,6 +164,8 @@ interface WordPollResponse {
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
   fullStoryConfig?: FullStoryConfig;
+  isEnableFeedback?: boolean;
+  isUnsavedDocument?: boolean;
 }
 
 interface WebSocketMessage {
@@ -275,7 +278,7 @@ function useWordPollWebSocket(
           };
           const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, { headers });
           if (!res.ok) {
-            setPollData(prev => prev ? { ...prev, shouldShow: false } : null);
+            setPollData(prev => prev ? { ...prev, shouldShowPopupV2: false } : null);
             return;
           }
           const data: WordPollResponse = await res.json();
@@ -391,7 +394,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [error, setError] = useState<string | null>(null);
-  const [shouldShow, setShouldShow] = useState<boolean>(true); // Default to true, update via poll
+  const [isEnableFeedback, setIsEnableFeedback] = useState(false);
+  const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
 
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
@@ -418,6 +422,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [conversationData, setConversationData] = useState<ConversationData | null>(null);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [isSelectedTextExpanded, setIsSelectedTextExpanded] = useState(false);
+  const [isEnableFeedbackLoading, setIsEnableFeedbackLoading] = useState(false);
+  const [enableFeedbackError, setEnableFeedbackError] = useState<string | null>(null);
 
   // Fetch project status to determine review state
   const fetchProjectStatus = async (projId: number, fId: number, token: string | null): Promise<void> => {
@@ -564,6 +570,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
               await fetch(`${serverUrl}/api/notifications/sync`, {
                 method: 'POST',
                 headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
               });
               console.log('[AcademiaNotificationsPopupV2] Triggered notification sync after review completion');
             } catch (err) {
@@ -606,11 +613,13 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (!pollData) return;
 
     if (pollData.fullStoryConfig) cacheFullStoryConfig(pollData.fullStoryConfig);
-    setShouldShow(pollData.shouldShow);
-    onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? pollData.shouldShow);
+    onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? false);
 
-    if (!pollData.shouldShow) {
-      console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShow=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
+    setIsEnableFeedback(pollData.isEnableFeedback ?? false);
+    setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
+
+    if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback) {
+      console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShowPopupV2=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
       postBridge('closeWindow').catch(() => {});
       return;
     }
@@ -660,7 +669,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   useEffect(() => {
     let height: number;
 
-    if (viewMode === 'review') {
+    if (isEnableFeedback && isUnsavedDocument) {
+      height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
+    } else if (isEnableFeedback) {
+      height = POPUP_HEIGHT_ENABLE_FEEDBACK;
+    } else if (viewMode === 'review') {
       // Taller height for inline review content
       height = POPUP_HEIGHT_REVIEW_VIEW;
     } else if (recentReviewNotifications.length >= 2) {
@@ -682,7 +695,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       previousHeightRef.current = height;
       postBridge('resizeWindow', { height });
     }
-  }, [viewMode, recentReviewNotifications, pollData]);
+  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, pollData]);
 
   // Handle clicking on a review notification card - show inline review
   const handleViewReviewFeedback = async (notification: NotificationData) => {
@@ -1264,6 +1277,72 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     </>
   );
 
+  const handleShareToEnableFeedback = async () => {
+    setIsEnableFeedbackLoading(true);
+    setEnableFeedbackError(null);
+    try {
+      console.log('[AcademiaNotificationsPopupV2] Share to enable feedback clicked');
+      const response = await postBridge('shareToEnableFeedback');
+      const data = await response.json();
+      if (!data.success) {
+        setEnableFeedbackError(data.error || 'Failed to enable feedback');
+        setIsEnableFeedbackLoading(false);
+      }
+      // On success, the popup will be closed by the service
+    } catch (err) {
+      setEnableFeedbackError('Something went wrong. Please try again.');
+      setIsEnableFeedbackLoading(false);
+    }
+  };
+
+  const renderEnableFeedbackView = () => (
+    <>
+      <button
+        style={styles.closeButton}
+        onClick={() => postBridge('closeWindow').catch(() => {})}
+        aria-label="Close popup"
+      >
+        <CloseIcon />
+      </button>
+      {isUnsavedDocument ? (
+        <>
+          <div style={styles.enableFeedbackTitle}>
+            Save your document first
+          </div>
+          <div style={styles.enableFeedbackDescription}>
+            Please save your document before enabling feedback. Once saved, you can share it with Writing Agent.
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={styles.enableFeedbackTitle}>
+            {isEnableFeedbackLoading ? 'Setting up...' : 'Share this document for feedback?'}
+          </div>
+          <div style={styles.enableFeedbackDescription}>
+            {isEnableFeedbackLoading
+              ? 'Creating project and uploading your document. This may take a moment.'
+              : "This document hasn't been shared with Writing Agent yet. Share it to start getting feedback."}
+          </div>
+          {enableFeedbackError && (
+            <div style={styles.enableFeedbackError}>{enableFeedbackError}</div>
+          )}
+          <button
+            style={{
+              ...styles.enableFeedbackShareButton,
+              ...(isEnableFeedbackLoading ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
+            }}
+            onClick={handleShareToEnableFeedback}
+            disabled={isEnableFeedbackLoading}
+          >
+            <span style={styles.enableFeedbackShareButtonText}>
+              {isEnableFeedbackLoading ? 'Setting up...' : 'Share to enable feedback'}
+            </span>
+          </button>
+        </>
+      )}
+    </>
+  );
+
   return (
     <div style={styles.container}>
       <div style={styles.modal}>
@@ -1279,7 +1358,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
             onPointerUp={handleResizePointerUp}
           />
         )}
-        {viewMode === 'review' ? renderReviewView() : renderMenuView()}
+        {isEnableFeedback
+          ? renderEnableFeedbackView()
+          : viewMode === 'review'
+            ? renderReviewView()
+            : renderMenuView()}
       </div>
     </div>
   );
@@ -1802,6 +1885,49 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 400,
     padding: 0,
     marginLeft: '4px',
+  },
+  // Enable feedback view styles
+  enableFeedbackTitle: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '24px',
+    fontWeight: 400,
+    lineHeight: '29px',
+    color: '#141413',
+    paddingBottom: '16px',
+  },
+  enableFeedbackDescription: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 400,
+    lineHeight: '20px',
+    color: '#141413',
+    paddingBottom: '16px',
+  },
+  enableFeedbackShareButton: {
+    height: '48px',
+    flexShrink: 0,
+    backgroundColor: '#0645b1',
+    border: 'none',
+    borderRadius: '16px',
+    padding: '0 20px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  enableFeedbackShareButtonText: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '16px',
+    fontWeight: 600,
+    lineHeight: '20px',
+    color: '#ffffff',
+  },
+  enableFeedbackError: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '14px',
+    color: '#d32f2f',
+    paddingBottom: '12px',
   },
 };
 

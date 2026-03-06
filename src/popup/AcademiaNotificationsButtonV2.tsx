@@ -15,7 +15,7 @@ const tokenParam = urlParams.get('token');
 
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
-  shouldShow: boolean;
+  isEnableFeedback?: boolean;
   projectId?: number;
   projectFileId?: number;
   notificationCount: number;
@@ -45,16 +45,15 @@ function useWordPollWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { shouldShow: boolean; badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean } {
-  const [shouldShow, setShouldShow] = useState(false);
+): { badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; isEnableFeedback: boolean } {
   const [badgeCount, setBadgeCount] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
   const [shouldShowButtonV2, setShouldShowButtonV2] = useState(false);
+  const [isEnableFeedback, setIsEnableFeedback] = useState(false);
 
   useEffect(() => {
     if (!wid || !token) {
-      setShouldShow(false);
       return;
     }
 
@@ -68,11 +67,11 @@ function useWordPollWebSocket(
     function applyPollData(data: WordPollResponse) {
       if (cleanedUp) return;
       if (data.fullStoryConfig) cacheFullStoryConfig(data.fullStoryConfig);
-      setShouldShow(data.shouldShow);
       setBadgeCount(data.notificationCount);
       setIsReviewing(data.isReviewingSelectedText ?? false);
       setReviewStartedAt(data.selectedTextReviewStartedAt ?? null);
       setShouldShowButtonV2(data.shouldShowButtonV2 ?? false);
+      setIsEnableFeedback(data.isEnableFeedback ?? false);
     }
 
     // --- HTTP polling fallback (same as V1) ---
@@ -87,7 +86,7 @@ function useWordPollWebSocket(
           const headers: Record<string, string> = { Accept: 'application/json' };
           headers['Authorization'] = `Bearer ${token}`;
           const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, { headers });
-          if (!res.ok) { setShouldShow(false); return; }
+          if (!res.ok) { return; }
           const data: WordPollResponse = await res.json();
           applyPollData(data);
         } catch {
@@ -188,7 +187,7 @@ function useWordPollWebSocket(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { shouldShow, badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2 };
+  return { badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, isEnableFeedback };
 }
 
 function postBridge(action: string, payload: Record<string, unknown>) {
@@ -222,7 +221,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   } | null>(null);
   const didDragRef = useRef(false);
 
-  const { shouldShow, badgeCount, isReviewing, shouldShowButtonV2 } = useWordPollWebSocket(
+  const { badgeCount, isReviewing, shouldShowButtonV2, isEnableFeedback } = useWordPollWebSocket(
     widParam,
     tokenParam,
     serverUrl
@@ -320,6 +319,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
       didDragRef.current = false;
       return;
     }
+    const action = isEnableFeedback ? 'enableFeedbackClicked' : 'openPopup';
     setLoading(true);
     try {
       await fetch(`${serverUrl}/bridge`, {
@@ -328,7 +328,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${tokenParam}`,
         },
-        body: JSON.stringify({ action: 'openPopup', payload: {}, pid: Number(pidParam), wid: widParam }),
+        body: JSON.stringify({ action, payload: {}, pid: Number(pidParam), wid: widParam }),
       });
     } catch (err) {
       console.error('[AcademiaNotificationsButtonV2] Click failed:', err);
@@ -337,7 +337,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
     }
   };
 
-  if (!shouldShow) {
+  if (!shouldShowButtonV2) {
     return null;
   }
 
@@ -369,9 +369,9 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           <img src={academiaLogos} alt="Academia" className="logo" data-node-id="1630:6721" />
         </div>
         <span className="feedback-text" data-node-id="1630:6722">
-          Feedback
+          {isEnableFeedback ? 'Enable feedback' : 'Get Feedback'}
         </span>
-        {badgeCount > 0 && (
+        {!isEnableFeedback && badgeCount > 0 && (
           <div className="badge" data-node-id="1630:6723">
             <span className="badge-text" data-node-id="1630:6724">
               {displayCount}

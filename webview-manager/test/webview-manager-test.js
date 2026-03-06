@@ -229,9 +229,9 @@ function startTestServer() {
       if (/^\/word\/\d+\/poll$/.test(pathname)) {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
-          shouldShow: true,
           notificationCount: 1,
           isActive: true,
+          shouldShowButtonV2: true,
         }));
         return;
       }

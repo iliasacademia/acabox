@@ -69,20 +69,38 @@ export function buildWordPollResponseV2(
     }
   }
 
-  // If no document path or no project file, hide the button
-  if (!projectFile) {
-    if (documentPath && remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
-      logger.info(`[VERBOSE] [WORD-POLL-V2] No project file found for path: "${documentPath}" (cache size: ${wordIntegrationDataStoreV2.getCacheSize()}, keys: ${wordIntegrationDataStoreV2.getCacheKeys().join(', ')})`);
-    }
+  // If no document path at all (unsaved file), show "Enable feedback" button but mark as unsaved
+  if (!documentPath) {
     return {
-      shouldShow: false,
+      isEnableFeedback: true,
+      isUnsavedDocument: true,
       notificationCount: 0,
       isActive: true,
       recentReviewNotifications: [],
       isReviewingSelectedText: false,
       selectedTextReviewStartedAt: undefined,
       activeDocumentPath: documentPath,
-      shouldShowButtonV2,
+      shouldShowButtonV2: true,
+      shouldShowPopupV2,
+      shouldShowReviewButton,
+      shouldShowReviewStatusOverlay,
+    };
+  }
+
+  // If document path exists but no project file, show "Enable feedback" button
+  if (!projectFile) {
+    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+      logger.info(`[VERBOSE] [WORD-POLL-V2] No project file found for path: "${documentPath}" (cache size: ${wordIntegrationDataStoreV2.getCacheSize()}, keys: ${wordIntegrationDataStoreV2.getCacheKeys().join(', ')})`);
+    }
+    return {
+      isEnableFeedback: true,
+      notificationCount: 0,
+      isActive: true,
+      recentReviewNotifications: [],
+      isReviewingSelectedText: false,
+      selectedTextReviewStartedAt: undefined,
+      activeDocumentPath: documentPath,
+      shouldShowButtonV2: true,
       shouldShowPopupV2,
       shouldShowReviewButton,
       shouldShowReviewStatusOverlay,
@@ -167,7 +185,6 @@ export function buildWordPollResponseV2(
   }
 
   return {
-    shouldShow: true,
     projectId: projectFile.project_id,
     projectFileId: projectFile.project_file_id,
     notificationCount: count,

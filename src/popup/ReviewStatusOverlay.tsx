@@ -11,7 +11,6 @@ const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
 
 interface WordPollResponse {
-  shouldShow: boolean;
   isReviewingSelectedText?: boolean;
   reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
   selectedText?: string;
@@ -31,15 +30,13 @@ function useWordPoll(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { shouldShow: boolean; reviewType: string | null; selectedText: string | null; shouldShowReviewStatusOverlay: boolean } {
-  const [shouldShow, setShouldShow] = useState(false);
+): { reviewType: string | null; selectedText: string | null; shouldShowReviewStatusOverlay: boolean } {
   const [reviewType, setReviewType] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState<string | null>(null);
   const [shouldShowReviewStatusOverlay, setShouldShowReviewStatusOverlay] = useState(false);
 
   useEffect(() => {
     if (!wid || !token) {
-      setShouldShow(false);
       return;
     }
 
@@ -54,7 +51,6 @@ function useWordPoll(
       if (cleanedUp) return;
       if (data.fullStoryConfig) cacheFullStoryConfig(data.fullStoryConfig);
       const isReviewing = data.isReviewingSelectedText ?? false;
-      setShouldShow(isReviewing);
       setReviewType(isReviewing ? (data.reviewType || 'selected-text') : null);
       setSelectedText(data.selectedText || null);
       setShouldShowReviewStatusOverlay(data.shouldShowReviewStatusOverlay ?? false);
@@ -71,7 +67,7 @@ function useWordPoll(
           const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, {
             headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
           });
-          if (!res.ok) { setShouldShow(false); return; }
+          if (!res.ok) { return; }
           const data: WordPollResponse = await res.json();
           applyPollData(data);
         } catch {
@@ -163,11 +159,11 @@ function useWordPoll(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { shouldShow, reviewType, selectedText, shouldShowReviewStatusOverlay };
+  return { reviewType, selectedText, shouldShowReviewStatusOverlay };
 }
 
 const ReviewStatusOverlay: React.FC = () => {
-  const { shouldShow, reviewType, selectedText, shouldShowReviewStatusOverlay } = useWordPoll(widParam, tokenParam, serverUrl);
+  const { reviewType, selectedText, shouldShowReviewStatusOverlay } = useWordPoll(widParam, tokenParam, serverUrl);
   const [progress, setProgress] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
 
@@ -177,7 +173,7 @@ const ReviewStatusOverlay: React.FC = () => {
 
   // Simulate progress for now (in production, this would come from the API)
   React.useEffect(() => {
-    if (shouldShow && reviewType) {
+    if (shouldShowReviewStatusOverlay && reviewType) {
       setProgress(0);
       const interval = setInterval(() => {
         setProgress((prev) => {
@@ -190,9 +186,9 @@ const ReviewStatusOverlay: React.FC = () => {
       }, 1000);
       return () => clearInterval(interval);
     }
-  }, [shouldShow, reviewType]);
+  }, [shouldShowReviewStatusOverlay, reviewType]);
 
-  console.log('[ReviewStatusOverlay] shouldShow:', shouldShow, 'reviewType:', reviewType);
+  console.log('[ReviewStatusOverlay] shouldShowReviewStatusOverlay:', shouldShowReviewStatusOverlay, 'reviewType:', reviewType);
 
   const handleBackClick = async () => {
     // Open the popup to show the list of reviews
@@ -236,7 +232,7 @@ const ReviewStatusOverlay: React.FC = () => {
     }
   };
 
-  if (!shouldShow || !reviewType) {
+  if (!shouldShowReviewStatusOverlay || !reviewType) {
     return null;
   }
 
