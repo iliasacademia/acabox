@@ -62,10 +62,6 @@ describe('enableFeedback', () => {
     mockClient.post
       .mockResolvedValueOnce({
         data: { project: { id: 42, name: 'My Paper' } },
-      })
-      // Trigger full review response
-      .mockResolvedValueOnce({
-        data: { agent_run_id: 1, status: 'started' },
       });
 
     // Get files response
@@ -91,13 +87,6 @@ describe('enableFeedback', () => {
 
     // Verify manuscript paths refresh
     expect(refreshManuscriptPaths).toHaveBeenCalled();
-
-    // Verify full review trigger
-    expect(mockClient.post).toHaveBeenCalledWith(
-      'v0/co_scientist/projects/42/files/100/trigger_full_review',
-      {},
-      expect.objectContaining({ headers: expect.any(Object) }),
-    );
 
     // Verify review state set
     expect(windowMonitorService.setSelectedTextReviewState).toHaveBeenCalledWith(
@@ -164,7 +153,6 @@ describe('enableFeedback', () => {
       mockClient.get.mockResolvedValueOnce({
         data: { files: [{ id: 10, is_primary_manuscript: true }] },
       });
-      mockClient.post.mockResolvedValueOnce({ data: {} });
 
       await enableFeedback('wid-test');
 
@@ -190,8 +178,7 @@ describe('enableFeedback', () => {
   it('should continue even if navigation fails', async () => {
     mockGetDocPath.mockReturnValue('/Users/test/Paper.docx');
     mockClient.post
-      .mockResolvedValueOnce({ data: { project: { id: 42 } } })
-      .mockResolvedValueOnce({ data: {} });
+      .mockResolvedValueOnce({ data: { project: { id: 42 } } });
     mockClient.get.mockResolvedValueOnce({
       data: { files: [{ id: 100, is_primary_manuscript: true }] },
     });
@@ -207,8 +194,7 @@ describe('enableFeedback', () => {
   it('should work without navigation handler', async () => {
     mockGetDocPath.mockReturnValue('/Users/test/Paper.docx');
     mockClient.post
-      .mockResolvedValueOnce({ data: { project: { id: 42 } } })
-      .mockResolvedValueOnce({ data: {} });
+      .mockResolvedValueOnce({ data: { project: { id: 42 } } });
     mockClient.get.mockResolvedValueOnce({
       data: { files: [{ id: 100, is_primary_manuscript: true }] },
     });

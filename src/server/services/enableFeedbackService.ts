@@ -4,10 +4,9 @@
  * 2. Create project with derived name
  * 3. Start file sync (upload + watch)
  * 4. Refresh manuscript paths cache
- * 5. Trigger full review
- * 6. Set review state on window
- * 7. Navigate renderer to project detail
- * 8. Close the popup
+ * 5. Set review state on window
+ * 6. Navigate renderer to project detail
+ * 7. Close the popup
  */
 
 import * as path from 'path';
@@ -81,18 +80,10 @@ export async function enableFeedback(
       return { success: false, error: 'Could not find project file ID after creation', projectId };
     }
 
-    // Step 7: Trigger full review
-    await client.post(
-      `v0/co_scientist/projects/${projectId}/files/${projectFileId}/trigger_full_review`,
-      {},
-      { headers: { 'x-csrf-token': csrfToken, 'content-type': 'application/json' } },
-    );
-    logger.info(`[EnableFeedback] Full review triggered for project ${projectId}, file ${projectFileId}`);
-
-    // Step 8: Set reviewing state on window
+    // Step 7: Set reviewing state on window
     windowMonitorService.setSelectedTextReviewState(wid, projectId, projectFileId, 'full-paper');
 
-    // Step 9: Navigate renderer to project detail
+    // Step 8: Navigate renderer to project detail
     if (navigationHandler) {
       try {
         await navigationHandler({ page: 'conversations', projectId });
@@ -102,7 +93,7 @@ export async function enableFeedback(
       }
     }
 
-    // Step 10: Close the popup
+    // Step 9: Close the popup
     windowMonitorService.closePopupForWindow(wid, false);
 
     return { success: true, projectId, projectFileId };
