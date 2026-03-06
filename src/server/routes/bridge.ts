@@ -8,6 +8,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { defaultLogger as logger } from '../../utils/logger';
 import { windowMonitorService } from '../../windowMonitorService';
+import { enableFeedback } from '../services/enableFeedbackService';
+import { NavigationHandler } from './navigation';
 
 /**
  * Bridge request payload from popup
@@ -24,7 +26,10 @@ interface BridgeRequestPayload {
  *
  * @param fastify Fastify instance
  */
-export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<void> {
+export async function registerBridgeRoutes(
+  fastify: FastifyInstance,
+  navigationHandler?: NavigationHandler | null,
+): Promise<void> {
   /**
    * POST /bridge
    *
@@ -123,6 +128,20 @@ export async function registerBridgeRoutes(fastify: FastifyInstance): Promise<vo
         windowMonitorService.openPopupForWindow(wid);
       } else if (action === 'shareToEnableFeedback' && wid) {
         logger.info(`[Bridge API] Share to enable feedback clicked for wid: ${wid}`);
+        try {
+          const result = await enableFeedback(wid, navigationHandler);
+          if (!result.success) {
+            logger.error(`[Bridge API] Enable feedback failed: ${result.error}`);
+            reply.send({ success: false, error: result.error });
+            return;
+          }
+          reply.send({ success: true, projectId: result.projectId, projectFileId: result.projectFileId });
+          return;
+        } catch (error: any) {
+          logger.error(`[Bridge API] Enable feedback error:`, error);
+          reply.send({ success: false, error: error.message || 'Unknown error' });
+          return;
+        }
       } else if (action === 'clearReview' && wid) {
         // Clear review state when user dismisses the overlay
         windowMonitorService.clearSelectedTextReviewState(wid);

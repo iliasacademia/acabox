@@ -421,6 +421,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [conversationData, setConversationData] = useState<ConversationData | null>(null);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [isSelectedTextExpanded, setIsSelectedTextExpanded] = useState(false);
+  const [isEnableFeedbackLoading, setIsEnableFeedbackLoading] = useState(false);
+  const [enableFeedbackError, setEnableFeedbackError] = useState<string | null>(null);
 
   // Fetch project status to determine review state
   const fetchProjectStatus = async (projId: number, fId: number, token: string | null): Promise<void> => {
@@ -1271,6 +1273,24 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     </>
   );
 
+  const handleShareToEnableFeedback = async () => {
+    setIsEnableFeedbackLoading(true);
+    setEnableFeedbackError(null);
+    try {
+      console.log('[AcademiaNotificationsPopupV2] Share to enable feedback clicked');
+      const response = await postBridge('shareToEnableFeedback');
+      const data = await response.json();
+      if (!data.success) {
+        setEnableFeedbackError(data.error || 'Failed to enable feedback');
+        setIsEnableFeedbackLoading(false);
+      }
+      // On success, the popup will be closed by the service
+    } catch (err) {
+      setEnableFeedbackError('Something went wrong. Please try again.');
+      setIsEnableFeedbackLoading(false);
+    }
+  };
+
   const renderEnableFeedbackView = () => (
     <>
       <button
@@ -1281,19 +1301,27 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         <CloseIcon />
       </button>
       <div style={styles.enableFeedbackTitle}>
-        Share this document for feedback?
+        {isEnableFeedbackLoading ? 'Setting up...' : 'Share this document for feedback?'}
       </div>
       <div style={styles.enableFeedbackDescription}>
-        This document hasn't been shared with Writing Agent yet. Share it to start getting feedback.
+        {isEnableFeedbackLoading
+          ? 'Creating project and uploading your document. This may take a moment.'
+          : "This document hasn't been shared with Writing Agent yet. Share it to start getting feedback."}
       </div>
+      {enableFeedbackError && (
+        <div style={styles.enableFeedbackError}>{enableFeedbackError}</div>
+      )}
       <button
-        style={styles.enableFeedbackShareButton}
-        onClick={() => {
-          console.log('[AcademiaNotificationsPopupV2] Share to enable feedback clicked');
-          postBridge('shareToEnableFeedback').catch(() => {});
+        style={{
+          ...styles.enableFeedbackShareButton,
+          ...(isEnableFeedbackLoading ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
         }}
+        onClick={handleShareToEnableFeedback}
+        disabled={isEnableFeedbackLoading}
       >
-        <span style={styles.enableFeedbackShareButtonText}>Share to enable feedback</span>
+        <span style={styles.enableFeedbackShareButtonText}>
+          {isEnableFeedbackLoading ? 'Setting up...' : 'Share to enable feedback'}
+        </span>
       </button>
     </>
   );
@@ -1877,6 +1905,12 @@ const styles: { [key: string]: React.CSSProperties } = {
     fontWeight: 600,
     lineHeight: '20px',
     color: '#ffffff',
+  },
+  enableFeedbackError: {
+    fontFamily: "'DM Sans', sans-serif",
+    fontSize: '14px',
+    color: '#d32f2f',
+    paddingBottom: '12px',
   },
 };
 
