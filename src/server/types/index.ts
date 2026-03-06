@@ -127,6 +127,8 @@ export interface WordPollResponse {
   shouldShow: boolean;
   /** Whether this is an "Enable feedback" button (document exists but no project) */
   isEnableFeedback?: boolean;
+  /** Whether the document is unsaved (no file path from accessibility API) */
+  isUnsavedDocument?: boolean;
   /** Project ID (if valid manuscript) */
   projectId?: number;
   /** Project File ID (if valid manuscript) */

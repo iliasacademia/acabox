@@ -38,6 +38,7 @@ const POPUP_HEIGHT_ONE_NOTIFICATION = 320;    // 1 notification card + above
 const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400;   // 2 notification cards + above
 const POPUP_HEIGHT_REVIEW_VIEW = 660;         // Height when showing inline review content
 const POPUP_HEIGHT_ENABLE_FEEDBACK = 250;     // Height for enable feedback view
+const POPUP_HEIGHT_UNSAVED_DOCUMENT = 190;    // Height for unsaved document view (no CTA button)
 const REVIEW_STATUS_CARD_HEIGHT = 72;         // Height of review status card (60px card + 12px gap)
 
 // Arrow Forward Icon component
@@ -165,6 +166,7 @@ interface WordPollResponse {
   shouldShowPopupV2?: boolean;
   fullStoryConfig?: FullStoryConfig;
   isEnableFeedback?: boolean;
+  isUnsavedDocument?: boolean;
 }
 
 interface WebSocketMessage {
@@ -395,6 +397,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [shouldShow, setShouldShow] = useState<boolean>(true); // Default to true, update via poll
   const [isEnableFeedback, setIsEnableFeedback] = useState(false);
+  const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
 
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
@@ -569,6 +572,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
               await fetch(`${serverUrl}/api/notifications/sync`, {
                 method: 'POST',
                 headers: { ...headers, 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
               });
               console.log('[AcademiaNotificationsPopupV2] Triggered notification sync after review completion');
             } catch (err) {
@@ -615,6 +619,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     onVisibilityChanged('popup', pollData.shouldShowPopupV2 ?? pollData.shouldShow);
 
     setIsEnableFeedback(pollData.isEnableFeedback ?? false);
+    setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
 
     if (!pollData.shouldShow && !pollData.isEnableFeedback) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShow=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
@@ -667,7 +672,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   useEffect(() => {
     let height: number;
 
-    if (isEnableFeedback) {
+    if (isEnableFeedback && isUnsavedDocument) {
+      height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
+    } else if (isEnableFeedback) {
       height = POPUP_HEIGHT_ENABLE_FEEDBACK;
     } else if (viewMode === 'review') {
       // Taller height for inline review content
@@ -691,7 +698,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       previousHeightRef.current = height;
       postBridge('resizeWindow', { height });
     }
-  }, [isEnableFeedback, viewMode, recentReviewNotifications, pollData]);
+  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, pollData]);
 
   // Handle clicking on a review notification card - show inline review
   const handleViewReviewFeedback = async (notification: NotificationData) => {
@@ -1300,29 +1307,42 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       >
         <CloseIcon />
       </button>
-      <div style={styles.enableFeedbackTitle}>
-        {isEnableFeedbackLoading ? 'Setting up...' : 'Share this document for feedback?'}
-      </div>
-      <div style={styles.enableFeedbackDescription}>
-        {isEnableFeedbackLoading
-          ? 'Creating project and uploading your document. This may take a moment.'
-          : "This document hasn't been shared with Writing Agent yet. Share it to start getting feedback."}
-      </div>
-      {enableFeedbackError && (
-        <div style={styles.enableFeedbackError}>{enableFeedbackError}</div>
+      {isUnsavedDocument ? (
+        <>
+          <div style={styles.enableFeedbackTitle}>
+            Save your document first
+          </div>
+          <div style={styles.enableFeedbackDescription}>
+            Please save your document before enabling feedback. Once saved, you can share it with Writing Agent.
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={styles.enableFeedbackTitle}>
+            {isEnableFeedbackLoading ? 'Setting up...' : 'Share this document for feedback?'}
+          </div>
+          <div style={styles.enableFeedbackDescription}>
+            {isEnableFeedbackLoading
+              ? 'Creating project and uploading your document. This may take a moment.'
+              : "This document hasn't been shared with Writing Agent yet. Share it to start getting feedback."}
+          </div>
+          {enableFeedbackError && (
+            <div style={styles.enableFeedbackError}>{enableFeedbackError}</div>
+          )}
+          <button
+            style={{
+              ...styles.enableFeedbackShareButton,
+              ...(isEnableFeedbackLoading ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
+            }}
+            onClick={handleShareToEnableFeedback}
+            disabled={isEnableFeedbackLoading}
+          >
+            <span style={styles.enableFeedbackShareButtonText}>
+              {isEnableFeedbackLoading ? 'Setting up...' : 'Share to enable feedback'}
+            </span>
+          </button>
+        </>
       )}
-      <button
-        style={{
-          ...styles.enableFeedbackShareButton,
-          ...(isEnableFeedbackLoading ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
-        }}
-        onClick={handleShareToEnableFeedback}
-        disabled={isEnableFeedbackLoading}
-      >
-        <span style={styles.enableFeedbackShareButtonText}>
-          {isEnableFeedbackLoading ? 'Setting up...' : 'Share to enable feedback'}
-        </span>
-      </button>
     </>
   );
 

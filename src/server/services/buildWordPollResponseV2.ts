@@ -69,17 +69,19 @@ export function buildWordPollResponseV2(
     }
   }
 
-  // If no document path at all (unsaved file), hide the button
+  // If no document path at all (unsaved file), show "Enable feedback" button but mark as unsaved
   if (!documentPath) {
     return {
       shouldShow: false,
+      isEnableFeedback: true,
+      isUnsavedDocument: true,
       notificationCount: 0,
       isActive: true,
       recentReviewNotifications: [],
       isReviewingSelectedText: false,
       selectedTextReviewStartedAt: undefined,
       activeDocumentPath: documentPath,
-      shouldShowButtonV2: false,
+      shouldShowButtonV2: true,
       shouldShowPopupV2,
       shouldShowReviewButton,
       shouldShowReviewStatusOverlay,

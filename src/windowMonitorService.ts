@@ -484,9 +484,9 @@ export class WindowMonitorService {
         if (buttonWidthOverride !== undefined) {
           desiredState[key].frame.width = buttonWidthOverride;
         } else {
-          // Widen for "Enable feedback" if document exists but has no project
+          // Widen for "Enable feedback" if document is unsaved or has no project
           const docPath = this.getDocumentPathForWindow(windowId);
-          if (docPath && !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
+          if (!docPath || !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
             desiredState[key].frame.width = ENABLE_FEEDBACK_BUTTON_WIDTH;
           }
         }
