@@ -129,8 +129,8 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
       } else {
         console.warn('[Projects] Project not found for navigation:', pendingNavigation.projectId);
         // Project might not be loaded yet, try to reload projects
-        loadProjects().then(() => {
-          const project = projects.find(p => p.id === pendingNavigation.projectId);
+        loadProjects().then((freshProjects) => {
+          const project = freshProjects.find(p => p.id === pendingNavigation.projectId);
           if (project) {
             setSelectedProject(project);
             setCurrentView('detail');
@@ -147,13 +147,15 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     }
   }, [pendingNavigation, projects, onNavigationHandled]);
 
-  const loadProjects = async () => {
+  const loadProjects = async (): Promise<Project[]> => {
     try {
       setLoading(true);
       const projectsData = await getProjects();
       setProjects(projectsData);
+      return projectsData;
     } catch (error) {
       console.error('Error loading projects:', error);
+      return [];
     } finally {
       setLoading(false);
     }
