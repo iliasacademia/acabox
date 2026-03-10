@@ -57,6 +57,39 @@ export interface CoScientistEvent {
    *
    * For 'zotero_disconnected' events (when Zotero account is disconnected):
    * (no additional data)
+   *
+   * For 'claims_extraction_started' events (when claim extraction begins):
+   * - review_id: number - ID of the review being fact-checked
+   *
+   * For 'claims_extraction_completed' events (after claims are extracted):
+   * - review_id: number - ID of the review
+   * - claims_count: number - Number of claims extracted
+   *
+   * For 'fact_checking_started' events (when per-claim fact-check jobs are enqueued):
+   * - review_id: number - ID of the review
+   * - claims_count: number - Total number of claims to check
+   * - claims: string[] - The claim texts
+   *
+   * For 'claim_fact_checked' events (fired each time a single claim finishes):
+   * - review_id: number - ID of the review
+   * - claim_key: string - Unique key for this claim
+   * - claim: string - The claim text
+   * - verification_status: string - e.g. 'verified', 'partially_verified', 'unverified'
+   * - issues_found: string - Description of issues found (empty string if none)
+   * - claims_checked: number - How many claims have been checked so far
+   * - total_claims: number - Total claims to check (use for progress indicator)
+   *
+   * For 'fact_check_completed' events (when the full fact-check job finishes):
+   * - review_id: number - ID of the review that was fact-checked
+   * - status: 'verified' | 'refined' | 'no_claims' - Outcome of the fact check
+   * - issues_found: number - Number of issues found (0 when status is 'verified' or 'no_claims')
+   *
+   * For 'refine_review_started' events (when review refinement begins):
+   * - review_id: number - ID of the review being refined
+   * - issues_count: number - Number of issues that triggered the refinement
+   *
+   * For 'refine_review_completed' events (when review refinement finishes):
+   * - review_id: number - ID of the refined review
    */
   data: Record<string, any>;
   timestamp: string; // ISO 8601 format

@@ -20,6 +20,22 @@ export interface UseConversationPollingOptions {
    * @param callback - Called to register the event listener. Should return a cleanup function.
    */
   onEventReceived?: (handler: (event: MessageCreatedEvent) => void) => () => void;
+  /**
+   * Optional callback for external events that should unconditionally trigger a refetch
+   * of the currently-viewed conversation, regardless of conversation_id.
+   * Useful for events like fact_check_completed that don't carry a conversation_id.
+   *
+   * @param handler - Called to register the trigger listener. Should return a cleanup function.
+   */
+  onTriggerRefetch?: (handler: () => void) => () => void;
+  /**
+   * Optional callback to receive fact-check progress status strings.
+   * The handler is called with a human-readable string when each fact-check event fires,
+   * and with null to clear the status when the process completes.
+   *
+   * @param handler - Called to register the status listener. Should return a cleanup function.
+   */
+  onFactCheckProgress?: (handler: (status: string | null) => void) => () => void;
 }
 
 export interface UseConversationPollingResult {
@@ -28,6 +44,7 @@ export interface UseConversationPollingResult {
   isPolling: boolean;
   isLoading: boolean;
   error: string | null;
+  factCheckStatus: string | null;
   startPolling: (conversationId: number, projectId: number) => void;
   stopPolling: () => void;
   refetch: () => Promise<void>;
@@ -62,6 +79,7 @@ export function useConversationPolling(
   const [isPolling, setIsPolling] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [factCheckStatus, setFactCheckStatus] = useState<string | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const conversationIdRef = useRef<number | null>(null);
@@ -156,6 +174,7 @@ export function useConversationPolling(
       // Clear messages and store IDs
       setMessages([]);
       setConversation(null);
+      setFactCheckStatus(null);
       conversationIdRef.current = conversationId;
       projectIdRef.current = projectId;
 
@@ -191,6 +210,20 @@ export function useConversationPolling(
     setMessages((prev) => [...prev, message]);
   }, []);
 
+  // Unconditional refetch trigger (for events without conversation_id, e.g. fact_check_completed)
+  useEffect(() => {
+    if (!options?.onTriggerRefetch) return;
+
+    const handleTrigger = async () => {
+      if (!conversationIdRef.current) return;
+      console.log('[ConversationPolling] External refetch triggered, fetching messages');
+      await refetch();
+    };
+
+    const cleanup = options.onTriggerRefetch(handleTrigger);
+    return cleanup;
+  }, [options, refetch]);
+
   // Event-driven updates (if supported)
   useEffect(() => {
     if (!options?.onEventReceived) return;
@@ -219,6 +252,13 @@ export function useConversationPolling(
     return cleanup;
   }, [options, refetch, stopPolling]);
 
+  // Fact-check progress status updates
+  useEffect(() => {
+    if (!options?.onFactCheckProgress) return;
+    const cleanup = options.onFactCheckProgress(setFactCheckStatus);
+    return cleanup;
+  }, [options]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -232,6 +272,7 @@ export function useConversationPolling(
     isPolling,
     isLoading,
     error,
+    factCheckStatus,
     startPolling,
     stopPolling,
     refetch,

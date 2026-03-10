@@ -16,6 +16,13 @@ interface EventHandlers {
   onFileUploadFailed?: (event: CoScientistEvent) => void;
   onZoteroFileSynced?: (event: CoScientistEvent) => void;
   onZoteroDisconnected?: (event: CoScientistEvent) => void;
+  onClaimsExtractionStarted?: (event: CoScientistEvent) => void;
+  onClaimsExtractionCompleted?: (event: CoScientistEvent) => void;
+  onFactCheckingStarted?: (event: CoScientistEvent) => void;
+  onClaimFactChecked?: (event: CoScientistEvent) => void;
+  onFactCheckCompleted?: (event: CoScientistEvent) => void;
+  onRefineReviewStarted?: (event: CoScientistEvent) => void;
+  onRefineReviewCompleted?: (event: CoScientistEvent) => void;
   onAllEvents?: (event: CoScientistEvent) => void;
 }
 
@@ -143,6 +150,34 @@ export function useCoScientistEvents(handlers: EventHandlers): void {
 
         case 'zotero_disconnected':
           h.onZoteroDisconnected?.(coScientistEvent);
+          break;
+
+        case 'claims_extraction_started':
+          h.onClaimsExtractionStarted?.(coScientistEvent);
+          break;
+
+        case 'claims_extraction_completed':
+          h.onClaimsExtractionCompleted?.(coScientistEvent);
+          break;
+
+        case 'fact_checking_started':
+          h.onFactCheckingStarted?.(coScientistEvent);
+          break;
+
+        case 'claim_fact_checked':
+          h.onClaimFactChecked?.(coScientistEvent);
+          break;
+
+        case 'fact_check_completed':
+          h.onFactCheckCompleted?.(coScientistEvent);
+          break;
+
+        case 'refine_review_started':
+          h.onRefineReviewStarted?.(coScientistEvent);
+          break;
+
+        case 'refine_review_completed':
+          h.onRefineReviewCompleted?.(coScientistEvent);
           break;
 
         default:
