@@ -2066,6 +2066,15 @@
     to { transform: rotate(360deg); }
 }
 
+.factCheckProgress {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: var(--text-secondary);
+    font-size: var(--type-body-sm);
+    font-family: var(--font-family-sans);
+}
+
 .searchFilesProgressBody {
     display: flex;
     flex-direction: column;

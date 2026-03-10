@@ -57,6 +57,7 @@ export function ConversationDetail({
   const [diffError, setDiffError] = useState<string | null>(null);
   const [disableMessageInput, setDisableMessageInput] = useState(false);
   const [previousManuscriptName, setPreviousManuscriptName] = useState<string | null>(null);
+  const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<number>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -144,7 +145,7 @@ export function ConversationDetail({
     }
   };
 
-  const { messages, conversation: polledConversation, isPolling, isLoading, error, startPolling, stopPolling, initializeMessages, addOptimisticMessage } =
+  const { messages, conversation: polledConversation, isPolling, isLoading, error, factCheckStatus, startPolling, stopPolling, initializeMessages, addOptimisticMessage } =
     useConversationPolling(pollingOptions);
 
   // Helper to check if conversation is a draft
@@ -181,6 +182,11 @@ export function ConversationDetail({
   // Reset the initial diff modal flag when conversation changes
   useEffect(() => {
     hasOpenedInitialDiffModal.current = false;
+  }, [conversation?.id]);
+
+  // Clear any optimistically hidden messages when the conversation changes
+  useEffect(() => {
+    setHiddenMessageIds(new Set());
   }, [conversation?.id]);
 
   // Auto-open diff modal when initialOpenDiffModal is true and conversation is loaded
@@ -476,6 +482,16 @@ export function ConversationDetail({
     setIsSending(true);
     setSendError(null);
 
+    // Optimistically hide all messages after the first assistant message (previous fact-check
+    // claims and refined review). The backend deletes them; new ones will arrive via polling.
+    const firstAssistantId = messages.find((m) => m.role === 'assistant')?.id;
+    if (firstAssistantId != null) {
+      const idsToHide = new Set(
+        messages.filter((m) => m.id > firstAssistantId).map((m) => m.id)
+      );
+      if (idsToHide.size > 0) setHiddenMessageIds(idsToHide);
+    }
+
     try {
       // Call fact-check API
       await factCheckReview(conversation.id, reviewId, projectId);
@@ -532,14 +548,18 @@ export function ConversationDetail({
 
   // Only keep the last search_files_progress message — each new one supersedes the previous.
   // search_files_result renders as normal HTML and is always kept.
-  const hasSearchResult = messages.some(
+  // Also filter out any messages optimistically hidden when fact-check was re-triggered.
+  const visibleMessages = hiddenMessageIds.size > 0
+    ? messages.filter((m) => !hiddenMessageIds.has(m.id))
+    : messages;
+  const hasSearchResult = visibleMessages.some(
     (m) => (m.data as { message_type?: string } | null)?.message_type === 'search_files_result'
   );
-  const lastSearchProgressId = messages.reduce<number | null>((lastId, m) => {
+  const lastSearchProgressId = visibleMessages.reduce<number | null>((lastId, m) => {
     const mt = (m.data as { message_type?: string } | null)?.message_type;
     return mt === 'search_files_progress' ? m.id : lastId;
   }, null);
-  const displayMessages = messages.filter((m) => {
+  const displayMessages = visibleMessages.filter((m) => {
     const mt = (m.data as { message_type?: string } | null)?.message_type;
     if (mt === 'search_files_progress') return m.id === lastSearchProgressId;
     return true;
@@ -639,7 +659,6 @@ export function ConversationDetail({
         {isPolling && (
           <div className="pollingIndicator">
             <span className="pollingDot"></span>
-            <span className="pollingText">AI is thinking...</span>
           </div>
         )}
       </div>
@@ -735,9 +754,21 @@ export function ConversationDetail({
           </>
         )}
 
-        {/* Show loading indicator when AI is responding.
-            Suppressed during search: SearchFilesMessage shows its own "Reading content…" banner. */}
-        {isPolling && groupedMessages.length > 0 && lastSearchProgressId === null && (
+        {/* Fact-check progress: show status text with spinner when a fact-check is running */}
+        {factCheckStatus && (
+          <div className="conversationMessage assistant">
+            <div className="messageContent">
+              <div className="factCheckProgress">
+                <span className="searchFilesSpinner" aria-hidden="true" />
+                <span>{factCheckStatus}</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Show loading indicator when AI is responding or fact-check is in progress.
+            Also shown on refresh when factCheckStatus arrives before polling has started. */}
+        {(isPolling || factCheckStatus) && groupedMessages.length > 0 && lastSearchProgressId === null && (
           <div className="conversationMessage assistant">
             <div className="messageContent">
               <div className="messageLoading">

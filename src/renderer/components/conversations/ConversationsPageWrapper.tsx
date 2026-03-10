@@ -13,7 +13,6 @@ import {
 import { IPC_CHANNELS } from '../../../shared/types';
 import { FEEDBACK_FORM_URL } from '../../../shared/constants';
 import { useProjectSyncStatus } from '../../hooks/useProjectSyncStatus';
-import { useCoScientistEvents } from '../../hooks/useCoScientistEvents';
 import type { UseConversationPollingOptions, MessageCreatedEvent } from '../../../../packages/shared-conversations/src/hooks/useConversationPolling';
 import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 
@@ -48,12 +47,16 @@ export function ConversationsPageWrapper({
     onEventReceived: (handler) => {
       // Create a wrapper that transforms Co-Scientist events to the format expected by the hook
       const eventHandler = (_event: any, coScientistEvent: any) => {
-        if (coScientistEvent.event_name === 'response_received' && coScientistEvent.data?.conversation_id) {
+        const { event_name, data } = coScientistEvent;
+        if (
+          (event_name === 'response_received' || event_name === 'message_sent') &&
+          data?.conversation_id
+        ) {
           const messageEvent: MessageCreatedEvent = {
-            conversation_id: coScientistEvent.data.conversation_id,
-            message_id: coScientistEvent.data.message_id || 0,
-            role: coScientistEvent.data.role || 'assistant',
-            is_final: coScientistEvent.data.is_final,
+            conversation_id: data.conversation_id,
+            message_id: data.message_id || 0,
+            role: data.role || 'assistant',
+            is_final: data.is_final,
           };
           handler(messageEvent);
         }
@@ -63,6 +66,55 @@ export function ConversationsPageWrapper({
       window.electronAPI.on(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
 
       // Return cleanup function
+      return () => {
+        window.electronAPI.removeListener(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
+      };
+    },
+    onTriggerRefetch: (handler) => {
+      const eventHandler = (_event: any, coScientistEvent: any) => {
+        if (coScientistEvent.event_name === 'fact_check_completed') {
+          console.log('[ConversationsPageWrapper] Fact check completed, refreshing conversation messages', coScientistEvent.data);
+          handler();
+        }
+      };
+
+      window.electronAPI.on(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
+      return () => {
+        window.electronAPI.removeListener(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
+      };
+    },
+    onFactCheckProgress: (handler) => {
+      const eventHandler = (_event: any, { event_name, data }: any) => {
+        switch (event_name) {
+          case 'claims_extraction_started':
+            handler('Identifying scientific claims…');
+            break;
+          case 'claims_extraction_completed': {
+            const n = data?.claims_count ?? 0;
+            handler(`Found ${n} claim${n === 1 ? '' : 's'}. Starting verification…`);
+            break;
+          }
+          case 'fact_checking_started': {
+            const n = data?.claims_count ?? 0;
+            handler(`Verifying ${n} claim${n === 1 ? '' : 's'}…`);
+            break;
+          }
+          case 'claim_fact_checked':
+            handler(`Verifying claims (${data?.claims_checked} of ${data?.total_claims})…`);
+            break;
+          case 'refine_review_started': {
+            const n = data?.issues_count ?? 0;
+            handler(`Found ${n} issue${n === 1 ? '' : 's'}. Refining your review…`);
+            break;
+          }
+          case 'fact_check_completed':
+          case 'refine_review_completed':
+            handler(null);
+            break;
+        }
+      };
+
+      window.electronAPI.on(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
       return () => {
         window.electronAPI.removeListener(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
       };
