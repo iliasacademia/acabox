@@ -226,6 +226,8 @@ export class WindowMonitorService {
   private lastDesiredState: DesiredWebviewState = {};
   private baseUrl: string | null = null;
   private authToken: string | null = null;
+  // File paths for which the popup should auto-open when the window is first detected
+  private pendingAutoOpenPaths: Set<string> = new Set();
 
   start(baseUrl: string, authToken: string): void {
     this.baseUrl = baseUrl;
@@ -295,7 +297,17 @@ export class WindowMonitorService {
       for (const [wid, docPath] of newMap) {
         if (oldMap.get(wid) !== docPath) {
           documentPathMappingChanged = true;
-          break;
+          // Auto-open popup if this window's document was scheduled for auto-open
+          if (docPath && this.pendingAutoOpenPaths.size > 0) {
+            const normalizedDocPath = docPath.startsWith('file://')
+              ? decodeURIComponent(docPath.slice(7))
+              : docPath;
+            if (this.pendingAutoOpenPaths.has(normalizedDocPath)) {
+              this.pendingAutoOpenPaths.delete(normalizedDocPath);
+              logger.info(`[WindowMonitor] Auto-opening popup for new window ${wid} (path match)`);
+              this.popupToggledOpen.add(wid);
+            }
+          }
         }
       }
       this.state = newState;
@@ -663,6 +675,28 @@ export class WindowMonitorService {
 
   getAllSelectedTextReviewStates(): Map<string, { projectId: number; projectFileId: number; startedAt: number; reviewType: 'full-paper' | 'selected-text' | 'review-changes'; selectedText?: string }> {
     return this.selectedTextReviewState;
+  }
+
+  scheduleAutoOpenForPath(filePath: string): void {
+    // Check if a window tracking this document is already known
+    for (const trackedApp of this.state.apps) {
+      for (const win of trackedApp.windows) {
+        if (win.documentPath) {
+          const normalized = win.documentPath.startsWith('file://')
+            ? decodeURIComponent(win.documentPath.slice(7))
+            : win.documentPath;
+          if (normalized === filePath) {
+            logger.info(`[WindowMonitor] Immediately opening popup for existing window ${win.id}`);
+            this.popupToggledOpen.add(win.id);
+            this.pushWebviewState();
+            return;
+          }
+        }
+      }
+    }
+    // Window not yet tracked — open popup when it first appears
+    logger.info(`[WindowMonitor] Scheduling popup auto-open for path: ${filePath}`);
+    this.pendingAutoOpenPaths.add(filePath);
   }
 
   openPopupForWindow(windowId: string): void {
