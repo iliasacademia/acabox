@@ -46,9 +46,12 @@ interface ProjectsProps {
   onLoginRequired: () => void;
   pendingNavigation: NavigateToPagePayload | null;
   onNavigationHandled: () => void;
+  pendingProject?: Project | null;
+  onPendingProjectHandled?: () => void;
+  onLastProjectDeleted?: () => void;
 }
 
-const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLoginRequired, pendingNavigation, onNavigationHandled }) => {
+const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLoginRequired, pendingNavigation, onNavigationHandled, pendingProject, onPendingProjectHandled, onLastProjectDeleted }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<View>('list');
@@ -85,6 +88,15 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
       setLoading(false);
     }
   }, [isLoggedIn]);
+
+  // Project created during onboarding — add to list and navigate to its detail view.
+  useEffect(() => {
+    if (!isLoggedIn || !pendingProject) return;
+    onPendingProjectHandled?.();
+    setProjects(prev => [pendingProject, ...prev]);
+    setSelectedProject(pendingProject);
+    setCurrentView('detail');
+  }, [isLoggedIn, pendingProject]);
 
   // Close user menu when clicking outside
   useEffect(() => {
@@ -430,12 +442,18 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
             // Clear notifications for deleted project
             await window.electronAPI.invoke(IPC_CHANNELS.CLEAR_NOTIFICATIONS_FOR_PROJECT, project.id);
 
-            setProjects(projects.filter((p) => p.id !== project.id));
+            const remaining = projects.filter((p) => p.id !== project.id);
+            setProjects(remaining);
 
             // If we're viewing the deleted project, go back to list
             if (selectedProject?.id === project.id) {
               setCurrentView('list');
               setSelectedProject(null);
+            }
+
+            // Notify parent when last project is deleted so onboarding can re-show
+            if (remaining.length === 0) {
+              onLastProjectDeleted?.();
             }
           }
         } catch (error) {

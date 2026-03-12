@@ -33,6 +33,8 @@ app.setName('Writing Agent');
 // Lock userData to the original path so renaming productName doesn't break existing user data
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron'));
 
+// Register deep link protocol — must happen before app is ready
+
 const isSmokeTest = process.argv.includes('--smoke-test');
 const ACTIVITY_FLUSH_INTERVAL_MS = 300_000; // 5 minutes
 
@@ -251,9 +253,7 @@ const createMainWindow = async (): Promise<void> => {
           bundleId: appInfo.bundleId,
           teamId: appInfo.teamId,
         });
-        if (!hasPermission) {
-          mainWindow?.webContents.send(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, { hasPermission: false });
-        }
+        mainWindow?.webContents.send(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, { hasPermission });
       } catch (error) {
         logger.error('[Permissions] Error checking permission on startup:', error);
       }
@@ -987,6 +987,12 @@ ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
     return { success: true, ...result };
   } catch (error: any) {
     return { success: false, resetSuccess: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.SCHEDULE_POPUP_AUTO_OPEN, (_event, filePath: string) => {
+  if (FEATURES.ONBOARDING_V3_ENABLED) {
+    windowMonitorService.scheduleAutoOpenForPath(filePath);
   }
 });
 

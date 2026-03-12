@@ -281,7 +281,7 @@ export function cleanupZendeskWidget(): void {
   try {
     // Logout user from Zendesk
     if (window.zE) {
-      window.zE('messenger', 'logoutUser');
+      window.zE('messenger', 'logout');
       hideWidget();
     }
 

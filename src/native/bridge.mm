@@ -101,9 +101,11 @@ Napi::Value RequestPermission(const Napi::CallbackInfo& info) {
 Napi::Value OpenAccessibilitySettings(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
 
-    AcademiaLog(@"[WORD-INTEGRATION] Opening System Settings > Privacy & Security > Accessibility...");
-    NSURL *url = [NSURL URLWithString:@"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"];
-    [[NSWorkspace sharedWorkspace] openURL:url];
+    AcademiaLog(@"[WORD-INTEGRATION] Requesting accessibility permission with system prompt...");
+    // kAXTrustedCheckOptionPrompt: YES shows the macOS system dialog which adds the app
+    // to the Accessibility list so the user can toggle it on.
+    NSDictionary *options = @{(__bridge id)kAXTrustedCheckOptionPrompt: @YES};
+    AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef)options);
 
     return env.Undefined();
 }

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import LoginModal from './components/LoginModal';
 import DevTools from './components/DevTools';
 import { UpdateBanner } from './components/UpdateBanner';
 import { PermissionsBanner } from './components/PermissionsBanner';
+import GettingStarted from './components/GettingStarted';
 import { Notification as NotificationType } from '../types/notifications';
 import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
@@ -15,7 +16,20 @@ import Projects from './components/Projects';
 import { StatusBar } from './components/StatusBar';
 import { useConnectivityStatus } from './hooks/useConnectivityStatus';
 import { UserPreferencesProvider } from './contexts/UserPreferencesContext';
+import { Project } from './services/projectsApi';
 import './App.css';
+
+const checkUserHasProjects = async (): Promise<boolean> => {
+  try {
+    const response = await window.electronAPI.invoke(IPC_CHANNELS.API_CALL, {
+      method: 'GET',
+      endpoint: 'v0/co_scientist/projects',
+    });
+    return (response?.projects?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
+};
 
 // Initialize FullStory early (fire and forget - async init happens in background)
 initFullStory().catch((error) => console.error('[App] FullStory init failed:', error));
@@ -26,6 +40,11 @@ const App: React.FC = () => {
   const [userName, setUserName] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [pendingNavigation, setPendingNavigation] = useState<NavigateToPagePayload | null>(null);
+  // Onboarding V3: track accessibility permission and whether the user has any projects
+  const [hasAccessibilityPermission, setHasAccessibilityPermission] = useState<boolean | null>(null);
+  const [hasProjects, setHasProjects] = useState<boolean>(false);
+  const permissionPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pendingProject, setPendingProject] = useState<Project | null>(null);
 
   // Auto-update banner state
   const [updateState, setUpdateState] = useState<{
@@ -44,9 +63,6 @@ const App: React.FC = () => {
 
   // Detect if this is the main window (Projects UI) or dev window
   const isMainWindow = new URLSearchParams(window.location.search).get('window') === 'main';
-
-  // Detect if we're in development mode
-  const isDevelopment = process.env.NODE_ENV === 'development';
 
   // Listen for devtools logs from main process
   useDevToolsLog();
@@ -111,10 +127,15 @@ const App: React.FC = () => {
     }
   }, [userId]);
 
+
   // Listen for navigation events from main process (triggered by notification clicks)
   useEffect(() => {
     const handleNavigateToPage = (_event: any, payload: NavigateToPagePayload) => {
       setPendingNavigation(payload);
+      // A project was just created via the overlay (e.g. Enable Feedback) — exit onboarding
+      if (FEATURES.ONBOARDING_V3_ENABLED && payload.projectId) {
+        setHasProjects(true);
+      }
     };
 
     window.electronAPI.on(IPC_CHANNELS.NAVIGATE_TO_PAGE, handleNavigateToPage);
@@ -171,30 +192,34 @@ const App: React.FC = () => {
     };
   }, []);
 
-  // Listen for accessibility permission status from main process
-  useEffect(() => {
-    // Initial permission check on mount (only on main window)
-    if (isMainWindow) {
-      const checkInitialPermission = async () => {
-        try {
-          const result = await window.electronAPI.invoke(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION);
-          if (result && !result.hasPermission) {
-            setPermissionState({ show: true, isChecking: false });
-          }
-        } catch (error) {
-          console.error('[App] Failed to check initial permission:', error);
-        }
-      };
-
-      checkInitialPermission();
+  // Check accessibility permission status
+  const checkPermission = async () => {
+    try {
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION);
+      if (result) {
+        setHasAccessibilityPermission(result.hasPermission);
+        setPermissionState({ show: !result.hasPermission, isChecking: false });
+      } else {
+        // Non-macOS: assume permission is granted
+        setHasAccessibilityPermission(true);
+        setPermissionState({ show: false, isChecking: false });
+      }
+    } catch (error) {
+      console.error('[App] Failed to check permission:', error);
+      // Don't assume permission on error — leave as null so "Checking..." is shown
+      // and the user can retry on next focus
     }
+  };
 
-    // Listen for permission status updates from main process
+  // Initial permission check on mount + IPC listener
+  useEffect(() => {
+    if (!isMainWindow) return;
+
+    checkPermission();
+
     const handlePermissionStatus = (_event: any, data: { hasPermission: boolean }) => {
-      setPermissionState({
-        show: !data.hasPermission,
-        isChecking: false,
-      });
+      setHasAccessibilityPermission(data.hasPermission);
+      setPermissionState({ show: !data.hasPermission, isChecking: false });
     };
 
     window.electronAPI.on(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, handlePermissionStatus);
@@ -204,6 +229,16 @@ const App: React.FC = () => {
     };
   }, [isMainWindow]);
 
+  // Re-check permission on focus: always when onboarding is enabled (so a revoked permission
+  // sends the user back to GettingStarted), or while the login modal is open.
+  useEffect(() => {
+    if (!isMainWindow) return;
+    if (!FEATURES.ONBOARDING_V3_ENABLED && !showLogin) return;
+
+    window.addEventListener('focus', checkPermission);
+    return () => window.removeEventListener('focus', checkPermission);
+  }, [isMainWindow, showLogin]);
+
   const handleNavigationHandled = () => {
     setPendingNavigation(null);
   };
@@ -212,10 +247,18 @@ const App: React.FC = () => {
     try {
       const isLoggedIn = await window.electronAPI.invoke(IPC_CHANNELS.CHECK_LOGIN);
       if (!isLoggedIn) {
-        setShowLogin(true);
+        // Don't auto-show login modal when onboarding is active — onboarding has its own Login button
+        if (!FEATURES.ONBOARDING_V3_ENABLED) {
+          setShowLogin(true);
+        }
         setUserId(null);
         setUserName(null);
       } else {
+        // Check if user has existing projects to determine onboarding state
+        if (FEATURES.ONBOARDING_V3_ENABLED) {
+          const userHasProjects = await checkUserHasProjects();
+          setHasProjects(userHasProjects);
+        }
         // Get current user info
         const user = await window.electronAPI.invoke(IPC_CHANNELS.GET_CURRENT_USER);
         if (user) {
@@ -298,6 +341,11 @@ const App: React.FC = () => {
       setUserId(user.id);
       setUserName(user.first_name || user.name || null);
       setShowLogin(false); // Only hide modal AFTER userId is set
+      // Check if user already has projects (e.g. existing user logging in fresh)
+      if (FEATURES.ONBOARDING_V3_ENABLED) {
+        const userHasProjects = await checkUserHasProjects();
+        setHasProjects(userHasProjects);
+      }
 
       // Identify user in FullStory for session attribution (with device ID and version)
       const [deviceId, appInfo] = await Promise.all([
@@ -343,9 +391,12 @@ const App: React.FC = () => {
 
     const result = await window.electronAPI.invoke(IPC_CHANNELS.LOGOUT);
     if (result.success) {
-      setShowLogin(true);
       setUserId(null);
       setUserName(null);
+      // GettingStarted screen handles login when onboarding is active
+      if (!FEATURES.ONBOARDING_V3_ENABLED) {
+        setShowLogin(true);
+      }
     }
   };
 
@@ -376,6 +427,16 @@ const App: React.FC = () => {
     try {
       // Opens System Settings > Accessibility
       await window.electronAPI.invoke(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION);
+      // Poll every 2s — when the user toggles the permission on, auto-restart
+      const poll = async () => {
+        const result = await window.electronAPI.invoke(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION);
+        if (result?.hasPermission) {
+          await window.electronAPI.restartApp();
+        } else {
+          permissionPollRef.current = setTimeout(poll, 2000);
+        }
+      };
+      permissionPollRef.current = setTimeout(poll, 2000);
     } catch (error) {
       console.error('[App] Failed to open settings:', error);
     } finally {
@@ -405,34 +466,58 @@ const App: React.FC = () => {
 
   // If this is the main window, render the Projects UI
   if (isMainWindow) {
-    // Wait for auth check to complete before rendering Projects
+    // Wait for auth check to complete before rendering
     if (authLoading) {
       return null; // Or a loading spinner
     }
+
+    // Show onboarding when: not logged in, permissions not granted, or no projects yet
+    const showOnboarding = FEATURES.ONBOARDING_V3_ENABLED &&
+      (!userId || hasAccessibilityPermission !== true || !hasProjects);
+
     return (
       <>
         {/* titleBarDragRegion not needed with native frame */}
         {/* Development mode now shown in window title bar instead of banner */}
-        {permissionState.show && (
-          <PermissionsBanner
-            onGrantPermission={handleGrantPermission}
-            onResetPermission={handleResetPermission}
-            onRestartApp={handleRestartApp}
-            isWorking={permissionState.isChecking}
-            isDevelopment={isDevelopment}
-            hasUpdateBanner={updateState.show}
-          />
-        )}
-        <UserPreferencesProvider userId={userId}>
-          <Projects
-            userId={userId}
-            userName={userName}
-            onLogout={handleLogout}
+        {showOnboarding ? (
+          <GettingStarted
+            isLoggedIn={!!userId}
+            hasPermission={hasAccessibilityPermission}
             onLoginRequired={() => setShowLogin(true)}
-            pendingNavigation={pendingNavigation}
-            onNavigationHandled={handleNavigationHandled}
+            onGrantPermission={handleGrantPermission}
+            onRestartApp={handleRestartApp}
+            onComplete={(project) => {
+              setHasProjects(true);
+              setPendingProject(project);
+            }}
           />
-        </UserPreferencesProvider>
+        ) : (
+          <>
+            {permissionState.show && (
+              <PermissionsBanner
+                onGrantPermission={handleGrantPermission}
+                onResetPermission={handleResetPermission}
+                onRestartApp={handleRestartApp}
+                isWorking={permissionState.isChecking}
+                isDevelopment={process.env.NODE_ENV === 'development'}
+                hasUpdateBanner={updateState.show}
+              />
+            )}
+            <UserPreferencesProvider userId={userId}>
+              <Projects
+                userId={userId}
+                userName={userName}
+                onLogout={handleLogout}
+                onLoginRequired={() => setShowLogin(true)}
+                pendingNavigation={pendingNavigation}
+                onNavigationHandled={handleNavigationHandled}
+                pendingProject={pendingProject}
+                onPendingProjectHandled={() => setPendingProject(null)}
+                onLastProjectDeleted={() => setHasProjects(false)}
+              />
+            </UserPreferencesProvider>
+          </>
+        )}
         {showLogin && <LoginModal onSuccess={handleLoginSuccess} />}
         {updateState.show && (
           <UpdateBanner

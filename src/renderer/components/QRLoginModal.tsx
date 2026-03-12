@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { IPC_CHANNELS } from '../../shared/types';
 import './QRLoginModal.css';
 
+
 interface QRLoginModalProps {
   onSuccess: () => void;
   onSwitchToEmail?: () => void;
@@ -21,7 +22,8 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
 
   useEffect(() => {
     startQRAuth();
-    // No cleanup needed - no polling anymore
+
+    return () => {};
   }, []);
 
   const startQRAuth = async () => {

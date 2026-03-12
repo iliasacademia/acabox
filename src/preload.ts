@@ -24,6 +24,7 @@ const VALID_EVENT_CHANNELS: string[] = [
   IPC_CHANNELS.UPDATE_ERROR,
   // Permissions events
   IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS,
+
 ];
 
 /**
