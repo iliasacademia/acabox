@@ -444,3 +444,26 @@ export function trackSupportingMaterialsAdd(projectId: number): void {
 export function trackSupportingMaterialsSkip(projectId: number): void {
   sendToBackend("supporting_materials", "skip", "desktop", {}, projectId);
 }
+
+// GETTING STARTED EVENTS
+export function trackGettingStartedView(): void {
+  sendToBackend('getting_started_view', 'view', 'desktop');
+}
+export function trackGettingStartedLoginClick(): void {
+  sendToBackend('getting_started_login_click', 'click', 'desktop');
+}
+export function trackGettingStartedPermissionGranted(): void {
+  sendToBackend('getting_started_permission_granted', 'granted', 'desktop');
+}
+export function trackGettingStartedZoteroSynced(): void {
+  sendToBackend('getting_started_zotero_synced', 'completed', 'desktop');
+}
+export function trackGettingStartedZoteroSkipped(): void {
+  sendToBackend('getting_started_zotero_skipped', 'skipped', 'desktop');
+}
+export function trackGettingStartedFilePickerOpen(): void {
+  sendToBackend('getting_started_file_picker_open', 'open', 'desktop');
+}
+export function trackGettingStartedProjectCreated(projectId: number): void {
+  sendToBackend('getting_started_project_created', 'created', 'desktop', {}, projectId);
+}

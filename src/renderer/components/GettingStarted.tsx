@@ -2,6 +2,15 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { IPC_CHANNELS } from '../../shared/types';
 import { getZoteroStatus, syncZotero, getZoteroAuthorizeUrl, ZoteroStatus } from '../services/zoteroApi';
 import { createProject, Project, extractErrorMessage } from '../services/projectsApi';
+import {
+  trackGettingStartedView,
+  trackGettingStartedLoginClick,
+  trackGettingStartedPermissionGranted,
+  trackGettingStartedZoteroSynced,
+  trackGettingStartedZoteroSkipped,
+  trackGettingStartedFilePickerOpen,
+  trackGettingStartedProjectCreated,
+} from '../utils/analytics';
 import dockIcon from '../../assets/icons/dock-icon.png';
 import './GettingStarted.css';
 
@@ -34,6 +43,16 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
   const [creationError, setCreationError] = useState<string | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
+
+  useEffect(() => { trackGettingStartedView(); }, []);
+
+  const permissionTrackedRef = useRef(hasPermission === true);
+  useEffect(() => {
+    if (hasPermission === true && !permissionTrackedRef.current) {
+      permissionTrackedRef.current = true;
+      trackGettingStartedPermissionGranted();
+    }
+  }, [hasPermission]);
 
   useEffect(() => {
     if (isLoggedIn) {
@@ -94,6 +113,7 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
         setZoteroStatus(status);
         if (status.last_synced_at !== previousSyncedAt || Date.now() - pollStart > MAX_POLL_DURATION_MS) {
           setIsSyncingZotero(false);
+          if (status.last_synced_at !== previousSyncedAt) trackGettingStartedZoteroSynced();
           return;
         }
         setTimeout(pollForSync, POLL_INTERVAL_MS);
@@ -111,6 +131,7 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
     );
     if (!filePath) return;
 
+    trackGettingStartedFilePickerOpen();
     setCreationError(null);
     setIsCreatingProject(true);
     try {
@@ -123,6 +144,7 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
       window.electronAPI.invoke(IPC_CHANNELS.OPEN_FILE, filePath).catch(() => {});
       // Schedule popup auto-open so the overlay is expanded when Word first shows the document
       window.electronAPI.invoke(IPC_CHANNELS.SCHEDULE_POPUP_AUTO_OPEN, filePath).catch(() => {});
+      trackGettingStartedProjectCreated(project.id);
       onComplete(project);
     } catch (err) {
       const message = extractErrorMessage(err, 'Failed to create project. Please try again.');
@@ -163,7 +185,7 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
                   : 'Sign in with your Academia account to continue.'}
               </p>
               {!isLoggedIn && (
-                <button className="gsStep__btn gsStep__btn--primary" onClick={onLoginRequired}>
+                <button className="gsStep__btn gsStep__btn--primary" onClick={() => { trackGettingStartedLoginClick(); onLoginRequired(); }}>
                   Log In
                 </button>
               )}
@@ -255,7 +277,7 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
                   )}
                   <button
                     className="gsStep__btn gsStep__btn--ghost"
-                    onClick={() => setZoteroSkipped(true)}
+                    onClick={() => { setZoteroSkipped(true); trackGettingStartedZoteroSkipped(); }}
                   >
                     Skip for now
                   </button>
