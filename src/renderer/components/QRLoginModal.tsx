@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { IPC_CHANNELS } from '../../shared/types';
 import './QRLoginModal.css';
 
@@ -17,6 +17,7 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
   const [userInputCode, setUserInputCode] = useState<string>('');
   const [attemptCount, setAttemptCount] = useState<number>(0);
   const [status, setStatus] = useState<QRAuthStatus>('initializing');
+  const isVerifyingRef = useRef(false);
   const [error, setError] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -65,19 +66,25 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
     const handleDeepLink = async (_event: any, { verificationCode, deviceId }: { verificationCode: string; deviceId: string }) => {
       if (!verificationCode || !/^\d{6}$/.test(verificationCode)) return;
       if (!deviceId) return;
+      if (isVerifyingRef.current) return;
+      isVerifyingRef.current = true;
       setUserInputCode(verificationCode);
       setStatus('verifying');
       setError('');
       console.log('[QR Auth] Auto-verifying from deep link, device_id:', deviceId);
-      const result = await window.electronAPI.invoke(IPC_CHANNELS.VERIFY_QR_CODE, deviceId, verificationCode);
-      if (result.success && result.authorized) {
-        setStatus('authorized');
-        setTimeout(() => onSuccess(), 500);
-      } else {
-        setAttemptCount(prev => prev + 1);
-        setStatus('waiting');
-        setError(result.error || 'Verification failed');
-        console.error('[QR Auth] Deep link auto-verify failed:', result);
+      try {
+        const result = await window.electronAPI.invoke(IPC_CHANNELS.VERIFY_QR_CODE, deviceId, verificationCode);
+        if (result.success && result.authorized) {
+          setStatus('authorized');
+          setTimeout(() => onSuccess(), 500);
+        } else {
+          setAttemptCount(prev => prev + 1);
+          setStatus('waiting');
+          setError(result.error || 'Verification failed');
+          console.error('[QR Auth] Deep link auto-verify failed:', result);
+        }
+      } finally {
+        isVerifyingRef.current = false;
       }
     };
 
