@@ -59,6 +59,34 @@ const QRLoginModal: React.FC<QRLoginModalProps> = ({ onSuccess, onSwitchToEmail 
     }
   };
 
+  // Auto-verify when the app receives a writing-agent:// deep link.
+  // device_id comes from the URI so there's no stale-closure risk — registered once on mount.
+  useEffect(() => {
+    const handleDeepLink = async (_event: any, { verificationCode, deviceId }: { verificationCode: string; deviceId: string }) => {
+      if (!verificationCode || !/^\d{6}$/.test(verificationCode)) return;
+      if (!deviceId) return;
+      setUserInputCode(verificationCode);
+      setStatus('verifying');
+      setError('');
+      console.log('[QR Auth] Auto-verifying from deep link, device_id:', deviceId);
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.VERIFY_QR_CODE, deviceId, verificationCode);
+      if (result.success && result.authorized) {
+        setStatus('authorized');
+        setTimeout(() => onSuccess(), 500);
+      } else {
+        setAttemptCount(prev => prev + 1);
+        setStatus('waiting');
+        setError(result.error || 'Verification failed');
+        console.error('[QR Auth] Deep link auto-verify failed:', result);
+      }
+    };
+
+    window.electronAPI.on(IPC_CHANNELS.DEEP_LINK_CALLBACK, handleDeepLink);
+    return () => {
+      window.electronAPI.removeListener(IPC_CHANNELS.DEEP_LINK_CALLBACK, handleDeepLink);
+    };
+  }, [onSuccess]);
+
   const handleVerifyCode = async () => {
     // Validate input
     if (!userInputCode || userInputCode.length !== 6) {
