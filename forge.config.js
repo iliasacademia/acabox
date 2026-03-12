@@ -74,6 +74,12 @@ const platform = os.platform();
 const packagerConfig = {
   icon: './src/assets/icons/dock-icon',
   appBundleId: 'com.electron.academia-electron',
+  protocols: [
+    {
+      name: 'Writing Agent',
+      schemes: ['writing-agent'],
+    },
+  ],
   asar: {
     unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*}',
   },
