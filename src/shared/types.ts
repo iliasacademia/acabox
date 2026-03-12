@@ -138,6 +138,9 @@ export const IPC_CHANNELS = {
   // App info
   GET_APP_VERSION: "get-app-version",
   GET_HTTP_SERVER_INFO: "get-http-server-info",
+
+  // Deep link / URI handler callbacks
+  DEEP_LINK_CALLBACK: "deep-link-callback",
 } as const;
 
 // Type for valid IPC channel values - enforces compile-time validation

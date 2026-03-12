@@ -25,6 +25,8 @@ const VALID_EVENT_CHANNELS: string[] = [
   // Permissions events
   IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS,
 
+  // Deep link / URI handler callbacks
+  IPC_CHANNELS.DEEP_LINK_CALLBACK,
 ];
 
 /**

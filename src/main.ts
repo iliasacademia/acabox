@@ -34,6 +34,43 @@ app.setName('Writing Agent');
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron'));
 
 // Register deep link protocol — must happen before app is ready
+app.setAsDefaultProtocolClient('writing-agent');
+
+// Pending deep link URL received before the main window was ready
+let pendingDeepLinkUrl: string | null = null;
+
+function handleDeepLinkUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const verificationCode = parsed.searchParams.get('verification_code');
+    const deviceId = parsed.searchParams.get('device_id');
+    if (!verificationCode || !/^\d{6}$/.test(verificationCode)) {
+      logger.warn('[Deep Link] Received URL with missing or invalid verification_code:', url);
+      return;
+    }
+    if (!deviceId) {
+      logger.warn('[Deep Link] Received URL with missing device_id:', url);
+      return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send(IPC_CHANNELS.DEEP_LINK_CALLBACK, { verificationCode, deviceId });
+    } else {
+      pendingDeepLinkUrl = url;
+    }
+  } catch (err) {
+    logger.error('[Deep Link] Failed to parse URL:', err);
+  }
+}
+
+// macOS: deep link when app is already running
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (url.startsWith('writing-agent://')) {
+    handleDeepLinkUrl(url);
+  }
+});
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 const ACTIVITY_FLUSH_INTERVAL_MS = 300_000; // 5 minutes
@@ -716,6 +753,15 @@ app.whenReady().then(async () => {
 
   // Create main window (always)
   createMainWindow();
+
+  // Dispatch any deep link URL that arrived before the window was ready
+  if (pendingDeepLinkUrl && mainWindow && !mainWindow.isDestroyed()) {
+    const urlToDispatch = pendingDeepLinkUrl;
+    pendingDeepLinkUrl = null;
+    mainWindow.webContents.once('did-finish-load', () => {
+      handleDeepLinkUrl(urlToDispatch);
+    });
+  }
 
   // Only create dev window in development mode
   if (process.env.NODE_ENV === 'development') {
