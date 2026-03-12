@@ -422,4 +422,111 @@ describe('Analytics Service', () => {
       );
     });
   });
+
+  describe('Getting Started Events', () => {
+    it('should track getting started view with full structure', async () => {
+      analytics.trackGettingStartedView();
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.API_CALL, {
+        method: 'POST',
+        endpoint: 'v0/arbitrary_event',
+        data: {
+          arbitrary_event: {
+            event_type: 'DesktopAppEvent',
+            data: {
+              event_name: 'getting_started_view',
+              action: 'view',
+              source: 'desktop',
+              metadata: {},
+            },
+          },
+        },
+      });
+    });
+
+    it('should track getting started view with no project_id', async () => {
+      analytics.trackGettingStartedView();
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const call = mockInvoke.mock.calls[0];
+      expect(call[1].data.arbitrary_event.data.project_id).toBeUndefined();
+    });
+
+    it('should track getting started login click', async () => {
+      analytics.trackGettingStartedLoginClick();
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const call = mockInvoke.mock.calls[0];
+      expect(call[1].data.arbitrary_event.data.event_name).toBe('getting_started_login_click');
+      expect(call[1].data.arbitrary_event.data.action).toBe('click');
+    });
+
+    it('should track getting started permission granted', async () => {
+      analytics.trackGettingStartedPermissionGranted();
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const call = mockInvoke.mock.calls[0];
+      expect(call[1].data.arbitrary_event.data.event_name).toBe('getting_started_permission_granted');
+      expect(call[1].data.arbitrary_event.data.action).toBe('granted');
+    });
+
+    it('should track getting started zotero synced', async () => {
+      analytics.trackGettingStartedZoteroSynced();
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const call = mockInvoke.mock.calls[0];
+      expect(call[1].data.arbitrary_event.data.event_name).toBe('getting_started_zotero_synced');
+      expect(call[1].data.arbitrary_event.data.action).toBe('completed');
+    });
+
+    it('should track getting started zotero skipped', async () => {
+      analytics.trackGettingStartedZoteroSkipped();
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const call = mockInvoke.mock.calls[0];
+      expect(call[1].data.arbitrary_event.data.event_name).toBe('getting_started_zotero_skipped');
+      expect(call[1].data.arbitrary_event.data.action).toBe('skipped');
+    });
+
+    it('should track getting started file picker open', async () => {
+      analytics.trackGettingStartedFilePickerOpen();
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      const call = mockInvoke.mock.calls[0];
+      expect(call[1].data.arbitrary_event.data.event_name).toBe('getting_started_file_picker_open');
+      expect(call[1].data.arbitrary_event.data.action).toBe('open');
+    });
+
+    it('should track getting started project created with full structure', async () => {
+      const projectId = 999;
+      analytics.trackGettingStartedProjectCreated(projectId);
+
+      await new Promise(resolve => setTimeout(resolve, 0));
+
+      expect(mockInvoke).toHaveBeenCalledWith(IPC_CHANNELS.API_CALL, {
+        method: 'POST',
+        endpoint: 'v0/arbitrary_event',
+        data: {
+          arbitrary_event: {
+            event_type: 'DesktopAppEvent',
+            data: {
+              event_name: 'getting_started_project_created',
+              action: 'created',
+              source: 'desktop',
+              metadata: {},
+              project_id: projectId,
+            },
+          },
+        },
+      });
+    });
+  });
 });
