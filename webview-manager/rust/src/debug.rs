@@ -32,9 +32,10 @@ pub fn log(msg: &str) {
     }
 }
 
+#[macro_export]
 macro_rules! debug_log {
     ($($arg:tt)*) => {
-        crate::debug::log(&format!($($arg)*))
+        $crate::debug::log(&format!($($arg)*))
     };
 }
-pub(crate) use debug_log;
+pub use debug_log;

@@ -22,6 +22,15 @@ define_class!(
 
         #[unsafe(method(mouseDown:))]
         fn mouse_down(&self, event: &NSEvent) {
+            // Make the panel the key window so keyboard events (Cmd+C/V) are delivered.
+            // NonactivatingPanel does not automatically make the panel key on click.
+            if let Some(window) = self.window() {
+                window.makeKeyWindow();
+                crate::debug::log(&format!(
+                    "AcceptingWebView: makeKeyWindow called, isKeyWindow={}",
+                    window.isKeyWindow()
+                ));
+            }
             let loc = event.locationInWindow();
             crate::debug::log(&format!(
                 "AcceptingWebView: mouseDown at ({:.1}, {:.1})",
