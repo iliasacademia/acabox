@@ -11,7 +11,6 @@ import { ConversationsSidebar } from "./ConversationsSidebar";
 import { ConversationDetail } from "./ConversationDetail";
 import { SupportingMaterialsContent } from "./SupportingMaterialsContent";
 import type { ZoteroStatusProps } from "./SupportingMaterialsContent";
-import { generateDailyFeedbackTitle } from "./utils";
 import { useWindowSize } from "../hooks/useWindowSize";
 import { useSidebarCollapse } from "../hooks/useSidebarCollapse";
 import { useUserPreferences } from "../../../../src/renderer/contexts/UserPreferencesContext";
@@ -112,6 +111,7 @@ export function ConversationsPage({
   const [selectedConversation, setSelectedConversation] = useState<
     Conversation | DraftConversation | null
   >(null);
+  const [draftConversation, setDraftConversation] = useState<DraftConversation | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(
     null,
@@ -798,27 +798,35 @@ export function ConversationsPage({
   };
 
   const handleNewConversation = () => {
-    // Create a draft conversation object that will be created on first message
-    const draftConversation: DraftConversation = {
-      id: -1, // Temporary ID to indicate draft
+    const draft: DraftConversation = {
+      id: -1,
       agent_name: "co_scientist",
-      title: generateDailyFeedbackTitle(),
+      title: "New Conversation",
       summary: null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      created_at: '',
+      updated_at: '',
       parent_id: selectedProject?.id || null,
       parent_type: "Project",
       isDraft: true,
     };
-
-    setSelectedConversation(draftConversation);
+    setDraftConversation(draft);
+    setSelectedConversation(draft);
   };
 
   const handleConversationCreated = (newConversation: Conversation) => {
-    // Replace draft with the real conversation
+    // Switch selection to real conversation but keep draft in sidebar
+    // until the refresh completes — update draft with server timestamp so it appears now
     setSelectedConversation(newConversation);
-    // Trigger sidebar refresh
+    setDraftConversation((prev) =>
+      prev ? { ...prev, created_at: newConversation.created_at } : null
+    );
     setRefreshTrigger((prev) => prev + 1);
+  };
+
+  const handleSidebarRefreshComplete = (conversations: Conversation[]) => {
+    // Once the refreshed list is loaded, the real conversation is in the sidebar — clear draft
+    setDraftConversation(null);
+    setHasConversations(conversations.length > 0);
   };
 
   const handleConversationUpdate = () => {
@@ -1285,8 +1293,10 @@ export function ConversationsPage({
                 setSelectedView('conversation');
               }}
               onNewConversation={handleNewConversation}
+              draftConversation={draftConversation}
               refreshTrigger={refreshTrigger}
               onConversationsLoaded={handleConversationsLoaded}
+              onRefreshComplete={handleSidebarRefreshComplete}
               onConversationView={onConversationView}
               onRegisterRefresh={onRegisterConversationsRefresh}
               collapsed={collapsed}

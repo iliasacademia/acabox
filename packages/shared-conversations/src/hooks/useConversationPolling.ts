@@ -47,6 +47,7 @@ export interface UseConversationPollingResult {
   factCheckStatus: string | null;
   startPolling: (conversationId: number, projectId: number) => void;
   stopPolling: () => void;
+  resetMessages: () => void;
   refetch: () => Promise<void>;
   initializeMessages: (conversationId: number, projectId: number) => Promise<void>;
   addOptimisticMessage: (message: Message) => void;
@@ -96,6 +97,15 @@ export function useConversationPolling(
     // Note: We keep messages intact when polling stops naturally (AI response complete)
     // Messages are only cleared when conversation changes
   }, []);
+
+  const resetMessages = useCallback(() => {
+    stopPolling();
+    setMessages([]);
+    setConversation(null);
+    setError(null);
+    conversationIdRef.current = null;
+    projectIdRef.current = null;
+  }, [stopPolling]);
 
   const fetchMessages = useCallback(async () => {
     if (!conversationIdRef.current || !projectIdRef.current) return;
@@ -275,6 +285,7 @@ export function useConversationPolling(
     factCheckStatus,
     startPolling,
     stopPolling,
+    resetMessages,
     refetch,
     initializeMessages,
     addOptimisticMessage,

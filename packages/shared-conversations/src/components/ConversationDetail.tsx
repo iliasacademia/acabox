@@ -62,6 +62,7 @@ export function ConversationDetail({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isInitialLoad = useRef(true);
+  const prevConversationIdRef = useRef<number | null>(null);
   const previousMessageCount = useRef(0);
   const messageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const lastTrackedAssistantMessageId = useRef<number | null>(null);
@@ -145,7 +146,7 @@ export function ConversationDetail({
     }
   };
 
-  const { messages, conversation: polledConversation, isPolling, isLoading, error, factCheckStatus, startPolling, stopPolling, initializeMessages, addOptimisticMessage } =
+  const { messages, conversation: polledConversation, isPolling, isLoading, error, factCheckStatus, startPolling, stopPolling, resetMessages, initializeMessages, addOptimisticMessage } =
     useConversationPolling(pollingOptions);
 
   // Helper to check if conversation is a draft
@@ -155,9 +156,12 @@ export function ConversationDetail({
 
   // Load messages when conversation changes (but not for drafts)
   useEffect(() => {
+    const prevId = prevConversationIdRef.current;
+    prevConversationIdRef.current = conversation?.id ?? null;
+
     if (!conversation || isDraft(conversation)) {
-      // For drafts or no conversation, stop polling and clear messages
-      stopPolling();
+      // Clear messages and stop polling when switching to a draft or no conversation
+      resetMessages();
       isInitialLoad.current = true;
       previousMessageCount.current = 0;
       lastTrackedAssistantMessageId.current = null;
@@ -167,15 +171,23 @@ export function ConversationDetail({
       return;
     }
 
-    // Mark as initial load when conversation changes
+    // Draft → real transition: polling was already started in handleSendMessage
+    // and messages (including the optimistic user message) are already in state.
+    // Just update tracking refs — do NOT call initializeMessages (it would wipe messages).
+    if (prevId === -1) {
+      conversationViewedAt.current = new Date();
+      lastUserMessageTime.current = null;
+      return;
+    }
+
+    // Normal conversation switch: load fresh
     isInitialLoad.current = true;
     previousMessageCount.current = 0;
     lastTrackedAssistantMessageId.current = null;
     lastTrackedConversationId.current = null;
-    conversationViewedAt.current = new Date(); // Record when we started viewing this conversation
+    conversationViewedAt.current = new Date();
     lastUserMessageTime.current = null;
 
-    // Load initial messages for the selected conversation
     initializeMessages(conversation.id, projectId);
   }, [conversation?.id, projectId, initializeMessages, stopPolling]);
 
@@ -229,6 +241,13 @@ export function ConversationDetail({
       previousMessageCount.current = messages.length;
     }
   }, [messages]);
+
+  // Scroll to bottom when loading indicator appears
+  useEffect(() => {
+    if (isPolling || isSending) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [isPolling, isSending]);
 
   // Track received assistant messages
   useEffect(() => {
@@ -315,9 +334,10 @@ export function ConversationDetail({
     // Check if manuscript ID is in the first message's contexts
     const manuscriptInContext = contexts.some(ctx => ctx.target_id === primaryManuscriptId);
 
-    // Disable if manuscript ID is not in the first message's contexts
-    // (meaning the manuscript has changed since this conversation started)
-    setDisableMessageInput(!manuscriptInContext);
+    // Only disable if the message has contexts but the current manuscript isn't among them
+    // (meaning the manuscript was switched after this conversation was started).
+    // If there are no contexts, this is a free-form conversation — keep input enabled.
+    setDisableMessageInput(contexts.length > 0 && !manuscriptInContext);
 
     // Store the previous manuscript name if disabled
     if (!manuscriptInContext && contexts.length > 0) {
@@ -340,11 +360,22 @@ export function ConversationDetail({
 
     try {
       if (isDraft(conversation)) {
-        // First message: create conversation with the message
+        // Show user message immediately before the API call
+        addOptimisticMessage({
+          id: Date.now(),
+          role: 'user',
+          content,
+          data: null,
+          contexts: [],
+          created_at: new Date().toISOString(),
+        });
+
+        // Create conversation with the message
         const newConversation = await createConversation(
           content,
           conversation.agent_name,
-          projectId
+          projectId,
+          conversation.title ?? undefined
         );
 
         // Track conversation message sent
@@ -422,7 +453,8 @@ export function ConversationDetail({
         const newConversation = await createConversation(
           content,
           conversation.agent_name,
-          projectId
+          projectId,
+          conversation.title ?? undefined
         );
 
         // Track conversation message sent
@@ -656,11 +688,6 @@ export function ConversationDetail({
             <p className="conversationSummary">{conversation.summary}</p>
           )}
         </div>
-        {isPolling && (
-          <div className="pollingIndicator">
-            <span className="pollingDot"></span>
-          </div>
-        )}
       </div>
 
       {/* Selected Text (for selection reviews) */}
@@ -701,13 +728,19 @@ export function ConversationDetail({
           </div>
         )}
 
-        {currentIsDraft ? (
+        {currentIsDraft && !isSending ? (
           <div className="noMessages">
             <p>Start your conversation below</p>
           </div>
-        ) : isLoading && groupedMessages.length === 0 ? (
-          <div className="noMessages">
-            <p>Loading messages...</p>
+        ) : (isSending || isLoading || isPolling) && groupedMessages.length === 0 ? (
+          <div className="conversationMessage assistant">
+            <div className="messageContent">
+              <div className="messageLoading">
+                <span className="loadingDot"></span>
+                <span className="loadingDot"></span>
+                <span className="loadingDot"></span>
+              </div>
+            </div>
           </div>
         ) : groupedMessages.length === 0 ? (
           <div className="noMessages">
@@ -735,6 +768,7 @@ export function ConversationDetail({
                     onOpenFile={handleOpenFile}
                     isSearchComplete={hasSearchResult}
                     conversationReviewId={conversationReviewId}
+                    hideContexts={!conversationReviewId}
                     showQuestions={
                       shouldShowQuestions &&
                       lastAssistantMessage &&

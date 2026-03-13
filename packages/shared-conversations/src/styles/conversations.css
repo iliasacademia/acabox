@@ -1265,13 +1265,41 @@
     margin-bottom: 24px;
 }
 
+.sidebarSectionHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 12px 0;
+}
+
 .sidebarSectionTitle {
     font-family: var(--font-family-sans);
     font-size: 20px;
     font-weight: 600;
     line-height: 28px;
     color: var(--text-primary);
-    margin: 0 0 12px 0;
+    margin: 0;
+}
+
+.newConversationButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    flex-shrink: 0;
+}
+
+.newConversationButton:hover {
+    background: var(--background-hover, rgba(0, 0, 0, 0.06));
+    color: var(--text-primary);
 }
 
 /* Supporting Materials Card in Sidebar */
