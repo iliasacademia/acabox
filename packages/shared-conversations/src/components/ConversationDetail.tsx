@@ -60,6 +60,7 @@ export function ConversationDetail({
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<number>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const isInitialLoad = useRef(true);
   const prevConversationIdRef = useRef<number | null>(null);
@@ -248,6 +249,13 @@ export function ConversationDetail({
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [isPolling, isSending]);
+
+  // Auto-focus textarea when a draft conversation is active
+  useEffect(() => {
+    if (isDraft(conversation)) {
+      textareaRef.current?.focus();
+    }
+  }, [conversation?.id]);
 
   // Track received assistant messages
   useEffect(() => {
@@ -728,11 +736,8 @@ export function ConversationDetail({
           </div>
         )}
 
-        {currentIsDraft && !isSending ? (
-          <div className="noMessages">
-            <p>Start your conversation below</p>
-          </div>
-        ) : (isSending || isLoading || isPolling) && groupedMessages.length === 0 ? (
+        {currentIsDraft && !isSending ? null
+        : (isSending || isLoading || isPolling) && groupedMessages.length === 0 ? (
           <div className="conversationMessage assistant">
             <div className="messageContent">
               <div className="messageLoading">
@@ -829,6 +834,7 @@ export function ConversationDetail({
         <form onSubmit={handleSendMessage}>
           <div className="inputWrapper">
             <textarea
+              ref={textareaRef}
               className="messageInput"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -836,7 +842,9 @@ export function ConversationDetail({
               placeholder={
                 disableMessageInput && previousManuscriptName
                   ? `Input disabled because this conversation is based on a previous manuscript: ${previousManuscriptName}`
-                  : "Or ask anything..."
+                  : currentIsDraft
+                    ? "Ask a question about your manuscript..."
+                    : "Ask a follow-up question..."
               }
               rows={3}
               disabled={isSending || disableMessageInput}
@@ -853,7 +861,7 @@ export function ConversationDetail({
         </form>
 
         {/* Feedback Link */}
-        {!currentIsDraft && groupedMessages.length > 0 && feedbackFormUrl && (
+        {!currentIsDraft && groupedMessages.length > 0 && feedbackFormUrl && conversationReviewId && (
           <a
             href="#"
             className="feedbackLink"
