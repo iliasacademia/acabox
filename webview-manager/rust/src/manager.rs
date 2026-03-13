@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use objc2::rc::Retained;
 use objc2::MainThreadMarker;
-use crate::debug::debug_log;
-use crate::panel::KeyablePanel;
+use webview_manager::debug::debug_log;
+use webview_manager::panel::KeyablePanel;
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use crate::desired_state::{DesiredState, WebviewEntryState, WebviewFrame};
-use crate::panel::create_panel;
+use webview_manager::panel::create_panel;
 use crate::responses::Response;
-use crate::webview::{create_webview, AcceptingWebView};
+use webview_manager::webview::{create_webview, AcceptingWebView};
 
 struct WebViewEntry {
     panel: Retained<KeyablePanel>,
