@@ -15,9 +15,10 @@ interface ConversationMessageProps {
   conversationReviewId?: number; // Review ID from conversation.review_id
   showQuestions?: boolean;
   showFactCheck?: boolean; // Whether to show fact-check button
+  hideContexts?: boolean; // Hide manuscript/file context pills (e.g. for free-form conversations)
 }
 
-export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, onOpenFile, isSearchComplete, conversationReviewId, showQuestions, showFactCheck }: ConversationMessageProps) {
+export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFactCheckClick, onOpenFile, isSearchComplete, conversationReviewId, showQuestions, showFactCheck, hideContexts }: ConversationMessageProps) {
   const isTool = message.role === 'tool';
 
   // Tool messages are handled by ToolMessageAccordion, skip rendering here
@@ -182,8 +183,8 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onFa
         )}
       </div>
 
-      {/* Show contexts if any */}
-      {message.contexts && message.contexts.length > 0 && (
+      {/* Show contexts if any (hidden for free-form conversations without a review) */}
+      {!hideContexts && message.contexts && message.contexts.length > 0 && (
         <div className="messageContexts">
           {message.contexts.map((context) => (
             <div key={context.id} className="messageContext">

@@ -93,7 +93,8 @@ export function useConversationsApi() {
     createConversation: async (
       content: string,
       agentName: string,
-      projectId: number
+      projectId: number,
+      title?: string
     ): Promise<ConversationDetail> => {
       const response = await client.invoke<{ conversation: ConversationDetail }>({
         method: 'POST',
@@ -103,6 +104,7 @@ export function useConversationsApi() {
           agent_name: agentName,
           parent_id: projectId,
           parent_type: 'Project',
+          ...(title ? { title } : {}),
         },
       });
       return response.conversation;

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Conversation } from '../types/conversation';
+import { Conversation, DraftConversation } from '../types/conversation';
 import { useConversationsApi } from '../api/useConversationsApi';
 
 interface ConversationsSidebarProps {
@@ -27,13 +27,17 @@ interface ConversationsSidebarProps {
   onSelectSupportingMaterials?: () => void;
   /** Whether a review is currently in progress */
   isReviewInProgress?: boolean;
+  /** Optional draft conversation to show at the top of the list */
+  draftConversation?: DraftConversation | null;
+  /** Called after a refresh-triggered load completes */
+  onRefreshComplete?: (conversations: Conversation[]) => void;
 }
 
 export function ConversationsSidebar({
   projectId,
   selectedConversationId,
   onSelectConversation,
-  // onNewConversation,
+  onNewConversation,
   refreshTrigger,
   onConversationsLoaded,
   onConversationView,
@@ -45,6 +49,8 @@ export function ConversationsSidebar({
   selectedView = 'conversation',
   onSelectSupportingMaterials,
   isReviewInProgress = false,
+  draftConversation,
+  onRefreshComplete,
 }: ConversationsSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -54,7 +60,7 @@ export function ConversationsSidebar({
   const { listConversations } = useConversationsApi();
 
   // Load all conversations by fetching in batches if needed
-  const loadConversations = async (isInitialLoad: boolean = false) => {
+  const loadConversations = async (isInitialLoad: boolean = false): Promise<Conversation[]> => {
     setIsLoading(true);
     setError(null);
 
@@ -82,10 +88,13 @@ export function ConversationsSidebar({
       if (onConversationsLoaded && allConversations.length > 0 && isInitialLoad) {
         onConversationsLoaded(allConversations);
       }
+
+      return allConversations;
     } catch (err: unknown) {
       const error = err as { message?: string };
       console.error('Failed to load conversations:', err);
       setError(error.message || 'Failed to load conversations');
+      return [];
     } finally {
       setIsLoading(false);
     }
@@ -116,8 +125,11 @@ export function ConversationsSidebar({
   // Refresh conversations when refreshTrigger changes
   useEffect(() => {
     if (refreshTrigger !== undefined && refreshTrigger > 0) {
-      setConversations([]);
-      loadConversations(true); // Treat as initial load to auto-select new conversation
+      loadConversations(false).then((conversations) => {
+        if (onRefreshComplete && conversations) {
+          onRefreshComplete(conversations);
+        }
+      });
     }
   }, [refreshTrigger]);
 
@@ -215,7 +227,19 @@ export function ConversationsSidebar({
       {/* Manuscript Feedback Section */}
       {!collapsed && (
         <div className="sidebarSection">
-          <h3 className="sidebarSectionTitle">Manuscript feedback</h3>
+          <div className="sidebarSectionHeader">
+            <h3 className="sidebarSectionTitle">Feedback & Conversations</h3>
+            <button
+              className="newConversationButton"
+              onClick={onNewConversation}
+              aria-label="New conversation"
+              title="New conversation"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8 2V14M2 8H14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
+          </div>
         </div>
       )}
 
@@ -230,12 +254,27 @@ export function ConversationsSidebar({
           </div>
         )}
 
+        {/* Draft conversation always appears at top */}
+        {draftConversation && (
+          <div
+            className={`conversationItem ${selectedConversationId === -1 ? 'selected' : ''}`}
+            onClick={() => onSelectConversation(draftConversation as Conversation)}
+          >
+            <h4 className="conversationItemTitle">{draftConversation.title || 'New Conversation'}</h4>
+            {draftConversation.created_at && (
+              <span className="conversationItemDate">
+                {formatDateTime(draftConversation.created_at)}
+              </span>
+            )}
+          </div>
+        )}
+
         {isLoading && conversations.length === 0 ? (
           <div className="sidebarLoading">
             <div className="loadingSpinner"></div>
             <p>Loading feedback...</p>
           </div>
-        ) : filteredConversations.length === 0 ? (
+        ) : filteredConversations.length === 0 && !draftConversation ? (
           <div className="sidebarEmpty">
             <div className="emptyIcon">💬</div>
             <h3>
