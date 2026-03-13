@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Conversation, DraftConversation } from '../types/conversation';
 import { useConversationsApi } from '../api/useConversationsApi';
 
@@ -54,42 +54,31 @@ export function ConversationsSidebar({
 }: ConversationsSidebarProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, _setSearchQuery] = useState('');
+  const listRef = useRef<HTMLDivElement>(null);
 
   const { listConversations } = useConversationsApi();
 
-  // Load all conversations by fetching in batches if needed
-  const loadConversations = async (isInitialLoad: boolean = false): Promise<Conversation[]> => {
+  // Fetch first page — renders immediately
+  const loadConversations = useCallback(async (isInitialLoad: boolean = false): Promise<Conversation[]> => {
     setIsLoading(true);
     setError(null);
 
     try {
-      let allConversations: Conversation[] = [];
-      let offset = 0;
-      let hasMore = true;
-      const batchSize = 100; // Fetch 100 at a time
-      // Keep fetching until we have all conversations
-      while (hasMore) {
-        const response = await listConversations(offset, projectId, batchSize);
-        allConversations = [...allConversations, ...response.conversations];
-        hasMore = response.has_more;
-        offset += response.conversations.length;
+      const response = await listConversations(0, projectId);
+      setConversations(response.conversations);
+      setHasMore(response.has_more);
+      setOffset(response.conversations.length);
 
-        // Safety check to prevent infinite loops
-        if (offset > 10000) {
-          console.warn('[ConversationsSidebar] Safety limit reached, stopping fetch');
-          break;
-        }
-      }
-      setConversations(allConversations);
-
-      // Only notify parent on initial load (not on polling refreshes)
-      if (onConversationsLoaded && allConversations.length > 0 && isInitialLoad) {
-        onConversationsLoaded(allConversations);
+      if (onConversationsLoaded && response.conversations.length > 0 && isInitialLoad) {
+        onConversationsLoaded(response.conversations);
       }
 
-      return allConversations;
+      return response.conversations;
     } catch (err: unknown) {
       const error = err as { message?: string };
       console.error('Failed to load conversations:', err);
@@ -98,18 +87,52 @@ export function ConversationsSidebar({
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [projectId, listConversations, onConversationsLoaded]);
+
+  // Fetch next page and append
+  const loadMore = useCallback(async () => {
+    if (isLoadingMore || !hasMore) return;
+    setIsLoadingMore(true);
+
+    try {
+      const response = await listConversations(offset, projectId);
+      setConversations((prev) => [...prev, ...response.conversations]);
+      setHasMore(response.has_more);
+      setOffset((prev) => prev + response.conversations.length);
+    } catch (err: unknown) {
+      console.error('Failed to load more conversations:', err);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [isLoadingMore, hasMore, offset, projectId, listConversations]);
+
+  // Infinite scroll — load more when near bottom of list
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 60) {
+        loadMore();
+      }
+    };
+
+    el.addEventListener('scroll', handleScroll);
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, [loadMore]);
 
   // Refresh conversations (called by event-driven updates)
-  const refreshConversations = async () => {
+  const refreshConversations = useCallback(async () => {
     console.log('[ConversationsSidebar] Event-driven refresh triggered');
     await loadConversations(false);
-  };
+  }, [loadConversations]);
 
-  // Load conversations on mount and when projectId changes
+  // Load first page on mount and when projectId changes
   useEffect(() => {
     setConversations([]);
-    loadConversations(true); // Initial load
+    setOffset(0);
+    setHasMore(false);
+    loadConversations(true);
   }, [projectId]);
 
   // Register event-driven refresh callback
@@ -120,9 +143,9 @@ export function ConversationsSidebar({
     const cleanup = onRegisterRefresh(refreshConversations);
 
     return cleanup;
-  }, [onRegisterRefresh]);
+  }, [onRegisterRefresh, refreshConversations]);
 
-  // Refresh conversations when refreshTrigger changes
+  // Refresh when refreshTrigger changes
   useEffect(() => {
     if (refreshTrigger !== undefined && refreshTrigger > 0) {
       loadConversations(false).then((conversations) => {
@@ -245,7 +268,7 @@ export function ConversationsSidebar({
 
       {/* Conversations List */}
       {!collapsed && (
-        <div className="conversationsList">
+        <div className="conversationsList" ref={listRef}>
         {error && (
           <div className="sidebarError">
             <span className="errorIcon">⚠️</span>
@@ -315,6 +338,11 @@ export function ConversationsSidebar({
                 )}
               </div>
             ))}
+            {isLoadingMore && (
+              <div className="sidebarLoading">
+                <div className="loadingSpinner"></div>
+              </div>
+            )}
           </>
         )}
         </div>
