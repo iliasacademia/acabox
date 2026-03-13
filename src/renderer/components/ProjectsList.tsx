@@ -45,7 +45,7 @@ const ProjectsList: React.FC<ProjectsListProps> = ({
             {FEATURES.ONBOARDING_V2_ENABLED ? 'New file to review' : 'Create new project'}
           </button>
           {FEATURES.ONBOARDING_V2_ENABLED && (
-            <span className="supportedFileTypeLabel">Supported file type: Docx</span>
+            <span className="supportedFileTypeLabel">Supported file types: Docx, Md</span>
           )}
         </div>
       </div>
@@ -58,7 +58,7 @@ const ProjectsList: React.FC<ProjectsListProps> = ({
           <div className="projectsEmpty">
             <p className="projectsEmptyText">
               {FEATURES.ONBOARDING_V2_ENABLED
-                ? 'No files yet. Select a .docx file to get started!'
+                ? 'No files yet. Select a .docx or .md file to get started!'
                 : 'No projects yet. Create your first project to get started!'}
             </p>
           </div>
