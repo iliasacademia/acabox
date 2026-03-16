@@ -195,7 +195,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     // 1. Open native file picker filtered to .docx
     const filePath = await window.electronAPI.invoke(
       IPC_CHANNELS.SELECT_FILE,
-      { extensions: ['docx'] }
+      { extensions: ['docx', 'md'] }
     );
 
     if (!filePath) return; // User cancelled
