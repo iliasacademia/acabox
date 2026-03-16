@@ -1,13 +1,10 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { IPC_CHANNELS } from '../../shared/types';
-import { getZoteroStatus, syncZotero, getZoteroAuthorizeUrl, ZoteroStatus } from '../services/zoteroApi';
 import { createProject, Project, extractErrorMessage } from '../services/projectsApi';
 import {
   trackGettingStartedView,
   trackGettingStartedLoginClick,
   trackGettingStartedPermissionGranted,
-  trackGettingStartedZoteroSynced,
-  trackGettingStartedZoteroSkipped,
   trackGettingStartedFilePickerOpen,
   trackGettingStartedProjectCreated,
 } from '../utils/analytics';
@@ -23,9 +20,6 @@ interface GettingStartedProps {
   onComplete: (project: Project) => void;
 }
 
-const POLL_INTERVAL_MS = 3000;
-const MAX_POLL_DURATION_MS = 5 * 60 * 1000;
-
 const GettingStarted: React.FC<GettingStartedProps> = ({
   isLoggedIn,
   hasPermission,
@@ -34,95 +28,19 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
   onRestartApp,
   onComplete,
 }) => {
-  const [zoteroStatus, setZoteroStatus] = useState<ZoteroStatus | null>(null);
-  const [isPollingZotero, setIsPollingZotero] = useState(false);
-  const [isSyncingZotero, setIsSyncingZotero] = useState(false);
-  const [isLoadingZotero, setIsLoadingZotero] = useState(false);
-  const [zoteroSkipped, setZoteroSkipped] = useState(false);
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [creationError, setCreationError] = useState<string | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pollStartRef = useRef<number>(0);
+
+  const permissionTrackedRef = useRef(hasPermission === true);
 
   useEffect(() => { trackGettingStartedView(); }, []);
 
-  const permissionTrackedRef = useRef(hasPermission === true);
   useEffect(() => {
     if (hasPermission === true && !permissionTrackedRef.current) {
       permissionTrackedRef.current = true;
       trackGettingStartedPermissionGranted();
     }
   }, [hasPermission]);
-
-  useEffect(() => {
-    if (isLoggedIn) {
-      setIsLoadingZotero(true);
-      getZoteroStatus().then(setZoteroStatus).finally(() => setIsLoadingZotero(false));
-    }
-    return () => {
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-    };
-  }, [isLoggedIn]);
-
-  const stopPolling = useCallback(() => {
-    setIsPollingZotero(false);
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current);
-      pollTimerRef.current = null;
-    }
-  }, []);
-
-  const startPolling = useCallback(() => {
-    setIsPollingZotero(true);
-    pollStartRef.current = Date.now();
-
-    const poll = async () => {
-      if (Date.now() - pollStartRef.current > MAX_POLL_DURATION_MS) {
-        stopPolling();
-        return;
-      }
-      const status = await getZoteroStatus();
-      setZoteroStatus(status);
-      if (status.connected) {
-        stopPolling();
-        handleSyncZotero(status);
-        return;
-      }
-      pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
-    };
-
-    pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
-  }, [stopPolling]);
-
-  const handleConnectZotero = () => {
-    const url = getZoteroAuthorizeUrl();
-    window.electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
-    startPolling();
-  };
-
-  const handleSyncZotero = async (currentStatus?: ZoteroStatus) => {
-    const status = currentStatus ?? zoteroStatus;
-    if (!status) return;
-    setIsSyncingZotero(true);
-    const previousSyncedAt = status.last_synced_at;
-    try {
-      await syncZotero();
-      const pollStart = Date.now();
-      const pollForSync = async () => {
-        const status = await getZoteroStatus();
-        setZoteroStatus(status);
-        if (status.last_synced_at !== previousSyncedAt || Date.now() - pollStart > MAX_POLL_DURATION_MS) {
-          setIsSyncingZotero(false);
-          if (status.last_synced_at !== previousSyncedAt) trackGettingStartedZoteroSynced();
-          return;
-        }
-        setTimeout(pollForSync, POLL_INTERVAL_MS);
-      };
-      setTimeout(pollForSync, POLL_INTERVAL_MS);
-    } catch {
-      setIsSyncingZotero(false);
-    }
-  };
 
   const handleSelectManuscript = async () => {
     const filePath = await window.electronAPI.invoke(
@@ -153,9 +71,6 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
     }
   };
 
-  const isZoteroConnected = zoteroStatus?.connected ?? false;
-  const isZoteroSynced = isZoteroConnected && zoteroStatus?.last_synced_at != null;
-  const isZoteroDone = isZoteroSynced || zoteroSkipped;
   const canProceed = isLoggedIn && hasPermission === true;
 
   return (
@@ -227,71 +142,10 @@ const GettingStarted: React.FC<GettingStartedProps> = ({
 
           <div className="gettingStarted__connector" />
 
-          {/* Step 3: Zotero (optional) */}
-          <div className={`gsStep gsStep--optional ${isZoteroDone ? 'gsStep--done' : !canProceed ? 'gsStep--disabled' : 'gsStep--active'}`}>
-            <div className="gsStep__indicator">
-              {isZoteroDone ? (
-                <span className="gsStep__check">✓</span>
-              ) : (
-                <span className="gsStep__num">3</span>
-              )}
-            </div>
-            <div className="gsStep__body">
-              <div className="gsStep__titleRow">
-                <h3 className="gsStep__title">Connect Zotero</h3>
-                <span className="gsStep__badge">Optional</span>
-              </div>
-              <p className="gsStep__desc">
-                {zoteroSkipped
-                  ? 'Skipped. You can connect Zotero later in Settings.'
-                  : isZoteroSynced
-                    ? `Library synced successfully as ${zoteroStatus?.zotero_username || 'user'}.`
-                    : isZoteroConnected
-                      ? `Connected as ${zoteroStatus?.zotero_username || 'user'}. Sync your library to continue.`
-                      : isPollingZotero
-                        ? 'Waiting for Zotero authorization...'
-                        : isLoadingZotero
-                          ? 'Checking Zotero connection...'
-                          : !canProceed
-                            ? 'Complete steps 1 and 2 first to connect Zotero.'
-                            : 'Sync your Zotero library to use references in your manuscripts.'}
-              </p>
-              {!isZoteroDone && !isLoadingZotero && canProceed && (
-                <div className="gsStep__actions">
-                  {!isZoteroConnected ? (
-                    <button
-                      className="gsStep__btn gsStep__btn--primary"
-                      onClick={handleConnectZotero}
-                      disabled={isPollingZotero}
-                    >
-                      {isPollingZotero ? 'Waiting...' : 'Connect Zotero'}
-                    </button>
-                  ) : (
-                    <button
-                      className="gsStep__btn gsStep__btn--primary"
-                      onClick={() => handleSyncZotero()}
-                      disabled={isSyncingZotero}
-                    >
-                      {isSyncingZotero ? 'Syncing...' : 'Sync Library'}
-                    </button>
-                  )}
-                  <button
-                    className="gsStep__btn gsStep__btn--ghost"
-                    onClick={() => { setZoteroSkipped(true); trackGettingStartedZoteroSkipped(); }}
-                  >
-                    Skip for now
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="gettingStarted__connector" />
-
-          {/* Step 4: CTA */}
+          {/* Step 3: CTA */}
           <div className={`gsStep gsStep--cta ${!canProceed ? 'gsStep--disabled' : 'gsStep--active'}`}>
             <div className="gsStep__indicator">
-              <span className="gsStep__num">4</span>
+              <span className="gsStep__num">3</span>
             </div>
             <div className="gsStep__body">
               <h3 className="gsStep__title">Review your first manuscript in Word</h3>
