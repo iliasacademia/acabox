@@ -277,53 +277,9 @@ fn get_text_areas(
     Ok((text_areas, best_count))
 }
 
-/// Run an AppleScript string inline via NSAppleScript (no subprocess).
+/// Run an AppleScript — delegates to shared module.
 fn run_applescript(source: &str) -> Result<String, String> {
-    use objc2::runtime::AnyObject;
-
-    unsafe {
-        let cls = objc2::class!(NSAppleScript);
-        let source_ns = NSString::from_str(source);
-        let script: *mut AnyObject = objc2::msg_send![cls, alloc];
-        let script: *mut AnyObject = objc2::msg_send![script, initWithSource: &*source_ns];
-        if script.is_null() {
-            return Err("Failed to create NSAppleScript".to_string());
-        }
-
-        let mut error: *mut AnyObject = std::ptr::null_mut();
-        let result: *mut AnyObject = objc2::msg_send![
-            script,
-            executeAndReturnError: &mut error
-        ];
-
-        let _: () = objc2::msg_send![script, release];
-
-        if !error.is_null() {
-            let desc: *mut AnyObject = objc2::msg_send![error, description];
-            if !desc.is_null() {
-                let utf8: *const u8 = objc2::msg_send![desc, UTF8String];
-                if !utf8.is_null() {
-                    let s = std::ffi::CStr::from_ptr(utf8 as *const _).to_string_lossy().into_owned();
-                    return Err(s);
-                }
-            }
-            return Err("AppleScript execution failed".to_string());
-        }
-
-        if result.is_null() {
-            return Ok(String::new());
-        }
-
-        let string_val: *mut AnyObject = objc2::msg_send![result, stringValue];
-        if string_val.is_null() {
-            return Ok(String::new());
-        }
-        let utf8: *const u8 = objc2::msg_send![string_val, UTF8String];
-        if utf8.is_null() {
-            return Ok(String::new());
-        }
-        Ok(std::ffi::CStr::from_ptr(utf8 as *const _).to_string_lossy().into_owned())
-    }
+    window_monitor_lib::applescript::run_applescript(source)
 }
 
 /// Ensure track changes (track revisions) is enabled on the active Word document.
@@ -661,22 +617,13 @@ fn handle_read_document(action: &Action) -> Value {
         return json!({"success": false, "action": "read_document", "error": e});
     }
 
-    let pid = match get_pid_for_bundle(&action.bundle_id) {
-        Some(pid) => pid,
-        None => return json!({"success": false, "action": "read_document", "error": "Could not find PID for app"}),
+    let full_text = match window_monitor_lib::applescript::get_word_document_text() {
+        Ok(t) => t,
+        Err(e) => return json!({"success": false, "action": "read_document", "error": format!("AppleScript failed: {}", e)}),
     };
 
-    let (text_areas, total_doc_chars) = match get_text_areas(pid, action.window_id) {
-        Ok(r) => r,
-        Err(e) => return json!({"success": false, "action": "read_document", "error": e}),
-    };
-
-    let full_text = match accessibility::get_string_for_range(&text_areas[0], 0, total_doc_chars) {
-        Some(t) => t,
-        None => return json!({"success": false, "action": "read_document", "error": "Failed to read document text"}),
-    };
-
-    json!({"success": true, "action": "read_document", "text": full_text, "length": total_doc_chars})
+    let char_count = full_text.chars().count() as i64;
+    json!({"success": true, "action": "read_document", "text": full_text, "length": char_count})
 }
 
 fn handle_search_all(action: &Action) -> Value {

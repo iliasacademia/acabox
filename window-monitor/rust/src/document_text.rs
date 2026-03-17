@@ -1,4 +1,5 @@
 use crate::accessibility::{self, SafeAXUIElement};
+use crate::applescript;
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -23,10 +24,11 @@ pub struct DocumentTextTracker {
     dirty_since: Option<Instant>,
     debounce_duration: Duration,
     temp_dir: PathBuf,
+    bundle_id: String,
 }
 
 impl DocumentTextTracker {
-    pub fn new(temp_dir: PathBuf) -> Self {
+    pub fn new(temp_dir: PathBuf, bundle_id: String) -> Self {
         Self {
             last_char_count: None,
             last_content_hash: None,
@@ -34,6 +36,7 @@ impl DocumentTextTracker {
             dirty_since: None,
             debounce_duration: Duration::from_secs(2),
             temp_dir,
+            bundle_id,
         }
     }
 
@@ -175,16 +178,33 @@ impl DocumentTextTracker {
         window_id: u32,
         char_count: i64,
     ) -> Option<DocumentTextChange> {
-        let texts: Vec<String> = text_areas
-            .iter()
-            .filter_map(|ta| accessibility::get_text_value(ta))
-            .collect();
-
-        if texts.is_empty() {
-            return None;
-        }
-
-        let text = texts.join("\n");
+        // For Microsoft Word, use AppleScript to get full document text
+        // (the AX API truncates at ~47KB for large documents).
+        let text = if self.bundle_id == "com.microsoft.Word" {
+            match applescript::get_word_document_text() {
+                Ok(t) if !t.is_empty() => t,
+                _ => {
+                    // Fall back to AX API if AppleScript fails
+                    let texts: Vec<String> = text_areas
+                        .iter()
+                        .filter_map(|ta| accessibility::get_text_value(ta))
+                        .collect();
+                    if texts.is_empty() {
+                        return None;
+                    }
+                    texts.join("\n")
+                }
+            }
+        } else {
+            let texts: Vec<String> = text_areas
+                .iter()
+                .filter_map(|ta| accessibility::get_text_value(ta))
+                .collect();
+            if texts.is_empty() {
+                return None;
+            }
+            texts.join("\n")
+        };
 
         if text.len() > MAX_TEXT_BYTES {
             eprintln!(
