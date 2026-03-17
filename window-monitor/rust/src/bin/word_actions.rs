@@ -2,32 +2,10 @@ use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 use objc2_foundation::NSString;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::ffi::c_void;
 use std::io;
 use std::thread;
 use std::time::Duration;
 use window_monitor_lib::accessibility;
-
-// CGEvent FFI
-type CGEventRef = *mut c_void;
-
-#[allow(non_upper_case_globals)]
-const kCGHIDEventTap: u32 = 0;
-
-extern "C" {
-    fn CGEventCreateKeyboardEvent(
-        source: *const c_void,
-        virtual_key: u16,
-        key_down: bool,
-    ) -> CGEventRef;
-    fn CGEventKeyboardSetUnicodeString(
-        event: CGEventRef,
-        string_length: u64,
-        unicode_string: *const u16,
-    );
-    fn CGEventPost(tap: u32, event: CGEventRef);
-    fn CFRelease(cf: *const c_void);
-}
 
 fn default_bundle_id() -> String {
     "com.microsoft.Word".to_string()
@@ -40,51 +18,8 @@ struct Action {
     #[serde(default = "default_bundle_id")]
     bundle_id: String,
     text: Option<String>,
-    color: Option<String>,
     position: Option<i64>,
     length: Option<i64>,
-    find_text: Option<String>,
-    replace_text: Option<String>,
-    occurrence_index: Option<i64>,
-}
-
-fn parse_hex_color(s: &str) -> Result<(u8, u8, u8), String> {
-    let s = s.strip_prefix('#').unwrap_or(s);
-    if s.len() != 6 {
-        return Err(format!("Expected 6 hex digits, got '{}'", s));
-    }
-    let r = u8::from_str_radix(&s[0..2], 16).map_err(|e| e.to_string())?;
-    let g = u8::from_str_radix(&s[2..4], 16).map_err(|e| e.to_string())?;
-    let b = u8::from_str_radix(&s[4..6], 16).map_err(|e| e.to_string())?;
-    Ok((r, g, b))
-}
-
-/// Type a string character by character with a typewriter effect.
-fn type_text(text: &str) {
-    for ch in text.chars() {
-        let utf16: Vec<u16> = ch.encode_utf16(&mut [0u16; 2]).to_vec();
-
-        unsafe {
-            let key_down = CGEventCreateKeyboardEvent(std::ptr::null(), 0, true);
-            let key_up = CGEventCreateKeyboardEvent(std::ptr::null(), 0, false);
-
-            if key_down.is_null() || key_up.is_null() {
-                eprintln!("Failed to create CGEvent");
-                return;
-            }
-
-            CGEventKeyboardSetUnicodeString(key_down, utf16.len() as u64, utf16.as_ptr());
-            CGEventKeyboardSetUnicodeString(key_up, utf16.len() as u64, utf16.as_ptr());
-
-            CGEventPost(kCGHIDEventTap, key_down);
-            CGEventPost(kCGHIDEventTap, key_up);
-
-            CFRelease(key_down as *const c_void);
-            CFRelease(key_up as *const c_void);
-        }
-
-        thread::sleep(Duration::from_millis(30));
-    }
 }
 
 fn activate_app(bundle_id: &str) -> Result<(), String> {
@@ -277,25 +212,6 @@ fn get_text_areas(
     Ok((text_areas, best_count))
 }
 
-/// Run an AppleScript — delegates to shared module.
-fn run_applescript(source: &str) -> Result<String, String> {
-    window_monitor_lib::applescript::run_applescript(source)
-}
-
-/// Ensure track changes (track revisions) is enabled on the active Word document.
-/// This should be called before any document mutation so edits appear as tracked revisions.
-fn ensure_track_changes() -> Result<(), String> {
-    let state = run_applescript(
-        "tell application \"Microsoft Word\" to get track revisions of active document",
-    )?;
-    if state.trim().to_lowercase() != "true" {
-        run_applescript(
-            "tell application \"Microsoft Word\" to set track revisions of active document to true",
-        )?;
-    }
-    Ok(())
-}
-
 fn handle_scroll(action: &Action) -> Value {
     let position = match action.position {
         Some(p) => p,
@@ -412,206 +328,6 @@ fn handle_set_cursor(action: &Action) -> Value {
     json!({"success": true, "action": "set_cursor"})
 }
 
-/// Insert text at the current cursor position by typing it via CGEvents,
-/// then optionally color it using AppleScript.
-fn handle_insert_text(action: &Action) -> Value {
-    let text = match &action.text {
-        Some(t) => t,
-        None => return json!({"success": false, "action": "insert_text", "error": "Missing 'text' field"}),
-    };
-
-    if let Err(e) = ensure_track_changes() {
-        return json!({"success": false, "action": "insert_text", "error": format!("Failed to enable track changes: {}", e)});
-    }
-
-    if let Err(e) = activate_app(&action.bundle_id) {
-        return json!({"success": false, "action": "insert_text", "error": e});
-    }
-
-    // If position provided, set cursor there first
-    if let Some(position) = action.position {
-        let pid = match get_pid_for_bundle(&action.bundle_id) {
-            Some(pid) => pid,
-            None => return json!({"success": false, "action": "insert_text", "error": "Could not find PID for app"}),
-        };
-        let (text_areas, _) = match get_text_areas(pid, action.window_id) {
-            Ok(r) => r,
-            Err(e) => return json!({"success": false, "action": "insert_text", "error": e}),
-        };
-        accessibility::set_selected_text_range(&text_areas[0], position, 0);
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    // Remember cursor position before typing (for coloring the typed text after)
-    let pre_position = if action.color.is_some() {
-        let pid = get_pid_for_bundle(&action.bundle_id);
-        pid.and_then(|pid| {
-            let (text_areas, total_doc_chars) = get_text_areas(pid, action.window_id).ok()?;
-            let sel = accessibility::get_selected_text_range(&text_areas[0])?;
-            if sel.location < total_doc_chars { Some(sel.location) } else { None }
-        })
-    } else {
-        None
-    };
-
-    // Type the text
-    type_text(text);
-
-    // If color specified, wait for Word to process the keystrokes, then color the typed text
-    if let Some(color_str) = &action.color {
-        let (r, g, b) = match parse_hex_color(color_str) {
-            Ok(c) => c,
-            Err(e) => return json!({"success": false, "action": "insert_text", "error": format!("Invalid color: {}", e)}),
-        };
-
-        // Wait for keystrokes to be processed
-        thread::sleep(Duration::from_millis(200));
-
-        // Select the just-typed text
-        let typed_len = text.chars().count() as i64;
-        if let Some(start_pos) = pre_position {
-            let pid = match get_pid_for_bundle(&action.bundle_id) {
-                Some(pid) => pid,
-                None => return json!({"success": true, "action": "insert_text"}),
-            };
-            if let Ok((text_areas, _)) = get_text_areas(pid, action.window_id) {
-                accessibility::set_selected_text_range(&text_areas[0], start_pos, typed_len);
-                thread::sleep(Duration::from_millis(50));
-            }
-        }
-
-        // Color it
-        let r16 = r as u32 * 257;
-        let g16 = g as u32 * 257;
-        let b16 = b as u32 * 257;
-        let script = format!(
-            "tell application \"Microsoft Word\" to set color of font object of selection to {{{}, {}, {}}}",
-            r16, g16, b16
-        );
-        let _ = run_applescript(&script);
-
-        // Move cursor to end of inserted text
-        if let Some(start_pos) = pre_position {
-            let pid = get_pid_for_bundle(&action.bundle_id);
-            if let Some(pid) = pid {
-                if let Ok((text_areas, _)) = get_text_areas(pid, action.window_id) {
-                    accessibility::set_selected_text_range(&text_areas[0], start_pos + typed_len, 0);
-                }
-            }
-        }
-    }
-
-    json!({"success": true, "action": "insert_text"})
-}
-
-/// Delete text character by character with a reverse typewriter effect.
-/// Positions cursor at position + length, then sends backspace for each character.
-fn handle_delete_text(action: &Action) -> Value {
-    let position = match action.position {
-        Some(p) => p,
-        None => return json!({"success": false, "action": "delete_text", "error": "Missing 'position' field"}),
-    };
-
-    if let Err(e) = ensure_track_changes() {
-        return json!({"success": false, "action": "delete_text", "error": format!("Failed to enable track changes: {}", e)});
-    }
-
-    let length = match action.length {
-        Some(l) if l > 0 => l,
-        _ => return json!({"success": false, "action": "delete_text", "error": "Missing or invalid 'length' field (must be > 0)"}),
-    };
-
-    let pid = match get_pid_for_bundle(&action.bundle_id) {
-        Some(pid) => pid,
-        None => return json!({"success": false, "action": "delete_text", "error": "Could not find PID for app"}),
-    };
-
-    let (text_areas, _) = match get_text_areas(pid, action.window_id) {
-        Ok(r) => r,
-        Err(e) => return json!({"success": false, "action": "delete_text", "error": e}),
-    };
-
-    if let Err(e) = activate_app(&action.bundle_id) {
-        return json!({"success": false, "action": "delete_text", "error": e});
-    }
-
-    // Place cursor at end of the range to delete
-    accessibility::set_selected_text_range(&text_areas[0], position + length, 0);
-    thread::sleep(Duration::from_millis(50));
-
-    // Delete character by character using backspace (keycode 51)
-    for _ in 0..length {
-        unsafe {
-            let key_down = CGEventCreateKeyboardEvent(std::ptr::null(), 51, true);
-            let key_up = CGEventCreateKeyboardEvent(std::ptr::null(), 51, false);
-
-            if key_down.is_null() || key_up.is_null() {
-                return json!({"success": false, "action": "delete_text", "error": "Failed to create CGEvent"});
-            }
-
-            CGEventPost(kCGHIDEventTap, key_down);
-            CGEventPost(kCGHIDEventTap, key_up);
-
-            CFRelease(key_down as *const c_void);
-            CFRelease(key_up as *const c_void);
-        }
-
-        thread::sleep(Duration::from_millis(30));
-    }
-
-    json!({"success": true, "action": "delete_text"})
-}
-
-fn handle_set_color(action: &Action) -> Value {
-    let color_str = match &action.color {
-        Some(c) => c,
-        None => return json!({"success": false, "action": "set_color", "error": "Missing 'color' field"}),
-    };
-
-    if let Err(e) = ensure_track_changes() {
-        return json!({"success": false, "action": "set_color", "error": format!("Failed to enable track changes: {}", e)});
-    }
-
-    let (r, g, b) = match parse_hex_color(color_str) {
-        Ok(c) => c,
-        Err(e) => return json!({"success": false, "action": "set_color", "error": format!("Invalid color: {}", e)}),
-    };
-
-    if let Err(e) = activate_app(&action.bundle_id) {
-        return json!({"success": false, "action": "set_color", "error": e});
-    }
-
-    // If position/length provided, select the range first
-    if let Some(position) = action.position {
-        let length = action.length.unwrap_or(0);
-        let pid = match get_pid_for_bundle(&action.bundle_id) {
-            Some(pid) => pid,
-            None => return json!({"success": false, "action": "set_color", "error": "Could not find PID for app"}),
-        };
-        let (text_areas, _) = match get_text_areas(pid, action.window_id) {
-            Ok(r) => r,
-            Err(e) => return json!({"success": false, "action": "set_color", "error": e}),
-        };
-        if !accessibility::set_selected_text_range(&text_areas[0], position, length) {
-            return json!({"success": false, "action": "set_color", "error": "Failed to set text selection"});
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    let r16 = r as u32 * 257;
-    let g16 = g as u32 * 257;
-    let b16 = b as u32 * 257;
-    let script = format!(
-        "tell application \"Microsoft Word\" to set color of font object of selection to {{{}, {}, {}}}",
-        r16, g16, b16
-    );
-
-    match run_applescript(&script) {
-        Ok(_) => json!({"success": true, "action": "set_color"}),
-        Err(e) => json!({"success": false, "action": "set_color", "error": e}),
-    }
-}
-
 fn handle_read_document(action: &Action) -> Value {
     if let Err(e) = activate_and_raise_window(action) {
         return json!({"success": false, "action": "read_document", "error": e});
@@ -712,120 +428,11 @@ fn handle_search_all(action: &Action) -> Value {
     json!({"success": true, "action": "search_all", "matches": matches, "total_matches": matches.len()})
 }
 
-fn handle_replace_text(action: &Action) -> Value {
-    let find_text = match &action.find_text {
-        Some(t) => t.clone(),
-        None => return json!({"success": false, "action": "replace_text", "error": "Missing 'find_text' field"}),
-    };
-    let replace_text = match &action.replace_text {
-        Some(t) => t.clone(),
-        None => return json!({"success": false, "action": "replace_text", "error": "Missing 'replace_text' field"}),
-    };
-
-    if let Err(e) = ensure_track_changes() {
-        return json!({"success": false, "action": "replace_text", "error": format!("Failed to enable track changes: {}", e)});
-    }
-
-    let occurrence_index = action.occurrence_index.unwrap_or(0);
-
-    // First, search for all occurrences
-    let search_action = Action {
-        action: "search_all".to_string(),
-        window_id: action.window_id,
-        bundle_id: action.bundle_id.clone(),
-        text: Some(find_text.clone()),
-        color: None,
-        position: None,
-        length: None,
-        find_text: None,
-        replace_text: None,
-        occurrence_index: None,
-    };
-    let search_result = handle_search_all(&search_action);
-
-    if search_result["success"] != true {
-        return json!({"success": false, "action": "replace_text", "error": search_result["error"]});
-    }
-
-    let matches = match search_result["matches"].as_array() {
-        Some(m) => m.clone(),
-        None => return json!({"success": false, "action": "replace_text", "error": "No matches found"}),
-    };
-
-    if matches.is_empty() {
-        return json!({"success": false, "action": "replace_text", "error": format!("Text '{}' not found in document", find_text)});
-    }
-
-    // Determine which occurrences to replace
-    let indices_to_replace: Vec<usize> = if occurrence_index == -1 {
-        // Replace all — process in reverse order so positions don't shift
-        (0..matches.len()).rev().collect()
-    } else {
-        let idx = occurrence_index as usize;
-        if idx >= matches.len() {
-            return json!({"success": false, "action": "replace_text", "error": format!("Occurrence index {} out of range (found {} matches)", occurrence_index, matches.len())});
-        }
-        vec![idx]
-    };
-
-    let mut replaced_count = 0;
-
-    for idx in indices_to_replace {
-        let m = &matches[idx];
-        let pos = m["position"].as_i64().unwrap();
-        let len = m["length"].as_i64().unwrap();
-
-        // Delete the found text
-        let delete_action = Action {
-            action: "delete_text".to_string(),
-            window_id: action.window_id,
-            bundle_id: action.bundle_id.clone(),
-            text: None,
-            color: None,
-            position: Some(pos),
-            length: Some(len),
-            find_text: None,
-            replace_text: None,
-            occurrence_index: None,
-        };
-        let delete_result = handle_delete_text(&delete_action);
-        if delete_result["success"] != true {
-            return json!({"success": false, "action": "replace_text", "error": format!("Failed to delete occurrence {}: {}", idx, delete_result["error"])});
-        }
-
-        // Insert the replacement text
-        let insert_action = Action {
-            action: "insert_text".to_string(),
-            window_id: action.window_id,
-            bundle_id: action.bundle_id.clone(),
-            text: Some(replace_text.clone()),
-            color: action.color.clone(),
-            position: Some(pos),
-            length: None,
-            find_text: None,
-            replace_text: None,
-            occurrence_index: None,
-        };
-        let insert_result = handle_insert_text(&insert_action);
-        if insert_result["success"] != true {
-            return json!({"success": false, "action": "replace_text", "error": format!("Failed to insert replacement at occurrence {}: {}", idx, insert_result["error"])});
-        }
-
-        replaced_count += 1;
-    }
-
-    json!({"success": true, "action": "replace_text", "replaced_count": replaced_count})
-}
-
 fn dispatch(action: &Action) -> Value {
     match action.action.as_str() {
         "search_all" => handle_search_all(action),
         "scroll" => handle_scroll(action),
         "set_cursor" => handle_set_cursor(action),
-        "insert_text" => handle_insert_text(action),
-        "delete_text" => handle_delete_text(action),
-        "replace_text" => handle_replace_text(action),
-        "set_color" => handle_set_color(action),
         "read_document" => handle_read_document(action),
         _ => json!({"success": false, "error": format!("Unknown action: {}", action.action)}),
     }
