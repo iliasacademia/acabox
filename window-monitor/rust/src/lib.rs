@@ -1,4 +1,5 @@
 pub mod accessibility;
+pub mod applescript;
 pub mod document_text;
 pub mod event_models;
 pub mod event_types;

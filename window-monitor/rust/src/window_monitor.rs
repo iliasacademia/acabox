@@ -211,7 +211,7 @@ impl WindowMonitor {
                 None
             },
             document_text: if track_document_text {
-                Some(DocumentTextTracker::new(temp_dir))
+                Some(DocumentTextTracker::new(temp_dir, bundle_id.to_string()))
             } else {
                 None
             },

@@ -11,6 +11,10 @@ path = "src/lib.rs"
 name = "window-monitor"
 path = "src/bin/window_monitor.rs"
 
+[[bin]]
+name = "word-actions"
+path = "src/bin/word_actions.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
@@ -21,8 +25,8 @@ core-foundation-sys = "0.8"
 core-graphics = "0.24"
 core-graphics-types = "0.2"
 objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSDictionary", "NSNotification", "NSRunLoop", "NSObject", "NSThread", "block2", "NSOperation"] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSWorkspace", "NSRunningApplication"] }
+objc2-foundation = { version = "0.3", features = ["NSString", "NSArray", "NSDictionary", "NSNotification", "NSRunLoop", "NSObject", "NSThread", "block2", "NSOperation", "NSData"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSWorkspace", "NSRunningApplication", "NSPasteboard", "NSPasteboardItem"] }
 block2 = "0.6"
 signal-hook = "0.3"
 libc = "0.2"

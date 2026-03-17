@@ -72,6 +72,12 @@ extern "C" {
         value: *mut core_foundation_sys::base::CFTypeRef,
     ) -> AXError;
 
+    pub fn AXUIElementSetAttributeValue(
+        element: AXUIElementRef,
+        attribute: core_foundation_sys::string::CFStringRef,
+        value: core_foundation_sys::base::CFTypeRef,
+    ) -> AXError;
+
     pub fn AXUIElementCopyParameterizedAttributeValue(
         element: AXUIElementRef,
         parameterized_attribute: core_foundation_sys::string::CFStringRef,
@@ -89,6 +95,11 @@ extern "C" {
         value_type: u32,
         value_out: *mut c_void,
     ) -> bool;
+
+    pub fn AXUIElementPerformAction(
+        element: AXUIElementRef,
+        action: core_foundation_sys::string::CFStringRef,
+    ) -> AXError;
 
     /// Private but stable API: get the CGWindowID for an AXUIElement.
     fn _AXUIElementGetWindow(element: AXUIElementRef, window_id: *mut u32) -> AXError;
@@ -134,6 +145,7 @@ static AX_SELECTED_TEXT_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("
 static AX_BOUNDS_FOR_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXBoundsForRange"));
 static AX_POSITION: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXPosition"));
 static AX_SIZE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSize"));
+static AX_ORIENTATION: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXOrientation"));
 
 // Trusted check option
 static AX_TRUSTED_CHECK_OPTION_PROMPT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXTrustedCheckOptionPrompt"));
@@ -194,6 +206,9 @@ fn k_ax_position_attribute() -> core_foundation_sys::string::CFStringRef {
 }
 fn k_ax_size_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_SIZE.0
+}
+fn k_ax_orientation_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_ORIENTATION.0
 }
 fn k_ax_trusted_check_option_prompt() -> core_foundation_sys::string::CFStringRef {
     AX_TRUSTED_CHECK_OPTION_PROMPT.0
@@ -542,6 +557,14 @@ pub fn find_ax_window_by_id(
     None
 }
 
+/// Perform AXRaise on a window element to bring it to the front.
+pub fn raise_window(window: &SafeAXUIElement) {
+    let action = CFString::new("AXRaise");
+    unsafe {
+        AXUIElementPerformAction(window.raw(), action.as_concrete_TypeRef());
+    }
+}
+
 /// Get the selected text range (location + length) from a UI element via AXSelectedTextRange.
 pub fn get_selected_text_range(element: &SafeAXUIElement) -> Option<CFRange> {
     let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
@@ -764,3 +787,153 @@ pub fn find_all_text_areas_in_subtree(
     search(element, max_depth, &mut result);
     result
 }
+
+/// Set the selected text range on a UI element via AXSelectedTextRange.
+/// The offset is document-global (not per-page). Setting on any text area works —
+/// Word routes it to the correct page.
+pub fn set_selected_text_range(element: &SafeAXUIElement, location: i64, length: i64) -> bool {
+    let range = CFRange { location, length };
+    let range_value = unsafe {
+        AXValueCreate(
+            AX_VALUE_TYPE_CFRANGE,
+            &range as *const CFRange as *const c_void,
+        )
+    };
+    if range_value.is_null() {
+        return false;
+    }
+    let err = unsafe {
+        AXUIElementSetAttributeValue(
+            element.raw(),
+            k_ax_selected_text_range_attribute(),
+            range_value,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(range_value);
+    }
+    err == K_AX_ERROR_SUCCESS
+}
+
+/// Get a string attribute from an AX element.
+fn get_string_attribute(
+    element: &SafeAXUIElement,
+    attribute: core_foundation_sys::string::CFStringRef,
+) -> Option<String> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe { AXUIElementCopyAttributeValue(element.raw(), attribute, &mut value) };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(value as _) };
+    Some(cf_str.to_string())
+}
+
+/// DFS to find the vertical scroll bar in an AX subtree.
+/// Looks for AXRole == "AXScrollBar" with AXOrientation == "AXVerticalOrientation".
+pub fn find_vertical_scroll_bar(
+    element: &SafeAXUIElement,
+    max_depth: u32,
+) -> Option<SafeAXUIElement> {
+    if max_depth == 0 {
+        return None;
+    }
+
+    fn search(element: &SafeAXUIElement, depth_remaining: u32) -> Option<SafeAXUIElement> {
+        if depth_remaining == 0 {
+            return None;
+        }
+
+        let children = get_children(element);
+        for child in children {
+            if let Some(role) = get_role(&child) {
+                if role == "AXScrollBar" {
+                    if let Some(orientation) =
+                        get_string_attribute(&child, k_ax_orientation_attribute())
+                    {
+                        if orientation == "AXVerticalOrientation" {
+                            return Some(child);
+                        }
+                    }
+                    continue;
+                }
+            }
+            if let Some(found) = search(&child, depth_remaining - 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    search(element, max_depth)
+}
+
+/// Get the current value of a scroll bar (0.0–1.0).
+pub fn get_scroll_bar_value(element: &SafeAXUIElement) -> Option<f64> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_value_attribute(), &mut value)
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let number: core_foundation::number::CFNumber =
+        unsafe { TCFType::wrap_under_create_rule(value as _) };
+    number.to_f64()
+}
+
+/// Set the value of a scroll bar (0.0–1.0).
+pub fn set_scroll_bar_value(element: &SafeAXUIElement, value: f64) -> bool {
+    let cf_number = core_foundation::number::CFNumber::from(value);
+    let err = unsafe {
+        AXUIElementSetAttributeValue(
+            element.raw(),
+            k_ax_value_attribute(),
+            cf_number.as_concrete_TypeRef() as core_foundation_sys::base::CFTypeRef,
+        )
+    };
+    err == K_AX_ERROR_SUCCESS
+}
+
+// AXStringForRange / AXAttributedStringForRange constants
+static AX_STRING_FOR_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXStringForRange"));
+fn k_ax_string_for_range_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_STRING_FOR_RANGE.0
+}
+
+/// Get the text string for a document-coordinate range via AXStringForRange.
+/// Note: the returned string may be longer than `length` due to paragraph mark expansion.
+pub fn get_string_for_range(
+    element: &SafeAXUIElement,
+    location: i64,
+    length: i64,
+) -> Option<String> {
+    let range = CFRange { location, length };
+    let range_value = unsafe {
+        AXValueCreate(
+            AX_VALUE_TYPE_CFRANGE,
+            &range as *const CFRange as *const c_void,
+        )
+    };
+    if range_value.is_null() {
+        return None;
+    }
+    let mut result: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyParameterizedAttributeValue(
+            element.raw(),
+            k_ax_string_for_range_attribute(),
+            range_value,
+            &mut result,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(range_value);
+    }
+    if err != K_AX_ERROR_SUCCESS || result.is_null() {
+        return None;
+    }
+    let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(result as _) };
+    Some(cf_str.to_string())
+}
+
