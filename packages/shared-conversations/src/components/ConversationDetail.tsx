@@ -30,6 +30,8 @@ interface ConversationDetailProps {
   initialOpenDiffModal?: boolean;
   /** Optional: Called when diff modal is auto-opened via initialOpenDiffModal */
   onDiffModalOpened?: () => void;
+  /** Whether the selected conversation is archived */
+  isArchived?: boolean;
 }
 
 export function ConversationDetail({
@@ -47,6 +49,7 @@ export function ConversationDetail({
   pollingOptions,
   initialOpenDiffModal,
   onDiffModalOpened,
+  isArchived,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -690,6 +693,7 @@ export function ConversationDetail({
             )}
             <h2 className="conversationTitle">
               {conversation.title || 'New Conversation'}
+              {isArchived && <span className="conversationArchivedBadge">Archived</span>}
             </h2>
           </div>
           {conversation.summary && (

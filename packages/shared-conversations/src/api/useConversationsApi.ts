@@ -133,6 +133,73 @@ export function useConversationsApi() {
     },
 
     /**
+     * Archive a conversation
+     * POST /v0/co_scientist/archive_conversation
+     */
+    archiveConversation: async (
+      conversationId: number,
+      _projectId: number
+    ): Promise<void> => {
+      await client.invoke<unknown>({
+        method: 'POST',
+        endpoint: 'v0/co_scientist/archive_conversation',
+        data: {
+          conversation_id: conversationId,
+        },
+      });
+    },
+
+    /**
+     * Unarchive a conversation
+     * TODO: update endpoint once API spec is finalized
+     * POST /v0/co_scientist/unarchive_conversation
+     */
+    unarchiveConversation: async (
+      conversationId: number,
+      _projectId: number
+    ): Promise<void> => {
+      await client.invoke<unknown>({
+        method: 'POST',
+        endpoint: 'v0/co_scientist/unarchive_conversation',
+        data: {
+          conversation_id: conversationId,
+        },
+      });
+    },
+
+    /**
+     * List archived conversations (project-scoped)
+     * GET /v0/co_scientist/list_conversations?archived=true&project_id=...
+     */
+    listArchivedConversations: async (
+      offset: number = 0,
+      projectId: number,
+      limit: number = 20
+    ): Promise<ListConversationsResponse> => {
+      const params = new URLSearchParams({
+        offset: offset.toString(),
+        limit: limit.toString(),
+        project_id: projectId.toString(),
+        archived: 'true',
+      });
+
+      const response = await client.invoke<{
+        conversations?: ConversationResponse['conversation'][];
+        has_more?: boolean;
+        total_count?: number;
+      }>({
+        method: 'GET',
+        endpoint: `v0/co_scientist/list_conversations?${params.toString()}`,
+      });
+
+      return {
+        conversations: response.conversations || [],
+        has_more: response.has_more || false,
+        total_count: response.total_count || 0,
+      };
+    },
+
+    /**
      * Trigger fact-check for a review
      * POST /v0/co_scientist/fact_check_review
      */
