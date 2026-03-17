@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { onVisibilityChanged, cacheFullStoryConfig, FullStoryConfig } from './utils/fullstory';
 import './ReviewStatusOverlay.css';
@@ -166,6 +166,14 @@ const ReviewStatusOverlay: React.FC = () => {
   const { reviewType, selectedText, shouldShowReviewStatusOverlay } = useWordPoll(widParam, tokenParam, serverUrl);
   const [progress, setProgress] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
+  const [showSelectedTextToggle, setShowSelectedTextToggle] = useState(false);
+  const selectedTextRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = selectedTextRef.current;
+    if (!el) return;
+    setShowSelectedTextToggle(el.scrollHeight > el.clientHeight);
+  }, [selectedText, isExpanded]);
 
   useEffect(() => {
     onVisibilityChanged('review-status-overlay', shouldShowReviewStatusOverlay);
@@ -288,11 +296,16 @@ const ReviewStatusOverlay: React.FC = () => {
         <div className="review-status-content">
           {selectedText ? (
             <>
-              {isExpanded || selectedText.length <= 80
-                ? selectedText
-                : `${selectedText.substring(0, 80)}...`
-              }{' '}
-              {selectedText.length > 80 && (
+              <div
+                ref={selectedTextRef}
+                style={isExpanded
+                  ? { maxHeight: '200px', overflowY: 'auto' }
+                  : { display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
+                }
+              >
+                {selectedText}
+              </div>
+              {showSelectedTextToggle && (
                 <button
                   className="review-see-more"
                   onClick={() => setIsExpanded(!isExpanded)}
