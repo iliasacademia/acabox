@@ -58,6 +58,9 @@ export function ConversationDetail({
   const [disableMessageInput, setDisableMessageInput] = useState(false);
   const [previousManuscriptName, setPreviousManuscriptName] = useState<string | null>(null);
   const [hiddenMessageIds, setHiddenMessageIds] = useState<Set<number>>(new Set());
+  const [isSelectedTextExpanded, setIsSelectedTextExpanded] = useState(false);
+  const [showSelectedTextToggle, setShowSelectedTextToggle] = useState(false);
+  const selectedTextRef = useRef<HTMLDivElement>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -256,6 +259,14 @@ export function ConversationDetail({
       textareaRef.current?.focus();
     }
   }, [conversation?.id]);
+
+  // Detect if selected text overflows (needs show more/less toggle)
+  useEffect(() => {
+    const el = selectedTextRef.current;
+    if (el) {
+      setShowSelectedTextToggle(el.scrollHeight > el.clientHeight);
+    }
+  });
 
   // Track received assistant messages
   useEffect(() => {
@@ -722,7 +733,47 @@ export function ConversationDetail({
             lineHeight: '20px',
             color: '#141413',
           }}>
-            {selectedText}
+            <div style={{
+              fontSize: '12px',
+              fontWeight: 600,
+              color: '#6B6B6A',
+              marginBottom: '4px',
+            }}>
+              Selected text
+            </div>
+            <div
+              ref={selectedTextRef}
+              style={{
+                ...(isSelectedTextExpanded ? {
+                  maxHeight: `${20 * 10}px`, // 10 lines × 20px line-height
+                  overflowY: 'auto' as const,
+                } : {
+                  display: '-webkit-box',
+                  WebkitLineClamp: 1,
+                  WebkitBoxOrient: 'vertical' as const,
+                  overflow: 'hidden',
+                }),
+              }}
+            >
+              {selectedText}
+            </div>
+            {showSelectedTextToggle && (
+              <button
+                onClick={() => setIsSelectedTextExpanded(prev => !prev)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: 0,
+                  marginTop: '4px',
+                  fontSize: '14px',
+                  color: '#4A6FA5',
+                  textDecoration: 'underline',
+                  cursor: 'pointer',
+                }}
+              >
+                {isSelectedTextExpanded ? 'Show less' : 'Show more'}
+              </button>
+            )}
           </div>
         );
       })()}
