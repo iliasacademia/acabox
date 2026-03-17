@@ -72,6 +72,12 @@ extern "C" {
         value: *mut core_foundation_sys::base::CFTypeRef,
     ) -> AXError;
 
+    pub fn AXUIElementSetAttributeValue(
+        element: AXUIElementRef,
+        attribute: core_foundation_sys::string::CFStringRef,
+        value: core_foundation_sys::base::CFTypeRef,
+    ) -> AXError;
+
     pub fn AXUIElementCopyParameterizedAttributeValue(
         element: AXUIElementRef,
         parameterized_attribute: core_foundation_sys::string::CFStringRef,
@@ -89,6 +95,11 @@ extern "C" {
         value_type: u32,
         value_out: *mut c_void,
     ) -> bool;
+
+    pub fn AXUIElementPerformAction(
+        element: AXUIElementRef,
+        action: core_foundation_sys::string::CFStringRef,
+    ) -> AXError;
 
     /// Private but stable API: get the CGWindowID for an AXUIElement.
     fn _AXUIElementGetWindow(element: AXUIElementRef, window_id: *mut u32) -> AXError;
@@ -134,6 +145,7 @@ static AX_SELECTED_TEXT_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("
 static AX_BOUNDS_FOR_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXBoundsForRange"));
 static AX_POSITION: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXPosition"));
 static AX_SIZE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXSize"));
+static AX_ORIENTATION: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXOrientation"));
 
 // Trusted check option
 static AX_TRUSTED_CHECK_OPTION_PROMPT: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXTrustedCheckOptionPrompt"));
@@ -194,6 +206,9 @@ fn k_ax_position_attribute() -> core_foundation_sys::string::CFStringRef {
 }
 fn k_ax_size_attribute() -> core_foundation_sys::string::CFStringRef {
     AX_SIZE.0
+}
+fn k_ax_orientation_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_ORIENTATION.0
 }
 fn k_ax_trusted_check_option_prompt() -> core_foundation_sys::string::CFStringRef {
     AX_TRUSTED_CHECK_OPTION_PROMPT.0
@@ -542,6 +557,14 @@ pub fn find_ax_window_by_id(
     None
 }
 
+/// Perform AXRaise on a window element to bring it to the front.
+pub fn raise_window(window: &SafeAXUIElement) {
+    let action = CFString::new("AXRaise");
+    unsafe {
+        AXUIElementPerformAction(window.raw(), action.as_concrete_TypeRef());
+    }
+}
+
 /// Get the selected text range (location + length) from a UI element via AXSelectedTextRange.
 pub fn get_selected_text_range(element: &SafeAXUIElement) -> Option<CFRange> {
     let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
@@ -763,4 +786,297 @@ pub fn find_all_text_areas_in_subtree(
     let mut result = Vec::new();
     search(element, max_depth, &mut result);
     result
+}
+
+/// Set the selected text range on a UI element via AXSelectedTextRange.
+/// The offset is document-global (not per-page). Setting on any text area works —
+/// Word routes it to the correct page.
+pub fn set_selected_text_range(element: &SafeAXUIElement, location: i64, length: i64) -> bool {
+    let range = CFRange { location, length };
+    let range_value = unsafe {
+        AXValueCreate(
+            AX_VALUE_TYPE_CFRANGE,
+            &range as *const CFRange as *const c_void,
+        )
+    };
+    if range_value.is_null() {
+        return false;
+    }
+    let err = unsafe {
+        AXUIElementSetAttributeValue(
+            element.raw(),
+            k_ax_selected_text_range_attribute(),
+            range_value,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(range_value);
+    }
+    err == K_AX_ERROR_SUCCESS
+}
+
+/// Get a string attribute from an AX element.
+fn get_string_attribute(
+    element: &SafeAXUIElement,
+    attribute: core_foundation_sys::string::CFStringRef,
+) -> Option<String> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe { AXUIElementCopyAttributeValue(element.raw(), attribute, &mut value) };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(value as _) };
+    Some(cf_str.to_string())
+}
+
+/// DFS to find the vertical scroll bar in an AX subtree.
+/// Looks for AXRole == "AXScrollBar" with AXOrientation == "AXVerticalOrientation".
+pub fn find_vertical_scroll_bar(
+    element: &SafeAXUIElement,
+    max_depth: u32,
+) -> Option<SafeAXUIElement> {
+    if max_depth == 0 {
+        return None;
+    }
+
+    fn search(element: &SafeAXUIElement, depth_remaining: u32) -> Option<SafeAXUIElement> {
+        if depth_remaining == 0 {
+            return None;
+        }
+
+        let children = get_children(element);
+        for child in children {
+            if let Some(role) = get_role(&child) {
+                if role == "AXScrollBar" {
+                    if let Some(orientation) =
+                        get_string_attribute(&child, k_ax_orientation_attribute())
+                    {
+                        if orientation == "AXVerticalOrientation" {
+                            return Some(child);
+                        }
+                    }
+                    continue;
+                }
+            }
+            if let Some(found) = search(&child, depth_remaining - 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    search(element, max_depth)
+}
+
+/// Get the current value of a scroll bar (0.0–1.0).
+pub fn get_scroll_bar_value(element: &SafeAXUIElement) -> Option<f64> {
+    let mut value: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyAttributeValue(element.raw(), k_ax_value_attribute(), &mut value)
+    };
+    if err != K_AX_ERROR_SUCCESS || value.is_null() {
+        return None;
+    }
+    let number: core_foundation::number::CFNumber =
+        unsafe { TCFType::wrap_under_create_rule(value as _) };
+    number.to_f64()
+}
+
+/// Set the value of a scroll bar (0.0–1.0).
+pub fn set_scroll_bar_value(element: &SafeAXUIElement, value: f64) -> bool {
+    let cf_number = core_foundation::number::CFNumber::from(value);
+    let err = unsafe {
+        AXUIElementSetAttributeValue(
+            element.raw(),
+            k_ax_value_attribute(),
+            cf_number.as_concrete_TypeRef() as core_foundation_sys::base::CFTypeRef,
+        )
+    };
+    err == K_AX_ERROR_SUCCESS
+}
+
+// AXStringForRange / AXAttributedStringForRange constants
+static AX_STRING_FOR_RANGE: LazyLock<SyncCFStr> = LazyLock::new(|| ax_cfstr("AXStringForRange"));
+static AX_ATTRIBUTED_STRING_FOR_RANGE: LazyLock<SyncCFStr> =
+    LazyLock::new(|| ax_cfstr("AXAttributedStringForRange"));
+
+fn k_ax_string_for_range_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_STRING_FOR_RANGE.0
+}
+
+/// Get the text string for a document-coordinate range via AXStringForRange.
+/// Note: the returned string may be longer than `length` due to paragraph mark expansion.
+pub fn get_string_for_range(
+    element: &SafeAXUIElement,
+    location: i64,
+    length: i64,
+) -> Option<String> {
+    let range = CFRange { location, length };
+    let range_value = unsafe {
+        AXValueCreate(
+            AX_VALUE_TYPE_CFRANGE,
+            &range as *const CFRange as *const c_void,
+        )
+    };
+    if range_value.is_null() {
+        return None;
+    }
+    let mut result: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyParameterizedAttributeValue(
+            element.raw(),
+            k_ax_string_for_range_attribute(),
+            range_value,
+            &mut result,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(range_value);
+    }
+    if err != K_AX_ERROR_SUCCESS || result.is_null() {
+        return None;
+    }
+    let cf_str: CFString = unsafe { TCFType::wrap_under_create_rule(result as _) };
+    Some(cf_str.to_string())
+}
+
+/// Font style info extracted from an attributed string.
+pub struct FontStyle {
+    pub font_name: String,
+    pub font_size: f64,
+}
+
+fn k_ax_attributed_string_for_range_attribute() -> core_foundation_sys::string::CFStringRef {
+    AX_ATTRIBUTED_STRING_FOR_RANGE.0
+}
+
+/// Get font style of the character at `location` via AXAttributedStringForRange.
+/// Queries a single character and extracts the CTFont attributes.
+pub fn get_font_style_at(element: &SafeAXUIElement, location: i64) -> Option<FontStyle> {
+    let range = CFRange {
+        location,
+        length: 1,
+    };
+    let range_value = unsafe {
+        AXValueCreate(
+            AX_VALUE_TYPE_CFRANGE,
+            &range as *const CFRange as *const c_void,
+        )
+    };
+    if range_value.is_null() {
+        return None;
+    }
+
+    let mut result: core_foundation_sys::base::CFTypeRef = ptr::null();
+    let err = unsafe {
+        AXUIElementCopyParameterizedAttributeValue(
+            element.raw(),
+            k_ax_attributed_string_for_range_attribute(),
+            range_value,
+            &mut result,
+        )
+    };
+    unsafe {
+        core_foundation_sys::base::CFRelease(range_value);
+    }
+    if err != K_AX_ERROR_SUCCESS || result.is_null() {
+        eprintln!("[debug font] AXAttributedStringForRange failed: err={}, null={}", err, result.is_null());
+        return None;
+    }
+
+    // result is an NSAttributedString. Check its length via objc2.
+    use objc2::runtime::AnyObject;
+
+    let len: usize = unsafe { objc2::msg_send![result as *const AnyObject, length] };
+    eprintln!("[debug font] attributed string length: {}", len);
+    if len == 0 {
+        unsafe { core_foundation_sys::base::CFRelease(result) };
+        return None;
+    }
+
+    // Use Objective-C runtime to call -[NSAttributedString attributesAtIndex:effectiveRange:]
+    // which returns an NSDictionary. The AXFont key maps to another NSDictionary
+    // with AXFontName/AXFontSize.
+
+    let style = unsafe {
+        // result is an NSAttributedString (toll-free bridged with CFAttributedString)
+        let ns_astr = result as *const AnyObject;
+
+        // Get attributes dict at index 0
+        let attrs: *const AnyObject = objc2::msg_send![
+            ns_astr,
+            attributesAtIndex: 0usize,
+            effectiveRange: ptr::null_mut::<objc2_foundation::NSRange>()
+        ];
+
+        if attrs.is_null() {
+            eprintln!("[debug font] attributesAtIndex returned null");
+            core_foundation_sys::base::CFRelease(result);
+            return None;
+        }
+
+        // Log all keys for debugging
+        let all_keys: *const AnyObject = objc2::msg_send![attrs, allKeys];
+        if !all_keys.is_null() {
+            let count: usize = objc2::msg_send![all_keys, count];
+            for i in 0..count {
+                let key: *const AnyObject = objc2::msg_send![all_keys, objectAtIndex: i];
+                if !key.is_null() {
+                    let desc: *const AnyObject = objc2::msg_send![key, description];
+                    if !desc.is_null() {
+                        let utf8: *const u8 = objc2::msg_send![desc, UTF8String];
+                        if !utf8.is_null() {
+                            let s = std::ffi::CStr::from_ptr(utf8 as *const _).to_string_lossy();
+                            eprintln!("[debug font] attribute key: {}", s);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Look up AXFont key
+        let ax_font_key = objc2_foundation::NSString::from_str("AXFont");
+        let font_dict: *const AnyObject = objc2::msg_send![
+            attrs,
+            objectForKey: &*ax_font_key
+        ];
+
+        if font_dict.is_null() {
+            eprintln!("[debug font] AXFont key not found in attributes");
+            core_foundation_sys::base::CFRelease(result);
+            return None;
+        }
+
+        // Extract AXFontName
+        let name_key = objc2_foundation::NSString::from_str("AXFontName");
+        let name_obj: *const AnyObject = objc2::msg_send![font_dict, objectForKey: &*name_key];
+        let font_name = if !name_obj.is_null() {
+            let utf8: *const u8 = objc2::msg_send![name_obj, UTF8String];
+            if !utf8.is_null() {
+                std::ffi::CStr::from_ptr(utf8 as *const _)
+                    .to_string_lossy()
+                    .into_owned()
+            } else {
+                "Calibri".to_string()
+            }
+        } else {
+            "Calibri".to_string()
+        };
+
+        // Extract AXFontSize
+        let size_key = objc2_foundation::NSString::from_str("AXFontSize");
+        let size_obj: *const AnyObject = objc2::msg_send![font_dict, objectForKey: &*size_key];
+        let font_size = if !size_obj.is_null() {
+            let val: f64 = objc2::msg_send![size_obj, doubleValue];
+            val
+        } else {
+            12.0
+        };
+
+        eprintln!("[debug font] font_name='{}', font_size={}", font_name, font_size);
+        Some(FontStyle { font_name, font_size })
+    };
+
+    unsafe { core_foundation_sys::base::CFRelease(result) };
+    style
 }
