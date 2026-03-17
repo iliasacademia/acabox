@@ -51,8 +51,6 @@
   line-height: 20px;
   color: #141413;
   flex: 1;
-  max-height: 150px;
-  overflow-y: auto;
 }
 
 .review-status-header {
