@@ -27,6 +27,61 @@ struct Action {
     save: Option<bool>,
 }
 
+impl Action {
+    fn validate(&self) -> Result<(), String> {
+        const VALID_ACTIONS: &[&str] = &[
+            "search_all",
+            "scroll",
+            "set_cursor",
+            "read_document",
+            "has_unsaved_changes",
+            "save_document",
+            "close_window",
+            "open_window",
+        ];
+        if !VALID_ACTIONS.contains(&self.action.as_str()) {
+            return Err(format!("Unknown action: {}", self.action));
+        }
+        if self.bundle_id.is_empty() {
+            return Err("'bundle_id' must not be empty".to_string());
+        }
+        if let Some(p) = self.position {
+            if p < 0 {
+                return Err(format!("'position' must be non-negative, got {}", p));
+            }
+        }
+        if let Some(l) = self.length {
+            if l < 0 {
+                return Err(format!("'length' must be non-negative, got {}", l));
+            }
+        }
+        // Action-specific required fields
+        match self.action.as_str() {
+            "search_all" => match &self.text {
+                None => return Err("Missing 'text' field".to_string()),
+                Some(t) if t.is_empty() => {
+                    return Err("'text' must not be empty".to_string())
+                }
+                _ => {}
+            },
+            "scroll" | "set_cursor" => {
+                if self.position.is_none() {
+                    return Err("Missing 'position' field".to_string());
+                }
+            }
+            "open_window" => match &self.file_path {
+                None => return Err("Missing 'file_path' field".to_string()),
+                Some(p) if p.is_empty() => {
+                    return Err("'file_path' must not be empty".to_string())
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
 fn activate_app(bundle_id: &str) -> Result<(), String> {
     let workspace = NSWorkspace::sharedWorkspace();
     let apps = workspace.runningApplications();
@@ -232,10 +287,7 @@ fn get_text_areas(
 }
 
 fn handle_scroll(action: &Action) -> Value {
-    let position = match action.position {
-        Some(p) => p,
-        None => return json!({"success": false, "action": "scroll", "error": "Missing 'position' field"}),
-    };
+    let position = action.position.unwrap();
 
     let pid = match get_pid_for_bundle(&action.bundle_id) {
         Some(pid) => pid,
@@ -322,10 +374,7 @@ fn handle_scroll(action: &Action) -> Value {
 }
 
 fn handle_set_cursor(action: &Action) -> Value {
-    let position = match action.position {
-        Some(p) => p,
-        None => return json!({"success": false, "action": "set_cursor", "error": "Missing 'position' field"}),
-    };
+    let position = action.position.unwrap();
 
     let length = action.length.unwrap_or(0);
 
@@ -368,10 +417,7 @@ fn handle_read_document(action: &Action) -> Value {
 }
 
 fn handle_search_all(action: &Action) -> Value {
-    let search_text = match &action.text {
-        Some(t) => t,
-        None => return json!({"success": false, "action": "search_all", "error": "Missing 'text' field"}),
-    };
+    let search_text = action.text.as_ref().unwrap();
 
     let pid = match get_pid_for_bundle(&action.bundle_id) {
         Some(pid) => pid,
@@ -502,10 +548,7 @@ fn handle_close_window(action: &Action) -> Value {
 }
 
 fn handle_open_window(action: &Action) -> Value {
-    let file_path = match &action.file_path {
-        Some(p) => p,
-        None => return json!({"success": false, "action": "open_window", "error": "Missing 'file_path' field"}),
-    };
+    let file_path = action.file_path.as_ref().unwrap();
 
     match window_monitor_lib::applescript::open_word_document(file_path) {
         Ok(()) => json!({"success": true, "action": "open_window"}),
@@ -529,13 +572,19 @@ fn dispatch(action: &Action) -> Value {
         "save_document" => handle_save_document(action),
         "close_window" => handle_close_window(action),
         "open_window" => handle_open_window(action),
-        _ => json!({"success": false, "error": format!("Unknown action: {}", action.action)}),
+        _ => unreachable!("validate() ensures action is valid"),
     }
 }
 
 fn run_one(json_str: &str) {
     let response = match serde_json::from_str::<Action>(json_str) {
-        Ok(action) => dispatch(&action),
+        Ok(action) => {
+            if let Err(e) = action.validate() {
+                json!({"success": false, "action": action.action, "error": e})
+            } else {
+                dispatch(&action)
+            }
+        }
         Err(e) => json!({"success": false, "error": format!("Invalid JSON: {}", e)}),
     };
     println!("{}", response);
@@ -674,5 +723,121 @@ mod tests {
         let result = normalize_whitespace("");
         assert_eq!(result.text, "");
         assert!(result.byte_map.is_empty());
+    }
+
+    fn make_action(action: &str) -> Action {
+        Action {
+            action: action.to_string(),
+            window_id: 0,
+            bundle_id: "com.microsoft.Word".to_string(),
+            text: None,
+            position: None,
+            length: None,
+            activate: false,
+            file_path: None,
+            save: None,
+        }
+    }
+
+    #[test]
+    fn test_validate_unknown_action() {
+        let a = make_action("bogus");
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("Unknown action: bogus"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_empty_bundle_id() {
+        let mut a = make_action("read_document");
+        a.bundle_id = String::new();
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("bundle_id"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_negative_position() {
+        let mut a = make_action("scroll");
+        a.position = Some(-1);
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("non-negative"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_negative_length() {
+        let mut a = make_action("read_document");
+        a.length = Some(-5);
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("non-negative"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_search_all_missing_text() {
+        let a = make_action("search_all");
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("text"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_search_all_empty_text() {
+        let mut a = make_action("search_all");
+        a.text = Some(String::new());
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("text"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_scroll_missing_position() {
+        let a = make_action("scroll");
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("position"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_set_cursor_missing_position() {
+        let a = make_action("set_cursor");
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("position"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_open_window_missing_file_path() {
+        let a = make_action("open_window");
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("file_path"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_open_window_empty_file_path() {
+        let mut a = make_action("open_window");
+        a.file_path = Some(String::new());
+        let err = a.validate().unwrap_err();
+        assert!(err.contains("file_path"), "got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_valid_read_document() {
+        let a = make_action("read_document");
+        assert!(a.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_valid_search_all() {
+        let mut a = make_action("search_all");
+        a.text = Some("hello".to_string());
+        assert!(a.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_valid_scroll() {
+        let mut a = make_action("scroll");
+        a.position = Some(100);
+        assert!(a.validate().is_ok());
+    }
+
+    #[test]
+    fn test_validate_valid_open_window() {
+        let mut a = make_action("open_window");
+        a.file_path = Some("/tmp/test.docx".to_string());
+        assert!(a.validate().is_ok());
     }
 }
