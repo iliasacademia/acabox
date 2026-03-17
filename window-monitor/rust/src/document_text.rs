@@ -80,7 +80,7 @@ impl DocumentTextTracker {
                 if let Some(since) = self.dirty_since {
                     if since.elapsed() >= self.debounce_duration {
                         self.dirty_since = None;
-                        return self.read_and_write(&text_areas, focused_window_id, char_count);
+                        return self.read_and_write(app_element, &text_areas, focused_window_id, char_count);
                     }
                 }
                 None
@@ -137,7 +137,7 @@ impl DocumentTextTracker {
         }
 
         self.last_char_count = Some(char_count);
-        self.read_and_write(&text_areas, window_id, char_count)
+        self.read_and_write(app_element, &text_areas, window_id, char_count)
     }
 
     /// Reset tracked state (e.g. when app detaches).
@@ -174,6 +174,7 @@ impl DocumentTextTracker {
 
     fn read_and_write(
         &mut self,
+        app_element: &SafeAXUIElement,
         text_areas: &[SafeAXUIElement],
         window_id: u32,
         char_count: i64,
@@ -181,7 +182,7 @@ impl DocumentTextTracker {
         // For Microsoft Word, use AppleScript to get full document text
         // (the AX API truncates at ~47KB for large documents).
         let text = if self.bundle_id == "com.microsoft.Word" {
-            match applescript::get_word_document_text() {
+            match applescript::get_word_document_text(app_element, window_id) {
                 Ok(t) if !t.is_empty() => t,
                 _ => {
                     // Fall back to AX API if AppleScript fails

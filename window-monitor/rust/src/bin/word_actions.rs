@@ -20,6 +20,8 @@ struct Action {
     text: Option<String>,
     position: Option<i64>,
     length: Option<i64>,
+    #[serde(default)]
+    activate: bool,
 }
 
 fn activate_app(bundle_id: &str) -> Result<(), String> {
@@ -67,6 +69,7 @@ fn get_pid_for_bundle(bundle_id: &str) -> Option<i32> {
 }
 
 /// Activate the app and raise the specific window to bring it to the front.
+/// Polls for focus confirmation after raising (10ms intervals, ~200ms timeout).
 fn activate_and_raise_window(action: &Action) -> Result<(), String> {
     activate_app(&action.bundle_id)?;
     let pid = get_pid_for_bundle(&action.bundle_id)
@@ -76,6 +79,19 @@ fn activate_and_raise_window(action: &Action) -> Result<(), String> {
     let ax_window = accessibility::find_ax_window_by_id(&app_element, action.window_id)
         .ok_or("Failed to find AX window by ID")?;
     accessibility::raise_window(&ax_window);
+
+    // Poll until the target window is focused (10ms intervals, ~200ms timeout)
+    for _ in 0..20 {
+        thread::sleep(Duration::from_millis(10));
+        let focused_id = accessibility::get_focused_window(&app_element)
+            .and_then(|w| accessibility::get_window_id(&w));
+        if focused_id == Some(action.window_id) {
+            return Ok(());
+        }
+    }
+
+    // Return Ok even if focus wasn't confirmed — the focus check in
+    // get_word_document_text will catch any actual mismatch.
     Ok(())
 }
 
@@ -329,11 +345,17 @@ fn handle_set_cursor(action: &Action) -> Value {
 }
 
 fn handle_read_document(action: &Action) -> Value {
-    if let Err(e) = activate_and_raise_window(action) {
-        return json!({"success": false, "action": "read_document", "error": e});
-    }
+    let pid = match get_pid_for_bundle(&action.bundle_id) {
+        Some(pid) => pid,
+        None => return json!({"success": false, "action": "read_document", "error": "Could not find PID for app"}),
+    };
 
-    let full_text = match window_monitor_lib::applescript::get_word_document_text() {
+    let app_element = match accessibility::create_app_element(pid) {
+        Some(e) => e,
+        None => return json!({"success": false, "action": "read_document", "error": "Failed to create AX app element"}),
+    };
+
+    let full_text = match window_monitor_lib::applescript::get_word_document_text(&app_element, action.window_id) {
         Ok(t) => t,
         Err(e) => return json!({"success": false, "action": "read_document", "error": format!("AppleScript failed: {}", e)}),
     };
@@ -347,10 +369,6 @@ fn handle_search_all(action: &Action) -> Value {
         Some(t) => t,
         None => return json!({"success": false, "action": "search_all", "error": "Missing 'text' field"}),
     };
-
-    if let Err(e) = activate_and_raise_window(action) {
-        return json!({"success": false, "action": "search_all", "error": e});
-    }
 
     let pid = match get_pid_for_bundle(&action.bundle_id) {
         Some(pid) => pid,
@@ -428,12 +446,54 @@ fn handle_search_all(action: &Action) -> Value {
     json!({"success": true, "action": "search_all", "matches": matches, "total_matches": matches.len()})
 }
 
+fn handle_has_unsaved_changes(action: &Action) -> Value {
+    let pid = match get_pid_for_bundle(&action.bundle_id) {
+        Some(pid) => pid,
+        None => return json!({"success": false, "action": "has_unsaved_changes", "error": "Could not find PID for app"}),
+    };
+
+    let app_element = match accessibility::create_app_element(pid) {
+        Some(e) => e,
+        None => return json!({"success": false, "action": "has_unsaved_changes", "error": "Failed to create AX app element"}),
+    };
+
+    match window_monitor_lib::applescript::has_word_document_unsaved_changes(&app_element, action.window_id) {
+        Ok(unsaved) => json!({"success": true, "action": "has_unsaved_changes", "unsaved_changes": unsaved}),
+        Err(e) => json!({"success": false, "action": "has_unsaved_changes", "error": e}),
+    }
+}
+
+fn handle_save_document(action: &Action) -> Value {
+    let pid = match get_pid_for_bundle(&action.bundle_id) {
+        Some(pid) => pid,
+        None => return json!({"success": false, "action": "save_document", "error": "Could not find PID for app"}),
+    };
+
+    let app_element = match accessibility::create_app_element(pid) {
+        Some(e) => e,
+        None => return json!({"success": false, "action": "save_document", "error": "Failed to create AX app element"}),
+    };
+
+    match window_monitor_lib::applescript::save_word_document(&app_element, action.window_id) {
+        Ok(()) => json!({"success": true, "action": "save_document"}),
+        Err(e) => json!({"success": false, "action": "save_document", "error": e}),
+    }
+}
+
 fn dispatch(action: &Action) -> Value {
+    if action.activate {
+        if let Err(e) = activate_and_raise_window(action) {
+            return json!({"success": false, "action": action.action, "error": e});
+        }
+    }
+
     match action.action.as_str() {
         "search_all" => handle_search_all(action),
         "scroll" => handle_scroll(action),
         "set_cursor" => handle_set_cursor(action),
         "read_document" => handle_read_document(action),
+        "has_unsaved_changes" => handle_has_unsaved_changes(action),
+        "save_document" => handle_save_document(action),
         _ => json!({"success": false, "error": format!("Unknown action: {}", action.action)}),
     }
 }
