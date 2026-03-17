@@ -1284,21 +1284,22 @@
 .newConversationButton {
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: none;
-    border-radius: var(--radius-sm);
+    gap: 4px;
+    padding: 5px 10px;
+    border: 1px solid #d1d1d6;
+    border-radius: 6px;
     background: transparent;
     color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
     flex-shrink: 0;
 }
 
 .newConversationButton:hover {
-    background: var(--background-hover, rgba(0, 0, 0, 0.06));
+    background: var(--background-hover, rgba(0, 0, 0, 0.04));
+    border-color: #aeaeb2;
     color: var(--text-primary);
 }
 
@@ -1344,32 +1345,216 @@
     padding: 0;
 }
 
+.conversationSectionLabel {
+    padding: 12px 0 6px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #aeaeb2;
+}
+
 .conversationItem {
-    padding: 12px 16px;
-    margin: 0;
-    margin-bottom: 0;
-    background-color: transparent;
-    border: none;
-    border-radius: var(--radius-sm);
+    padding: 12px 14px;
+    margin: 0 0 6px 0;
+    background-color: #ffffff;
+    border: 1px solid #e5e5ea;
+    border-radius: 8px;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: border-color 0.15s, box-shadow 0.15s;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
+    position: relative;
 }
 
 .conversationItem:hover {
-    background-color: transparent;
+    border-color: #c7c7cc;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* Three-dot menu button — shown on conversation item hover */
+.conversationMenuButton {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 0 8px 8px 0;
+    color: #8e8e93;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+
+.conversationItem:hover .conversationMenuButton,
+.conversationMenuButton.active {
+    opacity: 1;
+}
+
+.conversationMenuButton:hover,
+.conversationMenuButton.active {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #535366;
+}
+
+/* Fixed context menu */
+.conversationMenu {
+    position: fixed;
+    background: #ffffff;
+    border: 1px solid #e5e5ea;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.14);
+    min-width: 140px;
+    z-index: 1000;
+    overflow: hidden;
+}
+
+.conversationMenuItem {
+    display: block;
+    width: 100%;
+    padding: 9px 14px;
+    background: transparent;
+    border: none;
+    font-size: 14px;
+    color: #141413;
+    text-align: left;
+    cursor: pointer;
+}
+
+.conversationMenuItem:hover {
+    background-color: #f5f5f7;
+}
+
+.conversationMenuItem:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.conversationActionSpinner {
+    position: absolute;
+    top: 50%;
+    right: 10px;
+    transform: translateY(-50%);
+}
+
+.archiveSpinner {
+    width: 12px;
+    height: 12px;
+    border: 1.5px solid #8e8e93;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Archived section */
+.archivedSection {
+    margin-top: 4px;
+}
+
+.archivedSectionToggle {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 12px 0 6px 0;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #aeaeb2;
+    text-align: left;
+}
+
+.archivedSectionToggle:hover {
+    color: #8e8e93;
+}
+
+.archivedCount {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 5px;
+    padding: 0 5px;
+    height: 16px;
+    background: #e5e5ea;
+    border-radius: 8px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #8e8e93;
+    letter-spacing: 0;
+    text-transform: none;
+    vertical-align: middle;
+}
+
+.archivedChevron {
+    flex-shrink: 0;
+    transition: transform 0.2s;
+    color: #aeaeb2;
+}
+
+.archivedSectionToggle:hover .archivedChevron {
+    color: #8e8e93;
+}
+
+.archivedChevron.expanded {
+    transform: rotate(90deg);
+}
+
+.archivedList {
+    padding-bottom: 8px;
+}
+
+.archivedConversationItem {
+    opacity: 0.9;
+}
+
+.archivedEmpty {
+    margin: 0;
+    padding: 4px 16px 12px;
+    font-size: 13px;
+    color: #8e8e93;
+}
+
+.loadMoreArchivedButton {
+    display: block;
+    width: calc(100% - 32px);
+    margin: 4px 16px;
+    padding: 6px 0;
+    background: transparent;
+    border: 1px solid #e5e5ea;
+    border-radius: 6px;
+    font-size: 13px;
+    color: #535366;
+    cursor: pointer;
+    text-align: center;
+}
+
+.loadMoreArchivedButton:hover {
+    background-color: #f5f5f7;
 }
 
 .conversationItem.selected {
     background-color: var(--background-light-blue);
+    border-color: #a8c4e8;
 }
 
 .conversationItemTitle {
     margin: 0;
-    font-size: 16px;
-    font-weight: 400;
+    font-size: 15px;
+    font-weight: 500;
     line-height: 20px;
     color: #141413;
     overflow: hidden;
@@ -1378,9 +1563,9 @@
 }
 
 .conversationItemDate {
-    font-size: 14px;
-    line-height: 20px;
-    color: #535366;
+    font-size: 12px;
+    line-height: 18px;
+    color: #8e8e93;
     display: block;
 }
 
@@ -1529,6 +1714,22 @@
     line-height: 32px;
     color: var(--text-primary);
     font-family: var(--font-family-sans);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.conversationArchivedBadge {
+    font-size: 12px;
+    font-weight: 500;
+    color: #8e8e93;
+    background: #f2f2f7;
+    border: 1px solid #e5e5ea;
+    border-radius: 4px;
+    padding: 1px 4px;
+    line-height: 14px;
+    margin-top: 2px;
+    letter-spacing: 0;
 }
 
 .conversationSummary {

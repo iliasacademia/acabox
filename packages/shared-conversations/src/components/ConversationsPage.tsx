@@ -111,6 +111,7 @@ export function ConversationsPage({
   const [selectedConversation, setSelectedConversation] = useState<
     Conversation | DraftConversation | null
   >(null);
+  const [isSelectedConversationArchived, setIsSelectedConversationArchived] = useState(false);
   const [draftConversation, setDraftConversation] = useState<DraftConversation | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(
@@ -1288,8 +1289,9 @@ export function ConversationsPage({
             <ConversationsSidebar
               projectId={selectedProject.id}
               selectedConversationId={selectedConversation?.id || null}
-              onSelectConversation={(conv) => {
+              onSelectConversation={(conv, isArchived) => {
                 handleSelectConversation(conv);
+                setIsSelectedConversationArchived(isArchived ?? false);
                 setSelectedView('conversation');
               }}
               onNewConversation={handleNewConversation}
@@ -1342,13 +1344,14 @@ export function ConversationsPage({
               onConversationCreated={handleConversationCreated}
               onConversationUpdate={handleConversationUpdate}
               isReviewInProgress={isReviewInProgress}
-              isInitialLoading={isLoadingFiles || !conversationsLoaded}
+              isInitialLoading={selectedConversation !== null && (isLoadingFiles || !conversationsLoaded)}
               onMessageSent={onMessageSent}
               onMessageReceived={onMessageReceived}
               feedbackFormUrl={feedbackFormUrl}
               pollingOptions={pollingOptions}
               initialOpenDiffModal={initialOpenDiffModal}
               onDiffModalOpened={onDiffModalOpened}
+              isArchived={isSelectedConversationArchived}
             />
           )}
         </div>
