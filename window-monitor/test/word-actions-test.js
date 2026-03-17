@@ -3,14 +3,14 @@
 /**
  * Integration test for word-actions binary.
  *
- * Opens a new Microsoft Word document and tests the JSON stdin/stdout
- * streaming protocol for search, scroll, set_cursor, and insert_text actions.
+ * Opens a new Microsoft Word document and tests the --json one-off mode
+ * for search, scroll, set_cursor, and insert_text actions.
  *
  * Usage:
  *   node window-monitor/test/word-actions-test.js
  */
 
-const { execSync, execFileSync, spawn } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const path = require('path');
 
 const RUST_DIR = path.join(__dirname, '..', 'rust');
@@ -73,69 +73,6 @@ function getWordWindowId() {
     log('yellow', `[WARN] Swift error: ${error.message}`);
     return null;
   }
-}
-
-/**
- * Spawn the word-actions process and provide a helper to send actions.
- */
-function spawnWordActions() {
-  const proc = spawn(WORD_ACTIONS_BIN, [], {
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-
-  let buffer = '';
-  const pending = [];
-
-  proc.stdout.on('data', (data) => {
-    buffer += data.toString();
-    let newlineIdx;
-    while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-      const line = buffer.slice(0, newlineIdx);
-      buffer = buffer.slice(newlineIdx + 1);
-      if (line.trim()) {
-        const resolve = pending.shift();
-        if (resolve) {
-          try {
-            resolve(JSON.parse(line));
-          } catch (e) {
-            resolve({ success: false, error: `Failed to parse response: ${line}` });
-          }
-        }
-      }
-    }
-  });
-
-  proc.stderr.on('data', (data) => {
-    const msg = data.toString().trim();
-    if (msg) log('yellow', `[STDERR] ${msg}`);
-  });
-
-  function sendAction(action, timeoutMs = 10000) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const idx = pending.indexOf(resolve);
-        if (idx !== -1) pending.splice(idx, 1);
-        reject(new Error(`Timeout waiting for response to ${action.action}`));
-      }, timeoutMs);
-
-      pending.push((result) => {
-        clearTimeout(timer);
-        resolve(result);
-      });
-
-      proc.stdin.write(JSON.stringify(action) + '\n');
-    });
-  }
-
-  function close() {
-    proc.stdin.end();
-    return new Promise((resolve) => {
-      proc.on('close', resolve);
-      setTimeout(() => resolve(), 2000);
-    });
-  }
-
-  return { proc, sendAction, close };
 }
 
 /**
@@ -218,17 +155,11 @@ async function main() {
   log('green', `[SETUP] Word window ID: ${wid}`);
 
   // =========================================================================
-  // Spawn the long-running word-actions process
-  // =========================================================================
-  log('blue', '\n[SETUP] Spawning word-actions process...');
-  const wa = spawnWordActions();
-
-  // =========================================================================
   // Test 1: Insert blue text
   // =========================================================================
   log('blue', '\n[TEST 1] Inserting blue text via insert_text action...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'insert_text',
       window_id: wid,
       text: 'Hello from word-actions!',
@@ -270,7 +201,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 3] Inserting red text...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'insert_text',
       window_id: wid,
       text: ' Red text here.',
@@ -308,7 +239,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 4] Searching for "Hello from word-actions!"...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'search',
       window_id: wid,
       text: 'Hello from word-actions!',
@@ -331,7 +262,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 5] Searching for non-existent text...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'search',
       window_id: wid,
       text: 'THIS_TEXT_DOES_NOT_EXIST_IN_DOCUMENT_12345',
@@ -354,7 +285,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 6] Setting cursor position...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'set_cursor',
       window_id: wid,
       position: 0,
@@ -377,7 +308,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 7] Setting cursor with selection range...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'set_cursor',
       window_id: wid,
       position: 0,
@@ -401,7 +332,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 8] Scrolling to position 0...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'scroll',
       window_id: wid,
       position: 0,
@@ -424,7 +355,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 9] Sending unknown action...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'nonexistent_action',
       window_id: wid,
     });
@@ -493,7 +424,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 12] Reading document via read_document action...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'read_document',
       window_id: wid,
     });
@@ -515,7 +446,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 13] search_all for "Hello from word-actions!"...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'search_all',
       window_id: wid,
       text: 'Hello from word-actions!',
@@ -546,7 +477,7 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 14] search_all for non-existent text...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'search_all',
       window_id: wid,
       text: 'THIS_DOES_NOT_EXIST_ANYWHERE_99999',
@@ -570,20 +501,20 @@ async function main() {
   log('blue', '\n[TEST 15] Inserting duplicate text for multi-match test...');
   try {
     // Insert " MARKER_TEXT" twice
-    await wa.sendAction({
+    runOneOff({
       action: 'insert_text',
       window_id: wid,
       text: ' MARKER_TEXT',
     });
     await delay(500);
-    await wa.sendAction({
+    runOneOff({
       action: 'insert_text',
       window_id: wid,
       text: ' MARKER_TEXT',
     });
     await delay(500);
 
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'search_all',
       window_id: wid,
       text: 'MARKER_TEXT',
@@ -608,13 +539,13 @@ async function main() {
   // =========================================================================
   log('blue', '\n[TEST 16] replace_text: replacing first MARKER_TEXT with REPLACED_TEXT...');
   try {
-    const result = await wa.sendAction({
+    const result = runOneOff({
       action: 'replace_text',
       window_id: wid,
       find_text: 'MARKER_TEXT',
       replace_text: 'REPLACED_TEXT',
       occurrence_index: 0,
-    }, 60000);
+    });
 
     if (result.success === true && result.action === 'replace_text' && result.replaced_count === 1) {
       log('green', '[PASS] replace_text replaced 1 occurrence');
@@ -646,10 +577,7 @@ async function main() {
   // =========================================================================
   // Cleanup
   // =========================================================================
-  log('blue', '\n[CLEANUP] Closing word-actions process...');
-  await wa.close();
-
-  log('blue', '[CLEANUP] Closing document without saving...');
+  log('blue', '\n[CLEANUP] Closing document without saving...');
   runAppleScript(
     'tell application "Microsoft Word" to close active document saving no'
   );

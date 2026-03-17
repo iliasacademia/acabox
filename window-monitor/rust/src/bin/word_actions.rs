@@ -3,7 +3,7 @@ use objc2_foundation::NSString;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::ffi::c_void;
-use std::io::{self, BufRead, Write};
+use std::io;
 use std::thread;
 use std::time::Duration;
 use window_monitor_lib::accessibility;
@@ -821,30 +821,6 @@ fn run_one(json_str: &str) {
     println!("{}", response);
 }
 
-fn run_streaming() {
-    let stdin = io::stdin();
-    let stdout = io::stdout();
-    let mut stdout = stdout.lock();
-
-    for line in stdin.lock().lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => break,
-        };
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        let response = match serde_json::from_str::<Action>(&line) {
-            Ok(action) => dispatch(&action),
-            Err(e) => json!({"success": false, "error": format!("Invalid JSON: {}", e)}),
-        };
-
-        writeln!(stdout, "{}", response).ok();
-        stdout.flush().ok();
-    }
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().collect();
 
@@ -858,6 +834,7 @@ fn main() {
             println!("{}", json!({"success": false, "error": "No JSON input provided"}));
         }
     } else {
-        run_streaming();
+        eprintln!("Usage: word-actions --json '<json>'");
+        std::process::exit(1);
     }
 }
