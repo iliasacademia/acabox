@@ -357,6 +357,101 @@ async function main() {
   }
 
   // =========================================================================
+  // Test 9: Save document to temp path for close/open tests
+  // =========================================================================
+  log('blue', '\n[SETUP] Saving document to temp path for close/open tests...');
+  const os = require('os');
+  const fs = require('fs');
+  const tmpDir = os.tmpdir();
+  const tmpDocPath = path.join(tmpDir, `word-actions-test-${Date.now()}.docx`);
+  runAppleScript(
+    `tell application "Microsoft Word" to save as active document file name "${tmpDocPath.replace(/"/g, '\\"')}"`
+  );
+  await delay(2000);
+
+  // =========================================================================
+  // Test 9: close_window
+  // =========================================================================
+  log('blue', '\n[TEST 9] Closing document via close_window action...');
+  try {
+    const result = runOneOff({
+      action: 'close_window',
+      window_id: wid,
+      activate: true,
+      save: false,
+    });
+
+    if (result.success === true && result.action === 'close_window') {
+      log('green', '[PASS] close_window returned success');
+      passed++;
+    } else {
+      log('red', `[FAIL] close_window returned: ${JSON.stringify(result)}`);
+      failed++;
+    }
+  } catch (error) {
+    log('red', `[FAIL] close_window failed: ${error.message}`);
+    failed++;
+  }
+  await delay(1000);
+
+  // =========================================================================
+  // Test 10: open_window
+  // =========================================================================
+  log('blue', `\n[TEST 10] Opening document via open_window action (${tmpDocPath})...`);
+  try {
+    const result = runOneOff({
+      action: 'open_window',
+      file_path: tmpDocPath,
+    });
+
+    if (result.success === true && result.action === 'open_window') {
+      log('green', '[PASS] open_window returned success');
+      passed++;
+    } else {
+      log('red', `[FAIL] open_window returned: ${JSON.stringify(result)}`);
+      failed++;
+    }
+  } catch (error) {
+    log('red', `[FAIL] open_window failed: ${error.message}`);
+    failed++;
+  }
+  await delay(3000);
+
+  // =========================================================================
+  // Test 11: read_document on reopened file
+  // =========================================================================
+  log('blue', '\n[TEST 11] Reading reopened document...');
+  const newWid = (() => {
+    const id = getWordWindowId();
+    return id && id !== 'NOT_FOUND' ? parseInt(id, 10) : null;
+  })();
+
+  if (newWid) {
+    log('green', `[SETUP] Reopened document window ID: ${newWid}`);
+    try {
+      const result = runOneOff({
+        action: 'read_document',
+        window_id: newWid,
+        activate: true,
+      });
+
+      if (result.success === true && result.action === 'read_document' && typeof result.text === 'string' && result.text.includes('Hello from word-actions!')) {
+        log('green', `[PASS] read_document on reopened file returned text (${result.length} chars)`);
+        passed++;
+      } else {
+        log('red', `[FAIL] read_document on reopened file returned: ${JSON.stringify(result).slice(0, 200)}`);
+        failed++;
+      }
+    } catch (error) {
+      log('red', `[FAIL] read_document on reopened file failed: ${error.message}`);
+      failed++;
+    }
+  } else {
+    log('red', '[FAIL] Could not get window ID for reopened document');
+    failed++;
+  }
+
+  // =========================================================================
   // Cleanup
   // =========================================================================
   log('blue', '\n[CLEANUP] Closing document without saving...');
@@ -364,6 +459,9 @@ async function main() {
     'tell application "Microsoft Word" to close active document saving no'
   );
   await delay(500);
+
+  // Clean up temp file
+  try { fs.unlinkSync(tmpDocPath); } catch (_) {}
 
   // =========================================================================
   // Summary

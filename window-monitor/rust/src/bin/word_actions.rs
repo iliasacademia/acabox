@@ -14,6 +14,7 @@ fn default_bundle_id() -> String {
 #[derive(Deserialize)]
 struct Action {
     action: String,
+    #[serde(default)]
     window_id: u32,
     #[serde(default = "default_bundle_id")]
     bundle_id: String,
@@ -22,6 +23,8 @@ struct Action {
     length: Option<i64>,
     #[serde(default)]
     activate: bool,
+    file_path: Option<String>,
+    save: Option<bool>,
 }
 
 fn activate_app(bundle_id: &str) -> Result<(), String> {
@@ -480,6 +483,36 @@ fn handle_save_document(action: &Action) -> Value {
     }
 }
 
+fn handle_close_window(action: &Action) -> Value {
+    let pid = match get_pid_for_bundle(&action.bundle_id) {
+        Some(pid) => pid,
+        None => return json!({"success": false, "action": "close_window", "error": "Could not find PID for app"}),
+    };
+
+    let app_element = match accessibility::create_app_element(pid) {
+        Some(e) => e,
+        None => return json!({"success": false, "action": "close_window", "error": "Failed to create AX app element"}),
+    };
+
+    let save = action.save.unwrap_or(false);
+    match window_monitor_lib::applescript::close_word_document(&app_element, action.window_id, save) {
+        Ok(()) => json!({"success": true, "action": "close_window"}),
+        Err(e) => json!({"success": false, "action": "close_window", "error": e}),
+    }
+}
+
+fn handle_open_window(action: &Action) -> Value {
+    let file_path = match &action.file_path {
+        Some(p) => p,
+        None => return json!({"success": false, "action": "open_window", "error": "Missing 'file_path' field"}),
+    };
+
+    match window_monitor_lib::applescript::open_word_document(file_path) {
+        Ok(()) => json!({"success": true, "action": "open_window"}),
+        Err(e) => json!({"success": false, "action": "open_window", "error": e}),
+    }
+}
+
 fn dispatch(action: &Action) -> Value {
     if action.activate {
         if let Err(e) = activate_and_raise_window(action) {
@@ -494,6 +527,8 @@ fn dispatch(action: &Action) -> Value {
         "read_document" => handle_read_document(action),
         "has_unsaved_changes" => handle_has_unsaved_changes(action),
         "save_document" => handle_save_document(action),
+        "close_window" => handle_close_window(action),
+        "open_window" => handle_open_window(action),
         _ => json!({"success": false, "error": format!("Unknown action: {}", action.action)}),
     }
 }

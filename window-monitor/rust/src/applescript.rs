@@ -111,3 +111,36 @@ pub fn save_word_document(app_element: &SafeAXUIElement, window_id: u32) -> Resu
     run_applescript(script)?;
     Ok(())
 }
+
+/// Close the active Word document.
+/// If `save` is true, saves before closing; otherwise closes without saving.
+pub fn close_word_document(app_element: &SafeAXUIElement, window_id: u32, save: bool) -> Result<(), String> {
+    let focused = accessibility::get_focused_window(app_element)
+        .and_then(|w| accessibility::get_window_id(&w));
+    if focused != Some(window_id) {
+        eprintln!(
+            "close_word_document: target window {} is not focused (focused: {:?})",
+            window_id, focused
+        );
+        return Err("Target window is not focused".to_string());
+    }
+
+    let saving = if save { "yes" } else { "no" };
+    let script = format!(
+        "tell application \"Microsoft Word\" to close active document saving {}",
+        saving
+    );
+    run_applescript(&script)?;
+    Ok(())
+}
+
+/// Open a file in Microsoft Word and activate it.
+pub fn open_word_document(file_path: &str) -> Result<(), String> {
+    let escaped = file_path.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        "tell application \"Microsoft Word\"\nopen \"{}\"\nactivate\nend tell",
+        escaped
+    );
+    run_applescript(&script)?;
+    Ok(())
+}
