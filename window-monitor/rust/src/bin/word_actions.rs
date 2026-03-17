@@ -153,6 +153,59 @@ fn ease_in_out(t: f64) -> f64 {
     }
 }
 
+struct NormalizedText {
+    text: String,
+    /// For each byte index in `text`, the corresponding byte index in the original string.
+    byte_map: Vec<usize>,
+}
+
+/// Normalize whitespace variants so that search matching is tolerant of Word's
+/// Accessibility API returning `\r` instead of `\n`, NBSP instead of space, etc.
+fn normalize_whitespace(input: &str) -> NormalizedText {
+    let mut text = String::with_capacity(input.len());
+    let mut byte_map: Vec<usize> = Vec::with_capacity(input.len());
+    let mut chars = input.char_indices().peekable();
+
+    while let Some((byte_idx, ch)) = chars.next() {
+        match ch {
+            '\r' => {
+                // \r\n → \n  (consume the \n if present)
+                // \r   → \n
+                if chars.peek().map(|&(_, c)| c) == Some('\n') {
+                    chars.next(); // skip the \n
+                }
+                text.push('\n');
+                byte_map.push(byte_idx);
+            }
+            '\x0B' | '\x0C' | '\u{2028}' | '\u{2029}' => {
+                // Vertical tab (soft line break), form feed (page break),
+                // Unicode line/paragraph separator → \n
+                text.push('\n');
+                byte_map.push(byte_idx);
+            }
+            '\u{00A0}' | '\u{202F}' => {
+                // Non-breaking space variants → regular space
+                text.push(' ');
+                byte_map.push(byte_idx);
+            }
+            '\u{00AD}' => {
+                // Soft hyphen → removed entirely
+            }
+            _ => {
+                let start = text.len();
+                text.push(ch);
+                // Map each new byte in `text` back to the corresponding original byte
+                for i in 0..ch.len_utf8() {
+                    byte_map.push(byte_idx + i);
+                }
+                debug_assert_eq!(byte_map.len(), text.len());
+                let _ = start; // suppress unused warning
+            }
+        }
+    }
+    NormalizedText { text, byte_map }
+}
+
 /// Given a search text found at `string_char_pos` in the AXStringForRange output,
 /// find the exact document-coordinate offset by scanning with AXStringForRange.
 fn find_doc_offset_for_string_pos(
@@ -165,6 +218,7 @@ fn find_doc_offset_for_string_pos(
     let estimate =
         (string_char_pos as f64 / total_string_chars as f64 * total_doc_chars as f64) as i64;
 
+    let normalized_search = normalize_whitespace(search_text);
     let scan_radius = 50i64;
     let scan_start = (estimate - scan_radius).max(0);
     let scan_end = (estimate + scan_radius).min(total_doc_chars);
@@ -176,7 +230,8 @@ fn find_doc_offset_for_string_pos(
             break;
         }
         if let Some(chunk) = accessibility::get_string_for_range(text_area, d, chunk_len) {
-            if chunk.starts_with(search_text) {
+            let normalized_chunk = normalize_whitespace(&chunk);
+            if normalized_chunk.text.starts_with(&normalized_search.text) {
                 return Some(d);
             }
         }
@@ -650,30 +705,46 @@ fn handle_search_all(action: &Action) -> Value {
     };
 
     let total_string_chars = full_text.chars().count();
-    let search_len = search_text.chars().count() as i64;
     let context_chars = 30usize;
 
+    // Normalize both texts for matching
+    let norm_full = normalize_whitespace(&full_text);
+    let norm_search = normalize_whitespace(search_text);
     let mut matches = Vec::new();
     let mut start = 0usize;
     let mut index = 0i64;
 
-    while let Some(byte_pos) = full_text[start..].find(search_text.as_str()) {
-        let abs_byte_pos = start + byte_pos;
-        let string_char_pos = full_text[..abs_byte_pos].chars().count();
+    while let Some(byte_pos) = norm_full.text[start..].find(norm_search.text.as_str()) {
+        let norm_abs_byte_pos = start + byte_pos;
+        let norm_match_end_byte = norm_abs_byte_pos + norm_search.text.len();
 
-        // Get surrounding context
-        let ctx_start_char = string_char_pos.saturating_sub(context_chars);
-        let ctx_end_char = (string_char_pos + search_text.chars().count() + context_chars).min(total_string_chars);
+        // Map normalized byte positions back to original byte positions
+        let orig_start_byte = norm_full.byte_map[norm_abs_byte_pos];
+        // For end byte: use the byte_map entry for the last byte of the match,
+        // then find the end of that character in the original string.
+        let orig_end_byte = if norm_match_end_byte < norm_full.byte_map.len() {
+            norm_full.byte_map[norm_match_end_byte]
+        } else {
+            full_text.len()
+        };
+
+        // Character positions in the original text
+        let orig_char_pos = full_text[..orig_start_byte].chars().count();
+        let orig_match_char_len = full_text[orig_start_byte..orig_end_byte].chars().count() as i64;
+
+        // Get surrounding context from original text
+        let ctx_start_char = orig_char_pos.saturating_sub(context_chars);
+        let ctx_end_char = (orig_char_pos + orig_match_char_len as usize + context_chars).min(total_string_chars);
 
         let ctx_start_byte = full_text.char_indices().nth(ctx_start_char).map(|(i, _)| i).unwrap_or(0);
         let ctx_end_byte = full_text.char_indices().nth(ctx_end_char).map(|(i, _)| i).unwrap_or(full_text.len());
         let context = &full_text[ctx_start_byte..ctx_end_byte];
 
-        // Map string position to document offset
+        // Map string position to document offset (use original char pos for estimation)
         let position = find_doc_offset_for_string_pos(
             &text_areas[0],
             search_text,
-            string_char_pos,
+            orig_char_pos,
             total_doc_chars,
             total_string_chars,
         );
@@ -682,13 +753,13 @@ fn handle_search_all(action: &Action) -> Value {
             matches.push(json!({
                 "index": index,
                 "position": pos,
-                "length": search_len,
+                "length": orig_match_char_len,
                 "context": context,
             }));
         }
 
         index += 1;
-        start = abs_byte_pos + search_text.len();
+        start = norm_abs_byte_pos + norm_search.text.len();
     }
 
     json!({"success": true, "action": "search_all", "matches": matches, "total_matches": matches.len()})
@@ -836,5 +907,123 @@ fn main() {
     } else {
         eprintln!("Usage: word-actions --json '<json>'");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_cr_to_lf() {
+        let result = normalize_whitespace("hello\rworld");
+        assert_eq!(result.text, "hello\nworld");
+    }
+
+    #[test]
+    fn test_normalize_crlf_to_lf() {
+        let result = normalize_whitespace("hello\r\nworld");
+        assert_eq!(result.text, "hello\nworld");
+        // "hello" is 5 bytes, \r is at byte 5, \n is at byte 6, "world" starts at byte 7
+        // In normalized: "hello\nworld" — the \n at byte 5 maps to original byte 5 (\r)
+        assert_eq!(result.byte_map[5], 5); // \n maps to \r position
+        // 'w' in normalized is at byte 6, in original at byte 7
+        assert_eq!(result.byte_map[6], 7);
+    }
+
+    #[test]
+    fn test_normalize_nbsp_to_space() {
+        let result = normalize_whitespace("hello\u{00A0}world");
+        assert_eq!(result.text, "hello world");
+        // Space at byte 5 maps to original byte 5 (start of \u{00A0} which is 2 bytes)
+        assert_eq!(result.byte_map[5], 5);
+        // 'w' in normalized is at byte 6, in original at byte 7 (\u{00A0} is 2 bytes)
+        assert_eq!(result.byte_map[6], 7);
+    }
+
+    #[test]
+    fn test_normalize_narrow_nbsp_to_space() {
+        let result = normalize_whitespace("a\u{202F}b");
+        assert_eq!(result.text, "a b");
+    }
+
+    #[test]
+    fn test_normalize_unicode_line_separators() {
+        let result = normalize_whitespace("a\u{2028}b\u{2029}c");
+        assert_eq!(result.text, "a\nb\nc");
+    }
+
+    #[test]
+    fn test_normalize_soft_hyphen_removed() {
+        let result = normalize_whitespace("hel\u{00AD}lo");
+        assert_eq!(result.text, "hello");
+        assert_eq!(result.byte_map.len(), result.text.len());
+    }
+
+    #[test]
+    fn test_normalize_identity() {
+        let input = "hello world\n";
+        let result = normalize_whitespace(input);
+        assert_eq!(result.text, input);
+        // byte_map should be identity
+        for (i, &mapped) in result.byte_map.iter().enumerate() {
+            assert_eq!(i, mapped);
+        }
+    }
+
+    #[test]
+    fn test_normalize_byte_map_multibyte() {
+        // Test with a multi-byte char that is NOT normalized (e.g. é = 2 bytes in UTF-8)
+        let input = "café";
+        let result = normalize_whitespace(input);
+        assert_eq!(result.text, "café");
+        assert_eq!(result.byte_map.len(), result.text.len());
+        // 'c' at 0, 'a' at 1, 'f' at 2, 'é' at bytes 3-4
+        assert_eq!(result.byte_map[0], 0);
+        assert_eq!(result.byte_map[1], 1);
+        assert_eq!(result.byte_map[2], 2);
+        assert_eq!(result.byte_map[3], 3);
+        assert_eq!(result.byte_map[4], 4);
+    }
+
+    #[test]
+    fn test_normalize_mixed() {
+        let input = "a\r\nb\u{00A0}c\u{00AD}d\re";
+        let result = normalize_whitespace(input);
+        // \r\n → \n, \u{00A0} → space, \u{00AD} → removed, \r → \n
+        assert_eq!(result.text, "a\nb cd\ne");
+        assert_eq!(result.byte_map.len(), result.text.len());
+    }
+
+    #[test]
+    fn test_normalize_vertical_tab_to_lf() {
+        let result = normalize_whitespace("hello\x0Bworld");
+        assert_eq!(result.text, "hello\nworld");
+        assert_eq!(result.byte_map[5], 5); // \x0B is 1 byte, maps 1:1
+        assert_eq!(result.byte_map[6], 6);
+    }
+
+    #[test]
+    fn test_normalize_form_feed_to_lf() {
+        let result = normalize_whitespace("hello\x0Cworld");
+        assert_eq!(result.text, "hello\nworld");
+        assert_eq!(result.byte_map[5], 5);
+        assert_eq!(result.byte_map[6], 6);
+    }
+
+    #[test]
+    fn test_normalize_mixed_with_vt_ff() {
+        let input = "a\x0Bb\x0Cc\r\nd\u{00A0}e";
+        let result = normalize_whitespace(input);
+        // \x0B → \n, \x0C → \n, \r\n → \n, \u{00A0} → space
+        assert_eq!(result.text, "a\nb\nc\nd e");
+        assert_eq!(result.byte_map.len(), result.text.len());
+    }
+
+    #[test]
+    fn test_normalize_empty() {
+        let result = normalize_whitespace("");
+        assert_eq!(result.text, "");
+        assert!(result.byte_map.is_empty());
     }
 }
