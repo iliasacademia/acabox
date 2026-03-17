@@ -136,6 +136,25 @@ pub fn close_word_document(app_element: &SafeAXUIElement, window_id: u32, save: 
 
 /// Open a file in Microsoft Word and activate it.
 pub fn open_word_document(file_path: &str) -> Result<(), String> {
+    // Validate the file path to prevent AppleScript injection
+    if file_path.contains('\0') {
+        return Err("File path must not contain null bytes".to_string());
+    }
+    if file_path.contains('\n') || file_path.contains('\r') {
+        return Err("File path must not contain newlines".to_string());
+    }
+    if !file_path.starts_with('/') {
+        return Err("File path must be an absolute path starting with /".to_string());
+    }
+    if file_path.contains("/../") || file_path.ends_with("/..") {
+        return Err("File path must not contain path traversal (/..)".to_string());
+    }
+    let lower = file_path.to_lowercase();
+    if !lower.ends_with(".docx") && !lower.ends_with(".doc") {
+        return Err("File path must have a .doc or .docx extension".to_string());
+    }
+
+    // Defense-in-depth: escape quotes and backslashes for AppleScript string embedding
     let escaped = file_path.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!(
         "tell application \"Microsoft Word\"\nopen \"{}\"\nactivate\nend tell",
