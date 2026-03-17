@@ -4,7 +4,7 @@
  * Integration test for word-actions binary.
  *
  * Opens a new Microsoft Word document and tests the --json one-off mode
- * for search, scroll, set_cursor, and insert_text actions.
+ * for search_all, scroll, set_cursor, and read_document actions.
  *
  * Usage:
  *   node window-monitor/test/word-actions-test.js
@@ -143,6 +143,15 @@ async function main() {
   await delay(1000);
 
   // =========================================================================
+  // Insert test content via AppleScript
+  // =========================================================================
+  log('blue', '[SETUP] Inserting test content via AppleScript...');
+  runAppleScript(
+    'tell application "Microsoft Word" to insert text "Hello from word-actions! This is test content. UNIQUE_MARKER here. And UNIQUE_MARKER again." at end of text object of active document'
+  );
+  await delay(1000);
+
+  // =========================================================================
   // Get the CGWindowID
   // =========================================================================
   log('blue', '[SETUP] Getting Word window ID...');
@@ -155,274 +164,9 @@ async function main() {
   log('green', `[SETUP] Word window ID: ${wid}`);
 
   // =========================================================================
-  // Test 1: Insert blue text
+  // Test 1: read_document
   // =========================================================================
-  log('blue', '\n[TEST 1] Inserting blue text via insert_text action...');
-  try {
-    const result = runOneOff({
-      action: 'insert_text',
-      window_id: wid,
-      text: 'Hello from word-actions!',
-      color: '#0000FF',
-    });
-
-    if (result.success === true && result.action === 'insert_text') {
-      log('green', '[PASS] insert_text returned success');
-      passed++;
-    } else {
-      log('red', `[FAIL] insert_text returned: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] insert_text failed: ${error.message}`);
-    failed++;
-  }
-
-  await delay(500);
-
-  // =========================================================================
-  // Test 2: Verify text was inserted
-  // =========================================================================
-  log('blue', '\n[TEST 2] Verifying inserted text in document...');
-  const docText = runAppleScript(
-    'tell application "Microsoft Word" to get content of text object of active document'
-  );
-
-  if (docText && docText.includes('Hello from word-actions!')) {
-    log('green', '[PASS] Document contains the inserted text');
-    passed++;
-  } else {
-    log('red', `[FAIL] Document text does not contain expected string. Got: "${docText}"`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 3: Insert more text with a different color
-  // =========================================================================
-  log('blue', '\n[TEST 3] Inserting red text...');
-  try {
-    const result = runOneOff({
-      action: 'insert_text',
-      window_id: wid,
-      text: ' Red text here.',
-      color: '#FF0000',
-    });
-
-    if (result.success === true) {
-      log('green', '[PASS] Second insert returned success');
-      passed++;
-    } else {
-      log('red', `[FAIL] Second insert returned: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] Second insert failed: ${error.message}`);
-    failed++;
-  }
-
-  await delay(500);
-
-  const docText2 = runAppleScript(
-    'tell application "Microsoft Word" to get content of text object of active document'
-  );
-
-  if (docText2 && docText2.includes('Red text here.')) {
-    log('green', '[PASS] Document contains the second inserted text');
-    passed++;
-  } else {
-    log('red', `[FAIL] Document missing second text. Got: "${docText2}"`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 4: Search for text
-  // =========================================================================
-  log('blue', '\n[TEST 4] Searching for "Hello from word-actions!"...');
-  try {
-    const result = runOneOff({
-      action: 'search',
-      window_id: wid,
-      text: 'Hello from word-actions!',
-    });
-
-    if (result.success === true && result.action === 'search' && typeof result.position === 'number' && typeof result.length === 'number') {
-      log('green', `[PASS] search found text at position ${result.position}, length ${result.length}`);
-      passed++;
-    } else {
-      log('red', `[FAIL] search returned: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] search failed: ${error.message}`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 5: Search for non-existent text
-  // =========================================================================
-  log('blue', '\n[TEST 5] Searching for non-existent text...');
-  try {
-    const result = runOneOff({
-      action: 'search',
-      window_id: wid,
-      text: 'THIS_TEXT_DOES_NOT_EXIST_IN_DOCUMENT_12345',
-    });
-
-    if (result.success === false && result.action === 'search') {
-      log('green', '[PASS] search correctly returned failure for non-existent text');
-      passed++;
-    } else {
-      log('red', `[FAIL] search should have failed: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] search failed unexpectedly: ${error.message}`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 6: Set cursor position
-  // =========================================================================
-  log('blue', '\n[TEST 6] Setting cursor position...');
-  try {
-    const result = runOneOff({
-      action: 'set_cursor',
-      window_id: wid,
-      position: 0,
-    });
-
-    if (result.success === true && result.action === 'set_cursor') {
-      log('green', '[PASS] set_cursor returned success');
-      passed++;
-    } else {
-      log('red', `[FAIL] set_cursor returned: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] set_cursor failed: ${error.message}`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 7: Set cursor with selection range
-  // =========================================================================
-  log('blue', '\n[TEST 7] Setting cursor with selection range...');
-  try {
-    const result = runOneOff({
-      action: 'set_cursor',
-      window_id: wid,
-      position: 0,
-      length: 5,
-    });
-
-    if (result.success === true && result.action === 'set_cursor') {
-      log('green', '[PASS] set_cursor with range returned success');
-      passed++;
-    } else {
-      log('red', `[FAIL] set_cursor with range returned: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] set_cursor with range failed: ${error.message}`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 8: Scroll to position
-  // =========================================================================
-  log('blue', '\n[TEST 8] Scrolling to position 0...');
-  try {
-    const result = runOneOff({
-      action: 'scroll',
-      window_id: wid,
-      position: 0,
-    });
-
-    if (result.success === true && result.action === 'scroll') {
-      log('green', '[PASS] scroll returned success');
-      passed++;
-    } else {
-      log('red', `[FAIL] scroll returned: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] scroll failed: ${error.message}`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 9: Unknown action
-  // =========================================================================
-  log('blue', '\n[TEST 9] Sending unknown action...');
-  try {
-    const result = runOneOff({
-      action: 'nonexistent_action',
-      window_id: wid,
-    });
-
-    if (result.success === false && result.error && result.error.includes('Unknown action')) {
-      log('green', '[PASS] Unknown action correctly returned error');
-      passed++;
-    } else {
-      log('red', `[FAIL] Unknown action should have errored: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] Unknown action test failed: ${error.message}`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 10: One-off --json mode (search)
-  // =========================================================================
-  log('blue', '\n[TEST 10] One-off --json search...');
-  try {
-    const result = runOneOff({
-      action: 'search',
-      window_id: wid,
-      text: 'Hello from word-actions!',
-    });
-
-    if (result.success === true && result.action === 'search' && typeof result.position === 'number') {
-      log('green', `[PASS] --json search found text at position ${result.position}`);
-      passed++;
-    } else {
-      log('red', `[FAIL] --json search returned: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] --json search failed: ${error.message}`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 11: One-off --json mode (set_cursor)
-  // =========================================================================
-  log('blue', '\n[TEST 11] One-off --json set_cursor...');
-  try {
-    const result = runOneOff({
-      action: 'set_cursor',
-      window_id: wid,
-      position: 0,
-      length: 5,
-    });
-
-    if (result.success === true && result.action === 'set_cursor') {
-      log('green', '[PASS] --json set_cursor returned success');
-      passed++;
-    } else {
-      log('red', `[FAIL] --json set_cursor returned: ${JSON.stringify(result)}`);
-      failed++;
-    }
-  } catch (error) {
-    log('red', `[FAIL] --json set_cursor failed: ${error.message}`);
-    failed++;
-  }
-
-  // =========================================================================
-  // Test 12: read_document
-  // =========================================================================
-  log('blue', '\n[TEST 12] Reading document via read_document action...');
+  log('blue', '\n[TEST 1] Reading document via read_document action...');
   try {
     const result = runOneOff({
       action: 'read_document',
@@ -442,9 +186,9 @@ async function main() {
   }
 
   // =========================================================================
-  // Test 13: search_all (single match)
+  // Test 2: search_all (single match)
   // =========================================================================
-  log('blue', '\n[TEST 13] search_all for "Hello from word-actions!"...');
+  log('blue', '\n[TEST 2] search_all for "Hello from word-actions!"...');
   try {
     const result = runOneOff({
       action: 'search_all',
@@ -473,9 +217,34 @@ async function main() {
   }
 
   // =========================================================================
-  // Test 14: search_all (no matches)
+  // Test 3: search_all (multiple matches)
   // =========================================================================
-  log('blue', '\n[TEST 14] search_all for non-existent text...');
+  log('blue', '\n[TEST 3] search_all for "UNIQUE_MARKER" (should find 2)...');
+  try {
+    const result = runOneOff({
+      action: 'search_all',
+      window_id: wid,
+      text: 'UNIQUE_MARKER',
+    });
+
+    if (result.success === true && Array.isArray(result.matches) && result.matches.length === 2) {
+      log('green', `[PASS] search_all found 2 matches for duplicate text`);
+      log('green', `  Match 0: position=${result.matches[0].position}`);
+      log('green', `  Match 1: position=${result.matches[1].position}`);
+      passed++;
+    } else {
+      log('red', `[FAIL] search_all for duplicates returned: ${JSON.stringify(result).slice(0, 300)}`);
+      failed++;
+    }
+  } catch (error) {
+    log('red', `[FAIL] search_all multi-match failed: ${error.message}`);
+    failed++;
+  }
+
+  // =========================================================================
+  // Test 4: search_all (no matches)
+  // =========================================================================
+  log('blue', '\n[TEST 4] search_all for non-existent text...');
   try {
     const result = runOneOff({
       action: 'search_all',
@@ -496,81 +265,94 @@ async function main() {
   }
 
   // =========================================================================
-  // Test 15: Insert duplicate text for multi-match search_all test
+  // Test 5: set_cursor (position only)
   // =========================================================================
-  log('blue', '\n[TEST 15] Inserting duplicate text for multi-match test...');
+  log('blue', '\n[TEST 5] Setting cursor position...');
   try {
-    // Insert " MARKER_TEXT" twice
-    runOneOff({
-      action: 'insert_text',
-      window_id: wid,
-      text: ' MARKER_TEXT',
-    });
-    await delay(500);
-    runOneOff({
-      action: 'insert_text',
-      window_id: wid,
-      text: ' MARKER_TEXT',
-    });
-    await delay(500);
-
     const result = runOneOff({
-      action: 'search_all',
+      action: 'set_cursor',
       window_id: wid,
-      text: 'MARKER_TEXT',
+      position: 0,
     });
 
-    if (result.success === true && Array.isArray(result.matches) && result.matches.length === 2) {
-      log('green', `[PASS] search_all found 2 matches for duplicate text`);
-      log('green', `  Match 0: position=${result.matches[0].position}`);
-      log('green', `  Match 1: position=${result.matches[1].position}`);
+    if (result.success === true && result.action === 'set_cursor') {
+      log('green', '[PASS] set_cursor returned success');
       passed++;
     } else {
-      log('red', `[FAIL] search_all for duplicates returned: ${JSON.stringify(result).slice(0, 300)}`);
+      log('red', `[FAIL] set_cursor returned: ${JSON.stringify(result)}`);
       failed++;
     }
   } catch (error) {
-    log('red', `[FAIL] multi-match test failed: ${error.message}`);
+    log('red', `[FAIL] set_cursor failed: ${error.message}`);
     failed++;
   }
 
   // =========================================================================
-  // Test 16: replace_text (single occurrence)
+  // Test 6: set_cursor (with selection range)
   // =========================================================================
-  log('blue', '\n[TEST 16] replace_text: replacing first MARKER_TEXT with REPLACED_TEXT...');
+  log('blue', '\n[TEST 6] Setting cursor with selection range...');
   try {
     const result = runOneOff({
-      action: 'replace_text',
+      action: 'set_cursor',
       window_id: wid,
-      find_text: 'MARKER_TEXT',
-      replace_text: 'REPLACED_TEXT',
-      occurrence_index: 0,
+      position: 0,
+      length: 5,
     });
 
-    if (result.success === true && result.action === 'replace_text' && result.replaced_count === 1) {
-      log('green', '[PASS] replace_text replaced 1 occurrence');
+    if (result.success === true && result.action === 'set_cursor') {
+      log('green', '[PASS] set_cursor with range returned success');
       passed++;
     } else {
-      log('red', `[FAIL] replace_text returned: ${JSON.stringify(result)}`);
+      log('red', `[FAIL] set_cursor with range returned: ${JSON.stringify(result)}`);
       failed++;
     }
   } catch (error) {
-    log('red', `[FAIL] replace_text failed: ${error.message}`);
+    log('red', `[FAIL] set_cursor with range failed: ${error.message}`);
     failed++;
   }
 
-  await delay(500);
+  // =========================================================================
+  // Test 7: scroll
+  // =========================================================================
+  log('blue', '\n[TEST 7] Scrolling to position 0...');
+  try {
+    const result = runOneOff({
+      action: 'scroll',
+      window_id: wid,
+      position: 0,
+    });
 
-  // Verify the replacement happened
-  log('blue', '  Verifying replacement...');
-  const docTextAfterReplace = runAppleScript(
-    'tell application "Microsoft Word" to get content of text object of active document'
-  );
-  if (docTextAfterReplace && docTextAfterReplace.includes('REPLACED_TEXT') && docTextAfterReplace.includes('MARKER_TEXT')) {
-    log('green', '[PASS] Document contains REPLACED_TEXT and still has remaining MARKER_TEXT');
-    passed++;
-  } else {
-    log('red', `[FAIL] Document after replace: "${docTextAfterReplace}"`);
+    if (result.success === true && result.action === 'scroll') {
+      log('green', '[PASS] scroll returned success');
+      passed++;
+    } else {
+      log('red', `[FAIL] scroll returned: ${JSON.stringify(result)}`);
+      failed++;
+    }
+  } catch (error) {
+    log('red', `[FAIL] scroll failed: ${error.message}`);
+    failed++;
+  }
+
+  // =========================================================================
+  // Test 8: Unknown action
+  // =========================================================================
+  log('blue', '\n[TEST 8] Sending unknown action...');
+  try {
+    const result = runOneOff({
+      action: 'nonexistent_action',
+      window_id: wid,
+    });
+
+    if (result.success === false && result.error && result.error.includes('Unknown action')) {
+      log('green', '[PASS] Unknown action correctly returned error');
+      passed++;
+    } else {
+      log('red', `[FAIL] Unknown action should have errored: ${JSON.stringify(result)}`);
+      failed++;
+    }
+  } catch (error) {
+    log('red', `[FAIL] Unknown action test failed: ${error.message}`);
     failed++;
   }
 
