@@ -142,6 +142,12 @@ export async function registerBridgeRoutes(
           reply.send({ success: false, error: error.message || 'Unknown error' });
           return;
         }
+      } else if (action === 'showReviewError' && wid) {
+        const message = payload.message;
+        if (typeof message === 'string') {
+          windowMonitorService.setReviewErrorMessage(wid, message);
+          windowMonitorService.openPopupForWindow(wid);
+        }
       } else if (action === 'clearReview' && wid) {
         // Clear review state when user dismisses the overlay
         windowMonitorService.clearSelectedTextReviewState(wid);

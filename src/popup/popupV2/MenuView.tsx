@@ -19,6 +19,7 @@ interface MenuViewProps {
   projectId: number | null;
   fileId: number | null;
   reviewState: ReviewState;
+  reviewErrorMessage?: string | null;
   onClose: () => void;
   onViewReviewFeedback: (notification: NotificationData) => void;
   onViewPreviousFeedback: () => void;
@@ -32,6 +33,7 @@ export const MenuView: React.FC<MenuViewProps> = ({
   projectId,
   fileId,
   reviewState,
+  reviewErrorMessage,
   onClose,
   onViewReviewFeedback,
   onViewPreviousFeedback,
@@ -153,6 +155,13 @@ export const MenuView: React.FC<MenuViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Review error message from review button */}
+      {reviewErrorMessage && (
+        <div style={styles.errorMessage}>
+          {reviewErrorMessage}
+        </div>
+      )}
 
       {/* Error Message (if any) */}
       {showFailedMessage && (

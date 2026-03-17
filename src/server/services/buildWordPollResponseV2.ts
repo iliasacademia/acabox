@@ -184,6 +184,8 @@ export function buildWordPollResponseV2(
     recentReviewNotifications = [inProgressReview, ...recentReviewNotifications.slice(0, 1)];
   }
 
+  const reviewErrorMessage = windowMonitorService.getReviewErrorMessage(wid) ?? undefined;
+
   return {
     projectId: projectFile.project_id,
     projectFileId: projectFile.project_file_id,
@@ -199,5 +201,6 @@ export function buildWordPollResponseV2(
     shouldShowPopupV2,
     shouldShowReviewButton,
     shouldShowReviewStatusOverlay,
+    reviewErrorMessage,
   };
 }

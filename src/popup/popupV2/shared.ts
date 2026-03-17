@@ -18,6 +18,7 @@ export const POPUP_HEIGHT_REVIEW_VIEW = 660;
 export const POPUP_HEIGHT_ENABLE_FEEDBACK = 250;
 export const POPUP_HEIGHT_UNSAVED_DOCUMENT = 190;
 export const REVIEW_STATUS_CARD_HEIGHT = 72;
+export const ERROR_MESSAGE_HEIGHT = 60;
 
 // ─── Type Definitions ───────────────────────────────────────────────
 export type AgentRunStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -68,6 +69,7 @@ export interface WordPollResponse {
   fullStoryConfig?: FullStoryConfig;
   isEnableFeedback?: boolean;
   isUnsavedDocument?: boolean;
+  reviewErrorMessage?: string;
 }
 
 export interface WebSocketMessage {

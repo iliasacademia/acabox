@@ -223,6 +223,7 @@ export class WindowMonitorService {
   private selectedTextContentCache = new Map<string, string>();
   private selectionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private documentTextCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private reviewErrorMessages = new Map<string, string>();
   private lastDesiredState: DesiredWebviewState = {};
   private baseUrl: string | null = null;
   private authToken: string | null = null;
@@ -679,6 +680,21 @@ export class WindowMonitorService {
     return this.selectedTextReviewState;
   }
 
+  setReviewErrorMessage(windowId: string, message: string): void {
+    this.reviewErrorMessages.set(windowId, message);
+    wordPollEventBus.emit('change', 'review-error-changed');
+  }
+
+  getReviewErrorMessage(windowId: string): string | null {
+    return this.reviewErrorMessages.get(windowId) ?? null;
+  }
+
+  clearReviewErrorMessage(windowId: string): void {
+    if (this.reviewErrorMessages.delete(windowId)) {
+      wordPollEventBus.emit('change', 'review-error-changed');
+    }
+  }
+
   scheduleAutoOpenForPath(filePath: string): void {
     // Check if a window tracking this document is already known
     for (const trackedApp of this.state.apps) {
@@ -715,6 +731,7 @@ export class WindowMonitorService {
       if (clearReviewState) {
         this.clearSelectedTextReviewState(windowId);
       }
+      this.reviewErrorMessages.delete(windowId);
       this.pushWebviewState();
     } else {
       logger.info(`[WindowMonitor] Popup for window ${windowId} was not open`);
