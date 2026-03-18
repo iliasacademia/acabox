@@ -48,9 +48,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   // Track previous height to avoid unnecessary resize calls (prevents infinite loop)
-  const previousHeightRef = useRef<number>(POPUP_HEIGHT_NO_NOTIFICATIONS);
+  const previousHeightRef = useRef<number>(0);
   // Track logged notification IDs to avoid stale closure logging issues
   const loggedReviewIdsRef = useRef<Set<number>>(new Set());
+  // Track previous width to avoid unnecessary resize calls (same pattern as previousHeightRef)
+  const previousWidthRef = useRef<number>(0);
 
   // Resize state — persists user-chosen size across gestures
   const accumulatedSizeRef = useRef<{ width: number; height: number } | null>(null);
@@ -71,12 +73,12 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [isWide, setIsWide] = useState(false);
   const narrowWidthRef = useRef<number>(window.innerWidth);
   const WIDE_WIDTH = 700;
-  const widthAnimRef = useRef<number | null>(null);
+  const sizeAnimRef = useRef<number | null>(null);
 
-  // Animate popup width over ~250ms with ease-out
-  const animateWidth = (fromWidth: number, toWidth: number, height: number, onDone?: () => void) => {
-    if (widthAnimRef.current !== null) cancelAnimationFrame(widthAnimRef.current);
-    if (Math.round(fromWidth) === Math.round(toWidth)) {
+  // Animate popup size (width and/or height) over ~250ms with ease-out
+  const animateSize = (fromWidth: number, toWidth: number, fromHeight: number, toHeight: number, onDone?: () => void) => {
+    if (sizeAnimRef.current !== null) cancelAnimationFrame(sizeAnimRef.current);
+    if (Math.round(fromWidth) === Math.round(toWidth) && Math.round(fromHeight) === Math.round(toHeight)) {
       onDone?.();
       return;
     }
@@ -86,16 +88,17 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       const t = Math.min((now - startTime) / duration, 1);
       const eased = 1 - (1 - t) * (1 - t); // ease-out quad
       const w = Math.round(fromWidth + (toWidth - fromWidth) * eased);
-      postBridge('setPopupSize', { width: w, height: Math.round(height) });
+      const h = Math.round(fromHeight + (toHeight - fromHeight) * eased);
+      postBridge('setPopupSize', { width: w, height: h });
       if (t < 1) {
-        widthAnimRef.current = requestAnimationFrame(step);
+        sizeAnimRef.current = requestAnimationFrame(step);
       } else {
-        widthAnimRef.current = null;
-        accumulatedSizeRef.current = { width: toWidth, height };
+        sizeAnimRef.current = null;
+        accumulatedSizeRef.current = { width: toWidth, height: toHeight };
         onDone?.();
       }
     };
-    widthAnimRef.current = requestAnimationFrame(step);
+    sizeAnimRef.current = requestAnimationFrame(step);
   };
 
   // Fetch project status to determine review state
@@ -244,6 +247,14 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
     if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShowPopupV2=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
+      // Cancel any running size animation to stop stale setPopupSize calls
+      if (sizeAnimRef.current !== null) {
+        cancelAnimationFrame(sizeAnimRef.current);
+        sizeAnimRef.current = null;
+      }
+      previousHeightRef.current = 0;
+      previousWidthRef.current = 0;
+      accumulatedSizeRef.current = null;
       postBridge('closeWindow').catch(() => {});
       return;
     }
@@ -307,11 +318,24 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       height += REVIEW_STATUS_CARD_HEIGHT;
     }
 
-    if (height !== previousHeightRef.current) {
-      previousHeightRef.current = height;
-      postBridge('resizeWindow', { height });
+    const width = isWide ? WIDE_WIDTH : narrowWidthRef.current;
+
+    if (height !== previousHeightRef.current || width !== previousWidthRef.current) {
+      const isFirstOpen = !previousHeightRef.current || !previousWidthRef.current;
+      if (isFirstOpen) {
+        // Snap on first open / reopen — don't animate from 0
+        postBridge('setPopupSize', { width, height });
+        previousHeightRef.current = height;
+        previousWidthRef.current = width;
+        accumulatedSizeRef.current = { width, height };
+      } else {
+        animateSize(previousWidthRef.current, width, previousHeightRef.current, height, () => {
+          previousHeightRef.current = height;
+          previousWidthRef.current = width;
+        });
+      }
     }
-  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, pollData]);
+  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, pollData, isWide]);
 
   // Handle clicking on a review notification card - show inline review
   const handleViewReviewFeedback = async (notification: NotificationData) => {
@@ -356,7 +380,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setIsWide(true);
     const currentWidth = accumulatedSizeRef.current?.width ?? window.innerWidth;
     const currentHeight = accumulatedSizeRef.current?.height ?? window.innerHeight;
-    animateWidth(currentWidth, WIDE_WIDTH, currentHeight);
+    animateSize(currentWidth, WIDE_WIDTH, currentHeight, POPUP_HEIGHT_REVIEW_VIEW);
   };
 
   // Handle clicking "View previous feedback" link
@@ -388,7 +412,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     const currentWidth = accumulatedSizeRef.current?.width ?? window.innerWidth;
     const targetWidth = newIsWide ? WIDE_WIDTH : narrowWidthRef.current;
     const currentHeight = accumulatedSizeRef.current?.height ?? window.innerHeight;
-    animateWidth(currentWidth, targetWidth, currentHeight);
+    animateSize(currentWidth, targetWidth, currentHeight, currentHeight);
   };
 
   // Handle clicking "Back" from review view - return to menu
@@ -400,7 +424,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setIsWide(false);
     setViewMode('menu');
     setActiveNotification(null);
-    animateWidth(currentWidth, narrowWidthRef.current, currentHeight, () => {
+    animateSize(currentWidth, narrowWidthRef.current, currentHeight, currentHeight, () => {
       accumulatedSizeRef.current = null;
       postBridge('clearPopupSize', {});
     });
