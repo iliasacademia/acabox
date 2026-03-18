@@ -108,9 +108,26 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
 
         if (!effectiveBounds) return null;
 
+        // Clamp selection bounds to visible content area so button appears
+        // next to the visible portion of the selection, not off-screen.
+        const visibleX = Math.max(effectiveBounds.x, _contentBounds.x);
+        const visibleY = Math.max(effectiveBounds.y, _contentBounds.y);
+        const visibleRight = Math.min(
+          effectiveBounds.x + effectiveBounds.width,
+          _contentBounds.x + _contentBounds.width
+        );
+        const visibleBottom = Math.min(
+          effectiveBounds.y + effectiveBounds.height,
+          _contentBounds.y + _contentBounds.height
+        );
+        const visibleWidth = visibleRight - visibleX;
+        const visibleHeight = visibleBottom - visibleY;
+
+        if (visibleWidth <= 0 || visibleHeight <= 0) return null;
+
         // Right of selection with gap, bottom-aligned
-        const x = effectiveBounds.x + effectiveBounds.width + REVIEW_BUTTON_GAP;
-        const cocoaY = screenHeight - (effectiveBounds.y + effectiveBounds.height);
+        const x = visibleRight + REVIEW_BUTTON_GAP;
+        const cocoaY = screenHeight - visibleBottom;
 
         // Clamp to window bounds
         const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
