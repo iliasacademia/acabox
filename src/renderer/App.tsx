@@ -44,6 +44,9 @@ const App: React.FC = () => {
   const [hasAccessibilityPermission, setHasAccessibilityPermission] = useState<boolean | null>(null);
   const [hasProjects, setHasProjects] = useState<boolean>(false);
   const permissionPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Track whether permission was ever observed as false so we can trigger a restart
+  // when it transitions to true (covers tray-menu grant path and focus-based re-check).
+  const permissionWasFalseRef = useRef(false);
   const [pendingProject, setPendingProject] = useState<Project | null>(null);
 
   // Auto-update banner state
@@ -238,6 +241,21 @@ const App: React.FC = () => {
     window.addEventListener('focus', checkPermission);
     return () => window.removeEventListener('focus', checkPermission);
   }, [isMainWindow, showLogin]);
+
+  // Restart the app when permission transitions from false → true.
+  // This covers: tray-menu grant, focus-based re-check after granting in System Settings,
+  // and any other path where permission becomes true without the in-app polling running.
+  useEffect(() => {
+    if (!isMainWindow) return;
+    if (hasAccessibilityPermission === false) {
+      permissionWasFalseRef.current = true;
+    }
+    if (hasAccessibilityPermission === true && permissionWasFalseRef.current) {
+      window.electronAPI.restartApp().catch((err: unknown) => {
+        console.error('[App] Failed to restart after permission grant:', err);
+      });
+    }
+  }, [isMainWindow, hasAccessibilityPermission]);
 
   const handleNavigationHandled = () => {
     setPendingNavigation(null);
