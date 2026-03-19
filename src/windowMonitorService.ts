@@ -24,7 +24,7 @@ const BUTTON_LEFT_MARGIN = 50;
 const BUTTON_BOTTOM_MARGIN = 30;
 
 const POPUP_WIDTH = 370;
-const POPUP_HEIGHT = 280;
+const POPUP_HEIGHT = 400;
 const POPUP_GAP_ABOVE_BUTTON = 10;
 
 const REVIEW_STATUS_OVERLAY_HEIGHT = 250;
@@ -614,6 +614,8 @@ export class WindowMonitorService {
     const wasOpen = this.popupToggledOpen.has(windowId);
     if (wasOpen) {
       this.popupToggledOpen.delete(windowId);
+      this.popupHeightOverrides.delete(windowId);
+      this.popupSizeOverrides.delete(windowId);
       logger.info(`[WindowMonitor] Popup closed for window ${windowId}`);
     } else {
       this.popupToggledOpen.add(windowId);
@@ -708,6 +710,8 @@ export class WindowMonitorService {
   closePopupForWindow(windowId: string, clearReviewState: boolean = true): void {
     logger.info(`[WindowMonitor] Closing popup for window ${windowId}, clearReviewState=${clearReviewState}`);
     if (this.popupToggledOpen.delete(windowId)) {
+      this.popupHeightOverrides.delete(windowId);
+      this.popupSizeOverrides.delete(windowId);
       if (clearReviewState) {
         this.clearSelectedTextReviewState(windowId);
       }

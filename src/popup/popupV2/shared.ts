@@ -202,7 +202,7 @@ export const styles: { [key: string]: React.CSSProperties } = {
     position: 'relative',
     padding: '24px',
     fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif",
-    maxHeight: '100%',
+    height: '100%',
     overflowY: 'auto',
     display: 'flex',
     flexDirection: 'column',
