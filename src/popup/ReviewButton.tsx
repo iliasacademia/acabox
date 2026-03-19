@@ -9,6 +9,41 @@ const urlParams = new URLSearchParams(window.location.search);
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
 
+function postBridge(action: string, payload: Record<string, unknown> = {}) {
+  return fetch(`${serverUrl}/bridge`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokenParam}`,
+    },
+    body: JSON.stringify({ action, payload, pid: 0, wid: widParam }),
+  });
+}
+
+function getUserFriendlyError(serverMessage: string | undefined, statusCode: number | undefined): string {
+  if (serverMessage) {
+    if (serverMessage.includes('No text selected')) {
+      return 'Could not detect your text selection. Try selecting the text again.';
+    }
+    if (serverMessage.includes('No document text') || serverMessage.includes('Document text is empty')) {
+      return 'Could not read the document text. Try saving and reopening the document.';
+    }
+    if (serverMessage.includes('Cannot read selected text') || serverMessage.includes('Cannot read document text')) {
+      return 'Could not read the text files. Try selecting the text again.';
+    }
+    if (serverMessage.includes('Window not found')) {
+      return 'Lost track of the document window. Try clicking on the document and selecting text again.';
+    }
+    if (serverMessage.includes('No project file mapped')) {
+      return 'This document is not linked to a project. Please share it with Writing Agent first.';
+    }
+  }
+  if (statusCode === 502) {
+    return 'Could not connect to the review service. Please check your internet connection and try again.';
+  }
+  return 'Something went wrong. Please try again.';
+}
+
 interface WordPollResponse {
   isReviewingSelectedText?: boolean;
   shouldShowReviewButton?: boolean;
@@ -190,6 +225,8 @@ const ReviewButton: React.FC = () => {
       const data = await res.json();
       if (!res.ok) {
         console.error('[ReviewButton] Review request failed:', data);
+        const friendlyError = getUserFriendlyError(data?.message, res.status);
+        postBridge('showReviewError', { message: friendlyError }).catch(() => {});
         setIsSubmitting(false);
         return;
       }
@@ -197,6 +234,7 @@ const ReviewButton: React.FC = () => {
       // Keep isSubmitting true - let serverIsReviewing take over
     } catch (err) {
       console.error('[ReviewButton] Review request error:', err);
+      postBridge('showReviewError', { message: 'Could not connect to the review service. Please check your internet connection and try again.' }).catch(() => {});
       setIsSubmitting(false);
     }
   };

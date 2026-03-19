@@ -108,9 +108,26 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
 
         if (!effectiveBounds) return null;
 
+        // Clamp selection bounds to visible content area so button appears
+        // next to the visible portion of the selection, not off-screen.
+        const visibleX = Math.max(effectiveBounds.x, _contentBounds.x);
+        const visibleY = Math.max(effectiveBounds.y, _contentBounds.y);
+        const visibleRight = Math.min(
+          effectiveBounds.x + effectiveBounds.width,
+          _contentBounds.x + _contentBounds.width
+        );
+        const visibleBottom = Math.min(
+          effectiveBounds.y + effectiveBounds.height,
+          _contentBounds.y + _contentBounds.height
+        );
+        const visibleWidth = visibleRight - visibleX;
+        const visibleHeight = visibleBottom - visibleY;
+
+        if (visibleWidth <= 0 || visibleHeight <= 0) return null;
+
         // Right of selection with gap, bottom-aligned
-        const x = effectiveBounds.x + effectiveBounds.width + REVIEW_BUTTON_GAP;
-        const cocoaY = screenHeight - (effectiveBounds.y + effectiveBounds.height);
+        const x = visibleRight + REVIEW_BUTTON_GAP;
+        const cocoaY = screenHeight - visibleBottom;
 
         // Clamp to window bounds
         const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
@@ -223,6 +240,7 @@ export class WindowMonitorService {
   private selectedTextContentCache = new Map<string, string>();
   private selectionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private documentTextCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private reviewErrorMessages = new Map<string, string>();
   private lastDesiredState: DesiredWebviewState = {};
   private baseUrl: string | null = null;
   private authToken: string | null = null;
@@ -679,6 +697,21 @@ export class WindowMonitorService {
     return this.selectedTextReviewState;
   }
 
+  setReviewErrorMessage(windowId: string, message: string): void {
+    this.reviewErrorMessages.set(windowId, message);
+    wordPollEventBus.emit('change', 'review-error-changed');
+  }
+
+  getReviewErrorMessage(windowId: string): string | null {
+    return this.reviewErrorMessages.get(windowId) ?? null;
+  }
+
+  clearReviewErrorMessage(windowId: string): void {
+    if (this.reviewErrorMessages.delete(windowId)) {
+      wordPollEventBus.emit('change', 'review-error-changed');
+    }
+  }
+
   scheduleAutoOpenForPath(filePath: string): void {
     // Check if a window tracking this document is already known
     for (const trackedApp of this.state.apps) {
@@ -715,6 +748,7 @@ export class WindowMonitorService {
       if (clearReviewState) {
         this.clearSelectedTextReviewState(windowId);
       }
+      this.reviewErrorMessages.delete(windowId);
       this.pushWebviewState();
     } else {
       logger.info(`[WindowMonitor] Popup for window ${windowId} was not open`);

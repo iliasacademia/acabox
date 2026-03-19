@@ -23,6 +23,7 @@ import {
   POPUP_HEIGHT_ENABLE_FEEDBACK,
   POPUP_HEIGHT_UNSAVED_DOCUMENT,
   REVIEW_STATUS_CARD_HEIGHT,
+  ERROR_MESSAGE_HEIGHT,
 } from './popupV2/shared';
 import { useWordPollWebSocket } from './popupV2/useWordPollWebSocket';
 import { MenuView, EnableFeedbackView } from './popupV2/MenuView';
@@ -43,6 +44,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isEnableFeedback, setIsEnableFeedback] = useState(false);
   const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
+  const [reviewErrorMessage, setReviewErrorMessage] = useState<string | null>(null);
 
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
@@ -244,6 +246,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
     setIsEnableFeedback(pollData.isEnableFeedback ?? false);
     setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
+    setReviewErrorMessage(pollData.reviewErrorMessage ?? null);
 
     if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShowPopupV2=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
@@ -318,6 +321,10 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       height += REVIEW_STATUS_CARD_HEIGHT;
     }
 
+    if (reviewErrorMessage && viewMode === 'menu') {
+      height += ERROR_MESSAGE_HEIGHT;
+    }
+
     const width = isWide ? WIDE_WIDTH : narrowWidthRef.current;
 
     if (height !== previousHeightRef.current || width !== previousWidthRef.current) {
@@ -335,7 +342,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         });
       }
     }
-  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, pollData, isWide]);
+  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, pollData, isWide, reviewErrorMessage]);
 
   // Handle clicking on a review notification card - show inline review
   const handleViewReviewFeedback = async (notification: NotificationData) => {
@@ -606,6 +613,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 projectId={projectId}
                 fileId={fileId}
                 reviewState={reviewState}
+                reviewErrorMessage={reviewErrorMessage}
                 onClose={handleClose}
                 onViewReviewFeedback={handleViewReviewFeedback}
                 onViewPreviousFeedback={handleViewPreviousFeedback}

@@ -157,6 +157,8 @@ export interface WordPollResponse {
   reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
   /** The selected text being reviewed (if available) */
   selectedText?: string;
+  /** Error message from a failed review attempt */
+  reviewErrorMessage?: string;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
   /** Whether button-v2 webview is visible (from webview manager desired state) */
