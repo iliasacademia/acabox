@@ -198,32 +198,5 @@ export function useConversationsApi() {
         total_count: response.total_count || 0,
       };
     },
-
-    /**
-     * Trigger fact-check for a review
-     * POST /v0/co_scientist/fact_check_review
-     */
-    factCheckReview: async (
-      conversationId: number,
-      reviewId: number,
-      projectId?: number
-    ): Promise<{ success: boolean; message: string }> => {
-      const data: Record<string, unknown> = {
-        conversation_id: conversationId,
-        review_id: reviewId,
-      };
-
-      if (projectId) {
-        data.project_id = projectId;
-        data.parent_type = 'Project';
-      }
-
-      const response = await client.invoke<{ success: boolean; message: string }>({
-        method: 'POST',
-        endpoint: 'v0/co_scientist/fact_check_review',
-        data,
-      });
-      return response;
-    },
   }), [client]);
 }
