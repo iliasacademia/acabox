@@ -36,8 +36,8 @@ const REVIEW_BUTTON_GAP = 10;
 
 const REVIEW_PANEL_WIDTH = 400;
 const REVIEW_PANEL_HEIGHT = 550;
-const REVIEW_PANEL_RIGHT_MARGIN = 30;
-const REVIEW_PANEL_BOTTOM_MARGIN = 30;
+const REVIEW_V3_LEFT_MARGIN = 30;
+const REVIEW_V3_BOTTOM_MARGIN = 30;
 
 const REVIEWING_BUTTON_V2_WIDTH = 320;
 const ENABLE_FEEDBACK_BUTTON_WIDTH = 220;
@@ -175,15 +175,11 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       if (windowId && service['reviewPanelV3Open'].has(windowId)) return null;
       if (!selectionBounds) return null;
 
-      const x = selectionBounds.x + selectionBounds.width + REVIEW_BUTTON_GAP;
-      const cocoaY = screenHeight - (selectionBounds.y + selectionBounds.height);
+      const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
+      const x = _bounds.x + REVIEW_V3_LEFT_MARGIN;
+      const y = cocoaBottomOfWindow + REVIEW_V3_BOTTOM_MARGIN;
 
-      const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
-      const cocoaWindowTop = cocoaWindowBottom + _bounds.height;
-      const clampedX = Math.max(_bounds.x, Math.min(x, _bounds.x + _bounds.width - REVIEW_BUTTON_WIDTH));
-      const clampedY = Math.max(cocoaWindowBottom, Math.min(cocoaY, cocoaWindowTop - REVIEW_BUTTON_HEIGHT));
-
-      return { x: clampedX, y: clampedY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
+      return { x, y, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
     },
   });
 
@@ -195,8 +191,8 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       if (!windowId || !service['reviewPanelV3Open'].has(windowId)) return null;
 
       const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
-      const x = _bounds.x + _bounds.width - REVIEW_PANEL_WIDTH - REVIEW_PANEL_RIGHT_MARGIN;
-      const y = cocoaBottomOfWindow + REVIEW_PANEL_BOTTOM_MARGIN;
+      const x = _bounds.x + REVIEW_V3_LEFT_MARGIN;
+      const y = cocoaBottomOfWindow + REVIEW_V3_BOTTOM_MARGIN;
 
       return { x, y, width: REVIEW_PANEL_WIDTH, height: REVIEW_PANEL_HEIGHT };
     },

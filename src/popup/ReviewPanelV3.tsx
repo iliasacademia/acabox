@@ -105,6 +105,43 @@ const ReviewPanelV3: React.FC = () => {
       });
   }, []);
 
+  // Re-fetch context when panel becomes visible again (hidden, not destroyed, on close)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && widParam) {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (tokenParam) {
+          headers['Authorization'] = `Bearer ${tokenParam}`;
+        }
+
+        fetch(`${serverUrl}/api/review-panel-v3/${widParam}/context`, { headers })
+          .then((res) => res.json())
+          .then((data: PanelContext) => {
+            setContext(data);
+            const now = new Date().toISOString();
+            const draft: DraftConversation = {
+              id: -1,
+              agent_name: 'science_agent',
+              title: null,
+              summary: null,
+              created_at: now,
+              updated_at: now,
+              parent_id: data.projectId ?? null,
+              parent_type: 'Project',
+              selected_text: data.selectedText,
+              isDraft: true,
+            };
+            setConversation(draft);
+          })
+          .catch((err) => {
+            console.error('[ReviewPanelV3] Failed to re-fetch context:', err);
+          });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
   const handleClose = () => {
     postBridge('closeReviewPanelV3').catch((err) => {
       console.error('[ReviewPanelV3] Failed to close panel:', err);

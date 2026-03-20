@@ -55,6 +55,11 @@ export function ConversationDetail({
   initialInputValue,
 }: ConversationDetailProps) {
   const [inputValue, setInputValue] = useState(initialInputValue ?? '');
+
+  useEffect(() => {
+    setInputValue(initialInputValue ?? '');
+  }, [initialInputValue]);
+
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showDiffModal, setShowDiffModal] = useState(false);
