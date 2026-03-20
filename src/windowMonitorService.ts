@@ -34,8 +34,8 @@ const REVIEW_BUTTON_WIDTH = 120;
 const REVIEW_BUTTON_HEIGHT = 46;
 const REVIEW_BUTTON_GAP = 10;
 
-const REVIEW_PANEL_WIDTH = 400;
-const REVIEW_PANEL_HEIGHT = 550;
+const REVIEW_PANEL_WIDTH = 480;
+const REVIEW_PANEL_HEIGHT = 650;
 const REVIEW_V3_LEFT_MARGIN = 30;
 const REVIEW_V3_BOTTOM_MARGIN = 30;
 
@@ -186,6 +186,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
   configs.push({
     keyPrefix: 'review-panel-v3',
     pathSuffix: '/ui/popup/reviewPanelV3/',
+    makeKey: true,
     forApp: (id: string) => id !== 'com.microsoft.Word',
     computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
       if (!windowId || !service['reviewPanelV3Open'].has(windowId)) return null;

@@ -27,6 +27,7 @@ if (typeof document !== 'undefined' && !document.getElementById('review-panel-v3
       bottom: 0;
       background-color: #ffffff;
       padding-top: 8px;
+      padding-bottom: 12px;
       z-index: 1;
     }
   `;
@@ -54,6 +55,8 @@ interface PanelContext {
   selectedText: string | null;
   projectId: number | null;
 }
+
+let draftIdCounter = -1;
 
 const ReviewPanelV3: React.FC = () => {
   const [context, setContext] = useState<PanelContext | null>(null);
@@ -84,7 +87,7 @@ const ReviewPanelV3: React.FC = () => {
 
         const now = new Date().toISOString();
         const draft: DraftConversation = {
-          id: -1,
+          id: draftIdCounter--,
           agent_name: 'science_agent',
           title: null,
           summary: null,
@@ -120,7 +123,7 @@ const ReviewPanelV3: React.FC = () => {
             setContext(data);
             const now = new Date().toISOString();
             const draft: DraftConversation = {
-              id: -1,
+              id: draftIdCounter--,
               agent_name: 'science_agent',
               title: null,
               summary: null,

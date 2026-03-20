@@ -14,6 +14,7 @@ export interface WebviewEntryState {
   visible: boolean;
   frame: WebviewFrame;
   ignoresMouseEvents?: boolean;
+  makeKey?: boolean;
 }
 
 export type DesiredWebviewState = Record<string, WebviewEntryState>;
@@ -22,6 +23,7 @@ export interface WebviewTypeConfig {
   keyPrefix: string;
   pathSuffix: string;
   ignoresMouseEvents?: boolean;
+  makeKey?: boolean;
   forApp?: string | ((identifier: string) => boolean);
   computeFrame: (bounds: WindowBounds, screenHeight: number, contentBounds: WindowBounds | null, selectionBounds: WindowBounds | null, windowId?: string) => WebviewFrame | null;
 }
@@ -64,6 +66,9 @@ export function computeWebviewState(
 
         if (config.ignoresMouseEvents) {
           entry.ignoresMouseEvents = true;
+        }
+        if (config.makeKey) {
+          entry.makeKey = true;
         }
         result[key] = entry;
       }

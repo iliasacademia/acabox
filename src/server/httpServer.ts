@@ -174,6 +174,13 @@ export class AcademiaHttpServer {
       reply.send(response);
     });
 
+    // Debug log endpoint — accepts log messages from webviews and prints to server log
+    this.fastify.post('/api/debug-log', async (request, reply) => {
+      const { message } = request.body as { message: string };
+      logger.info(`[WebviewDebug] ${message}`);
+      reply.send({ ok: true });
+    });
+
     // App info endpoint — used by popup FullStory to detect dev mode
     this.fastify.get('/api/app-info', async (request, reply) => {
       reply.send({

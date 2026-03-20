@@ -273,7 +273,14 @@ export function ConversationDetail({
   // Auto-focus textarea when a draft conversation is active
   useEffect(() => {
     if (isDraft(conversation)) {
-      textareaRef.current?.focus();
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+          el.scrollTop = el.scrollHeight;
+        }
+      });
     }
   }, [conversation?.id]);
 
@@ -844,7 +851,7 @@ export function ConversationDetail({
                     ? "Ask a question about your manuscript..."
                     : "Ask a follow-up question..."
               }
-              rows={3}
+              rows={5}
               disabled={isSending || disableMessageInput}
             />
             <button

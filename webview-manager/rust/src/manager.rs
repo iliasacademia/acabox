@@ -18,6 +18,7 @@ struct WebViewEntry {
     visible: bool,
     frame: WebviewFrame,
     ignores_mouse_events: bool,
+    make_key: bool,
 }
 
 pub struct Manager {
@@ -94,6 +95,10 @@ impl Manager {
             Ok(webview) => {
                 if state.visible {
                     panel.orderFrontRegardless();
+                    if state.make_key {
+                        debug_log!("create: makeKeyWindow id={}", id);
+                        panel.makeKeyWindow();
+                    }
                 }
                 self.entries.insert(
                     id.to_string(),
@@ -104,6 +109,7 @@ impl Manager {
                         visible: state.visible,
                         frame: state.frame.clone(),
                         ignores_mouse_events: state.ignores_mouse_events,
+                        make_key: state.make_key,
                     },
                 );
                 Response::ok("CREATE", id).emit();
@@ -126,14 +132,15 @@ impl Manager {
 
         let frame_changed = existing.frame != desired.frame;
         let visibility_changed = existing.visible != desired.visible;
+        let make_key_changed = existing.make_key != desired.make_key;
 
-        if !frame_changed && !visibility_changed {
+        if !frame_changed && !visibility_changed && !make_key_changed {
             return; // No-op
         }
 
         debug_log!(
-            "update: id={}, frame_changed={}, visibility_changed={} (visible: {}→{})",
-            id, frame_changed, visibility_changed, existing.visible, desired.visible
+            "update: id={}, frame_changed={}, visibility_changed={} (visible: {}→{}), make_key={}",
+            id, frame_changed, visibility_changed, existing.visible, desired.visible, desired.make_key
         );
 
         // Reposition before show to avoid flicker
@@ -157,6 +164,13 @@ impl Manager {
             }
             existing.visible = desired.visible;
         }
+
+        // Make panel key window when requested (e.g. for panels that need keyboard focus)
+        if desired.make_key && desired.visible && (make_key_changed || visibility_changed) {
+            debug_log!("update: makeKeyWindow id={}", id);
+            existing.panel.makeKeyWindow();
+        }
+        existing.make_key = desired.make_key;
     }
 
     fn destroy(&mut self, id: &str) {
