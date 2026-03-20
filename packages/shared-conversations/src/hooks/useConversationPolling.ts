@@ -28,14 +28,6 @@ export interface UseConversationPollingOptions {
    * @param handler - Called to register the trigger listener. Should return a cleanup function.
    */
   onTriggerRefetch?: (handler: () => void) => () => void;
-  /**
-   * Optional callback to receive fact-check progress status strings.
-   * The handler is called with a human-readable string when each fact-check event fires,
-   * and with null to clear the status when the process completes.
-   *
-   * @param handler - Called to register the status listener. Should return a cleanup function.
-   */
-  onFactCheckProgress?: (handler: (status: string | null) => void) => () => void;
 }
 
 export interface UseConversationPollingResult {
@@ -44,7 +36,6 @@ export interface UseConversationPollingResult {
   isPolling: boolean;
   isLoading: boolean;
   error: string | null;
-  factCheckStatus: string | null;
   startPolling: (conversationId: number, projectId: number) => void;
   stopPolling: () => void;
   resetMessages: () => void;
@@ -80,7 +71,6 @@ export function useConversationPolling(
   const [isPolling, setIsPolling] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [factCheckStatus, setFactCheckStatus] = useState<string | null>(null);
 
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const conversationIdRef = useRef<number | null>(null);
@@ -184,7 +174,6 @@ export function useConversationPolling(
       // Clear messages and store IDs
       setMessages([]);
       setConversation(null);
-      setFactCheckStatus(null);
       conversationIdRef.current = conversationId;
       projectIdRef.current = projectId;
 
@@ -262,13 +251,6 @@ export function useConversationPolling(
     return cleanup;
   }, [options, refetch, stopPolling]);
 
-  // Fact-check progress status updates
-  useEffect(() => {
-    if (!options?.onFactCheckProgress) return;
-    const cleanup = options.onFactCheckProgress(setFactCheckStatus);
-    return cleanup;
-  }, [options]);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -282,7 +264,6 @@ export function useConversationPolling(
     isPolling,
     isLoading,
     error,
-    factCheckStatus,
     startPolling,
     stopPolling,
     resetMessages,

@@ -79,7 +79,7 @@ export function ConversationDetail({
   const hasOpenedInitialDiffModal = useRef(false);
 
   const apiClient = useApiClient();
-  const { createConversation, createMessage, factCheckReview } = useConversationsApi();
+  const { createConversation, createMessage } = useConversationsApi();
   const { getFileDiff } = useProjectsApi();
 
   // Open feedback form in browser with conversation ID prefilled
@@ -153,7 +153,7 @@ export function ConversationDetail({
     }
   };
 
-  const { messages, conversation: polledConversation, isPolling, isLoading, error, factCheckStatus, startPolling, stopPolling, resetMessages, initializeMessages, addOptimisticMessage } =
+  const { messages, conversation: polledConversation, isPolling, isLoading, error, startPolling, stopPolling, resetMessages, initializeMessages, addOptimisticMessage } =
     useConversationPolling(pollingOptions);
 
   // Helper to check if conversation is a draft
@@ -529,59 +529,11 @@ export function ConversationDetail({
     }
   };
 
-  // Handle fact-check button click - triggers fact-check API
-  const handleFactCheckClick = async (reviewId: number) => {
-    if (!conversation || isDraft(conversation) || isSending) return;
-
-    setIsSending(true);
-    setSendError(null);
-
-    // Optimistically hide all messages after the first assistant message (previous fact-check
-    // claims and refined review). The backend deletes them; new ones will arrive via polling.
-    const firstAssistantId = messages.find((m) => m.role === 'assistant')?.id;
-    if (firstAssistantId != null) {
-      const idsToHide = new Set(
-        messages.filter((m) => m.id > firstAssistantId).map((m) => m.id)
-      );
-      if (idsToHide.size > 0) setHiddenMessageIds(idsToHide);
-    }
-
-    try {
-      // Call fact-check API
-      await factCheckReview(conversation.id, reviewId, projectId);
-
-      // Update timestamps for tracking
-      const now = new Date();
-      lastUserMessageTime.current = now;
-      conversationViewedAt.current = now;
-
-      // Notify parent to update conversation list
-      onConversationUpdate?.();
-
-      // Start polling to get the fact-check response
-      startPolling(conversation.id, projectId);
-    } catch (err: unknown) {
-      const error = err as { message?: string };
-      setSendError(error.message || 'Failed to initiate fact-check. Please try again.');
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  // Find the first and last assistant messages
-  const firstAssistantMessage = messages.find((m) => m.role === 'assistant');
+  // Find the last assistant message
   const lastAssistantMessage = messages
     .slice()
     .reverse()
     .find((m) => m.role === 'assistant');
-
-  // Check if there's a user message after the first assistant message (for fact-check button)
-  const firstAssistantIndex = firstAssistantMessage
-    ? messages.findIndex((m) => m.id === firstAssistantMessage.id)
-    : -1;
-
-  const hasUserMessageAfterFirstAssistant = firstAssistantIndex >= 0 &&
-    messages.slice(firstAssistantIndex + 1).some((m) => m.role === 'user');
 
   // Check if there's a user message after the last assistant message (for question pills)
   const lastAssistantIndex = lastAssistantMessage
@@ -594,15 +546,12 @@ export function ConversationDetail({
   // Show questions on last assistant message if no user message follows
   const shouldShowQuestions = !hasUserMessageAfterLastAssistant;
 
-  // Show fact-check button on first assistant message if no user message follows it
-  const shouldShowFactCheck = !hasUserMessageAfterFirstAssistant;
-
   // Extract review_id from conversation (check both polledConversation and conversation prop)
   const conversationReviewId = polledConversation?.review_id ?? conversation?.review_id ?? undefined;
 
   // Only keep the last search_files_progress message — each new one supersedes the previous.
   // search_files_result renders as normal HTML and is always kept.
-  // Also filter out any messages optimistically hidden when fact-check was re-triggered.
+  // Also filter out any messages optimistically hidden.
   const visibleMessages = hiddenMessageIds.size > 0
     ? messages.filter((m) => !hiddenMessageIds.has(m.id))
     : messages;
@@ -824,20 +773,13 @@ export function ConversationDetail({
                     message={item.data as Message}
                     onShowDiff={handleShowDiff}
                     onQuestionClick={handleQuestionClick}
-                    onFactCheckClick={handleFactCheckClick}
                     onOpenFile={handleOpenFile}
                     isSearchComplete={hasSearchResult}
-                    conversationReviewId={conversationReviewId}
                     hideContexts={!conversationReviewId}
                     showQuestions={
                       shouldShowQuestions &&
                       lastAssistantMessage &&
                       (item.data as Message).id === lastAssistantMessage.id
-                    }
-                    showFactCheck={
-                      shouldShowFactCheck &&
-                      firstAssistantMessage &&
-                      (item.data as Message).id === firstAssistantMessage.id
                     }
                   />
                 ) : (
@@ -848,21 +790,8 @@ export function ConversationDetail({
           </>
         )}
 
-        {/* Fact-check progress: show status text with spinner when a fact-check is running */}
-        {factCheckStatus && (
-          <div className="conversationMessage assistant">
-            <div className="messageContent">
-              <div className="factCheckProgress">
-                <span className="searchFilesSpinner" aria-hidden="true" />
-                <span>{factCheckStatus}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Show loading indicator when AI is responding or fact-check is in progress.
-            Also shown on refresh when factCheckStatus arrives before polling has started. */}
-        {(isPolling || factCheckStatus) && groupedMessages.length > 0 && lastSearchProgressId === null && (
+        {/* Show loading indicator when AI is responding */}
+        {isPolling && groupedMessages.length > 0 && lastSearchProgressId === null && (
           <div className="conversationMessage assistant">
             <div className="messageContent">
               <div className="messageLoading">

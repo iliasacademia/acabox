@@ -70,55 +70,6 @@ export function ConversationsPageWrapper({
         window.electronAPI.removeListener(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
       };
     },
-    onTriggerRefetch: (handler) => {
-      const eventHandler = (_event: any, coScientistEvent: any) => {
-        if (coScientistEvent.event_name === 'fact_check_completed') {
-          console.log('[ConversationsPageWrapper] Fact check completed, refreshing conversation messages', coScientistEvent.data);
-          handler();
-        }
-      };
-
-      window.electronAPI.on(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
-      return () => {
-        window.electronAPI.removeListener(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
-      };
-    },
-    onFactCheckProgress: (handler) => {
-      const eventHandler = (_event: any, { event_name, data }: any) => {
-        switch (event_name) {
-          case 'claims_extraction_started':
-            handler('Identifying scientific claims…');
-            break;
-          case 'claims_extraction_completed': {
-            const n = data?.claims_count ?? 0;
-            handler(`Found ${n} claim${n === 1 ? '' : 's'}. Starting verification…`);
-            break;
-          }
-          case 'fact_checking_started': {
-            const n = data?.claims_count ?? 0;
-            handler(`Verifying ${n} claim${n === 1 ? '' : 's'}…`);
-            break;
-          }
-          case 'claim_fact_checked':
-            handler(`Verifying claims (${data?.claims_checked} of ${data?.total_claims})…`);
-            break;
-          case 'refine_review_started': {
-            const n = data?.issues_count ?? 0;
-            handler(`Found ${n} issue${n === 1 ? '' : 's'}. Refining your review…`);
-            break;
-          }
-          case 'fact_check_completed':
-          case 'refine_review_completed':
-            handler(null);
-            break;
-        }
-      };
-
-      window.electronAPI.on(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
-      return () => {
-        window.electronAPI.removeListener(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
-      };
-    },
   }), []);
 
   // Create conversations refresh callback that listens for review_completed events
