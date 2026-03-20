@@ -31,15 +31,17 @@ export function useConversationsApi() {
      */
     listConversations: async (
       offset: number = 0,
-      projectId: number,
+      projectId?: number | null,
       limit: number = 20
     ): Promise<ListConversationsResponse> => {
       const params = new URLSearchParams({
         offset: offset.toString(),
         limit: limit.toString(),
-        parent_id: projectId.toString(),
-        parent_type: 'Project',
       });
+      if (projectId) {
+        params.set('parent_id', projectId.toString());
+        params.set('parent_type', 'Project');
+      }
 
       const response = await client.invoke<{
         conversations?: ConversationResponse['conversation'][];
@@ -63,14 +65,16 @@ export function useConversationsApi() {
      */
     getConversation: async (
       conversationId: number,
-      projectId: number
+      projectId?: number | null
     ): Promise<ConversationResponse | null> => {
       try {
         const params = new URLSearchParams({
           conversation_id: conversationId.toString(),
-          parent_id: projectId.toString(),
-          parent_type: 'Project',
         });
+        if (projectId) {
+          params.set('parent_id', projectId.toString());
+          params.set('parent_type', 'Project');
+        }
 
         const response = await client.invoke<ConversationResponse>({
           method: 'GET',
@@ -93,19 +97,22 @@ export function useConversationsApi() {
     createConversation: async (
       content: string,
       agentName: string,
-      projectId: number,
+      projectId?: number | null,
       title?: string
     ): Promise<ConversationDetail> => {
+      const data: Record<string, unknown> = {
+        content,
+        agent_name: agentName,
+        ...(title ? { title } : {}),
+      };
+      if (projectId) {
+        data.parent_id = projectId;
+        data.parent_type = 'Project';
+      }
       const response = await client.invoke<{ conversation: ConversationDetail }>({
         method: 'POST',
         endpoint: 'v0/co_scientist/create_conversation',
-        data: {
-          content,
-          agent_name: agentName,
-          parent_id: projectId,
-          parent_type: 'Project',
-          ...(title ? { title } : {}),
-        },
+        data,
       });
       return response.conversation;
     },
@@ -117,17 +124,20 @@ export function useConversationsApi() {
     createMessage: async (
       conversationId: number,
       content: string,
-      projectId: number
+      projectId?: number | null
     ): Promise<Message> => {
+      const data: Record<string, unknown> = {
+        conversation_id: conversationId,
+        content,
+      };
+      if (projectId) {
+        data.parent_id = projectId;
+        data.parent_type = 'Project';
+      }
       const response = await client.invoke<{ message: Message }>({
         method: 'POST',
         endpoint: 'v0/co_scientist/create_message',
-        data: {
-          conversation_id: conversationId,
-          content,
-          parent_id: projectId,
-          parent_type: 'Project',
-        },
+        data,
       });
       return response.message;
     },

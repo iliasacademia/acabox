@@ -37,12 +37,12 @@ export interface ConversationsPageProps {
     agentName: string,
   ) => void;
   onMessageSent?: (
-    projectId: number,
+    projectId: number | null,
     conversationId: number,
     agentName: string,
   ) => void;
   onMessageReceived?: (
-    projectId: number,
+    projectId: number | null,
     conversationId: number,
     agentName: string,
     durationSeconds?: number,

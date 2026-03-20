@@ -54,7 +54,7 @@ async function sendToBackend(
   action: string,
   source: EventSource,
   metadata: EventMetadata = {},
-  projectId?: number,
+  projectId?: number | null,
 ): Promise<void> {
   try {
     const eventData: Record<string, unknown> = {
@@ -64,7 +64,7 @@ async function sendToBackend(
       metadata,
     };
 
-    if (projectId !== undefined) {
+    if (projectId != null) {
       eventData.project_id = projectId;
     }
 
@@ -189,7 +189,7 @@ export function trackConversationView(
  * Track when user sends a message in conversation
  */
 export function trackConversationMessageSent(
-  projectId: number,
+  projectId: number | null,
   conversationId: number,
   agentName: string,
 ): void {
@@ -206,7 +206,7 @@ export function trackConversationMessageSent(
  * Track when user receives a message from agent
  */
 export function trackConversationMessageReceived(
-  projectId: number,
+  projectId: number | null,
   conversationId: number,
   agentName: string,
   durationSeconds?: number,

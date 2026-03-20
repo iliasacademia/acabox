@@ -148,6 +148,10 @@ export async function registerBridgeRoutes(
           windowMonitorService.setReviewErrorMessage(wid, message);
           windowMonitorService.openPopupForWindow(wid);
         }
+      } else if (action === 'openReviewPanelV3' && wid) {
+        windowMonitorService.openReviewPanelV3(wid);
+      } else if (action === 'closeReviewPanelV3' && wid) {
+        windowMonitorService.closeReviewPanelV3(wid);
       } else if (action === 'clearReview' && wid) {
         // Clear review state when user dismisses the overlay
         windowMonitorService.clearSelectedTextReviewState(wid);

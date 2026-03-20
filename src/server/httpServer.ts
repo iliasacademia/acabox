@@ -27,6 +27,7 @@ import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerBridgeRoutes } from './routes/bridge';
 import { registerSelectedTextReviewRoutes } from './routes/selectedTextReview';
 import { registerReviewRoutes } from './routes/reviewRoutes';
+import { registerReviewPanelV3Routes } from './routes/reviewPanelV3';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
@@ -245,6 +246,9 @@ export class AcademiaHttpServer {
 
     // Register review routes (full paper and diff)
     await registerReviewRoutes(this.fastify);
+
+    // Register review panel V3 routes
+    await registerReviewPanelV3Routes(this.fastify);
 
     // Register navigation routes (if handler is set)
     if (this.navigationHandler) {

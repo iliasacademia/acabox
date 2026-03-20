@@ -34,6 +34,11 @@ const REVIEW_BUTTON_WIDTH = 120;
 const REVIEW_BUTTON_HEIGHT = 46;
 const REVIEW_BUTTON_GAP = 10;
 
+const REVIEW_PANEL_WIDTH = 400;
+const REVIEW_PANEL_HEIGHT = 550;
+const REVIEW_PANEL_RIGHT_MARGIN = 30;
+const REVIEW_PANEL_BOTTOM_MARGIN = 30;
+
 const REVIEWING_BUTTON_V2_WIDTH = 320;
 const ENABLE_FEEDBACK_BUTTON_WIDTH = 220;
 
@@ -165,7 +170,9 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     keyPrefix: 'review-button-v3',
     pathSuffix: '/ui/popup/reviewButtonV3/',
     forApp: (id: string) => id !== 'com.microsoft.Word',
-    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds) => {
+    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
+      // Hide button when panel is open
+      if (windowId && service['reviewPanelV3Open'].has(windowId)) return null;
       if (!selectionBounds) return null;
 
       const x = selectionBounds.x + selectionBounds.width + REVIEW_BUTTON_GAP;
@@ -177,6 +184,21 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       const clampedY = Math.max(cocoaWindowBottom, Math.min(cocoaY, cocoaWindowTop - REVIEW_BUTTON_HEIGHT));
 
       return { x: clampedX, y: clampedY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
+    },
+  });
+
+  configs.push({
+    keyPrefix: 'review-panel-v3',
+    pathSuffix: '/ui/popup/reviewPanelV3/',
+    forApp: (id: string) => id !== 'com.microsoft.Word',
+    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
+      if (!windowId || !service['reviewPanelV3Open'].has(windowId)) return null;
+
+      const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
+      const x = _bounds.x + _bounds.width - REVIEW_PANEL_WIDTH - REVIEW_PANEL_RIGHT_MARGIN;
+      const y = cocoaBottomOfWindow + REVIEW_PANEL_BOTTOM_MARGIN;
+
+      return { x, y, width: REVIEW_PANEL_WIDTH, height: REVIEW_PANEL_HEIGHT };
     },
   });
 
@@ -264,6 +286,9 @@ export class WindowMonitorService {
   private selectionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private documentTextCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private reviewErrorMessages = new Map<string, string>();
+  private reviewPanelV3Open: Set<string> = new Set();
+  private reviewPanelV3SelectedText = new Map<string, string>();
+  private lastSelectedText: string | null = null;
   private lastDesiredState: DesiredWebviewState = {};
   private baseUrl: string | null = null;
   private authToken: string | null = null;
@@ -373,10 +398,13 @@ export class WindowMonitorService {
 
       // Cache selected text content in memory when it changes (same pattern as documentTextContentCache).
       if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.length > 0) {
+        logger.info(`[WindowMonitor] WINDOW_TEXT_SELECTED wid=${event.window.id} filePath=${event.selection.filePath} selectionLength=${event.selection.length}`);
         try {
           const content = readFileSync(event.selection.filePath, 'utf-8');
+          logger.info(`[WindowMonitor] selectedTextContentCache set wid=${event.window.id} contentLength=${content.length}`);
           if (content.length > 0) {
             this.selectedTextContentCache.set(event.window.id, content);
+            this.lastSelectedText = content;
           }
         } catch (err) {
           logger.error(`[WindowMonitorService] Failed to cache selected text for window ${event.window.id}:`, err);
@@ -435,6 +463,8 @@ export class WindowMonitorService {
         this.buttonV2WidthOverrides.delete(event.window.id);
         this.selectedTextReviewState.delete(event.window.id);
         this.lastSelectionBounds.delete(event.window.id);
+        this.reviewPanelV3Open.delete(event.window.id);
+        this.reviewPanelV3SelectedText.delete(event.window.id);
         // Delay documentTextContentCache cleanup by 24h so the cache survives
         // window destroy/recreate cycles (the review button needs it).
         const cleanupTimer = setTimeout(() => {
@@ -533,6 +563,19 @@ export class WindowMonitorService {
           desiredState[key].frame.height = Math.max(desiredState[key].frame.height, sizeOverride.height);
         }
       }
+      if (key.startsWith('review-panel-v3-')) {
+        const windowId = key.slice('review-panel-v3-'.length);
+        const isPanelOpen = this.reviewPanelV3Open.has(windowId);
+
+        if (isPanelOpen && !appIsFocused) {
+          this.reviewPanelV3Open.delete(windowId);
+          this.reviewPanelV3SelectedText.delete(windowId);
+          desiredState[key].visible = false;
+          logger.info(`[WindowMonitor] Review panel ${key}: auto-closed (app unfocused)`);
+        } else {
+          desiredState[key].visible = isPanelOpen;
+        }
+      }
       if (key.startsWith('button-v2-')) {
         const windowId = key.slice('button-v2-'.length);
         const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
@@ -619,7 +662,7 @@ export class WindowMonitorService {
     // Diff visibility for button-v2 and popup-v2 entries; emit if any changed
     let visibilityChanged = false;
     for (const key of Object.keys(desiredState)) {
-      if (key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-')) {
+      if (key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-') || key.startsWith('review-panel-v3-')) {
         const newVisible = desiredState[key]?.visible ?? false;
         const oldVisible = this.lastDesiredState[key]?.visible ?? false;
         if (newVisible !== oldVisible) {
@@ -631,7 +674,7 @@ export class WindowMonitorService {
     // Also check keys that disappeared (window destroyed)
     if (!visibilityChanged) {
       for (const key of Object.keys(this.lastDesiredState)) {
-        if ((key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-')) && !desiredState[key]) {
+        if ((key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-') || key.startsWith('review-panel-v3-')) && !desiredState[key]) {
           if (this.lastDesiredState[key]?.visible) {
             visibilityChanged = true;
             break;
@@ -826,6 +869,33 @@ export class WindowMonitorService {
     return null;
   }
 
+  openReviewPanelV3(windowId: string): void {
+    // Snapshot selected text: try per-window cache first, fall back to global last selection
+    const selectedText = this.selectedTextContentCache.get(windowId) ?? this.lastSelectedText;
+    logger.info(`[WindowMonitor] openReviewPanelV3 wid=${windowId} cachedSelectedText=${selectedText ? `"${selectedText.substring(0, 80)}..."` : 'null'} cacheKeys=[${[...this.selectedTextContentCache.keys()].join(',')}]`);
+    if (selectedText) {
+      this.reviewPanelV3SelectedText.set(windowId, selectedText);
+    }
+    this.reviewPanelV3Open.add(windowId);
+    logger.info(`[WindowMonitor] Review panel V3 opened for window ${windowId}`);
+    this.pushWebviewState();
+  }
+
+  closeReviewPanelV3(windowId: string): void {
+    this.reviewPanelV3Open.delete(windowId);
+    this.reviewPanelV3SelectedText.delete(windowId);
+    logger.info(`[WindowMonitor] Review panel V3 closed for window ${windowId}`);
+    this.pushWebviewState();
+  }
+
+  isReviewPanelV3Open(windowId: string): boolean {
+    return this.reviewPanelV3Open.has(windowId);
+  }
+
+  getReviewPanelV3SelectedText(windowId: string): string | null {
+    return this.reviewPanelV3SelectedText.get(windowId) ?? this.lastSelectedText;
+  }
+
   stop(): void {
     if (this.windowMonitorProcess) {
       logger.info('[WindowMonitorService] Stopping window-monitor');
@@ -844,6 +914,9 @@ export class WindowMonitorService {
     this.popupSizeOverrides.clear();
     this.buttonV2WidthOverrides.clear();
     this.selectedTextReviewState.clear();
+    this.reviewPanelV3Open.clear();
+    this.reviewPanelV3SelectedText.clear();
+    this.lastSelectedText = null;
     this.lastDesiredState = {};
     this.documentTextContentCache.clear();
     this.selectedTextContentCache.clear();
