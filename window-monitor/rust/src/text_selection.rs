@@ -43,20 +43,30 @@ pub struct TextSelectionTracker {
     last_selected_text: Option<String>,
     last_bounds: Option<(f64, f64, f64, f64)>,
     temp_dir: PathBuf,
+    bundle_id: String,
     // Debounce state for selection bounds movement
     bounds_reposition_active: bool,
     bounds_last_change: Option<Instant>,
 }
 
 impl TextSelectionTracker {
-    pub fn new(temp_dir: PathBuf) -> Self {
+    pub fn new(temp_dir: PathBuf, bundle_id: String) -> Self {
         Self {
             last_selected_text: None,
             last_bounds: None,
             temp_dir,
+            bundle_id,
             bounds_reposition_active: false,
             bounds_last_change: None,
         }
+    }
+
+    pub fn set_bundle_id(&mut self, bundle_id: String) {
+        self.bundle_id = bundle_id;
+    }
+
+    fn is_word(&self) -> bool {
+        self.bundle_id == "com.microsoft.Word"
     }
 
     /// Poll for text selection changes on the given app element.
@@ -66,21 +76,28 @@ impl TextSelectionTracker {
         app_element: &SafeAXUIElement,
         focused_window_id: u32,
     ) -> Option<TextSelectionChange> {
-        // Try multi-page approach: collect selected text from all AXTextArea elements.
-        // This handles Word documents where each page is a separate AXTextArea.
-        let (current_text, text_areas) =
-            self.collect_selected_text_from_all_pages(app_element, focused_window_id);
-
-        // Fallback: if multi-page approach returned nothing, try focused element
-        let (current_text, bounds_source) = if current_text.is_some() {
-            (current_text, BoundsSource::AllPages(text_areas))
+        let (current_text, bounds_source) = if self.is_word() {
+            // Word: multi-page approach (each page is a separate AXTextArea)
+            let (text, text_areas) =
+                self.collect_selected_text_from_all_pages(app_element, focused_window_id);
+            if text.is_some() {
+                (text, BoundsSource::AllPages(text_areas))
+            } else {
+                // Fallback to focused element with AXTextArea role check
+                let focused = accessibility::get_focused_ui_element(app_element);
+                let text = focused
+                    .as_ref()
+                    .filter(|f| accessibility::get_role(f).as_deref() == Some("AXTextArea"))
+                    .and_then(|f| accessibility::get_selected_text(f));
+                let text = text.filter(|s| !s.is_empty());
+                (text, BoundsSource::Focused(focused))
+            }
         } else {
+            // Non-Word apps: query focused element directly (no role filter)
             let focused = accessibility::get_focused_ui_element(app_element);
             let text = focused
                 .as_ref()
-                .filter(|f| accessibility::get_role(f).as_deref() == Some("AXTextArea"))
                 .and_then(|f| accessibility::get_selected_text(f));
-            // Normalize: treat empty string the same as None
             let text = text.filter(|s| !s.is_empty());
             (text, BoundsSource::Focused(focused))
         };
@@ -168,14 +185,19 @@ impl TextSelectionTracker {
             return None;
         }
 
-        // Try multi-page bounds first, then fall back to focused element
-        let current_bounds = self
-            .get_all_page_text_areas(app_element, focused_window_id)
-            .and_then(|text_areas| Self::query_bounds_from_text_areas(&text_areas))
-            .or_else(|| {
-                accessibility::get_focused_ui_element(app_element)
-                    .and_then(|f| Self::query_bounds(&f))
-            });
+        let current_bounds = if self.is_word() {
+            // Word: try multi-page bounds first, then fall back to focused element
+            self.get_all_page_text_areas(app_element, focused_window_id)
+                .and_then(|text_areas| Self::query_bounds_from_text_areas(&text_areas))
+                .or_else(|| {
+                    accessibility::get_focused_ui_element(app_element)
+                        .and_then(|f| Self::query_bounds(&f))
+                })
+        } else {
+            // Non-Word: query focused element directly
+            accessibility::get_focused_ui_element(app_element)
+                .and_then(|f| Self::query_bounds(&f))
+        };
 
         if let (Some(last), Some(current)) = (self.last_bounds, current_bounds) {
             let moved = (current.0 - last.0).abs() > BOUNDS_TOLERANCE

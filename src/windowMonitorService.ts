@@ -45,6 +45,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'button-v2',
       pathSuffix: '/ui/popup/academiaNotificationsButtonV2/',
+      forApp: 'com.microsoft.Word',
       computeFrame: (bounds: WindowBounds, screenHeight: number) => {
         const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
         return {
@@ -58,6 +59,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'review-status-overlay',
       pathSuffix: '/ui/popup/reviewStatusOverlay/',
+      forApp: 'com.microsoft.Word',
       computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
         // Don't show if popup is open (they overlap)
         if (windowId && service['popupToggledOpen'].has(windowId)) {
@@ -83,6 +85,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'popup-v2',
       pathSuffix: '/ui/popup/academiaNotificationsV2/',
+      forApp: 'com.microsoft.Word',
       computeFrame: (bounds: WindowBounds, screenHeight: number) => {
         const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
         const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
@@ -97,6 +100,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'review-button',
       pathSuffix: '/ui/popup/reviewButton/',
+      forApp: 'com.microsoft.Word',
       computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
         if (!_contentBounds) return null;
 
@@ -156,6 +160,25 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       },
     },
   ];
+
+  configs.push({
+    keyPrefix: 'review-button-v3',
+    pathSuffix: '/ui/popup/reviewButtonV3/',
+    forApp: (id: string) => id !== 'com.microsoft.Word',
+    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds) => {
+      if (!selectionBounds) return null;
+
+      const x = selectionBounds.x + selectionBounds.width + REVIEW_BUTTON_GAP;
+      const cocoaY = screenHeight - (selectionBounds.y + selectionBounds.height);
+
+      const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
+      const cocoaWindowTop = cocoaWindowBottom + _bounds.height;
+      const clampedX = Math.max(_bounds.x, Math.min(x, _bounds.x + _bounds.width - REVIEW_BUTTON_WIDTH));
+      const clampedY = Math.max(cocoaWindowBottom, Math.min(cocoaY, cocoaWindowTop - REVIEW_BUTTON_HEIGHT));
+
+      return { x: clampedX, y: clampedY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
+    },
+  });
 
   if (DEBUG_CONTENT_BOUNDS_OVERLAY) {
     configs.push({
@@ -257,7 +280,7 @@ export class WindowMonitorService {
     logger.info('[WindowMonitorService] Starting webview-manager:', wvBin);
 
     // Spawn window-monitor
-    this.windowMonitorProcess = spawn(wmBin, ['--bundle-id', 'com.microsoft.Word', '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'], {
+    this.windowMonitorProcess = spawn(wmBin, ['--track-text-selection', '--track-document-text'], {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -478,25 +501,25 @@ export class WindowMonitorService {
     const screenHeight = screen.getPrimaryDisplay().bounds.height;
     const desiredState = computeWebviewState(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
 
-    // Auto-close popups when Word loses focus
-    const wordApp = this.state.apps.find(app => app.identifier === 'com.microsoft.Word');
-    const wordIsFocused = wordApp?.isFocused ?? false;
+    // Auto-close popups when app loses focus
+    const focusedApp = this.state.apps.find(app => app.isFocused);
+    const appIsFocused = !!focusedApp;
 
     for (const key of Object.keys(desiredState)) {
       if (key.startsWith('popup-v2-')) {
         const windowId = key.slice('popup-v2-'.length);
         const isToggledOpen = this.popupToggledOpen.has(windowId);
 
-        // Auto-close popup if Word loses focus
-        if (isToggledOpen && !wordIsFocused) {
+        // Auto-close popup if app loses focus
+        if (isToggledOpen && !appIsFocused) {
           this.popupToggledOpen.delete(windowId);
           desiredState[key].visible = false;
-          logger.info(`[WindowMonitor] Popup ${key}: auto-closed (Word unfocused)`);
+          logger.info(`[WindowMonitor] Popup ${key}: auto-closed (app unfocused)`);
         } else {
-          // If toggled open and Word is focused, show. Otherwise hide.
+          // If toggled open and app is focused, show. Otherwise hide.
           desiredState[key].visible = isToggledOpen;
           if (isToggledOpen) {
-            logger.info(`[WindowMonitor] Popup ${key}: showing (toggled=true, wordFocused=${wordIsFocused})`);
+            logger.info(`[WindowMonitor] Popup ${key}: showing (toggled=true, appFocused=${appIsFocused})`);
           }
         }
 
