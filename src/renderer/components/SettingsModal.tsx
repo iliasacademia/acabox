@@ -7,12 +7,13 @@ import './SettingsModal.css';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onViewConversations?: () => void;
 }
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_POLL_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onViewConversations }) => {
   const { preferences: currentPreferences, updatePreferences } = useUserPreferences();
   const [autoDiffReview, setAutoDiffReview] = useState(currentPreferences.auto_diff_review);
   const [saving, setSaving] = useState(false);
@@ -302,6 +303,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                       onClick={() => window.electronAPI.invoke(IPC_CHANNELS.SET_ALL_APPS_MONITOR_ENABLED, !allAppsMonitorEnabled)}
                     >
                       {allAppsMonitorEnabled ? 'Disable and Restart' : 'Enable and Restart'}
+                    </button>
+                  </div>
+                </div>
+                <div className="settingItem zoteroSettingItem">
+                  <div className="settingContent">
+                    <div className="settingLabel">All Apps Conversations</div>
+                    <div className="settingDescription">
+                      View conversations from the all apps monitor
+                    </div>
+                  </div>
+                  <div className="zoteroAction">
+                    <button
+                      className="zoteroButton zoteroButtonConnect"
+                      onClick={() => { onViewConversations?.(); }}
+                    >
+                      View Conversations
                     </button>
                   </div>
                 </div>

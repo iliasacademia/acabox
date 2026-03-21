@@ -148,7 +148,7 @@ export function useConversationsApi() {
      */
     archiveConversation: async (
       conversationId: number,
-      _projectId: number
+      _projectId?: number | null
     ): Promise<void> => {
       await client.invoke<unknown>({
         method: 'POST',
@@ -166,7 +166,7 @@ export function useConversationsApi() {
      */
     unarchiveConversation: async (
       conversationId: number,
-      _projectId: number
+      _projectId?: number | null
     ): Promise<void> => {
       await client.invoke<unknown>({
         method: 'POST',
@@ -183,15 +183,17 @@ export function useConversationsApi() {
      */
     listArchivedConversations: async (
       offset: number = 0,
-      projectId: number,
+      projectId?: number | null,
       limit: number = 20
     ): Promise<ListConversationsResponse> => {
       const params = new URLSearchParams({
         offset: offset.toString(),
         limit: limit.toString(),
-        project_id: projectId.toString(),
         archived: 'true',
       });
+      if (projectId) {
+        params.set('project_id', projectId.toString());
+      }
 
       const response = await client.invoke<{
         conversations?: ConversationResponse['conversation'][];

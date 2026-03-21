@@ -158,7 +158,7 @@ function ConversationSection({
 }
 
 interface ConversationsSidebarProps {
-  projectId: number;
+  projectId?: number | null;
   selectedConversationId: number | null;
   onSelectConversation: (conversation: Conversation, isArchived?: boolean) => void;
   onNewConversation: () => void;
@@ -350,7 +350,7 @@ export function ConversationsSidebar({
   };
 
   const handleSelectConversation = (conversation: Conversation) => {
-    if (onConversationView) {
+    if (onConversationView && projectId) {
       onConversationView(projectId, conversation.id, conversation.agent_name);
     }
     const isArchived = archivedConversations.some((c) => c.id === conversation.id);

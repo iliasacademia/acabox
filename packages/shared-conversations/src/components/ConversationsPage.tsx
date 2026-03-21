@@ -20,6 +20,7 @@ import { IPC_CHANNELS } from "../../../../src/shared/types";
 
 export interface ConversationsPageProps {
   selectedProject: Project | null;
+  nonProjectConversations?: boolean;
   onBack?: () => void;
   initialConversationId?: number | null;
   initialView?: 'conversation' | 'supporting-materials';
@@ -76,6 +77,7 @@ export interface ConversationsPageProps {
 
 export function ConversationsPage({
   selectedProject,
+  nonProjectConversations,
   onBack,
   initialConversationId,
   onConversationNavigated,
@@ -807,7 +809,7 @@ export function ConversationsPage({
       created_at: '',
       updated_at: '',
       parent_id: selectedProject?.id || null,
-      parent_type: "Project",
+      parent_type: selectedProject ? "Project" : null,
       isDraft: true,
     };
     setDraftConversation(draft);
@@ -1081,7 +1083,7 @@ export function ConversationsPage({
     return "starting...";
   };
 
-  if (!selectedProject) {
+  if (!selectedProject && !nonProjectConversations) {
     return (
       <div className="conversationsPage empty">
         <div className="emptyState">
@@ -1108,7 +1110,7 @@ export function ConversationsPage({
               </svg>
             </button>
           )}
-          {manuscriptFile && (
+          {manuscriptFile ? (
             <>
               <h2 className="docName">
                 <span className="docNameText">{manuscriptFile.file_name}</span>
@@ -1120,7 +1122,11 @@ export function ConversationsPage({
                 </span>
               </h2>
             </>
-          )}
+          ) : nonProjectConversations ? (
+            <h2 className="docName">
+              <span className="docNameText">All Conversations</span>
+            </h2>
+          ) : null}
         </div>
         <div className="topBarRight">
           {manuscriptFile && (
@@ -1287,7 +1293,7 @@ export function ConversationsPage({
               </button>
             </div>
             <ConversationsSidebar
-              projectId={selectedProject.id}
+              projectId={nonProjectConversations ? undefined : selectedProject!.id}
               selectedConversationId={selectedConversation?.id || null}
               onSelectConversation={(conv, isArchived) => {
                 handleSelectConversation(conv);
@@ -1303,18 +1309,18 @@ export function ConversationsPage({
               onRegisterRefresh={onRegisterConversationsRefresh}
               collapsed={collapsed}
               onToggleCollapsed={toggleCollapsed}
-              supportingMaterialsCount={supportingMaterialsTotalCount}
-              supportingMaterialsLoading={supportingMaterialsLoading}
+              supportingMaterialsCount={nonProjectConversations ? 0 : supportingMaterialsTotalCount}
+              supportingMaterialsLoading={nonProjectConversations ? false : supportingMaterialsLoading}
               selectedView={selectedView}
-              onSelectSupportingMaterials={() => setSelectedView('supporting-materials')}
+              onSelectSupportingMaterials={nonProjectConversations ? undefined : () => setSelectedView('supporting-materials')}
               isReviewInProgress={isReviewInProgress}
             />
           </div>
 
           {/* Main Content - supporting materials, review-in-progress placeholder, or conversation */}
-          {selectedView === 'supporting-materials' ? (
+          {selectedView === 'supporting-materials' && !nonProjectConversations ? (
             <SupportingMaterialsContent
-              projectId={selectedProject.id}
+              projectId={selectedProject!.id}
               onMaterialsChange={refreshSupportingMaterials}
               fileUploadEvent={fileUploadEvent}
               zoteroSyncEvent={zoteroSyncEvent}
@@ -1338,7 +1344,7 @@ export function ConversationsPage({
           ) : (
             <ConversationDetail
               conversation={selectedConversation}
-              projectId={selectedProject.id}
+              projectId={nonProjectConversations ? null : selectedProject!.id}
               primaryManuscriptId={manuscriptFile?.id}
               manuscriptFile={manuscriptFile}
               onConversationCreated={handleConversationCreated}
