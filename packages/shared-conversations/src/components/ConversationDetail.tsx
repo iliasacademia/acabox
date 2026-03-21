@@ -195,7 +195,7 @@ export function ConversationDetail({
     // Draft → real transition: polling was already started in handleSendMessage
     // and messages (including the optimistic user message) are already in state.
     // Just update tracking refs — do NOT call initializeMessages (it would wipe messages).
-    if (prevId === -1) {
+    if (prevId !== null && prevId < 0) {
       conversationViewedAt.current = new Date();
       lastUserMessageTime.current = null;
       return;
