@@ -15,10 +15,6 @@ path = "src/bin/window_monitor.rs"
 name = "word-actions"
 path = "src/bin/word_actions.rs"
 
-[[bin]]
-name = "selection-monitor"
-path = "src/bin/selection_monitor.rs"
-
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
@@ -34,4 +30,3 @@ objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSWorkspace", "
 block2 = "0.6"
 signal-hook = "0.3"
 libc = "0.2"
-ureq = { version = "3", features = ["json"] }
