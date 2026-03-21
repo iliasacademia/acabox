@@ -27,6 +27,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
 
+  // All-apps monitor feature flag state
+  const [allAppsMonitorEnabled, setAllAppsMonitorEnabled] = useState(false);
+
   // Manuscript refresh state
   const [isRefreshingManuscripts, setIsRefreshingManuscripts] = useState(false);
   const [manuscriptRefreshError, setManuscriptRefreshError] = useState<string | null>(null);
@@ -41,6 +44,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       setManuscriptRefreshSuccess(false);
       setIsLoadingStatus(true);
       getZoteroStatus().then(setZoteroStatus).finally(() => setIsLoadingStatus(false));
+      window.electronAPI.invoke(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED).then((v: boolean) => setAllAppsMonitorEnabled(v));
     } else {
       // Stop polling when modal closes
       stopPolling();
@@ -280,6 +284,30 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
             </div>
           </div>
+
+          {currentPreferences.show_experimental_features && (
+            <>
+              <div className="settingsSectionLabel">Experimental</div>
+              <div className="settingsSection">
+                <div className="settingItem zoteroSettingItem">
+                  <div className="settingContent">
+                    <div className="settingLabel">Monitor All Apps</div>
+                    <div className="settingDescription">
+                      Enable writing feedback across all applications, not just Microsoft Word
+                    </div>
+                  </div>
+                  <div className="zoteroAction">
+                    <button
+                      className={`zoteroButton ${allAppsMonitorEnabled ? 'zoteroButtonDisconnect' : 'zoteroButtonConnect'}`}
+                      onClick={() => window.electronAPI.invoke(IPC_CHANNELS.SET_ALL_APPS_MONITOR_ENABLED, !allAppsMonitorEnabled)}
+                    >
+                      {allAppsMonitorEnabled ? 'Disable and Restart' : 'Enable and Restart'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           {error && <div className="settingsError">{error}</div>}
 

@@ -18,6 +18,7 @@ interface UserPreferencesProviderProps {
 export const UserPreferencesProvider: React.FC<UserPreferencesProviderProps> = ({ children, userId }) => {
   const [preferences, setPreferences] = useState<UserPreferences>({
     auto_diff_review: true, // Default to enabled
+    show_experimental_features: false,
   });
   const [loading, setLoading] = useState(false);
 

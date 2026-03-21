@@ -166,38 +166,40 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     },
   ];
 
-  configs.push({
-    keyPrefix: 'review-button-v3',
-    pathSuffix: '/ui/popup/reviewButtonV3/',
-    forApp: (id: string) => id !== 'com.microsoft.Word',
-    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
-      // Hide button when panel is open
-      if (windowId && service['reviewPanelV3Open'].has(windowId)) return null;
-      if (!selectionBounds) return null;
+  if (service.allAppsEnabled) {
+    configs.push({
+      keyPrefix: 'review-button-v3',
+      pathSuffix: '/ui/popup/reviewButtonV3/',
+      forApp: (id: string) => id !== 'com.microsoft.Word',
+      computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
+        // Hide button when panel is open
+        if (windowId && service['reviewPanelV3Open'].has(windowId)) return null;
+        if (!selectionBounds) return null;
 
-      const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
-      const x = _bounds.x + REVIEW_V3_LEFT_MARGIN;
-      const y = cocoaBottomOfWindow + REVIEW_V3_BOTTOM_MARGIN;
+        const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
+        const x = _bounds.x + REVIEW_V3_LEFT_MARGIN;
+        const y = cocoaBottomOfWindow + REVIEW_V3_BOTTOM_MARGIN;
 
-      return { x, y, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
-    },
-  });
+        return { x, y, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
+      },
+    });
 
-  configs.push({
-    keyPrefix: 'review-panel-v3',
-    pathSuffix: '/ui/popup/reviewPanelV3/',
-    makeKey: true,
-    forApp: (id: string) => id !== 'com.microsoft.Word',
-    computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
-      if (!windowId || !service['reviewPanelV3Open'].has(windowId)) return null;
+    configs.push({
+      keyPrefix: 'review-panel-v3',
+      pathSuffix: '/ui/popup/reviewPanelV3/',
+      makeKey: true,
+      forApp: (id: string) => id !== 'com.microsoft.Word',
+      computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
+        if (!windowId || !service['reviewPanelV3Open'].has(windowId)) return null;
 
-      const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
-      const x = _bounds.x + REVIEW_V3_LEFT_MARGIN;
-      const y = cocoaBottomOfWindow + REVIEW_V3_BOTTOM_MARGIN;
+        const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
+        const x = _bounds.x + REVIEW_V3_LEFT_MARGIN;
+        const y = cocoaBottomOfWindow + REVIEW_V3_BOTTOM_MARGIN;
 
-      return { x, y, width: REVIEW_PANEL_WIDTH, height: REVIEW_PANEL_HEIGHT };
-    },
-  });
+        return { x, y, width: REVIEW_PANEL_WIDTH, height: REVIEW_PANEL_HEIGHT };
+      },
+    });
+  }
 
   if (DEBUG_CONTENT_BOUNDS_OVERLAY) {
     configs.push({
@@ -287,14 +289,16 @@ export class WindowMonitorService {
   private reviewPanelV3SelectedText = new Map<string, string>();
   private lastSelectedText: string | null = null;
   private lastDesiredState: DesiredWebviewState = {};
+  allAppsEnabled: boolean = false;
   private baseUrl: string | null = null;
   private authToken: string | null = null;
   // File paths for which the popup should auto-open when the window is first detected
   private pendingAutoOpenPaths: Set<string> = new Set();
 
-  start(baseUrl: string, authToken: string): void {
+  start(baseUrl: string, authToken: string, allAppsEnabled: boolean = false): void {
     this.baseUrl = baseUrl;
     this.authToken = authToken;
+    this.allAppsEnabled = allAppsEnabled;
     const wmBin = getWindowMonitorBinPath();
     const wvBin = getWebviewManagerBinPath();
 
@@ -302,7 +306,11 @@ export class WindowMonitorService {
     logger.info('[WindowMonitorService] Starting webview-manager:', wvBin);
 
     // Spawn window-monitor
-    this.windowMonitorProcess = spawn(wmBin, ['--track-text-selection', '--track-document-text'], {
+    const wmArgs = allAppsEnabled
+      ? ['--track-text-selection', '--track-document-text']
+      : ['--bundle-id', 'com.microsoft.Word', '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'];
+    logger.info('[WindowMonitorService] Spawn args:', wmArgs);
+    this.windowMonitorProcess = spawn(wmBin, wmArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
