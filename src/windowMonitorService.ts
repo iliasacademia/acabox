@@ -330,6 +330,7 @@ export class WindowMonitorService {
       // review button stays visible long enough for a click to register.
       if (event.event === 'WINDOW_TEXT_SELECTION_CLEARED' && event.window) {
         const windowId = event.window.id;
+        logger.info(`[WindowMonitor] WINDOW_TEXT_SELECTION_CLEARED wid=${windowId} (debouncing 500ms)`);
         // Cancel any existing debounce timer for this window
         const existingTimer = this.selectionClearTimers.get(windowId);
         if (existingTimer) clearTimeout(existingTimer);
@@ -381,15 +382,15 @@ export class WindowMonitorService {
       }
 
       // Cache selection bounds when text is selected (only for real selections, not cursor positions)
-      if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.bounds) {
-        if (event.selection.length > 0) {
+      if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.length > 0) {
+        // Cancel any pending selection-clear debounce (new selection supersedes it)
+        const pendingTimer = this.selectionClearTimers.get(event.window.id);
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          this.selectionClearTimers.delete(event.window.id);
+        }
+        if (event.selection.bounds) {
           this.lastSelectionBounds.set(event.window.id, event.selection.bounds);
-          // Cancel any pending selection-clear debounce (new selection supersedes it)
-          const pendingTimer = this.selectionClearTimers.get(event.window.id);
-          if (pendingTimer) {
-            clearTimeout(pendingTimer);
-            this.selectionClearTimers.delete(event.window.id);
-          }
         }
       }
 
