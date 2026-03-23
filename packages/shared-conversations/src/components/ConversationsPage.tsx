@@ -1312,7 +1312,7 @@ export function ConversationsPage({
               supportingMaterialsCount={nonProjectConversations ? 0 : supportingMaterialsTotalCount}
               supportingMaterialsLoading={nonProjectConversations ? false : supportingMaterialsLoading}
               selectedView={selectedView}
-              onSelectSupportingMaterials={nonProjectConversations ? undefined : () => setSelectedView('supporting-materials')}
+              onSelectSupportingMaterials={nonProjectConversations ? undefined : () => { setSelectedConversation(null); setSelectedView('supporting-materials'); }}
               isReviewInProgress={isReviewInProgress}
             />
           </div>

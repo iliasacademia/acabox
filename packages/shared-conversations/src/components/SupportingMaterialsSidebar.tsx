@@ -80,7 +80,7 @@ export function SupportingMaterialsSidebar({
 
       {/* Empty State or Materials Preview */}
       {!hasMaterials ? (
-        <div className="supportingMaterialsEmptyState">
+        <div className="supportingMaterialsEmptyState" onClick={onGetStarted} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onGetStarted(); }}>
           <p className="supportingMaterialsEmptyText">
             Improve reviews by adding supporting materials, such as references or notes.
           </p>

@@ -45,7 +45,7 @@ const ProjectsList: React.FC<ProjectsListProps> = ({
             {FEATURES.ONBOARDING_V2_ENABLED ? 'New file to review' : 'Create new project'}
           </button>
           {FEATURES.ONBOARDING_V2_ENABLED && (
-            <span className="supportedFileTypeLabel">Supported file types: Docx, Md</span>
+            <span className="supportedFileTypeLabel">Supported file types: .Docx, Md</span>
           )}
         </div>
       </div>

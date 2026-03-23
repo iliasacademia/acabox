@@ -446,11 +446,13 @@ export function SupportingMaterialsContent({
               return (
                 <div className="zoteroOptionWrapper">
                   <div className="zoteroStatusRow">
+                    <div className="zoteroIconContainer">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <text x="12" y="17" textAnchor="middle" fontFamily="DM Sans, sans-serif" fontSize="16" fontWeight="700" fill="#CC2936">Z</text>
+                      </svg>
+                    </div>
                     <div className="zoteroStatusText">
                       <div className="zoteroStatusLabel">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ verticalAlign: 'text-bottom', marginRight: 5 }}>
-                          <text x="12" y="17" textAnchor="middle" fontFamily="DM Sans, sans-serif" fontSize="16" fontWeight="700" fill="#CC2936">Z</text>
-                        </svg>
                         Zotero
                       </div>
                       <div className="zoteroStatusDescription">{statusText}</div>
