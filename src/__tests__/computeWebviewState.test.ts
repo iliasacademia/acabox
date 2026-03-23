@@ -46,6 +46,7 @@ const AUTH_TOKEN = 'test-token';
 const buttonConfig: WebviewTypeConfig = {
   keyPrefix: 'button-v2',
   pathSuffix: '/ui/popup/academiaNotificationsButtonV2/',
+  forApp: WORD_BUNDLE_ID,
   computeFrame: (bounds: WindowBounds, screenHeight: number) => {
     const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
     return {
@@ -64,6 +65,7 @@ const POPUP_GAP_ABOVE_BUTTON = 10;
 const popupConfig: WebviewTypeConfig = {
   keyPrefix: 'popup-v2',
   pathSuffix: '/ui/popup/academiaNotificationsV2/',
+  forApp: WORD_BUNDLE_ID,
   computeFrame: (bounds: WindowBounds, screenHeight: number) => {
     const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
     const buttonTopEdge = cocoaBottomOfWindow + 12 + 50;

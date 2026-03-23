@@ -2,6 +2,7 @@ import { IPC_CHANNELS } from '../../shared/types';
 
 export interface UserPreferences {
   auto_diff_review: boolean;
+  show_experimental_features: boolean;
 }
 
 /**
@@ -19,13 +20,14 @@ export async function getUserPreferences(): Promise<UserPreferences> {
     // Only extract the fields we care about (filter out any extra fields from backend)
     const preferences: UserPreferences = {
       auto_diff_review: response.auto_diff_review ?? true,
+      show_experimental_features: response.show_experimental_features ?? false,
     };
 
     return preferences;
   } catch (error: any) {
     console.error('[UserPreferencesAPI] Failed to get preferences:', error);
     // Return default on error
-    return { auto_diff_review: true };
+    return { auto_diff_review: true, show_experimental_features: false };
   }
 }
 
@@ -57,6 +59,7 @@ export async function updateUserPreferences(
   // Only extract the fields we care about from response
   const updated: UserPreferences = {
     auto_diff_review: response.auto_diff_review ?? true,
+    show_experimental_features: response.show_experimental_features ?? false,
   };
 
   return updated;

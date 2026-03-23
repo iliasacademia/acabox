@@ -43,12 +43,14 @@ const RUNLOOP_TIMEOUT_SECS: f64 = 0.1;
 #[command(about = "Monitors window events for the specified app and outputs JSON to stdout.")]
 #[command(after_help = "\
 Examples:
-  window-monitor                                    # Monitor Microsoft Word (default)
-  window-monitor --bundle-id com.apple.Preview      # Monitor Preview
-  window-monitor -b com.microsoft.Powerpoint        # Monitor PowerPoint
+  window-monitor                                    # Monitor all apps (follows frontmost)
+  window-monitor --bundle-id com.microsoft.Word     # Monitor Microsoft Word only
+  window-monitor --bundle-id com.apple.Preview      # Monitor Preview only
+  window-monitor -b com.microsoft.Powerpoint        # Monitor PowerPoint only
 
 Description:
   Monitors window events for the specified app and outputs JSON to stdout.
+  If no bundle ID is specified, monitors the frontmost app and follows app switches.
   Press Ctrl+C to stop monitoring.
 
 Requirements:
@@ -64,9 +66,9 @@ Output format:
           WINDOW_TEXT_SELECTION_REPOSITIONING, WINDOW_TEXT_SELECTION_REPOSITIONED,
           WINDOW_DOCUMENT_TEXT_CHANGED")]
 struct Cli {
-    /// Bundle ID of the app to monitor
-    #[arg(short = 'b', long = "bundle-id", default_value = "com.microsoft.Word")]
-    bundle_id: String,
+    /// Bundle ID of the app to monitor (omit to monitor all apps)
+    #[arg(short = 'b', long = "bundle-id")]
+    bundle_id: Option<String>,
 
     /// Track text selection changes in the focused UI element
     #[arg(long = "track-text-selection")]
@@ -100,7 +102,10 @@ fn main() {
         std::process::exit(1);
     }
 
-    eprintln!("Window Monitor for {}", cli.bundle_id);
+    match &cli.bundle_id {
+        Some(bid) => eprintln!("Window Monitor for {}", bid),
+        None => eprintln!("Window Monitor for all apps"),
+    }
     if cli.track_text_selection {
         eprintln!("Text selection tracking: enabled");
     }
@@ -159,7 +164,7 @@ fn main() {
 
     // Create monitor and start monitoring
     let mut monitor = Box::new(window_monitor::WindowMonitor::new(
-        &cli.bundle_id,
+        cli.bundle_id.as_deref(),
         cli.track_text_selection,
         cli.track_document_text,
         temp_dir,

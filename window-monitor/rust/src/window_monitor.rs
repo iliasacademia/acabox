@@ -146,11 +146,13 @@ impl DeferredCheck {
 
 pub struct WindowMonitor {
     // App identity
-    pub target_bundle_id: String,
+    pub target_bundle_id: Option<String>,
+    pub current_bundle_id: String,
     pub app_display_name: Option<String>,
-    pub word_pid: i32,
+    pub app_pid: i32,
 
     // Content area detection config
+    cli_content_area_role: Option<String>,
     content_area_role: Option<String>,
 
     // Window tracking (single consolidated map)
@@ -182,19 +184,33 @@ pub struct WindowMonitor {
     is_monitoring: bool,
 }
 
+fn content_area_role_for_bundle(bundle_id: &str) -> Option<String> {
+    match bundle_id {
+        "com.microsoft.Word" => Some("AXSplitGroup".to_string()),
+        _ => None,
+    }
+}
+
 impl WindowMonitor {
     pub fn new(
-        bundle_id: &str,
+        bundle_id: Option<&str>,
         track_text_selection: bool,
         track_document_text: bool,
         temp_dir: PathBuf,
         content_area_role: Option<String>,
     ) -> Self {
+        let effective_content_area_role = if content_area_role.is_some() {
+            content_area_role.clone()
+        } else {
+            content_area_role_for_bundle(bundle_id.unwrap_or_default())
+        };
         WindowMonitor {
-            target_bundle_id: bundle_id.to_string(),
+            target_bundle_id: bundle_id.map(|s| s.to_string()),
+            current_bundle_id: bundle_id.unwrap_or_default().to_string(),
             app_display_name: None,
-            word_pid: 0,
-            content_area_role,
+            app_pid: 0,
+            cli_content_area_role: content_area_role,
+            content_area_role: effective_content_area_role,
             windows: HashMap::new(),
             ax_observer: None,
             app_element: None,
@@ -206,12 +222,12 @@ impl WindowMonitor {
             reposition: RepositionTracker::new(),
             deferred_check: DeferredCheck::new(),
             text_selection: if track_text_selection {
-                Some(TextSelectionTracker::new(temp_dir.clone()))
+                Some(TextSelectionTracker::new(temp_dir.clone(), bundle_id.unwrap_or_default().to_string()))
             } else {
                 None
             },
             document_text: if track_document_text {
-                Some(DocumentTextTracker::new(temp_dir, bundle_id.to_string()))
+                Some(DocumentTextTracker::new(temp_dir, bundle_id.unwrap_or_default().to_string()))
             } else {
                 None
             },
@@ -225,10 +241,10 @@ impl WindowMonitor {
             name: self
                 .app_display_name
                 .clone()
-                .unwrap_or_else(|| self.target_bundle_id.clone()),
-            identifier: self.target_bundle_id.clone(),
+                .unwrap_or_else(|| self.current_bundle_id.clone()),
+            identifier: self.current_bundle_id.clone(),
             identifier_type: "bundleId".to_string(),
-            pid: self.word_pid,
+            pid: self.app_pid,
         }
     }
 
@@ -238,10 +254,13 @@ impl WindowMonitor {
             return;
         }
         self.is_monitoring = true;
-        eprintln!("Starting window monitor for {}...", self.target_bundle_id);
+        match &self.target_bundle_id {
+            Some(bid) => eprintln!("Starting window monitor for {}...", bid),
+            None => eprintln!("Starting window monitor for all apps..."),
+        }
 
         // Register workspace notifications
-        let bundle_id = self.target_bundle_id.clone();
+        let target_bundle_id_opt = self.target_bundle_id.clone();
         let should_exit_clone = Arc::clone(should_exit);
         let ptr = SendPtr(self_ptr);
 
@@ -253,54 +272,126 @@ impl WindowMonitor {
                 // Handle system-wide events (no bundle_id) before app-specific filter
                 if let workspace::WorkspaceEvent::SpaceChanged = notif.event {
                     let m = unsafe { &mut *ptr.get() };
-                    if m.word_pid != 0 {
-                        let windows = window_list::get_windows_for_pid(m.word_pid);
+                    if m.app_pid != 0 {
+                        let windows = window_list::get_windows_for_pid(m.app_pid);
                         m.check_for_window_changes(&windows);
                         m.check_for_focus_change(&windows);
                     }
                     return;
                 }
 
-                let Some(ref bid) = notif.bundle_id else {
-                    return;
-                };
-                if bid != &bundle_id {
-                    return;
-                }
-                let m = unsafe { &mut *ptr.get() };
-                match notif.event {
-                    workspace::WorkspaceEvent::AppLaunched => {
-                        if m.app_display_name.is_none() {
-                            m.app_display_name = notif.app_name.clone();
+                match &target_bundle_id_opt {
+                    Some(bundle_id) => {
+                        // Single-app mode: filter by bundle ID
+                        let Some(ref bid) = notif.bundle_id else {
+                            return;
+                        };
+                        if bid != bundle_id {
+                            return;
                         }
-                        m.word_pid = notif.pid;
-                        event_models::emit_app_event(EventType::AppLaunched, &m.app_info());
-                        m.cleanup_all_temp_files();
-                        m.attach_to_app();
-                    }
-                    workspace::WorkspaceEvent::AppTerminated => {
-                        m.emit_destroyed_events_for_all_tracked_windows();
-                        event_models::emit_app_event(EventType::AppTerminated, &m.app_info());
-                        m.cleanup_all_temp_files();
-                        m.detach_from_app();
-                    }
-                    workspace::WorkspaceEvent::AppActivated => {
-                        // After APP_TERMINATED, word_pid is 0. AppActivated may
-                        // fire before AppLaunched during relaunch, so update PID
-                        // from the notification to avoid emitting pid 0.
-                        if m.word_pid == 0 && notif.pid > 0 {
-                            m.word_pid = notif.pid;
+                        let m = unsafe { &mut *ptr.get() };
+                        match notif.event {
+                            workspace::WorkspaceEvent::AppLaunched => {
+                                if m.app_display_name.is_none() {
+                                    m.app_display_name = notif.app_name.clone();
+                                }
+                                m.app_pid = notif.pid;
+                                event_models::emit_app_event(EventType::AppLaunched, &m.app_info());
+                                m.cleanup_all_temp_files();
+                                m.attach_to_app();
+                            }
+                            workspace::WorkspaceEvent::AppTerminated => {
+                                m.emit_destroyed_events_for_all_tracked_windows();
+                                event_models::emit_app_event(EventType::AppTerminated, &m.app_info());
+                                m.cleanup_all_temp_files();
+                                m.detach_from_app();
+                            }
+                            workspace::WorkspaceEvent::AppActivated => {
+                                // After APP_TERMINATED, app_pid is 0. AppActivated may
+                                // fire before AppLaunched during relaunch, so update PID
+                                // from the notification to avoid emitting pid 0.
+                                if m.app_pid == 0 && notif.pid > 0 {
+                                    m.app_pid = notif.pid;
+                                }
+                                event_models::emit_app_event(EventType::AppFocused, &m.app_info());
+                                let windows = window_list::get_windows_for_pid(m.app_pid);
+                                m.check_for_focus_change(&windows);
+                            }
+                            workspace::WorkspaceEvent::AppDeactivated => {
+                                event_models::emit_app_event(EventType::AppUnfocused, &m.app_info());
+                                m.last_focused_window_id = 0;
+                                m.last_content_bounds = None;
+                            }
+                            workspace::WorkspaceEvent::SpaceChanged => unreachable!(),
                         }
-                        event_models::emit_app_event(EventType::AppFocused, &m.app_info());
-                        let windows = window_list::get_windows_for_pid(m.word_pid);
-                        m.check_for_focus_change(&windows);
                     }
-                    workspace::WorkspaceEvent::AppDeactivated => {
-                        event_models::emit_app_event(EventType::AppUnfocused, &m.app_info());
-                        m.last_focused_window_id = 0;
-                        m.last_content_bounds = None;
+                    None => {
+                        // All-app mode
+                        let m = unsafe { &mut *ptr.get() };
+                        match notif.event {
+                            workspace::WorkspaceEvent::AppActivated => {
+                                let Some(ref bid) = notif.bundle_id else { return; };
+                                if *bid != m.current_bundle_id {
+                                    // Switch apps
+                                    if m.app_pid != 0 {
+                                        event_models::emit_app_event(EventType::AppUnfocused, &m.app_info());
+                                        m.emit_destroyed_events_for_all_tracked_windows();
+                                        m.detach_from_app();
+                                    }
+                                    m.current_bundle_id = bid.clone();
+                                    m.app_pid = notif.pid;
+                                    m.app_display_name = notif.app_name.clone();
+                                    m.content_area_role = m.cli_content_area_role.clone()
+                                        .or_else(|| content_area_role_for_bundle(bid));
+                                    if let Some(ref mut dt) = m.document_text {
+                                        dt.set_bundle_id(bid.clone());
+                                    }
+                                    if let Some(ref mut ts) = m.text_selection {
+                                        ts.set_bundle_id(bid.clone());
+                                    }
+                                    event_models::emit_app_event(EventType::AppFocused, &m.app_info());
+                                    m.attach_to_app();
+                                } else {
+                                    if m.app_pid == 0 && notif.pid > 0 {
+                                        m.app_pid = notif.pid;
+                                    }
+                                    event_models::emit_app_event(EventType::AppFocused, &m.app_info());
+                                    let windows = window_list::get_windows_for_pid(m.app_pid);
+                                    m.check_for_focus_change(&windows);
+                                }
+                            }
+                            workspace::WorkspaceEvent::AppDeactivated => {
+                                let Some(ref bid) = notif.bundle_id else { return; };
+                                if *bid == m.current_bundle_id {
+                                    event_models::emit_app_event(EventType::AppUnfocused, &m.app_info());
+                                    m.last_focused_window_id = 0;
+                                    m.last_content_bounds = None;
+                                }
+                            }
+                            workspace::WorkspaceEvent::AppLaunched => {
+                                let Some(ref bid) = notif.bundle_id else { return; };
+                                if *bid == m.current_bundle_id {
+                                    if m.app_display_name.is_none() {
+                                        m.app_display_name = notif.app_name.clone();
+                                    }
+                                    m.app_pid = notif.pid;
+                                    event_models::emit_app_event(EventType::AppLaunched, &m.app_info());
+                                    m.cleanup_all_temp_files();
+                                    m.attach_to_app();
+                                }
+                            }
+                            workspace::WorkspaceEvent::AppTerminated => {
+                                let Some(ref bid) = notif.bundle_id else { return; };
+                                if *bid == m.current_bundle_id {
+                                    m.emit_destroyed_events_for_all_tracked_windows();
+                                    event_models::emit_app_event(EventType::AppTerminated, &m.app_info());
+                                    m.cleanup_all_temp_files();
+                                    m.detach_from_app();
+                                }
+                            }
+                            workspace::WorkspaceEvent::SpaceChanged => unreachable!(),
+                        }
                     }
-                    workspace::WorkspaceEvent::SpaceChanged => unreachable!(),
                 }
             },
         ));
@@ -308,19 +399,46 @@ impl WindowMonitor {
         let tokens = workspace::register_workspace_notifications(callback);
         self.workspace_tokens = Some(tokens);
 
-        // Check if target app is already running
-        if let Some((pid, name)) = workspace::find_running_app(&self.target_bundle_id) {
-            self.word_pid = pid;
-            if self.app_display_name.is_none() {
-                self.app_display_name = Some(name);
+        // Check if target app is already running / find frontmost app
+        match &self.target_bundle_id {
+            Some(bid) => {
+                if let Some((pid, name)) = workspace::find_running_app(bid) {
+                    self.app_pid = pid;
+                    self.current_bundle_id = bid.clone();
+                    if self.app_display_name.is_none() {
+                        self.app_display_name = Some(name);
+                    }
+                    eprintln!(
+                        "{} is already running (PID: {})",
+                        self.app_display_name.as_deref().unwrap_or(bid),
+                        pid
+                    );
+                    event_models::emit_app_event(EventType::AppExisting, &self.app_info());
+                    self.attach_to_app();
+                }
             }
-            eprintln!(
-                "{} is already running (PID: {})",
-                self.app_display_name.as_deref().unwrap_or(&self.target_bundle_id),
-                pid
-            );
-            event_models::emit_app_event(EventType::AppExisting, &self.app_info());
-            self.attach_to_app();
+            None => {
+                if let Some((pid, name, bid)) = workspace::get_frontmost_app() {
+                    self.app_pid = pid;
+                    self.current_bundle_id = bid.clone();
+                    self.app_display_name = Some(name);
+                    self.content_area_role = self.cli_content_area_role.clone()
+                        .or_else(|| content_area_role_for_bundle(&bid));
+                    if let Some(ref mut dt) = self.document_text {
+                        dt.set_bundle_id(bid.clone());
+                    }
+                    if let Some(ref mut ts) = self.text_selection {
+                        ts.set_bundle_id(bid);
+                    }
+                    eprintln!(
+                        "{} is frontmost (PID: {})",
+                        self.app_display_name.as_deref().unwrap_or("Unknown"),
+                        pid
+                    );
+                    event_models::emit_app_event(EventType::AppExisting, &self.app_info());
+                    self.attach_to_app();
+                }
+            }
         }
     }
 
@@ -339,11 +457,11 @@ impl WindowMonitor {
 
     /// Attach to the target app: create AX observer and enumerate windows.
     fn attach_to_app(&mut self) {
-        if self.word_pid == 0 {
+        if self.app_pid == 0 {
             return;
         }
 
-        let app_element = match accessibility::create_app_element(self.word_pid) {
+        let app_element = match accessibility::create_app_element(self.app_pid) {
             Some(el) => el,
             None => {
                 eprintln!("Failed to create AXUIElement for app");
@@ -351,7 +469,7 @@ impl WindowMonitor {
             }
         };
 
-        let observer = match accessibility::create_observer(self.word_pid, ax_observer_callback) {
+        let observer = match accessibility::create_observer(self.app_pid, ax_observer_callback) {
             Some(obs) => obs,
             None => {
                 eprintln!("Failed to create AXObserver");
@@ -393,7 +511,7 @@ impl WindowMonitor {
 
         eprintln!(
             "Attached to {}, observing window events...",
-            self.app_display_name.as_deref().unwrap_or(&self.target_bundle_id)
+            self.app_display_name.as_deref().unwrap_or(&self.current_bundle_id)
         );
 
         self.enumerate_existing_windows();
@@ -417,7 +535,7 @@ impl WindowMonitor {
 
         self.ax_observer = None;
         self.app_element = None;
-        self.word_pid = 0;
+        self.app_pid = 0;
         self.reposition.reset();
         self.windows.clear();
         self.deferred_check.reset();
@@ -478,7 +596,7 @@ impl WindowMonitor {
 
     /// Enumerate existing windows and emit WINDOW_EXISTING events.
     fn enumerate_existing_windows(&mut self) {
-        let windows = window_list::get_windows_for_pid(self.word_pid);
+        let windows = window_list::get_windows_for_pid(self.app_pid);
         let mut emitted_count = 0;
 
         for w in &windows {
@@ -515,7 +633,7 @@ impl WindowMonitor {
     /// Poll for changes: check focus, bounds, window list, document path, text, and document text.
     /// Fetches the window list once and passes it to all sub-checks.
     pub fn poll_for_changes(&mut self) {
-        let windows = window_list::get_windows_for_pid(self.word_pid);
+        let windows = window_list::get_windows_for_pid(self.app_pid);
         self.check_for_window_changes(&windows);
         self.check_for_focus_change(&windows);
         self.check_for_bounds_change(&windows);
@@ -587,7 +705,7 @@ impl WindowMonitor {
         };
 
         // Only emit focus events if the target app is frontmost
-        if !workspace::is_app_frontmost(&self.target_bundle_id) {
+        if !workspace::is_pid_frontmost(self.app_pid) {
             return;
         }
 
@@ -727,7 +845,7 @@ impl WindowMonitor {
 
             // Build WindowInfoOutput directly using the already-fetched document path
             // to avoid a double-fetch from the AX API (which could return a different value).
-            let windows = window_list::get_windows_for_pid(self.word_pid);
+            let windows = window_list::get_windows_for_pid(self.app_pid);
             if let Some(entry) = windows.iter().find(|w| w.window_id == window_id) {
                 let window_info = WindowInfoOutput {
                     id: entry.window_id.to_string(),
@@ -1058,7 +1176,7 @@ impl WindowMonitor {
         if self.last_focused_window_id == 0 {
             return;
         }
-        let windows = window_list::get_windows_for_pid(self.word_pid);
+        let windows = window_list::get_windows_for_pid(self.app_pid);
         for w in &windows {
             if w.window_id == self.last_focused_window_id {
                 let window_info = self.create_window_info_from_entry(w, false);
@@ -1074,7 +1192,7 @@ impl WindowMonitor {
         if self.last_focused_window_id == 0 {
             return;
         }
-        let windows = window_list::get_windows_for_pid(self.word_pid);
+        let windows = window_list::get_windows_for_pid(self.app_pid);
         for w in &windows {
             if w.window_id == self.last_focused_window_id {
                 // Update cached bounds
@@ -1185,7 +1303,7 @@ impl WindowMonitor {
         if window_id == 0 {
             return None;
         }
-        let windows = window_list::get_windows_for_pid(self.word_pid);
+        let windows = window_list::get_windows_for_pid(self.app_pid);
         windows
             .iter()
             .find(|w| w.window_id == window_id)
@@ -1200,7 +1318,7 @@ impl WindowMonitor {
     /// Check if deferred window check is ready to execute.
     pub fn check_deferred_window_check(&mut self) {
         if self.deferred_check.should_execute(DEFERRED_CHECK_DELAY_MS) {
-            let windows = window_list::get_windows_for_pid(self.word_pid);
+            let windows = window_list::get_windows_for_pid(self.app_pid);
             self.check_for_window_changes(&windows);
             self.check_for_focus_change(&windows);
         }
@@ -1229,7 +1347,7 @@ pub unsafe extern "C" fn ax_observer_callback(
             monitor.schedule_deferred_window_check();
         }
         "AXFocusedWindowChanged" => {
-            let windows = window_list::get_windows_for_pid(monitor.word_pid);
+            let windows = window_list::get_windows_for_pid(monitor.app_pid);
             monitor.check_for_window_changes(&windows);
             monitor.check_for_focus_change(&windows);
         }

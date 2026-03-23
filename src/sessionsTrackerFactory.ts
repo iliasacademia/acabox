@@ -64,7 +64,7 @@ export function createSessionsTracker(sessionDb: SessionDb): SessionsTracker {
   }
 
   function createSession(
-    sessionType: 'desktop_app' | 'word_window_focused' | 'document_text_change',
+    sessionType: '' | 'word_window_focused' | 'desktop_app' | 'document_text_change',
     data: Record<string, unknown> = {}
   ): string {
     const id = ulid();

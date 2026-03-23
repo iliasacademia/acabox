@@ -14,6 +14,7 @@ export interface WebviewEntryState {
   visible: boolean;
   frame: WebviewFrame;
   ignoresMouseEvents?: boolean;
+  makeKey?: boolean;
 }
 
 export type DesiredWebviewState = Record<string, WebviewEntryState>;
@@ -22,6 +23,8 @@ export interface WebviewTypeConfig {
   keyPrefix: string;
   pathSuffix: string;
   ignoresMouseEvents?: boolean;
+  makeKey?: boolean;
+  forApp?: string | ((identifier: string) => boolean);
   computeFrame: (bounds: WindowBounds, screenHeight: number, contentBounds: WindowBounds | null, selectionBounds: WindowBounds | null, windowId?: string) => WebviewFrame | null;
 }
 
@@ -35,14 +38,18 @@ export function computeWebviewState(
   const result: DesiredWebviewState = {};
 
   for (const app of state.apps) {
-    if (app.identifier !== WORD_BUNDLE_ID) continue;
-
     for (const window of app.windows) {
       if (window.bounds === null) continue;
 
       const visible = app.isFocused && window.isFocused && !window.isRepositioning && !window.isSelectionRepositioning;
 
       for (const config of configs) {
+        if (config.forApp) {
+          const matches = typeof config.forApp === 'string'
+            ? app.identifier === config.forApp
+            : config.forApp(app.identifier);
+          if (!matches) continue;
+        }
         const frame = config.computeFrame(window.bounds, screenHeight, window.contentBounds, window.selectionBounds, window.id);
 
         const key = `${config.keyPrefix}-${window.id}`;
@@ -50,7 +57,7 @@ export function computeWebviewState(
         const url = `${baseUrl}${config.pathSuffix}${separator}pid=${app.pid}&wid=${window.id}&token=${authToken}`;
 
         // Button, review button, and review status overlay should ignore repositioning flags to avoid flicker
-        const isStableButton = config.keyPrefix === 'button-v2' || config.keyPrefix === 'review-button' || config.keyPrefix === 'review-status-overlay';
+        const isStableButton = config.keyPrefix === 'button-v2' || config.keyPrefix === 'review-button' || config.keyPrefix === 'review-status-overlay' || config.keyPrefix === 'review-button-v3';
         const isVisible = isStableButton ? (app.isFocused && window.isFocused) : visible;
 
         const entry: WebviewEntryState = frame !== null
@@ -59,6 +66,9 @@ export function computeWebviewState(
 
         if (config.ignoresMouseEvents) {
           entry.ignoresMouseEvents = true;
+        }
+        if (config.makeKey) {
+          entry.makeKey = true;
         }
         result[key] = entry;
       }

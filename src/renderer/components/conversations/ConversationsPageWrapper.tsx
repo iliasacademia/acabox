@@ -24,6 +24,7 @@ interface ConversationsPageWrapperProps {
   initialOpenDiffModal?: boolean;
   onDiffModalOpened?: () => void;
   initialView?: 'conversation' | 'supporting-materials';
+  nonProjectConversations?: boolean;
 }
 
 /**
@@ -38,6 +39,7 @@ export function ConversationsPageWrapper({
   initialOpenDiffModal,
   onDiffModalOpened,
   initialView,
+  nonProjectConversations,
 }: ConversationsPageWrapperProps) {
   // Track folder sync status for the current project
   const folderSyncStatus = useProjectSyncStatus(selectedProject?.id || null);
@@ -139,6 +141,7 @@ export function ConversationsPageWrapper({
     <ApiProvider client={electronApiClient}>
       <ConversationsPage
         selectedProject={selectedProject}
+        nonProjectConversations={nonProjectConversations}
         onBack={onBack}
         initialConversationId={initialConversationId}
         onConversationNavigated={onConversationNavigated}

@@ -141,6 +141,10 @@ export const IPC_CHANNELS = {
 
   // Deep link / URI handler callbacks
   DEEP_LINK_CALLBACK: "deep-link-callback",
+
+  // Feature flags
+  GET_ALL_APPS_MONITOR_ENABLED: "get-all-apps-monitor-enabled",
+  SET_ALL_APPS_MONITOR_ENABLED: "set-all-apps-monitor-enabled",
 } as const;
 
 // Type for valid IPC channel values - enforces compile-time validation

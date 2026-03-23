@@ -140,6 +140,11 @@ impl DocumentTextTracker {
         self.read_and_write(app_element, &text_areas, window_id, char_count)
     }
 
+    /// Update the bundle ID (e.g. when switching apps in all-app mode).
+    pub fn set_bundle_id(&mut self, bundle_id: String) {
+        self.bundle_id = bundle_id;
+    }
+
     /// Reset tracked state (e.g. when app detaches).
     pub fn reset(&mut self) {
         self.last_char_count = None;

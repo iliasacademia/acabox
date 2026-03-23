@@ -11,17 +11,19 @@ import DiffModal from './DiffModal';
 
 interface ConversationDetailProps {
   conversation: Conversation | DraftConversation | null;
-  projectId: number;
+  projectId: number | null;
   primaryManuscriptId?: number;
+  /** Optional: Initial value for the message input (e.g., quoted selected text) */
+  initialInputValue?: string;
   manuscriptFile?: ProjectFile | null;
   onConversationCreated?: (conversation: Conversation) => void;
   onConversationUpdate?: () => void;
   isReviewInProgress?: boolean;
   isInitialLoading?: boolean;
   /** Optional: Called when a message is sent (for analytics) */
-  onMessageSent?: (projectId: number, conversationId: number, agentName: string) => void;
+  onMessageSent?: (projectId: number | null, conversationId: number, agentName: string) => void;
   /** Optional: Called when an assistant message is received (for analytics) */
-  onMessageReceived?: (projectId: number, conversationId: number, agentName: string, durationSeconds?: number) => void;
+  onMessageReceived?: (projectId: number | null, conversationId: number, agentName: string, durationSeconds?: number) => void;
   /** Optional: URL for feedback form. If provided, shows a feedback link. */
   feedbackFormUrl?: string;
   /** Optional: Options for conversation polling (e.g., event-driven updates) */
@@ -50,8 +52,14 @@ export function ConversationDetail({
   initialOpenDiffModal,
   onDiffModalOpened,
   isArchived,
+  initialInputValue,
 }: ConversationDetailProps) {
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState(initialInputValue ?? '');
+
+  useEffect(() => {
+    setInputValue(initialInputValue ?? '');
+  }, [initialInputValue]);
+
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showDiffModal, setShowDiffModal] = useState(false);
@@ -136,6 +144,12 @@ export function ConversationDetail({
       return;
     }
 
+    if (!projectId) {
+      setDiffError('Cannot show diff for non-project conversation');
+      setShowDiffModal(true);
+      return;
+    }
+
     setIsDiffLoading(true);
     setDiffError(null);
     setShowDiffModal(true);
@@ -181,7 +195,7 @@ export function ConversationDetail({
     // Draft → real transition: polling was already started in handleSendMessage
     // and messages (including the optimistic user message) are already in state.
     // Just update tracking refs — do NOT call initializeMessages (it would wipe messages).
-    if (prevId === -1) {
+    if (prevId !== null && prevId < 0) {
       conversationViewedAt.current = new Date();
       lastUserMessageTime.current = null;
       return;
@@ -259,7 +273,14 @@ export function ConversationDetail({
   // Auto-focus textarea when a draft conversation is active
   useEffect(() => {
     if (isDraft(conversation)) {
-      textareaRef.current?.focus();
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (el) {
+          el.focus();
+          el.setSelectionRange(el.value.length, el.value.length);
+          el.scrollTop = el.scrollHeight;
+        }
+      });
     }
   }, [conversation?.id]);
 
@@ -830,7 +851,7 @@ export function ConversationDetail({
                     ? "Ask a question about your manuscript..."
                     : "Ask a follow-up question..."
               }
-              rows={3}
+              rows={5}
               disabled={isSending || disableMessageInput}
             />
             <button

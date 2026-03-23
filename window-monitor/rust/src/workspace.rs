@@ -153,3 +153,28 @@ pub fn is_app_frontmost(bundle_id: &str) -> bool {
     }
     false
 }
+
+/// Get the current frontmost app's (pid, name, bundle_id).
+pub fn get_frontmost_app() -> Option<(i32, String, String)> {
+    let workspace = NSWorkspace::sharedWorkspace();
+    if let Some(app) = workspace.frontmostApplication() {
+        let bid = app.bundleIdentifier()?.to_string();
+        let name = app
+            .localizedName()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| bid.clone());
+        let pid = app.processIdentifier();
+        Some((pid, name, bid))
+    } else {
+        None
+    }
+}
+
+/// Check if the process with the given PID is the frontmost application.
+pub fn is_pid_frontmost(pid: i32) -> bool {
+    let workspace = NSWorkspace::sharedWorkspace();
+    if let Some(app) = workspace.frontmostApplication() {
+        return app.processIdentifier() == pid;
+    }
+    false
+}

@@ -866,7 +866,7 @@ app.whenReady().then(async () => {
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
       const authToken = httpServer.getAuthToken();
       if (baseUrl && authToken) {
-        windowMonitorService.start(baseUrl, authToken);
+        windowMonitorService.start(baseUrl, authToken, store.get('windowMonitorAllAppsEnabled', false) as boolean);
       }
     }
   } catch (error) {
@@ -1040,6 +1040,19 @@ ipcMain.handle(IPC_CHANNELS.SCHEDULE_POPUP_AUTO_OPEN, (_event, filePath: string)
   if (FEATURES.ONBOARDING_V3_ENABLED) {
     windowMonitorService.scheduleAutoOpenForPath(filePath);
   }
+});
+
+// Feature flag IPC handlers
+ipcMain.handle(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED, async () => {
+  return store.get('windowMonitorAllAppsEnabled', false);
+});
+
+ipcMain.handle(IPC_CHANNELS.SET_ALL_APPS_MONITOR_ENABLED, async (_event, enabled: boolean) => {
+  store.set('windowMonitorAllAppsEnabled', enabled);
+  if (app.isPackaged) {
+    app.relaunch();
+  }
+  app.quit();
 });
 
 // App lifecycle IPC handlers

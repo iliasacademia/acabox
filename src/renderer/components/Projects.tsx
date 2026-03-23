@@ -30,7 +30,7 @@ import {
 } from '../utils/analytics';
 import './Projects.css';
 
-type View = 'list' | 'detail';
+type View = 'list' | 'detail' | 'orphan-conversations';
 
 interface DialogState {
   type: 'alert' | 'confirm' | null;
@@ -468,6 +468,12 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
     });
   };
 
+  const handleViewOrphanConversations = () => {
+    setShowSettingsModal(false);
+    setSelectedProject(null);
+    setCurrentView('orphan-conversations');
+  };
+
   const handleBackToList = () => {
     setCurrentView('list');
     setSelectedProject(null);
@@ -560,6 +566,12 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
             ) : (
               <ProjectDetail project={selectedProject} onBack={handleBackToList} />
             )
+          ) : currentView === 'orphan-conversations' ? (
+            <ConversationsPageWrapper
+              selectedProject={null}
+              onBack={handleBackToList}
+              nonProjectConversations={true}
+            />
           ) : null}
         </>
       </div>
@@ -605,6 +617,7 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
       <SettingsModal
         isOpen={showSettingsModal}
         onClose={() => setShowSettingsModal(false)}
+        onViewConversations={handleViewOrphanConversations}
       />
     </div>
   );

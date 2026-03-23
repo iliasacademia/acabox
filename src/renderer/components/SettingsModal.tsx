@@ -7,12 +7,13 @@ import './SettingsModal.css';
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onViewConversations?: () => void;
 }
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_POLL_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
-export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
+export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, onViewConversations }) => {
   const { preferences: currentPreferences, updatePreferences } = useUserPreferences();
   const [autoDiffReview, setAutoDiffReview] = useState(currentPreferences.auto_diff_review);
   const [saving, setSaving] = useState(false);
@@ -26,6 +27,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
+
+  // All-apps monitor feature flag state
+  const [allAppsMonitorEnabled, setAllAppsMonitorEnabled] = useState(false);
 
   // Manuscript refresh state
   const [isRefreshingManuscripts, setIsRefreshingManuscripts] = useState(false);
@@ -41,6 +45,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       setManuscriptRefreshSuccess(false);
       setIsLoadingStatus(true);
       getZoteroStatus().then(setZoteroStatus).finally(() => setIsLoadingStatus(false));
+      window.electronAPI.invoke(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED).then((v: boolean) => setAllAppsMonitorEnabled(v));
     } else {
       // Stop polling when modal closes
       stopPolling();
@@ -280,6 +285,46 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
               </div>
             </div>
           </div>
+
+          {currentPreferences.show_experimental_features && (
+            <>
+              <div className="settingsSectionLabel">Experimental</div>
+              <div className="settingsSection">
+                <div className="settingItem zoteroSettingItem">
+                  <div className="settingContent">
+                    <div className="settingLabel">Monitor All Apps</div>
+                    <div className="settingDescription">
+                      Enable writing feedback across all applications, not just Microsoft Word
+                    </div>
+                  </div>
+                  <div className="zoteroAction">
+                    <button
+                      className={`zoteroButton ${allAppsMonitorEnabled ? 'zoteroButtonDisconnect' : 'zoteroButtonConnect'}`}
+                      onClick={() => window.electronAPI.invoke(IPC_CHANNELS.SET_ALL_APPS_MONITOR_ENABLED, !allAppsMonitorEnabled)}
+                    >
+                      {allAppsMonitorEnabled ? 'Disable and Restart' : 'Enable and Restart'}
+                    </button>
+                  </div>
+                </div>
+                <div className="settingItem zoteroSettingItem">
+                  <div className="settingContent">
+                    <div className="settingLabel">All Apps Conversations</div>
+                    <div className="settingDescription">
+                      View conversations from the all apps monitor
+                    </div>
+                  </div>
+                  <div className="zoteroAction">
+                    <button
+                      className="zoteroButton zoteroButtonConnect"
+                      onClick={() => { onViewConversations?.(); }}
+                    >
+                      View Conversations
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
 
           {error && <div className="settingsError">{error}</div>}
 

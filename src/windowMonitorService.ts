@@ -34,6 +34,11 @@ const REVIEW_BUTTON_WIDTH = 120;
 const REVIEW_BUTTON_HEIGHT = 46;
 const REVIEW_BUTTON_GAP = 10;
 
+const REVIEW_PANEL_WIDTH = 480;
+const REVIEW_PANEL_HEIGHT = 650;
+const REVIEW_V3_LEFT_MARGIN = 30;
+const REVIEW_V3_BOTTOM_MARGIN = 30;
+
 const REVIEWING_BUTTON_V2_WIDTH = 320;
 const ENABLE_FEEDBACK_BUTTON_WIDTH = 220;
 
@@ -45,6 +50,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'button-v2',
       pathSuffix: '/ui/popup/academiaNotificationsButtonV2/',
+      forApp: 'com.microsoft.Word',
       computeFrame: (bounds: WindowBounds, screenHeight: number) => {
         const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
         return {
@@ -58,6 +64,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'review-status-overlay',
       pathSuffix: '/ui/popup/reviewStatusOverlay/',
+      forApp: 'com.microsoft.Word',
       computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
         // Don't show if popup is open (they overlap)
         if (windowId && service['popupToggledOpen'].has(windowId)) {
@@ -83,6 +90,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'popup-v2',
       pathSuffix: '/ui/popup/academiaNotificationsV2/',
+      forApp: 'com.microsoft.Word',
       computeFrame: (bounds: WindowBounds, screenHeight: number) => {
         const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
         const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
@@ -97,6 +105,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'review-button',
       pathSuffix: '/ui/popup/reviewButton/',
+      forApp: 'com.microsoft.Word',
       computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
         if (!_contentBounds) return null;
 
@@ -156,6 +165,41 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       },
     },
   ];
+
+  if (service.allAppsEnabled) {
+    configs.push({
+      keyPrefix: 'review-button-v3',
+      pathSuffix: '/ui/popup/reviewButtonV3/',
+      forApp: (id: string) => id !== 'com.microsoft.Word',
+      computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
+        // Hide button when panel is open
+        if (windowId && service['reviewPanelV3Open'].has(windowId)) return null;
+        if (!selectionBounds) return null;
+
+        const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
+        const x = _bounds.x + REVIEW_V3_LEFT_MARGIN;
+        const y = cocoaBottomOfWindow + REVIEW_V3_BOTTOM_MARGIN;
+
+        return { x, y, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
+      },
+    });
+
+    configs.push({
+      keyPrefix: 'review-panel-v3',
+      pathSuffix: '/ui/popup/reviewPanelV3/',
+      makeKey: true,
+      forApp: (id: string) => id !== 'com.microsoft.Word',
+      computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
+        if (!windowId || !service['reviewPanelV3Open'].has(windowId)) return null;
+
+        const cocoaBottomOfWindow = screenHeight - (_bounds.y + _bounds.height);
+        const x = _bounds.x + REVIEW_V3_LEFT_MARGIN;
+        const y = cocoaBottomOfWindow + REVIEW_V3_BOTTOM_MARGIN;
+
+        return { x, y, width: REVIEW_PANEL_WIDTH, height: REVIEW_PANEL_HEIGHT };
+      },
+    });
+  }
 
   if (DEBUG_CONTENT_BOUNDS_OVERLAY) {
     configs.push({
@@ -241,15 +285,20 @@ export class WindowMonitorService {
   private selectionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private documentTextCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private reviewErrorMessages = new Map<string, string>();
+  private reviewPanelV3Open: Set<string> = new Set();
+  private reviewPanelV3SelectedText = new Map<string, string>();
+  private lastSelectedText: string | null = null;
   private lastDesiredState: DesiredWebviewState = {};
+  allAppsEnabled: boolean = false;
   private baseUrl: string | null = null;
   private authToken: string | null = null;
   // File paths for which the popup should auto-open when the window is first detected
   private pendingAutoOpenPaths: Set<string> = new Set();
 
-  start(baseUrl: string, authToken: string): void {
+  start(baseUrl: string, authToken: string, allAppsEnabled: boolean = false): void {
     this.baseUrl = baseUrl;
     this.authToken = authToken;
+    this.allAppsEnabled = allAppsEnabled;
     const wmBin = getWindowMonitorBinPath();
     const wvBin = getWebviewManagerBinPath();
 
@@ -257,7 +306,11 @@ export class WindowMonitorService {
     logger.info('[WindowMonitorService] Starting webview-manager:', wvBin);
 
     // Spawn window-monitor
-    this.windowMonitorProcess = spawn(wmBin, ['--bundle-id', 'com.microsoft.Word', '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'], {
+    const wmArgs = allAppsEnabled
+      ? ['--track-text-selection', '--track-document-text']
+      : ['--bundle-id', 'com.microsoft.Word', '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'];
+    logger.info('[WindowMonitorService] Spawn args:', wmArgs);
+    this.windowMonitorProcess = spawn(wmBin, wmArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -285,6 +338,7 @@ export class WindowMonitorService {
       // review button stays visible long enough for a click to register.
       if (event.event === 'WINDOW_TEXT_SELECTION_CLEARED' && event.window) {
         const windowId = event.window.id;
+        logger.info(`[WindowMonitor] WINDOW_TEXT_SELECTION_CLEARED wid=${windowId} (debouncing 500ms)`);
         // Cancel any existing debounce timer for this window
         const existingTimer = this.selectionClearTimers.get(windowId);
         if (existingTimer) clearTimeout(existingTimer);
@@ -336,24 +390,27 @@ export class WindowMonitorService {
       }
 
       // Cache selection bounds when text is selected (only for real selections, not cursor positions)
-      if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.bounds) {
-        if (event.selection.length > 0) {
+      if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.length > 0) {
+        // Cancel any pending selection-clear debounce (new selection supersedes it)
+        const pendingTimer = this.selectionClearTimers.get(event.window.id);
+        if (pendingTimer) {
+          clearTimeout(pendingTimer);
+          this.selectionClearTimers.delete(event.window.id);
+        }
+        if (event.selection.bounds) {
           this.lastSelectionBounds.set(event.window.id, event.selection.bounds);
-          // Cancel any pending selection-clear debounce (new selection supersedes it)
-          const pendingTimer = this.selectionClearTimers.get(event.window.id);
-          if (pendingTimer) {
-            clearTimeout(pendingTimer);
-            this.selectionClearTimers.delete(event.window.id);
-          }
         }
       }
 
       // Cache selected text content in memory when it changes (same pattern as documentTextContentCache).
       if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.length > 0) {
+        logger.info(`[WindowMonitor] WINDOW_TEXT_SELECTED wid=${event.window.id} filePath=${event.selection.filePath} selectionLength=${event.selection.length}`);
         try {
           const content = readFileSync(event.selection.filePath, 'utf-8');
+          logger.info(`[WindowMonitor] selectedTextContentCache set wid=${event.window.id} contentLength=${content.length}`);
           if (content.length > 0) {
             this.selectedTextContentCache.set(event.window.id, content);
+            this.lastSelectedText = content;
           }
         } catch (err) {
           logger.error(`[WindowMonitorService] Failed to cache selected text for window ${event.window.id}:`, err);
@@ -412,6 +469,8 @@ export class WindowMonitorService {
         this.buttonV2WidthOverrides.delete(event.window.id);
         this.selectedTextReviewState.delete(event.window.id);
         this.lastSelectionBounds.delete(event.window.id);
+        this.reviewPanelV3Open.delete(event.window.id);
+        this.reviewPanelV3SelectedText.delete(event.window.id);
         // Delay documentTextContentCache cleanup by 24h so the cache survives
         // window destroy/recreate cycles (the review button needs it).
         const cleanupTimer = setTimeout(() => {
@@ -478,25 +537,25 @@ export class WindowMonitorService {
     const screenHeight = screen.getPrimaryDisplay().bounds.height;
     const desiredState = computeWebviewState(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
 
-    // Auto-close popups when Word loses focus
-    const wordApp = this.state.apps.find(app => app.identifier === 'com.microsoft.Word');
-    const wordIsFocused = wordApp?.isFocused ?? false;
+    // Auto-close popups when app loses focus
+    const focusedApp = this.state.apps.find(app => app.isFocused);
+    const appIsFocused = !!focusedApp;
 
     for (const key of Object.keys(desiredState)) {
       if (key.startsWith('popup-v2-')) {
         const windowId = key.slice('popup-v2-'.length);
         const isToggledOpen = this.popupToggledOpen.has(windowId);
 
-        // Auto-close popup if Word loses focus
-        if (isToggledOpen && !wordIsFocused) {
+        // Auto-close popup if app loses focus
+        if (isToggledOpen && !appIsFocused) {
           this.popupToggledOpen.delete(windowId);
           desiredState[key].visible = false;
-          logger.info(`[WindowMonitor] Popup ${key}: auto-closed (Word unfocused)`);
+          logger.info(`[WindowMonitor] Popup ${key}: auto-closed (app unfocused)`);
         } else {
-          // If toggled open and Word is focused, show. Otherwise hide.
+          // If toggled open and app is focused, show. Otherwise hide.
           desiredState[key].visible = isToggledOpen;
           if (isToggledOpen) {
-            logger.info(`[WindowMonitor] Popup ${key}: showing (toggled=true, wordFocused=${wordIsFocused})`);
+            logger.info(`[WindowMonitor] Popup ${key}: showing (toggled=true, appFocused=${appIsFocused})`);
           }
         }
 
@@ -508,6 +567,19 @@ export class WindowMonitorService {
         if (sizeOverride) {
           desiredState[key].frame.width = Math.max(desiredState[key].frame.width, sizeOverride.width);
           desiredState[key].frame.height = Math.max(desiredState[key].frame.height, sizeOverride.height);
+        }
+      }
+      if (key.startsWith('review-panel-v3-')) {
+        const windowId = key.slice('review-panel-v3-'.length);
+        const isPanelOpen = this.reviewPanelV3Open.has(windowId);
+
+        if (isPanelOpen && !appIsFocused) {
+          this.reviewPanelV3Open.delete(windowId);
+          this.reviewPanelV3SelectedText.delete(windowId);
+          desiredState[key].visible = false;
+          logger.info(`[WindowMonitor] Review panel ${key}: auto-closed (app unfocused)`);
+        } else {
+          desiredState[key].visible = isPanelOpen;
         }
       }
       if (key.startsWith('button-v2-')) {
@@ -596,7 +668,7 @@ export class WindowMonitorService {
     // Diff visibility for button-v2 and popup-v2 entries; emit if any changed
     let visibilityChanged = false;
     for (const key of Object.keys(desiredState)) {
-      if (key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-')) {
+      if (key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-') || key.startsWith('review-panel-v3-')) {
         const newVisible = desiredState[key]?.visible ?? false;
         const oldVisible = this.lastDesiredState[key]?.visible ?? false;
         if (newVisible !== oldVisible) {
@@ -608,7 +680,7 @@ export class WindowMonitorService {
     // Also check keys that disappeared (window destroyed)
     if (!visibilityChanged) {
       for (const key of Object.keys(this.lastDesiredState)) {
-        if ((key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-')) && !desiredState[key]) {
+        if ((key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-') || key.startsWith('review-panel-v3-')) && !desiredState[key]) {
           if (this.lastDesiredState[key]?.visible) {
             visibilityChanged = true;
             break;
@@ -803,6 +875,33 @@ export class WindowMonitorService {
     return null;
   }
 
+  openReviewPanelV3(windowId: string): void {
+    // Snapshot selected text: try per-window cache first, fall back to global last selection
+    const selectedText = this.selectedTextContentCache.get(windowId) ?? this.lastSelectedText;
+    logger.info(`[WindowMonitor] openReviewPanelV3 wid=${windowId} cachedSelectedText=${selectedText ? `"${selectedText.substring(0, 80)}..."` : 'null'} cacheKeys=[${[...this.selectedTextContentCache.keys()].join(',')}]`);
+    if (selectedText) {
+      this.reviewPanelV3SelectedText.set(windowId, selectedText);
+    }
+    this.reviewPanelV3Open.add(windowId);
+    logger.info(`[WindowMonitor] Review panel V3 opened for window ${windowId}`);
+    this.pushWebviewState();
+  }
+
+  closeReviewPanelV3(windowId: string): void {
+    this.reviewPanelV3Open.delete(windowId);
+    this.reviewPanelV3SelectedText.delete(windowId);
+    logger.info(`[WindowMonitor] Review panel V3 closed for window ${windowId}`);
+    this.pushWebviewState();
+  }
+
+  isReviewPanelV3Open(windowId: string): boolean {
+    return this.reviewPanelV3Open.has(windowId);
+  }
+
+  getReviewPanelV3SelectedText(windowId: string): string | null {
+    return this.reviewPanelV3SelectedText.get(windowId) ?? this.lastSelectedText;
+  }
+
   stop(): void {
     if (this.windowMonitorProcess) {
       logger.info('[WindowMonitorService] Stopping window-monitor');
@@ -821,6 +920,9 @@ export class WindowMonitorService {
     this.popupSizeOverrides.clear();
     this.buttonV2WidthOverrides.clear();
     this.selectedTextReviewState.clear();
+    this.reviewPanelV3Open.clear();
+    this.reviewPanelV3SelectedText.clear();
+    this.lastSelectedText = null;
     this.lastDesiredState = {};
     this.documentTextContentCache.clear();
     this.selectedTextContentCache.clear();

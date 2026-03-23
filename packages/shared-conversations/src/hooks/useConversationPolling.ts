@@ -36,11 +36,11 @@ export interface UseConversationPollingResult {
   isPolling: boolean;
   isLoading: boolean;
   error: string | null;
-  startPolling: (conversationId: number, projectId: number) => void;
+  startPolling: (conversationId: number, projectId?: number | null) => void;
   stopPolling: () => void;
   resetMessages: () => void;
   refetch: () => Promise<void>;
-  initializeMessages: (conversationId: number, projectId: number) => Promise<void>;
+  initializeMessages: (conversationId: number, projectId?: number | null) => Promise<void>;
   addOptimisticMessage: (message: Message) => void;
 }
 
@@ -98,7 +98,7 @@ export function useConversationPolling(
   }, [stopPolling]);
 
   const fetchMessages = useCallback(async () => {
-    if (!conversationIdRef.current || !projectIdRef.current) return;
+    if (!conversationIdRef.current) return;
 
     try {
       setIsLoading(true);
@@ -141,13 +141,13 @@ export function useConversationPolling(
   }, [getConversation, stopPolling]);
 
   const startPolling = useCallback(
-    (conversationId: number, projectId: number) => {
+    (conversationId: number, projectId?: number | null) => {
       // Stop any existing polling
       stopPolling();
 
       // Store IDs
       conversationIdRef.current = conversationId;
-      projectIdRef.current = projectId;
+      projectIdRef.current = projectId ?? null;
       setIsPolling(true);
       setError(null);
 
@@ -167,7 +167,7 @@ export function useConversationPolling(
 
   // Initialize messages for a conversation (used when switching conversations)
   const initializeMessages = useCallback(
-    async (conversationId: number, projectId: number) => {
+    async (conversationId: number, projectId?: number | null) => {
       // Stop any active polling
       stopPolling();
 
@@ -175,7 +175,7 @@ export function useConversationPolling(
       setMessages([]);
       setConversation(null);
       conversationIdRef.current = conversationId;
-      projectIdRef.current = projectId;
+      projectIdRef.current = projectId ?? null;
 
       // Load initial messages
       setIsLoading(true);
