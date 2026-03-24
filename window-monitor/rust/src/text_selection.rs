@@ -405,11 +405,21 @@ impl TextSelectionTracker {
 }
 
 /// Write content to a file atomically (write to .tmp, then rename).
+/// Falls back to direct write if atomic rename fails.
 fn atomic_write(path: &PathBuf, content: &str) -> std::io::Result<()> {
     let tmp_path = PathBuf::from(format!("{}.tmp", path.display()));
     let mut file = fs::File::create(&tmp_path)?;
     file.write_all(content.as_bytes())?;
     file.flush()?;
-    fs::rename(&tmp_path, path)?;
-    Ok(())
+    match fs::rename(&tmp_path, path) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            // Rename failed — fall back to direct write
+            let _ = fs::remove_file(&tmp_path);
+            let mut file = fs::File::create(path)?;
+            file.write_all(content.as_bytes())?;
+            file.flush()?;
+            Ok(())
+        }
+    }
 }

@@ -33,6 +33,7 @@ const REVIEW_STATUS_OVERLAY_GAP = 4;
 const REVIEW_BUTTON_WIDTH = 120;
 const REVIEW_BUTTON_HEIGHT = 46;
 const REVIEW_BUTTON_GAP = 10;
+const REVIEW_BUTTON_LINE_OFFSET = 42;
 
 const REVIEW_PANEL_WIDTH = 480;
 const REVIEW_PANEL_HEIGHT = 650;
@@ -134,9 +135,15 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
 
         if (visibleWidth <= 0 || visibleHeight <= 0) return null;
 
-        // Right of selection with gap, bottom-aligned
-        const x = visibleRight + REVIEW_BUTTON_GAP;
-        const cocoaY = screenHeight - visibleBottom;
+        // Right of selection with gap, bottom-aligned.
+        // If the button doesn't fit to the right of the selection (e.g. full-width
+        // multi-page selections), fall back to the right edge of the content area.
+        const contentRight = _contentBounds.x + _contentBounds.width;
+        let x = visibleRight + REVIEW_BUTTON_GAP;
+        if (x + REVIEW_BUTTON_WIDTH > contentRight) {
+          x = contentRight - REVIEW_BUTTON_WIDTH;
+        }
+        const cocoaY = screenHeight - (visibleBottom + REVIEW_BUTTON_LINE_OFFSET);
 
         // Clamp to window bounds
         const cocoaWindowBottom = screenHeight - (_bounds.y + _bounds.height);
@@ -144,24 +151,22 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
         const clampedX = Math.max(_bounds.x, Math.min(x, _bounds.x + _bounds.width - REVIEW_BUTTON_WIDTH));
         const clampedY = Math.max(cocoaWindowBottom, Math.min(cocoaY, cocoaWindowTop - REVIEW_BUTTON_HEIGHT));
 
-        // Hide if button falls outside content bounds
-        if (_contentBounds) {
-          const contentLeft = _contentBounds.x;
-          const contentRight = _contentBounds.x + _contentBounds.width;
-          const contentBottom = screenHeight - (_contentBounds.y + _contentBounds.height);
-          const contentTop = contentBottom + _contentBounds.height;
+        // Clamp to content bounds (prefer clamping over hiding so the button stays visible)
+        const contentLeft = _contentBounds.x;
+        const contentRightEdge = _contentBounds.x + _contentBounds.width;
+        const contentCocoaBottom = screenHeight - (_contentBounds.y + _contentBounds.height);
+        const contentCocoaTop = contentCocoaBottom + _contentBounds.height;
 
-          if (
-            clampedX < contentLeft ||
-            clampedX + REVIEW_BUTTON_WIDTH > contentRight ||
-            clampedY < contentBottom ||
-            clampedY + REVIEW_BUTTON_HEIGHT > contentTop
-          ) {
-            return null;
-          }
+        let finalX = Math.max(contentLeft, Math.min(clampedX, contentRightEdge - REVIEW_BUTTON_WIDTH));
+        let finalY = Math.max(contentCocoaBottom, Math.min(clampedY, contentCocoaTop - REVIEW_BUTTON_HEIGHT));
+
+        // Only hide if the button truly can't fit within content bounds at all
+        if (finalX + REVIEW_BUTTON_WIDTH > contentRightEdge || finalX < contentLeft ||
+            finalY + REVIEW_BUTTON_HEIGHT > contentCocoaTop || finalY < contentCocoaBottom) {
+          return null;
         }
 
-        return { x: clampedX, y: clampedY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
+        return { x: finalX, y: finalY, width: REVIEW_BUTTON_WIDTH, height: REVIEW_BUTTON_HEIGHT };
       },
     },
   ];
