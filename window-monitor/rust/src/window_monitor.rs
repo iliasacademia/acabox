@@ -142,6 +142,14 @@ impl DeferredCheck {
     }
 }
 
+// --- PendingTextSelection: buffered text selection event for mouse-down deferral ---
+
+struct PendingTextSelection {
+    app: AppInfoOutput,
+    window: WindowInfoOutput,
+    selection: TextSelectionInfo,
+}
+
 // --- WindowMonitor ---
 
 pub struct WindowMonitor {
@@ -175,6 +183,10 @@ pub struct WindowMonitor {
 
     // Text selection tracking
     text_selection: Option<TextSelectionTracker>,
+
+    // Mouse button state (for deferring text selection events until mouse-up)
+    is_mouse_button_down: bool,
+    pending_text_selection: Option<PendingTextSelection>,
 
     // Document text tracking
     document_text: Option<DocumentTextTracker>,
@@ -226,6 +238,8 @@ impl WindowMonitor {
             } else {
                 None
             },
+            is_mouse_button_down: false,
+            pending_text_selection: None,
             document_text: if track_document_text {
                 Some(DocumentTextTracker::new(temp_dir, bundle_id.unwrap_or_default().to_string()))
             } else {
@@ -245,6 +259,24 @@ impl WindowMonitor {
             identifier: self.current_bundle_id.clone(),
             identifier_type: "bundleId".to_string(),
             pid: self.app_pid,
+        }
+    }
+
+    /// Update mouse button state. When mouse is released, flush any pending text selection event.
+    pub fn set_mouse_button_down(&mut self, is_down: bool) {
+        let was_down = self.is_mouse_button_down;
+        self.is_mouse_button_down = is_down;
+
+        // Mouse just released — emit buffered text selection event
+        if was_down && !is_down {
+            if let Some(pending) = self.pending_text_selection.take() {
+                event_models::emit_text_selection_event(
+                    EventType::WindowTextSelected,
+                    &pending.app,
+                    pending.window,
+                    Some(pending.selection),
+                );
+            }
         }
     }
 
@@ -914,14 +946,26 @@ impl WindowMonitor {
                         height: h,
                     }),
                 };
-                event_models::emit_text_selection_event(
-                    EventType::WindowTextSelected,
-                    &app,
-                    window_info,
-                    Some(selection),
-                );
+                // When mouse is held down, buffer the event until mouse-up
+                if self.is_mouse_button_down {
+                    self.pending_text_selection = Some(PendingTextSelection {
+                        app: app.clone(),
+                        window: window_info,
+                        selection,
+                    });
+                } else {
+                    event_models::emit_text_selection_event(
+                        EventType::WindowTextSelected,
+                        &app,
+                        window_info,
+                        Some(selection),
+                    );
+                }
             }
             TextSelectionChange::Cleared => {
+                // Clear any pending (buffered) text selection
+                self.pending_text_selection = None;
+
                 // Force-finish any active bounds reposition before emitting Cleared
                 self.finish_selection_bounds_reposition();
 

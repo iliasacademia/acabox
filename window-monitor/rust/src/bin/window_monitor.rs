@@ -8,7 +8,7 @@ use std::time::Instant;
 use window_monitor_lib::accessibility;
 use window_monitor_lib::window_monitor;
 
-// Raw FFI for CGEventTap (scroll detection)
+// Raw FFI for CGEventTap (scroll detection) and CGEventSourceButtonState (mouse button polling)
 type CGEventRef = *const c_void;
 type CGEventTapProxy = *const c_void;
 
@@ -21,6 +21,11 @@ extern "C" {
         callback: unsafe extern "C" fn(CGEventTapProxy, u32, CGEventRef, *mut c_void) -> CGEventRef,
         user_info: *mut c_void,
     ) -> core_foundation_sys::mach_port::CFMachPortRef;
+
+    /// Query whether a mouse button is currently pressed.
+    /// stateID: 0 = kCGEventSourceStateCombinedSessionState
+    /// button:  0 = kCGMouseButtonLeft
+    fn CGEventSourceButtonState(state_id: u32, button: u32) -> bool;
 }
 
 unsafe extern "C" fn scroll_tap_callback(
@@ -192,6 +197,12 @@ fn main() {
         if scroll_detected.swap(false, Ordering::Relaxed) {
             monitor.on_scroll_event();
         }
+
+        // Poll hardware mouse button state — more reliable than event tap for button tracking
+        let is_mouse_down = unsafe {
+            CGEventSourceButtonState(0, 0) // kCGEventSourceStateCombinedSessionState, kCGMouseButtonLeft
+        };
+        monitor.set_mouse_button_down(is_mouse_down);
 
         // 150ms debounce: check if resize/move is finished (before polling can reset timer)
         monitor.check_resize_end();
