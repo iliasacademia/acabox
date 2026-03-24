@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useConversationsApi } from '../api/useConversationsApi';
 import { Message, Conversation } from '../types/conversation';
 
-const POLL_INTERVAL = 2000; // 2 seconds
+const SAFETY_NET_POLL_INTERVAL = 30000; // 30 seconds - safety net in case events are missed
 
 export interface MessageCreatedEvent {
   conversation_id: number;
@@ -154,8 +154,9 @@ export function useConversationPolling(
       // Initial fetch
       fetchMessages();
 
-      // Set up interval
-      intervalRef.current = setInterval(fetchMessages, POLL_INTERVAL);
+      // Use a 30s safety-net interval. Primary updates come from events (via onEventReceived).
+      // This interval only exists as a fallback in case an event is missed.
+      intervalRef.current = setInterval(fetchMessages, SAFETY_NET_POLL_INTERVAL);
     },
     [fetchMessages, stopPolling]
   );
