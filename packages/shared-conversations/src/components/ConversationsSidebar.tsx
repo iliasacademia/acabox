@@ -584,7 +584,7 @@ export function ConversationsSidebar({
         {/* Archived section */}
         {!isLoading && (
           <ConversationSection
-            label="Archived"
+            label="Archive"
             conversations={archivedConversations}
             selectedConversationId={selectedConversationId}
             onSelectConversation={handleSelectConversation}

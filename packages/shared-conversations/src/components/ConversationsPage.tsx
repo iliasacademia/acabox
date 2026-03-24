@@ -1138,7 +1138,7 @@ export function ConversationsPage({
                   onClick={handleSwitchManuscript}
                   disabled={isSwitchingManuscript}
                 >
-                  {isSwitchingManuscript ? 'Switching...' : 'Switch Manuscript'}
+                  {isSwitchingManuscript ? 'Switching...' : 'Switch manuscript'}
                 </button>
               )}
 
@@ -1147,7 +1147,7 @@ export function ConversationsPage({
                 <div className="dropdownContainer">
                   <button
                     className="secondaryButton"
-                    onClick={() => setShowOpenDropdown(!showOpenDropdown)}
+                    onClick={() => { setShowOpenDropdown(!showOpenDropdown); setShowReviewDropdown(false); }}
                     disabled={!fileExistsLocally}
                   >
                     Open
@@ -1199,7 +1199,7 @@ export function ConversationsPage({
                 <div className="dropdownContainer">
                   <button
                     className={`primaryButton ${reviewingState === "full-reviewing" || reviewingState === "diff-reviewing" ? "reviewing" : ""}`}
-                    onClick={() => setShowReviewDropdown(!showReviewDropdown)}
+                    onClick={() => { setShowReviewDropdown(!showReviewDropdown); setShowOpenDropdown(false); }}
                     disabled={reviewingState !== "idle" && reviewingState !== "pending-scheduled"}
                   >
                     {reviewingState === "full-reviewing" || reviewingState === "diff-reviewing"
