@@ -11,6 +11,7 @@ import { WordPollResponse } from '../types';
 import { CachedNotification } from '../../notificationManager';
 import { defaultLogger as logger } from '../../utils/logger';
 import { remoteFeatureFlags, REMOTE_FLAGS } from '../../remoteFeatureFlags';
+import { eventsManager } from '../../eventsManager';
 
 /**
  * Build a WordPollResponse for the given window ID.
@@ -194,6 +195,12 @@ export function buildWordPollResponseV2(
   const selectedText = reviewState?.selectedText
     ?? (isAwaitingReviewInput ? (windowMonitorService.getSelectedTextContent(wid) ?? windowMonitorService.getReviewPanelV3SelectedText(wid) ?? undefined) : undefined);
 
+  // Get project review state from events manager
+  const projectReviewState = eventsManager.getProjectReviewState(
+    projectFile.project_id,
+    projectFile.project_file_id,
+  );
+
   return {
     projectId: projectFile.project_id,
     projectFileId: projectFile.project_file_id,
@@ -211,5 +218,6 @@ export function buildWordPollResponseV2(
     shouldShowReviewStatusOverlay,
     isAwaitingReviewInput,
     reviewErrorMessage,
+    projectReviewState,
   };
 }

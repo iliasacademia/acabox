@@ -121,9 +121,6 @@ export function ConversationsPage({
   );
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
   const [isReviewInProgress, setIsReviewInProgress] = useState(false);
-  const [pollInterval, setPollInterval] = useState<ReturnType<
-    typeof setTimeout
-  > | null>(null);
   const [hasConversations, setHasConversations] = useState(false);
   const [reviewingState, setReviewingState] = useState<
     "idle" | "full-reviewing" | "diff-reviewing" | "pending-scheduled"
@@ -392,8 +389,7 @@ export function ConversationsPage({
             }
           }
 
-          // Start polling to track completion
-          startPolling(manuscriptFile.id);
+          // Review completion will be detected via onRegisterReviewStateUpdates events
         }
       } catch (error) {
         console.error(
@@ -425,169 +421,12 @@ export function ConversationsPage({
     return hasDiffsSinceLastReview();
   };
 
-  // Poll for review completion with exponential backoff
-  const startPolling = (manuscriptId: number) => {
+  // Mark review as in progress (called after triggering a review).
+  // Completion is detected via onRegisterReviewStateUpdates events.
+  const markReviewInProgress = (reviewType: "full" | "diff") => {
     setIsReviewInProgress(true);
-
-    let pollCount = 0;
-    const MAX_POLLS = 100; // Maximum 100 polls (~5 minutes with backoff)
-    let currentDelay = 3000; // Start with 3 seconds
-
-    const poll = async () => {
-      if (pollCount >= MAX_POLLS) {
-        setPollInterval(null);
-        setIsReviewInProgress(false);
-        setReviewingState("idle");
-        return;
-      }
-
-      try {
-        const status = await getProjectStatus(
-          selectedProject!.id,
-          undefined,
-          manuscriptId,
-        );
-        // Check for recent agent runs (within last 5 minutes)
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        const recentRuns = status.agent_runs.filter((run: AgentRun) => {
-          const createdAt = new Date(run.created_at);
-          return run.file_id === manuscriptId && createdAt > fiveMinutesAgo;
-        });
-
-        if (recentRuns.length === 0) {
-          setPollInterval(null);
-          setIsReviewInProgress(false);
-          setReviewingState("idle");
-          return;
-        }
-
-        // Check if any runs are still in progress (pending or processing)
-        const inProgressRuns = recentRuns.filter(
-          (run: AgentRun) =>
-            run.status === "pending" || run.status === "processing",
-        );
-
-        // Separate pending from processing runs
-        const pendingRuns = inProgressRuns.filter(
-          (run: AgentRun) => run.status === "pending",
-        );
-
-        const processingRuns = inProgressRuns.filter(
-          (run: AgentRun) => run.status === "processing",
-        );
-
-        // Check if any in-progress runs are auto-scheduled
-        const autoScheduledInProgress = inProgressRuns.some(
-          (run: AgentRun) => run.review_data?.triggered_by === "auto_scheduler",
-        );
-        setIsAutoReviewInProgress(autoScheduledInProgress);
-
-        if (inProgressRuns.length === 0) {
-          // All recent runs are completed or failed
-          setPollInterval(null);
-          setIsReviewInProgress(false);
-          setReviewingState("idle");
-          setScheduledReviewTime(null);
-          setIsAutoReviewInProgress(false); // Reset auto review state
-
-          // Refresh manuscript file data to get updated last_review
-          await refreshManuscriptFile();
-          // Refresh conversation list to show new review conversation
-          setRefreshTrigger((prev) => prev + 1);
-        } else if (pendingRuns.length > 0) {
-          // Check if pending run is an auto-scheduled diff review
-          // (only auto-scheduled reviews have a delay; manual reviews are immediate)
-          const pendingAutoScheduledReviews = pendingRuns.filter(
-            (run: AgentRun) =>
-              (run.agent_name?.includes("diff") ||
-                run.agent_name === "science_agent") &&
-              run.review_data?.triggered_by === "auto_scheduler",
-          );
-
-          if (pendingAutoScheduledReviews.length > 0) {
-            // Auto-scheduled diff review is still waiting - update scheduled time if needed
-            const pendingRun = pendingAutoScheduledReviews[0];
-            if (reviewingState !== "pending-scheduled") {
-              setReviewingState("pending-scheduled");
-              setScheduledReviewTime(new Date(pendingRun.created_at));
-            }
-          } else {
-            // Manual review or full review - determine type and set to reviewing
-            const hasFullReview = pendingRuns.some((run: AgentRun) =>
-              run.agent_name?.includes("full"),
-            );
-            const hasDiffReview = pendingRuns.some(
-              (run: AgentRun) =>
-                run.agent_name?.includes("diff") ||
-                run.agent_name === "science_agent",
-            );
-
-            if (hasDiffReview) {
-              setReviewingState("diff-reviewing");
-            } else if (hasFullReview) {
-              setReviewingState("full-reviewing");
-            }
-          }
-
-          // Schedule next poll with exponential backoff
-          pollCount++;
-          currentDelay = Math.min(currentDelay * 1.5, 10000); // Max 10 seconds
-          const timeoutId = setTimeout(poll, currentDelay);
-          setPollInterval(timeoutId);
-        } else if (processingRuns.length > 0) {
-          // Transitioned to processing - clear scheduled time
-          if (reviewingState === "pending-scheduled") {
-            setScheduledReviewTime(null);
-          }
-
-          // Determine which type of review is processing
-          const hasFullReview = processingRuns.some((run: AgentRun) =>
-            run.agent_name?.includes("full"),
-          );
-          const hasDiffReview = processingRuns.some(
-            (run: AgentRun) =>
-              run.agent_name?.includes("diff") ||
-              run.agent_name === "science_agent",
-          );
-
-          if (hasDiffReview) {
-            setReviewingState("diff-reviewing");
-          } else if (hasFullReview) {
-            setReviewingState("full-reviewing");
-          }
-
-          // Schedule next poll with exponential backoff
-          pollCount++;
-          currentDelay = Math.min(currentDelay * 1.5, 10000); // Max 10 seconds
-          const timeoutId = setTimeout(poll, currentDelay);
-          setPollInterval(timeoutId);
-        }
-      } catch (error) {
-        console.error(
-          "[ConversationsPage] Error polling review status:",
-          error,
-        );
-
-        // On error, retry with backoff
-        pollCount++;
-        currentDelay = Math.min(currentDelay * 2, 10000);
-        const timeoutId = setTimeout(poll, currentDelay);
-        setPollInterval(timeoutId);
-      }
-    };
-
-    // Start first poll
-    poll();
+    setReviewingState(reviewType === "full" ? "full-reviewing" : "diff-reviewing");
   };
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollInterval) {
-        clearTimeout(pollInterval);
-      }
-    };
-  }, [pollInterval]);
 
   // Cleanup sync indicator timeout on unmount
   useEffect(() => {
@@ -623,6 +462,12 @@ export function ConversationsPage({
       setReviewingState(state);
       if (state === "idle") {
         setIsReviewInProgress(false);
+        setScheduledReviewTime(null);
+        setIsAutoReviewInProgress(false);
+        // Refresh manuscript file data to get updated last_review
+        refreshManuscriptFile();
+        // Refresh conversation list to show new review conversation
+        setRefreshTrigger((prev) => prev + 1);
       } else {
         setIsReviewInProgress(true);
       }
@@ -680,11 +525,11 @@ export function ConversationsPage({
           (file) => file.is_primary_manuscript,
         );
         if (primaryManuscript) {
-          // Check if this is a newly synced manuscript with no review yet
-          // If so, start polling immediately (backend auto-triggered review on first sync)
+          // If this is a newly synced manuscript with no review yet,
+          // backend auto-triggers a full review — mark as in progress.
+          // Completion is detected via review events.
           if (!primaryManuscript.last_review) {
-            startPolling(primaryManuscript.id);
-          } else {
+            markReviewInProgress("full");
           }
         }
 
@@ -746,11 +591,11 @@ export function ConversationsPage({
               ) {
                 // Check user preference before starting auto diff review
                 if (preferences.auto_diff_review) {
-                  // Start polling when manuscript is synced
                   // Backend automatically triggers review for:
                   // - First time sync (no last_review): full review
                   // - Subsequent syncs (has last_review): full review (we let backend decide)
-                  startPolling(primaryManuscript.id);
+                  // Completion is detected via review events.
+                  markReviewInProgress("full");
                 } else {
                   console.log('[ConversationsPage] Auto diff review disabled by user preference');
                 }
@@ -885,8 +730,8 @@ export function ConversationsPage({
         selectedProject.id,
         manuscriptFile.id,
       );
-      // Start polling for completion
-      startPolling(manuscriptFile.id);
+      // Completion is detected via review events
+      markReviewInProgress("full");
     } catch (error: unknown) {
       const err = error as { message?: string };
       console.error(
@@ -918,8 +763,8 @@ export function ConversationsPage({
         selectedProject.id,
         manuscriptFile.id,
       );
-      // Start polling for completion
-      startPolling(manuscriptFile.id);
+      // Completion is detected via review events
+      markReviewInProgress("diff");
     } catch (error: unknown) {
       const err = error as { message?: string };
       console.error(
@@ -1035,10 +880,8 @@ export function ConversationsPage({
 
       // Trigger full review if new manuscript exists
       if (newManuscript) {
-        setReviewingState('full-reviewing');
-        setIsReviewInProgress(true);
         await triggerFullReview(selectedProject.id, newManuscript.id);
-        startPolling(newManuscript.id);
+        markReviewInProgress("full");
 
         // Show success message
         setSwitchSuccessMessage('Manuscript switched successfully. Reviewing new manuscript...');

@@ -4,6 +4,7 @@ import { CoScientistEvent, PollEventsResponse } from './types/events';
 import { defaultLogger as logger } from './utils/logger';
 import Store from 'electron-store';
 import { remoteFeatureFlags } from './remoteFeatureFlags';
+import { wordPollEventBus } from './server/events/wordPollEventBus';
 
 interface EventsState {
   last_ts: string | null;
@@ -22,6 +23,8 @@ export const pollEvents = async (lastTimestamp?: string): Promise<PollEventsResp
   return response.data;
 };
 
+export type ProjectReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
+
 class EventsManager {
   private pollingInterval: NodeJS.Timeout | null = null;
   private currentUserId: number | null = null;
@@ -30,6 +33,12 @@ class EventsManager {
   private store = new Store<EventsState>({
     name: app.isPackaged ? 'events-state' : 'events-state-dev',
   });
+
+  /**
+   * Tracks review state per project file, updated by review events.
+   * Key: `${projectId}:${fileId}`, Value: review state
+   */
+  private projectReviewStates = new Map<string, ProjectReviewState>();
 
   /**
    * Set the main window reference for IPC communication
@@ -126,6 +135,27 @@ class EventsManager {
           continue;
         }
 
+        // Intercept review events to update project review state and notify popup via word poll
+        if (event.event_name === 'review_started' || event.event_name === 'review_completed' || event.event_name === 'review_failed') {
+          const fileId = event.data?.file_id;
+          const projectId = event.project_id;
+          if (projectId && fileId) {
+            const key = `${projectId}:${fileId}`;
+            if (event.event_name === 'review_started') {
+              this.projectReviewStates.set(key, 'reviewing');
+            } else if (event.event_name === 'review_completed') {
+              this.projectReviewStates.set(key, 'completed');
+            } else {
+              this.projectReviewStates.set(key, 'failed');
+            }
+            logger.info('[EventsManager] Review state updated', {
+              key, state: this.projectReviewStates.get(key), eventName: event.event_name,
+            });
+            // Notify popup via word poll WebSocket
+            wordPollEventBus.emit('change', 'reviewing-state-changed');
+          }
+        }
+
         // Intercept feature flag events (main-process only, not forwarded to renderer)
         if (event.event_name === 'desktop_feature_flag_changed') {
           if (event.data && typeof event.data.flags === 'object' && event.data.flags !== null) {
@@ -205,6 +235,13 @@ class EventsManager {
    */
   getCurrentUserId(): number | null {
     return this.currentUserId;
+  }
+
+  /**
+   * Get the review state for a project file
+   */
+  getProjectReviewState(projectId: number, fileId: number): ProjectReviewState {
+    return this.projectReviewStates.get(`${projectId}:${fileId}`) || 'idle';
   }
 
   /**

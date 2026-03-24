@@ -171,6 +171,8 @@ export interface WordPollResponse {
   shouldShowReviewStatusOverlay?: boolean;
   /** Whether the overlay is in input mode (awaiting user prompt before review) */
   isAwaitingReviewInput?: boolean;
+  /** Review state for the project file, derived from events polling */
+  projectReviewState?: 'idle' | 'reviewing' | 'completed' | 'failed';
   /** FullStory configuration for popup initialization (avoids extra HTTP calls) */
   fullStoryConfig?: {
     userId: number | null;
