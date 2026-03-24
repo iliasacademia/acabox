@@ -33,7 +33,7 @@ export interface UseConversationPollingOptions {
 export interface UseConversationPollingResult {
   messages: Message[];
   conversation: Conversation | null;
-  isPolling: boolean;
+  isAwaitingResponse: boolean;
   isLoading: boolean;
   error: string | null;
   startPolling: (conversationId: number, projectId?: number | null) => void;
@@ -52,7 +52,7 @@ export interface UseConversationPollingResult {
  *
  * @example
  * // Basic usage (polling only)
- * const { messages, isPolling, startPolling, stopPolling } = useConversationPolling();
+ * const { messages, isAwaitingResponse, startPolling, stopPolling } = useConversationPolling();
  *
  * @example
  * // Event-driven usage (Electron)
@@ -68,7 +68,7 @@ export function useConversationPolling(
 ): UseConversationPollingResult {
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<Conversation | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
+  const [isAwaitingResponse, setIsPolling] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -270,7 +270,7 @@ export function useConversationPolling(
   return {
     messages,
     conversation,
-    isPolling,
+    isAwaitingResponse,
     isLoading,
     error,
     startPolling,

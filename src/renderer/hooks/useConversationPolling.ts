@@ -5,7 +5,7 @@ const SAFETY_NET_POLL_INTERVAL = 30000; // 30 seconds - safety net, primary upda
 
 interface UseConversationPollingResult {
   messages: Message[];
-  isPolling: boolean;
+  isAwaitingResponse: boolean;
   isLoading: boolean;
   error: string | null;
   startPolling: (conversationId: number, projectId: number) => void;
@@ -17,7 +17,7 @@ interface UseConversationPollingResult {
 
 export function useConversationPolling(): UseConversationPollingResult {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isPolling, setIsPolling] = useState(false);
+  const [isAwaitingResponse, setIsPolling] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -172,7 +172,7 @@ export function useConversationPolling(): UseConversationPollingResult {
 
   return {
     messages,
-    isPolling,
+    isAwaitingResponse,
     isLoading,
     error,
     startPolling,
