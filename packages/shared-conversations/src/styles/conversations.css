@@ -63,7 +63,7 @@
 /* Clean Top Bar matching Figma design */
 .conversationsTopBar {
     background-color: white;
-    border-bottom: 1px solid var(--stroke-grey);
+    border-bottom: 1px solid #e5e5ea;
     border-top: 1px solid var(--stroke-grey);
     padding: 4px 16px;
     display: flex;
@@ -72,6 +72,7 @@
     flex-shrink: 0;
     position: relative;
     overflow: visible;
+    gap: 8px;
 }
 
 .topBarLeft {
@@ -79,12 +80,16 @@
     align-items: center;
     gap: 8px;
     overflow: visible;
+    flex: 1;
+    min-width: 0;
 }
 
 .topBarRight {
     display: flex;
     align-items: center;
-    gap: 24px;
+    gap: 12px;
+    padding: 10px 0 10px 10px;
+    flex-shrink: 0;
 }
 
 .conversationsTopBar .backButton {
@@ -138,8 +143,7 @@
     margin: 0;
     display: flex;
     align-items: center;
-    gap: 8px;
-    max-width: 500px;
+    gap: 12px;
     flex-shrink: 1;
     min-width: 0;
 }
@@ -279,6 +283,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
+    white-space: nowrap;
 }
 
 .conversationsTopBar .secondaryButton:hover:not(:disabled) {
@@ -342,13 +347,6 @@
 @media (max-width: 768px) {
     .conversationsTopBar {
         flex-wrap: wrap;
-        gap: 8px;
-        padding: 8px 12px;
-    }
-
-    .topBarLeft {
-        flex: 1;
-        min-width: 0;
     }
 
     .topBarRight {
@@ -360,7 +358,8 @@
         font-size: 18px;
     }
 
-    .conversationsTopBar .primaryButton {
+    .conversationsTopBar .primaryButton,
+    .conversationsTopBar .secondaryButton {
         padding: 8px 12px;
         font-size: 14px;
     }
@@ -1031,14 +1030,14 @@
     background-color: white;
     display: flex;
     flex-direction: column;
-    border-right: 1px solid var(--stroke-grey);
+    border-right: 1px solid #e5e5ea;
     flex-shrink: 0;
     transition: width 0.3s ease;
 }
 
 /* Collapsed state */
 .sidebarWithHeader.collapsed {
-    width: 56px;
+    width: 72px;
 }
 
 .sidebarWithHeader.collapsed .manuscriptFeedbackTitle {
@@ -1051,14 +1050,13 @@
 
 .sidebarWithHeader.collapsed .manuscriptFeedbackHeader {
     justify-content: center;
-    padding: 16px 8px;
 }
 
 .manuscriptFeedbackHeader {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0px 16px;
+    padding: 8px 16px 0;
     background-color: white;
     flex-shrink: 0;
     height: 56px;
@@ -1078,35 +1076,37 @@
 .panelCollapseButton {
     background: none;
     border: none;
-    padding: 0;
+    padding: 4px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--text-primary);
     transition: all 0.2s;
-    width: 24px;
-    height: 24px;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 8px;
 }
 
 .panelCollapseButton:hover {
-    opacity: 0.7;
+    background-color: rgba(0, 0, 0, 0.05);
 }
 
 .panelCollapseButton svg {
     transition: transform 0.2s;
+    transform: rotate(180deg);
 }
 
-/* When sidebar is collapsed, rotate the icon */
+/* When sidebar is collapsed, reset the icon rotation */
 .sidebarWithHeader.collapsed .panelCollapseButton svg {
-    transform: rotate(180deg);
+    transform: rotate(0deg);
 }
 
 /* Main Content Layout */
 .conversationsContent {
     flex: 1;
     display: flex;
-    padding-bottom: 30px;
     overflow: hidden;
     position: relative;
 }
@@ -1265,6 +1265,10 @@
     margin-bottom: 24px;
 }
 
+.sidebarSection + .sidebarSection {
+    padding-top: 8px;
+}
+
 .sidebarSectionHeader {
     display: flex;
     align-items: center;
@@ -1274,9 +1278,9 @@
 
 .sidebarSectionTitle {
     font-family: var(--font-family-sans);
-    font-size: 20px;
+    font-size: 18px;
     font-weight: 600;
-    line-height: 28px;
+    line-height: 24px;
     color: var(--text-primary);
     margin: 0;
 }
@@ -1305,20 +1309,25 @@
 
 /* Supporting Materials Card in Sidebar */
 .supportingMaterialsCard {
-    background-color: var(--background-light-blue);
+    background-color: white;
     padding: 16px 20px;
+    border: 1px solid var(--stroke-grey);
     border-radius: var(--radius-sm);
     cursor: pointer;
     transition: all 0.2s;
 }
 
 .supportingMaterialsCard:hover {
-    background-color: #dce4f2;
+    background-color: #f3f4f6;
 }
 
 .supportingMaterialsCard.selected {
-    background-color: #d1dff0;
-    border: 2px solid #0645b1;
+    background-color: var(--background-light-blue);
+    border-color: #a8c4e8;
+}
+
+.supportingMaterialsCard.selected:hover {
+    background-color: #dce4f2;
 }
 
 .supportingMaterialsCardTitle {
@@ -1332,9 +1341,10 @@
 
 .supportingMaterialsCardSubtitle {
     font-family: var(--font-family-sans);
-    font-size: 16px;
+    font-size: 15px;
+    font-weight: 500;
     line-height: 20px;
-    color: var(--text-secondary);
+    color: #141413;
     margin: 0;
 }
 
@@ -1358,19 +1368,18 @@
     padding: 12px 14px;
     margin: 0 0 6px 0;
     background-color: #ffffff;
-    border: 1px solid #e5e5ea;
+    border: 1px solid var(--stroke-grey);
     border-radius: 8px;
     cursor: pointer;
-    transition: border-color 0.15s, box-shadow 0.15s;
+    transition: all 0.2s;
     display: flex;
     flex-direction: column;
     gap: 4px;
     position: relative;
 }
 
-.conversationItem:hover {
-    border-color: #c7c7cc;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+.conversationItem:hover:not(.selected) {
+    background-color: #f3f4f6;
 }
 
 /* Three-dot menu button — shown on conversation item hover */
@@ -1551,6 +1560,10 @@
     border-color: #a8c4e8;
 }
 
+.conversationItem.selected:hover {
+    background-color: #dce4f2;
+}
+
 .conversationItemTitle {
     margin: 0;
     font-size: 15px;
@@ -1666,7 +1679,13 @@
     display: flex;
     flex-direction: column;
     background-color: #ffffff;
-    padding: 32px;
+    padding: 32px 64px;
+}
+
+@media (max-width: 768px) {
+    .conversationDetail {
+        padding: 32px;
+    }
 }
 
 .conversationDetail.empty {
@@ -2426,7 +2445,7 @@
 
 /* Input */
 .conversationInput {
-    padding: 0;
+    padding: 0 0 24px;
     border-top: none;
     background-color: transparent;
     border: none;
@@ -3376,13 +3395,25 @@
 
 /* Empty State */
 .supportingMaterialsEmptyState {
-  background-color: var(--background-light-blue);
-  padding: 16px 24px;
+  background-color: #ffffff;
+  border: 1px solid var(--stroke-grey);
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin: 0 16px 16px;
+  margin: 0 0 16px;
   border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.supportingMaterialsEmptyState:hover {
+  background-color: #E6ECF7;
+  border-color: #0645b1;
+}
+
+.supportingMaterialsEmptyState.selected {
+  background-color: var(--background-light-blue);
+  border-color: #a8c4e8;
 }
 
 .supportingMaterialsSidebar.collapsed .supportingMaterialsEmptyState {
@@ -3409,6 +3440,7 @@
   text-decoration: none;
   background: none;
   border: none;
+  margin: 0;
   padding: 2px 0;
   cursor: pointer;
 }
@@ -3507,12 +3539,18 @@
 .supportingMaterialsContent {
   flex: 1;
   background-color: white;
-  padding: 40px;
+  padding: 40px 64px;
   overflow-y: auto;
 }
 
+@media (max-width: 768px) {
+  .supportingMaterialsContent {
+    padding: 40px 32px;
+  }
+}
+
 .supportingMaterialsContentHeader {
-  margin-bottom: 24px;
+  margin-bottom: 32px;
 }
 
 .supportingMaterialsContentTitle {
@@ -3521,7 +3559,7 @@
   font-weight: 600;
   line-height: 40px;
   color: var(--text-primary);
-  margin: 0 0 12px 0;
+  margin: 0 0 4px 0;
 }
 
 .supportingMaterialsContentDescription {
@@ -3576,8 +3614,14 @@
 .supportingMaterialsUploadSection {
   display: flex;
   align-items: stretch;
-  gap: 16px;
+  gap: 12px;
   margin-bottom: 32px;
+}
+
+@media (max-width: 768px) {
+  .supportingMaterialsUploadSection {
+    flex-direction: column;
+  }
 }
 
 .uploadOption {
@@ -3596,7 +3640,7 @@
 }
 
 .uploadOption:hover:not(.disabled) {
-  background-color: var(--background-beige);
+  background-color: #E6ECF7;
   border-color: #0645b1;
 }
 
@@ -3606,18 +3650,25 @@
 }
 
 .uploadOptionIcon {
-  width: 24px;
-  height: 24px;
+  width: 40px;
+  height: 40px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f0f0f3;
+  border-radius: 8px;
 }
 
-.uploadOptionIcon svg {
-  width: 100%;
-  height: 100%;
+.uploadOptionIcon svg,
+.uploadOptionIcon img {
+  width: 20px;
+  height: 20px;
 }
 
 .uploadOptionContent {
   flex: 1;
+  text-align: left;
 }
 
 .uploadOptionTitle {
@@ -3644,13 +3695,28 @@
   align-self: stretch;
 }
 
+.zoteroIconContainer {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f0f0f3;
+  border-radius: 8px;
+}
+
+.zoteroIconContainer svg {
+  width: 20px;
+  height: 20px;
+}
+
 .zoteroStatusRow {
   flex: 1;
   display: flex;
   flex-direction: row;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 16px;
   padding: 16px;
   background: white;
   border: 1px solid var(--stroke-grey);
@@ -3658,6 +3724,7 @@
 }
 
 .zoteroStatusText {
+  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -3701,6 +3768,7 @@
 .smZoteroButtonConnect {
   background-color: #0645b1;
   color: #ffffff;
+  padding: 5px 10px;
 }
 
 .smZoteroButtonConnect:hover:not(:disabled) {

@@ -469,7 +469,7 @@ export function ConversationsSidebar({
               <p>Loading materials...</p>
             </div>
           ) : supportingMaterialsCount === 0 ? (
-            <div className="supportingMaterialsEmptyState">
+            <div className={`supportingMaterialsEmptyState ${selectedView === 'supporting-materials' ? 'selected' : ''}`} onClick={onSelectSupportingMaterials} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelectSupportingMaterials?.(); }}>
               <p className="supportingMaterialsEmptyText">
                 Improve reviews by adding supporting materials, such as references or notes.
               </p>
@@ -515,7 +515,7 @@ export function ConversationsSidebar({
       {!collapsed && (
         <div className="sidebarSection" style={{ marginBottom: 0 }}>
           <div className="sidebarSectionHeader">
-            <h3 className="sidebarSectionTitle">Feedback & Conversations</h3>
+            <h3 className="sidebarSectionTitle">Feedback & conversations</h3>
             <button
               className="newConversationButton"
               onClick={onNewConversation}
@@ -584,7 +584,7 @@ export function ConversationsSidebar({
         {/* Archived section */}
         {!isLoading && (
           <ConversationSection
-            label="Archived"
+            label="Archive"
             conversations={archivedConversations}
             selectedConversationId={selectedConversationId}
             onSelectConversation={handleSelectConversation}
