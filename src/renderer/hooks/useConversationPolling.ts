@@ -139,6 +139,14 @@ export function useConversationPolling(): UseConversationPollingResult {
 
         if (conversation && conversation.messages) {
           setMessages(conversation.messages);
+
+          // If the AI response is still in progress, start the safety-net interval
+          // so that events can drive updates.
+          const lastMessage = conversation.messages[conversation.messages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant' && lastMessage.data?.final !== true) {
+            setIsPolling(true);
+            intervalRef.current = setInterval(fetchMessages, SAFETY_NET_POLL_INTERVAL);
+          }
         }
       } catch (err: any) {
         console.error('[ConversationPolling] Failed to initialize messages:', err);
@@ -147,7 +155,7 @@ export function useConversationPolling(): UseConversationPollingResult {
         setIsLoading(false);
       }
     },
-    [stopPolling]
+    [stopPolling, fetchMessages]
   );
 
   // Add a message optimistically (before API confirms it)

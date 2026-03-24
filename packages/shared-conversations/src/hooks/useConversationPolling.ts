@@ -193,6 +193,14 @@ export function useConversationPolling(
 
           setConversation(conversationData);
           setMessages(messagesArray);
+
+          // If the AI response is still in progress, start the safety-net interval
+          // so that events (via onEventReceived) can drive updates.
+          const lastMessage = messagesArray[messagesArray.length - 1];
+          if (lastMessage && (lastMessage.data as { final?: boolean })?.final !== true) {
+            setIsPolling(true);
+            intervalRef.current = setInterval(fetchMessages, SAFETY_NET_POLL_INTERVAL);
+          }
         }
       } catch (err: unknown) {
         const error = err as { message?: string };
@@ -202,7 +210,7 @@ export function useConversationPolling(
         setIsLoading(false);
       }
     },
-    [getConversation, stopPolling]
+    [getConversation, stopPolling, fetchMessages]
   );
 
   // Add a message optimistically (before API confirms it)
