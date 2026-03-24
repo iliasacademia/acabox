@@ -17,7 +17,7 @@ interface UseConversationPollingResult {
 
 export function useConversationPolling(): UseConversationPollingResult {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isAwaitingResponse, setIsPolling] = useState(false);
+  const [isAwaitingResponse, setIsAwaitingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +30,7 @@ export function useConversationPolling(): UseConversationPollingResult {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    setIsPolling(false);
+    setIsAwaitingResponse(false);
     // Note: We keep messages intact when polling stops naturally (AI response complete)
     // Messages are only cleared when conversation changes
   }, []);
@@ -101,7 +101,7 @@ export function useConversationPolling(): UseConversationPollingResult {
         projectId,
       });
 
-      setIsPolling(true);
+      setIsAwaitingResponse(true);
       setError(null);
 
       // Initial fetch
@@ -144,7 +144,7 @@ export function useConversationPolling(): UseConversationPollingResult {
           // so that events can drive updates.
           const lastMessage = conversation.messages[conversation.messages.length - 1];
           if (lastMessage && lastMessage.role === 'assistant' && lastMessage.data?.final !== true) {
-            setIsPolling(true);
+            setIsAwaitingResponse(true);
             intervalRef.current = setInterval(fetchMessages, SAFETY_NET_POLL_INTERVAL);
           }
         }
