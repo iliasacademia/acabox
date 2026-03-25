@@ -7,8 +7,6 @@ import {
   NotificationData,
   ViewMode,
   ReviewState,
-  ProjectStatusResponse,
-  WordPollResponse,
   styles,
   serverUrl,
   tokenParam,
@@ -48,7 +46,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   // Track previous height to avoid unnecessary resize calls (prevents infinite loop)
   const previousHeightRef = useRef<number>(0);
   // Track logged notification IDs to avoid stale closure logging issues
@@ -103,138 +100,16 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     sizeAnimRef.current = requestAnimationFrame(step);
   };
 
-  // Fetch project status to determine review state
-  const fetchProjectStatus = async (projId: number, fId: number, token: string | null): Promise<void> => {
-    try {
-      const headers: Record<string, string> = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(
-        `${serverUrl}/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`,
-        { headers }
-      );
-
-      if (!response.ok) {
-        console.error('[AcademiaNotificationsPopupV2] Failed to fetch project status:', response.status);
-        return;
-      }
-
-      const data: ProjectStatusResponse = await response.json();
-
-      if (data.agent_runs.length === 0) {
-        setReviewState('idle');
-        return;
-      }
-
-      const sortedRuns = [...data.agent_runs].sort(
-        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-      );
-
-      const latest = sortedRuns[0];
-
-      switch (latest.status) {
-        case 'pending':
-        case 'processing':
-          setReviewState('reviewing');
-          if (reviewState !== 'reviewing') {
-            console.log('[AcademiaNotificationsPopupV2] Review in progress on load, starting polling');
-            startStatusPolling(projId, fId, token);
-          }
-          break;
-        case 'completed':
-          setReviewState('completed');
-          break;
-        case 'failed':
-          setReviewState('failed');
-          break;
-        default:
-          setReviewState('idle');
-      }
-    } catch (err) {
-      console.error('[AcademiaNotificationsPopupV2] Error fetching project status:', err);
-    }
-  };
-
-  // Poll for status updates after triggering a review
-  const startStatusPolling = (projId: number, fId: number, token: string | null) => {
-    if (pollingIntervalRef.current) {
-      clearInterval(pollingIntervalRef.current);
-    }
-
-    setReviewState('reviewing');
-
-    const headers: Record<string, string> = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    const pollInterval = setInterval(async () => {
-      try {
-        const response = await fetch(
-          `${serverUrl}/proxy-api/v0/co_scientist/projects/${projId}/status?file_id=${fId}`,
-          { headers }
-        );
-
-        if (!response.ok) return;
-
-        const data: ProjectStatusResponse = await response.json();
-
-        if (data.agent_runs.length === 0) return;
-
-        const sortedRuns = [...data.agent_runs].sort(
-          (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-
-        const latest = sortedRuns[0];
-
-        if (latest.status === 'completed' || latest.status === 'failed') {
-          clearInterval(pollInterval);
-          pollingIntervalRef.current = null;
-          setReviewState(latest.status === 'completed' ? 'completed' : 'failed');
-          console.log(`[AcademiaNotificationsPopupV2] Polling stopped - status: ${latest.status}`);
-
-          if (latest.status === 'completed') {
-            try {
-              await fetch(`${serverUrl}/api/notifications/sync`, {
-                method: 'POST',
-                headers: { ...headers, 'Content-Type': 'application/json' },
-                body: JSON.stringify({}),
-              });
-              console.log('[AcademiaNotificationsPopupV2] Triggered notification sync after review completion');
-            } catch (err) {
-              console.error('[AcademiaNotificationsPopupV2] Failed to trigger notification sync:', err);
-            }
-          }
-        }
-      } catch (err) {
-        console.error('[AcademiaNotificationsPopupV2] Polling error:', err);
-      }
-    }, 3000);
-
-    pollingIntervalRef.current = pollInterval;
-
-    setTimeout(() => {
-      if (pollingIntervalRef.current === pollInterval) {
-        clearInterval(pollInterval);
-        pollingIntervalRef.current = null;
-        console.log('[AcademiaNotificationsPopupV2] Polling stopped - max duration reached');
-      }
-    }, 5 * 60 * 1000);
-  };
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, []);
-
   // WebSocket-based polling
   const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
+
+  // Derive review state from word poll data (pushed via WebSocket)
+  useEffect(() => {
+    if (!pollData?.projectReviewState) return;
+    const state = pollData.projectReviewState;
+    console.log('[AcademiaNotificationsPopupV2] Review state from poll data:', state);
+    setReviewState(state);
+  }, [pollData?.projectReviewState]);
 
   // React to pollData changes to update component state
   useEffect(() => {
@@ -282,21 +157,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       setIsLoading(false);
     }
   }, [pollData]);
-
-  // Check project status periodically if we have IDs
-  useEffect(() => {
-    if (!projectId || !fileId) return;
-
-    const checkStatus = async () => {
-      await fetchProjectStatus(projectId, fileId, tokenParam);
-    };
-
-    checkStatus();
-
-    const intervalId = setInterval(checkStatus, 10000);
-
-    return () => clearInterval(intervalId);
-  }, [projectId, fileId, tokenParam]);
 
   // Handle window resizing based on view mode and notification count
   useEffect(() => {
@@ -483,7 +343,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       const data = await response.json();
       console.log('[AcademiaNotificationsPopupV2] Diff review triggered:', data);
 
-      startStatusPolling(projectId, fileId, tokenParam);
+      // Review state will be updated via WebSocket poll data (projectReviewState)
+      setReviewState('reviewing');
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Failed to trigger diff review:', err);
       setReviewState('failed');
@@ -524,7 +385,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       const data = await response.json();
       console.log('[AcademiaNotificationsPopupV2] Full review triggered:', data);
 
-      startStatusPolling(projectId, fileId, tokenParam);
+      // Review state will be updated via WebSocket poll data (projectReviewState)
+      setReviewState('reviewing');
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Failed to trigger full review:', err);
       setReviewState('failed');

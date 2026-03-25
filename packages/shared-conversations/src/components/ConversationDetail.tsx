@@ -167,7 +167,7 @@ export function ConversationDetail({
     }
   };
 
-  const { messages, conversation: polledConversation, isPolling, isLoading, error, startPolling, stopPolling, resetMessages, initializeMessages, addOptimisticMessage } =
+  const { messages, conversation: polledConversation, isAwaitingResponse, isLoading, error, startPolling, stopPolling, resetMessages, initializeMessages, addOptimisticMessage } =
     useConversationPolling(pollingOptions);
 
   // Helper to check if conversation is a draft
@@ -265,10 +265,10 @@ export function ConversationDetail({
 
   // Scroll to bottom when loading indicator appears
   useEffect(() => {
-    if (isPolling || isSending) {
+    if (isAwaitingResponse || isSending) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [isPolling, isSending]);
+  }, [isAwaitingResponse, isSending]);
 
   // Auto-focus textarea when a draft conversation is active
   useEffect(() => {
@@ -762,7 +762,7 @@ export function ConversationDetail({
         )}
 
         {currentIsDraft && !isSending ? null
-        : (isSending || isLoading || isPolling) && groupedMessages.length === 0 ? (
+        : (isSending || isLoading || isAwaitingResponse) && groupedMessages.length === 0 ? (
           <div className="conversationMessage assistant">
             <div className="messageContent">
               <div className="messageLoading">
@@ -812,7 +812,7 @@ export function ConversationDetail({
         )}
 
         {/* Show loading indicator when AI is responding */}
-        {isPolling && groupedMessages.length > 0 && lastSearchProgressId === null && (
+        {isAwaitingResponse && groupedMessages.length > 0 && lastSearchProgressId === null && (
           <div className="conversationMessage assistant">
             <div className="messageContent">
               <div className="messageLoading">

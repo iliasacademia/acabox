@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Message, getConversation } from '../services/conversationsApi';
 
-const POLL_INTERVAL = 2000; // 2 seconds
+const SAFETY_NET_POLL_INTERVAL = 30000; // 30 seconds - safety net, primary updates come from events
 
 interface UseConversationPollingResult {
   messages: Message[];
-  isPolling: boolean;
+  isAwaitingResponse: boolean;
   isLoading: boolean;
   error: string | null;
   startPolling: (conversationId: number, projectId: number) => void;
@@ -17,7 +17,7 @@ interface UseConversationPollingResult {
 
 export function useConversationPolling(): UseConversationPollingResult {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [isPolling, setIsPolling] = useState(false);
+  const [isAwaitingResponse, setIsAwaitingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +30,7 @@ export function useConversationPolling(): UseConversationPollingResult {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    setIsPolling(false);
+    setIsAwaitingResponse(false);
     // Note: We keep messages intact when polling stops naturally (AI response complete)
     // Messages are only cleared when conversation changes
   }, []);
@@ -101,14 +101,14 @@ export function useConversationPolling(): UseConversationPollingResult {
         projectId,
       });
 
-      setIsPolling(true);
+      setIsAwaitingResponse(true);
       setError(null);
 
       // Initial fetch
       fetchMessages();
 
-      // Set up interval
-      intervalRef.current = setInterval(fetchMessages, POLL_INTERVAL);
+      // Safety-net interval — primary updates come from events polling
+      intervalRef.current = setInterval(fetchMessages, SAFETY_NET_POLL_INTERVAL);
     },
     [fetchMessages, stopPolling]
   );
@@ -139,6 +139,14 @@ export function useConversationPolling(): UseConversationPollingResult {
 
         if (conversation && conversation.messages) {
           setMessages(conversation.messages);
+
+          // If the AI response is still in progress, start the safety-net interval
+          // so that events can drive updates.
+          const lastMessage = conversation.messages[conversation.messages.length - 1];
+          if (lastMessage && lastMessage.role === 'assistant' && lastMessage.data?.final !== true) {
+            setIsAwaitingResponse(true);
+            intervalRef.current = setInterval(fetchMessages, SAFETY_NET_POLL_INTERVAL);
+          }
         }
       } catch (err: any) {
         console.error('[ConversationPolling] Failed to initialize messages:', err);
@@ -147,7 +155,7 @@ export function useConversationPolling(): UseConversationPollingResult {
         setIsLoading(false);
       }
     },
-    [stopPolling]
+    [stopPolling, fetchMessages]
   );
 
   // Add a message optimistically (before API confirms it)
@@ -164,7 +172,7 @@ export function useConversationPolling(): UseConversationPollingResult {
 
   return {
     messages,
-    isPolling,
+    isAwaitingResponse,
     isLoading,
     error,
     startPolling,

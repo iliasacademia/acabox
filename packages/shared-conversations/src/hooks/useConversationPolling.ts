@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useConversationsApi } from '../api/useConversationsApi';
 import { Message, Conversation } from '../types/conversation';
 
-const POLL_INTERVAL = 2000; // 2 seconds
+const SAFETY_NET_POLL_INTERVAL = 30000; // 30 seconds - safety net in case events are missed
 
 export interface MessageCreatedEvent {
   conversation_id: number;
@@ -33,7 +33,7 @@ export interface UseConversationPollingOptions {
 export interface UseConversationPollingResult {
   messages: Message[];
   conversation: Conversation | null;
-  isPolling: boolean;
+  isAwaitingResponse: boolean;
   isLoading: boolean;
   error: string | null;
   startPolling: (conversationId: number, projectId?: number | null) => void;
@@ -52,7 +52,7 @@ export interface UseConversationPollingResult {
  *
  * @example
  * // Basic usage (polling only)
- * const { messages, isPolling, startPolling, stopPolling } = useConversationPolling();
+ * const { messages, isAwaitingResponse, startPolling, stopPolling } = useConversationPolling();
  *
  * @example
  * // Event-driven usage (Electron)
@@ -68,7 +68,7 @@ export function useConversationPolling(
 ): UseConversationPollingResult {
   const [messages, setMessages] = useState<Message[]>([]);
   const [conversation, setConversation] = useState<Conversation | null>(null);
-  const [isPolling, setIsPolling] = useState(false);
+  const [isAwaitingResponse, setIsAwaitingResponse] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,7 +83,7 @@ export function useConversationPolling(
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
-    setIsPolling(false);
+    setIsAwaitingResponse(false);
     // Note: We keep messages intact when polling stops naturally (AI response complete)
     // Messages are only cleared when conversation changes
   }, []);
@@ -148,14 +148,15 @@ export function useConversationPolling(
       // Store IDs
       conversationIdRef.current = conversationId;
       projectIdRef.current = projectId ?? null;
-      setIsPolling(true);
+      setIsAwaitingResponse(true);
       setError(null);
 
       // Initial fetch
       fetchMessages();
 
-      // Set up interval
-      intervalRef.current = setInterval(fetchMessages, POLL_INTERVAL);
+      // Use a 30s safety-net interval. Primary updates come from events (via onEventReceived).
+      // This interval only exists as a fallback in case an event is missed.
+      intervalRef.current = setInterval(fetchMessages, SAFETY_NET_POLL_INTERVAL);
     },
     [fetchMessages, stopPolling]
   );
@@ -192,6 +193,14 @@ export function useConversationPolling(
 
           setConversation(conversationData);
           setMessages(messagesArray);
+
+          // If the AI response is still in progress, start the safety-net interval
+          // so that events (via onEventReceived) can drive updates.
+          const lastMessage = messagesArray[messagesArray.length - 1];
+          if (lastMessage && (lastMessage.data as { final?: boolean })?.final !== true) {
+            setIsAwaitingResponse(true);
+            intervalRef.current = setInterval(fetchMessages, SAFETY_NET_POLL_INTERVAL);
+          }
         }
       } catch (err: unknown) {
         const error = err as { message?: string };
@@ -201,7 +210,7 @@ export function useConversationPolling(
         setIsLoading(false);
       }
     },
-    [getConversation, stopPolling]
+    [getConversation, stopPolling, fetchMessages]
   );
 
   // Add a message optimistically (before API confirms it)
@@ -261,7 +270,7 @@ export function useConversationPolling(
   return {
     messages,
     conversation,
-    isPolling,
+    isAwaitingResponse,
     isLoading,
     error,
     startPolling,

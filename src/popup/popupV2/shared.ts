@@ -70,6 +70,7 @@ export interface WordPollResponse {
   isEnableFeedback?: boolean;
   isUnsavedDocument?: boolean;
   reviewErrorMessage?: string;
+  projectReviewState?: 'idle' | 'reviewing' | 'completed' | 'failed';
 }
 
 export interface WebSocketMessage {
