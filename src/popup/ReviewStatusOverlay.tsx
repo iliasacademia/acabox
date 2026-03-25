@@ -12,6 +12,7 @@ const tokenParam = urlParams.get('token');
 
 interface WordPollResponse {
   isReviewingSelectedText?: boolean;
+  isAwaitingReviewInput?: boolean;
   reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
   selectedText?: string;
   selectedTextReviewStartedAt?: number;
@@ -26,14 +27,31 @@ interface WebSocketMessage {
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 
+function postBridge(action: string, payload: Record<string, unknown> = {}) {
+  return fetch(`${serverUrl}/bridge`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${tokenParam}`,
+    },
+    body: JSON.stringify({ action, payload, pid: pidParam ? Number(pidParam) : 0, wid: widParam }),
+  });
+}
+
 function useWordPoll(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { reviewType: string | null; selectedText: string | null; shouldShowReviewStatusOverlay: boolean } {
+): {
+  reviewType: string | null;
+  selectedText: string | null;
+  shouldShowReviewStatusOverlay: boolean;
+  isAwaitingReviewInput: boolean;
+} {
   const [reviewType, setReviewType] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState<string | null>(null);
   const [shouldShowReviewStatusOverlay, setShouldShowReviewStatusOverlay] = useState(false);
+  const [isAwaitingReviewInput, setIsAwaitingReviewInput] = useState(false);
 
   useEffect(() => {
     if (!wid || !token) {
@@ -54,6 +72,7 @@ function useWordPoll(
       setReviewType(isReviewing ? (data.reviewType || 'selected-text') : null);
       setSelectedText(data.selectedText || null);
       setShouldShowReviewStatusOverlay(data.shouldShowReviewStatusOverlay ?? false);
+      setIsAwaitingReviewInput(data.isAwaitingReviewInput ?? false);
     }
 
     function startFallbackPolling() {
@@ -159,15 +178,20 @@ function useWordPoll(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { reviewType, selectedText, shouldShowReviewStatusOverlay };
+  return { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput };
 }
 
 const ReviewStatusOverlay: React.FC = () => {
-  const { reviewType, selectedText, shouldShowReviewStatusOverlay } = useWordPoll(widParam, tokenParam, serverUrl);
+  const { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput } = useWordPoll(widParam, tokenParam, serverUrl);
   const [progress, setProgress] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [showSelectedTextToggle, setShowSelectedTextToggle] = useState(false);
   const selectedTextRef = useRef<HTMLDivElement>(null);
+
+  // Input mode state
+  const [userPrompt, setUserPrompt] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const el = selectedTextRef.current;
@@ -179,7 +203,23 @@ const ReviewStatusOverlay: React.FC = () => {
     onVisibilityChanged('review-status-overlay', shouldShowReviewStatusOverlay);
   }, [shouldShowReviewStatusOverlay]);
 
-  // Simulate progress for now (in production, this would come from the API)
+  // Auto-focus textarea in input mode
+  useEffect(() => {
+    if (isAwaitingReviewInput && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [isAwaitingReviewInput]);
+
+  // Clear input state when overlay is hidden
+  useEffect(() => {
+    if (!shouldShowReviewStatusOverlay) {
+      setUserPrompt('');
+      setIsSubmitting(false);
+      setIsExpanded(false);
+    }
+  }, [shouldShowReviewStatusOverlay]);
+
+  // Simulate progress for reviewing mode
   React.useEffect(() => {
     if (shouldShowReviewStatusOverlay && reviewType) {
       setProgress(0);
@@ -196,55 +236,66 @@ const ReviewStatusOverlay: React.FC = () => {
     }
   }, [shouldShowReviewStatusOverlay, reviewType]);
 
-  console.log('[ReviewStatusOverlay] shouldShowReviewStatusOverlay:', shouldShowReviewStatusOverlay, 'reviewType:', reviewType);
-
   const handleBackClick = async () => {
-    // Open the popup to show the list of reviews
     try {
-      await fetch(`${serverUrl}/bridge`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenParam}`,
-        },
-        body: JSON.stringify({
-          action: 'openPopup',
-          payload: {},
-          pid: pidParam ? Number(pidParam) : 0,
-          wid: widParam
-        }),
-      });
+      await postBridge('openPopup');
     } catch (err) {
       console.error('[ReviewStatusOverlay] Failed to open popup:', err);
     }
   };
 
   const handleCloseClick = async () => {
-    // Clear the review state when closing, which dismisses the overlay
     try {
-      await fetch(`${serverUrl}/bridge`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${tokenParam}`,
-        },
-        body: JSON.stringify({
-          action: 'clearReview',
-          payload: {},
-          pid: pidParam ? Number(pidParam) : 0,
-          wid: widParam
-        }),
-      });
+      await postBridge('clearReview');
     } catch (err) {
       console.error('[ReviewStatusOverlay] Failed to clear review:', err);
     }
   };
 
-  if (!shouldShowReviewStatusOverlay || !reviewType) {
+  const handleSend = async () => {
+    if (!widParam || isSubmitting) return;
+    setIsSubmitting(true);
+
+    try {
+      const res = await fetch(`${serverUrl}/api/selected-text-review/${widParam}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenParam}`,
+        },
+        body: JSON.stringify({ userPrompt: userPrompt.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error('[ReviewStatusOverlay] Review request failed:', data);
+        postBridge('showReviewError', { message: data?.message || 'Something went wrong. Please try again.' }).catch(() => {});
+        setIsSubmitting(false);
+        return;
+      }
+      console.log('[ReviewStatusOverlay] Review triggered successfully');
+      // Transition to reviewing mode happens via poll data
+    } catch (err) {
+      console.error('[ReviewStatusOverlay] Review request error:', err);
+      postBridge('showReviewError', { message: 'Could not connect to the review service. Please check your internet connection and try again.' }).catch(() => {});
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  if (!shouldShowReviewStatusOverlay || (!isAwaitingReviewInput && !reviewType)) {
     return null;
   }
 
-  const getReviewText = () => {
+  const isInputMode = isAwaitingReviewInput && !reviewType;
+
+  const getHeaderText = () => {
+    if (isInputMode) return 'Review selection';
     switch (reviewType) {
       case 'full-paper':
         return 'Reviewing paper';
@@ -276,7 +327,7 @@ const ReviewStatusOverlay: React.FC = () => {
                 />
               </svg>
             </button>
-            <div className="review-status-title">{getReviewText()}</div>
+            <div className="review-status-title">{getHeaderText()}</div>
           </div>
           <button
             className="review-status-close"
@@ -299,7 +350,7 @@ const ReviewStatusOverlay: React.FC = () => {
               <div
                 ref={selectedTextRef}
                 style={isExpanded
-                  ? { maxHeight: '200px', overflowY: 'auto' }
+                  ? { maxHeight: '100px', overflowY: 'auto' }
                   : { display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
                 }
               >
@@ -315,17 +366,43 @@ const ReviewStatusOverlay: React.FC = () => {
               )}
             </>
           ) : (
-            'Reviewing...'
+            isInputMode ? 'Selected text' : 'Reviewing...'
           )}
         </div>
-        <div className="review-status-progress">
-          <div className="review-progress-bar">
-            <div className="review-progress-fill" style={{ width: `${progress}%` }} />
+
+        {isInputMode ? (
+          <div className="review-input-section">
+            <textarea
+              ref={textareaRef}
+              className="review-input-area"
+              placeholder="Add instructions (optional)"
+              value={userPrompt}
+              onChange={(e) => setUserPrompt(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isSubmitting}
+              rows={2}
+            />
+            <button
+              className="review-send-button"
+              onClick={handleSend}
+              disabled={isSubmitting}
+              aria-label="Send"
+            >
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <path d="M3 9L15 9M15 9L10 4M15 9L10 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
           </div>
-          <div className="review-progress-footer">
-            <span className="review-progress-text">{Math.round(progress)}%</span>
+        ) : (
+          <div className="review-status-progress">
+            <div className="review-progress-bar">
+              <div className="review-progress-fill" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="review-progress-footer">
+              <span className="review-progress-text">{Math.round(progress)}%</span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -719,7 +719,7 @@ export function ConversationDetail({
               ref={selectedTextRef}
               style={{
                 ...(isSelectedTextExpanded ? {
-                  maxHeight: `${20 * 10}px`, // 10 lines × 20px line-height
+                  maxHeight: `${20 * 5}px`, // 5 lines × 20px line-height
                   overflowY: 'auto' as const,
                 } : {
                   display: '-webkit-box',

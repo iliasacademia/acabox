@@ -195,52 +195,24 @@ function useWordPoll(
 }
 
 const ReviewButton: React.FC = () => {
-  const { isReviewing: serverIsReviewing, shouldShowReviewButton } = useWordPoll(widParam, tokenParam, serverUrl);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const { shouldShowReviewButton } = useWordPoll(widParam, tokenParam, serverUrl);
 
   useEffect(() => {
     onVisibilityChanged('review-button', shouldShowReviewButton);
   }, [shouldShowReviewButton]);
 
-  // Reset isSubmitting once server confirms review is in progress
-  useEffect(() => {
-    if (serverIsReviewing) {
-      setIsSubmitting(false);
-    }
-  }, [serverIsReviewing]);
-
-  const handleClick = async (e: React.MouseEvent) => {
+  const handleClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (isSubmitting || serverIsReviewing || !widParam) return;
+    if (!widParam) return;
 
-    setIsSubmitting(true);
-
-    try {
-      const res = await fetch(`${serverUrl}/api/selected-text-review/${widParam}`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${tokenParam}` },
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        console.error('[ReviewButton] Review request failed:', data);
-        const friendlyError = getUserFriendlyError(data?.message, res.status);
-        postBridge('showReviewError', { message: friendlyError }).catch(() => {});
-        setIsSubmitting(false);
-        return;
-      }
-      console.log('[ReviewButton] Review triggered successfully');
-      // Keep isSubmitting true - let serverIsReviewing take over
-    } catch (err) {
-      console.error('[ReviewButton] Review request error:', err);
-      postBridge('showReviewError', { message: 'Could not connect to the review service. Please check your internet connection and try again.' }).catch(() => {});
-      setIsSubmitting(false);
-    }
+    postBridge('showReviewInputOverlay').catch((err) => {
+      console.error('[ReviewButton] Failed to show review input overlay:', err);
+    });
   };
 
-  // Hide if not showing or if review is in progress
-  if (!shouldShowReviewButton || isSubmitting || serverIsReviewing) {
+  if (!shouldShowReviewButton) {
     return null;
   }
 
