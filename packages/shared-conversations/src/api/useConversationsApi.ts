@@ -98,7 +98,8 @@ export function useConversationsApi() {
       content: string,
       agentName: string,
       projectId?: number | null,
-      title?: string
+      title?: string,
+      projectFileIds?: number[]
     ): Promise<ConversationDetail> => {
       const data: Record<string, unknown> = {
         content,
@@ -108,6 +109,9 @@ export function useConversationsApi() {
       if (projectId) {
         data.parent_id = projectId;
         data.parent_type = 'Project';
+      }
+      if (projectFileIds && projectFileIds.length > 0) {
+        data.project_file_ids = projectFileIds;
       }
       const response = await client.invoke<{ conversation: ConversationDetail }>({
         method: 'POST',
@@ -124,7 +128,8 @@ export function useConversationsApi() {
     createMessage: async (
       conversationId: number,
       content: string,
-      projectId?: number | null
+      projectId?: number | null,
+      projectFileIds?: number[]
     ): Promise<Message> => {
       const data: Record<string, unknown> = {
         conversation_id: conversationId,
@@ -133,6 +138,9 @@ export function useConversationsApi() {
       if (projectId) {
         data.parent_id = projectId;
         data.parent_type = 'Project';
+      }
+      if (projectFileIds && projectFileIds.length > 0) {
+        data.project_file_ids = projectFileIds;
       }
       const response = await client.invoke<{ message: Message }>({
         method: 'POST',

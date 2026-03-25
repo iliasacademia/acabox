@@ -9,7 +9,6 @@ import { stripHtml } from '../shared/utils';
 import { IPC_CHANNELS, NavigateToPagePayload } from '../shared/types';
 import { useDevToolsLog } from './hooks/useDevToolsLog';
 import { trackNotificationView, trackNotificationClick } from './utils/analytics';
-import { initZendeskWidget, cleanupZendeskWidget, showWidget } from './utils/zendeskWidget';
 import { initFullStory, identifyUser, clearUserIdentity } from './utils/fullstory';
 import { FEATURES } from '../shared/types';
 import Projects from './components/Projects';
@@ -290,15 +289,6 @@ const App: React.FC = () => {
           ]);
           identifyUser(user.id, user.email, user.first_name || user.name, deviceId, appInfo.version);
 
-          // Initialize Zendesk for already-logged-in user
-          if (FEATURES.ZENDESK_WIDGET_ENABLED) {
-            initZendeskWidget({
-              id: user.id.toString(),
-              email: user.email || undefined,
-              name: user.first_name || user.name || undefined,
-            });
-            showWidget();
-          }
         }
         // Refresh manuscript paths for Word integration tracking on app startup
         try {
@@ -372,15 +362,6 @@ const App: React.FC = () => {
       ]);
       identifyUser(user.id, user.email, user.first_name || user.name, deviceId, appInfo.version);
 
-      // Initialize Zendesk widget with user info
-      if (FEATURES.ZENDESK_WIDGET_ENABLED) {
-        initZendeskWidget({
-          id: user.id.toString(),
-          email: user.email || undefined,
-          name: user.first_name || user.name || undefined,
-        });
-        showWidget();
-      }
 
       // Refresh manuscript paths for Word integration tracking
       try {
@@ -399,11 +380,6 @@ const App: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    // Clean up Zendesk before logout
-    if (FEATURES.ZENDESK_WIDGET_ENABLED) {
-      cleanupZendeskWidget();
-    }
-
     // Clear FullStory user identity
     clearUserIdentity();
 
