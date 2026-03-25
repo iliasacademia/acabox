@@ -286,8 +286,6 @@ jobs:
           DATADOG_APPLICATION_ID: ${{ vars.DATADOG_APPLICATION_ID }}
           DATADOG_CLIENT_TOKEN: ${{ vars.DATADOG_CLIENT_TOKEN }}
           DATADOG_SITE: ${{ vars.DATADOG_SITE }}
-          ZENDESK_WIDGET_KEY: ${{ vars.ZENDESK_WIDGET_KEY }}
-          ZENDESK_ENABLED: ${{ vars.ZENDESK_ENABLED }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

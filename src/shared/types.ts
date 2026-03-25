@@ -155,7 +155,6 @@ export const FEATURES: {
   CONVERSATIONS_ENABLED: boolean;
   MS_WORD_INTEGRATION_ENABLED: boolean;
   MS_WORD_V2_ENABLED: boolean;
-  ZENDESK_WIDGET_ENABLED: boolean;
   ONBOARDING_V2_ENABLED: boolean;
   ONBOARDING_V3_ENABLED: boolean;
   SESSION_CAPTURE_ENABLED: boolean;
@@ -163,7 +162,6 @@ export const FEATURES: {
   CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
   MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
   MS_WORD_V2_ENABLED: true, // V2: new implementation
-  ZENDESK_WIDGET_ENABLED: true, // Toggle Zendesk support widget
   ONBOARDING_V2_ENABLED: true, // V2 onboarding: single-file picker flow
   ONBOARDING_V3_ENABLED: true, // V3 onboarding: guided setup flow with steps
   SESSION_CAPTURE_ENABLED: true, // Toggle local activity session tracking

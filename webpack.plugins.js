@@ -69,8 +69,6 @@ module.exports = [
     'process.env.CLOUDFRONT_DOMAIN': JSON.stringify(process.env.CLOUDFRONT_DOMAIN || ''),
     'process.env.DATADOG_CLIENT_TOKEN': JSON.stringify(process.env.DATADOG_CLIENT_TOKEN || ''),
     'process.env.DATADOG_SITE': JSON.stringify(process.env.DATADOG_SITE || 'datadoghq.com'),
-    'process.env.ZENDESK_WIDGET_KEY': JSON.stringify(process.env.ZENDESK_WIDGET_KEY || ''),
-    'process.env.ZENDESK_ENABLED': JSON.stringify(process.env.ZENDESK_ENABLED || 'false'),
     'process.env.ONBOARDING_V2_ENABLED': JSON.stringify(process.env.ONBOARDING_V2_ENABLED || 'false'),
     'process.env.FULLSTORY_FORCE_RECORDING': JSON.stringify(process.env.FULLSTORY_FORCE_RECORDING || 'false'),
   }),
