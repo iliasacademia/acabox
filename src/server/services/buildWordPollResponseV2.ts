@@ -186,6 +186,14 @@ export function buildWordPollResponseV2(
 
   const reviewErrorMessage = windowMonitorService.getReviewErrorMessage(wid) ?? undefined;
 
+  // Determine if overlay is in input mode (open but no active review yet)
+  const isOverlayOpen = windowMonitorService.isReviewOverlayOpen(wid);
+  const isAwaitingReviewInput = isOverlayOpen && !reviewState;
+
+  // Populate selected text from review state or from cached selection when in input mode
+  const selectedText = reviewState?.selectedText
+    ?? (isAwaitingReviewInput ? (windowMonitorService.getSelectedTextContent(wid) ?? windowMonitorService.getReviewPanelV3SelectedText(wid) ?? undefined) : undefined);
+
   return {
     projectId: projectFile.project_id,
     projectFileId: projectFile.project_file_id,
@@ -195,12 +203,13 @@ export function buildWordPollResponseV2(
     isReviewingSelectedText: reviewState !== null,
     selectedTextReviewStartedAt: reviewState?.startedAt,
     reviewType: reviewState?.reviewType,
-    selectedText: reviewState?.selectedText,
+    selectedText,
     activeDocumentPath: documentPath,
     shouldShowButtonV2,
     shouldShowPopupV2,
     shouldShowReviewButton,
     shouldShowReviewStatusOverlay,
+    isAwaitingReviewInput,
     reviewErrorMessage,
   };
 }

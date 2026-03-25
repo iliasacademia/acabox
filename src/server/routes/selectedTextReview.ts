@@ -51,7 +51,8 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
       reply: FastifyReply
     ) => {
       const { wid } = request.params;
-      logger.info(`[SelectedTextReview] Review requested for window ${wid}`);
+      const { userPrompt } = (request.body as { userPrompt?: string }) ?? {};
+      logger.info(`[SelectedTextReview] Review requested for window ${wid}, userPrompt=${userPrompt ? `"${userPrompt.substring(0, 80)}..."` : 'none'}`);
       logger.info(`[SelectedTextReview] Window ${wid} state snapshot`, {
         documentTextInfo: windowMonitorService.getDocumentTextForWindow(wid),
         hasDocumentTextContent: windowMonitorService.getDocumentTextContent(wid) !== null,
@@ -160,9 +161,16 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
           return;
         }
 
+        // Append user prompt to selected text if provided
+        if (userPrompt) {
+          selectedText = selectedText + '\n\nUser Query:\n' + userPrompt;
+          logger.info(`[SelectedTextReview] Appended user prompt, new selectedText length=${selectedText.length} bytes`);
+        }
+
         logger.info(`[SelectedTextReview] Uploading: selectedText=${selectedText.length} bytes, fullDocumentText=${fullDocumentText.length} bytes`);
 
-        // Clear any prior error and set reviewing state early so UI updates immediately (before network calls)
+        // Close the review input overlay and set reviewing state so UI transitions to progress mode
+        windowMonitorService.closeReviewOverlay(wid);
         windowMonitorService.clearReviewErrorMessage(wid);
         windowMonitorService.setSelectedTextReviewState(wid, project_id, project_file_id, 'selected-text', selectedText);
         wordPollEventBus.emit('change', 'reviewing-state-changed');

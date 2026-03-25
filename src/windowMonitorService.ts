@@ -28,6 +28,7 @@ const POPUP_HEIGHT = 400;
 const POPUP_GAP_ABOVE_BUTTON = 10;
 
 const REVIEW_STATUS_OVERLAY_HEIGHT = 250;
+const REVIEW_STATUS_OVERLAY_INPUT_HEIGHT = 380;
 const REVIEW_STATUS_OVERLAY_GAP = 4;
 
 const REVIEW_BUTTON_WIDTH = 120;
@@ -72,10 +73,14 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
           return null;
         }
 
-        // Only show if there's an active review for this window
-        if (!windowId || !service['selectedTextReviewState'].has(windowId)) {
+        // Show if overlay explicitly opened (input mode) OR active review
+        if (!windowId || (!service['reviewOverlayOpen'].has(windowId) && !service['selectedTextReviewState'].has(windowId))) {
           return null;
         }
+
+        // Taller when in input mode (overlay open but no active review yet)
+        const isInputMode = service['reviewOverlayOpen'].has(windowId) && !service['selectedTextReviewState'].has(windowId);
+        const overlayHeight = isInputMode ? REVIEW_STATUS_OVERLAY_INPUT_HEIGHT : REVIEW_STATUS_OVERLAY_HEIGHT;
 
         const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
         const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
@@ -84,7 +89,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
           x: bounds.x + BUTTON_LEFT_MARGIN,
           y: buttonTopEdge + REVIEW_STATUS_OVERLAY_GAP,
           width: POPUP_WIDTH,
-          height: REVIEW_STATUS_OVERLAY_HEIGHT,
+          height: overlayHeight,
         };
       },
     },
@@ -109,6 +114,9 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       forApp: 'com.microsoft.Word',
       computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
         if (!_contentBounds) return null;
+
+        // Hide review button when overlay is open
+        if (windowId && service['reviewOverlayOpen'].has(windowId)) return null;
 
         // Use cached selection bounds if there's an active review and current selection is null
         let effectiveBounds = selectionBounds;
@@ -273,6 +281,7 @@ export class WindowMonitorService {
   private webviewManagerProcess: ChildProcess | null = null;
   private state: SystemState = createInitialState();
   private popupToggledOpen: Set<string> = new Set();
+  private reviewOverlayOpen: Set<string> = new Set();
   private popupHeightOverrides: Map<string, number> = new Map();
   private buttonDragOffsets: Map<string, { dx: number; dy: number }> = new Map();
   private popupSizeOverrides: Map<string, { width: number; height: number }> = new Map();
@@ -468,6 +477,7 @@ export class WindowMonitorService {
           });
         }
         this.popupToggledOpen.delete(event.window.id);
+        this.reviewOverlayOpen.delete(event.window.id);
         this.popupHeightOverrides.delete(event.window.id);
         this.buttonDragOffsets.delete(event.window.id);
         this.popupSizeOverrides.delete(event.window.id);
@@ -878,6 +888,22 @@ export class WindowMonitorService {
       }
     }
     return null;
+  }
+
+  openReviewOverlay(windowId: string): void {
+    this.reviewOverlayOpen.add(windowId);
+    logger.info(`[WindowMonitor] Review overlay opened for window ${windowId}`);
+    this.pushWebviewState();
+  }
+
+  closeReviewOverlay(windowId: string): void {
+    this.reviewOverlayOpen.delete(windowId);
+    logger.info(`[WindowMonitor] Review overlay closed for window ${windowId}`);
+    this.pushWebviewState();
+  }
+
+  isReviewOverlayOpen(windowId: string): boolean {
+    return this.reviewOverlayOpen.has(windowId);
   }
 
   openReviewPanelV3(windowId: string): void {
