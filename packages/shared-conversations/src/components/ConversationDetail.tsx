@@ -1,13 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Message, Conversation, DraftConversation, SearchFilesMatchedFile } from '../types/conversation';
+import { Message, MessageContext, Conversation, DraftConversation, SearchFilesMatchedFile } from '../types/conversation';
 import { ProjectFile, DiffResponse } from '../types/project';
 import { useConversationsApi } from '../api/useConversationsApi';
 import { useProjectsApi } from '../api/useProjectsApi';
+import { useSupportingMaterialsApi } from '../api/useSupportingMaterialsApi';
 import { useConversationPolling, UseConversationPollingOptions } from '../hooks/useConversationPolling';
 import { useApiClient } from '../context/ApiContext';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
 import DiffModal from './DiffModal';
+
+interface AttachedFile {
+  localId: string;
+  name: string;
+  filePath: string;
+  status: 'uploading' | 'done' | 'error';
+  projectFileId?: number;
+  errorMessage?: string;
+}
 
 interface ConversationDetailProps {
   conversation: Conversation | DraftConversation | null;
@@ -86,8 +96,13 @@ export function ConversationDetail({
   const lastUserMessageTime = useRef<Date | null>(null);
   const hasOpenedInitialDiffModal = useRef(false);
 
+  const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
+
   const apiClient = useApiClient();
   const { createConversation, createMessage } = useConversationsApi();
+  const { uploadSupportingMaterial } = useSupportingMaterialsApi();
   const { getFileDiff } = useProjectsApi();
 
   // Open feedback form in browser with conversation ID prefilled
@@ -391,13 +406,94 @@ export function ConversationDetail({
     }
   }, [messages, primaryManuscriptId, conversation]);
 
+  const handleFilePathsAdded = async (filePaths: string[]) => {
+    if (!projectId) return;
+    for (const filePath of filePaths) {
+      const name = filePath.split('/').pop() || filePath;
+      const localId = `${Date.now()}-${Math.random()}`;
+      setAttachedFiles(prev => [...prev, { localId, name, filePath, status: 'uploading' }]);
+      try {
+        const result = await uploadSupportingMaterial(projectId, filePath);
+        // The raw API response is nested under result.file — extract the numeric file ID
+        // from whichever field the backend returns it in.
+        const raw = result.file as unknown as Record<string, unknown>;
+        const projectFileId =
+          (raw.file_id as number | undefined) ??
+          ((raw.file as Record<string, unknown> | undefined)?.id as number | undefined) ??
+          result.file.id;
+        setAttachedFiles(prev => prev.map(f =>
+          f.localId === localId ? { ...f, status: 'done', projectFileId } : f
+        ));
+      } catch {
+        setAttachedFiles(prev => prev.map(f =>
+          f.localId === localId ? { ...f, status: 'error', errorMessage: 'Upload failed' } : f
+        ));
+      }
+    }
+  };
+
+  const removeAttachedFile = (localId: string) => {
+    setAttachedFiles(prev => prev.filter(f => f.localId !== localId));
+  };
+
+  const handleAttachClick = async () => {
+    if (!projectId || !(window as any).electronAPI?.invoke) return;
+    const filePaths = await (window as any).electronAPI.invoke('select-file', {
+      extensions: ['pdf', 'docx', 'doc', 'txt', 'md', 'tex', 'rtf'],
+      multiSelection: true,
+    });
+    if (!filePaths || (Array.isArray(filePaths) && filePaths.length === 0)) return;
+    const paths = Array.isArray(filePaths) ? filePaths : [filePaths];
+    handleFilePathsAdded(paths);
+  };
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!e.dataTransfer.types.includes('Files')) return;
+    dragCounterRef.current++;
+    setIsDragOver(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDragLeave = () => {
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setIsDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragOver(false);
+    const paths = Array.from(e.dataTransfer.files)
+      .map(f => (f as unknown as { path?: string }).path)
+      .filter((p): p is string => !!p);
+    if (paths.length > 0) handleFilePathsAdded(paths);
+  };
+
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!conversation || !inputValue.trim() || isSending) return;
+    const hasDoneFiles = attachedFiles.some(f => f.status === 'done');
+    const hasUploadingFiles = attachedFiles.some(f => f.status === 'uploading');
+    if (!conversation || (!inputValue.trim() && !hasDoneFiles) || isSending || hasUploadingFiles) return;
 
     const content = inputValue.trim();
+    const doneFiles = attachedFiles.filter(f => f.status === 'done' && f.projectFileId !== undefined);
+    const projectFileIds = doneFiles.map(f => f.projectFileId as number);
+    const optimisticContexts: MessageContext[] = doneFiles.map((f, i) => ({
+      id: -(i + 1),
+      target_type: 'CoScientist::ProjectFile',
+      target_id: f.projectFileId!,
+      target_name: f.name,
+      created_at: new Date().toISOString(),
+    }));
+
     setInputValue('');
+    setAttachedFiles([]);
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setIsSending(true);
     setSendError(null);
 
@@ -409,7 +505,7 @@ export function ConversationDetail({
           role: 'user',
           content,
           data: null,
-          contexts: [],
+          contexts: optimisticContexts,
           created_at: new Date().toISOString(),
         });
 
@@ -418,7 +514,8 @@ export function ConversationDetail({
           content,
           conversation.agent_name,
           projectId,
-          conversation.title ?? undefined
+          conversation.title ?? undefined,
+          projectFileIds.length > 0 ? projectFileIds : undefined
         );
 
         // Track conversation message sent
@@ -441,13 +538,18 @@ export function ConversationDetail({
           role: 'user',
           content,
           data: null,
-          contexts: [],
+          contexts: optimisticContexts,
           created_at: new Date().toISOString(),
         };
         addOptimisticMessage(optimisticMessage);
 
         // Send message to backend
-        await createMessage(conversation.id, content, projectId);
+        await createMessage(
+          conversation.id,
+          content,
+          projectId,
+          projectFileIds.length > 0 ? projectFileIds : undefined
+        );
 
         // Track conversation message sent
         if (onMessageSent) {
@@ -837,31 +939,92 @@ export function ConversationDetail({
         )}
 
         <form onSubmit={handleSendMessage}>
-          <div className="inputWrapper">
-            <textarea
-              ref={textareaRef}
-              className="messageInput"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                disableMessageInput && previousManuscriptName
-                  ? `Input disabled because this conversation is based on a previous manuscript: ${previousManuscriptName}`
-                  : currentIsDraft
-                    ? "Ask a question about your manuscript..."
-                    : "Ask a follow-up question..."
-              }
-              rows={5}
-              disabled={isSending || disableMessageInput}
-            />
-            <button
-              type="submit"
-              className="sendButton"
-              disabled={!inputValue.trim() || isSending}
-              aria-label={isSending ? 'Sending...' : 'Send message'}
-            >
-              <span className="sendIcon">➤</span>
-            </button>
+          <div
+            className={`inputWrapper${isDragOver ? ' dragOver' : ''}`}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <div className={`messageInputContainer${isSending || disableMessageInput ? ' disabled' : ''}`}>
+              {attachedFiles.length > 0 && (
+                <div className="attachedFilesRow">
+                  {attachedFiles.map(f => (
+                    <div key={f.localId} className={`fileChip fileChip--${f.status}`}>
+                      <svg className="fileChipIcon" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6L9 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M9 2v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      <span className="fileChipName">{f.name}</span>
+                      {f.status === 'uploading' && <span className="fileChipSpinner" aria-label="Uploading" />}
+                      {(f.status === 'done' || f.status === 'error') && (
+                        <button
+                          type="button"
+                          className="fileChipRemove"
+                          onClick={() => removeAttachedFile(f.localId)}
+                          aria-label={`Remove ${f.name}`}
+                          title={f.status === 'error' ? (f.errorMessage ?? 'Upload failed') : undefined}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                className="messageInput"
+                value={inputValue}
+                onChange={(e) => {
+                  setInputValue(e.target.value);
+                  const el = e.target;
+                  el.style.height = 'auto';
+                  el.style.height = `${el.scrollHeight}px`;
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  disableMessageInput && previousManuscriptName
+                    ? `Input disabled because this conversation is based on a previous manuscript: ${previousManuscriptName}`
+                    : currentIsDraft
+                      ? "Ask a question about your manuscript..."
+                      : "Ask a follow-up question..."
+                }
+                rows={1}
+                disabled={isSending || disableMessageInput}
+              />
+              <div className="inputToolbar">
+                <button
+                  type="button"
+                  className="attachButton"
+                  onClick={handleAttachClick}
+                  disabled={!projectId || isSending || disableMessageInput}
+                  title="Attach supporting file"
+                  aria-label="Attach supporting file"
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M8 3a.75.75 0 0 1 .75.75v3.5h3.5a.75.75 0 0 1 0 1.5h-3.5v3.5a.75.75 0 0 1-1.5 0v-3.5h-3.5a.75.75 0 0 1 0-1.5h3.5v-3.5A.75.75 0 0 1 8 3z"/>
+                  </svg>
+                </button>
+                <button
+                  type="submit"
+                  className="sendButton"
+                  disabled={
+                    (!inputValue.trim() && !attachedFiles.some(f => f.status === 'done')) ||
+                    isSending ||
+                    attachedFiles.some(f => f.status === 'uploading')
+                  }
+                  aria-label={isSending ? 'Sending...' : 'Send message'}
+                >
+                  <span className="sendIcon">➤</span>
+                </button>
+              </div>
+            </div>
+            {isDragOver && (
+              <div className="dragOverlay">
+                <span>Drop files to attach</span>
+              </div>
+            )}
           </div>
         </form>
 

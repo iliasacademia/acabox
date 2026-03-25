@@ -26,12 +26,25 @@ export interface SearchFilesData {
   matched_files?: SearchFilesMatchedFile[]; // absent on initial progress and on result/error messages
 }
 
+export interface ProjectFileTag {
+  id: number;
+  tag: string;
+  tag_type: string;
+}
+
+export interface ContextProjectFile {
+  id: number;
+  rel_path: string;
+  tags: ProjectFileTag[];
+}
+
 export interface MessageContext {
   id: number;
   target_type: string | null;
   target_id: number | null;
   target_name: string | null;
   created_at: string;
+  project_file?: ContextProjectFile | null;
 }
 
 export interface FollowUpQuestion {

@@ -172,10 +172,36 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onOp
         )}
       </div>
 
-      {/* Show contexts if any (hidden for free-form conversations without a review) */}
-      {!hideContexts && message.contexts && message.contexts.length > 0 && (
+      {/* File attachment contexts — always shown on user messages, excluding the primary manuscript */}
+      {(() => {
+        if (message.role !== 'user' || !message.contexts?.length) return null;
+        const fileContexts = message.contexts.filter(c =>
+          c.target_type === 'CoScientist::ProjectFile' &&
+          !c.project_file?.tags?.some(t => t.tag_type === 'manuscript' && t.tag === 'primary')
+        );
+        if (!fileContexts.length) return null;
+        return (
+          <div className="messageContexts">
+            {fileContexts.map((context) => (
+              <div key={context.id} className="messageFileContext">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6L9 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M9 2v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span>{
+                  (context.project_file?.rel_path ?? context.target_name ?? `File #${context.target_id}`)
+                    .split('/').pop()
+                }</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* Other contexts (manuscript etc) — hidden for free-form conversations without a review */}
+      {!hideContexts && message.contexts && message.contexts.some(c => c.target_type !== 'CoScientist::ProjectFile') && (
         <div className="messageContexts">
-          {message.contexts.map((context) => (
+          {message.contexts.filter(c => c.target_type !== 'CoScientist::ProjectFile').map((context) => (
             <div key={context.id} className="messageContext">
               <span className="contextIcon">📎</span>
               <span className="contextName">
