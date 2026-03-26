@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Message, MessageContext, Conversation, DraftConversation, SearchFilesMatchedFile } from '../types/conversation';
 import { ProjectFile, DiffResponse } from '../types/project';
+import { SupportingMaterial } from '../types/supportingMaterials';
 import { useConversationsApi } from '../api/useConversationsApi';
 import { useProjectsApi } from '../api/useProjectsApi';
 import { useSupportingMaterialsApi } from '../api/useSupportingMaterialsApi';
@@ -100,9 +101,16 @@ export function ConversationDetail({
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
 
+  // @ mention state
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null); // null = closed
+  const [mentionAnchorIndex, setMentionAnchorIndex] = useState<number>(-1);
+  const [mentionFiles, setMentionFiles] = useState<SupportingMaterial[]>([]);
+  const [mentionActiveIndex, setMentionActiveIndex] = useState<number>(0);
+  const mentionDropdownRef = useRef<HTMLDivElement>(null);
+
   const apiClient = useApiClient();
   const { createConversation, createMessage } = useConversationsApi();
-  const { uploadSupportingMaterial } = useSupportingMaterialsApi();
+  const { uploadSupportingMaterial, getSupportingMaterials } = useSupportingMaterialsApi();
   const { getFileDiff } = useProjectsApi();
 
   // Open feedback form in browser with conversation ID prefilled
@@ -406,6 +414,53 @@ export function ConversationDetail({
     }
   }, [messages, primaryManuscriptId, conversation]);
 
+  // Fetch supporting materials once when @ mention is first opened
+  const mentionOpen = mentionQuery !== null;
+  useEffect(() => {
+    if (!mentionOpen || !projectId) return;
+    if (mentionFiles.length > 0) return; // already loaded
+    getSupportingMaterials(projectId).then(({ materials }) => {
+      setMentionFiles(materials.filter(m => !m.is_primary_manuscript));
+    }).catch(() => {});
+  }, [mentionOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filteredMentionFiles = mentionQuery !== null
+    ? mentionFiles.filter(m =>
+        m.file_name.toLowerCase().includes(mentionQuery.toLowerCase())
+      )
+    : [];
+
+  // Reset active index when list changes
+  useEffect(() => {
+    setMentionActiveIndex(0);
+  }, [filteredMentionFiles.length, mentionQuery]);
+
+  const handleMentionSelect = useCallback((material: SupportingMaterial) => {
+    // Remove the @query text from the input
+    const before = inputValue.slice(0, mentionAnchorIndex);
+    const after = inputValue.slice(mentionAnchorIndex + 1 + (mentionQuery?.length ?? 0));
+    setInputValue(before + after);
+
+    // Skip if already attached
+    const alreadyAttached = attachedFiles.some(f => f.projectFileId === material.id);
+    if (!alreadyAttached) {
+      const localId = `${Date.now()}-${Math.random()}`;
+      setAttachedFiles(prev => [
+        ...prev,
+        {
+          localId,
+          name: material.file_name,
+          filePath: material.file_path,
+          status: 'done',
+          projectFileId: material.id,
+        },
+      ]);
+    }
+
+    setMentionQuery(null);
+    setTimeout(() => textareaRef.current?.focus(), 0);
+  }, [inputValue, mentionAnchorIndex, mentionQuery, attachedFiles]);
+
   const handleFilePathsAdded = async (filePaths: string[]) => {
     if (!projectId) return;
     for (const filePath of filePaths) {
@@ -576,7 +631,33 @@ export function ConversationDetail({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && filteredMentionFiles.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setMentionActiveIndex(i => (i + 1) % filteredMentionFiles.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setMentionActiveIndex(i => (i - 1 + filteredMentionFiles.length) % filteredMentionFiles.length);
+        return;
+      }
+    }
+    if (mentionQuery !== null && e.key === 'Escape') {
+      e.preventDefault();
+      setMentionQuery(null);
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
+      if (mentionQuery !== null) {
+        if (filteredMentionFiles.length > 0) {
+          e.preventDefault();
+          handleMentionSelect(filteredMentionFiles[mentionActiveIndex]);
+        } else {
+          setMentionQuery(null);
+        }
+        return;
+      }
       e.preventDefault();
       handleSendMessage(e as unknown as React.FormEvent);
     }
@@ -947,6 +1028,31 @@ export function ConversationDetail({
             onDrop={handleDrop}
           >
             <div className={`messageInputContainer${isSending || disableMessageInput ? ' disabled' : ''}`}>
+              {/* @ mention dropdown */}
+              {mentionQuery !== null && filteredMentionFiles.length > 0 && (
+                <div className="mentionDropdown" ref={mentionDropdownRef}>
+                  {filteredMentionFiles.map((material, idx) => (
+                    <button
+                      key={material.id}
+                      type="button"
+                      className={`mentionDropdownItem${idx === mentionActiveIndex ? ' active' : ''}`}
+                      onMouseDown={(e) => { e.preventDefault(); handleMentionSelect(material); }}
+                      onMouseEnter={() => setMentionActiveIndex(idx)}
+                      ref={el => {
+                        if (el && idx === mentionActiveIndex) {
+                          el.scrollIntoView({ block: 'nearest' });
+                        }
+                      }}
+                    >
+                      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mentionDropdownItemIcon">
+                        <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6L9 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M9 2v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                      <span className="mentionDropdownItemName">{material.file_name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
               {attachedFiles.length > 0 && (
                 <div className="attachedFilesRow">
                   {attachedFiles.map(f => (
@@ -977,35 +1083,47 @@ export function ConversationDetail({
                 className="messageInput"
                 value={inputValue}
                 onChange={(e) => {
-                  setInputValue(e.target.value);
+                  const val = e.target.value;
+                  setInputValue(val);
                   const el = e.target;
                   el.style.height = 'auto';
                   el.style.height = `${el.scrollHeight}px`;
+                  // Detect @ mention
+                  const cursorPos = e.target.selectionStart ?? val.length;
+                  const textBeforeCursor = val.slice(0, cursorPos);
+                  const atMatch = textBeforeCursor.match(/@([\w.]*)$/);
+                  if (atMatch) {
+                    setMentionAnchorIndex(cursorPos - atMatch[0].length);
+                    setMentionQuery(atMatch[1]);
+                  } else {
+                    setMentionQuery(null);
+                  }
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder={
                   disableMessageInput && previousManuscriptName
                     ? `Input disabled because this conversation is based on a previous manuscript: ${previousManuscriptName}`
-                    : currentIsDraft
-                      ? "Ask a question about your manuscript..."
-                      : "Ask a follow-up question..."
+                    : "Ask anything..."
                 }
                 rows={1}
                 disabled={isSending || disableMessageInput}
               />
               <div className="inputToolbar">
-                <button
-                  type="button"
-                  className="attachButton"
-                  onClick={handleAttachClick}
-                  disabled={!projectId || isSending || disableMessageInput}
-                  title="Attach supporting file"
-                  aria-label="Attach supporting file"
-                >
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
-                    <path d="M8 3a.75.75 0 0 1 .75.75v3.5h3.5a.75.75 0 0 1 0 1.5h-3.5v3.5a.75.75 0 0 1-1.5 0v-3.5h-3.5a.75.75 0 0 1 0-1.5h3.5v-3.5A.75.75 0 0 1 8 3z"/>
-                  </svg>
-                </button>
+                <div className="inputToolbarLeft">
+                  <button
+                    type="button"
+                    className="attachButton"
+                    onClick={handleAttachClick}
+                    disabled={!projectId || isSending || disableMessageInput}
+                    title="Attach supporting file"
+                    aria-label="Attach supporting file"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                      <line x1="7" y1="1" x2="7" y2="13"/>
+                      <line x1="1" y1="7" x2="13" y2="7"/>
+                    </svg>
+                  </button>
+                </div>
                 <button
                   type="submit"
                   className="sendButton"
@@ -1016,7 +1134,9 @@ export function ConversationDetail({
                   }
                   aria-label={isSending ? 'Sending...' : 'Send message'}
                 >
-                  <span className="sendIcon">➤</span>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <path d="M8 12V4M4 8l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
                 </button>
               </div>
             </div>
