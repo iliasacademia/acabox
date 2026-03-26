@@ -1867,6 +1867,10 @@
     background-color: var(--background-blue);
 }
 
+.conversationMessage.assistant .messageContent {
+    padding-bottom: 4px;
+}
+
 .messageContent p {
     margin: 0 0 8px 0;
 }
@@ -1985,6 +1989,43 @@
 .emptyMessage {
     color: #999999;
     font-style: italic;
+}
+
+/* Copy Button */
+.messageCopyRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 16px 10px;
+}
+
+.messageCopyButton {
+    display: flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 4px 0 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-secondary, #6b7280);
+    cursor: pointer;
+    transition: color 0.15s ease;
+    opacity: 0.7;
+}
+
+.messageCopyButton:hover {
+    opacity: 1;
+    color: var(--text-primary, #374151);
+}
+
+.messageCopyButton.copied {
+    opacity: 1;
+}
+
+.messageCopiedText {
+    font-size: 13px;
+    font-weight: 500;
+    margin-left: 4px;
 }
 
 /* Question Pills */

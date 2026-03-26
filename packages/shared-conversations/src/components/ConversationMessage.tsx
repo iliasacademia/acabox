@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import Markdown from 'markdown-to-jsx';
 import DOMPurify from 'isomorphic-dompurify';
 import { Message, FollowUpQuestion, SearchFilesData, SearchFilesMatchedFile } from '../types/conversation';
@@ -17,6 +17,20 @@ interface ConversationMessageProps {
 
 export function ConversationMessage({ message, onShowDiff, onQuestionClick, onOpenFile, isSearchComplete, showQuestions, hideContexts }: ConversationMessageProps) {
   const isTool = message.role === 'tool';
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    let text = message.content || '';
+    if (message.format === 'html') {
+      const el = document.createElement('div');
+      el.innerHTML = text;
+      text = el.textContent || el.innerText || '';
+    }
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }, [message.content, message.format]);
 
   // Tool messages are handled by ToolMessageAccordion, skip rendering here
   if (isTool) {
@@ -171,6 +185,32 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onOp
           </div>
         )}
       </div>
+
+      {/* Copy button for assistant messages */}
+      {message.role === 'assistant' && message.content && (
+        <div className="messageCopyRow">
+          <button
+            type="button"
+            className={`messageCopyButton${copied ? ' copied' : ''}`}
+            onClick={handleCopy}
+            aria-label={copied ? 'Copied' : 'Copy response'}
+          >
+            {copied ? (
+              <>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                  <path d="M3 8l3.5 3.5 6.5-7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="messageCopiedText">Copied</span>
+              </>
+            ) : (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <rect x="5" y="5" width="8" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5"/>
+                <path d="M11 5V3.5A1.5 1.5 0 0 0 9.5 2h-6A1.5 1.5 0 0 0 2 3.5v7A1.5 1.5 0 0 0 3.5 12H5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+              </svg>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* File attachment contexts — always shown on user messages, excluding the primary manuscript */}
       {(() => {
