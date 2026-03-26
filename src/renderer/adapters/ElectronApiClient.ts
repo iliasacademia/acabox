@@ -26,6 +26,15 @@ export class ElectronApiClient implements ConversationsApiClient {
       return window.electronAPI.invoke(IPC_CHANNELS.UPLOAD_SUPPORTING_MATERIAL, data) as Promise<T>;
     }
 
+    // Handle conversation create/message with optional file attachment via IPC (multipart)
+    if (endpoint === 'create-conversation-with-file' && data) {
+      return window.electronAPI.invoke(IPC_CHANNELS.CREATE_CONVERSATION_WITH_FILE, data) as Promise<T>;
+    }
+
+    if (endpoint === 'send-message-with-file' && data) {
+      return window.electronAPI.invoke(IPC_CHANNELS.SEND_MESSAGE_WITH_FILE, data) as Promise<T>;
+    }
+
     // Default: proxy through HTTP server
     return window.electronAPI.invoke(IPC_CHANNELS.API_CALL, options);
   }

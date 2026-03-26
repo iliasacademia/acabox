@@ -15,9 +15,10 @@ interface AttachedFile {
   localId: string;
   name: string;
   filePath: string;
-  status: 'uploading' | 'done' | 'error';
+  /** true for files already uploaded to the project (e.g. via @ mention) */
+  isProjectFile?: boolean;
+  /** project file ID — only set for isProjectFile files */
   projectFileId?: number;
-  errorMessage?: string;
 }
 
 interface ConversationDetailProps {
@@ -110,7 +111,7 @@ export function ConversationDetail({
 
   const apiClient = useApiClient();
   const { createConversation, createMessage } = useConversationsApi();
-  const { uploadSupportingMaterial, getSupportingMaterials } = useSupportingMaterialsApi();
+  const { getSupportingMaterials } = useSupportingMaterialsApi();
   const { getFileDiff } = useProjectsApi();
 
   // Open feedback form in browser with conversation ID prefilled
@@ -451,7 +452,7 @@ export function ConversationDetail({
           localId,
           name: material.file_name,
           filePath: material.file_path,
-          status: 'done',
+          isProjectFile: true,
           projectFileId: material.id,
         },
       ]);
@@ -461,29 +462,11 @@ export function ConversationDetail({
     setTimeout(() => textareaRef.current?.focus(), 0);
   }, [inputValue, mentionAnchorIndex, mentionQuery, attachedFiles]);
 
-  const handleFilePathsAdded = async (filePaths: string[]) => {
-    if (!projectId) return;
+  const handleFilePathsAdded = (filePaths: string[]) => {
     for (const filePath of filePaths) {
       const name = filePath.split('/').pop() || filePath;
       const localId = `${Date.now()}-${Math.random()}`;
-      setAttachedFiles(prev => [...prev, { localId, name, filePath, status: 'uploading' }]);
-      try {
-        const result = await uploadSupportingMaterial(projectId, filePath);
-        // The raw API response is nested under result.file — extract the numeric file ID
-        // from whichever field the backend returns it in.
-        const raw = result.file as unknown as Record<string, unknown>;
-        const projectFileId =
-          (raw.file_id as number | undefined) ??
-          ((raw.file as Record<string, unknown> | undefined)?.id as number | undefined) ??
-          result.file.id;
-        setAttachedFiles(prev => prev.map(f =>
-          f.localId === localId ? { ...f, status: 'done', projectFileId } : f
-        ));
-      } catch {
-        setAttachedFiles(prev => prev.map(f =>
-          f.localId === localId ? { ...f, status: 'error', errorMessage: 'Upload failed' } : f
-        ));
-      }
+      setAttachedFiles(prev => [...prev, { localId, name, filePath }]);
     }
   };
 
@@ -532,14 +515,18 @@ export function ConversationDetail({
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const hasDoneFiles = attachedFiles.some(f => f.status === 'done');
-    const hasUploadingFiles = attachedFiles.some(f => f.status === 'uploading');
-    if (!conversation || (!inputValue.trim() && !hasDoneFiles) || isSending || hasUploadingFiles) return;
+    if (!conversation || (!inputValue.trim() && attachedFiles.length === 0) || isSending) return;
 
     const content = inputValue.trim();
-    const doneFiles = attachedFiles.filter(f => f.status === 'done' && f.projectFileId !== undefined);
-    const projectFileIds = doneFiles.map(f => f.projectFileId as number);
-    const optimisticContexts: MessageContext[] = doneFiles.map((f, i) => ({
+
+    // Split attached files: already-uploaded project files (@ mentions) vs local files to upload on send
+    const projectFiles = attachedFiles.filter(f => f.isProjectFile && f.projectFileId !== undefined);
+    const localFiles = attachedFiles.filter(f => !f.isProjectFile);
+    const projectFileIds = projectFiles.map(f => f.projectFileId as number);
+    // Only one local file can be sent per message (API supports a single `file` field)
+    const filePath = localFiles.length > 0 ? localFiles[0].filePath : undefined;
+
+    const optimisticContexts: MessageContext[] = projectFiles.map((f, i) => ({
       id: -(i + 1),
       target_type: 'CoScientist::ProjectFile',
       target_id: f.projectFileId!,
@@ -565,13 +552,14 @@ export function ConversationDetail({
           created_at: new Date().toISOString(),
         });
 
-        // Create conversation with the message
+        // Create conversation with the message (file sent as binary if present)
         const newConversation = await createConversation(
           content,
           conversation.agent_name,
           projectId,
           conversation.title ?? undefined,
-          projectFileIds.length > 0 ? projectFileIds : undefined
+          projectFileIds.length > 0 ? projectFileIds : undefined,
+          filePath
         );
 
         // Track conversation message sent
@@ -599,12 +587,13 @@ export function ConversationDetail({
         };
         addOptimisticMessage(optimisticMessage);
 
-        // Send message to backend
+        // Send message to backend (file sent as binary if present)
         await createMessage(
           conversation.id,
           content,
           projectId,
-          projectFileIds.length > 0 ? projectFileIds : undefined
+          projectFileIds.length > 0 ? projectFileIds : undefined,
+          filePath
         );
 
         // Track conversation message sent
@@ -1057,24 +1046,20 @@ export function ConversationDetail({
               {attachedFiles.length > 0 && (
                 <div className="attachedFilesRow">
                   {attachedFiles.map(f => (
-                    <div key={f.localId} className={`fileChip fileChip--${f.status}`}>
+                    <div key={f.localId} className="fileChip fileChip--done">
                       <svg className="fileChipIcon" width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                         <path d="M9 2H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V6L9 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                         <path d="M9 2v4h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                       <span className="fileChipName">{f.name}</span>
-                      {f.status === 'uploading' && <span className="fileChipSpinner" aria-label="Uploading" />}
-                      {(f.status === 'done' || f.status === 'error') && (
-                        <button
-                          type="button"
-                          className="fileChipRemove"
-                          onClick={() => removeAttachedFile(f.localId)}
-                          aria-label={`Remove ${f.name}`}
-                          title={f.status === 'error' ? (f.errorMessage ?? 'Upload failed') : undefined}
-                        >
-                          ×
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        className="fileChipRemove"
+                        onClick={() => removeAttachedFile(f.localId)}
+                        aria-label={`Remove ${f.name}`}
+                      >
+                        ×
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -1129,9 +1114,8 @@ export function ConversationDetail({
                   type="submit"
                   className="sendButton"
                   disabled={
-                    (!inputValue.trim() && !attachedFiles.some(f => f.status === 'done')) ||
-                    isSending ||
-                    attachedFiles.some(f => f.status === 'uploading')
+                    (!inputValue.trim() && attachedFiles.length === 0) ||
+                    isSending
                   }
                   aria-label={isSending ? 'Sending...' : 'Send message'}
                 >

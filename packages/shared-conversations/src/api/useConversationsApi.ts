@@ -92,14 +92,15 @@ export function useConversationsApi() {
 
     /**
      * Create new conversation (project-scoped)
-     * POST /v0/co_scientist/create_conversation
+     * POST /v0/co_scientist/create_conversation (multipart/form-data)
      */
     createConversation: async (
       content: string,
       agentName: string,
       projectId?: number | null,
       title?: string,
-      projectFileIds?: number[]
+      projectFileIds?: number[],
+      filePath?: string
     ): Promise<ConversationDetail> => {
       const data: Record<string, unknown> = {
         content,
@@ -107,15 +108,17 @@ export function useConversationsApi() {
         ...(title ? { title } : {}),
       };
       if (projectId) {
-        data.parent_id = projectId;
-        data.parent_type = 'Project';
+        data.project_id = projectId;
       }
       if (projectFileIds && projectFileIds.length > 0) {
         data.project_file_ids = projectFileIds;
       }
-      const response = await client.invoke<{ conversation: ConversationDetail }>({
+      if (filePath) {
+        data.filePath = filePath;
+      }
+      const response = await client.invoke<{ conversation: ConversationDetail; message?: unknown }>({
         method: 'POST',
-        endpoint: 'v0/co_scientist/create_conversation',
+        endpoint: 'create-conversation-with-file',
         data,
       });
       return response.conversation;
@@ -123,28 +126,31 @@ export function useConversationsApi() {
 
     /**
      * Create new message in conversation (project-scoped)
-     * POST /v0/co_scientist/create_message
+     * POST /v0/co_scientist/create_message (multipart/form-data)
      */
     createMessage: async (
       conversationId: number,
       content: string,
       projectId?: number | null,
-      projectFileIds?: number[]
+      projectFileIds?: number[],
+      filePath?: string
     ): Promise<Message> => {
       const data: Record<string, unknown> = {
         conversation_id: conversationId,
         content,
       };
       if (projectId) {
-        data.parent_id = projectId;
-        data.parent_type = 'Project';
+        data.project_id = projectId;
       }
       if (projectFileIds && projectFileIds.length > 0) {
         data.project_file_ids = projectFileIds;
       }
+      if (filePath) {
+        data.filePath = filePath;
+      }
       const response = await client.invoke<{ message: Message }>({
         method: 'POST',
-        endpoint: 'v0/co_scientist/create_message',
+        endpoint: 'send-message-with-file',
         data,
       });
       return response.message;
@@ -187,7 +193,7 @@ export function useConversationsApi() {
 
     /**
      * List archived conversations (project-scoped)
-     * GET /v0/co_scientist/list_conversations?archived=true&project_id=...
+     * GET /v0/co_scientist/list_conversations?archived=true&parent_id=...&parent_type=Project
      */
     listArchivedConversations: async (
       offset: number = 0,
@@ -200,7 +206,8 @@ export function useConversationsApi() {
         archived: 'true',
       });
       if (projectId) {
-        params.set('project_id', projectId.toString());
+        params.set('parent_id', projectId.toString());
+        params.set('parent_type', 'Project');
       }
 
       const response = await client.invoke<{
