@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, shell, powerMonitor } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import FormData from 'form-data';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { autoUpdater } from 'electron-updater';
@@ -1471,6 +1472,120 @@ ipcMain.handle(IPC_CHANNELS.SELECT_FILE, async (event, options?: string | { defa
 
   // Return array if multiSelection, single path otherwise for backwards compatibility
   return multiSelection ? result.filePaths : result.filePaths[0];
+});
+
+// Create conversation (multipart/form-data, file optional)
+ipcMain.handle(IPC_CHANNELS.CREATE_CONVERSATION_WITH_FILE, async (_event, data: {
+  content?: string;
+  agent_name?: string;
+  title?: string;
+  project_id?: number;
+  project_file_ids?: number[];
+  filePath?: string;
+}) => {
+  try {
+    const client = await APIclient();
+    const csrfToken = await getCsrfToken();
+
+    const formData = new FormData();
+    if (data.content) formData.append('content', data.content);
+    if (data.agent_name) formData.append('agent_name', data.agent_name);
+    if (data.title) formData.append('title', data.title);
+    if (data.project_id) {
+      formData.append('parent_id', data.project_id.toString());
+      formData.append('parent_type', 'Project');
+    }
+    if (data.project_file_ids && data.project_file_ids.length > 0) {
+      data.project_file_ids.forEach(id => formData.append('project_file_ids[]', id.toString()));
+    }
+    if (data.filePath && fs.existsSync(data.filePath)) {
+      formData.append('file', fs.createReadStream(data.filePath));
+    }
+
+    logger.debug(`[IPC] create-conversation-with-file → POST v0/co_scientist/create_conversation (hasFile=${!!data.filePath})`);
+
+    const response = await client.post('v0/co_scientist/create_conversation', formData, {
+      headers: {
+        'x-csrf-token': csrfToken,
+        ...formData.getHeaders(),
+      },
+      validateStatus: () => true,
+    });
+
+    if (response.status < 200 || response.status >= 300) {
+      let backendError: string | null = null;
+      if (response.data?.error) backendError = response.data.error;
+      else if (response.data?.errors) {
+        const errors = response.data.errors;
+        if (Array.isArray(errors)) backendError = errors.join(', ');
+        else if (typeof errors === 'object') backendError = Object.values(errors).flat().join(', ');
+      }
+      throw new Error(backendError || `Request failed with status code ${response.status}`);
+    }
+
+    return response.data;
+  } catch (error: any) {
+    logger.error('[IPC] Error creating conversation:', error);
+    throw error;
+  }
+});
+
+// Send message (multipart/form-data, file optional)
+ipcMain.handle(IPC_CHANNELS.SEND_MESSAGE_WITH_FILE, async (_event, data: {
+  conversation_id: number;
+  content?: string;
+  project_id?: number;
+  project_file_ids?: number[];
+  filePath?: string;
+}) => {
+  try {
+    const client = await APIclient();
+    const csrfToken = await getCsrfToken();
+
+    const formData = new FormData();
+    formData.append('conversation_id', data.conversation_id.toString());
+    if (data.content) formData.append('content', data.content);
+    if (data.project_id) {
+      formData.append('parent_id', data.project_id.toString());
+      formData.append('parent_type', 'Project');
+    }
+    if (data.project_file_ids && data.project_file_ids.length > 0) {
+      data.project_file_ids.forEach(id => formData.append('project_file_ids[]', id.toString()));
+    }
+    if (data.filePath && fs.existsSync(data.filePath)) {
+      formData.append('file', fs.createReadStream(data.filePath));
+    }
+
+    logger.debug(`[IPC] send-message-with-file → POST v0/co_scientist/create_message (conversation_id=${data.conversation_id}, hasFile=${!!data.filePath})`);
+
+    const response = await client.post(
+      'v0/co_scientist/create_message',
+      formData,
+      {
+        headers: {
+          'x-csrf-token': csrfToken,
+          ...formData.getHeaders(),
+        },
+        validateStatus: () => true,
+      }
+    );
+
+    if (response.status < 200 || response.status >= 300) {
+      let backendError: string | null = null;
+      if (response.data?.error) backendError = response.data.error;
+      else if (response.data?.errors) {
+        const errors = response.data.errors;
+        if (Array.isArray(errors)) backendError = errors.join(', ');
+        else if (typeof errors === 'object') backendError = Object.values(errors).flat().join(', ');
+      }
+      throw new Error(backendError || `Request failed with status code ${response.status}`);
+    }
+
+    return response.data;
+  } catch (error: any) {
+    logger.error('[IPC] Error sending message:', error);
+    throw error;
+  }
 });
 
 // Upload supporting material

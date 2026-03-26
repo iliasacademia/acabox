@@ -25,6 +25,8 @@ export const IPC_CHANNELS = {
   SELECT_FILE: "select-file",
   UPLOAD_FILES: "upload-files",
   UPLOAD_SUPPORTING_MATERIAL: "upload-supporting-material",
+  CREATE_CONVERSATION_WITH_FILE: "create-conversation-with-file",
+  SEND_MESSAGE_WITH_FILE: "send-message-with-file",
   SEARCH_FILES: "search-files",
   GET_FOLDER_FILES: "get-folder-files",
   SCAN_FOLDER_FOR_FILES: "scan-folder-for-files",
