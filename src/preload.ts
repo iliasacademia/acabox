@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, IpcRendererEvent, webUtils } from 'electron';
 import { IPC_CHANNELS, IpcChannel } from './shared/types';
 
 // Single source of truth for valid event channels - prevents security bypass from inconsistent lists
@@ -113,4 +113,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   restartApp: () => {
     return ipcRenderer.invoke(IPC_CHANNELS.RESTART_APP);
   },
+
+  // File path resolution (replaces deprecated file.path in Electron 32+)
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
 });

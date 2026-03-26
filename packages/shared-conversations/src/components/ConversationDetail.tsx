@@ -522,9 +522,10 @@ export function ConversationDetail({
     e.preventDefault();
     dragCounterRef.current = 0;
     setIsDragOver(false);
+    const electronAPI = (window as any).electronAPI;
     const paths = Array.from(e.dataTransfer.files)
-      .map(f => (f as unknown as { path?: string }).path)
-      .filter((p): p is string => !!p);
+      .map(f => electronAPI?.getPathForFile?.(f) ?? (f as unknown as { path?: string }).path)
+      .filter((p): p is string => typeof p === 'string' && p.length > 0);
     if (paths.length > 0) handleFilePathsAdded(paths);
   };
 
