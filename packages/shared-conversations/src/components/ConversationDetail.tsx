@@ -749,18 +749,25 @@ export function ConversationDetail({
   const visibleMessages = hiddenMessageIds.size > 0
     ? messages.filter((m) => !hiddenMessageIds.has(m.id))
     : messages;
-  const hasSearchResult = visibleMessages.some(
-    (m) => (m.data as { message_type?: string } | null)?.message_type === 'search_files_result'
-  );
   const lastSearchProgressId = visibleMessages.reduce<number | null>((lastId, m) => {
     const mt = (m.data as { message_type?: string } | null)?.message_type;
     return mt === 'search_files_progress' ? m.id : lastId;
   }, null);
-  const displayMessages = visibleMessages.filter((m) => {
+  // Search is complete when a search_files_result message exists, OR when a regular
+  // assistant message with content has arrived after the last search_files_progress.
+  const hasSearchResult = visibleMessages.some((m) => {
     const mt = (m.data as { message_type?: string } | null)?.message_type;
-    if (mt === 'search_files_progress') return m.id === lastSearchProgressId;
-    return true;
+    if (mt === 'search_files_result') return true;
+    if (m.role === 'assistant' && m.content && !mt && lastSearchProgressId !== null && m.id > lastSearchProgressId) return true;
+    return false;
   });
+  const displayMessages = visibleMessages
+    .filter((m) => {
+      const mt = (m.data as { message_type?: string } | null)?.message_type;
+      if (mt === 'search_files_progress') return m.id === lastSearchProgressId;
+      return true;
+    })
+    .sort((a, b) => a.id - b.id);
 
   // Group consecutive tool messages (no date dividers)
   const groupedMessages: Array<{ type: 'message' | 'toolGroup'; data: Message | Message[]; messageIndex: number }> = [];
