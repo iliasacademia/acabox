@@ -2526,17 +2526,64 @@
     position: relative;
 }
 
+/* @ mention dropdown */
+.mentionDropdown {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    background: var(--background-white);
+    border: 1px solid var(--stroke-grey);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+    z-index: 100;
+    max-height: 240px;
+    overflow-y: auto;
+}
+
+.mentionDropdownItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 9px 12px;
+    border: none;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+    font-size: 13px;
+    color: var(--text-primary);
+    transition: background-color 0.1s ease;
+}
+
+.mentionDropdownItem:hover,
+.mentionDropdownItem.active {
+    background-color: var(--background-light, #f3f4f6);
+}
+
+.mentionDropdownItemIcon {
+    flex-shrink: 0;
+    color: var(--text-secondary, #6b7280);
+}
+
+.mentionDropdownItemName {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .messageInputContainer {
     border: 1px solid var(--stroke-grey);
-    border-radius: var(--radius-sm);
+    border-radius: 18px;
     background-color: var(--background-white);
     transition: border-color 0.2s, box-shadow 0.2s;
     overflow: hidden;
 }
 
 .messageInputContainer:focus-within {
-    border-color: #667eea;
-    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    border-color: var(--stroke-grey);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 .messageInputContainer.disabled {
@@ -2551,7 +2598,7 @@
 
 .messageInput {
     width: 100%;
-    padding: 16px;
+    padding: 18px 18px 4px;
     border: none;
     border-radius: 0;
     font-size: 16px;
@@ -2565,7 +2612,7 @@
 }
 
 .messageInput::placeholder {
-    color: #374151;
+    color: var(--text-secondary, #9ca3af);
     font-family: "Inter", sans-serif;
     font-size: 16px;
 }
@@ -2582,27 +2629,35 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 4px var(--spacing-xs) var(--spacing-xs);
+    padding: 6px 10px 10px 12px;
+}
+
+.inputToolbarLeft {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
 .attachButton {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     display: flex;
     align-items: center;
     justify-content: center;
     background: none;
-    border: none;
-    border-radius: 6px;
-    color: #888;
+    border: 1.5px solid var(--stroke-grey);
+    border-radius: 50%;
+    color: var(--text-secondary, #6b7280);
     cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
     padding: 0;
+    flex-shrink: 0;
 }
 
 .attachButton:hover:not(:disabled) {
-    background-color: #f0f0f0;
-    color: #444;
+    background-color: var(--background-light, #f3f4f6);
+    color: var(--text-primary);
+    border-color: #9ca3af;
 }
 
 .attachButton:disabled {
@@ -2611,38 +2666,31 @@
 }
 
 .sendButton {
-    width: 40px;
-    height: 40px;
+    width: 36px;
+    height: 36px;
     padding: 0;
-    background-color: #000000;
+    background-color: #6b7280;
     color: #ffffff;
     border: none;
-    border-radius: 6px;
-    font-size: 18px;
+    border-radius: 50%;
     cursor: pointer;
-    transition: all 0.2s;
+    transition: background-color 0.15s, transform 0.1s;
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .sendButton:hover:not(:disabled) {
-    background-color: #333333;
+    background-color: #4b5563;
     transform: scale(1.05);
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
 .sendButton:disabled {
-    background-color: #cccccc;
+    background-color: var(--stroke-grey, #e5e7eb);
+    color: #9ca3af;
     cursor: not-allowed;
     transform: none;
-    opacity: 0.5;
-}
-
-.sendIcon {
-    display: inline-block;
-    transform: rotate(0deg);
-    line-height: 1;
 }
 
 /* ============================================================================
