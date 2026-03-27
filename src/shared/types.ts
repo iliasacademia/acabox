@@ -112,6 +112,12 @@ export const IPC_CHANNELS = {
   GET_ALL_NOTIFICATIONS: "get-all-notifications",
   OPEN_EXTERNAL_URL: "open-external-url",
 
+  // Podman sandbox
+  PODMAN_OPEN_SANDBOX: "podman-open-sandbox",
+  PODMAN_OPEN_PREVIEW: "podman-open-preview",
+  PODMAN_OPEN_FOLDER: "podman-open-folder",
+  PODMAN_GET_STATUS: "podman-get-status",
+
   // Navigation
   NAVIGATE_TO_PAGE: "navigate-to-page",
 

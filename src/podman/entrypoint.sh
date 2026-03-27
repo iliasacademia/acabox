@@ -62,4 +62,5 @@ su -c "node /opt/preview-server/server.js &" user
 
 # ── Start ttyd as non-root user (foreground) ──
 # ttyd runs as root but spawns bash as 'user' via su
-exec ttyd --writable su - user
+export HOME=/home/user
+exec ttyd --writable bash -c 'cd /workspace && exec su -p user'

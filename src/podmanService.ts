@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as http from 'http';
+import * as https from 'https';
 import * as crypto from 'crypto';
 import { defaultLogger as logger } from './utils/logger';
 
@@ -15,6 +16,11 @@ const HOST_PORT_START = 23200;
 const HOST_PORT_RANGE = 20; // need pairs: ttyd + preview
 const READY_POLL_INTERVAL_MS = 500;
 const READY_POLL_MAX_RETRIES = 60; // 30 seconds max wait
+
+// Podman binary versions and download URLs
+const PODMAN_VERSION = '5.3.1';
+const GVPROXY_VERSION = '0.8.0';
+const VFKIT_VERSION = '0.6.0';
 
 type ProgressCallback = (stage: string, message: string) => void;
 
@@ -38,13 +44,11 @@ class PodmanService {
     this.openLogStream();
 
     try {
+      // Download podman binaries if not present
+      await this.ensureBinariesDownloaded(onProgress);
+
       const podmanBin = this.getPodmanBin();
       this.log(`Using podman at: ${podmanBin}`);
-
-      // Verify podman binary exists
-      if (!fs.existsSync(podmanBin)) {
-        throw new Error(`Podman binary not found at ${podmanBin}. Run "npm run download-podman" to fetch binaries.`);
-      }
 
       // Ensure podman machine is ready (macOS requirement)
       if (process.platform === 'darwin') {
@@ -145,16 +149,16 @@ class PodmanService {
 
   // ─── Binary Resolution ────────────────────────────────────────
 
-  private getPodmanBin(): string {
-    // Packaged app: binaries in resources
-    if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'podman-bin', 'podman');
-    }
+  private getPodmanBinDir(): string {
+    // Always use userData — writable, persists, works in both dev and packaged
+    return path.join(app.getPath('userData'), 'podman-bin');
+  }
 
-    // Development: check project-local podman-bin/
-    const localBin = path.join(app.getAppPath(), 'podman-bin', 'podman');
-    if (fs.existsSync(localBin)) {
-      return localBin;
+  private getPodmanBin(): string {
+    const binDir = this.getPodmanBinDir();
+    const bundledBin = path.join(binDir, 'podman');
+    if (fs.existsSync(bundledBin)) {
+      return bundledBin;
     }
 
     // Fallback: system podman
@@ -173,11 +177,133 @@ class PodmanService {
     return 'podman';
   }
 
-  private getPodmanBinDir(): string {
-    if (app.isPackaged) {
-      return path.join(process.resourcesPath, 'podman-bin');
+  private async ensureBinariesDownloaded(onProgress?: ProgressCallback): Promise<void> {
+    const binDir = this.getPodmanBinDir();
+    const podmanBin = path.join(binDir, 'podman');
+    const gvproxyBin = path.join(binDir, 'gvproxy');
+    const vfkitBin = path.join(binDir, 'vfkit');
+
+    // All three must exist
+    if (fs.existsSync(podmanBin) && fs.existsSync(gvproxyBin) && fs.existsSync(vfkitBin)) {
+      this.log('Podman binaries already present');
+      return;
     }
-    return path.join(app.getAppPath(), 'podman-bin');
+
+    fs.mkdirSync(binDir, { recursive: true });
+    onProgress?.('download', 'Downloading Podman binaries...');
+    this.log('Downloading podman binaries...');
+
+    // Download podman from .pkg and extract
+    if (!fs.existsSync(podmanBin)) {
+      onProgress?.('download', 'Downloading podman...');
+      const pkgUrl = `https://github.com/containers/podman/releases/download/v${PODMAN_VERSION}/podman-installer-macos-universal.pkg`;
+      const pkgPath = path.join(binDir, 'podman.pkg');
+      await this.downloadFile(pkgUrl, pkgPath);
+
+      // Extract podman binary from .pkg using pkgutil
+      this.log('Extracting podman from .pkg...');
+      const tempDir = path.join(binDir, '_extract_tmp');
+      fs.mkdirSync(tempDir, { recursive: true });
+      try {
+        await this.execCommand('pkgutil', ['--expand-full', pkgPath, path.join(tempDir, 'podman-pkg')]);
+        const extractedBin = await this.findFileRecursive(path.join(tempDir, 'podman-pkg'), 'podman', true);
+        if (!extractedBin) {
+          throw new Error('Could not find podman binary in extracted .pkg');
+        }
+        fs.copyFileSync(extractedBin, podmanBin);
+        fs.chmodSync(podmanBin, 0o755);
+        this.log('podman binary extracted');
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        fs.rmSync(pkgPath, { force: true });
+      }
+    }
+
+    // Download gvproxy
+    if (!fs.existsSync(gvproxyBin)) {
+      onProgress?.('download', 'Downloading gvproxy...');
+      const gvproxyUrl = `https://github.com/containers/gvisor-tap-vsock/releases/download/v${GVPROXY_VERSION}/gvproxy-darwin`;
+      await this.downloadFile(gvproxyUrl, gvproxyBin);
+      fs.chmodSync(gvproxyBin, 0o755);
+      this.log('gvproxy downloaded');
+    }
+
+    // Download vfkit
+    if (!fs.existsSync(vfkitBin)) {
+      onProgress?.('download', 'Downloading vfkit...');
+      const vfkitUrl = `https://github.com/crc-org/vfkit/releases/download/v${VFKIT_VERSION}/vfkit`;
+      await this.downloadFile(vfkitUrl, vfkitBin);
+      fs.chmodSync(vfkitBin, 0o755);
+      this.log('vfkit downloaded');
+    }
+
+    onProgress?.('download', 'Podman binaries ready');
+    this.log('All podman binaries downloaded');
+  }
+
+  private downloadFile(url: string, destPath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const file = fs.createWriteStream(destPath);
+      const request = https.get(url, (response) => {
+        // Follow redirects (GitHub releases use 302)
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          file.close();
+          fs.unlinkSync(destPath);
+          if (response.headers.location) {
+            this.downloadFile(response.headers.location, destPath).then(resolve).catch(reject);
+          } else {
+            reject(new Error(`Redirect with no location header from ${url}`));
+          }
+          return;
+        }
+        if (response.statusCode !== 200) {
+          file.close();
+          fs.unlinkSync(destPath);
+          reject(new Error(`Download failed: HTTP ${response.statusCode} from ${url}`));
+          return;
+        }
+        response.pipe(file);
+        file.on('finish', () => { file.close(); resolve(); });
+      });
+      request.on('error', (err) => {
+        file.close();
+        fs.unlinkSync(destPath);
+        reject(err);
+      });
+    });
+  }
+
+  private execCommand(cmd: string, args: string[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      execFile(cmd, args, { timeout: 60000 }, (error) => {
+        if (error) reject(error);
+        else resolve();
+      });
+    });
+  }
+
+  private findFileRecursive(dir: string, name: string, executable: boolean): Promise<string | null> {
+    return new Promise((resolve) => {
+      const search = (d: string): string | null => {
+        for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+          const fullPath = path.join(d, entry.name);
+          if (entry.isDirectory()) {
+            const found = search(fullPath);
+            if (found) return found;
+          } else if (entry.name === name) {
+            if (!executable) return fullPath;
+            try {
+              fs.accessSync(fullPath, fs.constants.X_OK);
+              return fullPath;
+            } catch {
+              // Not executable, keep looking
+            }
+          }
+        }
+        return null;
+      };
+      resolve(search(dir));
+    });
   }
 
   private getPodmanEnv(): NodeJS.ProcessEnv {
