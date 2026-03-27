@@ -39,7 +39,7 @@ class PodmanService {
 
   // ─── Public API ───────────────────────────────────────────────
 
-  async start(onProgress?: ProgressCallback): Promise<void> {
+  async start(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
     if (this.isRunning()) {
       return;
     }
@@ -51,7 +51,7 @@ class PodmanService {
 
     try {
       // Download podman binaries if not present
-      await this.ensureBinariesDownloaded(onProgress);
+      await this.ensureBinariesDownloaded(onProgress, skipChecksum);
 
       const podmanBin = this.getPodmanBin();
       this.log(`Using podman at: ${podmanBin}`);
@@ -222,7 +222,7 @@ class PodmanService {
     return bundledBin;
   }
 
-  private async ensureBinariesDownloaded(onProgress?: ProgressCallback): Promise<void> {
+  private async ensureBinariesDownloaded(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
     const binDir = this.getPodmanBinDir();
     const podmanBin = path.join(binDir, 'podman');
     const gvproxyBin = path.join(binDir, 'gvproxy');
@@ -257,8 +257,8 @@ class PodmanService {
         }
         fs.copyFileSync(extractedBin, podmanBin);
         fs.chmodSync(podmanBin, 0o755);
-        this.verifyChecksum(podmanBin, 'podman');
-        this.log('podman binary extracted and verified');
+        if (!skipChecksum) this.verifyChecksum(podmanBin, 'podman');
+        this.log(`podman binary extracted${skipChecksum ? '' : ' and verified'}`);
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
         fs.rmSync(pkgPath, { force: true });
@@ -271,8 +271,8 @@ class PodmanService {
       const gvproxyUrl = `https://github.com/containers/gvisor-tap-vsock/releases/download/v${GVPROXY_VERSION}/gvproxy-darwin`;
       await this.downloadFile(gvproxyUrl, gvproxyBin);
       fs.chmodSync(gvproxyBin, 0o755);
-      this.verifyChecksum(gvproxyBin, 'gvproxy');
-      this.log('gvproxy downloaded and verified');
+      if (!skipChecksum) this.verifyChecksum(gvproxyBin, 'gvproxy');
+      this.log(`gvproxy downloaded${skipChecksum ? '' : ' and verified'}`);
     }
 
     // Download vfkit
@@ -281,8 +281,8 @@ class PodmanService {
       const vfkitUrl = `https://github.com/crc-org/vfkit/releases/download/v${VFKIT_VERSION}/vfkit`;
       await this.downloadFile(vfkitUrl, vfkitBin);
       fs.chmodSync(vfkitBin, 0o755);
-      this.verifyChecksum(vfkitBin, 'vfkit');
-      this.log('vfkit downloaded and verified');
+      if (!skipChecksum) this.verifyChecksum(vfkitBin, 'vfkit');
+      this.log(`vfkit downloaded${skipChecksum ? '' : ' and verified'}`);
     }
 
     onProgress?.('download', 'Podman binaries ready');

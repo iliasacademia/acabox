@@ -2189,13 +2189,14 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
     progressWindow.once('ready-to-show', () => progressWindow.show());
 
     try {
+      const skipChecksum = store.get('podmanSkipChecksum', false) as boolean;
       await podmanService.start((stage, message) => {
         if (!progressWindow.isDestroyed()) {
           progressWindow.webContents.executeJavaScript(
             `document.getElementById('status').textContent = ${JSON.stringify(message)};`
           ).catch(() => {});
         }
-      });
+      }, skipChecksum);
 
       const shellUrl = podmanService.getShellUrl();
       if (shellUrl) await shell.openExternal(shellUrl);
@@ -2238,6 +2239,15 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_UNINSTALL, async () => {
     const message = error instanceof Error ? error.message : String(error);
     return { success: false, error: message };
   }
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_GET_SKIP_CHECKSUM, async () => {
+  return store.get('podmanSkipChecksum', false);
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_SET_SKIP_CHECKSUM, async (_event, enabled: boolean) => {
+  store.set('podmanSkipChecksum', enabled);
+  return { success: true };
 });
 
 // Navigation handler - focus main window and relay navigation event
