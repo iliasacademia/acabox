@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ConversationDetail, ApiProvider, useProjectsApi } from '../../../packages/shared-conversations/src';
 import type { Conversation } from '../../../packages/shared-conversations/src/types/conversation';
+import type { ProjectFile } from '../../../packages/shared-conversations/src/types/project';
 import '../../../packages/shared-conversations/src/styles/conversations.css';
 
 // Inject popup-specific CSS overrides *after* the shared CSS import above,
@@ -36,8 +37,8 @@ import {
   NotificationData,
   styles,
   ArrowBackIcon,
-  CloseIcon,
-  WidthToggleIcon,
+
+
   serverUrl,
   tokenParam,
 } from './shared';
@@ -48,8 +49,6 @@ interface ConversationViewProps {
   onBack: () => void;
   onClose: () => void;
   setRecentReviewNotifications: React.Dispatch<React.SetStateAction<NotificationData[]>>;
-  isWide: boolean;
-  onToggleWidth: () => void;
 }
 
 function ConversationViewInner({
@@ -57,12 +56,11 @@ function ConversationViewInner({
   projectId,
   onBack,
   onClose,
-  isWide,
-  onToggleWidth,
 }: Omit<ConversationViewProps, 'setRecentReviewNotifications'>) {
   const [primaryManuscriptId, setPrimaryManuscriptId] = useState<number | undefined>(undefined);
+  const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
   const { getProjectFiles } = useProjectsApi();
-  // Fetch primary manuscript ID on mount
+  // Fetch primary manuscript on mount
   useEffect(() => {
     let cancelled = false;
     getProjectFiles(projectId).then((files) => {
@@ -70,6 +68,7 @@ function ConversationViewInner({
       const primary = files.find((f) => f.is_primary_manuscript);
       if (primary) {
         setPrimaryManuscriptId(primary.id);
+        setManuscriptFile(primary);
       }
     }).catch((err) => {
       console.error('[ConversationView] Failed to fetch project files:', err);
@@ -102,24 +101,6 @@ function ConversationViewInner({
           <ArrowBackIcon />
           <span style={styles.backButtonText}>Back</span>
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <button
-            style={{ ...styles.widthToggleButton, position: 'static', fontSize: 0 }}
-            onClick={onToggleWidth}
-            aria-label={isWide ? 'Narrow window' : 'Widen window'}
-            title={isWide ? 'Narrow window' : 'Widen window'}
-          >
-            <WidthToggleIcon />
-          </button>
-          <button
-            style={{ ...styles.closeButton, position: 'static', fontSize: 0 }}
-            onClick={onClose}
-            aria-label="Close"
-            title="Close"
-          >
-            <CloseIcon />
-          </button>
-        </div>
       </div>
 
       {/* Conversation Detail */}
@@ -128,6 +109,7 @@ function ConversationViewInner({
           conversation={conversation}
           projectId={projectId}
           primaryManuscriptId={primaryManuscriptId}
+          manuscriptFile={manuscriptFile}
           feedbackFormUrl={FEEDBACK_FORM_URL}
         />
       </div>
@@ -140,9 +122,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   projectId,
   onBack,
   onClose,
-  setRecentReviewNotifications,
-  isWide,
-  onToggleWidth,
+  setRecentReviewNotifications: _setRecentReviewNotifications,
 }) => {
   const popupApiClient = useMemo(
     () => new PopupApiClient(serverUrl, tokenParam),
@@ -156,8 +136,6 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         projectId={projectId}
         onBack={onBack}
         onClose={onClose}
-        isWide={isWide}
-        onToggleWidth={onToggleWidth}
       />
     </ApiProvider>
   );

@@ -739,6 +739,10 @@ export class WindowMonitorService {
     this.pushWebviewState();
   }
 
+  getButtonDragOffset(windowId: string): { dx: number; dy: number } {
+    return this.buttonDragOffsets.get(windowId) ?? { dx: 0, dy: 0 };
+  }
+
   setPopupSize(windowId: string, width: number, height: number): void {
     this.popupSizeOverrides.set(windowId, { width, height });
     this.pushWebviewState();
