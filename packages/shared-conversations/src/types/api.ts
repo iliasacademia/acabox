@@ -9,6 +9,20 @@ export interface ApiCallOptions {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE';
   endpoint: string;
   data?: Record<string, unknown>;
+  /** Browser File object for overlay environments where filesystem paths are unavailable */
+  file?: File;
+}
+
+export interface FileEntry {
+  name: string;
+  isDir: boolean;
+  path: string;
+}
+
+export interface BrowseFilesResponse {
+  path: string;
+  parent: string | null;
+  entries: FileEntry[];
 }
 
 /**
@@ -37,4 +51,16 @@ export interface ConversationsApiClient {
    * Used for feedback forms and external links
    */
   openExternalUrl?(url: string): void;
+
+  /**
+   * Browse a filesystem directory (optional).
+   * Used by the in-overlay file picker.
+   */
+  browseFiles?(dir?: string): Promise<BrowseFilesResponse>;
+
+  /**
+   * Read a file by filesystem path and return a File object (optional).
+   * Used by the in-overlay file picker after the user selects a file.
+   */
+  readFile?(filePath: string): Promise<File | null>;
 }

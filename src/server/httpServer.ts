@@ -29,6 +29,7 @@ import { registerSelectedTextReviewRoutes } from './routes/selectedTextReview';
 import { registerReviewRoutes } from './routes/reviewRoutes';
 import { registerReviewPanelV3Routes } from './routes/reviewPanelV3';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
+import { registerFileDialogRoutes } from './routes/fileDialog';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
 import { defaultLogger as logger } from '../utils/logger';
@@ -98,6 +99,7 @@ export class AcademiaHttpServer {
     this.fastify = Fastify({
       logger: false, // Disable Fastify's built-in logger (we use logger.debug)
       disableRequestLogging: true,
+      bodyLimit: 100 * 1024 * 1024, // 100MB — needed for file uploads via proxy
     });
 
     // Register global error handler
@@ -261,6 +263,9 @@ export class AcademiaHttpServer {
     if (this.navigationHandler) {
       await registerNavigationRoutes(this.fastify, this.navigationHandler);
     }
+
+    // Register file dialog route (native file picker for WKWebView overlays)
+    await registerFileDialogRoutes(this.fastify);
 
     // Start listening - try ports in range (default 23111-23120)
     const startPort = this.config.port;
