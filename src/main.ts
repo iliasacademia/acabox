@@ -2192,18 +2192,13 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
           <h3>Error</h3>
           <p id="errorMsg"></p>
         </div>
-        <button id="closeBtn" onclick="document.title='close-window'">Close</button>
+        <button id="closeBtn">Close</button>
       </body>
       </html>
     `)}`;
 
     progressWindow.loadURL(progressHtml);
     progressWindow.once('ready-to-show', () => progressWindow.show());
-    progressWindow.on('page-title-updated', () => {
-      if (progressWindow.getTitle() === 'close-window' && !progressWindow.isDestroyed()) {
-        progressWindow.close();
-      }
-    });
 
     try {
       const skipChecksum = store.get('podmanSkipChecksum', false) as boolean;
@@ -2227,15 +2222,19 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
       const logPath = path.join(app.getPath('userData'), 'podman-dev.log');
       const message = error instanceof Error ? error.message : String(error);
 
-      // Show the error in the progress window instead of closing it
+      // Show the error in the progress window and wait for Close button click
       if (!progressWindow.isDestroyed()) {
         const errorText = `${message}\\n\\nSee logs at: ${logPath}`;
-        progressWindow.webContents.executeJavaScript(`
+        await progressWindow.webContents.executeJavaScript(`
           document.getElementById('progress').style.display = 'none';
           document.getElementById('error').style.display = 'block';
           document.getElementById('errorMsg').textContent = ${JSON.stringify(errorText)};
           document.getElementById('closeBtn').style.display = 'inline-block';
+          new Promise(resolve => document.getElementById('closeBtn').addEventListener('click', resolve, { once: true }));
         `).catch(() => {});
+        if (!progressWindow.isDestroyed()) {
+          progressWindow.close();
+        }
       }
 
       return { success: false, error: message, logPath };
