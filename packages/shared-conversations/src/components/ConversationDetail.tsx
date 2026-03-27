@@ -10,11 +10,15 @@ import { useApiClient } from '../context/ApiContext';
 import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
 import DiffModal from './DiffModal';
+import { FilePicker } from './FilePicker';
 
 interface AttachedFile {
   localId: string;
   name: string;
+  /** Filesystem path — set in Electron, empty string in overlay */
   filePath: string;
+  /** Browser File object — set in overlay when filesystem path is unavailable */
+  fileObject?: File;
   /** true for files already uploaded to the project (e.g. via @ mention) */
   isProjectFile?: boolean;
   /** project file ID — only set for isProjectFile files */
@@ -75,6 +79,7 @@ export function ConversationDetail({
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [showDiffModal, setShowDiffModal] = useState(false);
+  const [showFilePicker, setShowFilePicker] = useState(false);
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [isDiffLoading, setIsDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
@@ -470,6 +475,13 @@ export function ConversationDetail({
     }
   };
 
+  const handleBrowserFilesAdded = (files: File[]) => {
+    for (const file of files) {
+      const localId = `${Date.now()}-${Math.random()}`;
+      setAttachedFiles(prev => [...prev, { localId, name: file.name, filePath: '', fileObject: file }]);
+    }
+  };
+
   const removeAttachedFile = (localId: string) => {
     setAttachedFiles(prev => prev.filter(f => f.localId !== localId));
   };
@@ -483,6 +495,11 @@ export function ConversationDetail({
     if (!filePaths || (Array.isArray(filePaths) && filePaths.length === 0)) return;
     const paths = Array.isArray(filePaths) ? filePaths : [filePaths];
     handleFilePathsAdded(paths);
+  };
+
+  const handleAttachClickOverlay = () => {
+    if (!projectId) return;
+    setShowFilePicker(true);
   };
 
   const handleDragEnter = (e: React.DragEvent) => {
@@ -506,10 +523,15 @@ export function ConversationDetail({
     dragCounterRef.current = 0;
     setIsDragOver(false);
     const electronAPI = (window as any).electronAPI;
-    const paths = Array.from(e.dataTransfer.files)
-      .map(f => electronAPI?.getPathForFile?.(f) ?? (f as unknown as { path?: string }).path)
-      .filter((p): p is string => typeof p === 'string' && p.length > 0);
-    if (paths.length > 0) handleFilePathsAdded(paths);
+    if (electronAPI?.getPathForFile) {
+      const paths = Array.from(e.dataTransfer.files)
+        .map(f => electronAPI.getPathForFile?.(f) ?? (f as unknown as { path?: string }).path)
+        .filter((p): p is string => typeof p === 'string' && p.length > 0);
+      if (paths.length > 0) handleFilePathsAdded(paths);
+    } else {
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) handleBrowserFilesAdded(files);
+    }
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -524,7 +546,9 @@ export function ConversationDetail({
     const localFiles = attachedFiles.filter(f => !f.isProjectFile);
     const projectFileIds = projectFiles.map(f => f.projectFileId as number);
     // Only one local file can be sent per message (API supports a single `file` field)
-    const filePath = localFiles.length > 0 ? localFiles[0].filePath : undefined;
+    const firstLocalFile = localFiles.length > 0 ? localFiles[0] : undefined;
+    const filePath = firstLocalFile?.filePath || undefined;
+    const fileObject = firstLocalFile?.fileObject;
 
     const optimisticContexts: MessageContext[] = projectFiles.map((f, i) => ({
       id: -(i + 1),
@@ -559,7 +583,8 @@ export function ConversationDetail({
           projectId,
           conversation.title ?? undefined,
           projectFileIds.length > 0 ? projectFileIds : undefined,
-          filePath
+          filePath,
+          fileObject
         );
 
         // Track conversation message sent
@@ -593,7 +618,8 @@ export function ConversationDetail({
           content,
           projectId,
           projectFileIds.length > 0 ? projectFileIds : undefined,
-          filePath
+          filePath,
+          fileObject
         );
 
         // Track conversation message sent
@@ -839,7 +865,16 @@ export function ConversationDetail({
   const currentIsDraft = isDraft(conversation);
 
   return (
-    <div className="conversationDetail">
+    <div className="conversationDetail" style={{ position: 'relative' }}>
+      {showFilePicker && (
+        <FilePicker
+          onSelect={(file) => {
+            handleBrowserFilesAdded([file]);
+            setShowFilePicker(false);
+          }}
+          onCancel={() => setShowFilePicker(false)}
+        />
+      )}
       {/* Header */}
       <div className="conversationHeader">
         <div className="conversationHeaderContent">
@@ -992,7 +1027,7 @@ export function ConversationDetail({
         )}
 
         {/* Show loading indicator when AI is responding */}
-        {isAwaitingResponse && groupedMessages.length > 0 && lastSearchProgressId === null && (
+        {(isSending || isAwaitingResponse) && groupedMessages.length > 0 && (lastSearchProgressId === null || hasSearchResult) && (
           <div className="conversationMessage assistant">
             <div className="messageContent">
               <div className="messageLoading">
@@ -1106,7 +1141,7 @@ export function ConversationDetail({
                   <button
                     type="button"
                     className="attachButton"
-                    onClick={handleAttachClick}
+                    onClick={(window as any).electronAPI?.invoke ? handleAttachClick : handleAttachClickOverlay}
                     disabled={!projectId || isSending || disableMessageInput}
                     title="Attach supporting file"
                     aria-label="Attach supporting file"

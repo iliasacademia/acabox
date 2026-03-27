@@ -100,7 +100,8 @@ export function useConversationsApi() {
       projectId?: number | null,
       title?: string,
       projectFileIds?: number[],
-      filePath?: string
+      filePath?: string,
+      fileObject?: File
     ): Promise<ConversationDetail> => {
       const data: Record<string, unknown> = {
         content,
@@ -120,6 +121,7 @@ export function useConversationsApi() {
         method: 'POST',
         endpoint: 'create-conversation-with-file',
         data,
+        file: fileObject,
       });
       return response.conversation;
     },
@@ -133,7 +135,8 @@ export function useConversationsApi() {
       content: string,
       projectId?: number | null,
       projectFileIds?: number[],
-      filePath?: string
+      filePath?: string,
+      fileObject?: File
     ): Promise<Message> => {
       const data: Record<string, unknown> = {
         conversation_id: conversationId,
@@ -152,6 +155,7 @@ export function useConversationsApi() {
         method: 'POST',
         endpoint: 'send-message-with-file',
         data,
+        file: fileObject,
       });
       return response.message;
     },

@@ -26,6 +26,12 @@ function requiresCsrfToken(method: string): boolean {
  * @param fastify Fastify instance
  */
 export async function registerProxyRoutes(fastify: FastifyInstance): Promise<void> {
+  // Preserve multipart bodies as raw buffers so the proxy can forward them unchanged.
+  // Without this Fastify would leave request.body undefined for multipart requests.
+  fastify.addContentTypeParser(/^multipart\/form-data/, { parseAs: 'buffer', bodyLimit: 100 * 1024 * 1024 }, (_req, body, done) => {
+    done(null, body);
+  });
+
   /**
    * Wildcard proxy handler for /proxy-api/*
    *
