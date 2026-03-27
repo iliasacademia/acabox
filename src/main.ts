@@ -2150,12 +2150,11 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_GET_STATUS, async () => {
 });
 
 ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
-  try {
-    if (podmanService.isRunning()) {
-      const url = podmanService.getShellUrl();
-      if (url) await shell.openExternal(url);
-      return { success: true, shellUrl: url, previewUrl: podmanService.getPreviewUrl() };
-    }
+  if (podmanService.isRunning()) {
+    const url = podmanService.getShellUrl();
+    if (url) await shell.openExternal(url);
+    return { success: true, shellUrl: url, previewUrl: podmanService.getPreviewUrl() };
+  }
 
     // Show a progress window during setup
     const progressWindow = new BrowserWindow({
@@ -2174,13 +2173,26 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
       <head><style>
         body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 24px;
                background: #1e1e1e; color: #e0e0e0; display: flex; flex-direction: column; justify-content: center;
-               -webkit-app-region: drag; }
+               -webkit-app-region: drag; height: 100vh; box-sizing: border-box; }
         h3 { margin: 0 0 8px 0; font-size: 14px; font-weight: 600; }
         #status { font-size: 12px; color: #aaa; word-break: break-word; }
+        #error { display: none; margin-top: 12px; }
+        #error h3 { color: #ff6b6b; }
+        #error p { font-size: 12px; color: #ccc; margin: 4px 0 0 0; word-break: break-word; }
+        #closeBtn { display: none; margin-top: 12px; padding: 6px 16px; background: #444; color: #e0e0e0;
+                     border: none; border-radius: 4px; cursor: pointer; font-size: 12px; -webkit-app-region: no-drag; }
+        #closeBtn:hover { background: #555; }
       </style></head>
       <body>
-        <h3>Starting Sandbox...</h3>
-        <div id="status">Initializing...</div>
+        <div id="progress">
+          <h3>Starting Sandbox...</h3>
+          <div id="status">Initializing...</div>
+        </div>
+        <div id="error">
+          <h3>Error</h3>
+          <p id="errorMsg"></p>
+        </div>
+        <button id="closeBtn" onclick="window.close()">Close</button>
       </body>
       </html>
     `)}`;
@@ -2198,19 +2210,31 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
         }
       }, skipChecksum);
 
-      const shellUrl = podmanService.getShellUrl();
-      if (shellUrl) await shell.openExternal(shellUrl);
-      return { success: true, shellUrl, previewUrl: podmanService.getPreviewUrl() };
-    } finally {
+      // Success — close the progress window
       if (!progressWindow.isDestroyed()) {
         progressWindow.close();
       }
+
+      const shellUrl = podmanService.getShellUrl();
+      if (shellUrl) await shell.openExternal(shellUrl);
+      return { success: true, shellUrl, previewUrl: podmanService.getPreviewUrl() };
+    } catch (error: unknown) {
+      const logPath = path.join(app.getPath('userData'), 'podman-dev.log');
+      const message = error instanceof Error ? error.message : String(error);
+
+      // Show the error in the progress window instead of closing it
+      if (!progressWindow.isDestroyed()) {
+        const errorText = `${message}\\n\\nSee logs at: ${logPath}`;
+        progressWindow.webContents.executeJavaScript(`
+          document.getElementById('progress').style.display = 'none';
+          document.getElementById('error').style.display = 'block';
+          document.getElementById('errorMsg').textContent = ${JSON.stringify(errorText)};
+          document.getElementById('closeBtn').style.display = 'inline-block';
+        `).catch(() => {});
+      }
+
+      return { success: false, error: message, logPath };
     }
-  } catch (error: unknown) {
-    const logPath = path.join(app.getPath('userData'), 'podman-dev.log');
-    const message = error instanceof Error ? error.message : String(error);
-    return { success: false, error: message, logPath };
-  }
 });
 
 ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_PREVIEW, async () => {
