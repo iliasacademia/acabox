@@ -18,6 +18,7 @@ RUN apt-get update && \
       unzip \
       iptables \
       dnsutils \
+      poppler-utils \
       && ARCH=$(dpkg --print-architecture) \
     && if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then \
          TTYD_ARCH="aarch64"; \
@@ -50,7 +51,10 @@ RUN pip3 install --break-system-packages \
       plotly \
       openpyxl \
       xlsxwriter \
-      statsmodels
+      statsmodels \
+      pymupdf \
+      pdfminer.six \
+      pypdf
 
 # Preview server: Express static file server + chart/visualization libraries
 RUN mkdir -p /opt/preview-server && \
