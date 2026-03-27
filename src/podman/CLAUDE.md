@@ -53,6 +53,26 @@ Files in `/workspace/` are served at `/data/` on the preview server:
 </html>
 ```
 
+## PDF Parsing
+
+Multiple PDF tools are available for reading and extracting text from PDFs:
+
+- **pdftotext** (CLI) — `pdftotext input.pdf output.txt` (from poppler-utils)
+- **pymupdf** (`import fitz`) — Full PDF parsing, text extraction, metadata, rendering
+- **pdfminer.six** (`from pdfminer.high_level import extract_text`) — Detailed text extraction with layout analysis
+- **pypdf** (`import pypdf`) — PDF reading, merging, splitting, metadata
+
+### Example: Extract text from a PDF
+
+```python
+import fitz  # PyMuPDF
+
+doc = fitz.open('/workspace/document.pdf')
+for page in doc:
+    text = page.get_text()
+    print(text)
+```
+
 ## Available Python libraries
 
 For data analysis, these Python libraries are pre-installed:
