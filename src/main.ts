@@ -2230,6 +2230,16 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_FOLDER, async () => {
   return { success: true };
 });
 
+ipcMain.handle(IPC_CHANNELS.PODMAN_UNINSTALL, async () => {
+  try {
+    await podmanService.uninstall();
+    return { success: true };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
+});
+
 // Navigation handler - focus main window and relay navigation event
 ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO_PAGE, async (_event, payload: NavigateToPagePayload) => {
   try {

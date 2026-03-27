@@ -139,6 +139,59 @@ class PodmanService {
     this.closeLogStream();
   }
 
+  async uninstall(): Promise<void> {
+    this.openLogStream();
+    this.log('Uninstalling sandbox...');
+
+    // Stop the running container if any
+    this.stop();
+
+    const binDir = this.getPodmanBinDir();
+    const podmanBin = path.join(binDir, 'podman');
+
+    if (fs.existsSync(podmanBin)) {
+      const env = this.getPodmanEnv();
+
+      // Remove the container image
+      try {
+        execFileSync(podmanBin, ['rmi', '-f', IMAGE_NAME], { env, timeout: 15000 });
+        this.log('Container image removed');
+      } catch {
+        this.log('No container image to remove (or already removed)');
+      }
+
+      // Stop and remove the podman machine
+      try {
+        execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 30000 });
+        this.log('Podman machine stopped');
+      } catch {
+        this.log('Machine was not running');
+      }
+      try {
+        execFileSync(podmanBin, ['machine', 'rm', '-f'], { env, timeout: 15000 });
+        this.log('Podman machine removed');
+      } catch {
+        this.log('No machine to remove');
+      }
+    }
+
+    // Remove binaries
+    if (fs.existsSync(binDir)) {
+      fs.rmSync(binDir, { recursive: true, force: true });
+      this.log('Podman binaries removed');
+    }
+
+    // Remove podman data (VM image, config, runtime)
+    const podmanDataDir = path.join(app.getPath('userData'), 'podman-data');
+    if (fs.existsSync(podmanDataDir)) {
+      fs.rmSync(podmanDataDir, { recursive: true, force: true });
+      this.log('Podman data removed');
+    }
+
+    this.log('Uninstall complete');
+    this.closeLogStream();
+  }
+
   getShellUrl(): string | null {
     if (this.shellPort === null) return null;
     return `http://127.0.0.1:${this.shellPort}`;

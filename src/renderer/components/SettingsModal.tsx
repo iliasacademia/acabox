@@ -376,6 +376,29 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                     >
                       Open Folder
                     </button>
+                    <button
+                      className="zoteroButton zoteroButtonDisconnect"
+                      disabled={sandboxLoading}
+                      onClick={async () => {
+                        setSandboxLoading(true);
+                        setSandboxStatus('Removing sandbox...');
+                        try {
+                          const result = await window.electronAPI.invoke(IPC_CHANNELS.PODMAN_UNINSTALL) as { success: boolean; error?: string };
+                          if (result.success) {
+                            setSandboxRunning(false);
+                            setSandboxStatus('Sandbox removed');
+                          } else {
+                            setSandboxStatus(`Error: ${result.error}`);
+                          }
+                        } catch (err: unknown) {
+                          setSandboxStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+                        } finally {
+                          setSandboxLoading(false);
+                        }
+                      }}
+                    >
+                      Uninstall
+                    </button>
                   </div>
                 </div>
               </div>
