@@ -565,15 +565,6 @@ class PodmanService {
   private async runContainer(podmanBin: string, ttydPort: number, previewPort: number): Promise<void> {
     const workspacePath = this.getWorkspacePath();
 
-    // Pass through environment variables into the container
-    const envPassthrough: string[] = [];
-    const passthroughKeys = ['ANTHROPIC_API_KEY'];
-    for (const key of passthroughKeys) {
-      if (process.env[key]) {
-        envPassthrough.push('-e', `${key}=${process.env[key]}`);
-      }
-    }
-
     const args = [
       'run', '--rm',
       '--name', CONTAINER_NAME,
@@ -581,7 +572,6 @@ class PodmanService {
       '-p', `127.0.0.1:${ttydPort}:${TTYD_CONTAINER_PORT}`,
       '-p', `127.0.0.1:${previewPort}:${PREVIEW_CONTAINER_PORT}`,
       '-v', `${workspacePath}:/workspace:Z`,
-      ...envPassthrough,
       IMAGE_NAME,
     ];
 

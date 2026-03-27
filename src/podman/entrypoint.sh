@@ -46,17 +46,6 @@ chown -R user:user /workspace
 cp /opt/CLAUDE.md /workspace/CLAUDE.md
 chown user:user /workspace/CLAUDE.md
 
-# ── Persist environment variables for the non-root user ──
-# Write directly to .profile so login shells (su - user) pick them up
-for var in ANTHROPIC_API_KEY; do
-  if [ -n "${!var}" ]; then
-    # Remove any old entry, then append
-    sed -i "/^export ${var}=/d" /home/user/.profile 2>/dev/null || true
-    echo "export ${var}=\"${!var}\"" >> /home/user/.profile
-  fi
-done
-chown user:user /home/user/.profile
-
 # ── Start preview server in background (as user) ──
 su -c "node /opt/preview-server/server.js &" user
 
