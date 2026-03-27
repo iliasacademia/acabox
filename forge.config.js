@@ -92,7 +92,9 @@ const packagerConfig = {
     ] : []),
     'dist/popup',
     'src/assets/icons',
-    'app-update.yml'
+    'app-update.yml',
+    'podman-bin',
+    'src/podman',
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {

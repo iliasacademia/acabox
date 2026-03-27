@@ -9,6 +9,7 @@
     "build:native": "node scripts/build-native-safe.js",
     "build:popup": "webpack --config webpack.popup.config.js",
     "build:popup:watch": "webpack --config webpack.popup.config.js --watch",
+    "download-podman": "bash scripts/download-podman-binaries.sh",
     "prestart": "npm run build:native && npm run build:popup",
     "start": "dotenv -e .env.local -- cross-env NODE_ENV=development electron-forge start",
     "cleanup": "./cleanup.sh",

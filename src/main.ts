@@ -27,6 +27,7 @@ import { sessionsTracker } from './sessionsTracker';
 import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 import { sessionSyncService } from './sessionSyncService';
 import { refreshManuscriptPaths } from './server/services/manuscriptPathsService';
+import { podmanService } from './podmanService';
 
 // Set display name for menu bar (needed in dev mode where the binary is named "Electron")
 app.setName('Writing Agent');
@@ -438,6 +439,90 @@ const createTray = (): void => {
       label: 'Request Permissions',
       click: () => {
         wordAccessibility.requestPermission();
+      },
+    }
+  );
+
+  // Add Podman terminal option (always present)
+  menuItems.push(
+    { type: 'separator' },
+    {
+      label: 'Open Terminal',
+      click: async () => {
+        if (podmanService.isRunning()) {
+          const url = podmanService.getShellUrl();
+          if (url) shell.openExternal(url);
+          return;
+        }
+
+        // Show a small progress window during setup
+        const progressWindow = new BrowserWindow({
+          width: 420,
+          height: 140,
+          frame: false,
+          resizable: false,
+          alwaysOnTop: true,
+          show: false,
+          webPreferences: { nodeIntegration: false, contextIsolation: true },
+        });
+
+        const progressHtml = `data:text/html;charset=utf-8,${encodeURIComponent(`
+          <!DOCTYPE html>
+          <html>
+          <head><style>
+            body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 24px;
+                   background: #1e1e1e; color: #e0e0e0; display: flex; flex-direction: column; justify-content: center;
+                   -webkit-app-region: drag; }
+            h3 { margin: 0 0 8px 0; font-size: 14px; font-weight: 600; }
+            #status { font-size: 12px; color: #aaa; word-break: break-word; }
+          </style></head>
+          <body>
+            <h3>Starting Terminal...</h3>
+            <div id="status">Initializing...</div>
+            <script>
+              window.addEventListener('message', (e) => {
+                document.getElementById('status').textContent = e.data.message || '';
+              });
+            </script>
+          </body>
+          </html>
+        `)}`;
+
+        progressWindow.loadURL(progressHtml);
+        progressWindow.once('ready-to-show', () => progressWindow.show());
+
+        try {
+          await podmanService.start((stage, message) => {
+            if (!progressWindow.isDestroyed()) {
+              progressWindow.webContents.executeJavaScript(
+                `document.getElementById('status').textContent = ${JSON.stringify(message)};`
+              ).catch(() => {});
+            }
+          });
+          const url = podmanService.getShellUrl();
+          if (url) shell.openExternal(url);
+        } catch (error) {
+          const logPath = path.join(app.getPath('userData'), 'podman-dev.log');
+          dialog.showErrorBox(
+            'Terminal Error',
+            `Failed to start terminal: ${(error as Error).message}\n\nSee logs at: ${logPath}`
+          );
+        } finally {
+          if (!progressWindow.isDestroyed()) {
+            progressWindow.close();
+          }
+        }
+      },
+    },
+    {
+      label: 'Open Preview',
+      click: () => {
+        if (!podmanService.isRunning()) {
+          dialog.showMessageBox({ message: 'Start the terminal first using "Open Terminal".', type: 'info' });
+          return;
+        }
+        const url = podmanService.getPreviewUrl();
+        if (url) shell.openExternal(url);
       },
     }
   );
@@ -1733,6 +1818,9 @@ app.on('before-quit', async (event) => {
 
     // Stop window monitor service (V2 Rust processes)
     windowMonitorService.stop();
+
+    // Stop Podman container if running
+    podmanService.stop();
 
     // Stop all sync watchers
     logger.debug('[APP] Stopping sync watchers...');
