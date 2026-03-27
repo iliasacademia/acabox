@@ -22,6 +22,7 @@ export interface ZoteroStatusProps {
 
 export interface SupportingMaterialsContentProps {
   projectId: number;
+  manuscriptFolderPath?: string;
   onMaterialsChange?: () => void;
   fileUploadEvent?: { file: any; timestamp: number } | null;
   zoteroSyncEvent?: { timestamp: number } | null;
@@ -37,6 +38,7 @@ export interface SupportingMaterialsContentProps {
 
 export function SupportingMaterialsContent({
   projectId,
+  manuscriptFolderPath,
   onMaterialsChange,
   fileUploadEvent,
   zoteroSyncEvent,
@@ -218,6 +220,7 @@ export function SupportingMaterialsContent({
       }
 
       const filePaths = await window.electronAPI.invoke('select-file', {
+        defaultPath: manuscriptFolderPath,
         extensions: ['pdf', 'docx', 'txt'],
         multiSelection: true,
       });

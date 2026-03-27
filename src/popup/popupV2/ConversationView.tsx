@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ConversationDetail, ApiProvider, useProjectsApi } from '../../../packages/shared-conversations/src';
 import type { Conversation } from '../../../packages/shared-conversations/src/types/conversation';
+import type { ProjectFile } from '../../../packages/shared-conversations/src/types/project';
 import '../../../packages/shared-conversations/src/styles/conversations.css';
 
 // Inject popup-specific CSS overrides *after* the shared CSS import above,
@@ -61,8 +62,9 @@ function ConversationViewInner({
   onToggleWidth,
 }: Omit<ConversationViewProps, 'setRecentReviewNotifications'>) {
   const [primaryManuscriptId, setPrimaryManuscriptId] = useState<number | undefined>(undefined);
+  const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
   const { getProjectFiles } = useProjectsApi();
-  // Fetch primary manuscript ID on mount
+  // Fetch primary manuscript on mount
   useEffect(() => {
     let cancelled = false;
     getProjectFiles(projectId).then((files) => {
@@ -70,6 +72,7 @@ function ConversationViewInner({
       const primary = files.find((f) => f.is_primary_manuscript);
       if (primary) {
         setPrimaryManuscriptId(primary.id);
+        setManuscriptFile(primary);
       }
     }).catch((err) => {
       console.error('[ConversationView] Failed to fetch project files:', err);
@@ -128,6 +131,7 @@ function ConversationViewInner({
           conversation={conversation}
           projectId={projectId}
           primaryManuscriptId={primaryManuscriptId}
+          manuscriptFile={manuscriptFile}
           feedbackFormUrl={FEEDBACK_FORM_URL}
         />
       </div>
