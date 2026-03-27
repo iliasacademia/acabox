@@ -2192,13 +2192,18 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
           <h3>Error</h3>
           <p id="errorMsg"></p>
         </div>
-        <button id="closeBtn" onclick="window.close()">Close</button>
+        <button id="closeBtn" onclick="document.title='close-window'">Close</button>
       </body>
       </html>
     `)}`;
 
     progressWindow.loadURL(progressHtml);
     progressWindow.once('ready-to-show', () => progressWindow.show());
+    progressWindow.on('page-title-updated', () => {
+      if (progressWindow.getTitle() === 'close-window' && !progressWindow.isDestroyed()) {
+        progressWindow.close();
+      }
+    });
 
     try {
       const skipChecksum = store.get('podmanSkipChecksum', false) as boolean;
