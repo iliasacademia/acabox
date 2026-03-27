@@ -1546,7 +1546,7 @@ ipcMain.handle(IPC_CHANNELS.SEND_MESSAGE_WITH_FILE, async (_event, data: {
 
     const formData = new FormData();
     formData.append('conversation_id', data.conversation_id.toString());
-    if (data.content) formData.append('content', data.content);
+    formData.append('content', data.content ?? '');
     if (data.project_id) {
       formData.append('parent_id', data.project_id.toString());
       formData.append('parent_type', 'Project');

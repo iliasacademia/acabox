@@ -5,6 +5,7 @@ import { FileEntry } from '../types/api';
 interface FilePickerProps {
   onSelect: (file: File) => void;
   onCancel: () => void;
+  initialDir?: string;
 }
 
 const ALLOWED_EXT = new Set(['pdf', 'doc', 'docx', 'txt', 'md', 'tex', 'rtf']);
@@ -17,7 +18,7 @@ function isSelectable(entry: FileEntry) {
   return !entry.isDir && ALLOWED_EXT.has(ext(entry.name));
 }
 
-export function FilePicker({ onSelect, onCancel }: FilePickerProps) {
+export function FilePicker({ onSelect, onCancel, initialDir }: FilePickerProps) {
   const client = useApiClient();
   const [currentPath, setCurrentPath] = useState<string>('');
   const [parent, setParent] = useState<string | null>(null);
@@ -45,7 +46,7 @@ export function FilePicker({ onSelect, onCancel }: FilePickerProps) {
     }
   }, [client]);
 
-  useEffect(() => { navigate(); }, [navigate]);
+  useEffect(() => { navigate(initialDir); }, [navigate]);
 
   const handleConfirm = async () => {
     if (!selected) return;

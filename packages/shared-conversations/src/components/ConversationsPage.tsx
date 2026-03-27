@@ -1164,6 +1164,9 @@ export function ConversationsPage({
           {selectedView === 'supporting-materials' && !nonProjectConversations ? (
             <SupportingMaterialsContent
               projectId={selectedProject!.id}
+              manuscriptFolderPath={manuscriptFile?.file_path
+                ? manuscriptFile.file_path.substring(0, manuscriptFile.file_path.lastIndexOf('/'))
+                : undefined}
               onMaterialsChange={refreshSupportingMaterials}
               fileUploadEvent={fileUploadEvent}
               zoteroSyncEvent={zoteroSyncEvent}

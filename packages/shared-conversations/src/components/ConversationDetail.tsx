@@ -56,7 +56,7 @@ export function ConversationDetail({
   conversation,
   projectId,
   primaryManuscriptId,
-  // manuscriptFile,
+  manuscriptFile,
   onConversationCreated,
   onConversationUpdate,
   isReviewInProgress,
@@ -486,9 +486,14 @@ export function ConversationDetail({
     setAttachedFiles(prev => prev.filter(f => f.localId !== localId));
   };
 
+  const manuscriptFolderPath = manuscriptFile?.file_path
+    ? manuscriptFile.file_path.substring(0, manuscriptFile.file_path.lastIndexOf('/'))
+    : undefined;
+
   const handleAttachClick = async () => {
     if (!projectId || !(window as any).electronAPI?.invoke) return;
     const filePaths = await (window as any).electronAPI.invoke('select-file', {
+      defaultPath: manuscriptFolderPath,
       extensions: ['pdf', 'docx', 'doc', 'txt', 'md', 'tex', 'rtf'],
       multiSelection: true,
     });
@@ -868,6 +873,7 @@ export function ConversationDetail({
     <div className="conversationDetail" style={{ position: 'relative' }}>
       {showFilePicker && (
         <FilePicker
+          initialDir={manuscriptFolderPath}
           onSelect={(file) => {
             handleBrowserFilesAdded([file]);
             setShowFilePicker(false);

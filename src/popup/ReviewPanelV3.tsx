@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConversationDetail, ApiProvider } from '../../packages/shared-conversations/src';
 import type { Conversation, DraftConversation } from '../../packages/shared-conversations/src/types/conversation';
+import type { ProjectFile } from '../../packages/shared-conversations/src/types/project';
 import '../../packages/shared-conversations/src/styles/conversations.css';
 import { PopupApiClient } from './popupV2/PopupApiClient';
 import { FEEDBACK_FORM_URL } from '../shared/constants';
@@ -62,6 +63,7 @@ const ReviewPanelV3: React.FC = () => {
   const [context, setContext] = useState<PanelContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [conversation, setConversation] = useState<Conversation | DraftConversation | null>(null);
+  const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
 
   const popupApiClient = useMemo(
     () => new PopupApiClient(serverUrl, tokenParam),
@@ -145,6 +147,24 @@ const ReviewPanelV3: React.FC = () => {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, []);
 
+  // Fetch primary manuscript file when projectId is available
+  useEffect(() => {
+    const projectId = context?.projectId;
+    if (!projectId) return;
+    let cancelled = false;
+    popupApiClient.invoke<{ files?: ProjectFile[] }>({
+      method: 'GET',
+      endpoint: `v0/co_scientist/projects/${projectId}/files`,
+    }).then((res) => {
+      if (cancelled) return;
+      const primary = (res.files || []).find((f) => f.is_primary_manuscript);
+      if (primary) setManuscriptFile(primary);
+    }).catch((err) => {
+      console.error('[ReviewPanelV3] Failed to fetch project files:', err);
+    });
+    return () => { cancelled = true; };
+  }, [context?.projectId, popupApiClient]);
+
   const handleClose = () => {
     postBridge('closeReviewPanelV3').catch((err) => {
       console.error('[ReviewPanelV3] Failed to close panel:', err);
@@ -183,6 +203,7 @@ const ReviewPanelV3: React.FC = () => {
           <ConversationDetail
             conversation={conversation}
             projectId={projectId}
+            manuscriptFile={manuscriptFile}
             onConversationCreated={handleConversationCreated}
             feedbackFormUrl={FEEDBACK_FORM_URL}
             initialInputValue={context?.selectedText ? `"${context.selectedText}"\n\n` : undefined}
