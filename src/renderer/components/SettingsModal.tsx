@@ -383,6 +383,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                     <div className="sandboxActionsRow">
                       <button
                         className="zoteroButton zoteroButtonDisconnect"
+                        disabled={sandboxLoading || !sandboxRunning}
+                        onClick={() => {
+                          window.electronAPI.invoke(IPC_CHANNELS.PODMAN_STOP);
+                          setSandboxRunning(false);
+                          setSandboxStatus('Sandbox stopped');
+                        }}
+                      >
+                        Stop
+                      </button>
+                      <button
+                        className="zoteroButton zoteroButtonDisconnect"
                         disabled={sandboxLoading}
                         onClick={async () => {
                           setSandboxLoading(true);
