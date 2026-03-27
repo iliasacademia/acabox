@@ -25,7 +25,7 @@ const VFKIT_VERSION = '0.6.0';
 const EXPECTED_CHECKSUMS: Record<string, string> = {
   podman: '7e0fcd22d17de5e8a9cb3bb894887cb351fe7e5f4c6a72bb1a642cefe6ba7df2',
   gvproxy: 'ee672a026af07e5d0fad0716d719a91f8245e82b6d06f5467f792598f9ddee65',
-  vfkit: 'dd134f8e4ec572981cf6a152b0714a876c541399290a909c92c0a8afcca7f9df',
+  vfkit: '5f681b5da70ca35351ebe8e803aee637c0e7843cd19d8721ff53fda243b68a92',
 };
 
 type ProgressCallback = (stage: string, message: string) => void;
