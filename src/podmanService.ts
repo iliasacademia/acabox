@@ -25,7 +25,7 @@ const VFKIT_VERSION = '0.6.0';
 const EXPECTED_CHECKSUMS: Record<string, string> = {
   podman: '7e0fcd22d17de5e8a9cb3bb894887cb351fe7e5f4c6a72bb1a642cefe6ba7df2',
   gvproxy: 'ee672a026af07e5d0fad0716d719a91f8245e82b6d06f5467f792598f9ddee65',
-  vfkit: 'dd134f8e4ec572981cf6a152b0714a876c541399290a909c92c0a8afcca7f9df',
+  vfkit: '5f681b5da70ca35351ebe8e803aee637c0e7843cd19d8721ff53fda243b68a92',
 };
 
 type ProgressCallback = (stage: string, message: string) => void;
@@ -39,7 +39,7 @@ class PodmanService {
 
   // ─── Public API ───────────────────────────────────────────────
 
-  async start(onProgress?: ProgressCallback): Promise<void> {
+  async start(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
     if (this.isRunning()) {
       return;
     }
@@ -51,7 +51,7 @@ class PodmanService {
 
     try {
       // Download podman binaries if not present
-      await this.ensureBinariesDownloaded(onProgress);
+      await this.ensureBinariesDownloaded(onProgress, skipChecksum);
 
       const podmanBin = this.getPodmanBin();
       this.log(`Using podman at: ${podmanBin}`);
@@ -139,6 +139,59 @@ class PodmanService {
     this.closeLogStream();
   }
 
+  async uninstall(): Promise<void> {
+    this.openLogStream();
+    this.log('Uninstalling sandbox...');
+
+    // Stop the running container if any
+    this.stop();
+
+    const binDir = this.getPodmanBinDir();
+    const podmanBin = path.join(binDir, 'podman');
+
+    if (fs.existsSync(podmanBin)) {
+      const env = this.getPodmanEnv();
+
+      // Remove the container image
+      try {
+        execFileSync(podmanBin, ['rmi', '-f', IMAGE_NAME], { env, timeout: 15000 });
+        this.log('Container image removed');
+      } catch {
+        this.log('No container image to remove (or already removed)');
+      }
+
+      // Stop and remove the podman machine
+      try {
+        execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 30000 });
+        this.log('Podman machine stopped');
+      } catch {
+        this.log('Machine was not running');
+      }
+      try {
+        execFileSync(podmanBin, ['machine', 'rm', '-f'], { env, timeout: 15000 });
+        this.log('Podman machine removed');
+      } catch {
+        this.log('No machine to remove');
+      }
+    }
+
+    // Remove binaries
+    if (fs.existsSync(binDir)) {
+      fs.rmSync(binDir, { recursive: true, force: true });
+      this.log('Podman binaries removed');
+    }
+
+    // Remove podman data (VM image, config, runtime)
+    const podmanDataDir = path.join(app.getPath('userData'), 'podman-data');
+    if (fs.existsSync(podmanDataDir)) {
+      fs.rmSync(podmanDataDir, { recursive: true, force: true });
+      this.log('Podman data removed');
+    }
+
+    this.log('Uninstall complete');
+    this.closeLogStream();
+  }
+
   getShellUrl(): string | null {
     if (this.shellPort === null) return null;
     return `http://127.0.0.1:${this.shellPort}`;
@@ -169,7 +222,7 @@ class PodmanService {
     return bundledBin;
   }
 
-  private async ensureBinariesDownloaded(onProgress?: ProgressCallback): Promise<void> {
+  private async ensureBinariesDownloaded(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
     const binDir = this.getPodmanBinDir();
     const podmanBin = path.join(binDir, 'podman');
     const gvproxyBin = path.join(binDir, 'gvproxy');
@@ -204,8 +257,8 @@ class PodmanService {
         }
         fs.copyFileSync(extractedBin, podmanBin);
         fs.chmodSync(podmanBin, 0o755);
-        this.verifyChecksum(podmanBin, 'podman');
-        this.log('podman binary extracted and verified');
+        if (!skipChecksum) this.verifyChecksum(podmanBin, 'podman');
+        this.log(`podman binary extracted${skipChecksum ? '' : ' and verified'}`);
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
         fs.rmSync(pkgPath, { force: true });
@@ -218,8 +271,8 @@ class PodmanService {
       const gvproxyUrl = `https://github.com/containers/gvisor-tap-vsock/releases/download/v${GVPROXY_VERSION}/gvproxy-darwin`;
       await this.downloadFile(gvproxyUrl, gvproxyBin);
       fs.chmodSync(gvproxyBin, 0o755);
-      this.verifyChecksum(gvproxyBin, 'gvproxy');
-      this.log('gvproxy downloaded and verified');
+      if (!skipChecksum) this.verifyChecksum(gvproxyBin, 'gvproxy');
+      this.log(`gvproxy downloaded${skipChecksum ? '' : ' and verified'}`);
     }
 
     // Download vfkit
@@ -228,8 +281,8 @@ class PodmanService {
       const vfkitUrl = `https://github.com/crc-org/vfkit/releases/download/v${VFKIT_VERSION}/vfkit`;
       await this.downloadFile(vfkitUrl, vfkitBin);
       fs.chmodSync(vfkitBin, 0o755);
-      this.verifyChecksum(vfkitBin, 'vfkit');
-      this.log('vfkit downloaded and verified');
+      if (!skipChecksum) this.verifyChecksum(vfkitBin, 'vfkit');
+      this.log(`vfkit downloaded${skipChecksum ? '' : ' and verified'}`);
     }
 
     onProgress?.('download', 'Podman binaries ready');

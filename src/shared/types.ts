@@ -119,6 +119,10 @@ export const IPC_CHANNELS = {
   PODMAN_OPEN_PREVIEW: "podman-open-preview",
   PODMAN_OPEN_FOLDER: "podman-open-folder",
   PODMAN_GET_STATUS: "podman-get-status",
+  PODMAN_STOP: "podman-stop",
+  PODMAN_UNINSTALL: "podman-uninstall",
+  PODMAN_GET_SKIP_CHECKSUM: "podman-get-skip-checksum",
+  PODMAN_SET_SKIP_CHECKSUM: "podman-set-skip-checksum",
 
   // Navigation
   NAVIGATE_TO_PAGE: "navigate-to-page",
