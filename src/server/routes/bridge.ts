@@ -166,5 +166,13 @@ export async function registerBridgeRoutes(
     }
   );
 
+  fastify.get<{ Querystring: { wid: string } }>(
+    '/api/drag-offset',
+    async (request, reply) => {
+      const { wid } = request.query;
+      reply.send(windowMonitorService.getButtonDragOffset(wid));
+    }
+  );
+
   logger.debug('[Bridge API] Registered bridge routes at /bridge');
 }

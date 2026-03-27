@@ -37,8 +37,8 @@ import {
   NotificationData,
   styles,
   ArrowBackIcon,
-  CloseIcon,
-  WidthToggleIcon,
+
+
   serverUrl,
   tokenParam,
 } from './shared';
@@ -49,8 +49,6 @@ interface ConversationViewProps {
   onBack: () => void;
   onClose: () => void;
   setRecentReviewNotifications: React.Dispatch<React.SetStateAction<NotificationData[]>>;
-  isWide: boolean;
-  onToggleWidth: () => void;
 }
 
 function ConversationViewInner({
@@ -58,8 +56,6 @@ function ConversationViewInner({
   projectId,
   onBack,
   onClose,
-  isWide,
-  onToggleWidth,
 }: Omit<ConversationViewProps, 'setRecentReviewNotifications'>) {
   const [primaryManuscriptId, setPrimaryManuscriptId] = useState<number | undefined>(undefined);
   const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
@@ -105,24 +101,6 @@ function ConversationViewInner({
           <ArrowBackIcon />
           <span style={styles.backButtonText}>Back</span>
         </button>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <button
-            style={{ ...styles.widthToggleButton, position: 'static', fontSize: 0 }}
-            onClick={onToggleWidth}
-            aria-label={isWide ? 'Narrow window' : 'Widen window'}
-            title={isWide ? 'Narrow window' : 'Widen window'}
-          >
-            <WidthToggleIcon />
-          </button>
-          <button
-            style={{ ...styles.closeButton, position: 'static', fontSize: 0 }}
-            onClick={onClose}
-            aria-label="Close"
-            title="Close"
-          >
-            <CloseIcon />
-          </button>
-        </div>
       </div>
 
       {/* Conversation Detail */}
@@ -144,9 +122,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
   projectId,
   onBack,
   onClose,
-  setRecentReviewNotifications,
-  isWide,
-  onToggleWidth,
+  setRecentReviewNotifications: _setRecentReviewNotifications,
 }) => {
   const popupApiClient = useMemo(
     () => new PopupApiClient(serverUrl, tokenParam),
@@ -160,8 +136,6 @@ export const ConversationView: React.FC<ConversationViewProps> = ({
         projectId={projectId}
         onBack={onBack}
         onClose={onClose}
-        isWide={isWide}
-        onToggleWidth={onToggleWidth}
       />
     </ApiProvider>
   );
