@@ -19,6 +19,8 @@ export const POPUP_HEIGHT_ENABLE_FEEDBACK = 250;
 export const POPUP_HEIGHT_UNSAVED_DOCUMENT = 190;
 export const REVIEW_STATUS_CARD_HEIGHT = 72;
 export const ERROR_MESSAGE_HEIGHT = 60;
+export const POPUP_HEIGHT_CONVERSATIONS_BASE = 100; // section header + "view all" row + spacing
+export const POPUP_HEIGHT_PER_CONVERSATION = 74; // height per conversation card including gap
 
 // ─── Type Definitions ───────────────────────────────────────────────
 export type AgentRunStatus = 'pending' | 'processing' | 'completed' | 'failed';
@@ -37,6 +39,13 @@ export interface AgentRun {
 export interface ProjectStatusResponse {
   project_id: number;
   agent_runs: AgentRun[];
+}
+
+export interface ConversationItem {
+  id: number;
+  title: string | null;
+  summary: string | null;
+  created_at: string;
 }
 
 export type NotificationData = {
@@ -101,6 +110,19 @@ export function postBridge(action: string, payload: Record<string, unknown> = {}
     body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: widParam }),
   });
 }
+
+export const formatConversationDate = (dateStr: string): string => {
+  const date = new Date(dateStr);
+  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
+  const month = date.toLocaleDateString('en-US', { month: 'short' });
+  const day = date.getDate();
+  const time = date.toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  }).toLowerCase();
+  return `${weekday}, ${month} ${day} at ${time}`;
+};
 
 export const formatNotificationDate = (timestamp: number): string => {
   const date = new Date(timestamp);

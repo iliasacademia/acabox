@@ -4,6 +4,7 @@ import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytic
 import { onVisibilityChanged, cacheFullStoryConfig } from './utils/fullstory';
 import { ConversationView } from './popupV2/ConversationView';
 import {
+  ConversationItem,
   NotificationData,
   ViewMode,
   ReviewState,
@@ -15,11 +16,10 @@ import {
   postBridge,
   navigateToPage,
   POPUP_HEIGHT_NO_NOTIFICATIONS,
-  POPUP_HEIGHT_ONE_NOTIFICATION,
-  POPUP_HEIGHT_TWO_NOTIFICATIONS,
   POPUP_HEIGHT_REVIEW_VIEW,
   POPUP_HEIGHT_ENABLE_FEEDBACK,
   POPUP_HEIGHT_UNSAVED_DOCUMENT,
+  POPUP_HEIGHT_PER_CONVERSATION,
   REVIEW_STATUS_CARD_HEIGHT,
   ERROR_MESSAGE_HEIGHT,
 } from './popupV2/shared';
@@ -34,6 +34,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // State for review notifications (up to 2 most recent, any type)
   const [recentReviewNotifications, setRecentReviewNotifications] = useState<NotificationData[]>([]);
+  // State for all conversations (fetched from list_conversations API)
+  const [conversations, setConversations] = useState<ConversationItem[]>([]);
   // State for project file info (fetched from /word/:pid/poll)
   const [projectId, setProjectId] = useState<number | null>(null);
   const [fileId, setFileId] = useState<number | null>(null);
@@ -158,6 +160,23 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     }
   }, [pollData]);
 
+  // Fetch conversations when projectId becomes available
+  useEffect(() => {
+    if (!projectId) return;
+    const params = new URLSearchParams({
+      offset: '0',
+      limit: '5',
+      parent_id: projectId.toString(),
+      parent_type: 'Project',
+    });
+    const headers: Record<string, string> = {};
+    if (tokenParam) headers['Authorization'] = `Bearer ${tokenParam}`;
+    fetch(`${serverUrl}/proxy-api/v0/co_scientist/list_conversations?${params}`, { headers })
+      .then(res => res.ok ? res.json() : null)
+      .then(data => { if (data?.conversations) setConversations(data.conversations); })
+      .catch(() => {});
+  }, [projectId]);
+
   // Handle window resizing based on view mode and notification count
   useEffect(() => {
     let height: number;
@@ -168,12 +187,14 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       height = POPUP_HEIGHT_ENABLE_FEEDBACK;
     } else if (viewMode === 'review') {
       height = POPUP_HEIGHT_REVIEW_VIEW;
-    } else if (recentReviewNotifications.length >= 2) {
-      height = POPUP_HEIGHT_TWO_NOTIFICATIONS;
-    } else if (recentReviewNotifications.length === 1) {
-      height = POPUP_HEIGHT_ONE_NOTIFICATION;
     } else {
+      // Base height covers section header + "View all" row + "Get feedback" section
       height = POPUP_HEIGHT_NO_NOTIFICATIONS;
+      // Add height for each item in the unified list (up to 5 conversations + any in-progress extras)
+      const convIds = new Set(conversations.map(c => c.id));
+      const inProgressExtrasCount = recentReviewNotifications.filter(n => n.isInProgress && !convIds.has(n.conversation_id)).length;
+      const totalItems = inProgressExtrasCount + Math.min(conversations.length, 5);
+      height += totalItems * POPUP_HEIGHT_PER_CONVERSATION;
     }
 
     const isReviewActive = pollData?.isReviewingSelectedText && pollData?.reviewType;
@@ -202,7 +223,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         });
       }
     }
-  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, pollData, isWide, reviewErrorMessage]);
+  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, conversations, pollData, isWide, reviewErrorMessage]);
 
   // Handle clicking on a review notification card - show inline review
   const handleViewReviewFeedback = async (notification: NotificationData) => {
@@ -471,6 +492,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
               />
             : <MenuView
                 recentReviewNotifications={recentReviewNotifications}
+                conversations={conversations}
                 isLoading={isLoading}
                 projectId={projectId}
                 fileId={fileId}
