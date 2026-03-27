@@ -17,10 +17,16 @@ const HOST_PORT_RANGE = 20; // need pairs: ttyd + preview
 const READY_POLL_INTERVAL_MS = 500;
 const READY_POLL_MAX_RETRIES = 60; // 30 seconds max wait
 
-// Podman binary versions and download URLs
+// Podman binary versions, download URLs, and expected SHA-256 checksums
 const PODMAN_VERSION = '5.3.1';
 const GVPROXY_VERSION = '0.8.0';
 const VFKIT_VERSION = '0.6.0';
+
+const EXPECTED_CHECKSUMS: Record<string, string> = {
+  podman: '7e0fcd22d17de5e8a9cb3bb894887cb351fe7e5f4c6a72bb1a642cefe6ba7df2',
+  gvproxy: 'ee672a026af07e5d0fad0716d719a91f8245e82b6d06f5467f792598f9ddee65',
+  vfkit: 'dd134f8e4ec572981cf6a152b0714a876c541399290a909c92c0a8afcca7f9df',
+};
 
 type ProgressCallback = (stage: string, message: string) => void;
 
@@ -157,24 +163,10 @@ class PodmanService {
   private getPodmanBin(): string {
     const binDir = this.getPodmanBinDir();
     const bundledBin = path.join(binDir, 'podman');
-    if (fs.existsSync(bundledBin)) {
-      return bundledBin;
+    if (!fs.existsSync(bundledBin)) {
+      throw new Error('Podman binary not found. Click "Open Sandbox" to download it.');
     }
-
-    // Fallback: system podman
-    const systemPaths = [
-      '/opt/homebrew/bin/podman',
-      '/usr/local/bin/podman',
-      '/usr/bin/podman',
-    ];
-    for (const p of systemPaths) {
-      if (fs.existsSync(p)) {
-        return p;
-      }
-    }
-
-    // Last resort: hope it's in PATH
-    return 'podman';
+    return bundledBin;
   }
 
   private async ensureBinariesDownloaded(onProgress?: ProgressCallback): Promise<void> {
@@ -212,7 +204,8 @@ class PodmanService {
         }
         fs.copyFileSync(extractedBin, podmanBin);
         fs.chmodSync(podmanBin, 0o755);
-        this.log('podman binary extracted');
+        this.verifyChecksum(podmanBin, 'podman');
+        this.log('podman binary extracted and verified');
       } finally {
         fs.rmSync(tempDir, { recursive: true, force: true });
         fs.rmSync(pkgPath, { force: true });
@@ -225,7 +218,8 @@ class PodmanService {
       const gvproxyUrl = `https://github.com/containers/gvisor-tap-vsock/releases/download/v${GVPROXY_VERSION}/gvproxy-darwin`;
       await this.downloadFile(gvproxyUrl, gvproxyBin);
       fs.chmodSync(gvproxyBin, 0o755);
-      this.log('gvproxy downloaded');
+      this.verifyChecksum(gvproxyBin, 'gvproxy');
+      this.log('gvproxy downloaded and verified');
     }
 
     // Download vfkit
@@ -234,11 +228,27 @@ class PodmanService {
       const vfkitUrl = `https://github.com/crc-org/vfkit/releases/download/v${VFKIT_VERSION}/vfkit`;
       await this.downloadFile(vfkitUrl, vfkitBin);
       fs.chmodSync(vfkitBin, 0o755);
-      this.log('vfkit downloaded');
+      this.verifyChecksum(vfkitBin, 'vfkit');
+      this.log('vfkit downloaded and verified');
     }
 
     onProgress?.('download', 'Podman binaries ready');
     this.log('All podman binaries downloaded');
+  }
+
+  private verifyChecksum(filePath: string, name: string): void {
+    const expected = EXPECTED_CHECKSUMS[name];
+    if (!expected) {
+      throw new Error(`No expected checksum defined for ${name}`);
+    }
+    const fileBuffer = fs.readFileSync(filePath);
+    const actual = crypto.createHash('sha256').update(fileBuffer).digest('hex');
+    if (actual !== expected) {
+      // Remove the bad binary
+      fs.unlinkSync(filePath);
+      throw new Error(`Checksum mismatch for ${name}: expected ${expected}, got ${actual}`);
+    }
+    this.log(`Checksum verified for ${name}: ${actual}`);
   }
 
   private downloadFile(url: string, destPath: string): Promise<void> {
