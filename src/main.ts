@@ -2159,7 +2159,7 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
     // Show a progress window during setup
     const progressWindow = new BrowserWindow({
       width: 420,
-      height: 140,
+      height: 280,
       frame: false,
       resizable: false,
       alwaysOnTop: true,
