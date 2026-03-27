@@ -15,6 +15,8 @@ import {
   pidParam,
   postBridge,
   navigateToPage,
+  CloseIcon,
+  WidthToggleIcon,
   POPUP_HEIGHT_NO_NOTIFICATIONS,
   POPUP_HEIGHT_REVIEW_VIEW,
   POPUP_HEIGHT_ENABLE_FEEDBACK,
@@ -55,6 +57,19 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // Track previous width to avoid unnecessary resize calls (same pattern as previousHeightRef)
   const previousWidthRef = useRef<number>(0);
 
+  // Title bar drag state
+  const DRAG_THRESHOLD = 3;
+  const titleBarAccumulatedOffsetRef = useRef({ dx: 0, dy: 0 });
+  const titleBarDragStateRef = useRef<{
+    startScreenX: number;
+    startScreenY: number;
+    baseOffsetX: number;
+    baseOffsetY: number;
+    didDrag: boolean;
+    rafId: number | null;
+  } | null>(null);
+  const [isTitleBarDragging, setIsTitleBarDragging] = useState(false);
+
   // Resize state — persists user-chosen size across gestures
   const accumulatedSizeRef = useRef<{ width: number; height: number } | null>(null);
   const resizeStateRef = useRef<{
@@ -64,7 +79,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     baseHeight: number;
     rafId: number | null;
   } | null>(null);
-  const [isResizing, setIsResizing] = useState(false);
 
   // State for inline review view
   const [viewMode, setViewMode] = useState<ViewMode>('menu');
@@ -414,12 +428,83 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     }
   };
 
+  // --- Title bar drag handlers ---
+  const handleTitleBarPointerDown = async (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    // Fetch the server's current drag offset to use as base (prevents position jump if button was dragged first)
+    let baseOffsetX = titleBarAccumulatedOffsetRef.current.dx;
+    let baseOffsetY = titleBarAccumulatedOffsetRef.current.dy;
+    try {
+      const res = await fetch(`${serverUrl}/api/drag-offset?wid=${widParam}`, {
+        headers: tokenParam ? { Authorization: `Bearer ${tokenParam}` } : {},
+      });
+      if (res.ok) {
+        const offset = await res.json();
+        baseOffsetX = offset.dx ?? baseOffsetX;
+        baseOffsetY = offset.dy ?? baseOffsetY;
+        titleBarAccumulatedOffsetRef.current = { dx: baseOffsetX, dy: baseOffsetY };
+      }
+    } catch {
+      // Fall back to locally tracked offset
+    }
+    setIsTitleBarDragging(true);
+    titleBarDragStateRef.current = {
+      startScreenX: e.screenX,
+      startScreenY: e.screenY,
+      baseOffsetX,
+      baseOffsetY,
+      didDrag: false,
+      rafId: null,
+    };
+  };
+
+  const handleTitleBarPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const ds = titleBarDragStateRef.current;
+    if (!ds) return;
+
+    const dx = e.screenX - ds.startScreenX;
+    const dy = -(e.screenY - ds.startScreenY); // Cocoa Y is inverted
+
+    if (!ds.didDrag && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+      ds.didDrag = true;
+    }
+    if (!ds.didDrag) return;
+
+    if (ds.rafId !== null) return;
+    ds.rafId = requestAnimationFrame(() => {
+      ds.rafId = null;
+      postBridge('setDragOffset', {
+        dx: ds.baseOffsetX + dx,
+        dy: ds.baseOffsetY + dy,
+      });
+    });
+  };
+
+  const handleTitleBarPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    const ds = titleBarDragStateRef.current;
+    if (ds) {
+      if (ds.rafId !== null) cancelAnimationFrame(ds.rafId);
+      if (ds.didDrag) {
+        const dx = e.screenX - ds.startScreenX;
+        const dy = -(e.screenY - ds.startScreenY);
+        const finalDx = ds.baseOffsetX + dx;
+        const finalDy = ds.baseOffsetY + dy;
+        postBridge('setDragOffset', { dx: finalDx, dy: finalDy });
+        titleBarAccumulatedOffsetRef.current = { dx: finalDx, dy: finalDy };
+      }
+    }
+    titleBarDragStateRef.current = null;
+    setIsTitleBarDragging(false);
+  };
+
   // --- Resize pointer handlers ---
   const handleResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
-    setIsResizing(true);
+    document.body.style.cursor = 'ne-resize';
     const currentWidth = accumulatedSizeRef.current?.width ?? window.innerWidth;
     const currentHeight = accumulatedSizeRef.current?.height ?? window.innerHeight;
     resizeStateRef.current = {
@@ -460,24 +545,52 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       accumulatedSizeRef.current = { width: finalWidth, height: finalHeight };
     }
     resizeStateRef.current = null;
-    setIsResizing(false);
+    document.body.style.cursor = '';
   };
 
   return (
     <div style={styles.container}>
-      <div style={styles.modal}>
-        {/* Resize handle at top-right corner — only in review view */}
-        {viewMode === 'review' && (
-          <div
-            style={{
-              ...styles.resizeHandle,
-              cursor: isResizing ? 'ne-resize' : 'ne-resize',
-            }}
-            onPointerDown={handleResizePointerDown}
-            onPointerMove={handleResizePointerMove}
-            onPointerUp={handleResizePointerUp}
-          />
-        )}
+      <div style={{ ...styles.modal, overflowY: viewMode === 'review' ? 'hidden' : 'auto' }}>
+        {/* Draggable title bar */}
+        <div
+          style={{ ...styles.titleBar, cursor: isTitleBarDragging ? 'grabbing' : 'default' }}
+          onPointerDown={handleTitleBarPointerDown}
+          onPointerMove={handleTitleBarPointerMove}
+          onPointerUp={handleTitleBarPointerUp}
+        >
+          {/* Left spacer balances the right-side buttons to keep title visually centered */}
+          <div style={{ width: '44px', flexShrink: 0 }} />
+          <span style={styles.titleBarText}>Academia</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
+            <button
+              style={styles.titleBarCloseBtn}
+              onClick={handleToggleWidth}
+              onPointerDown={e => e.stopPropagation()}
+              aria-label={isWide ? 'Narrow window' : 'Widen window'}
+              title={isWide ? 'Narrow window' : 'Widen window'}
+            >
+              <WidthToggleIcon />
+            </button>
+            <button
+              style={styles.titleBarCloseBtn}
+              onClick={handleClose}
+              onPointerDown={e => e.stopPropagation()}
+              aria-label="Close"
+            >
+              <CloseIcon />
+            </button>
+          </div>
+        </div>
+        {/* Resize handle at top-right corner, within title bar area */}
+        <div
+          style={{
+            ...styles.resizeHandle,
+            cursor: 'ne-resize',
+          }}
+          onPointerDown={handleResizePointerDown}
+          onPointerMove={handleResizePointerMove}
+          onPointerUp={handleResizePointerUp}
+        />
         {isEnableFeedback
           ? <EnableFeedbackView isUnsavedDocument={isUnsavedDocument} />
           : viewMode === 'review' && activeNotification
@@ -487,8 +600,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 onBack={handleBackFromReview}
                 onClose={handleClose}
                 setRecentReviewNotifications={setRecentReviewNotifications}
-                isWide={isWide}
-                onToggleWidth={handleToggleWidth}
               />
             : <MenuView
                 recentReviewNotifications={recentReviewNotifications}

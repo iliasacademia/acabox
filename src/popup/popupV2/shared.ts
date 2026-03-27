@@ -11,12 +11,14 @@ export const tokenParam = popupUrlParams.get('token');
 export const popupInstanceId = `AcademiaNotificationsPopupV2-${widParam || pidParam || Math.random().toString(36).substring(2, 8)}`;
 
 // ─── Height Constants ───────────────────────────────────────────────
-export const POPUP_HEIGHT_NO_NOTIFICATIONS = 240;
-export const POPUP_HEIGHT_ONE_NOTIFICATION = 320;
-export const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400;
-export const POPUP_HEIGHT_REVIEW_VIEW = 660;
-export const POPUP_HEIGHT_ENABLE_FEEDBACK = 250;
-export const POPUP_HEIGHT_UNSAVED_DOCUMENT = 190;
+// Title bar height: 36px bar (eats the 24px top padding via negative margin) + 16px margin below = 28px net
+export const POPUP_TITLE_BAR_HEIGHT = 36;
+export const POPUP_HEIGHT_NO_NOTIFICATIONS = 240 + POPUP_TITLE_BAR_HEIGHT;
+export const POPUP_HEIGHT_ONE_NOTIFICATION = 320 + POPUP_TITLE_BAR_HEIGHT;
+export const POPUP_HEIGHT_TWO_NOTIFICATIONS = 400 + POPUP_TITLE_BAR_HEIGHT;
+export const POPUP_HEIGHT_REVIEW_VIEW = 660 + POPUP_TITLE_BAR_HEIGHT;
+export const POPUP_HEIGHT_ENABLE_FEEDBACK = 250 + POPUP_TITLE_BAR_HEIGHT;
+export const POPUP_HEIGHT_UNSAVED_DOCUMENT = 190 + POPUP_TITLE_BAR_HEIGHT;
 export const REVIEW_STATUS_CARD_HEIGHT = 72;
 export const ERROR_MESSAGE_HEIGHT = 60;
 export const POPUP_HEIGHT_CONVERSATIONS_BASE = 100; // section header + "view all" row + spacing
@@ -232,18 +234,52 @@ export const styles: { [key: string]: React.CSSProperties } = {
     display: 'flex',
     flexDirection: 'column',
   },
+  titleBar: {
+    display: 'flex',
+    alignItems: 'center',
+    height: '44px',
+    // Escape the modal's 24px padding to span full width edge-to-edge
+    margin: '-24px -24px 16px -24px',
+    paddingLeft: '12px',
+    paddingRight: '12px',
+    backgroundColor: '#f5f4f0',
+    borderBottom: '1px solid #e0ddd4',
+    borderRadius: '16px 16px 0 0',
+    flexShrink: 0,
+    touchAction: 'none',
+    userSelect: 'none',
+    WebkitUserSelect: 'none',
+  } as React.CSSProperties,
+  titleBarText: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#535366',
+    letterSpacing: '0.01em',
+  } as React.CSSProperties,
+  titleBarCloseBtn: {
+    width: '20px',
+    height: '20px',
+    border: 'none',
+    backgroundColor: 'transparent',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 0,
+    borderRadius: '4px',
+    flexShrink: 0,
+    color: '#535366',
+  },
   resizeHandle: {
     position: 'absolute',
     top: 0,
     right: 0,
-    width: '16px',
-    height: '16px',
+    width: '24px',
+    height: '24px',
     cursor: 'ne-resize',
     zIndex: 10,
-    backgroundImage:
-      'linear-gradient(225deg, transparent 3px, #ccc9bc 3px, #ccc9bc 4px, transparent 4px, transparent 7px, #ccc9bc 7px, #ccc9bc 8px, transparent 8px)',
-    backgroundSize: '16px 16px',
-    backgroundPosition: 'top right',
     borderTopRightRadius: '16px',
   },
   closeButton: {

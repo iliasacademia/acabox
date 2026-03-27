@@ -6,7 +6,6 @@ import {
   ReviewState,
   styles,
   ArrowForwardIcon,
-  CloseIcon,
   LoadingSpinner,
   postBridge,
   formatNotificationDate,
@@ -57,16 +56,6 @@ export const MenuView: React.FC<MenuViewProps> = ({
 
   return (
     <>
-      {/* Close Button */}
-      <button
-        style={styles.closeButton}
-        onClick={onClose}
-        aria-label="Close"
-        title="Close"
-      >
-        <CloseIcon />
-      </button>
-
       {/* Section 1: Feedback and Conversations */}
       <div>
         <div style={styles.sectionHeader}>
@@ -256,13 +245,6 @@ export const EnableFeedbackView: React.FC<EnableFeedbackViewProps> = ({
 
   return (
     <>
-      <button
-        style={styles.closeButton}
-        onClick={() => postBridge('closeWindow').catch(() => {})}
-        aria-label="Close popup"
-      >
-        <CloseIcon />
-      </button>
       {isUnsavedDocument ? (
         <>
           <div style={styles.enableFeedbackTitle}>
