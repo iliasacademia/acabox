@@ -4,6 +4,9 @@
 /node_modules
 /src/node_modules
 
+# podman binaries (downloaded via npm run download-podman)
+/podman-bin
+
 # testing
 /coverage
 

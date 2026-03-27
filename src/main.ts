@@ -28,6 +28,7 @@ import { sessionsTracker } from './sessionsTracker';
 import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 import { sessionSyncService } from './sessionSyncService';
 import { refreshManuscriptPaths } from './server/services/manuscriptPathsService';
+import { podmanService } from './podmanService';
 
 // Set display name for menu bar (needed in dev mode where the binary is named "Electron")
 app.setName('Writing Agent');
@@ -442,6 +443,7 @@ const createTray = (): void => {
       },
     }
   );
+
 
   // Add quit option (always present)
   menuItems.push(
@@ -1849,6 +1851,9 @@ app.on('before-quit', async (event) => {
     // Stop window monitor service (V2 Rust processes)
     windowMonitorService.stop();
 
+    // Stop Podman container if running
+    podmanService.stop();
+
     // Stop all sync watchers
     logger.debug('[APP] Stopping sync watchers...');
     await syncService.stopAll();
@@ -2137,6 +2142,92 @@ ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
     logger.error('[Main] Error opening external URL:', error);
     return { success: false, error: error.message };
   }
+});
+
+// Podman sandbox handlers
+ipcMain.handle(IPC_CHANNELS.PODMAN_GET_STATUS, async () => {
+  return { running: podmanService.isRunning() };
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
+  try {
+    if (podmanService.isRunning()) {
+      const url = podmanService.getShellUrl();
+      if (url) await shell.openExternal(url);
+      return { success: true, shellUrl: url, previewUrl: podmanService.getPreviewUrl() };
+    }
+
+    // Show a progress window during setup
+    const progressWindow = new BrowserWindow({
+      width: 420,
+      height: 140,
+      frame: false,
+      resizable: false,
+      alwaysOnTop: true,
+      show: false,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+
+    const progressHtml = `data:text/html;charset=utf-8,${encodeURIComponent(`
+      <!DOCTYPE html>
+      <html>
+      <head><style>
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 0; padding: 24px;
+               background: #1e1e1e; color: #e0e0e0; display: flex; flex-direction: column; justify-content: center;
+               -webkit-app-region: drag; }
+        h3 { margin: 0 0 8px 0; font-size: 14px; font-weight: 600; }
+        #status { font-size: 12px; color: #aaa; word-break: break-word; }
+      </style></head>
+      <body>
+        <h3>Starting Sandbox...</h3>
+        <div id="status">Initializing...</div>
+      </body>
+      </html>
+    `)}`;
+
+    progressWindow.loadURL(progressHtml);
+    progressWindow.once('ready-to-show', () => progressWindow.show());
+
+    try {
+      await podmanService.start((stage, message) => {
+        if (!progressWindow.isDestroyed()) {
+          progressWindow.webContents.executeJavaScript(
+            `document.getElementById('status').textContent = ${JSON.stringify(message)};`
+          ).catch(() => {});
+        }
+      });
+
+      const shellUrl = podmanService.getShellUrl();
+      if (shellUrl) await shell.openExternal(shellUrl);
+      return { success: true, shellUrl, previewUrl: podmanService.getPreviewUrl() };
+    } finally {
+      if (!progressWindow.isDestroyed()) {
+        progressWindow.close();
+      }
+    }
+  } catch (error: unknown) {
+    const logPath = path.join(app.getPath('userData'), 'podman-dev.log');
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message, logPath };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_PREVIEW, async () => {
+  if (!podmanService.isRunning()) {
+    return { success: false, error: 'Sandbox is not running. Open it first.' };
+  }
+  const url = podmanService.getPreviewUrl();
+  if (url) await shell.openExternal(url);
+  return { success: true };
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_FOLDER, async () => {
+  const folderPath = path.join(app.getPath('userData'), 'podman');
+  // Ensure the folder exists
+  const fs = require('fs');
+  fs.mkdirSync(folderPath, { recursive: true });
+  await shell.openPath(folderPath);
+  return { success: true };
 });
 
 // Navigation handler - focus main window and relay navigation event

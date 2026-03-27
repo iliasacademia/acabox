@@ -31,6 +31,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   // All-apps monitor feature flag state
   const [allAppsMonitorEnabled, setAllAppsMonitorEnabled] = useState(false);
 
+  // Sandbox state
+  const [sandboxLoading, setSandboxLoading] = useState(false);
+  const [sandboxStatus, setSandboxStatus] = useState<string | null>(null);
+  const [sandboxRunning, setSandboxRunning] = useState(false);
+
   // Manuscript refresh state
   const [isRefreshingManuscripts, setIsRefreshingManuscripts] = useState(false);
   const [manuscriptRefreshError, setManuscriptRefreshError] = useState<string | null>(null);
@@ -46,6 +51,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       setIsLoadingStatus(true);
       getZoteroStatus().then(setZoteroStatus).finally(() => setIsLoadingStatus(false));
       window.electronAPI.invoke(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED).then((v: boolean) => setAllAppsMonitorEnabled(v));
+      window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_STATUS).then((s: { running: boolean }) => setSandboxRunning(s.running));
     } else {
       // Stop polling when modal closes
       stopPolling();
@@ -319,6 +325,56 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                       onClick={() => { onViewConversations?.(); }}
                     >
                       View Conversations
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settingsSectionLabel">Sandbox</div>
+              <div className="settingsSection">
+                <div className="settingItem zoteroSettingItem">
+                  <div className="settingContent">
+                    <div className="settingLabel">Code Sandbox</div>
+                    <div className="settingDescription">
+                      {sandboxLoading ? (sandboxStatus || 'Starting sandbox...') : sandboxRunning ? 'Sandbox is running' : 'Launch an isolated sandbox with Claude Code, data analysis tools, and a preview server'}
+                    </div>
+                  </div>
+                  <div className="zoteroAction sandboxActions">
+                    <button
+                      className="zoteroButton zoteroButtonConnect"
+                      disabled={sandboxLoading}
+                      onClick={async () => {
+                        setSandboxLoading(true);
+                        setSandboxStatus('Starting sandbox...');
+                        try {
+                          const result = await window.electronAPI.invoke(IPC_CHANNELS.PODMAN_OPEN_SANDBOX) as { success: boolean; error?: string; logPath?: string };
+                          if (result.success) {
+                            setSandboxRunning(true);
+                            setSandboxStatus(null);
+                          } else {
+                            setSandboxStatus(`Error: ${result.error}`);
+                          }
+                        } catch (err: unknown) {
+                          setSandboxStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+                        } finally {
+                          setSandboxLoading(false);
+                        }
+                      }}
+                    >
+                      {sandboxLoading ? 'Starting...' : 'Open Sandbox'}
+                    </button>
+                    <button
+                      className="zoteroButton zoteroButtonConnect"
+                      disabled={!sandboxRunning}
+                      onClick={() => window.electronAPI.invoke(IPC_CHANNELS.PODMAN_OPEN_PREVIEW)}
+                    >
+                      Open Preview
+                    </button>
+                    <button
+                      className="zoteroButton zoteroButtonConnect"
+                      onClick={() => window.electronAPI.invoke(IPC_CHANNELS.PODMAN_OPEN_FOLDER)}
+                    >
+                      Open Folder
                     </button>
                   </div>
                 </div>
