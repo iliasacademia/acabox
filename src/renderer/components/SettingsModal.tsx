@@ -37,6 +37,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const [sandboxRunning, setSandboxRunning] = useState(false);
   const [skipChecksum, setSkipChecksum] = useState(false);
 
+  // Trusted domains state
+  const [trustedDomains, setTrustedDomains] = useState<string[]>([]);
+  const [newDomain, setNewDomain] = useState('');
+  const [allowAllTraffic, setAllowAllTraffic] = useState(false);
+  const [firewallUpdating, setFirewallUpdating] = useState(false);
+  const [firewallStatus, setFirewallStatus] = useState<string | null>(null);
+
   // Manuscript refresh state
   const [isRefreshingManuscripts, setIsRefreshingManuscripts] = useState(false);
   const [manuscriptRefreshError, setManuscriptRefreshError] = useState<string | null>(null);
@@ -47,6 +54,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
     if (isOpen) {
       setAutoDiffReview(currentPreferences.auto_diff_review);
       setError(null);
+      setFirewallStatus(null);
       setManuscriptRefreshError(null);
       setManuscriptRefreshSuccess(false);
       setIsLoadingStatus(true);
@@ -54,6 +62,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       window.electronAPI.invoke(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED).then((v: boolean) => setAllAppsMonitorEnabled(v));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_STATUS).then((s: { running: boolean }) => setSandboxRunning(s.running));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_SKIP_CHECKSUM).then((v: boolean) => setSkipChecksum(v));
+      window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_TRUSTED_DOMAINS).then((d: string[]) => setTrustedDomains(d || []));
+      window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_ALLOW_ALL_TRAFFIC).then((v: boolean) => setAllowAllTraffic(v));
     } else {
       // Stop polling when modal closes
       stopPolling();
@@ -158,6 +168,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       console.error('[SettingsModal] Zotero disconnect failed:', err);
     } finally {
       setIsDisconnecting(false);
+    }
+  };
+
+  const handleAddDomain = () => {
+    const domain = newDomain.trim().toLowerCase();
+    if (!domain) return;
+    const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$/;
+    if (!domainRegex.test(domain)) {
+      setFirewallStatus('Invalid domain format');
+      return;
+    }
+    if (trustedDomains.includes(domain)) {
+      setFirewallStatus('Domain already added');
+      return;
+    }
+    setTrustedDomains([...trustedDomains, domain]);
+    setNewDomain('');
+    setFirewallStatus(null);
+  };
+
+  const handleRemoveDomain = (domain: string) => {
+    setTrustedDomains(trustedDomains.filter(d => d !== domain));
+  };
+
+  const handleUpdateFirewall = async () => {
+    setFirewallUpdating(true);
+    setFirewallStatus(null);
+    try {
+      // Save domains and allow-all setting
+      await window.electronAPI.invoke(IPC_CHANNELS.PODMAN_SET_TRUSTED_DOMAINS, trustedDomains);
+      await window.electronAPI.invoke(IPC_CHANNELS.PODMAN_SET_ALLOW_ALL_TRAFFIC, allowAllTraffic);
+
+      if (sandboxRunning) {
+        // Live update the firewall
+        const result = await window.electronAPI.invoke(IPC_CHANNELS.PODMAN_UPDATE_FIREWALL) as { success: boolean; error?: string };
+        if (result.success) {
+          setFirewallStatus('Firewall updated successfully');
+        } else {
+          setFirewallStatus(`Error: ${result.error}`);
+        }
+      } else {
+        setFirewallStatus('Settings saved (will apply when sandbox starts)');
+      }
+    } catch (err: unknown) {
+      setFirewallStatus(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setFirewallUpdating(false);
     }
   };
 
@@ -426,6 +483,88 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                         />
                         Skip checksum verification
                       </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="settingsSectionLabel">Network Access</div>
+              <div className="settingsSection">
+                <div className="settingItem sandboxSettingItem">
+                  <div className="settingContent">
+                    <div
+                      className={`settingItem ${allowAllTraffic ? 'enabled' : ''}`}
+                      onClick={() => setAllowAllTraffic(!allowAllTraffic)}
+                      style={{ padding: 0, cursor: 'pointer' }}
+                    >
+                      <div className="settingCheckbox">
+                        {allowAllTraffic && (
+                          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                            <path d="M13.5 4L6 11.5L2.5 8" stroke="#0645b1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        )}
+                      </div>
+                      <div className="settingContent">
+                        <div className="settingLabel">Allow All Internet Access</div>
+                        <div className="settingDescription">
+                          Removes all network restrictions from the sandbox
+                        </div>
+                      </div>
+                    </div>
+
+                    {!allowAllTraffic && (
+                      <div className="trustedDomainsSection">
+                        <div className="settingLabel" style={{ fontSize: '13px', marginTop: '12px' }}>Trusted Domains</div>
+                        <div className="settingDescription">
+                          Add custom domains the sandbox can access. Default domains (Anthropic API, AWS Bedrock) are always allowed.
+                        </div>
+                        <div className="trustedDomainsList">
+                          {trustedDomains.map(domain => (
+                            <div key={domain} className="trustedDomainItem">
+                              <span className="trustedDomainName">{domain}</span>
+                              <button
+                                className="trustedDomainRemove"
+                                onClick={() => handleRemoveDomain(domain)}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="trustedDomainInput">
+                          <input
+                            type="text"
+                            value={newDomain}
+                            onChange={(e) => setNewDomain(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleAddDomain(); }}
+                            placeholder="e.g. api.example.com"
+                            className="trustedDomainField"
+                          />
+                          <button
+                            className="zoteroButton zoteroButtonConnect"
+                            onClick={handleAddDomain}
+                            disabled={!newDomain.trim()}
+                          >
+                            Add
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {firewallStatus && (
+                      <div className={`firewallStatus ${firewallStatus.startsWith('Error') ? 'error' : 'success'}`}>
+                        {firewallStatus}
+                      </div>
+                    )}
+
+                    <div style={{ marginTop: '8px' }}>
+                      <button
+                        className="zoteroButton zoteroButtonConnect"
+                        onClick={handleUpdateFirewall}
+                        disabled={firewallUpdating}
+                      >
+                        {firewallUpdating ? 'Updating...' : 'Update Firewall'}
+                      </button>
                     </div>
                   </div>
                 </div>

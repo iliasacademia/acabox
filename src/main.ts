@@ -2202,13 +2202,15 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_SANDBOX, async () => {
 
     try {
       const skipChecksum = store.get('podmanSkipChecksum', false) as boolean;
+      const extraDomains = (store.get('podmanTrustedDomains', []) as string[]);
+      const allowAllTraffic = store.get('podmanAllowAllTraffic', false) as boolean;
       await podmanService.start((stage, message) => {
         if (!progressWindow.isDestroyed()) {
           progressWindow.webContents.executeJavaScript(
             `document.getElementById('status').textContent = ${JSON.stringify(message)};`
           ).catch(() => {});
         }
-      }, skipChecksum);
+      }, skipChecksum, extraDomains, allowAllTraffic);
 
       // Success — close the progress window
       if (!progressWindow.isDestroyed()) {
@@ -2286,6 +2288,45 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_GET_SKIP_CHECKSUM, async () => {
 ipcMain.handle(IPC_CHANNELS.PODMAN_SET_SKIP_CHECKSUM, async (_event, enabled: boolean) => {
   store.set('podmanSkipChecksum', enabled);
   return { success: true };
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_GET_TRUSTED_DOMAINS, async () => {
+  return store.get('podmanTrustedDomains', []);
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_SET_TRUSTED_DOMAINS, async (_event, domains: string[]) => {
+  // Validate each domain
+  const domainRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$/;
+  const valid = domains.every(d => typeof d === 'string' && domainRegex.test(d));
+  if (!valid) {
+    return { success: false, error: 'Invalid domain format' };
+  }
+  store.set('podmanTrustedDomains', domains);
+  return { success: true };
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_GET_ALLOW_ALL_TRAFFIC, async () => {
+  return store.get('podmanAllowAllTraffic', false);
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_SET_ALLOW_ALL_TRAFFIC, async (_event, enabled: boolean) => {
+  store.set('podmanAllowAllTraffic', enabled);
+  return { success: true };
+});
+
+ipcMain.handle(IPC_CHANNELS.PODMAN_UPDATE_FIREWALL, async () => {
+  try {
+    if (!podmanService.isRunning()) {
+      return { success: false, error: 'Sandbox is not running' };
+    }
+    const extraDomains = (store.get('podmanTrustedDomains', []) as string[]);
+    const allowAllTraffic = store.get('podmanAllowAllTraffic', false) as boolean;
+    await podmanService.updateFirewall(extraDomains, allowAllTraffic);
+    return { success: true };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { success: false, error: message };
+  }
 });
 
 // Navigation handler - focus main window and relay navigation event

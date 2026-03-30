@@ -17,6 +17,29 @@ const HOST_PORT_RANGE = 20; // need pairs: ttyd + preview
 const READY_POLL_INTERVAL_MS = 500;
 const READY_POLL_MAX_RETRIES = 60; // 30 seconds max wait
 
+const DEFAULT_ALLOWED_DOMAINS = [
+  'api.anthropic.com',
+  'sts.amazonaws.com',
+  'sts.us-east-1.amazonaws.com',
+  'sts.us-west-2.amazonaws.com',
+  'sts.eu-west-1.amazonaws.com',
+  'sts.eu-central-1.amazonaws.com',
+  'sts.ap-northeast-1.amazonaws.com',
+  'sts.ap-southeast-1.amazonaws.com',
+  'sts.ap-southeast-2.amazonaws.com',
+  'sts.ca-central-1.amazonaws.com',
+  'bedrock-runtime.us-east-1.amazonaws.com',
+  'bedrock-runtime.us-west-2.amazonaws.com',
+  'bedrock-runtime.eu-west-1.amazonaws.com',
+  'bedrock-runtime.eu-central-1.amazonaws.com',
+  'bedrock-runtime.ap-northeast-1.amazonaws.com',
+  'bedrock-runtime.ap-southeast-1.amazonaws.com',
+  'bedrock-runtime.ap-southeast-2.amazonaws.com',
+  'bedrock-runtime.ca-central-1.amazonaws.com',
+];
+
+const DOMAIN_REGEX = /^[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]*[a-zA-Z0-9])?)*$/;
+
 // Podman binary versions, download URLs, and expected SHA-256 checksums
 const PODMAN_VERSION = '5.3.1';
 const GVPROXY_VERSION = '0.8.0';
@@ -39,7 +62,7 @@ class PodmanService {
 
   // ─── Public API ───────────────────────────────────────────────
 
-  async start(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
+  async start(onProgress?: ProgressCallback, skipChecksum = false, extraDomains: string[] = [], allowAllTraffic = false): Promise<void> {
     if (this.isRunning()) {
       return;
     }
@@ -89,7 +112,7 @@ class PodmanService {
 
       // Start the container
       onProgress?.('run', 'Starting terminal...');
-      await this.runContainer(podmanBin, ttydPort, previewPort);
+      await this.runContainer(podmanBin, ttydPort, previewPort, extraDomains, allowAllTraffic);
 
       // Wait for ttyd to be ready
       await this.waitForReady(ttydPort);
@@ -190,6 +213,62 @@ class PodmanService {
 
     this.log('Uninstall complete');
     this.closeLogStream();
+  }
+
+  async updateFirewall(extraDomains: string[], allowAllTraffic: boolean): Promise<void> {
+    if (!this.isRunning()) {
+      throw new Error('Container is not running');
+    }
+
+    const podmanBin = this.getPodmanBin();
+
+    if (allowAllTraffic) {
+      // Flush all rules to allow everything
+      const script = [
+        'iptables -F OUTPUT',
+        'ip6tables -F OUTPUT',
+        'echo "[firewall] Unrestricted internet access enabled"',
+      ].join(' && ');
+
+      await this.execAsync(podmanBin, ['exec', CONTAINER_NAME, 'bash', '-c', script]);
+      this.log('Firewall updated: allow all traffic');
+      return;
+    }
+
+    // Validate domains
+    const validDomains = extraDomains.filter(d => DOMAIN_REGEX.test(d));
+    const allDomains = [...DEFAULT_ALLOWED_DOMAINS, ...validDomains];
+
+    // Build the firewall script
+    const domainList = allDomains.join(' ');
+    const script = `
+      iptables -F OUTPUT
+      ip6tables -F OUTPUT
+      iptables -A OUTPUT -o lo -j ACCEPT
+      iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+      iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+      iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+      for domain in ${domainList}; do
+        for ip in $(dig +short A "$domain" 2>/dev/null); do
+          if echo "$ip" | grep -qE '^[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+$'; then
+            iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
+            echo "[firewall] Allowed: $domain -> $ip:443"
+          fi
+        done
+        for ip in $(dig +short AAAA "$domain" 2>/dev/null); do
+          if echo "$ip" | grep -qE ':'; then
+            ip6tables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
+            echo "[firewall] Allowed: $domain -> [$ip]:443"
+          fi
+        done
+      done
+      iptables -A OUTPUT -j REJECT --reject-with icmp-net-unreachable
+      ip6tables -A OUTPUT -j REJECT --reject-with icmp6-adm-prohibited
+      echo "[firewall] Network restricted to: DNS + ${domainList}"
+    `.trim().replace(/\n\s*/g, '\n');
+
+    await this.execAsync(podmanBin, ['exec', CONTAINER_NAME, 'bash', '-c', script]);
+    this.log(`Firewall updated: ${allDomains.length} domains allowed`);
   }
 
   getShellUrl(): string | null {
@@ -625,7 +704,7 @@ class PodmanService {
     }
   }
 
-  private async runContainer(podmanBin: string, ttydPort: number, previewPort: number): Promise<void> {
+  private async runContainer(podmanBin: string, ttydPort: number, previewPort: number, extraDomains: string[] = [], allowAllTraffic = false): Promise<void> {
     const workspacePath = this.getWorkspacePath();
 
     const args = [
@@ -635,6 +714,9 @@ class PodmanService {
       '-p', `127.0.0.1:${ttydPort}:${TTYD_CONTAINER_PORT}`,
       '-p', `127.0.0.1:${previewPort}:${PREVIEW_CONTAINER_PORT}`,
       '-v', `${workspacePath}:/workspace:Z`,
+      // Pass validated extra domains to the container
+      ...(extraDomains.length > 0 ? ['-e', `EXTRA_DOMAINS=${extraDomains.filter(d => DOMAIN_REGEX.test(d)).join(' ')}`] : []),
+      ...(allowAllTraffic ? ['-e', 'ALLOW_ALL_TRAFFIC=1'] : []),
       IMAGE_NAME,
     ];
 
