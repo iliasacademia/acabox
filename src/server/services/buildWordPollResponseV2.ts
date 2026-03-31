@@ -83,8 +83,8 @@ export function buildWordPollResponseV2(
       activeDocumentPath: documentPath,
       shouldShowButtonV2: true,
       shouldShowPopupV2,
-      shouldShowReviewButton,
-      shouldShowReviewStatusOverlay,
+      shouldShowReviewButton: false,
+      shouldShowReviewStatusOverlay: false,
     };
   }
 
@@ -103,8 +103,8 @@ export function buildWordPollResponseV2(
       activeDocumentPath: documentPath,
       shouldShowButtonV2: true,
       shouldShowPopupV2,
-      shouldShowReviewButton,
-      shouldShowReviewStatusOverlay,
+      shouldShowReviewButton: false,
+      shouldShowReviewStatusOverlay: false,
     };
   }
 
