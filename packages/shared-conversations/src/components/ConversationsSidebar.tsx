@@ -166,7 +166,7 @@ interface ConversationsSidebarProps {
   onConversationsLoaded?: (conversations: Conversation[]) => void;
   /** Optional: Called when a conversation is selected (for analytics) */
   onConversationView?: (projectId: number, conversationId: number, agentName: string) => void;
-  /** Optional: Event-driven refresh callback. Register this to refetch conversations on events like review_completed */
+  /** @deprecated No longer used — refresh is driven by refreshTrigger prop */
   onRegisterRefresh?: (refreshFn: () => void) => () => void;
   /** Optional: Collapsed state for responsive sidebar */
   collapsed?: boolean;
@@ -196,7 +196,7 @@ export function ConversationsSidebar({
   refreshTrigger,
   onConversationsLoaded,
   onConversationView,
-  onRegisterRefresh,
+  onRegisterRefresh: _onRegisterRefresh,
   collapsed = false,
   onToggleCollapsed,
   supportingMaterialsCount = 0,
@@ -233,8 +233,16 @@ export function ConversationsSidebar({
 
   const { listConversations, archiveConversation, unarchiveConversation, listArchivedConversations } = useConversationsApi();
 
+  // Guard against concurrent loads
+  const isLoadingRef = useRef(false);
+
   // Fetch first page — renders immediately
   const loadConversations = useCallback(async (isInitialLoad: boolean = false): Promise<Conversation[]> => {
+    // Skip if a load is already in flight (prevents cascading concurrent API calls)
+    if (isLoadingRef.current) {
+      return [];
+    }
+    isLoadingRef.current = true;
     setIsLoading(true);
     setError(null);
 
@@ -255,6 +263,7 @@ export function ConversationsSidebar({
       setError(error.message || 'Failed to load conversations');
       return [];
     } finally {
+      isLoadingRef.current = false;
       setIsLoading(false);
     }
   }, [projectId, listConversations, onConversationsLoaded]);
@@ -291,12 +300,6 @@ export function ConversationsSidebar({
     return () => el.removeEventListener('scroll', handleScroll);
   }, [loadMore]);
 
-  // Refresh conversations (called by event-driven updates)
-  const refreshConversations = useCallback(async () => {
-    console.log('[ConversationsSidebar] Event-driven refresh triggered');
-    await loadConversations(false);
-  }, [loadConversations]);
-
   // Load first page on mount and when projectId changes
   useEffect(() => {
     setConversations([]);
@@ -304,16 +307,6 @@ export function ConversationsSidebar({
     setHasMore(false);
     loadConversations(true);
   }, [projectId]);
-
-  // Register event-driven refresh callback
-  useEffect(() => {
-    if (!onRegisterRefresh) return;
-
-    console.log('[ConversationsSidebar] Registering event-driven refresh');
-    const cleanup = onRegisterRefresh(refreshConversations);
-
-    return cleanup;
-  }, [onRegisterRefresh, refreshConversations]);
 
   // Refresh when refreshTrigger changes
   useEffect(() => {
