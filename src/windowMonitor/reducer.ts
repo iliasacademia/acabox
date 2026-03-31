@@ -277,7 +277,7 @@ export function reduceWindowMonitorEvent(
           ...a,
           windows: a.windows.map((w) =>
             w.id === event.window.id
-              ? { ...w, selectedText: event.selection, selectionBounds }
+              ? { ...w, selectedText: event.selection, selectionBounds: selectionBounds ?? w.selectionBounds }
               : w,
           ),
         };

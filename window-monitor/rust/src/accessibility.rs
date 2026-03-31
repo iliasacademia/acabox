@@ -641,7 +641,16 @@ pub fn get_selection_bounds(element: &SafeAXUIElement) -> Option<CGRect> {
     if range.length == 0 {
         return None;
     }
-    get_bounds_for_range(element, &range)
+    // Retry up to 3 times — macOS AX API can transiently fail mid-render
+    for attempt in 0..3 {
+        if let Some(rect) = get_bounds_for_range(element, &range) {
+            return Some(rect);
+        }
+        if attempt < 2 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+    }
+    None
 }
 
 /// Get the screen bounds of an AX element by reading AXPosition + AXSize.
