@@ -8,6 +8,7 @@
  */
 
 import { EventEmitter } from 'events';
+import { logToWindowMonitorDb } from '../../windowMonitorDb';
 
 export type WordPollChangeReason =
   | 'notifications-synced'
@@ -26,6 +27,7 @@ interface WordPollEvents {
 
 class WordPollEventBus extends EventEmitter {
   emit(event: 'change', reason: WordPollChangeReason): boolean {
+    logToWindowMonitorDb('word_poll_event', { event, reason });
     return super.emit(event, reason);
   }
 

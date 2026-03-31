@@ -306,6 +306,7 @@ export class WindowMonitorService {
   private reviewPanelV3SelectedText = new Map<string, string>();
   private lastSelectedText: string | null = null;
   private lastDesiredState: DesiredWebviewState = {};
+  private lastV4FocusedWindowId: string | null = null;
   allAppsEnabled: boolean = false;
   private baseUrl: string | null = null;
   private authToken: string | null = null;
@@ -849,9 +850,15 @@ export class WindowMonitorService {
         }
       }
     }
+
+    // Detect focused window change — even if visibility didn't change,
+    // the poll data is different so WebSocket clients need a refresh.
+    const focusedWindowChanged = windowId !== this.lastV4FocusedWindowId;
+    this.lastV4FocusedWindowId = windowId;
+
     this.lastDesiredState = desiredState;
     logToWindowMonitorDb('webview_manager_state', desiredState);
-    if (visibilityChanged) {
+    if (visibilityChanged || focusedWindowChanged) {
       wordPollEventBus.emit('change', 'webview-visibility-changed');
     }
 
@@ -1117,6 +1124,7 @@ export class WindowMonitorService {
     this.reviewPanelV3SelectedText.clear();
     this.lastSelectedText = null;
     this.lastDesiredState = {};
+    this.lastV4FocusedWindowId = null;
     this.documentTextContentCache.clear();
     this.selectedTextContentCache.clear();
     for (const timer of this.selectionClearTimers.values()) clearTimeout(timer);

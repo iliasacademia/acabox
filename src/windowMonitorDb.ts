@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import Database, { Statement } from 'better-sqlite3';
 import { app } from 'electron';
 import path from 'path';
 import { getChannelFromVersion } from './utils/config/loggingConfig';
@@ -8,29 +8,45 @@ function getDbName(): string {
   return `window-monitor-${getChannelFromVersion()}.db`;
 }
 
-const dbPath = path.join(app.getPath('userData'), getDbName());
-const db = new Database(dbPath);
+let db: InstanceType<typeof Database> | null = null;
+let insertStmt: Statement | null = null;
+let appVersion: string = '';
+let initFailed = false;
 
-db.pragma('journal_mode = WAL');
+function ensureInitialized(): boolean {
+  if (db) return true;
+  if (initFailed) return false;
+  try {
+    const dbPath = path.join(app.getPath('userData'), getDbName());
+    db = new Database(dbPath);
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS window_monitor_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT NOT NULL,
-    app_version TEXT NOT NULL,
-    data_type TEXT NOT NULL,
-    data TEXT NOT NULL
-  )
-`);
+    db.pragma('journal_mode = WAL');
 
-const insertStmt = db.prepare(
-  `INSERT INTO window_monitor_log (timestamp, app_version, data_type, data) VALUES (?, ?, ?, ?)`
-);
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS window_monitor_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        app_version TEXT NOT NULL,
+        data_type TEXT NOT NULL,
+        data TEXT NOT NULL
+      )
+    `);
 
-const appVersion = app.getVersion();
+    insertStmt = db.prepare(
+      `INSERT INTO window_monitor_log (timestamp, app_version, data_type, data) VALUES (?, ?, ?, ?)`
+    );
 
-export type WindowMonitorLogDataType = 'window_monitor_event' | 'window_monitor_state' | 'webview_manager_state';
+    appVersion = app.getVersion();
+    return true;
+  } catch {
+    initFailed = true;
+    return false;
+  }
+}
+
+export type WindowMonitorLogDataType = 'window_monitor_event' | 'window_monitor_state' | 'webview_manager_state' | 'word_poll_event';
 
 export function logToWindowMonitorDb(dataType: WindowMonitorLogDataType, data: unknown): void {
-  insertStmt.run(new Date().toISOString(), appVersion, dataType, JSON.stringify(data));
+  if (!ensureInitialized()) return;
+  insertStmt!.run(new Date().toISOString(), appVersion, dataType, JSON.stringify(data));
 }
