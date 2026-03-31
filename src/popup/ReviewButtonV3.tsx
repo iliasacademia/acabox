@@ -7,15 +7,17 @@ const serverUrl = window.location.origin;
 const pidParam = urlParams.get('pid');
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
+const isV4Mode = urlParams.get('mode') === 'v4';
 
-function postBridge(action: string, payload: Record<string, unknown> = {}) {
+function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
+  const effectiveWid = widOverride ?? widParam;
   return fetch(`${serverUrl}/bridge`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${tokenParam}`,
     },
-    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: widParam }),
+    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: effectiveWid }),
   });
 }
 

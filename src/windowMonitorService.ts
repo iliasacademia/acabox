@@ -13,10 +13,13 @@ import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { FEATURES } from './shared/types';
 import {
   computeWebviewState,
+  computeWebviewStateV4,
+  getFocusedWindowInfo,
   DesiredWebviewState,
   WebviewTypeConfig,
 } from './windowMonitor/computeWebviewState';
 import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
+import { logToWindowMonitorDb } from './windowMonitorDb';
 
 const BUTTON_WIDTH = 210;
 const BUTTON_HEIGHT = 50;
@@ -43,6 +46,7 @@ const REVIEW_V3_BOTTOM_MARGIN = 30;
 
 const REVIEWING_BUTTON_V2_WIDTH = 320;
 const ENABLE_FEEDBACK_BUTTON_WIDTH = 220;
+const BUTTON_WITH_REVIEW_WIDTH = 700;
 
 const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY === '1';
 const DEBUG_SELECTION_BOUNDS_OVERLAY = process.env.DEBUG_SELECTION_BOUNDS_OVERLAY === '1';
@@ -303,6 +307,7 @@ export class WindowMonitorService {
   private reviewPanelV3SelectedText = new Map<string, string>();
   private lastSelectedText: string | null = null;
   private lastDesiredState: DesiredWebviewState = {};
+  private lastV4FocusedWindowId: string | null = null;
   allAppsEnabled: boolean = false;
   private baseUrl: string | null = null;
   private authToken: string | null = null;
@@ -343,6 +348,8 @@ export class WindowMonitorService {
         logger.warn('[WindowMonitorService] Malformed JSON from window-monitor:', line);
         return;
       }
+
+      logToWindowMonitorDb('window_monitor_event', event);
 
       if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
         logger.info('[VERBOSE] [WindowMonitorService] Event:', event);
@@ -397,6 +404,7 @@ export class WindowMonitorService {
         }
       }
       this.state = newState;
+      logToWindowMonitorDb('window_monitor_state', newState);
 
       // Track activity sessions
       if (FEATURES.SESSION_CAPTURE_ENABLED) {
@@ -549,6 +557,11 @@ export class WindowMonitorService {
   private pushWebviewState(): void {
     if (!this.baseUrl || !this.authToken) return;
 
+    if (FEATURES.GLOBAL_WEBVIEW_V4) {
+      this.pushWebviewStateV4();
+      return;
+    }
+
     const screenHeight = screen.getPrimaryDisplay().bounds.height;
     const desiredState = computeWebviewState(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
 
@@ -608,6 +621,11 @@ export class WindowMonitorService {
           if (!docPath || !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
             desiredState[key].frame.width = ENABLE_FEEDBACK_BUTTON_WIDTH;
           }
+        }
+        // Widen for "Review Selection" when text is selected
+        const selectedText = this.getSelectedTextForWindow(windowId);
+        if (selectedText && selectedText.length > 0) {
+          desiredState[key].frame.width = Math.max(desiredState[key].frame.width, BUTTON_WITH_REVIEW_WIDTH);
         }
       }
     }
@@ -704,6 +722,7 @@ export class WindowMonitorService {
       }
     }
     this.lastDesiredState = desiredState;
+    logToWindowMonitorDb('webview_manager_state', desiredState);
     if (visibilityChanged) {
       wordPollEventBus.emit('change', 'webview-visibility-changed');
     }
@@ -713,6 +732,160 @@ export class WindowMonitorService {
     } else {
       logger.info('[WindowMonitorService] Cannot send state to webview-manager: stdin not writable');
     }
+  }
+
+  /**
+   * V4: Push a single global set of webviews for the focused window only.
+   * Keys are global (e.g. 'button-v2'), not per-window (e.g. 'button-v2-{wid}').
+   */
+  private pushWebviewStateV4(): void {
+    if (!this.baseUrl || !this.authToken) return;
+
+    const screenHeight = screen.getPrimaryDisplay().bounds.height;
+    const desiredState = computeWebviewStateV4(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
+
+    const focused = getFocusedWindowInfo(this.state);
+    const windowId = focused?.window.id ?? null;
+
+    // Apply per-window overrides using global keys
+    if (desiredState['popup-v2'] && windowId) {
+      const isToggledOpen = this.popupToggledOpen.has(windowId);
+      desiredState['popup-v2'].visible = isToggledOpen;
+      if (isToggledOpen) {
+        logger.info(`[WindowMonitor] Popup popup-v2: showing (toggled=true, wid=${windowId})`);
+      }
+
+      const heightOverride = this.popupHeightOverrides.get(windowId);
+      if (heightOverride !== undefined) {
+        desiredState['popup-v2'].frame.height = heightOverride;
+      }
+      const sizeOverride = this.popupSizeOverrides.get(windowId);
+      if (sizeOverride) {
+        desiredState['popup-v2'].frame.width = Math.max(desiredState['popup-v2'].frame.width, sizeOverride.width);
+        desiredState['popup-v2'].frame.height = Math.max(desiredState['popup-v2'].frame.height, sizeOverride.height);
+      }
+    }
+
+    if (desiredState['review-panel-v3'] && windowId) {
+      const isPanelOpen = this.reviewPanelV3Open.has(windowId);
+      desiredState['review-panel-v3'].visible = isPanelOpen;
+    }
+
+    if (desiredState['button-v2'] && windowId) {
+      const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
+      if (buttonWidthOverride !== undefined) {
+        desiredState['button-v2'].frame.width = buttonWidthOverride;
+      } else {
+        const docPath = this.getDocumentPathForWindow(windowId);
+        if (!docPath || !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
+          desiredState['button-v2'].frame.width = ENABLE_FEEDBACK_BUTTON_WIDTH;
+        }
+      }
+      // Widen for "Review Selection" when text is selected
+      const selectedText = this.getSelectedTextForWindow(windowId);
+      if (selectedText && selectedText.length > 0) {
+        desiredState['button-v2'].frame.width = Math.max(desiredState['button-v2'].frame.width, BUTTON_WITH_REVIEW_WIDTH);
+      }
+    }
+
+    // Apply drag offset for the focused window
+    if (windowId && this.buttonDragOffsets.has(windowId) && desiredState['button-v2']) {
+      const offset = this.buttonDragOffsets.get(windowId)!;
+      const buttonKey = 'button-v2';
+      const popupKey = 'popup-v2';
+      const reviewStatusKey = 'review-status-overlay';
+
+      let windowBounds: WindowBounds | null = focused?.window.bounds ?? null;
+
+      if (windowBounds) {
+        const cocoaWindowBottom = screenHeight - (windowBounds.y + windowBounds.height);
+        const cocoaWindowLeft = windowBounds.x;
+        const cocoaWindowRight = windowBounds.x + windowBounds.width;
+        const cocoaWindowTop = cocoaWindowBottom + windowBounds.height;
+
+        const buttonFrame = desiredState[buttonKey].frame;
+        const clampedDx = Math.max(
+          cocoaWindowLeft - buttonFrame.x,
+          Math.min(offset.dx, cocoaWindowRight - buttonFrame.x - buttonFrame.width)
+        );
+        const clampedDy = Math.max(
+          cocoaWindowBottom - buttonFrame.y,
+          Math.min(offset.dy, cocoaWindowTop - buttonFrame.y - buttonFrame.height)
+        );
+
+        desiredState[buttonKey].frame.x += clampedDx;
+        desiredState[buttonKey].frame.y += clampedDy;
+
+        if (desiredState[popupKey]) {
+          desiredState[popupKey].frame.x += clampedDx;
+          desiredState[popupKey].frame.y += clampedDy;
+        }
+        if (desiredState[reviewStatusKey]) {
+          desiredState[reviewStatusKey].frame.x += clampedDx;
+          desiredState[reviewStatusKey].frame.y += clampedDy;
+        }
+      } else {
+        desiredState[buttonKey].frame.x += offset.dx;
+        desiredState[buttonKey].frame.y += offset.dy;
+        if (desiredState[popupKey]) {
+          desiredState[popupKey].frame.x += offset.dx;
+          desiredState[popupKey].frame.y += offset.dy;
+        }
+        if (desiredState[reviewStatusKey]) {
+          desiredState[reviewStatusKey].frame.x += offset.dx;
+          desiredState[reviewStatusKey].frame.y += offset.dy;
+        }
+      }
+    }
+
+    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
+      logger.info('[VERBOSE] [WindowMonitorService] V4 desired state:', desiredState);
+    }
+
+    // Diff visibility — v4 uses global keys directly
+    const V4_VISIBILITY_KEYS = ['button-v2', 'popup-v2', 'review-button', 'review-status-overlay', 'review-panel-v3', 'review-button-v3'];
+    let visibilityChanged = false;
+    for (const key of V4_VISIBILITY_KEYS) {
+      const newVisible = desiredState[key]?.visible ?? false;
+      const oldVisible = this.lastDesiredState[key]?.visible ?? false;
+      if (newVisible !== oldVisible) {
+        visibilityChanged = true;
+        break;
+      }
+    }
+    if (!visibilityChanged) {
+      for (const key of V4_VISIBILITY_KEYS) {
+        if (this.lastDesiredState[key]?.visible && !desiredState[key]) {
+          visibilityChanged = true;
+          break;
+        }
+      }
+    }
+
+    // Detect focused window change — even if visibility didn't change,
+    // the poll data is different so WebSocket clients need a refresh.
+    const focusedWindowChanged = windowId !== this.lastV4FocusedWindowId;
+    this.lastV4FocusedWindowId = windowId;
+
+    this.lastDesiredState = desiredState;
+    logToWindowMonitorDb('webview_manager_state', desiredState);
+    if (visibilityChanged || focusedWindowChanged) {
+      wordPollEventBus.emit('change', 'webview-visibility-changed');
+    }
+
+    if (this.webviewManagerProcess?.stdin?.writable) {
+      this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
+    } else {
+      logger.info('[WindowMonitorService] Cannot send state to webview-manager: stdin not writable');
+    }
+  }
+
+  /**
+   * Get the currently focused window ID, or null if no window is focused.
+   */
+  getFocusedWindowId(): string | null {
+    const focused = getFocusedWindowInfo(this.state);
+    return focused?.window.id ?? null;
   }
 
   togglePopupForWindow(windowId: string): void {
@@ -847,6 +1020,9 @@ export class WindowMonitorService {
   }
 
   getDesiredWebviewVisibility(keyPrefix: string, windowId: string): boolean {
+    if (FEATURES.GLOBAL_WEBVIEW_V4) {
+      return this.lastDesiredState[keyPrefix]?.visible ?? false;
+    }
     return this.lastDesiredState[`${keyPrefix}-${windowId}`]?.visible ?? false;
   }
 
@@ -959,12 +1135,33 @@ export class WindowMonitorService {
     this.reviewPanelV3SelectedText.clear();
     this.lastSelectedText = null;
     this.lastDesiredState = {};
+    this.lastV4FocusedWindowId = null;
     this.documentTextContentCache.clear();
     this.selectedTextContentCache.clear();
     for (const timer of this.selectionClearTimers.values()) clearTimeout(timer);
     this.selectionClearTimers.clear();
     for (const timer of this.documentTextCacheCleanupTimers.values()) clearTimeout(timer);
     this.documentTextCacheCleanupTimers.clear();
+    this.reviewOverlayOpen.clear();
+    this.lastSelectionBounds.clear();
+    this.reviewErrorMessages.clear();
+    this.pendingAutoOpenPaths.clear();
+  }
+
+  restart(): void {
+    logger.info('[WindowMonitorService] Restarting...');
+    if (!this.baseUrl || !this.authToken) {
+      logger.warn('[WindowMonitorService] Cannot restart: service was never started');
+      return;
+    }
+    const baseUrl = this.baseUrl;
+    const authToken = this.authToken;
+    const allAppsEnabled = this.allAppsEnabled;
+    this.stop();
+    setTimeout(() => {
+      this.start(baseUrl, authToken, allAppsEnabled);
+      logger.info('[WindowMonitorService] Restart complete');
+    }, 3000);
   }
 }
 

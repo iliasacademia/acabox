@@ -12,6 +12,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const pidParam = urlParams.get('pid');
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
+const isV4Mode = urlParams.get('mode') === 'v4';
 
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
@@ -24,7 +25,9 @@ interface WordPollResponse {
   selectedTextReviewStartedAt?: number;
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
+  hasSelectedText?: boolean;
   fullStoryConfig?: FullStoryConfig;
+  wid?: string;
 }
 
 interface WebSocketMessage {
@@ -45,15 +48,17 @@ function useWordPollWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; isEnableFeedback: boolean } {
+): { badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; isEnableFeedback: boolean; focusedWid: string | null; hasSelectedText: boolean } {
   const [badgeCount, setBadgeCount] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
   const [shouldShowButtonV2, setShouldShowButtonV2] = useState(false);
   const [isEnableFeedback, setIsEnableFeedback] = useState(false);
+  const [focusedWid, setFocusedWid] = useState<string | null>(null);
+  const [hasSelectedText, setHasSelectedText] = useState(false);
 
   useEffect(() => {
-    if (!wid || !token) {
+    if ((!wid && !isV4Mode) || !token) {
       return;
     }
 
@@ -72,6 +77,8 @@ function useWordPollWebSocket(
       setReviewStartedAt(data.selectedTextReviewStartedAt ?? null);
       setShouldShowButtonV2(data.shouldShowButtonV2 ?? false);
       setIsEnableFeedback(data.isEnableFeedback ?? false);
+      setHasSelectedText(data.hasSelectedText ?? false);
+      if (data.wid) setFocusedWid(data.wid);
     }
 
     // --- HTTP polling fallback (same as V1) ---
@@ -85,7 +92,8 @@ function useWordPollWebSocket(
         try {
           const headers: Record<string, string> = { Accept: 'application/json' };
           headers['Authorization'] = `Bearer ${token}`;
-          const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, { headers });
+          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const res = await fetch(pollUrl, { headers });
           if (!res.ok) { return; }
           const data: WordPollResponse = await res.json();
           applyPollData(data);
@@ -109,7 +117,9 @@ function useWordPollWebSocket(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = isV4Mode
+        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
+        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -187,17 +197,18 @@ function useWordPollWebSocket(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, isEnableFeedback };
+  return { badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, isEnableFeedback, focusedWid, hasSelectedText };
 }
 
-function postBridge(action: string, payload: Record<string, unknown>) {
+function postBridge(action: string, payload: Record<string, unknown>, widOverride?: string | null) {
+  const effectiveWid = widOverride ?? widParam;
   fetch(`${serverUrl}/bridge`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${tokenParam}`,
     },
-    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: widParam }),
+    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: effectiveWid }),
   }).catch((err) => {
     console.error('[AcademiaNotificationsButtonV2] Bridge post failed:', err);
   });
@@ -221,11 +232,12 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   } | null>(null);
   const didDragRef = useRef(false);
 
-  const { badgeCount, isReviewing, shouldShowButtonV2, isEnableFeedback } = useWordPollWebSocket(
+  const { badgeCount, isReviewing, shouldShowButtonV2, isEnableFeedback, focusedWid, hasSelectedText } = useWordPollWebSocket(
     widParam,
     tokenParam,
     serverUrl
   );
+  const effectiveWid = isV4Mode ? focusedWid : widParam;
 
   useEffect(() => {
     onVisibilityChanged('button', shouldShowButtonV2);
@@ -290,7 +302,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
       postBridge('setDragOffset', {
         dx: ds.baseOffsetX + dx,
         dy: ds.baseOffsetY + dy,
-      });
+      }, effectiveWid);
     });
   };
 
@@ -306,7 +318,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
         const dy = -(e.screenY - ds.startScreenY);
         const finalDx = ds.baseOffsetX + dx;
         const finalDy = ds.baseOffsetY + dy;
-        postBridge('setDragOffset', { dx: finalDx, dy: finalDy });
+        postBridge('setDragOffset', { dx: finalDx, dy: finalDy }, effectiveWid);
         accumulatedOffsetRef.current = { dx: finalDx, dy: finalDy };
       }
     }
@@ -328,7 +340,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${tokenParam}`,
         },
-        body: JSON.stringify({ action, payload: {}, pid: Number(pidParam), wid: widParam }),
+        body: JSON.stringify({ action, payload: {}, pid: Number(pidParam), wid: effectiveWid }),
       });
     } catch (err) {
       console.error('[AcademiaNotificationsButtonV2] Click failed:', err);
@@ -337,11 +349,31 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
     }
   };
 
+  const handleReviewSelectionClick = async () => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
+    try {
+      await fetch(`${serverUrl}/bridge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenParam}`,
+        },
+        body: JSON.stringify({ action: 'showReviewInputOverlay', payload: {}, pid: Number(pidParam), wid: effectiveWid }),
+      });
+    } catch (err) {
+      console.error('[AcademiaNotificationsButtonV2] Review selection click failed:', err);
+    }
+  };
+
   if (!shouldShowButtonV2) {
     return null;
   }
 
   const displayCount = badgeCount > 9 ? '9+' : badgeCount.toString();
+  const showReviewSelection = hasSelectedText && !isEnableFeedback;
 
   return (
     <div className="button-container">
@@ -379,6 +411,14 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           </div>
         )}
       </button>
+      {showReviewSelection && (
+        <button
+          className="review-selection-button"
+          onClick={handleReviewSelectionClick}
+        >
+          Review Selection
+        </button>
+      )}
     </div>
   );
 };

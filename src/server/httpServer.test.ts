@@ -20,6 +20,11 @@ jest.mock('./routes/proxy', () => ({
   registerProxyRoutes: jest.fn(),
 }));
 
+// Mock windowMonitorDb to avoid SQLite side-effect at import time
+jest.mock('../windowMonitorDb', () => ({
+  logToWindowMonitorDb: jest.fn(),
+}));
+
 // Mock sessionDb to avoid SQLite side-effect at import time
 jest.mock('../sessionDb', () => ({
   sessionDb: {

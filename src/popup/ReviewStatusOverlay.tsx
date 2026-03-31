@@ -9,6 +9,7 @@ const urlParams = new URLSearchParams(window.location.search);
 const pidParam = urlParams.get('pid');
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
+const isV4Mode = urlParams.get('mode') === 'v4';
 
 interface WordPollResponse {
   isReviewingSelectedText?: boolean;
@@ -18,6 +19,7 @@ interface WordPollResponse {
   selectedTextReviewStartedAt?: number;
   shouldShowReviewStatusOverlay?: boolean;
   fullStoryConfig?: FullStoryConfig;
+  wid?: string;
 }
 
 interface WebSocketMessage {
@@ -27,14 +29,15 @@ interface WebSocketMessage {
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 
-function postBridge(action: string, payload: Record<string, unknown> = {}) {
+function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
+  const effectiveWid = widOverride ?? widParam;
   return fetch(`${serverUrl}/bridge`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${tokenParam}`,
     },
-    body: JSON.stringify({ action, payload, pid: pidParam ? Number(pidParam) : 0, wid: widParam }),
+    body: JSON.stringify({ action, payload, pid: pidParam ? Number(pidParam) : 0, wid: effectiveWid }),
   });
 }
 
@@ -47,14 +50,16 @@ function useWordPoll(
   selectedText: string | null;
   shouldShowReviewStatusOverlay: boolean;
   isAwaitingReviewInput: boolean;
+  focusedWid: string | null;
 } {
   const [reviewType, setReviewType] = useState<string | null>(null);
   const [selectedText, setSelectedText] = useState<string | null>(null);
   const [shouldShowReviewStatusOverlay, setShouldShowReviewStatusOverlay] = useState(false);
   const [isAwaitingReviewInput, setIsAwaitingReviewInput] = useState(false);
+  const [focusedWid, setFocusedWid] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!wid || !token) {
+    if ((!wid && !isV4Mode) || !token) {
       return;
     }
 
@@ -73,6 +78,7 @@ function useWordPoll(
       setSelectedText(data.selectedText || null);
       setShouldShowReviewStatusOverlay(data.shouldShowReviewStatusOverlay ?? false);
       setIsAwaitingReviewInput(data.isAwaitingReviewInput ?? false);
+      if (data.wid) setFocusedWid(data.wid);
     }
 
     function startFallbackPolling() {
@@ -83,7 +89,8 @@ function useWordPoll(
       const poll = async () => {
         if (cleanedUp) return;
         try {
-          const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, {
+          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const res = await fetch(pollUrl, {
             headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
           });
           if (!res.ok) { return; }
@@ -108,7 +115,9 @@ function useWordPoll(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = isV4Mode
+        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
+        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -178,11 +187,12 @@ function useWordPoll(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput };
+  return { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput, focusedWid };
 }
 
 const ReviewStatusOverlay: React.FC = () => {
-  const { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput } = useWordPoll(widParam, tokenParam, serverUrl);
+  const { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput, focusedWid } = useWordPoll(widParam, tokenParam, serverUrl);
+  const effectiveWid = isV4Mode ? focusedWid : widParam;
   const [progress, setProgress] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [showSelectedTextToggle, setShowSelectedTextToggle] = useState(false);
@@ -238,7 +248,7 @@ const ReviewStatusOverlay: React.FC = () => {
 
   const handleBackClick = async () => {
     try {
-      await postBridge('openPopup');
+      await postBridge('openPopup', {}, effectiveWid);
     } catch (err) {
       console.error('[ReviewStatusOverlay] Failed to open popup:', err);
     }
@@ -246,18 +256,19 @@ const ReviewStatusOverlay: React.FC = () => {
 
   const handleCloseClick = async () => {
     try {
-      await postBridge('clearReview');
+      await postBridge('clearReview', {}, effectiveWid);
     } catch (err) {
       console.error('[ReviewStatusOverlay] Failed to clear review:', err);
     }
   };
 
   const handleSend = async () => {
-    if (!widParam || isSubmitting) return;
+    const sendWid = effectiveWid;
+    if (!sendWid || isSubmitting) return;
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(`${serverUrl}/api/selected-text-review/${widParam}`, {
+      const res = await fetch(`${serverUrl}/api/selected-text-review/${sendWid}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -268,7 +279,7 @@ const ReviewStatusOverlay: React.FC = () => {
       const data = await res.json();
       if (!res.ok) {
         console.error('[ReviewStatusOverlay] Review request failed:', data);
-        postBridge('showReviewError', { message: data?.message || 'Something went wrong. Please try again.' }).catch(() => {});
+        postBridge('showReviewError', { message: data?.message || 'Something went wrong. Please try again.' }, effectiveWid).catch(() => {});
         setIsSubmitting(false);
         return;
       }
@@ -276,7 +287,7 @@ const ReviewStatusOverlay: React.FC = () => {
       // Transition to reviewing mode happens via poll data
     } catch (err) {
       console.error('[ReviewStatusOverlay] Review request error:', err);
-      postBridge('showReviewError', { message: 'Could not connect to the review service. Please check your internet connection and try again.' }).catch(() => {});
+      postBridge('showReviewError', { message: 'Could not connect to the review service. Please check your internet connection and try again.' }, effectiveWid).catch(() => {});
       setIsSubmitting(false);
     }
   };

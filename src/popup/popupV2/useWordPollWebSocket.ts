@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { WordPollResponse, WebSocketMessage, popupInstanceId } from './shared';
+import { WordPollResponse, WebSocketMessage, popupInstanceId, isV4Mode, setV4FocusedWid } from './shared';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 
@@ -16,7 +16,7 @@ export function useWordPollWebSocket(
   const [pollData, setPollData] = useState<WordPollResponse | null>(null);
 
   useEffect(() => {
-    if (!wid || !token) {
+    if ((!wid && !isV4Mode) || !token) {
       setPollData(null);
       return;
     }
@@ -30,6 +30,7 @@ export function useWordPollWebSocket(
 
     function applyPollData(data: WordPollResponse) {
       if (cleanedUp) return;
+      if (isV4Mode && data.wid) setV4FocusedWid(data.wid);
       setPollData(data);
     }
 
@@ -47,7 +48,8 @@ export function useWordPollWebSocket(
             'X-Instance-Id': popupInstanceId,
             'Authorization': `Bearer ${token}`,
           };
-          const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, { headers });
+          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const res = await fetch(pollUrl, { headers });
           if (!res.ok) {
             setPollData(prev => prev ? { ...prev, shouldShowPopupV2: false } : null);
             return;
@@ -74,7 +76,9 @@ export function useWordPollWebSocket(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = isV4Mode
+        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
+        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);

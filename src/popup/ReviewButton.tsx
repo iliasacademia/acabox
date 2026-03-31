@@ -8,15 +8,17 @@ const serverUrl = window.location.origin;
 const urlParams = new URLSearchParams(window.location.search);
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
+const isV4Mode = urlParams.get('mode') === 'v4';
 
-function postBridge(action: string, payload: Record<string, unknown> = {}) {
+function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
+  const effectiveWid = widOverride ?? widParam;
   return fetch(`${serverUrl}/bridge`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${tokenParam}`,
     },
-    body: JSON.stringify({ action, payload, pid: 0, wid: widParam }),
+    body: JSON.stringify({ action, payload, pid: 0, wid: effectiveWid }),
   });
 }
 
@@ -48,6 +50,7 @@ interface WordPollResponse {
   isReviewingSelectedText?: boolean;
   shouldShowReviewButton?: boolean;
   fullStoryConfig?: FullStoryConfig;
+  wid?: string;
 }
 
 interface WebSocketMessage {
@@ -65,12 +68,13 @@ function useWordPoll(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { isReviewing: boolean; shouldShowReviewButton: boolean } {
+): { isReviewing: boolean; shouldShowReviewButton: boolean; focusedWid: string | null } {
   const [isReviewing, setIsReviewing] = useState(false);
   const [shouldShowReviewButton, setShouldShowReviewButton] = useState(false);
+  const [focusedWid, setFocusedWid] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!wid || !token) {
+    if ((!wid && !isV4Mode) || !token) {
       return;
     }
 
@@ -86,6 +90,7 @@ function useWordPoll(
       if (data.fullStoryConfig) cacheFullStoryConfig(data.fullStoryConfig);
       setIsReviewing(data.isReviewingSelectedText ?? false);
       setShouldShowReviewButton(data.shouldShowReviewButton ?? false);
+      if (data.wid) setFocusedWid(data.wid);
     }
 
     function startFallbackPolling() {
@@ -96,7 +101,8 @@ function useWordPoll(
       const poll = async () => {
         if (cleanedUp) return;
         try {
-          const res = await fetch(`${apiBaseUrl}/word/v2/${wid}/poll`, {
+          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const res = await fetch(pollUrl, {
             headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
           });
           if (!res.ok) { return; }
@@ -121,7 +127,9 @@ function useWordPoll(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = isV4Mode
+        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
+        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -191,11 +199,12 @@ function useWordPoll(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { isReviewing, shouldShowReviewButton };
+  return { isReviewing, shouldShowReviewButton, focusedWid };
 }
 
 const ReviewButton: React.FC = () => {
-  const { shouldShowReviewButton } = useWordPoll(widParam, tokenParam, serverUrl);
+  const { shouldShowReviewButton, focusedWid } = useWordPoll(widParam, tokenParam, serverUrl);
+  const effectiveWid = isV4Mode ? focusedWid : widParam;
 
   useEffect(() => {
     onVisibilityChanged('review-button', shouldShowReviewButton);
@@ -205,9 +214,9 @@ const ReviewButton: React.FC = () => {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!widParam) return;
+    if (!effectiveWid) return;
 
-    postBridge('showReviewInputOverlay').catch((err) => {
+    postBridge('showReviewInputOverlay', {}, effectiveWid).catch((err) => {
       console.error('[ReviewButton] Failed to show review input overlay:', err);
     });
   };
