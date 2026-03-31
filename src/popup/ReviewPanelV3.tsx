@@ -40,7 +40,6 @@ const serverUrl = window.location.origin;
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
 const pidParam = urlParams.get('pid');
-const isV4Mode = urlParams.get('mode') === 'v4';
 
 function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
   const effectiveWid = widOverride ?? widParam;
@@ -67,7 +66,7 @@ const ReviewPanelV3: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [conversation, setConversation] = useState<Conversation | DraftConversation | null>(null);
   const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
-  const effectiveWid = isV4Mode ? (context?.wid ?? null) : widParam;
+  const effectiveWid = context?.wid ?? null;
 
   const popupApiClient = useMemo(
     () => new PopupApiClient(serverUrl, tokenParam),
@@ -76,19 +75,12 @@ const ReviewPanelV3: React.FC = () => {
 
   // Fetch context on mount
   useEffect(() => {
-    if (!widParam && !isV4Mode) {
-      setLoading(false);
-      return;
-    }
-
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (tokenParam) {
       headers['Authorization'] = `Bearer ${tokenParam}`;
     }
 
-    const contextUrl = isV4Mode
-      ? `${serverUrl}/api/review-panel-v3/focused/context`
-      : `${serverUrl}/api/review-panel-v3/${widParam}/context`;
+    const contextUrl = `${serverUrl}/api/review-panel-v3/focused/context`;
     fetch(contextUrl, { headers })
       .then((res) => res.json())
       .then((data: PanelContext) => {
@@ -120,15 +112,13 @@ const ReviewPanelV3: React.FC = () => {
   // Re-fetch context when panel becomes visible again (hidden, not destroyed, on close)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && (widParam || isV4Mode)) {
+      if (document.visibilityState === 'visible') {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (tokenParam) {
           headers['Authorization'] = `Bearer ${tokenParam}`;
         }
 
-        const contextUrl = isV4Mode
-          ? `${serverUrl}/api/review-panel-v3/focused/context`
-          : `${serverUrl}/api/review-panel-v3/${widParam}/context`;
+        const contextUrl = `${serverUrl}/api/review-panel-v3/focused/context`;
         fetch(contextUrl, { headers })
           .then((res) => res.json())
           .then((data: PanelContext) => {

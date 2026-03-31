@@ -12,6 +12,7 @@ import path from 'path';
 import { app } from 'electron';
 import { windowMonitorService } from '../../windowMonitorService';
 import { defaultLogger as logger } from '../../utils/logger';
+import { logToWindowMonitorDb } from '../../windowMonitorDb';
 
 function getWordActionsBinPath(): string {
   if (app.isPackaged) {
@@ -25,18 +26,24 @@ function runWordAction(action: Record<string, unknown>): Promise<any> {
     const binPath = getWordActionsBinPath();
     const jsonArg = JSON.stringify(action);
 
+    logToWindowMonitorDb('word_actions_request', action);
+
     execFile(binPath, ['--json', jsonArg], { timeout: 10000 }, (error, stdout, stderr) => {
       if (stderr) {
         logger.debug(`[ReviewPreCheck] word-actions stderr: ${stderr}`);
       }
       if (error) {
         logger.error(`[ReviewPreCheck] word-actions error:`, error);
+        logToWindowMonitorDb('word_actions_response', { action: action.action, error: error.message });
         reject(new Error(`word-actions failed: ${error.message}`));
         return;
       }
       try {
-        resolve(JSON.parse(stdout.trim()));
+        const result = JSON.parse(stdout.trim());
+        logToWindowMonitorDb('word_actions_response', result);
+        resolve(result);
       } catch (parseErr) {
+        logToWindowMonitorDb('word_actions_response', { action: action.action, error: `parse error: ${stdout}` });
         reject(new Error(`Failed to parse word-actions output: ${stdout}`));
       }
     });
@@ -64,11 +71,15 @@ export async function registerReviewPreCheckRoutes(fastify: FastifyInstance): Pr
         return;
       }
 
+      logger.info(`[ReviewPreCheck] Pre-check for focused window ID: ${windowId}`);
+
       try {
         const result = await runWordAction({
           action: 'pre_check',
           window_id: windowId,
         });
+
+        logger.info(`[ReviewPreCheck] Pre-check result:`, result);
 
         if (!result.success) {
           reply.code(500).send({

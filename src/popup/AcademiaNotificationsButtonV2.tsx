@@ -12,7 +12,6 @@ const urlParams = new URLSearchParams(window.location.search);
 const pidParam = urlParams.get('pid');
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
-const isV4Mode = urlParams.get('mode') === 'v4';
 
 // Define response type locally to avoid importing server types in client code
 interface WordPollResponse {
@@ -38,7 +37,7 @@ interface WebSocketMessage {
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 /**
- * Custom hook: connects to /ws/word/v2/:wid via WebSocket for real-time updates.
+ * Custom hook: connects to /ws/word/v4/focused via WebSocket for real-time updates.
  * Falls back to HTTP polling (3s) if WebSocket fails permanently.
  *
  * All connection logic lives inside a single useEffect to avoid
@@ -58,7 +57,7 @@ function useWordPollWebSocket(
   const [hasSelectedText, setHasSelectedText] = useState(false);
 
   useEffect(() => {
-    if ((!wid && !isV4Mode) || !token) {
+    if (!token) {
       return;
     }
 
@@ -92,7 +91,7 @@ function useWordPollWebSocket(
         try {
           const headers: Record<string, string> = { Accept: 'application/json' };
           headers['Authorization'] = `Bearer ${token}`;
-          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const pollUrl = `${apiBaseUrl}/word/v4/focused/poll`;
           const res = await fetch(pollUrl, { headers });
           if (!res.ok) { return; }
           const data: WordPollResponse = await res.json();
@@ -117,9 +116,7 @@ function useWordPollWebSocket(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = isV4Mode
-        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
-        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -237,7 +234,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
     tokenParam,
     serverUrl
   );
-  const effectiveWid = isV4Mode ? focusedWid : widParam;
+  const effectiveWid = focusedWid;
 
   useEffect(() => {
     onVisibilityChanged('button', shouldShowButtonV2);

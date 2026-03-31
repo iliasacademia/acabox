@@ -7,7 +7,6 @@ const serverUrl = window.location.origin;
 const pidParam = urlParams.get('pid');
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
-const isV4Mode = urlParams.get('mode') === 'v4';
 
 function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
   const effectiveWid = widOverride ?? widParam;

@@ -14,7 +14,6 @@ import {
   widParam,
   pidParam,
   postBridge,
-  isV4Mode,
   getV4FocusedWid,
   navigateToPage,
   CloseIcon,
@@ -125,7 +124,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // WebSocket-based polling
   const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
-  const effectiveWid = isV4Mode ? getV4FocusedWid() : widParam;
+  const effectiveWid = getV4FocusedWid();
 
   // Derive review state from word poll data (pushed via WebSocket)
   useEffect(() => {
@@ -362,6 +361,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     const res = await fetch(`${serverUrl}/api/review-pre-check`, {
       method: 'POST',
       headers,
+      body: '{}',
     });
     return res.json();
   };
@@ -376,6 +376,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       const res = await fetch(`${serverUrl}/api/word-save`, {
         method: 'POST',
         headers,
+        body: '{}',
       });
       const data = await res.json();
       if (!data.success) {
@@ -500,6 +501,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
     try {
       const preCheck = await runPreCheck();
+      postBridge('showReviewError', { message: `DEBUG pre-check: ${JSON.stringify(preCheck)}` }).catch(() => {});
       if (!preCheck.canProceed) {
         if (preCheck.reason === 'duplicate_name') {
           setReviewErrorMessage(preCheck.message || 'Multiple windows have the same name.');

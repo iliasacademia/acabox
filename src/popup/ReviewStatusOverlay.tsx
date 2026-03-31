@@ -9,7 +9,6 @@ const urlParams = new URLSearchParams(window.location.search);
 const pidParam = urlParams.get('pid');
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
-const isV4Mode = urlParams.get('mode') === 'v4';
 
 interface WordPollResponse {
   isReviewingSelectedText?: boolean;
@@ -59,7 +58,7 @@ function useWordPoll(
   const [focusedWid, setFocusedWid] = useState<string | null>(null);
 
   useEffect(() => {
-    if ((!wid && !isV4Mode) || !token) {
+    if (!token) {
       return;
     }
 
@@ -89,7 +88,7 @@ function useWordPoll(
       const poll = async () => {
         if (cleanedUp) return;
         try {
-          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const pollUrl = `${apiBaseUrl}/word/v4/focused/poll`;
           const res = await fetch(pollUrl, {
             headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
           });
@@ -115,9 +114,7 @@ function useWordPoll(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = isV4Mode
-        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
-        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -192,7 +189,7 @@ function useWordPoll(
 
 const ReviewStatusOverlay: React.FC = () => {
   const { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput, focusedWid } = useWordPoll(widParam, tokenParam, serverUrl);
-  const effectiveWid = isV4Mode ? focusedWid : widParam;
+  const effectiveWid = focusedWid;
   const [progress, setProgress] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [showSelectedTextToggle, setShowSelectedTextToggle] = useState(false);
@@ -278,6 +275,7 @@ const ReviewStatusOverlay: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${tokenParam}`,
         },
+        body: '{}',
       });
       const preCheck = await preCheckRes.json();
       if (!preCheck.canProceed) {
@@ -339,6 +337,7 @@ const ReviewStatusOverlay: React.FC = () => {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${tokenParam}`,
         },
+        body: '{}',
       });
       const data = await res.json();
       if (!data.success) {

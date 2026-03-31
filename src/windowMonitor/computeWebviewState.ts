@@ -28,56 +28,6 @@ export interface WebviewTypeConfig {
   computeFrame: (bounds: WindowBounds, screenHeight: number, contentBounds: WindowBounds | null, selectionBounds: WindowBounds | null, windowId?: string) => WebviewFrame | null;
 }
 
-export function computeWebviewState(
-  state: SystemState,
-  configs: WebviewTypeConfig[],
-  baseUrl: string,
-  authToken: string,
-  screenHeight: number,
-): DesiredWebviewState {
-  const result: DesiredWebviewState = {};
-
-  for (const app of state.apps) {
-    for (const window of app.windows) {
-      if (window.bounds === null) continue;
-
-      const visible = app.isFocused && window.isFocused && !window.isRepositioning && !window.isSelectionRepositioning;
-
-      for (const config of configs) {
-        if (config.forApp) {
-          const matches = typeof config.forApp === 'string'
-            ? app.identifier === config.forApp
-            : config.forApp(app.identifier);
-          if (!matches) continue;
-        }
-        const frame = config.computeFrame(window.bounds, screenHeight, window.contentBounds, window.selectionBounds, window.id);
-
-        const key = `${config.keyPrefix}-${window.id}`;
-        const separator = config.pathSuffix.includes('?') ? '&' : '?';
-        const url = `${baseUrl}${config.pathSuffix}${separator}pid=${app.pid}&wid=${window.id}&token=${authToken}`;
-
-        // Button, review button, and review status overlay should ignore repositioning flags to avoid flicker
-        const isStableButton = config.keyPrefix === 'button-v2' || config.keyPrefix === 'review-button' || config.keyPrefix === 'review-status-overlay' || config.keyPrefix === 'review-button-v3';
-        const isVisible = isStableButton ? (app.isFocused && window.isFocused) : visible;
-
-        const entry: WebviewEntryState = frame !== null
-          ? { url, visible: isVisible, frame }
-          : { url, visible: false, frame: { x: -10000, y: -10000, width: 1, height: 1 } };
-
-        if (config.ignoresMouseEvents) {
-          entry.ignoresMouseEvents = true;
-        }
-        if (config.makeKey) {
-          entry.makeKey = true;
-        }
-        result[key] = entry;
-      }
-    }
-  }
-
-  return result;
-}
-
 /**
  * Find the focused app and its focused window from the system state.
  * Returns null if no app or window is focused.
