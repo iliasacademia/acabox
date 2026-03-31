@@ -74,30 +74,6 @@ export function ConversationsPageWrapper({
     },
   }), []);
 
-  // Create conversations refresh callback that listens for review_completed events
-  const onRegisterConversationsRefresh = useMemo(() => {
-    return (refreshFn: () => void) => {
-      console.log('[ConversationsPageWrapper] Registering conversations refresh for review events');
-
-      // Listen for review_completed events and trigger refresh
-      const eventHandler = (_event: any, coScientistEvent: any) => {
-        if (coScientistEvent.event_name === 'review_completed') {
-          console.log('[ConversationsPageWrapper] Review completed, refreshing conversations list');
-          refreshFn();
-        }
-      };
-
-      // Register IPC listener
-      window.electronAPI.on(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
-
-      // Return cleanup function
-      return () => {
-        console.log('[ConversationsPageWrapper] Unregistering conversations refresh');
-        window.electronAPI.removeListener(IPC_CHANNELS.CO_SCIENTIST_EVENT, eventHandler);
-      };
-    };
-  }, []);
-
   // Create review state updates callback that listens for review lifecycle events
   const onRegisterReviewStateUpdates = useMemo(() => {
     return (updateFn: (state: 'idle' | 'full-reviewing' | 'diff-reviewing') => void) => {
@@ -146,7 +122,7 @@ export function ConversationsPageWrapper({
         initialConversationId={initialConversationId}
         onConversationNavigated={onConversationNavigated}
         pollingOptions={pollingOptions}
-        onRegisterConversationsRefresh={onRegisterConversationsRefresh}
+        onRegisterConversationsRefresh={undefined}
         onRegisterReviewStateUpdates={onRegisterReviewStateUpdates}
         initialOpenDiffModal={initialOpenDiffModal}
         onDiffModalOpened={onDiffModalOpened}

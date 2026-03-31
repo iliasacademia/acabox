@@ -661,7 +661,7 @@ export function ConversationsPage({
     setSelectedConversation(draft);
   };
 
-  const handleConversationCreated = (newConversation: Conversation) => {
+  const handleConversationCreated = useCallback((newConversation: Conversation) => {
     // Switch selection to real conversation but keep draft in sidebar
     // until the refresh completes — update draft with server timestamp so it appears now
     setSelectedConversation(newConversation);
@@ -669,48 +669,52 @@ export function ConversationsPage({
       prev ? { ...prev, created_at: newConversation.created_at } : null
     );
     setRefreshTrigger((prev) => prev + 1);
-  };
+  }, []);
 
-  const handleSidebarRefreshComplete = (conversations: Conversation[]) => {
+  const handleSidebarRefreshComplete = useCallback((conversations: Conversation[]) => {
     // Once the refreshed list is loaded, the real conversation is in the sidebar — clear draft
     setDraftConversation(null);
     setHasConversations(conversations.length > 0);
-  };
+  }, []);
 
-  const handleConversationUpdate = () => {
+  const handleConversationUpdate = useCallback(() => {
     // Trigger sidebar refresh when a message is sent
     setRefreshTrigger((prev) => prev + 1);
-  };
+  }, []);
 
-  const handleConversationsLoaded = (conversations: Conversation[]) => {
+  const pendingConversationIdRef = useRef(pendingConversationId);
+  pendingConversationIdRef.current = pendingConversationId;
+
+  const onConversationNavigatedRef = useRef(onConversationNavigated);
+  onConversationNavigatedRef.current = onConversationNavigated;
+
+  const handleConversationsLoaded = useCallback((conversations: Conversation[]) => {
     // Track if there are any conversations
     setHasConversations(conversations.length > 0);
     setConversationsLoaded(true);
 
     // If we have a pending conversation ID (from notification), select it from the list
-    if (pendingConversationId && conversations.length > 0) {
-      const targetConversation = conversations.find(c => c.id === pendingConversationId);
+    if (pendingConversationIdRef.current && conversations.length > 0) {
+      const targetConversation = conversations.find(c => c.id === pendingConversationIdRef.current);
       if (targetConversation) {
         setSelectedConversation(targetConversation);
         setPendingConversationId(null);
         // Clear the pending navigation after handling
-        if (onConversationNavigated) {
-          onConversationNavigated();
+        if (onConversationNavigatedRef.current) {
+          onConversationNavigatedRef.current();
         }
       } else {
         console.warn(
           "[ConversationsPage] Conversation not found in list:",
-          pendingConversationId,
+          pendingConversationIdRef.current,
         );
       }
       return;
     }
 
     // Auto-select the first conversation if none is selected
-    if (conversations.length > 0 && !selectedConversation) {
-      setSelectedConversation(prev => prev || conversations[0]);
-    }
-  };
+    setSelectedConversation(prev => prev || conversations[0]);
+  }, []);
 
   const handleFullReview = async () => {
     if (!selectedProject || !manuscriptFile) {

@@ -4484,3 +4484,111 @@
   background-color: #22C55E;
   transition: width 0.4s ease;
 }
+
+/* Quote blocks (blockquote / q) — original context vs assistant suggested */
+.htmlContent .quoteBlock {
+  position: relative;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 8px 0;
+  border-left: 3px solid;
+  cursor: pointer;
+  transition: filter 0.15s ease, box-shadow 0.15s ease;
+  font-style: italic;
+}
+
+.htmlContent .quoteBlock::before {
+  display: none;
+}
+
+.htmlContent .quoteBlock:hover {
+  filter: brightness(0.96);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+}
+
+/* Original context quotes (no source attribute) */
+.htmlContent .quoteOriginal {
+  background-color: #f0f0f5;
+  border-left-color: #9898b0;
+}
+
+.htmlContent .quoteOriginal:hover {
+  background-color: #e8e8f0;
+}
+
+/* Assistant suggested text quotes (source="assistant") */
+.htmlContent .quoteAssistant {
+  background-color: #eef2fb;
+  border-left-color: #5b7fc7;
+}
+
+.htmlContent .quoteAssistant:hover {
+  background-color: #e3eaf7;
+}
+
+/* Copied state — shown briefly after clicking */
+.htmlContent .quoteBlock.quoteCopied::after {
+  content: 'Copied';
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: white;
+  padding: 1px 8px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Inline q tags — same styling but inline */
+.htmlContent q.quoteBlock {
+  display: inline;
+  position: relative;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border-left: none;
+  margin: 0 2px;
+}
+
+.htmlContent q.quoteBlock::before {
+  display: none;
+}
+
+/* Hide default closing quote, but allow ::after for copied state */
+.htmlContent q.quoteBlock::after {
+  content: '';
+}
+
+.htmlContent q.quoteOriginal {
+  background-color: #f0f0f5;
+}
+
+.htmlContent q.quoteOriginal:hover {
+  background-color: #e8e8f0;
+}
+
+.htmlContent q.quoteAssistant {
+  background-color: #eef2fb;
+}
+
+.htmlContent q.quoteAssistant:hover {
+  background-color: #e3eaf7;
+}
+
+.htmlContent q.quoteBlock.quoteCopied::after {
+  content: 'Copied';
+  position: absolute;
+  top: -24px;
+  right: 0;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: white;
+  padding: 1px 8px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  white-space: nowrap;
+}
