@@ -262,9 +262,47 @@ const ReviewStatusOverlay: React.FC = () => {
     }
   };
 
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
   const handleSend = async () => {
     const sendWid = effectiveWid;
     if (!sendWid || isSubmitting) return;
+    setIsSubmitting(true);
+
+    // Pre-check: duplicate names and unsaved changes
+    try {
+      const preCheckRes = await fetch(`${serverUrl}/api/review-pre-check`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenParam}`,
+        },
+      });
+      const preCheck = await preCheckRes.json();
+      if (!preCheck.canProceed) {
+        if (preCheck.reason === 'duplicate_name') {
+          postBridge('showReviewError', { message: preCheck.message }, effectiveWid).catch(() => {});
+          setIsSubmitting(false);
+          return;
+        }
+        if (preCheck.reason === 'unsaved_changes') {
+          setShowSavePrompt(true);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('[ReviewStatusOverlay] Pre-check error:', err);
+      // Fail-open: continue with review
+    }
+
+    await triggerReview();
+  };
+
+  const triggerReview = async () => {
+    const sendWid = effectiveWid;
+    if (!sendWid) return;
     setIsSubmitting(true);
 
     try {
@@ -290,6 +328,38 @@ const ReviewStatusOverlay: React.FC = () => {
       postBridge('showReviewError', { message: 'Could not connect to the review service. Please check your internet connection and try again.' }, effectiveWid).catch(() => {});
       setIsSubmitting(false);
     }
+  };
+
+  const handleSaveAndContinue = async () => {
+    setIsSaving(true);
+    try {
+      const res = await fetch(`${serverUrl}/api/word-save`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenParam}`,
+        },
+      });
+      const data = await res.json();
+      if (!data.success) {
+        postBridge('showReviewError', { message: data.error || 'Failed to save document.' }, effectiveWid).catch(() => {});
+        setIsSaving(false);
+        setShowSavePrompt(false);
+        return;
+      }
+      setShowSavePrompt(false);
+      setIsSaving(false);
+      await triggerReview();
+    } catch (err) {
+      console.error('[ReviewStatusOverlay] Save error:', err);
+      postBridge('showReviewError', { message: 'Failed to save document.' }, effectiveWid).catch(() => {});
+      setIsSaving(false);
+      setShowSavePrompt(false);
+    }
+  };
+
+  const handleCancelSave = () => {
+    setShowSavePrompt(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -381,7 +451,27 @@ const ReviewStatusOverlay: React.FC = () => {
           )}
         </div>
 
-        {isInputMode ? (
+        {isInputMode && showSavePrompt ? (
+          <div className="review-save-prompt">
+            <div className="review-save-prompt-text">Reviewing requires saving the document.</div>
+            <div className="review-save-prompt-buttons">
+              <button
+                className="review-save-button-secondary"
+                onClick={handleCancelSave}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="review-save-button-primary"
+                onClick={handleSaveAndContinue}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Save and Continue'}
+              </button>
+            </div>
+          </div>
+        ) : isInputMode ? (
           <div className="review-input-section">
             <textarea
               ref={textareaRef}

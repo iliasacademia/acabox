@@ -5,7 +5,8 @@ use serde_json::{json, Value};
 use std::io;
 use std::thread;
 use std::time::Duration;
-use window_monitor_lib::accessibility;
+use std::collections::HashMap;
+use window_monitor_lib::{accessibility, applescript, window_list};
 
 fn default_bundle_id() -> String {
     "com.microsoft.Word".to_string()
@@ -38,6 +39,8 @@ impl Action {
             "save_document",
             "close_window",
             "open_window",
+            "pre_check",
+            "save_by_name",
         ];
         if !VALID_ACTIONS.contains(&self.action.as_str()) {
             return Err(format!("Unknown action: {}", self.action));
@@ -556,6 +559,151 @@ fn handle_open_window(action: &Action) -> Value {
     }
 }
 
+/// Extract the filename from a file:// URL (e.g. "file:///Users/foo/doc.docx" → "doc.docx").
+fn filename_from_file_url(url: &str) -> Option<String> {
+    let path = url
+        .strip_prefix("file://localhost")
+        .or_else(|| url.strip_prefix("file://"))
+        .unwrap_or(url);
+    // Percent-decode
+    let mut decoded = String::with_capacity(path.len());
+    let mut bytes = path.bytes();
+    while let Some(b) = bytes.next() {
+        if b == b'%' {
+            let hi = bytes.next().and_then(|c| (c as char).to_digit(16));
+            let lo = bytes.next().and_then(|c| (c as char).to_digit(16));
+            if let (Some(h), Some(l)) = (hi, lo) {
+                decoded.push((h * 16 + l) as u8 as char);
+            } else {
+                decoded.push('%');
+            }
+        } else {
+            decoded.push(b as char);
+        }
+    }
+    decoded.rsplit('/').next().map(|s| s.to_string()).filter(|s| !s.is_empty())
+}
+
+/// Get the document filename for a window by its CGWindowID.
+fn get_doc_filename_for_window(pid: i32, window_id: u32) -> Result<String, String> {
+    let app_element = accessibility::create_app_element(pid)
+        .ok_or("Failed to create AX app element")?;
+    let ax_window = accessibility::find_ax_window_by_id(&app_element, window_id)
+        .ok_or("Failed to find AX window by ID")?;
+    let doc_url = accessibility::get_document(&ax_window)
+        .ok_or("Window has no AXDocument attribute")?;
+    filename_from_file_url(&doc_url)
+        .ok_or("Could not extract filename from document URL".to_string())
+}
+
+fn handle_pre_check(action: &Action) -> Value {
+    let pid = match get_pid_for_bundle(&action.bundle_id) {
+        Some(pid) => pid,
+        None => return json!({"success": false, "action": "pre_check", "error": "Could not find PID for app"}),
+    };
+
+    // Get all window titles from CGWindowList
+    let cg_windows = window_list::get_windows_for_pid(pid);
+    let title_map: HashMap<u32, String> = cg_windows
+        .into_iter()
+        .filter_map(|w| w.name.map(|n| (w.window_id, n)))
+        .collect();
+
+    // Find the title for the target window
+    let target_title = match title_map.get(&action.window_id) {
+        Some(t) => t.clone(),
+        None => return json!({"success": false, "action": "pre_check", "error": "Window not found in CGWindowList"}),
+    };
+
+    // Duplicate check: count windows with the same title
+    let dup_count = title_map.values().filter(|t| **t == target_title).count();
+    if dup_count > 1 {
+        return json!({
+            "success": true,
+            "action": "pre_check",
+            "can_proceed": false,
+            "reason": "duplicate_name",
+            "message": format!("Multiple windows are named \"{}\". Close or rename duplicates to continue.", target_title)
+        });
+    }
+
+    // Get the document filename for the unsaved check
+    let doc_filename = match get_doc_filename_for_window(pid, action.window_id) {
+        Ok(name) => name,
+        Err(e) => {
+            // If we can't get the filename, fail-open (allow review to proceed)
+            eprintln!("pre_check: could not get doc filename: {}", e);
+            return json!({"success": true, "action": "pre_check", "can_proceed": true});
+        }
+    };
+
+    // Check unsaved changes by document name (no focus required)
+    let escaped = doc_filename.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!(
+        "tell application \"Microsoft Word\" to get (saved of document \"{}\") as string",
+        escaped
+    );
+    match applescript::run_applescript(&script) {
+        Ok(result) => {
+            if result.trim() != "true" {
+                return json!({
+                    "success": true,
+                    "action": "pre_check",
+                    "can_proceed": false,
+                    "reason": "unsaved_changes",
+                    "message": "Reviewing requires saving the document."
+                });
+            }
+        }
+        Err(e) => {
+            // Fail-open: if we can't check, allow review
+            eprintln!("pre_check: AppleScript error checking saved status: {}", e);
+        }
+    }
+
+    json!({"success": true, "action": "pre_check", "can_proceed": true})
+}
+
+fn handle_save_by_name(action: &Action) -> Value {
+    let pid = match get_pid_for_bundle(&action.bundle_id) {
+        Some(pid) => pid,
+        None => return json!({"success": false, "action": "save_by_name", "error": "Could not find PID for app"}),
+    };
+
+    let doc_filename = match get_doc_filename_for_window(pid, action.window_id) {
+        Ok(name) => name,
+        Err(e) => return json!({"success": false, "action": "save_by_name", "error": e}),
+    };
+
+    // Save by document name (no focus required)
+    let escaped = doc_filename.replace('\\', "\\\\").replace('"', "\\\"");
+    let save_script = format!(
+        "tell application \"Microsoft Word\" to save document \"{}\"",
+        escaped
+    );
+    if let Err(e) = applescript::run_applescript(&save_script) {
+        return json!({"success": false, "action": "save_by_name", "error": format!("Save failed: {}", e)});
+    }
+
+    // Verify saved status
+    let check_script = format!(
+        "tell application \"Microsoft Word\" to get (saved of document \"{}\") as string",
+        escaped
+    );
+    match applescript::run_applescript(&check_script) {
+        Ok(result) => {
+            if result.trim() == "true" {
+                json!({"success": true, "action": "save_by_name"})
+            } else {
+                json!({"success": false, "action": "save_by_name", "error": "Document still has unsaved changes after save"})
+            }
+        }
+        Err(e) => {
+            json!({"success": false, "action": "save_by_name", "error": format!("Could not verify save: {}", e)})
+        }
+    }
+}
+
 fn dispatch(action: &Action) -> Value {
     if action.activate {
         if let Err(e) = activate_and_raise_window(action) {
@@ -572,6 +720,8 @@ fn dispatch(action: &Action) -> Value {
         "save_document" => handle_save_document(action),
         "close_window" => handle_close_window(action),
         "open_window" => handle_open_window(action),
+        "pre_check" => handle_pre_check(action),
+        "save_by_name" => handle_save_by_name(action),
         _ => unreachable!("validate() ensures action is valid"),
     }
 }

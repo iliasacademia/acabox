@@ -27,6 +27,7 @@ import { registerAnalyticsRoutes } from './routes/analytics';
 import { registerBridgeRoutes } from './routes/bridge';
 import { registerSelectedTextReviewRoutes } from './routes/selectedTextReview';
 import { registerReviewRoutes } from './routes/reviewRoutes';
+import { registerReviewPreCheckRoutes } from './routes/reviewPreCheck';
 import { registerReviewPanelV3Routes } from './routes/reviewPanelV3';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
 import { registerFileDialogRoutes } from './routes/fileDialog';
@@ -255,6 +256,9 @@ export class AcademiaHttpServer {
 
     // Register review routes (full paper and diff)
     await registerReviewRoutes(this.fastify);
+
+    // Register review pre-check and save routes
+    await registerReviewPreCheckRoutes(this.fastify);
 
     // Register review panel V3 routes
     await registerReviewPanelV3Routes(this.fastify);
