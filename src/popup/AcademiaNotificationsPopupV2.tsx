@@ -14,6 +14,8 @@ import {
   widParam,
   pidParam,
   postBridge,
+  isV4Mode,
+  getV4FocusedWid,
   navigateToPage,
   CloseIcon,
   WidthToggleIcon,
@@ -118,6 +120,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // WebSocket-based polling
   const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
+  const effectiveWid = isV4Mode ? getV4FocusedWid() : widParam;
 
   // Derive review state from word poll data (pushed via WebSocket)
   useEffect(() => {
@@ -345,7 +348,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   };
 
   const handleGenerateShortReview = async () => {
-    if (!projectId || !fileId || !widParam) {
+    if (!projectId || !fileId || !effectiveWid) {
       console.error('[AcademiaNotificationsPopupV2] Missing project, file ID, or window ID');
       return;
     }
@@ -363,7 +366,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       }
 
       const response = await fetch(
-        `${serverUrl}/api/diff-review/${widParam}`,
+        `${serverUrl}/api/diff-review/${effectiveWid}`,
         {
           method: 'POST',
           headers,
@@ -387,7 +390,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   };
 
   const handleGenerateFullReview = async () => {
-    if (!projectId || !fileId || !widParam) {
+    if (!projectId || !fileId || !effectiveWid) {
       console.error('[AcademiaNotificationsPopupV2] Missing project, file ID, or window ID');
       return;
     }
@@ -405,7 +408,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       }
 
       const response = await fetch(
-        `${serverUrl}/api/full-paper-review/${widParam}`,
+        `${serverUrl}/api/full-paper-review/${effectiveWid}`,
         {
           method: 'POST',
           headers,
@@ -436,7 +439,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     let baseOffsetX = titleBarAccumulatedOffsetRef.current.dx;
     let baseOffsetY = titleBarAccumulatedOffsetRef.current.dy;
     try {
-      const res = await fetch(`${serverUrl}/api/drag-offset?wid=${widParam}`, {
+      const res = await fetch(`${serverUrl}/api/drag-offset?wid=${effectiveWid}`, {
         headers: tokenParam ? { Authorization: `Bearer ${tokenParam}` } : {},
       });
       if (res.ok) {

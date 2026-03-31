@@ -40,21 +40,24 @@ const serverUrl = window.location.origin;
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
 const pidParam = urlParams.get('pid');
+const isV4Mode = urlParams.get('mode') === 'v4';
 
-function postBridge(action: string, payload: Record<string, unknown> = {}) {
+function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
+  const effectiveWid = widOverride ?? widParam;
   return fetch(`${serverUrl}/bridge`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${tokenParam}`,
     },
-    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: widParam }),
+    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: effectiveWid }),
   });
 }
 
 interface PanelContext {
   selectedText: string | null;
   projectId: number | null;
+  wid?: string;
 }
 
 let draftIdCounter = -1;
@@ -64,6 +67,7 @@ const ReviewPanelV3: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [conversation, setConversation] = useState<Conversation | DraftConversation | null>(null);
   const [manuscriptFile, setManuscriptFile] = useState<ProjectFile | null>(null);
+  const effectiveWid = isV4Mode ? (context?.wid ?? null) : widParam;
 
   const popupApiClient = useMemo(
     () => new PopupApiClient(serverUrl, tokenParam),
@@ -72,7 +76,7 @@ const ReviewPanelV3: React.FC = () => {
 
   // Fetch context on mount
   useEffect(() => {
-    if (!widParam) {
+    if (!widParam && !isV4Mode) {
       setLoading(false);
       return;
     }
@@ -82,7 +86,10 @@ const ReviewPanelV3: React.FC = () => {
       headers['Authorization'] = `Bearer ${tokenParam}`;
     }
 
-    fetch(`${serverUrl}/api/review-panel-v3/${widParam}/context`, { headers })
+    const contextUrl = isV4Mode
+      ? `${serverUrl}/api/review-panel-v3/focused/context`
+      : `${serverUrl}/api/review-panel-v3/${widParam}/context`;
+    fetch(contextUrl, { headers })
       .then((res) => res.json())
       .then((data: PanelContext) => {
         setContext(data);
@@ -113,13 +120,16 @@ const ReviewPanelV3: React.FC = () => {
   // Re-fetch context when panel becomes visible again (hidden, not destroyed, on close)
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && widParam) {
+      if (document.visibilityState === 'visible' && (widParam || isV4Mode)) {
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
         if (tokenParam) {
           headers['Authorization'] = `Bearer ${tokenParam}`;
         }
 
-        fetch(`${serverUrl}/api/review-panel-v3/${widParam}/context`, { headers })
+        const contextUrl = isV4Mode
+          ? `${serverUrl}/api/review-panel-v3/focused/context`
+          : `${serverUrl}/api/review-panel-v3/${widParam}/context`;
+        fetch(contextUrl, { headers })
           .then((res) => res.json())
           .then((data: PanelContext) => {
             setContext(data);
@@ -166,7 +176,7 @@ const ReviewPanelV3: React.FC = () => {
   }, [context?.projectId, popupApiClient]);
 
   const handleClose = () => {
-    postBridge('closeReviewPanelV3').catch((err) => {
+    postBridge('closeReviewPanelV3', {}, effectiveWid).catch((err) => {
       console.error('[ReviewPanelV3] Failed to close panel:', err);
     });
   };

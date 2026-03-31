@@ -8,7 +8,17 @@ const popupUrlParams = new URLSearchParams(window.location.search);
 export const pidParam = popupUrlParams.get('pid');
 export const widParam = popupUrlParams.get('wid');
 export const tokenParam = popupUrlParams.get('token');
+export const modeParam = popupUrlParams.get('mode');
+export const isV4Mode = modeParam === 'v4';
 export const popupInstanceId = `AcademiaNotificationsPopupV2-${widParam || pidParam || Math.random().toString(36).substring(2, 8)}`;
+
+/**
+ * In v4 mode, tracks the currently focused window ID received from poll data.
+ * Used by postBridge() when no explicit widOverride is given and widParam is null.
+ */
+let _v4FocusedWid: string | null = null;
+export function setV4FocusedWid(wid: string | null) { _v4FocusedWid = wid; }
+export function getV4FocusedWid(): string | null { return _v4FocusedWid; }
 
 // ─── Height Constants ───────────────────────────────────────────────
 // Title bar height: 36px bar (eats the 24px top padding via negative margin) + 16px margin below = 28px net
@@ -82,6 +92,7 @@ export interface WordPollResponse {
   isUnsavedDocument?: boolean;
   reviewErrorMessage?: string;
   projectReviewState?: 'idle' | 'reviewing' | 'completed' | 'failed';
+  wid?: string;
 }
 
 export interface WebSocketMessage {
@@ -102,14 +113,15 @@ export interface NavigateRequest {
 }
 
 // ─── Utility Functions ──────────────────────────────────────────────
-export function postBridge(action: string, payload: Record<string, unknown> = {}) {
+export function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
+  const effectiveWid = widOverride ?? (isV4Mode ? _v4FocusedWid : widParam);
   return fetch(`${serverUrl}/bridge`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${tokenParam}`,
     },
-    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: widParam }),
+    body: JSON.stringify({ action, payload, pid: Number(pidParam), wid: effectiveWid }),
   });
 }
 

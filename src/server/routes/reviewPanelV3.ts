@@ -40,4 +40,36 @@ export async function registerReviewPanelV3Routes(fastify: FastifyInstance): Pro
       reply.send({ selectedText, projectId });
     }
   );
+
+  /**
+   * GET /api/review-panel-v3/focused/context
+   *
+   * V4: Get context for the currently focused window.
+   */
+  fastify.get(
+    '/api/review-panel-v3/focused/context',
+    async (
+      request: FastifyRequest,
+      reply: FastifyReply
+    ) => {
+      const wid = windowMonitorService.getFocusedWindowId();
+      if (!wid) {
+        reply.code(404).send({ error: 'NotFound', message: 'No focused window' });
+        return;
+      }
+      logger.info(`[ReviewPanelV3] GET /focused/context resolved wid=${wid}`);
+
+      const selectedText = windowMonitorService.getReviewPanelV3SelectedText(wid);
+      let projectId: number | null = null;
+      const docPath = windowMonitorService.getDocumentPathForWindow(wid);
+      if (docPath) {
+        const projectFile = wordIntegrationDataStoreV2.getProjectFileForPath(docPath);
+        if (projectFile) {
+          projectId = projectFile.project_id;
+        }
+      }
+
+      reply.send({ selectedText, projectId, wid });
+    }
+  );
 }

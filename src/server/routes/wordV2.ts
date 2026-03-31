@@ -12,6 +12,7 @@ import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
 import { WordProjectFileResponse } from '../types';
 import { buildWordPollResponseV2 } from '../services/buildWordPollResponseV2';
 import { getCachedUserData } from '../../userDataCache';
+import { defaultLogger as logger } from '../../utils/logger';
 
 /**
  * Register V2 Word integration routes on a Fastify instance
@@ -124,6 +125,45 @@ export async function registerWordV2Routes(
       } else {
         reply.send(response);
       }
+    }
+  );
+
+  /**
+   * GET /word/v4/focused/poll
+   *
+   * V4: Poll status for the currently focused window.
+   * Returns the same WordPollResponse as v2 but resolves the focused window
+   * automatically, and includes `wid` in the response so the React UI knows
+   * which window the data belongs to.
+   */
+  fastify.get(
+    '/word/v4/focused/poll',
+    async (
+      request: FastifyRequest,
+      reply: FastifyReply
+    ) => {
+      const focusedWid = windowMonitorService.getFocusedWindowId();
+      if (!focusedWid) {
+        reply.code(404).send({
+          error: 'NotFound',
+          message: 'No focused window',
+          statusCode: 404,
+        });
+        return;
+      }
+
+      const response = buildWordPollResponseV2(focusedWid, notificationManager, currentUserId);
+      const data: any = { ...response, wid: focusedWid };
+      if (fullStoryStaticConfig) {
+        const cached = getCachedUserData();
+        data.fullStoryConfig = {
+          ...fullStoryStaticConfig,
+          userId: cached?.id ?? (currentUserId ? currentUserId() : null),
+          email: cached?.email ?? '',
+          displayName: cached?.first_name || cached?.name || '',
+        };
+      }
+      reply.send(data);
     }
   );
 }

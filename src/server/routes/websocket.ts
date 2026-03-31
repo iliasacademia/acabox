@@ -19,12 +19,14 @@ import { TokenManager } from '../middleware/auth';
 import { defaultLogger as logger } from '../../utils/logger';
 import { getCachedUserData } from '../../userDataCache';
 import { FullStoryStaticConfig } from './wordV2';
+import { windowMonitorService } from '../../windowMonitorService';
 
 interface V2ClientInfo {
   wid: string;
 }
 
 const v2Clients = new Map<WebSocket, V2ClientInfo>();
+const v4FocusedClients = new Set<WebSocket>();
 
 /**
  * Register WebSocket routes on a Fastify instance.
@@ -70,6 +72,10 @@ export async function registerWebSocketRoutes(
       ws.close(1001, 'Server shutting down');
     }
     v2Clients.clear();
+    for (const ws of v4FocusedClients) {
+      ws.close(1001, 'Server shutting down');
+    }
+    v4FocusedClients.clear();
   });
 
   // V2 WebSocket route (wid-based)
@@ -121,6 +127,49 @@ export async function registerWebSocketRoutes(
       });
     }
   );
+
+  // V4 WebSocket route (focused window — no wid in URL)
+  fastify.get<{
+    Querystring: { token?: string };
+  }>(
+    '/ws/word/v4/focused',
+    { websocket: true },
+    (socket: WebSocket, request) => {
+      const token = (request.query as any).token as string | undefined;
+      if (!token || !tokenManager.isValidToken(token)) {
+        logger.warn('[WS-V4] Unauthorized connection attempt');
+        socket.close(4401, 'Unauthorized');
+        return;
+      }
+
+      v4FocusedClients.add(socket);
+      logger.debug(`[WS-V4] Focused client connected (total: ${v4FocusedClients.size})`);
+
+      // Send initial poll response for the currently focused window
+      sendPollToV4Client(socket, notificationManager, currentUserId, fullStoryStaticConfig);
+
+      socket.on('message', (raw: Buffer | string) => {
+        try {
+          const msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString());
+          if (msg.type === 'refresh') {
+            sendPollToV4Client(socket, notificationManager, currentUserId, fullStoryStaticConfig);
+          }
+        } catch {
+          // Ignore malformed messages
+        }
+      });
+
+      socket.on('close', () => {
+        v4FocusedClients.delete(socket);
+        logger.debug(`[WS-V4] Focused client disconnected (total: ${v4FocusedClients.size})`);
+      });
+
+      socket.on('error', (err) => {
+        logger.error('[WS-V4] Socket error:', err);
+        v4FocusedClients.delete(socket);
+      });
+    }
+  );
 }
 
 /**
@@ -156,7 +205,37 @@ function sendPollToV2Client(
 }
 
 /**
- * Broadcast updated poll responses to all connected V2 clients.
+ * Send a V4 poll response (focused window) to a single client.
+ */
+function sendPollToV4Client(
+  ws: WebSocket,
+  notificationManager?: any,
+  currentUserId?: () => number | null,
+  fullStoryStaticConfig?: FullStoryStaticConfig
+): void {
+  if (ws.readyState !== 1) return;
+  const focusedWid = windowMonitorService.getFocusedWindowId();
+  if (!focusedWid) return;
+  try {
+    const response = buildWordPollResponseV2(focusedWid, notificationManager, currentUserId);
+    let data: any = { ...response, wid: focusedWid };
+    if (fullStoryStaticConfig) {
+      const cached = getCachedUserData();
+      data.fullStoryConfig = {
+        ...fullStoryStaticConfig,
+        userId: cached?.id ?? (currentUserId ? currentUserId() : null),
+        email: cached?.email ?? '',
+        displayName: cached?.first_name || cached?.name || '',
+      };
+    }
+    ws.send(JSON.stringify({ type: 'poll', data }));
+  } catch (err) {
+    logger.error('[WS-V4] Error building focused poll response:', err);
+  }
+}
+
+/**
+ * Broadcast updated poll responses to all connected V2 and V4 clients.
  */
 function broadcastToAll(
   notificationManager?: any,
@@ -165,5 +244,8 @@ function broadcastToAll(
 ): void {
   for (const [ws, info] of v2Clients) {
     sendPollToV2Client(ws, info.wid, notificationManager, currentUserId, fullStoryStaticConfig);
+  }
+  for (const ws of v4FocusedClients) {
+    sendPollToV4Client(ws, notificationManager, currentUserId, fullStoryStaticConfig);
   }
 }
