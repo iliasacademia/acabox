@@ -25,6 +25,7 @@ interface WordPollResponse {
   selectedTextReviewStartedAt?: number;
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
+  hasSelectedText?: boolean;
   fullStoryConfig?: FullStoryConfig;
   wid?: string;
 }
@@ -47,13 +48,14 @@ function useWordPollWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): { badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; isEnableFeedback: boolean; focusedWid: string | null } {
+): { badgeCount: number; isReviewing: boolean; reviewStartedAt: number | null; shouldShowButtonV2: boolean; isEnableFeedback: boolean; focusedWid: string | null; hasSelectedText: boolean } {
   const [badgeCount, setBadgeCount] = useState(0);
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewStartedAt, setReviewStartedAt] = useState<number | null>(null);
   const [shouldShowButtonV2, setShouldShowButtonV2] = useState(false);
   const [isEnableFeedback, setIsEnableFeedback] = useState(false);
   const [focusedWid, setFocusedWid] = useState<string | null>(null);
+  const [hasSelectedText, setHasSelectedText] = useState(false);
 
   useEffect(() => {
     if ((!wid && !isV4Mode) || !token) {
@@ -75,6 +77,7 @@ function useWordPollWebSocket(
       setReviewStartedAt(data.selectedTextReviewStartedAt ?? null);
       setShouldShowButtonV2(data.shouldShowButtonV2 ?? false);
       setIsEnableFeedback(data.isEnableFeedback ?? false);
+      setHasSelectedText(data.hasSelectedText ?? false);
       if (data.wid) setFocusedWid(data.wid);
     }
 
@@ -194,7 +197,7 @@ function useWordPollWebSocket(
     };
   }, [wid, token, apiBaseUrl]);
 
-  return { badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, isEnableFeedback, focusedWid };
+  return { badgeCount, isReviewing, reviewStartedAt, shouldShowButtonV2, isEnableFeedback, focusedWid, hasSelectedText };
 }
 
 function postBridge(action: string, payload: Record<string, unknown>, widOverride?: string | null) {
@@ -229,7 +232,7 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
   } | null>(null);
   const didDragRef = useRef(false);
 
-  const { badgeCount, isReviewing, shouldShowButtonV2, isEnableFeedback, focusedWid } = useWordPollWebSocket(
+  const { badgeCount, isReviewing, shouldShowButtonV2, isEnableFeedback, focusedWid, hasSelectedText } = useWordPollWebSocket(
     widParam,
     tokenParam,
     serverUrl
@@ -346,11 +349,31 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
     }
   };
 
+  const handleReviewSelectionClick = async () => {
+    if (didDragRef.current) {
+      didDragRef.current = false;
+      return;
+    }
+    try {
+      await fetch(`${serverUrl}/bridge`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenParam}`,
+        },
+        body: JSON.stringify({ action: 'showReviewInputOverlay', payload: {}, pid: Number(pidParam), wid: effectiveWid }),
+      });
+    } catch (err) {
+      console.error('[AcademiaNotificationsButtonV2] Review selection click failed:', err);
+    }
+  };
+
   if (!shouldShowButtonV2) {
     return null;
   }
 
   const displayCount = badgeCount > 9 ? '9+' : badgeCount.toString();
+  const showReviewSelection = hasSelectedText && !isEnableFeedback;
 
   return (
     <div className="button-container">
@@ -388,6 +411,14 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           </div>
         )}
       </button>
+      {showReviewSelection && (
+        <button
+          className="review-selection-button"
+          onClick={handleReviewSelectionClick}
+        >
+          Review Selection
+        </button>
+      )}
     </div>
   );
 };

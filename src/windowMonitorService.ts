@@ -46,6 +46,7 @@ const REVIEW_V3_BOTTOM_MARGIN = 30;
 
 const REVIEWING_BUTTON_V2_WIDTH = 320;
 const ENABLE_FEEDBACK_BUTTON_WIDTH = 220;
+const BUTTON_WITH_REVIEW_WIDTH = 380;
 
 const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY === '1';
 const DEBUG_SELECTION_BOUNDS_OVERLAY = process.env.DEBUG_SELECTION_BOUNDS_OVERLAY === '1';
@@ -620,6 +621,11 @@ export class WindowMonitorService {
           if (!docPath || !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
             desiredState[key].frame.width = ENABLE_FEEDBACK_BUTTON_WIDTH;
           }
+        }
+        // Widen for "Review Selection" when text is selected
+        const selectedText = this.getSelectedTextForWindow(windowId);
+        if (selectedText && selectedText.length > 0) {
+          desiredState[key].frame.width = Math.max(desiredState[key].frame.width, BUTTON_WITH_REVIEW_WIDTH);
         }
       }
     }

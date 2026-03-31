@@ -70,6 +70,10 @@ export function buildWordPollResponseV2(
     }
   }
 
+  // Check if text is selected (regardless of bounds availability)
+  const selectedTextInfo = windowMonitorService.getSelectedTextForWindow(wid);
+  const hasSelectedText = selectedTextInfo !== null && selectedTextInfo.length > 0;
+
   // If no document path at all (unsaved file), show "Enable feedback" button but mark as unsaved
   if (!documentPath) {
     return {
@@ -85,6 +89,7 @@ export function buildWordPollResponseV2(
       shouldShowPopupV2,
       shouldShowReviewButton: false,
       shouldShowReviewStatusOverlay: false,
+      hasSelectedText,
     };
   }
 
@@ -105,6 +110,7 @@ export function buildWordPollResponseV2(
       shouldShowPopupV2,
       shouldShowReviewButton: false,
       shouldShowReviewStatusOverlay: false,
+      hasSelectedText,
     };
   }
 
@@ -219,5 +225,6 @@ export function buildWordPollResponseV2(
     isAwaitingReviewInput,
     reviewErrorMessage,
     projectReviewState,
+    hasSelectedText,
   };
 }
