@@ -1142,6 +1142,26 @@ export class WindowMonitorService {
     this.selectionClearTimers.clear();
     for (const timer of this.documentTextCacheCleanupTimers.values()) clearTimeout(timer);
     this.documentTextCacheCleanupTimers.clear();
+    this.reviewOverlayOpen.clear();
+    this.lastSelectionBounds.clear();
+    this.reviewErrorMessages.clear();
+    this.pendingAutoOpenPaths.clear();
+  }
+
+  restart(): void {
+    logger.info('[WindowMonitorService] Restarting...');
+    if (!this.baseUrl || !this.authToken) {
+      logger.warn('[WindowMonitorService] Cannot restart: service was never started');
+      return;
+    }
+    const baseUrl = this.baseUrl;
+    const authToken = this.authToken;
+    const allAppsEnabled = this.allAppsEnabled;
+    this.stop();
+    setTimeout(() => {
+      this.start(baseUrl, authToken, allAppsEnabled);
+      logger.info('[WindowMonitorService] Restart complete');
+    }, 3000);
   }
 }
 

@@ -441,6 +441,16 @@ const createTray = (): void => {
       click: () => {
         wordAccessibility.requestPermission();
       },
+    },
+    {
+      label: 'Reset App Monitoring',
+      click: () => {
+        try {
+          windowMonitorService.restart();
+        } catch (error) {
+          logger.error('[TRAY] Failed to reset app monitoring:', error);
+        }
+      },
     }
   );
 
