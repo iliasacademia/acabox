@@ -4,6 +4,18 @@ import DOMPurify from 'isomorphic-dompurify';
 import { Message, FollowUpQuestion, SearchFilesData, SearchFilesMatchedFile } from '../types/conversation';
 import { SearchFilesMessage } from './SearchFilesMessage';
 
+// Add classes to blockquote/q elements during sanitization so they survive re-renders
+DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+  if (node.tagName === 'BLOCKQUOTE' || node.tagName === 'Q') {
+    node.classList.add('quoteBlock');
+    if (node.getAttribute('source') === 'assistant') {
+      node.classList.add('quoteAssistant');
+    } else {
+      node.classList.add('quoteOriginal');
+    }
+  }
+});
+
 interface ConversationMessageProps {
   message: Message;
   onShowDiff?: () => void;
@@ -74,9 +86,20 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onOp
   const extractedQuestions = (message.data?.extracted_questions || message.data?.follow_up_actions) as FollowUpQuestion[] | undefined;
   const textPromptQuestions = extractedQuestions?.filter(q => q.type === 'text_prompt') || [];
 
-  // Handle clicks on links in HTML content
+  // Handle clicks on links and quotes in HTML content
   const handleHtmlClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
+    // Check if clicked element is a blockquote or q tag, or inside one
+    const quoteEl = target.closest('blockquote, q') as HTMLElement | null;
+    if (quoteEl) {
+      e.preventDefault();
+      const text = (quoteEl.textContent || '').replace(/\.{3,}|…/g, '').trim();
+      navigator.clipboard.writeText(text).then(() => {
+        quoteEl.classList.add('quoteCopied');
+        setTimeout(() => quoteEl.classList.remove('quoteCopied'), 2000);
+      });
+      return;
+    }
     if (target.tagName === 'A') {
       const href = target.getAttribute('href');
       if (href === '#show-diff' && onShowDiff) {
@@ -114,7 +137,7 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onOp
                     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
                     'ul', 'ol', 'li',
                     'a', 'img',
-                    'blockquote',
+                    'blockquote', 'q',
                     'table', 'thead', 'tbody', 'tr', 'th', 'td',
                     'div', 'span',
                     'sup', 'sub',   // citation superscripts, chemical subscripts
@@ -122,7 +145,7 @@ export function ConversationMessage({ message, onShowDiff, onQuestionClick, onOp
                     'abbr',         // abbreviations with title tooltip
                     'hr',           // section dividers
                   ],
-                  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel'],
+                  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'id', 'target', 'rel', 'source'],
                   ALLOW_DATA_ATTR: false,
                 }),
               }}
