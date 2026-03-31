@@ -17,6 +17,7 @@ import {
   WebviewTypeConfig,
 } from './windowMonitor/computeWebviewState';
 import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
+import { logToWindowMonitorDb } from './windowMonitorDb';
 
 const BUTTON_WIDTH = 210;
 const BUTTON_HEIGHT = 50;
@@ -344,6 +345,8 @@ export class WindowMonitorService {
         return;
       }
 
+      logToWindowMonitorDb('window_monitor_event', event);
+
       if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
         logger.info('[VERBOSE] [WindowMonitorService] Event:', event);
       }
@@ -397,6 +400,7 @@ export class WindowMonitorService {
         }
       }
       this.state = newState;
+      logToWindowMonitorDb('window_monitor_state', newState);
 
       // Track activity sessions
       if (FEATURES.SESSION_CAPTURE_ENABLED) {
@@ -704,6 +708,7 @@ export class WindowMonitorService {
       }
     }
     this.lastDesiredState = desiredState;
+    logToWindowMonitorDb('webview_manager_state', desiredState);
     if (visibilityChanged) {
       wordPollEventBus.emit('change', 'webview-visibility-changed');
     }
