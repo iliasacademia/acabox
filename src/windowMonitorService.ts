@@ -125,14 +125,14 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
 
         // Clamp selection bounds to visible content area so button appears
         // next to the visible portion of the selection, not off-screen.
-        const visibleX = Math.max(effectiveBounds.x, _contentBounds.x);
-        const visibleY = Math.max(effectiveBounds.y, _contentBounds.y);
+        const visibleX = Math.max(selectionBounds.x, _contentBounds.x);
+        const visibleY = Math.max(selectionBounds.y, _contentBounds.y);
         const visibleRight = Math.min(
-          effectiveBounds.x + effectiveBounds.width,
+          selectionBounds.x + selectionBounds.width,
           _contentBounds.x + _contentBounds.width
         );
         const visibleBottom = Math.min(
-          effectiveBounds.y + effectiveBounds.height,
+          selectionBounds.y + selectionBounds.height,
           _contentBounds.y + _contentBounds.height
         );
         const visibleWidth = visibleRight - visibleX;
