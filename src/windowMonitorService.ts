@@ -703,6 +703,27 @@ export class WindowMonitorService {
     return focused?.window.id ?? null;
   }
 
+  /**
+   * Find the tracked window ID for a given document path.
+   * Normalizes file:// URLs to plain paths for matching.
+   */
+  getWindowIdForDocumentPath(documentPath: string): string | null {
+    for (const app of this.state.apps) {
+      for (const win of app.windows) {
+        const raw = win.documentPath;
+        if (raw) {
+          const normalized = raw.startsWith('file://')
+            ? decodeURIComponent(raw.slice(7))
+            : raw;
+          if (normalized === documentPath) {
+            return win.id;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   togglePopupForWindow(windowId: string): void {
     const wasOpen = this.popupToggledOpen.has(windowId);
     if (wasOpen) {

@@ -62,6 +62,8 @@ export const IPC_CHANNELS = {
   PROCESS_WORD_WINDOW: "process-word-window",
   REFRESH_MANUSCRIPT_PATHS: "refresh-manuscript-paths",
   SCHEDULE_POPUP_AUTO_OPEN: "schedule-popup-auto-open",
+  REVIEW_PRE_CHECK: "review-pre-check",
+  WORD_SAVE_DOCUMENT: "word-save-document",
 
   // Sync operations
   REINITIALIZE_SYNC: "reinitialize-sync",

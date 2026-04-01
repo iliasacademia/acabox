@@ -73,6 +73,10 @@ export interface ConversationsPageProps {
   onRegisterReviewStateUpdates?: (
     updateFn: (state: "idle" | "full-reviewing" | "diff-reviewing") => void,
   ) => () => void;
+
+  // Whether to run pre-review checks (unsaved changes, duplicate window names).
+  // Only set to true in the Electron desktop app, not on web.
+  shouldPrecheck?: boolean;
 }
 
 export function ConversationsPage({
@@ -101,6 +105,7 @@ export function ConversationsPage({
   onRegisterConversationsRefresh,
   onRegisterReviewStateUpdates,
   initialView,
+  shouldPrecheck = false,
 }: ConversationsPageProps) {
   // Selected view type: conversation or supporting-materials
   const [selectedView, setSelectedView] = useState<'conversation' | 'supporting-materials'>(initialView ?? 'conversation');
@@ -126,6 +131,9 @@ export function ConversationsPage({
     "idle" | "full-reviewing" | "diff-reviewing" | "pending-scheduled"
   >("idle");
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pendingReviewType, setPendingReviewType] = useState<'full' | 'diff' | null>(null);
   const [recentlySynced, setRecentlySynced] = useState(false);
   const [syncIndicatorTimeout, setSyncIndicatorTimeout] = useState<ReturnType<
     typeof setTimeout
@@ -716,13 +724,45 @@ export function ConversationsPage({
     setSelectedConversation(prev => prev || conversations[0]);
   }, []);
 
-  const handleFullReview = async () => {
-    if (!selectedProject || !manuscriptFile) {
-      setReviewError("No manuscript file found");
-      return;
+  const runPreCheck = async (): Promise<{ canProceed: boolean; reason?: string; message?: string }> => {
+    console.log('[ConversationsPage] Running pre-check', shouldPrecheck);
+    if (!shouldPrecheck) return { canProceed: true };
+    try {
+      return await window.electronAPI.invoke(IPC_CHANNELS.REVIEW_PRE_CHECK, manuscriptFile?.file_path);
+    } catch (err) {
+      console.error('[ConversationsPage] Pre-check error:', err);
+      return { canProceed: true }; // fail-open
     }
+  };
 
-    // Track analytics
+  const handleSaveAndContinue = async () => {
+    setIsSaving(true);
+    try {
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.WORD_SAVE_DOCUMENT, manuscriptFile?.file_path);
+      if (!result.success) {
+        setReviewError(result.error || 'Failed to save document.');
+        setIsSaving(false);
+        setShowSaveConfirm(false);
+        return;
+      }
+      setShowSaveConfirm(false);
+      setIsSaving(false);
+      if (pendingReviewType === 'full') {
+        proceedFullReview();
+      } else if (pendingReviewType === 'diff') {
+        proceedDiffReview();
+      }
+    } catch (err) {
+      console.error('[ConversationsPage] Save error:', err);
+      setReviewError('Failed to save document.');
+      setIsSaving(false);
+      setShowSaveConfirm(false);
+    }
+  };
+
+  const proceedFullReview = async () => {
+    if (!selectedProject || !manuscriptFile) return;
+
     if (onTriggerFullReview) {
       onTriggerFullReview(selectedProject.id, manuscriptFile.id);
     }
@@ -734,14 +774,10 @@ export function ConversationsPage({
         selectedProject.id,
         manuscriptFile.id,
       );
-      // Completion is detected via review events
       markReviewInProgress("full");
     } catch (error: unknown) {
       const err = error as { message?: string };
-      console.error(
-        "[ConversationsPage] ❌ Error triggering full review:",
-        error,
-      );
+      console.error("[ConversationsPage] ❌ Error triggering full review:", error);
       const errorMsg = err.message || "Failed to trigger full review";
       setReviewError(errorMsg);
       setReviewingState("idle");
@@ -749,13 +785,9 @@ export function ConversationsPage({
     }
   };
 
-  const handleDiffReview = async () => {
-    if (!selectedProject || !manuscriptFile) {
-      setReviewError("No manuscript file found");
-      return;
-    }
+  const proceedDiffReview = async () => {
+    if (!selectedProject || !manuscriptFile) return;
 
-    // Track analytics
     if (onTriggerDiffReview) {
       onTriggerDiffReview(selectedProject.id, manuscriptFile.id);
     }
@@ -767,19 +799,59 @@ export function ConversationsPage({
         selectedProject.id,
         manuscriptFile.id,
       );
-      // Completion is detected via review events
       markReviewInProgress("diff");
     } catch (error: unknown) {
       const err = error as { message?: string };
-      console.error(
-        "[ConversationsPage] ❌ Error triggering diff review:",
-        error,
-      );
+      console.error("[ConversationsPage] ❌ Error triggering diff review:", error);
       const errorMsg = err.message || "Failed to trigger diff review";
       setReviewError(errorMsg);
       setReviewingState("idle");
       setIsReviewInProgress(false);
     }
+  };
+
+  const handleFullReview = async () => {
+    if (!selectedProject || !manuscriptFile) {
+      setReviewError("No manuscript file found");
+      return;
+    }
+    console.log('[ConversationsPage] Full review clicked');
+    const preCheck = await runPreCheck();
+    if (!preCheck.canProceed) {
+      if (preCheck.reason === 'duplicate_name') {
+        setReviewError(preCheck.message || 'Multiple windows have the same name.');
+        return;
+      }
+      if (preCheck.reason === 'unsaved_changes') {
+        setPendingReviewType('full');
+        setShowSaveConfirm(true);
+        return;
+      }
+    }
+
+    proceedFullReview();
+  };
+
+  const handleDiffReview = async () => {
+    if (!selectedProject || !manuscriptFile) {
+      setReviewError("No manuscript file found");
+      return;
+    }
+
+    const preCheck = await runPreCheck();
+    if (!preCheck.canProceed) {
+      if (preCheck.reason === 'duplicate_name') {
+        setReviewError(preCheck.message || 'Multiple windows have the same name.');
+        return;
+      }
+      if (preCheck.reason === 'unsaved_changes') {
+        setPendingReviewType('diff');
+        setShowSaveConfirm(true);
+        return;
+      }
+    }
+
+    proceedDiffReview();
   };
 
   const checkFileExists = async (filePath: string) => {
@@ -1115,6 +1187,23 @@ export function ConversationsPage({
       {/* Review Error */}
       {reviewError && <div className="reviewErrorMessage">{reviewError}</div>}
       {switchSuccessMessage && <div className="switchSuccessMessage">{switchSuccessMessage}</div>}
+
+      {/* Save Confirmation Dialog */}
+      {showSaveConfirm && (
+        <div className="wizardOverlay" onClick={() => { setShowSaveConfirm(false); setPendingReviewType(null); }}>
+          <div className="wizardModal" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
+            <button className="wizardClose" onClick={() => { setShowSaveConfirm(false); setPendingReviewType(null); }}>×</button>
+            <div className="wizardContent">
+              <h2 className="wizardTitle">Save Document</h2>
+              <p>Reviewing requires saving the document.</p>
+            </div>
+            <div className="wizardActions">
+              <button className="wizardButtonSecondary" onClick={() => { setShowSaveConfirm(false); setPendingReviewType(null); }} disabled={isSaving}>Cancel</button>
+              <button className="wizardButtonPrimary" onClick={handleSaveAndContinue} disabled={isSaving}>{isSaving ? 'Saving...' : 'Save and Continue'}</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Manuscript Feedback Section - always visible so sidebar is always accessible */}
       <div className="manuscriptFeedbackSection">

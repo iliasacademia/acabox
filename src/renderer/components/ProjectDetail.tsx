@@ -9,6 +9,7 @@ import {
 import { IPC_CHANNELS } from '../../shared/types';
 import { useCoScientistEvents } from '../hooks/useCoScientistEvents';
 import AlertDialog from './AlertDialog';
+import ConfirmDialog from './ConfirmDialog';
 
 interface ProjectDetailProps {
   project: Project;
@@ -19,7 +20,10 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
   const [manuscript, setManuscript] = useState<ProjectFile | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAlert, setShowAlert] = useState(false);
-  const [alertMessage] = useState('');
+  const [alertMessage, setAlertMessage] = useState('');
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [pendingReviewAction, setPendingReviewAction] = useState<'full' | 'changes' | null>(null);
   const [agentRun, setAgentRun] = useState<AgentRun | null>(null);
   const [reviewError, setReviewError] = useState<string | null>(null);
 
@@ -248,16 +252,70 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
     }
   };
 
-  const handleFullReview = async () => {
-    if (manuscript) {
-      await fetchReviewStatus(manuscript.id);
+  const runPreCheck = async (): Promise<{ canProceed: boolean; reason?: string; message?: string }> => {
+    try {
+      return await window.electronAPI.invoke(IPC_CHANNELS.REVIEW_PRE_CHECK);
+    } catch (err) {
+      console.error('[ProjectDetail] Pre-check error:', err);
+      return { canProceed: true }; // fail-open
     }
   };
 
-  const handleReviewChanges = () => {
-    // TODO: Implement review changes functionality
-    console.log('[ProjectDetail] Review changes clicked');
+  const proceedWithReview = async (type: 'full' | 'changes') => {
+    if (!manuscript) return;
+    if (type === 'full') {
+      await fetchReviewStatus(manuscript.id);
+    } else {
+      console.log('[ProjectDetail] Review changes clicked');
+    }
   };
+
+  const handlePreCheckAndReview = async (type: 'full' | 'changes') => {
+    console.log('[ProjectDetail] Pre-check and review clicked', type);
+    const preCheck = await runPreCheck();
+    if (!preCheck.canProceed) {
+      if (preCheck.reason === 'duplicate_name') {
+        setAlertMessage(preCheck.message || 'Multiple windows have the same name.');
+        setShowAlert(true);
+        return;
+      }
+      if (preCheck.reason === 'unsaved_changes') {
+        setPendingReviewAction(type);
+        setShowSaveConfirm(true);
+        return;
+      }
+    }
+    await proceedWithReview(type);
+  };
+
+  const handleSaveAndContinue = async () => {
+    setIsSaving(true);
+    try {
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.WORD_SAVE_DOCUMENT);
+      if (!result.success) {
+        setAlertMessage(result.error || 'Failed to save document.');
+        setShowAlert(true);
+        setIsSaving(false);
+        setShowSaveConfirm(false);
+        return;
+      }
+      setShowSaveConfirm(false);
+      setIsSaving(false);
+      if (pendingReviewAction) {
+        await proceedWithReview(pendingReviewAction);
+      }
+    } catch (err) {
+      console.error('[ProjectDetail] Save error:', err);
+      setAlertMessage('Failed to save document.');
+      setShowAlert(true);
+      setIsSaving(false);
+      setShowSaveConfirm(false);
+    }
+  };
+
+  const handleFullReview = () => handlePreCheckAndReview('full');
+
+  const handleReviewChanges = () => handlePreCheckAndReview('changes');
 
   return (
     <div className="projectDetail">
@@ -299,7 +357,7 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
             Open Folder
           </button>
           <button className="projectDetailPrimaryButton" onClick={handleFullReview}>
-            Full review
+            Full review XXX
           </button>
           <button className="projectDetailPrimaryButton" onClick={handleReviewChanges}>
             Review changes
@@ -353,6 +411,18 @@ const ProjectDetail: React.FC<ProjectDetailProps> = ({ project, onBack }) => {
           title="Notice"
           message={alertMessage}
           onClose={() => setShowAlert(false)}
+        />
+      )}
+
+      {/* Save Confirmation Dialog */}
+      {showSaveConfirm && (
+        <ConfirmDialog
+          title="Save Document"
+          message="Reviewing requires saving the document."
+          confirmLabel={isSaving ? 'Saving...' : 'Save and Continue'}
+          cancelLabel="Cancel"
+          onConfirm={handleSaveAndContinue}
+          onCancel={() => { setShowSaveConfirm(false); setPendingReviewAction(null); }}
         />
       )}
     </div>

@@ -501,7 +501,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
     try {
       const preCheck = await runPreCheck();
-      postBridge('showReviewError', { message: `DEBUG pre-check: ${JSON.stringify(preCheck)}` }).catch(() => {});
+      console.log('[AcademiaNotificationsPopupV2] Full review pre-check result:', preCheck);
       if (!preCheck.canProceed) {
         if (preCheck.reason === 'duplicate_name') {
           setReviewErrorMessage(preCheck.message || 'Multiple windows have the same name.');

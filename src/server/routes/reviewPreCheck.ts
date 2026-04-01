@@ -7,48 +7,9 @@
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { execFile } from 'child_process';
-import path from 'path';
-import { app } from 'electron';
-import { windowMonitorService } from '../../windowMonitorService';
 import { defaultLogger as logger } from '../../utils/logger';
-import { logToWindowMonitorDb } from '../../windowMonitorDb';
-
-function getWordActionsBinPath(): string {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'word-actions');
-  }
-  return path.join(app.getAppPath(), 'window-monitor', 'rust', 'target', 'release', 'word-actions');
-}
-
-function runWordAction(action: Record<string, unknown>): Promise<any> {
-  return new Promise((resolve, reject) => {
-    const binPath = getWordActionsBinPath();
-    const jsonArg = JSON.stringify(action);
-
-    logToWindowMonitorDb('word_actions_request', action);
-
-    execFile(binPath, ['--json', jsonArg], { timeout: 10000 }, (error, stdout, stderr) => {
-      if (stderr) {
-        logger.debug(`[ReviewPreCheck] word-actions stderr: ${stderr}`);
-      }
-      if (error) {
-        logger.error(`[ReviewPreCheck] word-actions error:`, error);
-        logToWindowMonitorDb('word_actions_response', { action: action.action, error: error.message });
-        reject(new Error(`word-actions failed: ${error.message}`));
-        return;
-      }
-      try {
-        const result = JSON.parse(stdout.trim());
-        logToWindowMonitorDb('word_actions_response', result);
-        resolve(result);
-      } catch (parseErr) {
-        logToWindowMonitorDb('word_actions_response', { action: action.action, error: `parse error: ${stdout}` });
-        reject(new Error(`Failed to parse word-actions output: ${stdout}`));
-      }
-    });
-  });
-}
+import { windowMonitorService } from '../../windowMonitorService';
+import { reviewPreCheck, wordSave } from '../wordActions';
 
 function getFocusedWindowNumericId(): number | null {
   const wid = windowMonitorService.getFocusedWindowId();
@@ -71,35 +32,8 @@ export async function registerReviewPreCheckRoutes(fastify: FastifyInstance): Pr
         return;
       }
 
-      logger.info(`[ReviewPreCheck] Pre-check for focused window ID: ${windowId}`);
-
-      try {
-        const result = await runWordAction({
-          action: 'pre_check',
-          window_id: windowId,
-        });
-
-        logger.info(`[ReviewPreCheck] Pre-check result:`, result);
-
-        if (!result.success) {
-          reply.code(500).send({
-            error: 'InternalServerError',
-            message: result.error || 'Pre-check failed',
-            statusCode: 500,
-          });
-          return;
-        }
-
-        reply.send({
-          canProceed: result.can_proceed,
-          reason: result.reason,
-          message: result.message,
-        });
-      } catch (err) {
-        logger.error('[ReviewPreCheck] Pre-check error:', err);
-        // Fail-open: if pre-check itself fails, allow review to proceed
-        reply.send({ canProceed: true });
-      }
+      const result = await reviewPreCheck(windowId);
+      reply.send(result);
     }
   );
 
@@ -109,30 +43,18 @@ export async function registerReviewPreCheckRoutes(fastify: FastifyInstance): Pr
       const windowId = getFocusedWindowNumericId();
       if (windowId === null) {
         reply.code(404).send({
-          error: 'NotFound',
-          message: 'No focused window',
-          statusCode: 404,
+          success: false,
+          error: 'No focused window',
         });
         return;
       }
 
-      try {
-        const result = await runWordAction({
-          action: 'save_by_name',
-          window_id: windowId,
-        });
-
-        reply.send({
-          success: result.success,
-          error: result.error,
-        });
-      } catch (err) {
-        logger.error('[ReviewPreCheck] Save error:', err);
-        reply.code(500).send({
-          success: false,
-          error: 'Failed to execute save',
-        });
+      const result = await wordSave(windowId);
+      if (!result.success) {
+        reply.code(500).send(result);
+        return;
       }
+      reply.send(result);
     }
   );
 

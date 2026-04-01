@@ -1053,6 +1053,33 @@ ipcMain.handle(IPC_CHANNELS.SCHEDULE_POPUP_AUTO_OPEN, (_event, filePath: string)
   }
 });
 
+ipcMain.handle(IPC_CHANNELS.REVIEW_PRE_CHECK, async (_event, filePath: string) => {
+  const { reviewPreCheck } = await import('./server/wordActions');
+  const wid = windowMonitorService.getWindowIdForDocumentPath(filePath);
+  if (!wid) {
+    logger.warn('[IPC] review-pre-check: no window found for path:', filePath);
+    return { canProceed: true }; // fail-open
+  }
+  const windowId = parseInt(wid, 10);
+  if (isNaN(windowId)) {
+    return { canProceed: true };
+  }
+  return reviewPreCheck(windowId);
+});
+
+ipcMain.handle(IPC_CHANNELS.WORD_SAVE_DOCUMENT, async (_event, filePath: string) => {
+  const { wordSave } = await import('./server/wordActions');
+  const wid = windowMonitorService.getWindowIdForDocumentPath(filePath);
+  if (!wid) {
+    return { success: false, error: 'No window found for path: ' + filePath };
+  }
+  const windowId = parseInt(wid, 10);
+  if (isNaN(windowId)) {
+    return { success: false, error: 'Invalid window ID' };
+  }
+  return wordSave(windowId);
+});
+
 // Feature flag IPC handlers
 ipcMain.handle(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED, async () => {
   return store.get('windowMonitorAllAppsEnabled', false);
