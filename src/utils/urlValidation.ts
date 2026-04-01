@@ -66,7 +66,7 @@ export function validateExternalUrl(
   }
 
   // Allow trusted app deep-link protocols that don't involve network requests
-  if (url.protocol === 'zotero:') {
+  if (url.protocol === 'zotero:' || url.protocol === 'x-apple.systempreferences:') {
     return { isValid: true };
   }
 
