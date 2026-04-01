@@ -132,6 +132,7 @@ export function ConversationsPage({
   >("idle");
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [pendingReviewType, setPendingReviewType] = useState<'full' | 'diff' | null>(null);
   const [recentlySynced, setRecentlySynced] = useState(false);
@@ -830,6 +831,11 @@ export function ConversationsPage({
         setShowSaveConfirm(true);
         return;
       }
+      if (preCheck.reason === 'permission_denied') {
+        setPendingReviewType('full');
+        setShowPermissionPrompt(true);
+        return;
+      }
     }
 
     proceedFullReview();
@@ -850,6 +856,11 @@ export function ConversationsPage({
       if (preCheck.reason === 'unsaved_changes') {
         setPendingReviewType('diff');
         setShowSaveConfirm(true);
+        return;
+      }
+      if (preCheck.reason === 'permission_denied') {
+        setPendingReviewType('diff');
+        setShowPermissionPrompt(true);
         return;
       }
     }
@@ -1204,6 +1215,35 @@ export function ConversationsPage({
               <button className="wizardButtonSecondary" onClick={() => { setShowSaveConfirm(false); setPendingReviewType(null); }} disabled={isSaving}>Cancel</button>
               <button className="wizardButtonSecondary" onClick={handleSaveAndContinue} disabled={isSaving}>{isSaving ? 'Saving...' : 'Save and Continue'}</button>
               <button className="wizardButtonPrimary" onClick={handleAlwaysSaveAndContinue} disabled={isSaving}>{isSaving ? 'Saving...' : 'Always Save and Continue'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPermissionPrompt && (
+        <div className="wizardOverlay" onClick={() => { setShowPermissionPrompt(false); setPendingReviewType(null); }}>
+          <div className="wizardModal" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
+            <button className="wizardClose" onClick={() => { setShowPermissionPrompt(false); setPendingReviewType(null); }}>&times;</button>
+            <div className="wizardContent">
+              <h2 className="wizardTitle">Automation Permission Required</h2>
+              <p>Unable to check for unsaved changes. Remember to save before reviewing.</p>
+            </div>
+            <div className="wizardActions">
+              <button className="wizardButtonSecondary" onClick={() => { setShowPermissionPrompt(false); setPendingReviewType(null); }}>Cancel</button>
+              <button className="wizardButtonSecondary" onClick={() => {
+                if (apiClient.openExternalUrl) {
+                  apiClient.openExternalUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_Automation');
+                }
+              }}>Enable Permissions</button>
+              <button className="wizardButtonPrimary" onClick={() => {
+                setShowPermissionPrompt(false);
+                if (pendingReviewType === 'full') {
+                  proceedFullReview();
+                } else if (pendingReviewType === 'diff') {
+                  proceedDiffReview();
+                }
+                setPendingReviewType(null);
+              }}>Continue Review</button>
             </div>
           </div>
         </div>
