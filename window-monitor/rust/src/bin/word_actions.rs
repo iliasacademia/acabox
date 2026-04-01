@@ -5,7 +5,6 @@ use serde_json::{json, Value};
 use std::io;
 use std::thread;
 use std::time::Duration;
-use std::collections::HashMap;
 use window_monitor_lib::{accessibility, applescript, window_list};
 
 fn default_bundle_id() -> String {
@@ -602,29 +601,30 @@ fn handle_pre_check(action: &Action) -> Value {
         None => return json!({"success": false, "action": "pre_check", "error": "Could not find PID for app"}),
     };
 
-    // Get all window titles from CGWindowList
+    // Get all windows from CGWindowList
     let cg_windows = window_list::get_windows_for_pid(pid);
-    let title_map: HashMap<u32, String> = cg_windows
-        .into_iter()
-        .filter_map(|w| w.name.map(|n| (w.window_id, n)))
-        .collect();
 
-    // Find the title for the target window
-    let target_title = match title_map.get(&action.window_id) {
-        Some(t) => t.clone(),
+    // Verify the target window exists in CGWindowList
+    let target_window = match cg_windows.iter().find(|w| w.window_id == action.window_id) {
+        Some(w) => w,
         None => return json!({"success": false, "action": "pre_check", "error": "Window not found in CGWindowList"}),
     };
 
-    // Duplicate check: count windows with the same title
-    let dup_count = title_map.values().filter(|t| **t == target_title).count();
-    if dup_count > 1 {
-        return json!({
-            "success": true,
-            "action": "pre_check",
-            "can_proceed": false,
-            "reason": "duplicate_name",
-            "message": format!("Multiple windows are named \"{}\". Close or rename duplicates to continue.", target_title)
-        });
+    // Duplicate check: only possible when window names are available
+    // (requires Screen Recording permission; names are null without it)
+    if let Some(ref target_title) = target_window.name {
+        let dup_count = cg_windows.iter()
+            .filter(|w| w.name.as_deref() == Some(target_title.as_str()))
+            .count();
+        if dup_count > 1 {
+            return json!({
+                "success": true,
+                "action": "pre_check",
+                "can_proceed": false,
+                "reason": "duplicate_name",
+                "message": format!("Multiple windows are named \"{}\". Close or rename duplicates to continue.", target_title)
+            });
+        }
     }
 
     // Get the document filename for the unsaved check
