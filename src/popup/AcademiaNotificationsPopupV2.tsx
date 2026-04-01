@@ -51,6 +51,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // State for save prompt before review
   const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [savePromptReviewType, setSavePromptReviewType] = useState<'diff' | 'full' | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -202,7 +203,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   useEffect(() => {
     let height: number;
 
-    if (showSavePrompt) {
+    if (showSavePrompt || showPermissionPrompt) {
       height = POPUP_HEIGHT_ENABLE_FEEDBACK; // Similar size to enable feedback view
     } else if (isEnableFeedback && isUnsavedDocument) {
       height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
@@ -246,7 +247,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         });
       }
     }
-  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, conversations, pollData, isWide, reviewErrorMessage, showSavePrompt]);
+  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, conversations, pollData, isWide, reviewErrorMessage, showSavePrompt, showPermissionPrompt]);
 
   // Handle clicking on a review notification card - show inline review
   const handleViewReviewFeedback = async (notification: NotificationData) => {
@@ -486,6 +487,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           setSavePromptReviewType('diff');
           return;
         }
+        if (preCheck.reason === 'permission_denied') {
+          setShowPermissionPrompt(true);
+          setSavePromptReviewType('diff');
+          return;
+        }
       }
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Pre-check error:', err);
@@ -513,6 +519,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         }
         if (preCheck.reason === 'unsaved_changes') {
           setShowSavePrompt(true);
+          setSavePromptReviewType('full');
+          return;
+        }
+        if (preCheck.reason === 'permission_denied') {
+          setShowPermissionPrompt(true);
           setSavePromptReviewType('full');
           return;
         }
@@ -688,7 +699,73 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           onPointerMove={handleResizePointerMove}
           onPointerUp={handleResizePointerUp}
         />
-        {showSavePrompt ? (
+        {showPermissionPrompt ? (
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: '15px', color: '#374151', lineHeight: '1.5' }}>
+              Unable to check for unsaved changes. Remember to save before reviewing.
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => { setShowPermissionPrompt(false); setSavePromptReviewType(null); }}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#FFFFFF',
+                  color: '#374151',
+                  border: '1px solid #D1D5DB',
+                  borderRadius: '8px',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  window.open('x-apple.systempreferences:com.apple.preference.security?Privacy_Automation');
+                }}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#FFFFFF',
+                  color: '#374151',
+                  border: '1px solid #D1D5DB',
+                  borderRadius: '8px',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                Enable Permissions
+              </button>
+              <button
+                onClick={() => {
+                  setShowPermissionPrompt(false);
+                  if (savePromptReviewType === 'diff') {
+                    triggerDiffReview();
+                  } else if (savePromptReviewType === 'full') {
+                    triggerFullReview();
+                  }
+                  setSavePromptReviewType(null);
+                }}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#000000',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                Continue Review
+              </button>
+            </div>
+          </div>
+        ) : showSavePrompt ? (
           <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: '15px', color: '#374151', lineHeight: '1.5' }}>
               Reviewing requires saving the document.

@@ -129,8 +129,16 @@ export async function reviewPreCheck(windowId: number): Promise<PreCheckResult> 
         };
       }
     } catch (asErr) {
+      const errMsg = (asErr as Error).message || '';
       logger.error('[WordActions] AppleScript saved-check error:', asErr);
-      return { canProceed: true }; // fail-open
+      if (errMsg.includes('-1743') || errMsg.includes('Not authorized')) {
+        return {
+          canProceed: false,
+          reason: 'permission_denied',
+          message: 'Unable to check for unsaved changes. Remember to save before reviewing.',
+        };
+      }
+      return { canProceed: true }; // fail-open for other errors
     }
 
     return { canProceed: true };
