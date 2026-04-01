@@ -93,22 +93,26 @@ impl DocumentTextTracker {
             }
             None => {
                 // First poll detecting text — start debounce so we read after stabilization.
-                // on_window_focused may have missed the initial read if accessibility wasn't ready.
+                // Preserve existing dirty_since if already set (e.g., by on_window_focused).
                 self.last_char_count = Some(char_count);
-                self.dirty_since = Some(Instant::now());
+                if self.dirty_since.is_none() {
+                    self.dirty_since = Some(Instant::now());
+                }
                 None
             }
         }
     }
 
-    /// Called when a window gains focus. Does an immediate read (no debounce).
+    /// Called when a window gains focus. Defers the read to the next poll cycle
+    /// to avoid blocking the main thread (and NSWorkspace notifications) with a
+    /// potentially slow AppleScript call.
     /// Skips re-read if the same window regains focus (e.g., after overlay click
     /// causes deactivation/reactivation), since the temp file already has valid
     /// content and the accessibility API may return incomplete data during rapid
     /// focus transitions.
     pub fn on_window_focused(
         &mut self,
-        app_element: &SafeAXUIElement,
+        _app_element: &SafeAXUIElement,
         window_id: u32,
     ) -> Option<DocumentTextChange> {
         let is_same_window = window_id == self.last_window_id;
@@ -122,22 +126,11 @@ impl DocumentTextTracker {
         self.last_content_hash = None;
         self.last_char_count = None;
 
-        let text_areas = self.find_text_areas(app_element, window_id);
-        if text_areas.is_empty() {
-            return None;
-        }
-        let char_count: i64 = text_areas
-            .iter()
-            .filter_map(|ta| accessibility::get_character_count(ta))
-            .sum();
-
-        if char_count == 0 {
-            self.last_char_count = Some(0);
-            return None;
-        }
-
-        self.last_char_count = Some(char_count);
-        self.read_and_write(app_element, &text_areas, window_id, char_count)
+        // Schedule an immediate read on the next poll cycle by setting dirty_since
+        // to the past. This avoids calling AppleScript inline in the notification
+        // callback, which could block the main thread indefinitely.
+        self.dirty_since = Some(Instant::now() - self.debounce_duration);
+        None
     }
 
     /// Update the bundle ID (e.g. when switching apps in all-app mode).

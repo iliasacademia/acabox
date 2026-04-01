@@ -3,7 +3,34 @@ use objc2::runtime::AnyObject;
 use objc2_foundation::NSString;
 
 /// Run an AppleScript string inline via NSAppleScript (no subprocess).
+/// Executes on a background thread with a timeout to avoid blocking the main
+/// thread (which would prevent NSWorkspace notifications from being processed).
 pub fn run_applescript(source: &str) -> Result<String, String> {
+    run_applescript_with_timeout(source, std::time::Duration::from_secs(5))
+}
+
+fn run_applescript_with_timeout(source: &str, timeout: std::time::Duration) -> Result<String, String> {
+    let source_owned = source.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        let result = run_applescript_sync(&source_owned);
+        let _ = tx.send(result);
+    });
+
+    match rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            eprintln!("run_applescript: timed out after {:?}", timeout);
+            Err(format!("AppleScript timed out after {:?}", timeout))
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+            Err("AppleScript thread panicked".to_string())
+        }
+    }
+}
+
+fn run_applescript_sync(source: &str) -> Result<String, String> {
     unsafe {
         let cls = objc2::class!(NSAppleScript);
         let source_ns = NSString::from_str(source);
