@@ -121,13 +121,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
         // Hide review button when overlay is open
         if (windowId && service['reviewOverlayOpen'].has(windowId)) return null;
 
-        // Use cached selection bounds if there's an active review and current selection is null
-        let effectiveBounds = selectionBounds;
-        if (!effectiveBounds && windowId && service['selectedTextReviewState'].has(windowId)) {
-          effectiveBounds = service['lastSelectionBounds'].get(windowId) || null;
-        }
-
-        if (!effectiveBounds) return null;
+        if (!selectionBounds) return null;
 
         // Clamp selection bounds to visible content area so button appears
         // next to the visible portion of the selection, not off-screen.
@@ -296,7 +290,6 @@ export class WindowMonitorService {
     reviewType: 'full-paper' | 'selected-text' | 'review-changes';
     selectedText?: string;
   }>();
-  private lastSelectionBounds = new Map<string, WindowBounds>();
   private documentTextContentCache = new Map<string, string>();
   private selectedTextContentCache = new Map<string, string>();
   private selectionClearTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -371,9 +364,6 @@ export class WindowMonitorService {
           if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
             logger.info('[VERBOSE] [WindowMonitorService] State:', deferredState);
           }
-          if (!this.selectedTextReviewState.has(windowId)) {
-            this.lastSelectionBounds.delete(windowId);
-          }
           this.pushWebviewState();
         }, 500);
         this.selectionClearTimers.set(windowId, timer);
@@ -417,9 +407,6 @@ export class WindowMonitorService {
         if (pendingTimer) {
           clearTimeout(pendingTimer);
           this.selectionClearTimers.delete(event.window.id);
-        }
-        if (event.selection.bounds) {
-          this.lastSelectionBounds.set(event.window.id, event.selection.bounds);
         }
       }
 
@@ -490,7 +477,6 @@ export class WindowMonitorService {
         this.popupSizeOverrides.delete(event.window.id);
         this.buttonV2WidthOverrides.delete(event.window.id);
         this.selectedTextReviewState.delete(event.window.id);
-        this.lastSelectionBounds.delete(event.window.id);
         this.reviewPanelV3Open.delete(event.window.id);
         this.reviewPanelV3SelectedText.delete(event.window.id);
         // Delay documentTextContentCache cleanup by 24h so the cache survives
@@ -778,7 +764,6 @@ export class WindowMonitorService {
   clearSelectedTextReviewState(windowId: string): void {
     this.selectedTextReviewState.delete(windowId);
     this.buttonV2WidthOverrides.delete(windowId);
-    this.lastSelectionBounds.delete(windowId);
     this.pushWebviewState();
   }
 
@@ -975,7 +960,6 @@ export class WindowMonitorService {
     for (const timer of this.documentTextCacheCleanupTimers.values()) clearTimeout(timer);
     this.documentTextCacheCleanupTimers.clear();
     this.reviewOverlayOpen.clear();
-    this.lastSelectionBounds.clear();
     this.reviewErrorMessages.clear();
     this.pendingAutoOpenPaths.clear();
   }
