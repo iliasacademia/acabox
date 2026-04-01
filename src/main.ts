@@ -2,7 +2,7 @@ import { app, BrowserWindow, ipcMain, dialog, screen, Tray, Menu, nativeImage, s
 import * as path from 'path';
 import * as fs from 'fs';
 import FormData from 'form-data';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { promisify } from 'util';
 import { autoUpdater } from 'electron-updater';
 import { store } from './appStore';
@@ -491,6 +491,42 @@ const positionWindowMiddleRight = (): void => {
   logger.debug(`[WINDOW] Positioned at middle-right: x=${x}, y=${y}`);
 };
 
+// Position Academia app on the left half and Word on the right half of the screen
+const arrangeSideBySideWithWord = (): void => {
+  if (process.platform !== 'darwin') return;
+  if (!mainWindow) return;
+
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
+  const workArea = primaryDisplay.workArea;
+  const halfWidth = Math.floor(screenWidth / 2);
+
+  // Move Academia app to left half
+  mainWindow.setBounds({ x: workArea.x, y: workArea.y, width: halfWidth, height: screenHeight }, true);
+  logger.info('[Window] Positioned Academia on left half of screen');
+
+  // Move Word to right half — poll until Word has a window open (up to ~5s)
+  const rightX = workArea.x + halfWidth;
+  const bottom = workArea.y + screenHeight;
+  const right = workArea.x + screenWidth;
+  execFile('osascript', [
+    '-e', 'repeat 10 times',
+    '-e', 'try',
+    '-e', 'tell application "Microsoft Word"',
+    '-e', 'if (count of windows) > 0 then',
+    '-e', `set bounds of window 1 to {${rightX}, ${workArea.y}, ${right}, ${bottom}}`,
+    '-e', 'exit repeat',
+    '-e', 'end if',
+    '-e', 'end tell',
+    '-e', 'end try',
+    '-e', 'delay 0.5',
+    '-e', 'end repeat',
+  ], (error) => {
+    if (error) logger.warn('[Window] Failed to position Word:', error.message);
+    else logger.info('[Window] Positioned Word on right half of screen');
+  });
+};
+
 // Auto-updater configuration and setup
 // Returns a Promise that resolves when the startup update check is complete.
 // During startup, updates are downloaded silently and installed before the window shows.
@@ -840,6 +876,7 @@ app.whenReady().then(async () => {
       }
       mainWindow.show();
       mainWindow.focus();
+      arrangeSideBySideWithWord();
 
       // Send navigation event to renderer
       mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
@@ -1219,6 +1256,10 @@ ipcMain.handle(IPC_CHANNELS.OPEN_FILE, async (_event, filePath: string, page?: n
       // result is an error string if it failed, empty string if success
       logger.error('[Main] Failed to open file:', result);
       return { success: false, error: result };
+    }
+    // Arrange side-by-side for Word documents
+    if (/\.docx?$/i.test(filePath)) {
+      arrangeSideBySideWithWord();
     }
     return { success: true };
   } catch (error: any) {
@@ -2426,6 +2467,7 @@ ipcMain.handle(IPC_CHANNELS.NAVIGATE_TO_PAGE, async (_event, payload: NavigateTo
     }
     mainWindow.show();
     mainWindow.focus();
+    arrangeSideBySideWithWord();
 
     // Send navigation event to renderer
     mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, payload);
