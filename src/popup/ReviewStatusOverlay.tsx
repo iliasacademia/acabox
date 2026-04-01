@@ -260,6 +260,7 @@ const ReviewStatusOverlay: React.FC = () => {
   };
 
   const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSend = async () => {
@@ -286,6 +287,11 @@ const ReviewStatusOverlay: React.FC = () => {
         }
         if (preCheck.reason === 'unsaved_changes') {
           setShowSavePrompt(true);
+          setIsSubmitting(false);
+          return;
+        }
+        if (preCheck.reason === 'permission_denied') {
+          setShowPermissionPrompt(true);
           setIsSubmitting(false);
           return;
         }
@@ -454,7 +460,40 @@ const ReviewStatusOverlay: React.FC = () => {
           )}
         </div>
 
-        {isInputMode && showSavePrompt ? (
+        {isInputMode && showPermissionPrompt ? (
+          <div className="review-save-prompt">
+            <div className="review-save-prompt-text">Unable to check for unsaved changes. Remember to save before reviewing.</div>
+            <div className="review-save-prompt-buttons">
+              <button
+                className="review-save-button-secondary"
+                onClick={() => setShowPermissionPrompt(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="review-save-button-secondary"
+                onClick={() => {
+                  fetch(`${serverUrl}/api/navigate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenParam}` },
+                    body: JSON.stringify({ page: 'external', url: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation' }),
+                  }).catch(() => {});
+                }}
+              >
+                Enable Permissions
+              </button>
+              <button
+                className="review-save-button-primary"
+                onClick={() => {
+                  setShowPermissionPrompt(false);
+                  triggerReview();
+                }}
+              >
+                Continue Review
+              </button>
+            </div>
+          </div>
+        ) : isInputMode && showSavePrompt ? (
           <div className="review-save-prompt">
             <div className="review-save-prompt-text">Reviewing requires saving the document.</div>
             <div className="review-save-prompt-buttons">
