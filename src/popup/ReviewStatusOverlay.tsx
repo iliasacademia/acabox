@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { onVisibilityChanged, cacheFullStoryConfig, FullStoryConfig } from './utils/fullstory';
+import { ReviewInputView } from './popupV2/ReviewInputView';
 import './ReviewStatusOverlay.css';
 
 const serverUrl = window.location.origin;
@@ -189,63 +190,18 @@ function useWordPoll(
 
 const ReviewStatusOverlay: React.FC = () => {
   const { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput, focusedWid } = useWordPoll(widParam, tokenParam, serverUrl);
-  const effectiveWid = focusedWid;
-  const [progress, setProgress] = React.useState(0);
-  const [isExpanded, setIsExpanded] = React.useState(false);
-  const [showSelectedTextToggle, setShowSelectedTextToggle] = useState(false);
-  const selectedTextRef = useRef<HTMLDivElement>(null);
-
-  // Input mode state
-  const [userPrompt, setUserPrompt] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    const el = selectedTextRef.current;
-    if (!el) return;
-    setShowSelectedTextToggle(el.scrollHeight > el.clientHeight);
-  }, [selectedText, isExpanded]);
 
   useEffect(() => {
     onVisibilityChanged('review-status-overlay', shouldShowReviewStatusOverlay);
   }, [shouldShowReviewStatusOverlay]);
 
-  // Auto-focus textarea in input mode
-  useEffect(() => {
-    if (isAwaitingReviewInput && textareaRef.current) {
-      textareaRef.current.focus();
-    }
-  }, [isAwaitingReviewInput]);
-
-  // Clear input state when overlay is hidden
-  useEffect(() => {
-    if (!shouldShowReviewStatusOverlay) {
-      setUserPrompt('');
-      setIsSubmitting(false);
-      setIsExpanded(false);
-    }
-  }, [shouldShowReviewStatusOverlay]);
-
-  // Simulate progress for reviewing mode
-  React.useEffect(() => {
-    if (shouldShowReviewStatusOverlay && reviewType) {
-      setProgress(0);
-      const interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(interval);
-            return 90;
-          }
-          return prev + Math.random() * 10;
-        });
-      }, 1000);
-      return () => clearInterval(interval);
-    }
-  }, [shouldShowReviewStatusOverlay, reviewType]);
+  if (!shouldShowReviewStatusOverlay || (!isAwaitingReviewInput && !reviewType)) {
+    return null;
+  }
 
   const handleBackClick = async () => {
     try {
-      await postBridge('openPopup', {}, effectiveWid);
+      await postBridge('openPopup', {}, focusedWid);
     } catch (err) {
       console.error('[ReviewStatusOverlay] Failed to open popup:', err);
     }
@@ -253,307 +209,22 @@ const ReviewStatusOverlay: React.FC = () => {
 
   const handleCloseClick = async () => {
     try {
-      await postBridge('clearReview', {}, effectiveWid);
+      await postBridge('clearReview', {}, focusedWid);
     } catch (err) {
       console.error('[ReviewStatusOverlay] Failed to clear review:', err);
     }
   };
 
-  const [showSavePrompt, setShowSavePrompt] = useState(false);
-  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSend = async () => {
-    const sendWid = effectiveWid;
-    if (!sendWid || isSubmitting) return;
-    setIsSubmitting(true);
-
-    // Pre-check: duplicate names and unsaved changes
-    try {
-      const preCheckRes = await fetch(`${serverUrl}/api/review-pre-check`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${tokenParam}`,
-        },
-        body: '{}',
-      });
-      const preCheck = await preCheckRes.json();
-      if (!preCheck.canProceed) {
-        if (preCheck.reason === 'duplicate_name') {
-          postBridge('showReviewError', { message: preCheck.message }, effectiveWid).catch(() => {});
-          setIsSubmitting(false);
-          return;
-        }
-        if (preCheck.reason === 'unsaved_changes') {
-          setShowSavePrompt(true);
-          setIsSubmitting(false);
-          return;
-        }
-        if (preCheck.reason === 'permission_denied') {
-          setShowPermissionPrompt(true);
-          setIsSubmitting(false);
-          return;
-        }
-      }
-    } catch (err) {
-      console.error('[ReviewStatusOverlay] Pre-check error:', err);
-      // Fail-open: continue with review
-    }
-
-    await triggerReview();
-  };
-
-  const triggerReview = async () => {
-    const sendWid = effectiveWid;
-    if (!sendWid) return;
-    setIsSubmitting(true);
-
-    try {
-      const res = await fetch(`${serverUrl}/api/selected-text-review/${sendWid}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${tokenParam}`,
-        },
-        body: JSON.stringify({ userPrompt: userPrompt.trim() || undefined }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        console.error('[ReviewStatusOverlay] Review request failed:', data);
-        postBridge('showReviewError', { message: data?.message || 'Something went wrong. Please try again.' }, effectiveWid).catch(() => {});
-        setIsSubmitting(false);
-        return;
-      }
-      console.log('[ReviewStatusOverlay] Review triggered successfully');
-      // Transition to reviewing mode happens via poll data
-    } catch (err) {
-      console.error('[ReviewStatusOverlay] Review request error:', err);
-      postBridge('showReviewError', { message: 'Could not connect to the review service. Please check your internet connection and try again.' }, effectiveWid).catch(() => {});
-      setIsSubmitting(false);
-    }
-  };
-
-  const doSaveAndContinue = async (alwaysSave: boolean) => {
-    setIsSaving(true);
-    try {
-      const url = alwaysSave ? `${serverUrl}/api/word-save?alwaysSave=true` : `${serverUrl}/api/word-save`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${tokenParam}`,
-        },
-        body: '{}',
-      });
-      const data = await res.json();
-      if (!data.success) {
-        postBridge('showReviewError', { message: data.error || 'Failed to save document.' }, effectiveWid).catch(() => {});
-        setIsSaving(false);
-        setShowSavePrompt(false);
-        return;
-      }
-      setShowSavePrompt(false);
-      setIsSaving(false);
-      await triggerReview();
-    } catch (err) {
-      console.error('[ReviewStatusOverlay] Save error:', err);
-      postBridge('showReviewError', { message: 'Failed to save document.' }, effectiveWid).catch(() => {});
-      setIsSaving(false);
-      setShowSavePrompt(false);
-    }
-  };
-
-  const handleSaveAndContinue = () => doSaveAndContinue(false);
-  const handleAlwaysSaveAndContinue = () => doSaveAndContinue(true);
-
-  const handleCancelSave = () => {
-    setShowSavePrompt(false);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
-
-  if (!shouldShowReviewStatusOverlay || (!isAwaitingReviewInput && !reviewType)) {
-    return null;
-  }
-
-  const isInputMode = isAwaitingReviewInput && !reviewType;
-
-  const getHeaderText = () => {
-    if (isInputMode) return 'Review selection';
-    switch (reviewType) {
-      case 'full-paper':
-        return 'Reviewing paper';
-      case 'review-changes':
-        return 'Reviewing changes';
-      case 'selected-text':
-      default:
-        return 'Reviewing selection';
-    }
-  };
-
   return (
     <div className="review-status-overlay-container">
-      <div className="review-status-card">
-        <div className="review-status-header">
-          <div className="review-status-header-left">
-            <button
-              className="review-status-back"
-              onClick={handleBackClick}
-              aria-label="Back"
-            >
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path
-                  d="M12 4L6 10L12 16"
-                  stroke="#141413"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-            <div className="review-status-title">{getHeaderText()}</div>
-          </div>
-          <button
-            className="review-status-close"
-            onClick={handleCloseClick}
-            aria-label="Close"
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M12 4L4 12M4 4L12 12"
-                stroke="#141413"
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        </div>
-        <div className="review-status-content">
-          {selectedText ? (
-            <>
-              <div
-                ref={selectedTextRef}
-                style={isExpanded
-                  ? { maxHeight: '100px', overflowY: 'auto' }
-                  : { display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }
-                }
-              >
-                {selectedText}
-              </div>
-              {showSelectedTextToggle && (
-                <button
-                  className="review-see-more"
-                  onClick={() => setIsExpanded(!isExpanded)}
-                >
-                  {isExpanded ? 'See less' : 'See more'}
-                </button>
-              )}
-            </>
-          ) : (
-            isInputMode ? 'Selected text' : 'Reviewing...'
-          )}
-        </div>
-
-        {isInputMode && showPermissionPrompt ? (
-          <div className="review-save-prompt">
-            <div className="review-save-prompt-text">Unable to check for unsaved changes. Remember to save before reviewing.</div>
-            <div className="review-save-prompt-buttons">
-              <button
-                className="review-save-button-secondary"
-                onClick={() => setShowPermissionPrompt(false)}
-              >
-                Cancel
-              </button>
-              <button
-                className="review-save-button-secondary"
-                onClick={() => {
-                  fetch(`${serverUrl}/api/navigate`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokenParam}` },
-                    body: JSON.stringify({ page: 'external', url: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation' }),
-                  }).catch(() => {});
-                }}
-              >
-                Enable Permissions
-              </button>
-              <button
-                className="review-save-button-primary"
-                onClick={() => {
-                  setShowPermissionPrompt(false);
-                  triggerReview();
-                }}
-              >
-                Continue Review
-              </button>
-            </div>
-          </div>
-        ) : isInputMode && showSavePrompt ? (
-          <div className="review-save-prompt">
-            <div className="review-save-prompt-text">Reviewing requires saving the document.</div>
-            <div className="review-save-prompt-buttons">
-              <button
-                className="review-save-button-secondary"
-                onClick={handleCancelSave}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-              <button
-                className="review-save-button-secondary"
-                onClick={handleSaveAndContinue}
-                disabled={isSaving}
-              >
-                {isSaving ? 'Saving...' : 'Save and Continue'}
-              </button>
-              <button
-                className="review-save-button-primary"
-                onClick={handleAlwaysSaveAndContinue}
-                disabled={isSaving}
-              >
-                {isSaving ? 'Saving...' : 'Always Save and Continue'}
-              </button>
-            </div>
-          </div>
-        ) : isInputMode ? (
-          <div className="review-input-section">
-            <textarea
-              ref={textareaRef}
-              className="review-input-area"
-              placeholder="Add instructions (optional)"
-              value={userPrompt}
-              onChange={(e) => setUserPrompt(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isSubmitting}
-              rows={2}
-            />
-            <button
-              className="review-send-button"
-              onClick={handleSend}
-              disabled={isSubmitting}
-              aria-label="Send"
-            >
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <path d="M3 9L15 9M15 9L10 4M15 9L10 14" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          </div>
-        ) : (
-          <div className="review-status-progress">
-            <div className="review-progress-bar">
-              <div className="review-progress-fill" style={{ width: `${progress}%` }} />
-            </div>
-            <div className="review-progress-footer">
-              <span className="review-progress-text">{Math.round(progress)}%</span>
-            </div>
-          </div>
-        )}
-      </div>
+      <ReviewInputView
+        selectedText={selectedText}
+        reviewType={reviewType}
+        isAwaitingReviewInput={isAwaitingReviewInput}
+        effectiveWid={focusedWid}
+        onBack={handleBackClick}
+        onClose={handleCloseClick}
+      />
     </div>
   );
 };

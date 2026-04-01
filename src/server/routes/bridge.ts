@@ -153,6 +153,7 @@ export async function registerBridgeRoutes(
         }
       } else if (action === 'showReviewInputOverlay' && wid) {
         windowMonitorService.openReviewOverlay(wid);
+        windowMonitorService.openPopupForWindow(wid);
       } else if (action === 'openReviewPanelV3' && wid) {
         windowMonitorService.openReviewPanelV3(wid);
       } else if (action === 'closeReviewPanelV3' && wid) {
