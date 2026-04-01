@@ -166,14 +166,12 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
 // Feature flags
 export const FEATURES: {
-  CONVERSATIONS_ENABLED: boolean;
   MS_WORD_INTEGRATION_ENABLED: boolean;
   MS_WORD_V2_ENABLED: boolean;
   ONBOARDING_V2_ENABLED: boolean;
   ONBOARDING_V3_ENABLED: boolean;
   SESSION_CAPTURE_ENABLED: boolean;
 } = {
-  CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
   MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
   MS_WORD_V2_ENABLED: true, // V2: new implementation
   ONBOARDING_V2_ENABLED: true, // V2 onboarding: single-file picker flow
