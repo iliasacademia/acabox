@@ -725,6 +725,12 @@ impl WindowMonitor {
             if wid == self.last_focused_window_id {
                 self.last_focused_window_id = 0;
                 self.last_content_bounds = None;
+                // Reset text selection tracker so new selections are detected
+                // after the window is recreated (otherwise the tracker compares
+                // against stale cached text and suppresses duplicate events).
+                if let Some(ref mut tracker) = self.text_selection {
+                    tracker.reset();
+                }
             }
         }
     }

@@ -15,10 +15,13 @@ import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
 import { defaultLogger as logger } from '../../utils/logger';
 import { wordPollEventBus } from '../events/wordPollEventBus';
 import { notificationManager } from '../../notificationManager';
+import { FEATURES } from '../../shared/types';
+import { reviewPreCheck, wordSave } from '../wordActions';
+import { projectSyncService } from '../../projectSyncService';
 
 interface ReviewCache {
   selectedText: string;
-  fullDocumentText: string;
+  fullDocumentText?: string;
   projectId: number;
   projectFileId: number;
   agentRunId: number;
@@ -119,55 +122,100 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
           }
         }
 
-        // Read document text — prefer in-memory cache, fall back to file
-        const documentTextInfo = windowMonitorService.getDocumentTextForWindow(wid);
-        if (!documentTextInfo) {
-          logger.warn(`[SelectedTextReview] No document text available for window ${wid}, documentPath: ${documentPath}`);
-          reply.code(400).send({
-            error: 'BadRequest',
-            message: 'No document text available',
-            statusCode: 400,
-          });
-          return;
-        }
+        let fullDocumentText: string | undefined;
 
-        let fullDocumentText: string;
-        const cachedDocContent = windowMonitorService.getDocumentTextContent(wid);
-        if (cachedDocContent) {
-          fullDocumentText = cachedDocContent;
-          logger.info(`[SelectedTextReview] Using cached document text for window ${wid}: ${fullDocumentText.length} bytes`);
+        if (FEATURES.SELECTION_REVIEW_V2_ENABLED) {
+          // V2: Backend reads the document file from S3, so we need to ensure it's saved and synced
+
+          // Step 2.5: Save check + save + sync
+          const numericWid = parseInt(wid, 10);
+          if (!isNaN(numericWid)) {
+            const preCheck = await reviewPreCheck(numericWid);
+            if (!preCheck.canProceed) {
+              if (preCheck.reason === 'unsaved_changes') {
+                logger.info(`[SelectedTextReview] V2: Document has unsaved changes, saving for window ${wid}`);
+                const saveResult = await wordSave(numericWid);
+                if (!saveResult.success) {
+                  logger.error(`[SelectedTextReview] V2: Failed to save document for window ${wid}: ${saveResult.error}`);
+                  reply.code(400).send({
+                    error: 'BadRequest',
+                    message: saveResult.error || 'Failed to save document before review',
+                    statusCode: 400,
+                  });
+                  return;
+                }
+                // Sync saved file to backend S3
+                try {
+                  await projectSyncService.syncFileOnce(project_id, documentPath);
+                  logger.info(`[SelectedTextReview] V2: File synced to backend for window ${wid}`);
+                } catch (syncErr) {
+                  logger.error('[SelectedTextReview] V2: Post-save sync error (non-fatal):', syncErr);
+                }
+              } else if (preCheck.reason === 'permission_denied') {
+                logger.warn(`[SelectedTextReview] V2: Permission denied for window ${wid}`);
+                reply.code(403).send({
+                  error: 'Forbidden',
+                  message: preCheck.message || 'Unable to check for unsaved changes. Remember to save before reviewing.',
+                  reason: 'permission_denied',
+                  statusCode: 403,
+                });
+                return;
+              }
+            }
+          }
+
+          // V2: Don't append user prompt to selected text — it's sent as user_instruction separately
+          logger.info(`[SelectedTextReview] V2: Uploading selectedText=${selectedText.length} bytes (no full document upload)`);
         } else {
-          try {
-            fullDocumentText = await fs.readFile(documentTextInfo.filePath, 'utf-8');
-            logger.info(`[SelectedTextReview] Using file document text for window ${wid}: ${fullDocumentText.length} bytes`);
-          } catch (err) {
-            logger.error('[SelectedTextReview] Failed to read document text temp file:', err);
-            reply.code(500).send({
-              error: 'InternalServerError',
-              message: 'Cannot read document text temp file',
-              statusCode: 500,
+          // V1: Read document text — prefer in-memory cache, fall back to file
+          const documentTextInfo = windowMonitorService.getDocumentTextForWindow(wid);
+          if (!documentTextInfo) {
+            logger.warn(`[SelectedTextReview] No document text available for window ${wid}, documentPath: ${documentPath}`);
+            reply.code(400).send({
+              error: 'BadRequest',
+              message: 'No document text available',
+              statusCode: 400,
             });
             return;
           }
-        }
 
-        if (fullDocumentText.length <= 1) {
-          logger.error(`[SelectedTextReview] Document text is trivially small (${fullDocumentText.length} bytes) for window ${wid}, aborting`);
-          reply.code(400).send({
-            error: 'BadRequest',
-            message: 'Document text is empty or trivially small',
-            statusCode: 400,
-          });
-          return;
-        }
+          const cachedDocContent = windowMonitorService.getDocumentTextContent(wid);
+          if (cachedDocContent) {
+            fullDocumentText = cachedDocContent;
+            logger.info(`[SelectedTextReview] Using cached document text for window ${wid}: ${fullDocumentText.length} bytes`);
+          } else {
+            try {
+              fullDocumentText = await fs.readFile(documentTextInfo.filePath, 'utf-8');
+              logger.info(`[SelectedTextReview] Using file document text for window ${wid}: ${fullDocumentText.length} bytes`);
+            } catch (err) {
+              logger.error('[SelectedTextReview] Failed to read document text temp file:', err);
+              reply.code(500).send({
+                error: 'InternalServerError',
+                message: 'Cannot read document text temp file',
+                statusCode: 500,
+              });
+              return;
+            }
+          }
 
-        // Append user prompt to selected text if provided
-        if (userPrompt) {
-          selectedText = selectedText + '\n\nUser Query:\n' + userPrompt;
-          logger.info(`[SelectedTextReview] Appended user prompt, new selectedText length=${selectedText.length} bytes`);
-        }
+          if (fullDocumentText.length <= 1) {
+            logger.error(`[SelectedTextReview] Document text is trivially small (${fullDocumentText.length} bytes) for window ${wid}, aborting`);
+            reply.code(400).send({
+              error: 'BadRequest',
+              message: 'Document text is empty or trivially small',
+              statusCode: 400,
+            });
+            return;
+          }
 
-        logger.info(`[SelectedTextReview] Uploading: selectedText=${selectedText.length} bytes, fullDocumentText=${fullDocumentText.length} bytes`);
+          // V1: Append user prompt to selected text
+          if (userPrompt) {
+            selectedText = selectedText + '\n\nUser Query:\n' + userPrompt;
+            logger.info(`[SelectedTextReview] Appended user prompt, new selectedText length=${selectedText.length} bytes`);
+          }
+
+          logger.info(`[SelectedTextReview] Uploading: selectedText=${selectedText.length} bytes, fullDocumentText=${fullDocumentText.length} bytes`);
+        }
 
         // Close the review input overlay and set reviewing state so UI transitions to progress mode
         windowMonitorService.closeReviewOverlay(wid);
@@ -175,96 +223,181 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
         windowMonitorService.setSelectedTextReviewState(wid, project_id, project_file_id, 'selected-text', selectedText);
         wordPollEventBus.emit('change', 'reviewing-state-changed');
 
-        // Step 3: Get presigned S3 URLs
+        // Step 3–5: Get presigned URLs, upload to S3, trigger review
         const client = await APIclient();
         const csrfToken = await getCsrfToken();
         const presignedUrlPath = `v0/co_scientist/projects/${project_id}/files/${project_file_id}/request_temp_file_presigned_s3_url`;
 
-        let selectedTextPresigned: any;
-        let fullDocumentPresigned: any;
-        try {
-          [selectedTextPresigned, fullDocumentPresigned] = await Promise.all([
-            client.post(presignedUrlPath, { filename: 'selected_text' }, {
+        let agentRunId: number;
+        let status: string;
+
+        if (FEATURES.SELECTION_REVIEW_V2_ENABLED) {
+          // V2: Only upload selected text, backend reads full document from S3
+
+          // Step 3 (V2): Get presigned URL for selected text only
+          let selectedTextPresigned: any;
+          try {
+            selectedTextPresigned = await client.post(presignedUrlPath, { filename: 'selected_text' }, {
               headers: { 'x-csrf-token': csrfToken, 'content-type': 'application/json' },
-            }),
-            client.post(presignedUrlPath, { filename: 'full_document' }, {
-              headers: { 'x-csrf-token': csrfToken, 'content-type': 'application/json' },
-            }),
-          ]);
-        } catch (err) {
-          const axiosErr = err as AxiosError;
-          logger.error('[SelectedTextReview] Failed to get presigned URLs:', axiosErr.message);
-          windowMonitorService.clearSelectedTextReviewState(wid);
-          wordPollEventBus.emit('change', 'reviewing-state-changed');
-          reply.code(502).send({
-            error: 'BadGateway',
-            message: 'Failed to get presigned S3 URLs from backend',
-            statusCode: 502,
-          });
-          return;
-        }
+            });
+          } catch (err) {
+            const axiosErr = err as AxiosError;
+            logger.error('[SelectedTextReview] V2: Failed to get presigned URL:', axiosErr.message);
+            windowMonitorService.clearSelectedTextReviewState(wid);
+            wordPollEventBus.emit('change', 'reviewing-state-changed');
+            reply.code(502).send({
+              error: 'BadGateway',
+              message: 'Failed to get presigned S3 URL from backend',
+              statusCode: 502,
+            });
+            return;
+          }
 
-        const selectedTextUrl = selectedTextPresigned.data.presigned_url;
-        const selectedTextS3Path = selectedTextPresigned.data.s3_key;
-        const fullDocumentUrl = fullDocumentPresigned.data.presigned_url;
-        const fullDocumentS3Path = fullDocumentPresigned.data.s3_key;
+          const selectedTextUrl = selectedTextPresigned.data.presigned_url;
+          const selectedTextS3Path = selectedTextPresigned.data.s3_key;
+          logger.info(`[SelectedTextReview] V2: Got presigned URL, S3 path: ${selectedTextS3Path}`);
 
-        logger.info(`[SelectedTextReview] Got presigned URLs for window ${wid}`);
-        logger.info(`[SelectedTextReview] S3 paths: selectedText=${selectedTextS3Path}, fullDocument=${fullDocumentS3Path}`);
-
-        // Step 4: Upload to S3 (plain axios, no cookie jar)
-        try {
-          await Promise.all([
-            axios.put(selectedTextUrl, selectedText, {
+          // Step 4 (V2): Upload selected text only
+          try {
+            await axios.put(selectedTextUrl, selectedText, {
               headers: { 'Content-Type': 'text/plain' },
-            }),
-            axios.put(fullDocumentUrl, fullDocumentText, {
-              headers: { 'Content-Type': 'text/plain' },
-            }),
-          ]);
-        } catch (err) {
-          const axiosErr = err as AxiosError;
-          logger.error('[SelectedTextReview] S3 upload failed:', axiosErr.message);
-          windowMonitorService.clearSelectedTextReviewState(wid);
-          wordPollEventBus.emit('change', 'reviewing-state-changed');
-          reply.code(502).send({
-            error: 'BadGateway',
-            message: 'Failed to upload to S3',
-            statusCode: 502,
-          });
-          return;
-        }
+            });
+          } catch (err) {
+            const axiosErr = err as AxiosError;
+            logger.error('[SelectedTextReview] V2: S3 upload failed:', axiosErr.message);
+            windowMonitorService.clearSelectedTextReviewState(wid);
+            wordPollEventBus.emit('change', 'reviewing-state-changed');
+            reply.code(502).send({
+              error: 'BadGateway',
+              message: 'Failed to upload to S3',
+              statusCode: 502,
+            });
+            return;
+          }
 
-        logger.info(`[SelectedTextReview] S3 upload complete for window ${wid}`);
+          logger.info(`[SelectedTextReview] V2: S3 upload complete for window ${wid}`);
 
-        // Step 5: Trigger review
-        let triggerResponse: any;
-        try {
-          triggerResponse = await client.post(
-            `v0/co_scientist/projects/${project_id}/files/${project_file_id}/trigger_selected_text_review`,
-            {
+          // Step 5 (V2): Trigger review with V2 endpoint
+          let triggerResponse: any;
+          try {
+            const triggerBody: Record<string, string> = {
               selected_text_s3_path: selectedTextS3Path,
-              full_document_s3_path: fullDocumentS3Path,
-            },
-            {
-              headers: { 'x-csrf-token': csrfToken, 'content-type': 'application/json' },
+            };
+            if (userPrompt) {
+              triggerBody.user_instruction = userPrompt;
             }
-          );
-        } catch (err) {
-          const axiosErr = err as AxiosError;
-          logger.error('[SelectedTextReview] Trigger review failed:', axiosErr.message);
-          windowMonitorService.clearSelectedTextReviewState(wid);
-          wordPollEventBus.emit('change', 'reviewing-state-changed');
-          reply.code(502).send({
-            error: 'BadGateway',
-            message: 'Failed to trigger review on backend',
-            statusCode: 502,
-          });
-          return;
-        }
+            triggerResponse = await client.post(
+              `v0/co_scientist/projects/${project_id}/files/${project_file_id}/trigger_selected_text_review_v2`,
+              triggerBody,
+              {
+                headers: { 'x-csrf-token': csrfToken, 'content-type': 'application/json' },
+              }
+            );
+          } catch (err) {
+            const axiosErr = err as AxiosError;
+            logger.error('[SelectedTextReview] V2: Trigger review failed:', axiosErr.message);
+            windowMonitorService.clearSelectedTextReviewState(wid);
+            wordPollEventBus.emit('change', 'reviewing-state-changed');
+            reply.code(502).send({
+              error: 'BadGateway',
+              message: 'Failed to trigger review on backend',
+              statusCode: 502,
+            });
+            return;
+          }
 
-        const agentRunId = triggerResponse.data.agent_run_id;
-        const status = triggerResponse.data.status;
+          agentRunId = triggerResponse.data.agent_run_id;
+          status = triggerResponse.data.status;
+        } else {
+          // V1: Upload both selected text and full document
+
+          // Step 3 (V1): Get presigned S3 URLs
+          let selectedTextPresigned: any;
+          let fullDocumentPresigned: any;
+          try {
+            [selectedTextPresigned, fullDocumentPresigned] = await Promise.all([
+              client.post(presignedUrlPath, { filename: 'selected_text' }, {
+                headers: { 'x-csrf-token': csrfToken, 'content-type': 'application/json' },
+              }),
+              client.post(presignedUrlPath, { filename: 'full_document' }, {
+                headers: { 'x-csrf-token': csrfToken, 'content-type': 'application/json' },
+              }),
+            ]);
+          } catch (err) {
+            const axiosErr = err as AxiosError;
+            logger.error('[SelectedTextReview] Failed to get presigned URLs:', axiosErr.message);
+            windowMonitorService.clearSelectedTextReviewState(wid);
+            wordPollEventBus.emit('change', 'reviewing-state-changed');
+            reply.code(502).send({
+              error: 'BadGateway',
+              message: 'Failed to get presigned S3 URLs from backend',
+              statusCode: 502,
+            });
+            return;
+          }
+
+          const selectedTextUrl = selectedTextPresigned.data.presigned_url;
+          const selectedTextS3Path = selectedTextPresigned.data.s3_key;
+          const fullDocumentUrl = fullDocumentPresigned.data.presigned_url;
+          const fullDocumentS3Path = fullDocumentPresigned.data.s3_key;
+
+          logger.info(`[SelectedTextReview] Got presigned URLs for window ${wid}`);
+          logger.info(`[SelectedTextReview] S3 paths: selectedText=${selectedTextS3Path}, fullDocument=${fullDocumentS3Path}`);
+
+          // Step 4 (V1): Upload to S3 (plain axios, no cookie jar)
+          try {
+            await Promise.all([
+              axios.put(selectedTextUrl, selectedText, {
+                headers: { 'Content-Type': 'text/plain' },
+              }),
+              axios.put(fullDocumentUrl, fullDocumentText!, {
+                headers: { 'Content-Type': 'text/plain' },
+              }),
+            ]);
+          } catch (err) {
+            const axiosErr = err as AxiosError;
+            logger.error('[SelectedTextReview] S3 upload failed:', axiosErr.message);
+            windowMonitorService.clearSelectedTextReviewState(wid);
+            wordPollEventBus.emit('change', 'reviewing-state-changed');
+            reply.code(502).send({
+              error: 'BadGateway',
+              message: 'Failed to upload to S3',
+              statusCode: 502,
+            });
+            return;
+          }
+
+          logger.info(`[SelectedTextReview] S3 upload complete for window ${wid}`);
+
+          // Step 5 (V1): Trigger review
+          let triggerResponse: any;
+          try {
+            triggerResponse = await client.post(
+              `v0/co_scientist/projects/${project_id}/files/${project_file_id}/trigger_selected_text_review`,
+              {
+                selected_text_s3_path: selectedTextS3Path,
+                full_document_s3_path: fullDocumentS3Path,
+              },
+              {
+                headers: { 'x-csrf-token': csrfToken, 'content-type': 'application/json' },
+              }
+            );
+          } catch (err) {
+            const axiosErr = err as AxiosError;
+            logger.error('[SelectedTextReview] Trigger review failed:', axiosErr.message);
+            windowMonitorService.clearSelectedTextReviewState(wid);
+            wordPollEventBus.emit('change', 'reviewing-state-changed');
+            reply.code(502).send({
+              error: 'BadGateway',
+              message: 'Failed to trigger review on backend',
+              statusCode: 502,
+            });
+            return;
+          }
+
+          agentRunId = triggerResponse.data.agent_run_id;
+          status = triggerResponse.data.status;
+        }
 
         // Step 6: Cache text
         reviewCache.set(wid, {
