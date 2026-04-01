@@ -1073,6 +1073,15 @@ ipcMain.handle(IPC_CHANNELS.REVIEW_PRE_CHECK, async (_event, filePath: string) =
     logger.info('[IPC] Auto-saving before review (alwaysSaveBeforeReview is enabled)');
     const saveResult = await wordSave(windowId);
     if (saveResult.success) {
+      // Sync file to backend before proceeding with review
+      try {
+        const projectFile = wordIntegrationDataStoreV2.getProjectFileForPath(filePath);
+        if (projectFile) {
+          await projectSyncService.syncFileOnce(projectFile.project_id, filePath);
+        }
+      } catch (syncErr) {
+        logger.error('[IPC] Post-save sync error (non-fatal):', syncErr);
+      }
       return { canProceed: true };
     }
     // If auto-save failed, fall through to show the prompt
@@ -1094,7 +1103,19 @@ ipcMain.handle(IPC_CHANNELS.WORD_SAVE_DOCUMENT, async (_event, filePath: string,
     store.set('alwaysSaveBeforeReview', true);
     logger.info('[IPC] Setting alwaysSaveBeforeReview to true');
   }
-  return wordSave(windowId);
+  const result = await wordSave(windowId);
+  if (result.success) {
+    // Sync file to backend before returning so review uses latest content
+    try {
+      const projectFile = wordIntegrationDataStoreV2.getProjectFileForPath(filePath);
+      if (projectFile) {
+        await projectSyncService.syncFileOnce(projectFile.project_id, filePath);
+      }
+    } catch (syncErr) {
+      logger.error('[IPC] Post-save sync error (non-fatal):', syncErr);
+    }
+  }
+  return result;
 });
 
 ipcMain.handle(IPC_CHANNELS.GET_ALWAYS_SAVE_BEFORE_REVIEW, async () => {

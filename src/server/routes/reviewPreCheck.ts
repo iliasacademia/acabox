@@ -9,6 +9,8 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { defaultLogger as logger } from '../../utils/logger';
 import { windowMonitorService } from '../../windowMonitorService';
+import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
+import { projectSyncService } from '../../projectSyncService';
 import { store } from '../../appStore';
 import { reviewPreCheck, wordSave } from '../wordActions';
 
@@ -40,6 +42,17 @@ export async function registerReviewPreCheckRoutes(fastify: FastifyInstance): Pr
         logger.info('[ReviewPreCheck] Auto-saving before review (alwaysSaveBeforeReview is enabled)');
         const saveResult = await wordSave(windowId);
         if (saveResult.success) {
+          // Sync file to backend before proceeding with review
+          try {
+            const wid = windowMonitorService.getFocusedWindowId();
+            const filePath = wid ? windowMonitorService.getDocumentPathForWindow(wid) : null;
+            const projectFile = filePath ? wordIntegrationDataStoreV2.getProjectFileForPath(filePath) : null;
+            if (filePath && projectFile) {
+              await projectSyncService.syncFileOnce(projectFile.project_id, filePath);
+            }
+          } catch (syncErr) {
+            logger.error('[ReviewPreCheck] Post-save sync error (non-fatal):', syncErr);
+          }
           reply.send({ canProceed: true });
           return;
         }
@@ -72,6 +85,17 @@ export async function registerReviewPreCheckRoutes(fastify: FastifyInstance): Pr
       if (!result.success) {
         reply.code(500).send(result);
         return;
+      }
+      // Sync file to backend before returning so review uses latest content
+      try {
+        const wid = windowMonitorService.getFocusedWindowId();
+        const filePath = wid ? windowMonitorService.getDocumentPathForWindow(wid) : null;
+        const projectFile = filePath ? wordIntegrationDataStoreV2.getProjectFileForPath(filePath) : null;
+        if (filePath && projectFile) {
+          await projectSyncService.syncFileOnce(projectFile.project_id, filePath);
+        }
+      } catch (syncErr) {
+        logger.error('[ReviewPreCheck] Post-save sync error (non-fatal):', syncErr);
       }
       reply.send(result);
     }
