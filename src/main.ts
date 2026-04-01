@@ -692,6 +692,12 @@ function setupAutoUpdater(): Promise<UpdateResult> {
       });
     });
 
+    // Restart app monitoring on wake to clear stale webview panels
+    powerMonitor.on('resume', () => {
+      logger.info('[WindowMonitorService] System resumed from sleep, restarting app monitoring...');
+      windowMonitorService.restart();
+    });
+
     // Check for updates when screen is unlocked (covers lock-without-sleep case)
     powerMonitor.on('unlock-screen', () => {
       logger.info('[Auto-Updater] Screen unlocked, checking for updates...');
