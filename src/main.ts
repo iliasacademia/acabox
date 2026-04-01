@@ -5,7 +5,7 @@ import FormData from 'form-data';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { autoUpdater } from 'electron-updater';
-import Store from 'electron-store';
+import { store } from './appStore';
 import AutoLaunch from 'auto-launch';
 import { defaultLogger as logger, getChannelFromVersion } from './utils/logger';
 import { login, logout, checkLogin, APIclient, getCsrfToken } from './apiClient';
@@ -83,10 +83,7 @@ const SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'tex',
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
-// Initialize electron-store for app settings (empty for now, reserved for future settings)
-const store = new Store({
-  name: app.isPackaged ? 'config' : 'config-dev',
-});
+// Re-export store is imported from ./appStore
 
 
 // Clean up deprecated updateChannel preference from electron-store
@@ -1054,7 +1051,7 @@ ipcMain.handle(IPC_CHANNELS.SCHEDULE_POPUP_AUTO_OPEN, (_event, filePath: string)
 });
 
 ipcMain.handle(IPC_CHANNELS.REVIEW_PRE_CHECK, async (_event, filePath: string) => {
-  const { reviewPreCheck } = await import('./server/wordActions');
+  const { reviewPreCheck, wordSave } = await import('./server/wordActions');
   const wid = windowMonitorService.getWindowIdForDocumentPath(filePath);
   if (!wid) {
     logger.warn('[IPC] review-pre-check: no window found for path:', filePath);
@@ -1064,10 +1061,20 @@ ipcMain.handle(IPC_CHANNELS.REVIEW_PRE_CHECK, async (_event, filePath: string) =
   if (isNaN(windowId)) {
     return { canProceed: true };
   }
-  return reviewPreCheck(windowId);
+  const result = await reviewPreCheck(windowId);
+  // Auto-save if "always save before review" is enabled
+  if (!result.canProceed && result.reason === 'unsaved_changes' && store.get('alwaysSaveBeforeReview', false)) {
+    logger.info('[IPC] Auto-saving before review (alwaysSaveBeforeReview is enabled)');
+    const saveResult = await wordSave(windowId);
+    if (saveResult.success) {
+      return { canProceed: true };
+    }
+    // If auto-save failed, fall through to show the prompt
+  }
+  return result;
 });
 
-ipcMain.handle(IPC_CHANNELS.WORD_SAVE_DOCUMENT, async (_event, filePath: string) => {
+ipcMain.handle(IPC_CHANNELS.WORD_SAVE_DOCUMENT, async (_event, filePath: string, alwaysSave?: boolean) => {
   const { wordSave } = await import('./server/wordActions');
   const wid = windowMonitorService.getWindowIdForDocumentPath(filePath);
   if (!wid) {
@@ -1076,6 +1083,10 @@ ipcMain.handle(IPC_CHANNELS.WORD_SAVE_DOCUMENT, async (_event, filePath: string)
   const windowId = parseInt(wid, 10);
   if (isNaN(windowId)) {
     return { success: false, error: 'Invalid window ID' };
+  }
+  if (alwaysSave) {
+    store.set('alwaysSaveBeforeReview', true);
+    logger.info('[IPC] Setting alwaysSaveBeforeReview to true');
   }
   return wordSave(windowId);
 });

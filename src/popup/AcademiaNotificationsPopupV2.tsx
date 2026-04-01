@@ -366,14 +366,15 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     return res.json();
   };
 
-  const handleSaveAndContinue = async () => {
+  const doSaveAndContinue = async (alwaysSave: boolean) => {
     setIsSaving(true);
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (tokenParam) {
         headers['Authorization'] = `Bearer ${tokenParam}`;
       }
-      const res = await fetch(`${serverUrl}/api/word-save`, {
+      const url = alwaysSave ? `${serverUrl}/api/word-save?alwaysSave=true` : `${serverUrl}/api/word-save`;
+      const res = await fetch(url, {
         method: 'POST',
         headers,
         body: '{}',
@@ -400,6 +401,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       setShowSavePrompt(false);
     }
   };
+
+  const handleSaveAndContinue = () => doSaveAndContinue(false);
+  const handleAlwaysSaveAndContinue = () => doSaveAndContinue(true);
 
   const handleCancelSave = () => {
     setShowSavePrompt(false);
@@ -713,6 +717,24 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 disabled={isSaving}
                 style={{
                   padding: '8px 16px',
+                  backgroundColor: '#FFFFFF',
+                  color: '#374151',
+                  border: '1px solid #D1D5DB',
+                  borderRadius: '8px',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  opacity: isSaving ? 0.5 : 1,
+                }}
+              >
+                {isSaving ? 'Saving...' : 'Save and Continue'}
+              </button>
+              <button
+                onClick={handleAlwaysSaveAndContinue}
+                disabled={isSaving}
+                style={{
+                  padding: '8px 16px',
                   backgroundColor: '#000000',
                   color: '#FFFFFF',
                   border: 'none',
@@ -724,7 +746,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                   opacity: isSaving ? 0.7 : 1,
                 }}
               >
-                {isSaving ? 'Saving...' : 'Save and Continue'}
+                {isSaving ? 'Saving...' : 'Always Save and Continue'}
               </button>
             </div>
           </div>

@@ -328,10 +328,11 @@ const ReviewStatusOverlay: React.FC = () => {
     }
   };
 
-  const handleSaveAndContinue = async () => {
+  const doSaveAndContinue = async (alwaysSave: boolean) => {
     setIsSaving(true);
     try {
-      const res = await fetch(`${serverUrl}/api/word-save`, {
+      const url = alwaysSave ? `${serverUrl}/api/word-save?alwaysSave=true` : `${serverUrl}/api/word-save`;
+      const res = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -356,6 +357,9 @@ const ReviewStatusOverlay: React.FC = () => {
       setShowSavePrompt(false);
     }
   };
+
+  const handleSaveAndContinue = () => doSaveAndContinue(false);
+  const handleAlwaysSaveAndContinue = () => doSaveAndContinue(true);
 
   const handleCancelSave = () => {
     setShowSavePrompt(false);
@@ -462,11 +466,18 @@ const ReviewStatusOverlay: React.FC = () => {
                 Cancel
               </button>
               <button
-                className="review-save-button-primary"
+                className="review-save-button-secondary"
                 onClick={handleSaveAndContinue}
                 disabled={isSaving}
               >
                 {isSaving ? 'Saving...' : 'Save and Continue'}
+              </button>
+              <button
+                className="review-save-button-primary"
+                onClick={handleAlwaysSaveAndContinue}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Always Save and Continue'}
               </button>
             </div>
           </div>

@@ -735,10 +735,10 @@ export function ConversationsPage({
     }
   };
 
-  const handleSaveAndContinue = async () => {
+  const doSaveAndContinue = async (alwaysSave: boolean) => {
     setIsSaving(true);
     try {
-      const result = await window.electronAPI.invoke(IPC_CHANNELS.WORD_SAVE_DOCUMENT, manuscriptFile?.file_path);
+      const result = await window.electronAPI.invoke(IPC_CHANNELS.WORD_SAVE_DOCUMENT, manuscriptFile?.file_path, alwaysSave);
       if (!result.success) {
         setReviewError(result.error || 'Failed to save document.');
         setIsSaving(false);
@@ -759,6 +759,9 @@ export function ConversationsPage({
       setShowSaveConfirm(false);
     }
   };
+
+  const handleSaveAndContinue = () => doSaveAndContinue(false);
+  const handleAlwaysSaveAndContinue = () => doSaveAndContinue(true);
 
   const proceedFullReview = async () => {
     if (!selectedProject || !manuscriptFile) return;
@@ -1199,7 +1202,8 @@ export function ConversationsPage({
             </div>
             <div className="wizardActions">
               <button className="wizardButtonSecondary" onClick={() => { setShowSaveConfirm(false); setPendingReviewType(null); }} disabled={isSaving}>Cancel</button>
-              <button className="wizardButtonPrimary" onClick={handleSaveAndContinue} disabled={isSaving}>{isSaving ? 'Saving...' : 'Save and Continue'}</button>
+              <button className="wizardButtonSecondary" onClick={handleSaveAndContinue} disabled={isSaving}>{isSaving ? 'Saving...' : 'Save and Continue'}</button>
+              <button className="wizardButtonPrimary" onClick={handleAlwaysSaveAndContinue} disabled={isSaving}>{isSaving ? 'Saving...' : 'Always Save and Continue'}</button>
             </div>
           </div>
         </div>
