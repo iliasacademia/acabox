@@ -27,7 +27,7 @@ function runWordAction(action: Record<string, unknown>): Promise<any> {
 
     execFile(binPath, ['--json', jsonArg], { timeout: 10000 }, (error, stdout, stderr) => {
       if (stderr) {
-        logger.debug(`[WordActions] word-actions stderr: ${stderr}`);
+        logger.info(`[WordActions] word-actions stderr: ${stderr}`);
       }
       if (error) {
         logger.error(`[WordActions] word-actions error:`, error);

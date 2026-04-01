@@ -633,7 +633,7 @@ fn handle_pre_check(action: &Action) -> Value {
         Err(e) => {
             // If we can't get the filename, fail-open (allow review to proceed)
             eprintln!("pre_check: could not get doc filename: {}", e);
-            return json!({"success": true, "action": "pre_check", "can_proceed": true});
+            return json!({"success": true, "action": "pre_check", "can_proceed": true, "skip_reason": format!("could not get doc filename: {}", e)});
         }
     };
 
@@ -658,10 +658,11 @@ fn handle_pre_check(action: &Action) -> Value {
         Err(e) => {
             // Fail-open: if we can't check, allow review
             eprintln!("pre_check: AppleScript error checking saved status: {}", e);
+            return json!({"success": true, "action": "pre_check", "can_proceed": true, "skip_reason": format!("AppleScript error: {}", e)});
         }
     }
 
-    json!({"success": true, "action": "pre_check", "can_proceed": true})
+    json!({"success": true, "action": "pre_check", "can_proceed": true, "skip_reason": "no_unsaved_changes"})
 }
 
 fn handle_save_by_name(action: &Action) -> Value {
