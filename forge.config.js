@@ -88,6 +88,7 @@ const packagerConfig = {
       'src/applescripts',
       'src/native/build/Release/word_accessibility.node',
       'window-monitor/rust/target/release/window-monitor',
+      'window-monitor/rust/target/release/word-actions',
       'webview-manager/rust/target/release/webview-manager',
     ] : []),
     'dist/popup',
