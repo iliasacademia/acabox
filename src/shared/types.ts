@@ -127,6 +127,11 @@ export const IPC_CHANNELS = {
   PODMAN_UNINSTALL: "podman-uninstall",
   PODMAN_GET_SKIP_CHECKSUM: "podman-get-skip-checksum",
   PODMAN_SET_SKIP_CHECKSUM: "podman-set-skip-checksum",
+  PODMAN_GET_TRUSTED_DOMAINS: "podman-get-trusted-domains",
+  PODMAN_SET_TRUSTED_DOMAINS: "podman-set-trusted-domains",
+  PODMAN_UPDATE_FIREWALL: "podman-update-firewall",
+  PODMAN_GET_ALLOW_ALL_TRAFFIC: "podman-get-allow-all-traffic",
+  PODMAN_SET_ALLOW_ALL_TRAFFIC: "podman-set-allow-all-traffic",
 
   // Navigation
   NAVIGATE_TO_PAGE: "navigate-to-page",

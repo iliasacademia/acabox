@@ -1,42 +1,53 @@
 #!/bin/bash
 set -e
 
-# ── Firewall: allow only Anthropic API, block all other outbound ──
+# ── Firewall: restrict outbound traffic ──
 
-ALLOWED_DOMAINS="api.anthropic.com"
-
-# Allow loopback
-iptables -A OUTPUT -o lo -j ACCEPT
-
-# Allow already-established connections
-iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-
-# Allow DNS (UDP+TCP port 53) so we can resolve allowed domains
-iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
-
-# Resolve each allowed domain and permit HTTPS traffic to its IPs
-for domain in $ALLOWED_DOMAINS; do
-  for ip in $(dig +short A "$domain" 2>/dev/null); do
-    # Skip non-IP lines (e.g. CNAME records)
-    if echo "$ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
-      iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
-      echo "[firewall] Allowed: $domain -> $ip:443"
-    fi
+# Check if unrestricted internet access is enabled
+if [ "${ALLOW_ALL_TRAFFIC:-0}" = "1" ]; then
+  echo "[firewall] Unrestricted internet access enabled"
+else
+  # Default allowed domains: Anthropic API + AWS Bedrock (all major regions)
+  DEFAULT_DOMAINS="api.anthropic.com"
+  DEFAULT_DOMAINS="$DEFAULT_DOMAINS sts.amazonaws.com"
+  for region in us-east-1 us-west-2 eu-west-1 eu-central-1 ap-northeast-1 ap-southeast-1 ap-southeast-2 ca-central-1; do
+    DEFAULT_DOMAINS="$DEFAULT_DOMAINS sts.$region.amazonaws.com bedrock-runtime.$region.amazonaws.com"
   done
-  for ip in $(dig +short AAAA "$domain" 2>/dev/null); do
-    if echo "$ip" | grep -qE ':'; then
-      ip6tables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
-      echo "[firewall] Allowed: $domain -> [$ip]:443"
-    fi
+  ALLOWED_DOMAINS="$DEFAULT_DOMAINS ${EXTRA_DOMAINS:-}"
+
+  # Allow loopback
+  iptables -A OUTPUT -o lo -j ACCEPT
+
+  # Allow already-established connections
+  iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+  # Allow DNS (UDP+TCP port 53) so we can resolve allowed domains
+  iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
+  iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
+
+  # Resolve each allowed domain and permit HTTPS traffic to its IPs
+  for domain in $ALLOWED_DOMAINS; do
+    for ip in $(dig +short A "$domain" 2>/dev/null); do
+      # Skip non-IP lines (e.g. CNAME records)
+      if echo "$ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        iptables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
+        echo "[firewall] Allowed: $domain -> $ip:443"
+      fi
+    done
+    for ip in $(dig +short AAAA "$domain" 2>/dev/null); do
+      if echo "$ip" | grep -qE ':'; then
+        ip6tables -A OUTPUT -d "$ip" -p tcp --dport 443 -j ACCEPT
+        echo "[firewall] Allowed: $domain -> [$ip]:443"
+      fi
+    done
   done
-done
 
-# Block everything else outbound
-iptables -A OUTPUT -j REJECT --reject-with icmp-net-unreachable
-ip6tables -A OUTPUT -j REJECT --reject-with icmp6-adm-prohibited
+  # Block everything else outbound
+  iptables -A OUTPUT -j REJECT --reject-with icmp-net-unreachable
+  ip6tables -A OUTPUT -j REJECT --reject-with icmp6-adm-prohibited
 
-echo "[firewall] Network restricted to: DNS + $ALLOWED_DOMAINS"
+  echo "[firewall] Network restricted to: DNS + $ALLOWED_DOMAINS"
+fi
 
 # ── Set up workspace (as root) ──
 mkdir -p /workspace/output
