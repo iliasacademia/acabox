@@ -44,7 +44,7 @@ function ensureInitialized(): boolean {
   }
 }
 
-export type WindowMonitorLogDataType = 'window_monitor_event' | 'window_monitor_state' | 'webview_manager_state' | 'word_poll_event';
+export type WindowMonitorLogDataType = 'window_monitor_event' | 'window_monitor_state' | 'webview_manager_state' | 'word_poll_event' | 'word_actions_request' | 'word_actions_response';
 
 export function logToWindowMonitorDb(dataType: WindowMonitorLogDataType, data: unknown): void {
   if (!ensureInitialized()) return;

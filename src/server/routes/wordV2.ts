@@ -3,7 +3,7 @@
  *
  * Routes:
  * - GET /word/v2/:wid/project_file — Get project file info for a window
- * - GET /word/v2/:wid/poll — Poll status and notifications for a window
+ * - GET /word/v4/focused/poll — Poll status for the currently focused window
  */
 
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -82,49 +82,6 @@ export async function registerWordV2Routes(
       };
 
       reply.send(response);
-    }
-  );
-
-  /**
-   * GET /word/v2/:wid/poll
-   *
-   * Poll status for a Word window by window ID.
-   */
-  fastify.get<{
-    Params: { wid: string };
-  }>(
-    '/word/v2/:wid/poll',
-    {
-      schema: {
-        params: {
-          type: 'object',
-          required: ['wid'],
-          properties: {
-            wid: { type: 'string' },
-          },
-        },
-      },
-    },
-    async (
-      request: FastifyRequest<{ Params: { wid: string } }>,
-      reply: FastifyReply
-    ) => {
-      const { wid } = request.params;
-      const response = buildWordPollResponseV2(wid, notificationManager, currentUserId);
-      if (fullStoryStaticConfig) {
-        const cached = getCachedUserData();
-        reply.send({
-          ...response,
-          fullStoryConfig: {
-            ...fullStoryStaticConfig,
-            userId: cached?.id ?? (currentUserId ? currentUserId() : null),
-            email: cached?.email ?? '',
-            displayName: cached?.first_name || cached?.name || '',
-          },
-        });
-      } else {
-        reply.send(response);
-      }
     }
   );
 

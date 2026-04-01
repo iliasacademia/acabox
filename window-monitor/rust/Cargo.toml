@@ -15,6 +15,10 @@ path = "src/bin/window_monitor.rs"
 name = "word-actions"
 path = "src/bin/word_actions.rs"
 
+[[bin]]
+name = "word-check"
+path = "src/bin/word_check.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

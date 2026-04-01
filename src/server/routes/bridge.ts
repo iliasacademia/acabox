@@ -8,7 +8,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { defaultLogger as logger } from '../../utils/logger';
 import { windowMonitorService } from '../../windowMonitorService';
-import { FEATURES } from '../../shared/types';
 import { enableFeedback } from '../services/enableFeedbackService';
 import { NavigationHandler } from './navigation';
 
@@ -74,11 +73,9 @@ export async function registerBridgeRoutes(
       reply: FastifyReply
     ) => {
       const { action, payload, pid, wid: clientWid } = request.body;
-      // In v4 mode, the client's wid may be stale due to async WebSocket timing.
+      // The client's wid may be stale due to async WebSocket timing.
       // Use the server's known focused window instead.
-      const wid = FEATURES.GLOBAL_WEBVIEW_V4
-        ? (windowMonitorService.getFocusedWindowId() ?? clientWid)
-        : clientWid;
+      const wid = windowMonitorService.getFocusedWindowId() ?? clientWid;
 
       if (isNaN(pid)) {
         reply.code(400).send({

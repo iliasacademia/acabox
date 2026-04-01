@@ -62,6 +62,10 @@ export const IPC_CHANNELS = {
   PROCESS_WORD_WINDOW: "process-word-window",
   REFRESH_MANUSCRIPT_PATHS: "refresh-manuscript-paths",
   SCHEDULE_POPUP_AUTO_OPEN: "schedule-popup-auto-open",
+  REVIEW_PRE_CHECK: "review-pre-check",
+  WORD_SAVE_DOCUMENT: "word-save-document",
+  GET_ALWAYS_SAVE_BEFORE_REVIEW: "get-always-save-before-review",
+  SET_ALWAYS_SAVE_BEFORE_REVIEW: "set-always-save-before-review",
 
   // Sync operations
   REINITIALIZE_SYNC: "reinitialize-sync",
@@ -164,21 +168,17 @@ export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
 // Feature flags
 export const FEATURES: {
-  CONVERSATIONS_ENABLED: boolean;
   MS_WORD_INTEGRATION_ENABLED: boolean;
   MS_WORD_V2_ENABLED: boolean;
   ONBOARDING_V2_ENABLED: boolean;
   ONBOARDING_V3_ENABLED: boolean;
   SESSION_CAPTURE_ENABLED: boolean;
-  GLOBAL_WEBVIEW_V4: boolean;
 } = {
-  CONVERSATIONS_ENABLED: true, // Toggle between old Projects UI and new Conversations UI
   MS_WORD_INTEGRATION_ENABLED: true, // Toggle MS Word integration
   MS_WORD_V2_ENABLED: true, // V2: new implementation
   ONBOARDING_V2_ENABLED: true, // V2 onboarding: single-file picker flow
   ONBOARDING_V3_ENABLED: true, // V3 onboarding: guided setup flow with steps
   SESSION_CAPTURE_ENABLED: true, // Toggle local activity session tracking
-  GLOBAL_WEBVIEW_V4: true, // V4: single global set of webviews shared across all windows
 };
 
 export interface DesktopNotification {

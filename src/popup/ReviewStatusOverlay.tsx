@@ -9,7 +9,6 @@ const urlParams = new URLSearchParams(window.location.search);
 const pidParam = urlParams.get('pid');
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
-const isV4Mode = urlParams.get('mode') === 'v4';
 
 interface WordPollResponse {
   isReviewingSelectedText?: boolean;
@@ -59,7 +58,7 @@ function useWordPoll(
   const [focusedWid, setFocusedWid] = useState<string | null>(null);
 
   useEffect(() => {
-    if ((!wid && !isV4Mode) || !token) {
+    if (!token) {
       return;
     }
 
@@ -89,7 +88,7 @@ function useWordPoll(
       const poll = async () => {
         if (cleanedUp) return;
         try {
-          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const pollUrl = `${apiBaseUrl}/word/v4/focused/poll`;
           const res = await fetch(pollUrl, {
             headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
           });
@@ -115,9 +114,7 @@ function useWordPoll(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = isV4Mode
-        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
-        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -192,7 +189,7 @@ function useWordPoll(
 
 const ReviewStatusOverlay: React.FC = () => {
   const { reviewType, selectedText, shouldShowReviewStatusOverlay, isAwaitingReviewInput, focusedWid } = useWordPoll(widParam, tokenParam, serverUrl);
-  const effectiveWid = isV4Mode ? focusedWid : widParam;
+  const effectiveWid = focusedWid;
   const [progress, setProgress] = React.useState(0);
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [showSelectedTextToggle, setShowSelectedTextToggle] = useState(false);
@@ -262,9 +259,48 @@ const ReviewStatusOverlay: React.FC = () => {
     }
   };
 
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
   const handleSend = async () => {
     const sendWid = effectiveWid;
     if (!sendWid || isSubmitting) return;
+    setIsSubmitting(true);
+
+    // Pre-check: duplicate names and unsaved changes
+    try {
+      const preCheckRes = await fetch(`${serverUrl}/api/review-pre-check`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenParam}`,
+        },
+        body: '{}',
+      });
+      const preCheck = await preCheckRes.json();
+      if (!preCheck.canProceed) {
+        if (preCheck.reason === 'duplicate_name') {
+          postBridge('showReviewError', { message: preCheck.message }, effectiveWid).catch(() => {});
+          setIsSubmitting(false);
+          return;
+        }
+        if (preCheck.reason === 'unsaved_changes') {
+          setShowSavePrompt(true);
+          setIsSubmitting(false);
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('[ReviewStatusOverlay] Pre-check error:', err);
+      // Fail-open: continue with review
+    }
+
+    await triggerReview();
+  };
+
+  const triggerReview = async () => {
+    const sendWid = effectiveWid;
+    if (!sendWid) return;
     setIsSubmitting(true);
 
     try {
@@ -290,6 +326,43 @@ const ReviewStatusOverlay: React.FC = () => {
       postBridge('showReviewError', { message: 'Could not connect to the review service. Please check your internet connection and try again.' }, effectiveWid).catch(() => {});
       setIsSubmitting(false);
     }
+  };
+
+  const doSaveAndContinue = async (alwaysSave: boolean) => {
+    setIsSaving(true);
+    try {
+      const url = alwaysSave ? `${serverUrl}/api/word-save?alwaysSave=true` : `${serverUrl}/api/word-save`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${tokenParam}`,
+        },
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!data.success) {
+        postBridge('showReviewError', { message: data.error || 'Failed to save document.' }, effectiveWid).catch(() => {});
+        setIsSaving(false);
+        setShowSavePrompt(false);
+        return;
+      }
+      setShowSavePrompt(false);
+      setIsSaving(false);
+      await triggerReview();
+    } catch (err) {
+      console.error('[ReviewStatusOverlay] Save error:', err);
+      postBridge('showReviewError', { message: 'Failed to save document.' }, effectiveWid).catch(() => {});
+      setIsSaving(false);
+      setShowSavePrompt(false);
+    }
+  };
+
+  const handleSaveAndContinue = () => doSaveAndContinue(false);
+  const handleAlwaysSaveAndContinue = () => doSaveAndContinue(true);
+
+  const handleCancelSave = () => {
+    setShowSavePrompt(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -381,7 +454,34 @@ const ReviewStatusOverlay: React.FC = () => {
           )}
         </div>
 
-        {isInputMode ? (
+        {isInputMode && showSavePrompt ? (
+          <div className="review-save-prompt">
+            <div className="review-save-prompt-text">Reviewing requires saving the document.</div>
+            <div className="review-save-prompt-buttons">
+              <button
+                className="review-save-button-secondary"
+                onClick={handleCancelSave}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+              <button
+                className="review-save-button-secondary"
+                onClick={handleSaveAndContinue}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Save and Continue'}
+              </button>
+              <button
+                className="review-save-button-primary"
+                onClick={handleAlwaysSaveAndContinue}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Always Save and Continue'}
+              </button>
+            </div>
+          </div>
+        ) : isInputMode ? (
           <div className="review-input-section">
             <textarea
               ref={textareaRef}

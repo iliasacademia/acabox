@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { WordPollResponse, WebSocketMessage, popupInstanceId, isV4Mode, setV4FocusedWid } from './shared';
+import { WordPollResponse, WebSocketMessage, popupInstanceId, setV4FocusedWid } from './shared';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 /**
- * Custom hook: connects to /ws/word/v2/:wid via WebSocket for real-time updates.
+ * Custom hook: connects to /ws/word/v4/focused via WebSocket for real-time updates.
  * Falls back to HTTP polling (3s) if WebSocket fails permanently.
  * Returns the full WordPollResponse (or null before first data arrives).
  */
@@ -16,7 +16,7 @@ export function useWordPollWebSocket(
   const [pollData, setPollData] = useState<WordPollResponse | null>(null);
 
   useEffect(() => {
-    if ((!wid && !isV4Mode) || !token) {
+    if (!token) {
       setPollData(null);
       return;
     }
@@ -30,7 +30,7 @@ export function useWordPollWebSocket(
 
     function applyPollData(data: WordPollResponse) {
       if (cleanedUp) return;
-      if (isV4Mode && data.wid) setV4FocusedWid(data.wid);
+      if (data.wid) setV4FocusedWid(data.wid);
       setPollData(data);
     }
 
@@ -38,7 +38,7 @@ export function useWordPollWebSocket(
     function startFallbackPolling() {
       if (fallbackInterval || cleanedUp) return;
       usingFallback = true;
-      console.log('[V2] WebSocket unavailable, falling back to HTTP polling');
+      console.log('[WS] WebSocket unavailable, falling back to HTTP polling');
 
       const poll = async () => {
         if (cleanedUp) return;
@@ -48,7 +48,7 @@ export function useWordPollWebSocket(
             'X-Instance-Id': popupInstanceId,
             'Authorization': `Bearer ${token}`,
           };
-          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const pollUrl = `${apiBaseUrl}/word/v4/focused/poll`;
           const res = await fetch(pollUrl, { headers });
           if (!res.ok) {
             setPollData(prev => prev ? { ...prev, shouldShowPopupV2: false } : null);
@@ -76,9 +76,7 @@ export function useWordPollWebSocket(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = isV4Mode
-        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
-        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -88,7 +86,7 @@ export function useWordPollWebSocket(
       }
 
       ws.onopen = () => {
-        console.log('[V2] WebSocket connected');
+        console.log('[WS] WebSocket connected');
         reconnectAttempt = 0;
         stopFallbackPolling();
       };
@@ -106,10 +104,10 @@ export function useWordPollWebSocket(
 
       ws.onclose = (event) => {
         ws = null;
-        console.log('[V2] WebSocket closed', event);
+        console.log('[WS] WebSocket closed', event);
         if (cleanedUp || usingFallback) return;
         if (event.code === 4401) {
-          console.warn('[V2] WebSocket auth failed, falling back to HTTP polling');
+          console.warn('[WS] WebSocket auth failed, falling back to HTTP polling');
           startFallbackPolling();
           return;
         }
@@ -129,7 +127,7 @@ export function useWordPollWebSocket(
         return;
       }
       const delay = Math.pow(2, reconnectAttempt - 1) * 1000;
-      console.log(`[V2] Reconnecting in ${delay}ms (attempt ${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
+      console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempt}/${MAX_RECONNECT_ATTEMPTS})`);
       reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         connect();

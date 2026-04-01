@@ -131,6 +131,7 @@ export function ConversationsPageWrapper({
         onProjectView={trackProjectView}
         onTriggerFullReview={(projectId, fileId) => trackTriggerFullReview('desktop', projectId, fileId)}
         onTriggerDiffReview={(projectId, fileId) => trackTriggerDiffReview('desktop', projectId, fileId)}
+        shouldPrecheck={true}
         onConversationView={trackConversationView}
         onMessageSent={trackConversationMessageSent}
         onMessageReceived={trackConversationMessageReceived}

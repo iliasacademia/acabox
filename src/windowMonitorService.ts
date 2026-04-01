@@ -12,7 +12,6 @@ import { sessionsTracker } from './sessionsTracker';
 import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { FEATURES } from './shared/types';
 import {
-  computeWebviewState,
   computeWebviewStateV4,
   getFocusedWindowInfo,
   DesiredWebviewState,
@@ -557,190 +556,6 @@ export class WindowMonitorService {
   private pushWebviewState(): void {
     if (!this.baseUrl || !this.authToken) return;
 
-    if (FEATURES.GLOBAL_WEBVIEW_V4) {
-      this.pushWebviewStateV4();
-      return;
-    }
-
-    const screenHeight = screen.getPrimaryDisplay().bounds.height;
-    const desiredState = computeWebviewState(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
-
-    // Auto-close popups when app loses focus
-    const focusedApp = this.state.apps.find(app => app.isFocused);
-    const appIsFocused = !!focusedApp;
-
-    for (const key of Object.keys(desiredState)) {
-      if (key.startsWith('popup-v2-')) {
-        const windowId = key.slice('popup-v2-'.length);
-        const isToggledOpen = this.popupToggledOpen.has(windowId);
-
-        // Auto-close popup if app loses focus
-        if (isToggledOpen && !appIsFocused) {
-          this.popupToggledOpen.delete(windowId);
-          desiredState[key].visible = false;
-          logger.info(`[WindowMonitor] Popup ${key}: auto-closed (app unfocused)`);
-        } else {
-          // If toggled open and app is focused, show. Otherwise hide.
-          desiredState[key].visible = isToggledOpen;
-          if (isToggledOpen) {
-            logger.info(`[WindowMonitor] Popup ${key}: showing (toggled=true, appFocused=${appIsFocused})`);
-          }
-        }
-
-        const heightOverride = this.popupHeightOverrides.get(windowId);
-        if (heightOverride !== undefined) {
-          desiredState[key].frame.height = heightOverride;
-        }
-        const sizeOverride = this.popupSizeOverrides.get(windowId);
-        if (sizeOverride) {
-          desiredState[key].frame.width = Math.max(desiredState[key].frame.width, sizeOverride.width);
-          desiredState[key].frame.height = Math.max(desiredState[key].frame.height, sizeOverride.height);
-        }
-      }
-      if (key.startsWith('review-panel-v3-')) {
-        const windowId = key.slice('review-panel-v3-'.length);
-        const isPanelOpen = this.reviewPanelV3Open.has(windowId);
-
-        if (isPanelOpen && !appIsFocused) {
-          this.reviewPanelV3Open.delete(windowId);
-          this.reviewPanelV3SelectedText.delete(windowId);
-          desiredState[key].visible = false;
-          logger.info(`[WindowMonitor] Review panel ${key}: auto-closed (app unfocused)`);
-        } else {
-          desiredState[key].visible = isPanelOpen;
-        }
-      }
-      if (key.startsWith('button-v2-')) {
-        const windowId = key.slice('button-v2-'.length);
-        const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
-        if (buttonWidthOverride !== undefined) {
-          desiredState[key].frame.width = buttonWidthOverride;
-        } else {
-          // Widen for "Enable feedback" if document is unsaved or has no project
-          const docPath = this.getDocumentPathForWindow(windowId);
-          if (!docPath || !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
-            desiredState[key].frame.width = ENABLE_FEEDBACK_BUTTON_WIDTH;
-          }
-        }
-        // Widen for "Review Selection" when text is selected
-        const selectedText = this.getSelectedTextForWindow(windowId);
-        if (selectedText && selectedText.length > 0) {
-          desiredState[key].frame.width = Math.max(desiredState[key].frame.width, BUTTON_WITH_REVIEW_WIDTH);
-        }
-      }
-    }
-
-    // Apply drag offsets to button, popup, and review status overlay frames, clamped to window bounds
-    for (const [windowId, offset] of this.buttonDragOffsets) {
-      const buttonKey = `button-v2-${windowId}`;
-      const popupKey = `popup-v2-${windowId}`;
-      const reviewStatusKey = `review-status-overlay-${windowId}`;
-      if (!desiredState[buttonKey]) continue;
-
-      // Find window bounds for clamping
-      let windowBounds: WindowBounds | null = null;
-      for (const app of this.state.apps) {
-        for (const window of app.windows) {
-          if (window.id === windowId) {
-            windowBounds = window.bounds;
-            break;
-          }
-        }
-        if (windowBounds) break;
-      }
-
-      if (windowBounds) {
-        // Cocoa coords: origin is bottom-left of screen, Y increases upward
-        const cocoaWindowBottom = screenHeight - (windowBounds.y + windowBounds.height);
-        const cocoaWindowLeft = windowBounds.x;
-        const cocoaWindowRight = windowBounds.x + windowBounds.width;
-        const cocoaWindowTop = cocoaWindowBottom + windowBounds.height;
-
-        const buttonFrame = desiredState[buttonKey].frame;
-        // Clamp so button stays within window bounds
-        const clampedDx = Math.max(
-          cocoaWindowLeft - buttonFrame.x,
-          Math.min(offset.dx, cocoaWindowRight - buttonFrame.x - buttonFrame.width)
-        );
-        const clampedDy = Math.max(
-          cocoaWindowBottom - buttonFrame.y,
-          Math.min(offset.dy, cocoaWindowTop - buttonFrame.y - buttonFrame.height)
-        );
-
-        desiredState[buttonKey].frame.x += clampedDx;
-        desiredState[buttonKey].frame.y += clampedDy;
-
-        if (desiredState[popupKey]) {
-          desiredState[popupKey].frame.x += clampedDx;
-          desiredState[popupKey].frame.y += clampedDy;
-        }
-
-        if (desiredState[reviewStatusKey]) {
-          desiredState[reviewStatusKey].frame.x += clampedDx;
-          desiredState[reviewStatusKey].frame.y += clampedDy;
-        }
-      } else {
-        // No bounds info, apply offset without clamping
-        desiredState[buttonKey].frame.x += offset.dx;
-        desiredState[buttonKey].frame.y += offset.dy;
-        if (desiredState[popupKey]) {
-          desiredState[popupKey].frame.x += offset.dx;
-          desiredState[popupKey].frame.y += offset.dy;
-        }
-        if (desiredState[reviewStatusKey]) {
-          desiredState[reviewStatusKey].frame.x += offset.dx;
-          desiredState[reviewStatusKey].frame.y += offset.dy;
-        }
-      }
-    }
-
-    if (remoteFeatureFlags.getFlag(REMOTE_FLAGS.VERBOSE_WINDOW_MONITOR_LOGGING)) {
-      logger.info('[VERBOSE] [WindowMonitorService] Desired state:', desiredState);
-    }
-
-    // Diff visibility for button-v2 and popup-v2 entries; emit if any changed
-    let visibilityChanged = false;
-    for (const key of Object.keys(desiredState)) {
-      if (key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-') || key.startsWith('review-panel-v3-')) {
-        const newVisible = desiredState[key]?.visible ?? false;
-        const oldVisible = this.lastDesiredState[key]?.visible ?? false;
-        if (newVisible !== oldVisible) {
-          visibilityChanged = true;
-          break;
-        }
-      }
-    }
-    // Also check keys that disappeared (window destroyed)
-    if (!visibilityChanged) {
-      for (const key of Object.keys(this.lastDesiredState)) {
-        if ((key.startsWith('button-v2-') || key.startsWith('popup-v2-') || key.startsWith('review-button-') || key.startsWith('review-status-overlay-') || key.startsWith('review-panel-v3-')) && !desiredState[key]) {
-          if (this.lastDesiredState[key]?.visible) {
-            visibilityChanged = true;
-            break;
-          }
-        }
-      }
-    }
-    this.lastDesiredState = desiredState;
-    logToWindowMonitorDb('webview_manager_state', desiredState);
-    if (visibilityChanged) {
-      wordPollEventBus.emit('change', 'webview-visibility-changed');
-    }
-
-    if (this.webviewManagerProcess?.stdin?.writable) {
-      this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
-    } else {
-      logger.info('[WindowMonitorService] Cannot send state to webview-manager: stdin not writable');
-    }
-  }
-
-  /**
-   * V4: Push a single global set of webviews for the focused window only.
-   * Keys are global (e.g. 'button-v2'), not per-window (e.g. 'button-v2-{wid}').
-   */
-  private pushWebviewStateV4(): void {
-    if (!this.baseUrl || !this.authToken) return;
-
     const screenHeight = screen.getPrimaryDisplay().bounds.height;
     const desiredState = computeWebviewStateV4(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
 
@@ -888,6 +703,27 @@ export class WindowMonitorService {
     return focused?.window.id ?? null;
   }
 
+  /**
+   * Find the tracked window ID for a given document path.
+   * Normalizes file:// URLs to plain paths for matching.
+   */
+  getWindowIdForDocumentPath(documentPath: string): string | null {
+    for (const app of this.state.apps) {
+      for (const win of app.windows) {
+        const raw = win.documentPath;
+        if (raw) {
+          const normalized = raw.startsWith('file://')
+            ? decodeURIComponent(raw.slice(7))
+            : raw;
+          if (normalized === documentPath) {
+            return win.id;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
   togglePopupForWindow(windowId: string): void {
     const wasOpen = this.popupToggledOpen.has(windowId);
     if (wasOpen) {
@@ -1019,11 +855,8 @@ export class WindowMonitorService {
     }
   }
 
-  getDesiredWebviewVisibility(keyPrefix: string, windowId: string): boolean {
-    if (FEATURES.GLOBAL_WEBVIEW_V4) {
-      return this.lastDesiredState[keyPrefix]?.visible ?? false;
-    }
-    return this.lastDesiredState[`${keyPrefix}-${windowId}`]?.visible ?? false;
+  getDesiredWebviewVisibility(keyPrefix: string, _windowId: string): boolean {
+    return this.lastDesiredState[keyPrefix]?.visible ?? false;
   }
 
   getDocumentPathForWindow(windowId: string): string | null {

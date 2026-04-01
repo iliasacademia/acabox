@@ -14,7 +14,6 @@ import {
   widParam,
   pidParam,
   postBridge,
-  isV4Mode,
   getV4FocusedWid,
   navigateToPage,
   CloseIcon,
@@ -49,6 +48,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [isEnableFeedback, setIsEnableFeedback] = useState(false);
   const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
   const [reviewErrorMessage, setReviewErrorMessage] = useState<string | null>(null);
+
+  // State for save prompt before review
+  const [showSavePrompt, setShowSavePrompt] = useState(false);
+  const [savePromptReviewType, setSavePromptReviewType] = useState<'diff' | 'full' | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
@@ -120,7 +124,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // WebSocket-based polling
   const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
-  const effectiveWid = isV4Mode ? getV4FocusedWid() : widParam;
+  const effectiveWid = getV4FocusedWid();
 
   // Derive review state from word poll data (pushed via WebSocket)
   useEffect(() => {
@@ -198,7 +202,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   useEffect(() => {
     let height: number;
 
-    if (isEnableFeedback && isUnsavedDocument) {
+    if (showSavePrompt) {
+      height = POPUP_HEIGHT_ENABLE_FEEDBACK; // Similar size to enable feedback view
+    } else if (isEnableFeedback && isUnsavedDocument) {
       height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
     } else if (isEnableFeedback) {
       height = POPUP_HEIGHT_ENABLE_FEEDBACK;
@@ -240,7 +246,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         });
       }
     }
-  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, conversations, pollData, isWide, reviewErrorMessage]);
+  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, conversations, pollData, isWide, reviewErrorMessage, showSavePrompt]);
 
   // Handle clicking on a review notification card - show inline review
   const handleViewReviewFeedback = async (notification: NotificationData) => {
@@ -347,16 +353,67 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     }
   };
 
-  const handleGenerateShortReview = async () => {
-    if (!projectId || !fileId || !effectiveWid) {
-      console.error('[AcademiaNotificationsPopupV2] Missing project, file ID, or window ID');
-      return;
+  const runPreCheck = async (): Promise<{ canProceed: boolean; reason?: string; message?: string }> => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (tokenParam) {
+      headers['Authorization'] = `Bearer ${tokenParam}`;
     }
+    const res = await fetch(`${serverUrl}/api/review-pre-check`, {
+      method: 'POST',
+      headers,
+      body: '{}',
+    });
+    return res.json();
+  };
 
-    console.log('[AcademiaNotificationsPopupV2] Triggering diff review...');
+  const doSaveAndContinue = async (alwaysSave: boolean) => {
+    setIsSaving(true);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (tokenParam) {
+        headers['Authorization'] = `Bearer ${tokenParam}`;
+      }
+      const url = alwaysSave ? `${serverUrl}/api/word-save?alwaysSave=true` : `${serverUrl}/api/word-save`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: '{}',
+      });
+      const data = await res.json();
+      if (!data.success) {
+        setReviewErrorMessage(data.error || 'Failed to save document.');
+        setIsSaving(false);
+        setShowSavePrompt(false);
+        return;
+      }
+      setShowSavePrompt(false);
+      setIsSaving(false);
+      // Re-trigger the review that was blocked
+      if (savePromptReviewType === 'diff') {
+        triggerDiffReview();
+      } else if (savePromptReviewType === 'full') {
+        triggerFullReview();
+      }
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopupV2] Save error:', err);
+      setReviewErrorMessage('Failed to save document.');
+      setIsSaving(false);
+      setShowSavePrompt(false);
+    }
+  };
+
+  const handleSaveAndContinue = () => doSaveAndContinue(false);
+  const handleAlwaysSaveAndContinue = () => doSaveAndContinue(true);
+
+  const handleCancelSave = () => {
+    setShowSavePrompt(false);
+    setSavePromptReviewType(null);
+  };
+
+  const triggerDiffReview = async () => {
+    if (!projectId || !fileId || !effectiveWid) return;
 
     trackTriggerDiffReview('overlay', projectId, fileId);
-
     setReviewState('reviewing');
 
     try {
@@ -367,21 +424,13 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
       const response = await fetch(
         `${serverUrl}/api/diff-review/${effectiveWid}`,
-        {
-          method: 'POST',
-          headers,
-          body: '{}',
-        }
+        { method: 'POST', headers, body: '{}' }
       );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
 
       const data = await response.json();
       console.log('[AcademiaNotificationsPopupV2] Diff review triggered:', data);
-
-      // Review state will be updated via WebSocket poll data (projectReviewState)
       setReviewState('reviewing');
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Failed to trigger diff review:', err);
@@ -389,16 +438,10 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     }
   };
 
-  const handleGenerateFullReview = async () => {
-    if (!projectId || !fileId || !effectiveWid) {
-      console.error('[AcademiaNotificationsPopupV2] Missing project, file ID, or window ID');
-      return;
-    }
-
-    console.log('[AcademiaNotificationsPopupV2] Triggering full review...');
+  const triggerFullReview = async () => {
+    if (!projectId || !fileId || !effectiveWid) return;
 
     trackTriggerFullReview('overlay', projectId, fileId);
-
     setReviewState('reviewing');
 
     try {
@@ -409,26 +452,77 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
       const response = await fetch(
         `${serverUrl}/api/full-paper-review/${effectiveWid}`,
-        {
-          method: 'POST',
-          headers,
-          body: '{}',
-        }
+        { method: 'POST', headers, body: '{}' }
       );
 
-      if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
-      }
+      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
 
       const data = await response.json();
       console.log('[AcademiaNotificationsPopupV2] Full review triggered:', data);
-
-      // Review state will be updated via WebSocket poll data (projectReviewState)
       setReviewState('reviewing');
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Failed to trigger full review:', err);
       setReviewState('failed');
     }
+  };
+
+  const handleGenerateShortReview = async () => {
+    if (!projectId || !fileId || !effectiveWid) {
+      console.error('[AcademiaNotificationsPopupV2] Missing project, file ID, or window ID');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopupV2] Triggering diff review...');
+
+    try {
+      const preCheck = await runPreCheck();
+      if (!preCheck.canProceed) {
+        if (preCheck.reason === 'duplicate_name') {
+          setReviewErrorMessage(preCheck.message || 'Multiple windows have the same name.');
+          return;
+        }
+        if (preCheck.reason === 'unsaved_changes') {
+          setShowSavePrompt(true);
+          setSavePromptReviewType('diff');
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopupV2] Pre-check error:', err);
+      // Fail-open
+    }
+
+    triggerDiffReview();
+  };
+
+  const handleGenerateFullReview = async () => {
+    if (!projectId || !fileId || !effectiveWid) {
+      console.error('[AcademiaNotificationsPopupV2] Missing project, file ID, or window ID');
+      return;
+    }
+
+    console.log('[AcademiaNotificationsPopupV2] Triggering full review...');
+
+    try {
+      const preCheck = await runPreCheck();
+      console.log('[AcademiaNotificationsPopupV2] Full review pre-check result:', preCheck);
+      if (!preCheck.canProceed) {
+        if (preCheck.reason === 'duplicate_name') {
+          setReviewErrorMessage(preCheck.message || 'Multiple windows have the same name.');
+          return;
+        }
+        if (preCheck.reason === 'unsaved_changes') {
+          setShowSavePrompt(true);
+          setSavePromptReviewType('full');
+          return;
+        }
+      }
+    } catch (err) {
+      console.error('[AcademiaNotificationsPopupV2] Pre-check error:', err);
+      // Fail-open
+    }
+
+    triggerFullReview();
   };
 
   // --- Title bar drag handlers ---
@@ -594,7 +688,69 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           onPointerMove={handleResizePointerMove}
           onPointerUp={handleResizePointerUp}
         />
-        {isEnableFeedback
+        {showSavePrompt ? (
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: '15px', color: '#374151', lineHeight: '1.5' }}>
+              Reviewing requires saving the document.
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={handleCancelSave}
+                disabled={isSaving}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#FFFFFF',
+                  color: '#374151',
+                  border: '1px solid #D1D5DB',
+                  borderRadius: '8px',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  opacity: isSaving ? 0.5 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveAndContinue}
+                disabled={isSaving}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#FFFFFF',
+                  color: '#374151',
+                  border: '1px solid #D1D5DB',
+                  borderRadius: '8px',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  opacity: isSaving ? 0.5 : 1,
+                }}
+              >
+                {isSaving ? 'Saving...' : 'Save and Continue'}
+              </button>
+              <button
+                onClick={handleAlwaysSaveAndContinue}
+                disabled={isSaving}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#000000',
+                  color: '#FFFFFF',
+                  border: 'none',
+                  borderRadius: '8px',
+                  fontFamily: "'DM Sans', sans-serif",
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: isSaving ? 'not-allowed' : 'pointer',
+                  opacity: isSaving ? 0.7 : 1,
+                }}
+              >
+                {isSaving ? 'Saving...' : 'Always Save and Continue'}
+              </button>
+            </div>
+          </div>
+        ) : isEnableFeedback
           ? <EnableFeedbackView isUnsavedDocument={isUnsavedDocument} />
           : viewMode === 'review' && activeNotification
             ? <ConversationView

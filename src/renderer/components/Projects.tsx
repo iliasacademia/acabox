@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import dockIcon from '../../assets/icons/dock-icon.png';
 import ProjectsList from './ProjectsList';
-import ProjectDetail from './ProjectDetail';
 import CreateProjectWizard, {
   ProjectCreationData,
 } from './CreateProjectWizard';
@@ -553,19 +552,15 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
               onDeleteProject={handleDeleteProject}
             />
           ) : currentView === 'detail' && selectedProject ? (
-            FEATURES.CONVERSATIONS_ENABLED ? (
-              <ConversationsPageWrapper
-                selectedProject={selectedProject}
-                onBack={handleBackToList}
-                initialConversationId={pendingConversationId}
-                onConversationNavigated={handleConversationNavigated}
-                initialOpenDiffModal={pendingDiffModal}
-                onDiffModalOpened={handleDiffModalOpened}
-                initialView={pendingInitialView}
-              />
-            ) : (
-              <ProjectDetail project={selectedProject} onBack={handleBackToList} />
-            )
+            <ConversationsPageWrapper
+              selectedProject={selectedProject}
+              onBack={handleBackToList}
+              initialConversationId={pendingConversationId}
+              onConversationNavigated={handleConversationNavigated}
+              initialOpenDiffModal={pendingDiffModal}
+              onDiffModalOpened={handleDiffModalOpened}
+              initialView={pendingInitialView}
+            />
           ) : currentView === 'orphan-conversations' ? (
             <ConversationsPageWrapper
               selectedProject={null}

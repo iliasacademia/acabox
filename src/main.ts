@@ -5,7 +5,7 @@ import FormData from 'form-data';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import { autoUpdater } from 'electron-updater';
-import Store from 'electron-store';
+import { store } from './appStore';
 import AutoLaunch from 'auto-launch';
 import { defaultLogger as logger, getChannelFromVersion } from './utils/logger';
 import { login, logout, checkLogin, APIclient, getCsrfToken } from './apiClient';
@@ -83,10 +83,7 @@ const SUPPORTED_DOCUMENT_EXTENSIONS = ['pdf', 'doc', 'docx', 'txt', 'md', 'tex',
 declare const MAIN_WINDOW_WEBPACK_ENTRY: string;
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
-// Initialize electron-store for app settings (empty for now, reserved for future settings)
-const store = new Store({
-  name: app.isPackaged ? 'config' : 'config-dev',
-});
+// Re-export store is imported from ./appStore
 
 
 // Clean up deprecated updateChannel preference from electron-store
@@ -695,6 +692,12 @@ function setupAutoUpdater(): Promise<UpdateResult> {
       });
     });
 
+    // Restart app monitoring on wake to clear stale webview panels
+    powerMonitor.on('resume', () => {
+      logger.info('[WindowMonitorService] System resumed from sleep, restarting app monitoring...');
+      windowMonitorService.restart();
+    });
+
     // Check for updates when screen is unlocked (covers lock-without-sleep case)
     powerMonitor.on('unlock-screen', () => {
       logger.info('[Auto-Updater] Screen unlocked, checking for updates...');
@@ -1051,6 +1054,76 @@ ipcMain.handle(IPC_CHANNELS.SCHEDULE_POPUP_AUTO_OPEN, (_event, filePath: string)
   if (FEATURES.ONBOARDING_V3_ENABLED) {
     windowMonitorService.scheduleAutoOpenForPath(filePath);
   }
+});
+
+ipcMain.handle(IPC_CHANNELS.REVIEW_PRE_CHECK, async (_event, filePath: string) => {
+  const { reviewPreCheck, wordSave } = await import('./server/wordActions');
+  const wid = windowMonitorService.getWindowIdForDocumentPath(filePath);
+  if (!wid) {
+    logger.warn('[IPC] review-pre-check: no window found for path:', filePath);
+    return { canProceed: true }; // fail-open
+  }
+  const windowId = parseInt(wid, 10);
+  if (isNaN(windowId)) {
+    return { canProceed: true };
+  }
+  const result = await reviewPreCheck(windowId);
+  // Auto-save if "always save before review" is enabled
+  if (!result.canProceed && result.reason === 'unsaved_changes' && store.get('alwaysSaveBeforeReview', false)) {
+    logger.info('[IPC] Auto-saving before review (alwaysSaveBeforeReview is enabled)');
+    const saveResult = await wordSave(windowId);
+    if (saveResult.success) {
+      // Sync file to backend before proceeding with review
+      try {
+        const projectFile = wordIntegrationDataStoreV2.getProjectFileForPath(filePath);
+        if (projectFile) {
+          await projectSyncService.syncFileOnce(projectFile.project_id, filePath);
+        }
+      } catch (syncErr) {
+        logger.error('[IPC] Post-save sync error (non-fatal):', syncErr);
+      }
+      return { canProceed: true };
+    }
+    // If auto-save failed, fall through to show the prompt
+  }
+  return result;
+});
+
+ipcMain.handle(IPC_CHANNELS.WORD_SAVE_DOCUMENT, async (_event, filePath: string, alwaysSave?: boolean) => {
+  const { wordSave } = await import('./server/wordActions');
+  const wid = windowMonitorService.getWindowIdForDocumentPath(filePath);
+  if (!wid) {
+    return { success: false, error: 'No window found for path: ' + filePath };
+  }
+  const windowId = parseInt(wid, 10);
+  if (isNaN(windowId)) {
+    return { success: false, error: 'Invalid window ID' };
+  }
+  if (alwaysSave) {
+    store.set('alwaysSaveBeforeReview', true);
+    logger.info('[IPC] Setting alwaysSaveBeforeReview to true');
+  }
+  const result = await wordSave(windowId);
+  if (result.success) {
+    // Sync file to backend before returning so review uses latest content
+    try {
+      const projectFile = wordIntegrationDataStoreV2.getProjectFileForPath(filePath);
+      if (projectFile) {
+        await projectSyncService.syncFileOnce(projectFile.project_id, filePath);
+      }
+    } catch (syncErr) {
+      logger.error('[IPC] Post-save sync error (non-fatal):', syncErr);
+    }
+  }
+  return result;
+});
+
+ipcMain.handle(IPC_CHANNELS.GET_ALWAYS_SAVE_BEFORE_REVIEW, async () => {
+  return store.get('alwaysSaveBeforeReview', false);
+});
+
+ipcMain.handle(IPC_CHANNELS.SET_ALWAYS_SAVE_BEFORE_REVIEW, async (_event, enabled: boolean) => {
+  store.set('alwaysSaveBeforeReview', enabled);
 });
 
 // Feature flag IPC handlers

@@ -1,7 +1,7 @@
 /**
  * WebSocket route handler for real-time Word poll updates.
  *
- * Route: GET /ws/word/v2/:wid (upgraded to WebSocket)
+ * Route: GET /ws/word/v4/focused (upgraded to WebSocket)
  *
  * Protocol:
  *   Server → Client: { type: "poll", data: WordPollResponse }
@@ -21,11 +21,6 @@ import { getCachedUserData } from '../../userDataCache';
 import { FullStoryStaticConfig } from './wordV2';
 import { windowMonitorService } from '../../windowMonitorService';
 
-interface V2ClientInfo {
-  wid: string;
-}
-
-const v2Clients = new Map<WebSocket, V2ClientInfo>();
 const v4FocusedClients = new Set<WebSocket>();
 
 /**
@@ -68,65 +63,11 @@ export async function registerWebSocketRoutes(
       broadcastTimer = null;
     }
     // Close all connected clients
-    for (const [ws] of v2Clients) {
-      ws.close(1001, 'Server shutting down');
-    }
-    v2Clients.clear();
     for (const ws of v4FocusedClients) {
       ws.close(1001, 'Server shutting down');
     }
     v4FocusedClients.clear();
   });
-
-  // V2 WebSocket route (wid-based)
-  fastify.get<{
-    Params: { wid: string };
-    Querystring: { token?: string };
-  }>(
-    '/ws/word/v2/:wid',
-    { websocket: true },
-    (socket: WebSocket, request) => {
-      // --- Auth ---
-      const token = (request.query as any).token as string | undefined;
-      if (!token || !tokenManager.isValidToken(token)) {
-        logger.warn('[WS-V2] Unauthorized connection attempt');
-        socket.close(4401, 'Unauthorized');
-        return;
-      }
-
-      const wid = (request.params as any).wid as string;
-
-      // Track client
-      v2Clients.set(socket, { wid });
-      logger.debug(`[WS-V2] Client connected for wid ${wid} (total: ${v2Clients.size})`);
-
-      // Send initial poll response immediately
-      sendPollToV2Client(socket, wid, notificationManager, currentUserId, fullStoryStaticConfig);
-
-      // Handle incoming messages
-      socket.on('message', (raw: Buffer | string) => {
-        try {
-          const msg = JSON.parse(typeof raw === 'string' ? raw : raw.toString());
-          if (msg.type === 'refresh') {
-            sendPollToV2Client(socket, wid, notificationManager, currentUserId, fullStoryStaticConfig);
-          }
-        } catch {
-          // Ignore malformed messages
-        }
-      });
-
-      // Cleanup on disconnect
-      socket.on('close', () => {
-        v2Clients.delete(socket);
-        logger.debug(`[WS-V2] Client disconnected for wid ${wid} (total: ${v2Clients.size})`);
-      });
-
-      socket.on('error', (err) => {
-        logger.error(`[WS-V2] Socket error for wid ${wid}:`, err);
-        v2Clients.delete(socket);
-      });
-    }
-  );
 
   // V4 WebSocket route (focused window — no wid in URL)
   fastify.get<{
@@ -173,38 +114,6 @@ export async function registerWebSocketRoutes(
 }
 
 /**
- * Send a V2 poll response to a single client.
- */
-function sendPollToV2Client(
-  ws: WebSocket,
-  wid: string,
-  notificationManager?: any,
-  currentUserId?: () => number | null,
-  fullStoryStaticConfig?: FullStoryStaticConfig
-): void {
-  if (ws.readyState !== 1) return;
-  try {
-    const response = buildWordPollResponseV2(wid, notificationManager, currentUserId);
-    let data: any = response;
-    if (fullStoryStaticConfig) {
-      const cached = getCachedUserData();
-      data = {
-        ...response,
-        fullStoryConfig: {
-          ...fullStoryStaticConfig,
-          userId: cached?.id ?? (currentUserId ? currentUserId() : null),
-          email: cached?.email ?? '',
-          displayName: cached?.first_name || cached?.name || '',
-        },
-      };
-    }
-    ws.send(JSON.stringify({ type: 'poll', data }));
-  } catch (err) {
-    logger.error(`[WS-V2] Error building poll response for wid ${wid}:`, err);
-  }
-}
-
-/**
  * Send a V4 poll response (focused window) to a single client.
  */
 function sendPollToV4Client(
@@ -235,16 +144,13 @@ function sendPollToV4Client(
 }
 
 /**
- * Broadcast updated poll responses to all connected V2 and V4 clients.
+ * Broadcast updated poll responses to all connected V4 clients.
  */
 function broadcastToAll(
   notificationManager?: any,
   currentUserId?: () => number | null,
   fullStoryStaticConfig?: FullStoryStaticConfig
 ): void {
-  for (const [ws, info] of v2Clients) {
-    sendPollToV2Client(ws, info.wid, notificationManager, currentUserId, fullStoryStaticConfig);
-  }
   for (const ws of v4FocusedClients) {
     sendPollToV4Client(ws, notificationManager, currentUserId, fullStoryStaticConfig);
   }

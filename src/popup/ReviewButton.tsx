@@ -8,7 +8,6 @@ const serverUrl = window.location.origin;
 const urlParams = new URLSearchParams(window.location.search);
 const widParam = urlParams.get('wid');
 const tokenParam = urlParams.get('token');
-const isV4Mode = urlParams.get('mode') === 'v4';
 
 function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
   const effectiveWid = widOverride ?? widParam;
@@ -61,7 +60,7 @@ interface WebSocketMessage {
 const MAX_RECONNECT_ATTEMPTS = 5;
 
 /**
- * Custom hook: connects to /ws/word/v2/:wid via WebSocket for real-time updates.
+ * Custom hook: connects to /ws/word/v4/focused via WebSocket for real-time updates.
  * Falls back to HTTP polling if WebSocket fails permanently.
  */
 function useWordPoll(
@@ -74,7 +73,7 @@ function useWordPoll(
   const [focusedWid, setFocusedWid] = useState<string | null>(null);
 
   useEffect(() => {
-    if ((!wid && !isV4Mode) || !token) {
+    if (!token) {
       return;
     }
 
@@ -101,7 +100,7 @@ function useWordPoll(
       const poll = async () => {
         if (cleanedUp) return;
         try {
-          const pollUrl = isV4Mode ? `${apiBaseUrl}/word/v4/focused/poll` : `${apiBaseUrl}/word/v2/${wid}/poll`;
+          const pollUrl = `${apiBaseUrl}/word/v4/focused/poll`;
           const res = await fetch(pollUrl, {
             headers: { Accept: 'application/json', Authorization: `Bearer ${token}` },
           });
@@ -127,9 +126,7 @@ function useWordPoll(
     function connect() {
       if (cleanedUp || usingFallback) return;
 
-      const wsUrl = isV4Mode
-        ? `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`
-        : `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v2/${wid}?token=${encodeURIComponent(token!)}`;
+      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`;
 
       try {
         ws = new WebSocket(wsUrl);
@@ -204,7 +201,7 @@ function useWordPoll(
 
 const ReviewButton: React.FC = () => {
   const { shouldShowReviewButton, focusedWid } = useWordPoll(widParam, tokenParam, serverUrl);
-  const effectiveWid = isV4Mode ? focusedWid : widParam;
+  const effectiveWid = focusedWid;
 
   useEffect(() => {
     onVisibilityChanged('review-button', shouldShowReviewButton);
