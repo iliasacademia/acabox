@@ -723,7 +723,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
               </button>
               <button
                 onClick={() => {
-                  window.open('x-apple.systempreferences:com.apple.preference.security?Privacy_Automation');
+                  navigateToPage({ page: 'external', url: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation' }, tokenParam);
                 }}
                 style={{
                   padding: '8px 16px',
