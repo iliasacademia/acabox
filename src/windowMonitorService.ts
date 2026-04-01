@@ -779,8 +779,7 @@ export class WindowMonitorService {
     this.selectedTextReviewState.delete(windowId);
     this.buttonV2WidthOverrides.delete(windowId);
     this.lastSelectionBounds.delete(windowId);
-    // Note: pushWebviewState() is NOT called here — caller handles native update
-    // timing to avoid disrupting WebSocket delivery of the state change.
+    this.pushWebviewState();
   }
 
   getSelectedTextReviewState(windowId: string): {
