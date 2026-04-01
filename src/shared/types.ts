@@ -64,6 +64,8 @@ export const IPC_CHANNELS = {
   SCHEDULE_POPUP_AUTO_OPEN: "schedule-popup-auto-open",
   REVIEW_PRE_CHECK: "review-pre-check",
   WORD_SAVE_DOCUMENT: "word-save-document",
+  GET_ALWAYS_SAVE_BEFORE_REVIEW: "get-always-save-before-review",
+  SET_ALWAYS_SAVE_BEFORE_REVIEW: "set-always-save-before-review",
 
   // Sync operations
   REINITIALIZE_SYNC: "reinitialize-sync",

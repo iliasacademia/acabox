@@ -28,6 +28,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pollStartRef = useRef<number>(0);
 
+  // Always save before review
+  const [alwaysSaveBeforeReview, setAlwaysSaveBeforeReview] = useState(false);
+
   // All-apps monitor feature flag state
   const [allAppsMonitorEnabled, setAllAppsMonitorEnabled] = useState(false);
 
@@ -51,6 +54,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       setManuscriptRefreshSuccess(false);
       setIsLoadingStatus(true);
       getZoteroStatus().then(setZoteroStatus).finally(() => setIsLoadingStatus(false));
+      window.electronAPI.invoke(IPC_CHANNELS.GET_ALWAYS_SAVE_BEFORE_REVIEW).then((v: boolean) => setAlwaysSaveBeforeReview(v));
       window.electronAPI.invoke(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED).then((v: boolean) => setAllAppsMonitorEnabled(v));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_STATUS).then((s: { running: boolean }) => setSandboxRunning(s.running));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_SKIP_CHECKSUM).then((v: boolean) => setSkipChecksum(v));
@@ -210,6 +214,28 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                 <div className="settingLabel">Auto Diff Review</div>
                 <div className="settingDescription">
                   Automatically review manuscript changes when files are synced
+                </div>
+              </div>
+            </div>
+            <div
+              className={`settingItem ${alwaysSaveBeforeReview ? 'enabled' : ''}`}
+              onClick={() => {
+                const newValue = !alwaysSaveBeforeReview;
+                setAlwaysSaveBeforeReview(newValue);
+                window.electronAPI.invoke(IPC_CHANNELS.SET_ALWAYS_SAVE_BEFORE_REVIEW, newValue);
+              }}
+            >
+              <div className="settingCheckbox">
+                {alwaysSaveBeforeReview && (
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path d="M13.5 4L6 11.5L2.5 8" stroke="#0645b1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                )}
+              </div>
+              <div className="settingContent">
+                <div className="settingLabel">Always Save Before Review</div>
+                <div className="settingDescription">
+                  Automatically save the document before starting a review, without prompting
                 </div>
               </div>
             </div>

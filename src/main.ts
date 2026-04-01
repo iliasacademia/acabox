@@ -1097,6 +1097,14 @@ ipcMain.handle(IPC_CHANNELS.WORD_SAVE_DOCUMENT, async (_event, filePath: string,
   return wordSave(windowId);
 });
 
+ipcMain.handle(IPC_CHANNELS.GET_ALWAYS_SAVE_BEFORE_REVIEW, async () => {
+  return store.get('alwaysSaveBeforeReview', false);
+});
+
+ipcMain.handle(IPC_CHANNELS.SET_ALWAYS_SAVE_BEFORE_REVIEW, async (_event, enabled: boolean) => {
+  store.set('alwaysSaveBeforeReview', enabled);
+});
+
 // Feature flag IPC handlers
 ipcMain.handle(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED, async () => {
   return store.get('windowMonitorAllAppsEnabled', false);
