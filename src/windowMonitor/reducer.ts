@@ -37,7 +37,7 @@ function upsertWindow(app: AppState, win: WindowInfoWithBounds): AppState {
       ...app,
       windows: app.windows.map((w) =>
         w.id === win.id
-          ? { ...w, title: win.title, documentPath: win.documentPath, bounds: win.bounds, contentBounds: win.contentBounds ?? null }
+          ? { ...w, title: win.title, documentPath: win.documentPath, bounds: win.bounds, contentBounds: win.contentBounds ?? w.contentBounds }
           : w,
       ),
     };
@@ -254,7 +254,7 @@ export function reduceWindowMonitorEvent(
                   documentPath: event.window.documentPath,
                   title: event.window.title,
                   bounds: event.window.bounds,
-                  contentBounds: event.window.contentBounds ?? null,
+                  contentBounds: event.window.contentBounds ?? w.contentBounds,
                 }
               : w,
           ),
