@@ -309,6 +309,62 @@ end tell`;
   }
 }
 
+export interface ApplyFormattingOptions {
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strikethrough?: boolean;
+  allCaps?: boolean;
+  smallCaps?: boolean;
+  superscript?: boolean;
+  subscript?: boolean;
+}
+
+export interface ApplyFormattingResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Apply character-level formatting to the current selection in Word.
+ */
+export async function applyFormattingInWord(options: ApplyFormattingOptions): Promise<ApplyFormattingResult> {
+  logger.info(`[WordActions] applyFormattingInWord called with options: ${JSON.stringify(options)}`);
+
+  const propertyMap: Record<string, string> = {
+    bold: 'bold',
+    italic: 'italic',
+    underline: 'underline',
+    strikethrough: 'strikethrough',
+    allCaps: 'all caps',
+    smallCaps: 'small caps',
+    superscript: 'superscript',
+    subscript: 'subscript',
+  };
+
+  const lines: string[] = [];
+  for (const [key, wordProp] of Object.entries(propertyMap)) {
+    const value = options[key as keyof ApplyFormattingOptions];
+    if (value !== undefined) {
+      lines.push(`  set ${wordProp} of font object of selection to ${value}`);
+    }
+  }
+
+  if (lines.length === 0) {
+    return { success: false, error: 'No formatting properties provided' };
+  }
+
+  try {
+    const script = `tell application "Microsoft Word"\n${lines.join('\n')}\nend tell`;
+    await runAppleScript(script);
+    return { success: true };
+  } catch (err) {
+    const errorMessage = (err as Error).message || 'Unknown error';
+    logger.info(`[WordActions] applyFormattingInWord error: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}
+
 export interface GetFilePathResult {
   success: boolean;
   error?: string;

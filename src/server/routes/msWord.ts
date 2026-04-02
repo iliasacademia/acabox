@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { defaultLogger as logger } from '../../utils/logger';
-import { insertParagraphInWord, positionCursorInWord, CursorPositionType, getWordFilePath, saveWordDocument, getWordText, getWordSelection, selectTextInWord, deleteSelectionInWord, applyStyleInWord } from '../wordActions';
+import { insertParagraphInWord, positionCursorInWord, CursorPositionType, getWordFilePath, saveWordDocument, getWordText, getWordSelection, selectTextInWord, deleteSelectionInWord, applyStyleInWord, applyFormattingInWord, ApplyFormattingOptions } from '../wordActions';
 
 interface InsertParagraphBody {
   action: 'insert_paragraph';
@@ -237,6 +237,45 @@ export async function registerMsWordRoutes(
       } catch (error) {
         logger.error('[MsWord API] Apply style error:', error);
         reply.code(500).send({ success: false, error: 'Failed to apply style' });
+      }
+    }
+  );
+
+  fastify.post<{ Body: { action: 'apply_formatting' } & ApplyFormattingOptions }>(
+    '/api/ms-word/apply-formatting',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['action'],
+          properties: {
+            action: { type: 'string', enum: ['apply_formatting'] },
+            bold: { type: 'boolean' },
+            italic: { type: 'boolean' },
+            underline: { type: 'boolean' },
+            strikethrough: { type: 'boolean' },
+            allCaps: { type: 'boolean' },
+            smallCaps: { type: 'boolean' },
+            superscript: { type: 'boolean' },
+            subscript: { type: 'boolean' },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { action, ...formatting } = request.body;
+      logger.info('[MsWord API] POST /api/ms-word/apply-formatting', formatting);
+
+      try {
+        const result = await applyFormattingInWord(formatting);
+        if (!result.success) {
+          reply.code(500).send({ success: false, error: result.error });
+          return;
+        }
+        reply.send({ success: true });
+      } catch (error) {
+        logger.error('[MsWord API] Apply formatting error:', error);
+        reply.code(500).send({ success: false, error: 'Failed to apply formatting' });
       }
     }
   );

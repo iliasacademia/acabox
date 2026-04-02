@@ -254,6 +254,27 @@ const APPLY_STYLE_TOOL = {
   },
 };
 
+const APPLY_FORMATTING_TOOL = {
+  name: 'ms_word_apply_formatting',
+  description:
+    'Apply character-level formatting (bold, italic, underline, etc.) to the current selection in the active Microsoft Word document. ' +
+    'Use ms_word_select_text first to select the target text, then call this to apply formatting. ' +
+    'All properties are optional booleans — set to true to enable, false to disable. Only provided properties are changed.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      bold: { type: 'boolean', description: 'Set bold formatting on/off.' },
+      italic: { type: 'boolean', description: 'Set italic formatting on/off.' },
+      underline: { type: 'boolean', description: 'Set underline formatting on/off.' },
+      strikethrough: { type: 'boolean', description: 'Set strikethrough formatting on/off.' },
+      allCaps: { type: 'boolean', description: 'Set all-caps formatting on/off.' },
+      smallCaps: { type: 'boolean', description: 'Set small-caps formatting on/off.' },
+      superscript: { type: 'boolean', description: 'Set superscript formatting on/off.' },
+      subscript: { type: 'boolean', description: 'Set subscript formatting on/off.' },
+    },
+  },
+};
+
 const SAVE_DOCUMENT_TOOL = {
   name: 'ms_word_save_document',
   description:
@@ -284,7 +305,7 @@ async function handleRequest(msg) {
       break;
 
     case 'tools/list':
-      sendResponse(id, { tools: [GET_FILE_PATH_TOOL, GET_TEXT_TOOL, GET_SELECTION_TOOL, SAVE_DOCUMENT_TOOL, POSITION_CURSOR_TOOL, INSERT_PARAGRAPH_TOOL, SELECT_TEXT_TOOL, DELETE_SELECTION_TOOL, APPLY_STYLE_TOOL] });
+      sendResponse(id, { tools: [GET_FILE_PATH_TOOL, GET_TEXT_TOOL, GET_SELECTION_TOOL, SAVE_DOCUMENT_TOOL, POSITION_CURSOR_TOOL, INSERT_PARAGRAPH_TOOL, SELECT_TEXT_TOOL, DELETE_SELECTION_TOOL, APPLY_STYLE_TOOL, APPLY_FORMATTING_TOOL] });
       break;
 
     case 'tools/call': {
@@ -561,6 +582,53 @@ async function handleRequest(msg) {
                 {
                   type: 'text',
                   text: `Failed to apply style: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_apply_formatting') {
+        const formattingProps = ['bold', 'italic', 'underline', 'strikethrough', 'allCaps', 'smallCaps', 'superscript', 'subscript'];
+        const hasAny = formattingProps.some((p) => args[p] !== undefined);
+
+        if (!hasAny) {
+          sendError(id, -32602, 'At least one formatting property must be provided (e.g., bold, italic, underline).');
+          return;
+        }
+
+        try {
+          const body = { action: 'apply_formatting' };
+          for (const p of formattingProps) {
+            if (args[p] !== undefined) body[p] = args[p];
+          }
+
+          const result = await postToServer('/api/ms-word/apply-formatting', body);
+
+          if (result.data?.success) {
+            const applied = formattingProps
+              .filter((p) => args[p] !== undefined)
+              .map((p) => `${p}: ${args[p]}`)
+              .join(', ');
+            sendResponse(id, {
+              content: [{ type: 'text', text: `Formatting applied successfully: ${applied}` }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to apply formatting: ${result.data?.error || `HTTP ${result.status}`}`,
                 },
               ],
               isError: true,
