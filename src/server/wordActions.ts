@@ -271,6 +271,10 @@ do shell script "printf '%s' " & quoted form of theContent & " | pbcopy"
 delay 0.1
 tell application "System Events"
   ${keySequence}
+end tell
+delay 0.1
+tell application "Microsoft Word"
+  set style of text object of selection to "Normal"
 end tell`;
 
     await runAppleScript(script);
