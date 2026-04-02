@@ -194,3 +194,61 @@ export async function wordSave(windowId: number): Promise<SaveResult> {
     return { success: false, error: 'Failed to execute save' };
   }
 }
+
+export type InsertMethod = 'applescript' | 'keyboard';
+
+export interface InsertParagraphResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function insertParagraphInWord(
+  content: string,
+  method: InsertMethod = 'applescript'
+): Promise<InsertParagraphResult> {
+  logger.info(`[WordActions] insertParagraphInWord called with method: ${method}`);
+
+  try {
+    if (method === 'keyboard') {
+      // Escape content for AppleScript string literal
+      const escapedContent = content
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"');
+
+      const script = `
+        set theContent to "${escapedContent}"
+        tell application "Microsoft Word" to activate
+        delay 0.3
+        do shell script "printf '%s' " & quoted form of theContent & " | pbcopy"
+        delay 0.1
+        tell application "System Events"
+          keystroke return
+          delay 0.1
+          keystroke "v" using command down
+        end tell
+      `;
+
+      await runAppleScript(script);
+      return { success: true };
+    }
+
+    // Default: applescript method
+    const escaped = content
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\n/g, '\\n')
+      .replace(/\r/g, '\\r');
+
+    const script = `tell application "Microsoft Word"
+  activate
+  type text selection text (return & "${escaped}")
+end tell`;
+
+    await runAppleScript(script);
+    return { success: true };
+  } catch (err) {
+    const errorMessage = (err as Error).message || 'Unknown error';
+    logger.info(`[WordActions] insertParagraphInWord error: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}
