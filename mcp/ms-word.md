@@ -79,6 +79,7 @@ Inserts a new paragraph at the current cursor position. Set `position` to match 
 { "content": "New paragraph text.", "position": "after" }
 ```
 `position` is optional (default: "after"). "after" = Enter then paste. "before" = paste then Enter.
+`disableBlueInsertion` is optional (default: false). If true, inserted text uses the default font color instead of blue.
 
 ### `ms_word_select_text`
 Finds and selects exact text in the document using Cmd+F and binary search on selection length.

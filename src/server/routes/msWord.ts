@@ -6,6 +6,7 @@ interface InsertParagraphBody {
   action: 'insert_paragraph';
   content: string;
   position?: CursorPositionType;
+  disableBlueInsertion?: boolean;
 }
 
 interface PositionCursorBody {
@@ -60,16 +61,17 @@ export async function registerMsWordRoutes(
             action: { type: 'string', enum: ['insert_paragraph'] },
             content: { type: 'string' },
             position: { type: 'string', enum: ['before', 'after'] },
+            disableBlueInsertion: { type: 'boolean' },
           },
         },
       },
     },
     async (request, reply) => {
-      const { content, position } = request.body;
-      logger.info('[MsWord API] POST /api/ms-word/insert-paragraph', { position: position || 'after' });
+      const { content, position, disableBlueInsertion } = request.body;
+      logger.info('[MsWord API] POST /api/ms-word/insert-paragraph', { position: position || 'after', disableBlueInsertion });
 
       try {
-        const result = await insertParagraphInWord(content, position);
+        const result = await insertParagraphInWord(content, position, disableBlueInsertion);
         if (!result.success) {
           reply.code(500).send({ success: false, error: result.error });
           return;

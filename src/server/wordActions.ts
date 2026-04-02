@@ -242,7 +242,8 @@ export interface InsertParagraphResult {
  */
 export async function insertParagraphInWord(
   content: string,
-  position: CursorPositionType = 'after'
+  position: CursorPositionType = 'after',
+  disableBlueInsertion?: boolean
 ): Promise<InsertParagraphResult> {
   logger.info(`[WordActions] insertParagraphInWord called with position: ${position}`);
 
@@ -274,7 +275,7 @@ tell application "System Events"
 end tell
 delay 0.1
 tell application "Microsoft Word"
-  set style of text object of selection to "Normal"
+  set style of text object of selection to "Normal"${disableBlueInsertion ? '' : `
   set selObj to selection
   set endPos to selection end of selObj
   set startPos to endPos - ${content.length}
@@ -282,7 +283,7 @@ tell application "Microsoft Word"
   select myRange
   set theFont to get font object of selection
   set color of theFont to {0, 0, 65535}
-  selection end of selObj
+  selection end of selObj`}
 end tell`;
 
     await runAppleScript(script);

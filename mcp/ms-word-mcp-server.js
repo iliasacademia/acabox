@@ -183,6 +183,11 @@ const INSERT_PARAGRAPH_TOOL = {
           'How the cursor was positioned. "after" (default): Enter → paste. "before": paste → Enter. ' +
           'Should match the "type" used in ms_word_position_cursor.',
       },
+      disableBlueInsertion: {
+        type: 'boolean',
+        description:
+          'If true, inserted text will use the default font color instead of blue. Defaults to false.',
+      },
     },
   },
 };
@@ -380,6 +385,7 @@ async function handleRequest(msg) {
             action: 'insert_paragraph',
             content: args.content,
             position: args.position || 'after',
+            disableBlueInsertion: args.disableBlueInsertion || false,
           });
 
           if (result.data?.success) {
