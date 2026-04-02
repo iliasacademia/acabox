@@ -167,8 +167,6 @@ export interface WordPollResponse {
   shouldShowPopupV2?: boolean;
   /** Whether review-button webview is visible (from webview manager desired state) */
   shouldShowReviewButton?: boolean;
-  /** Whether review-status-overlay webview is visible (from webview manager desired state) */
-  shouldShowReviewStatusOverlay?: boolean;
   /** Whether the overlay is in input mode (awaiting user prompt before review) */
   isAwaitingReviewInput?: boolean;
   /** Whether the window has selected text (regardless of bounds availability) */

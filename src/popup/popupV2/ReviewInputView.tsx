@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { serverUrl, tokenParam, postBridge, getV4FocusedWid, navigateToPage } from './shared';
-import '../ReviewStatusOverlay.css';
+import './ReviewInputView.css';
 
 export interface ReviewInputViewProps {
   selectedText: string | null;

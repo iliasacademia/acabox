@@ -29,9 +29,6 @@ const POPUP_WIDTH = 370;
 const POPUP_HEIGHT = 400;
 const POPUP_GAP_ABOVE_BUTTON = 10;
 
-const REVIEW_STATUS_OVERLAY_HEIGHT = 250;
-const REVIEW_STATUS_OVERLAY_INPUT_HEIGHT = 380;
-const REVIEW_STATUS_OVERLAY_GAP = 4;
 
 const REVIEW_BUTTON_WIDTH = 120;
 const REVIEW_BUTTON_HEIGHT = 46;
@@ -63,36 +60,6 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
           y: cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN,
           width: BUTTON_WIDTH,
           height: BUTTON_HEIGHT,
-        };
-      },
-    },
-    {
-      keyPrefix: 'review-status-overlay',
-      pathSuffix: '/ui/popup/reviewStatusOverlay/',
-      forApp: 'com.microsoft.Word',
-      computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
-        // Don't show if popup is open (they overlap)
-        if (windowId && service['popupToggledOpen'].has(windowId)) {
-          return null;
-        }
-
-        // Show if overlay explicitly opened (input mode) OR active review
-        if (!windowId || (!service['reviewOverlayOpen'].has(windowId) && !service['selectedTextReviewState'].has(windowId))) {
-          return null;
-        }
-
-        // Taller when in input mode (overlay open but no active review yet)
-        const isInputMode = service['reviewOverlayOpen'].has(windowId) && !service['selectedTextReviewState'].has(windowId);
-        const overlayHeight = isInputMode ? REVIEW_STATUS_OVERLAY_INPUT_HEIGHT : REVIEW_STATUS_OVERLAY_HEIGHT;
-
-        const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
-        const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
-
-        return {
-          x: bounds.x + BUTTON_LEFT_MARGIN,
-          y: buttonTopEdge + REVIEW_STATUS_OVERLAY_GAP,
-          width: POPUP_WIDTH,
-          height: overlayHeight,
         };
       },
     },
@@ -594,8 +561,6 @@ export class WindowMonitorService {
       const offset = this.buttonDragOffsets.get(windowId)!;
       const buttonKey = 'button-v2';
       const popupKey = 'popup-v2';
-      const reviewStatusKey = 'review-status-overlay';
-
       let windowBounds: WindowBounds | null = focused?.window.bounds ?? null;
 
       if (windowBounds) {
@@ -621,20 +586,12 @@ export class WindowMonitorService {
           desiredState[popupKey].frame.x += clampedDx;
           desiredState[popupKey].frame.y += clampedDy;
         }
-        if (desiredState[reviewStatusKey]) {
-          desiredState[reviewStatusKey].frame.x += clampedDx;
-          desiredState[reviewStatusKey].frame.y += clampedDy;
-        }
       } else {
         desiredState[buttonKey].frame.x += offset.dx;
         desiredState[buttonKey].frame.y += offset.dy;
         if (desiredState[popupKey]) {
           desiredState[popupKey].frame.x += offset.dx;
           desiredState[popupKey].frame.y += offset.dy;
-        }
-        if (desiredState[reviewStatusKey]) {
-          desiredState[reviewStatusKey].frame.x += offset.dx;
-          desiredState[reviewStatusKey].frame.y += offset.dy;
         }
       }
     }
@@ -644,7 +601,7 @@ export class WindowMonitorService {
     }
 
     // Diff visibility — v4 uses global keys directly
-    const V4_VISIBILITY_KEYS = ['button-v2', 'popup-v2', 'review-button', 'review-status-overlay', 'review-panel-v3', 'review-button-v3'];
+    const V4_VISIBILITY_KEYS = ['button-v2', 'popup-v2', 'review-button', 'review-panel-v3', 'review-button-v3'];
     let visibilityChanged = false;
     for (const key of V4_VISIBILITY_KEYS) {
       const newVisible = desiredState[key]?.visible ?? false;
