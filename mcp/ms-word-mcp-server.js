@@ -49,7 +49,7 @@ function postToServer(path, body) {
           'Authorization': `Bearer ${AUTH_TOKEN}`,
           'Content-Length': Buffer.byteLength(data),
         },
-        timeout: 15000,
+        timeout: 30000,
       },
       (res) => {
         let body = '';
@@ -73,13 +73,83 @@ function postToServer(path, body) {
   });
 }
 
+function getFromServer(path) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        hostname: HOST,
+        port: PORT,
+        path,
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${AUTH_TOKEN}`,
+        },
+        timeout: 30000,
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => (body += chunk));
+        res.on('end', () => {
+          try {
+            resolve({ status: res.statusCode, data: JSON.parse(body) });
+          } catch {
+            resolve({ status: res.statusCode, data: { error: body } });
+          }
+        });
+      }
+    );
+    req.on('error', (err) => reject(err));
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timed out'));
+    });
+    req.end();
+  });
+}
+
 // --- Tool Definition ---
+
+const GET_TEXT_TOOL = {
+  name: 'ms_word_get_text',
+  description:
+    'Get the current text content of the active Microsoft Word document, including unsaved changes. ' +
+    'Returns a chunk of text with pagination support. ' +
+    'Response includes: fileName, totalLength, offset, limit, content, hasMore. ' +
+    'Call with increasing offset to read the full document in chunks.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      offset: {
+        type: 'number',
+        description: 'Character offset to start reading from (0-based). Default: 0.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Maximum characters to return. Default: 8000 (~2000 tokens).',
+      },
+    },
+  },
+};
+
+const GET_SELECTION_TOOL = {
+  name: 'ms_word_get_selection',
+  description:
+    'Get the currently selected text in the active Microsoft Word document. ' +
+    'Returns the selected text content. Useful for verifying what is selected before deleting or replacing.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+  },
+};
 
 const INSERT_PARAGRAPH_TOOL = {
   name: 'ms_word_insert_paragraph',
   description:
     'Insert a new paragraph at the current cursor position in the active Microsoft Word document. ' +
-    'Microsoft Word must be open with a document. The cursor should already be positioned at the desired insertion point.',
+    'The cursor should already be positioned via ms_word_position_cursor. ' +
+    'Set "position" to match the type used in position_cursor: ' +
+    '"after" (default) = cursor was placed after previous text, so Enter then paste. ' +
+    '"before" = cursor was placed before next text, so paste then Enter.',
   inputSchema: {
     type: 'object',
     required: ['content'],
@@ -88,14 +158,92 @@ const INSERT_PARAGRAPH_TOOL = {
         type: 'string',
         description: 'The text content of the paragraph to insert.',
       },
-      method: {
+      position: {
         type: 'string',
-        enum: ['applescript', 'keyboard'],
+        enum: ['before', 'after'],
         description:
-          'Insertion method. "applescript" (default) uses Word\'s AppleScript API. ' +
-          '"keyboard" uses keyboard simulation (focus Word, Return, Cmd+V).',
+          'How the cursor was positioned. "after" (default): Enter → paste. "before": paste → Enter. ' +
+          'Should match the "type" used in ms_word_position_cursor.',
       },
     },
+  },
+};
+
+const POSITION_CURSOR_TOOL = {
+  name: 'ms_word_position_cursor',
+  description:
+    'Position the cursor before or after the specified anchor text in the active Microsoft Word document. ' +
+    'Uses Cmd+F to find the text and places the cursor adjacent to it. ' +
+    'Call this before ms_word_insert_paragraph to place the cursor at the right location. ' +
+    'For type "after": pass the last 60 chars of the preceding paragraph. ' +
+    'For type "before": pass the first 60 chars of the following paragraph.',
+  inputSchema: {
+    type: 'object',
+    required: ['anchor'],
+    properties: {
+      anchor: {
+        type: 'string',
+        description: 'The text to find in the document. For "after" type, use the last ~60 chars of the preceding text. For "before" type, use the first ~60 chars of the following text.',
+      },
+      type: {
+        type: 'string',
+        enum: ['before', 'after'],
+        description: '"after" (default) places cursor after the anchor text. "before" places cursor before the anchor text.',
+      },
+    },
+  },
+};
+
+const SELECT_TEXT_TOOL = {
+  name: 'ms_word_select_text',
+  description:
+    'Find and precisely select specific text in the active Microsoft Word document. ' +
+    'Uses Cmd+F to position cursor at the start, then binary-searches on selection length ' +
+    'to match the exact text (up to 10 iterations). ' +
+    'Use this before ms_word_delete_selection to select text you want to delete.',
+  inputSchema: {
+    type: 'object',
+    required: ['text'],
+    properties: {
+      text: {
+        type: 'string',
+        description: 'The full exact text to find and select in the document.',
+      },
+    },
+  },
+};
+
+const DELETE_SELECTION_TOOL = {
+  name: 'ms_word_delete_selection',
+  description:
+    'Delete the currently selected text in the active Microsoft Word document. ' +
+    'Use ms_word_select_text first to select the text you want to delete, then call this to remove it.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+  },
+};
+
+const GET_FILE_PATH_TOOL = {
+  name: 'ms_word_get_file_path',
+  description:
+    'Get the file path of the active Microsoft Word document. ' +
+    'Returns the full file path and file name. Use this to know which file is open, ' +
+    'then read the file directly using the Read tool (for .docx files) rather than via AppleScript.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+  },
+};
+
+const SAVE_DOCUMENT_TOOL = {
+  name: 'ms_word_save_document',
+  description:
+    'Save the active Microsoft Word document. Call this before reading the file to ensure ' +
+    'there are no unsaved changes. Also call after making edits (insert/delete) to persist changes to disk.',
+  inputSchema: {
+    type: 'object',
+    properties: {},
   },
 };
 
@@ -118,55 +266,296 @@ async function handleRequest(msg) {
       break;
 
     case 'tools/list':
-      sendResponse(id, { tools: [INSERT_PARAGRAPH_TOOL] });
+      sendResponse(id, { tools: [GET_FILE_PATH_TOOL, GET_TEXT_TOOL, GET_SELECTION_TOOL, SAVE_DOCUMENT_TOOL, POSITION_CURSOR_TOOL, INSERT_PARAGRAPH_TOOL, SELECT_TEXT_TOOL, DELETE_SELECTION_TOOL] });
       break;
 
     case 'tools/call': {
       const toolName = params?.name;
       const args = params?.arguments || {};
 
-      if (toolName !== 'ms_word_insert_paragraph') {
-        sendError(id, -32602, `Unknown tool: ${toolName}`);
-        return;
-      }
+      if (toolName === 'ms_word_insert_paragraph') {
+        if (!args.content) {
+          sendError(id, -32602, 'Missing required parameter: content');
+          return;
+        }
 
-      if (!args.content) {
-        sendError(id, -32602, 'Missing required parameter: content');
-        return;
-      }
-
-      try {
-        const result = await postToServer('/api/ms-word/insert-paragraph', {
-          action: 'insert_paragraph',
-          content: args.content,
-          method: args.method || 'applescript',
-        });
-
-        if (result.data?.success) {
-          sendResponse(id, {
-            content: [{ type: 'text', text: 'Paragraph inserted successfully.' }],
+        try {
+          const result = await postToServer('/api/ms-word/insert-paragraph', {
+            action: 'insert_paragraph',
+            content: args.content,
+            position: args.position || 'after',
           });
-        } else {
+
+          if (result.data?.success) {
+            sendResponse(id, {
+              content: [{ type: 'text', text: 'Paragraph inserted successfully.' }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to insert paragraph: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
           sendResponse(id, {
             content: [
               {
                 type: 'text',
-                text: `Failed to insert paragraph: ${result.data?.error || `HTTP ${result.status}`}`,
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
               },
             ],
             isError: true,
           });
         }
-      } catch (err) {
-        sendResponse(id, {
-          content: [
-            {
-              type: 'text',
-              text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
-            },
-          ],
-          isError: true,
-        });
+      } else if (toolName === 'ms_word_position_cursor') {
+        if (!args.anchor) {
+          sendError(id, -32602, 'Missing required parameter: anchor');
+          return;
+        }
+
+        try {
+          const cursorType = args.type || 'after';
+          const result = await postToServer('/api/ms-word/position-cursor', {
+            action: 'position_cursor',
+            anchor: args.anchor,
+            type: cursorType,
+          });
+
+          if (result.data?.success) {
+            sendResponse(id, {
+              content: [{ type: 'text', text: `Cursor positioned ${cursorType} anchor text.` }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to position cursor: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_select_text') {
+        if (!args.text) {
+          sendError(id, -32602, 'Missing required parameter: text');
+          return;
+        }
+
+        try {
+          const result = await postToServer('/api/ms-word/select-text', {
+            action: 'select_text',
+            text: args.text,
+          });
+
+          if (result.data?.success) {
+            const exact = result.data.exact ? 'exact' : 'approximate';
+            const msg = `Text selected (${exact}, ${result.data.iterations} iterations). Selected ${result.data.selectedText?.length || 0} chars.`;
+            sendResponse(id, {
+              content: [{ type: 'text', text: msg }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to select text: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_delete_selection') {
+        try {
+          const result = await postToServer('/api/ms-word/delete-selection', {
+            action: 'delete_selection',
+          });
+
+          if (result.data?.success) {
+            const msg = result.data.deletedText
+              ? `Selection deleted: "${result.data.deletedText}"`
+              : 'Selection deleted.';
+            sendResponse(id, {
+              content: [{ type: 'text', text: msg }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to delete selection: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_get_file_path') {
+        try {
+          const result = await getFromServer('/api/ms-word/get-file-path');
+
+          if (result.data?.success) {
+            sendResponse(id, {
+              content: [{ type: 'text', text: `File: ${result.data.fileName}\nPath: ${result.data.filePath}` }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to get file path: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_get_text') {
+        try {
+          const offset = args.offset || 0;
+          const limit = args.limit || 8000;
+          const result = await getFromServer(`/api/ms-word/get-text?offset=${offset}&limit=${limit}`);
+
+          if (result.data?.success) {
+            const d = result.data;
+            const header = `File: ${d.fileName} | Total: ${d.totalLength} chars | Showing: ${d.offset}-${d.offset + d.content.length} | Has more: ${d.hasMore}`;
+            sendResponse(id, {
+              content: [{ type: 'text', text: `${header}\n\n${d.content}` }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to get text: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_get_selection') {
+        try {
+          const result = await getFromServer('/api/ms-word/get-selection');
+
+          if (result.data?.success) {
+            sendResponse(id, {
+              content: [{ type: 'text', text: result.data.selectedText || '(no text selected)' }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to get selection: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_save_document') {
+        try {
+          const result = await postToServer('/api/ms-word/save-document', {
+            action: 'save_document',
+          });
+
+          if (result.data?.success) {
+            sendResponse(id, {
+              content: [{ type: 'text', text: 'Document saved successfully.' }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to save document: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else {
+        sendError(id, -32602, `Unknown tool: ${toolName}`);
+        return;
       }
       break;
     }
