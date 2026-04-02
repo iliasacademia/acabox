@@ -275,9 +275,9 @@ const APPLY_STYLE_TOOL = {
 const APPLY_FORMATTING_TOOL = {
   name: 'ms_word_apply_formatting',
   description:
-    'Apply character-level formatting (bold, italic, underline, etc.) to the current selection in the active Microsoft Word document. ' +
+    'Apply character-level formatting (bold, italic, underline, color, etc.) to the current selection in the active Microsoft Word document. ' +
     'Use ms_word_select_text first to select the target text, then call this to apply formatting. ' +
-    'All properties are optional booleans — set to true to enable, false to disable. Only provided properties are changed.',
+    'Boolean properties: set to true to enable, false to disable. Color accepts a hex string (e.g., "#FF0000"). Only provided properties are changed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -289,6 +289,7 @@ const APPLY_FORMATTING_TOOL = {
       smallCaps: { type: 'boolean', description: 'Set small-caps formatting on/off.' },
       superscript: { type: 'boolean', description: 'Set superscript formatting on/off.' },
       subscript: { type: 'boolean', description: 'Set subscript formatting on/off.' },
+      color: { type: 'string', description: 'Font color as hex string (e.g., "#FF0000" for red, "#0000FF" for blue).' },
     },
   },
 };
@@ -655,7 +656,7 @@ async function handleRequest(msg) {
           });
         }
       } else if (toolName === 'ms_word_apply_formatting') {
-        const formattingProps = ['bold', 'italic', 'underline', 'strikethrough', 'allCaps', 'smallCaps', 'superscript', 'subscript'];
+        const formattingProps = ['bold', 'italic', 'underline', 'strikethrough', 'allCaps', 'smallCaps', 'superscript', 'subscript', 'color'];
         const hasAny = formattingProps.some((p) => args[p] !== undefined);
 
         if (!hasAny) {

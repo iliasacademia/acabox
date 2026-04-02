@@ -322,6 +322,7 @@ export interface ApplyFormattingOptions {
   smallCaps?: boolean;
   superscript?: boolean;
   subscript?: boolean;
+  color?: string;
 }
 
 export interface ApplyFormattingResult {
@@ -352,6 +353,22 @@ export async function applyFormattingInWord(options: ApplyFormattingOptions): Pr
     if (value !== undefined) {
       lines.push(`  set ${wordProp} of font object of selection to ${value}`);
     }
+  }
+
+  if (options.color !== undefined) {
+    const hex = options.color.replace(/^#/, '');
+    const r8 = parseInt(hex.substring(0, 2), 16);
+    const g8 = parseInt(hex.substring(2, 4), 16);
+    const b8 = parseInt(hex.substring(4, 6), 16);
+    if (isNaN(r8) || isNaN(g8) || isNaN(b8)) {
+      return { success: false, error: `Invalid hex color: ${options.color}` };
+    }
+    // Word AppleScript uses 16-bit color values (0-65535)
+    const r = r8 * 257;
+    const g = g8 * 257;
+    const b = b8 * 257;
+    lines.push(`  set theFont to get font object of selection`);
+    lines.push(`  set color of theFont to {${r}, ${g}, ${b}}`);
   }
 
   if (lines.length === 0) {

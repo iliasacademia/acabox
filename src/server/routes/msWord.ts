@@ -290,6 +290,7 @@ export async function registerMsWordRoutes(
             smallCaps: { type: 'boolean' },
             superscript: { type: 'boolean' },
             subscript: { type: 'boolean' },
+            color: { type: 'string' },
           },
         },
       },

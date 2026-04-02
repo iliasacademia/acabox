@@ -94,11 +94,11 @@ Applies a named paragraph style to the current selection. Use `ms_word_select_te
 Common styles: "Normal", "Heading 1", "Heading 2", "Heading 3", "Title", "Subtitle", "Body Text".
 
 ### `ms_word_apply_formatting`
-Applies character-level formatting to the current selection. Use `ms_word_select_text` first. All properties are optional booleans — set `true` to enable, `false` to disable.
+Applies character-level formatting to the current selection. Use `ms_word_select_text` first. Boolean properties: set `true` to enable, `false` to disable. Color accepts a hex string.
 ```json
-{ "bold": true, "italic": true }
+{ "bold": true, "color": "#FF0000" }
 ```
-Available options: `bold`, `italic`, `underline`, `strikethrough`, `allCaps`, `smallCaps`, `superscript`, `subscript`.
+Available options: `bold`, `italic`, `underline`, `strikethrough`, `allCaps`, `smallCaps`, `superscript`, `subscript`, `color` (hex string, e.g. `"#FF0000"`).
 
 ### `ms_word_delete_selection`
 Deletes whatever is currently selected. No parameters.
