@@ -275,6 +275,14 @@ end tell
 delay 0.1
 tell application "Microsoft Word"
   set style of text object of selection to "Normal"
+  set selObj to selection
+  set endPos to selection end of selObj
+  set startPos to endPos - ${content.length}
+  set myRange to create range active document start startPos end endPos
+  select myRange
+  set theFont to get font object of selection
+  set color of theFont to {0, 0, 65535}
+  selection end of selObj
 end tell`;
 
     await runAppleScript(script);
