@@ -28,10 +28,13 @@ export function useProjectsApi() {
      * Get files in project
      * GET /v0/co_scientist/projects/:id/files
      */
-    getProjectFiles: async (projectId: number): Promise<ProjectFile[]> => {
+    getProjectFiles: async (projectId: number, isPrimaryManuscript?: boolean): Promise<ProjectFile[]> => {
+      const endpoint = isPrimaryManuscript
+        ? `v0/co_scientist/projects/${projectId}/files?is_primary_manuscript=true`
+        : `v0/co_scientist/projects/${projectId}/files`;
       const response = await client.invoke<{ files?: ProjectFile[] }>({
         method: 'GET',
-        endpoint: `v0/co_scientist/projects/${projectId}/files`,
+        endpoint,
       });
       return response.files || [];
     },

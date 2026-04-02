@@ -182,7 +182,7 @@ export function ConversationsPage({
   const refreshManuscriptFile = async () => {
     if (!selectedProject) return;
     try {
-      const files = await getProjectFiles(selectedProject.id);
+      const files = await getProjectFiles(selectedProject.id, true);
       const primaryManuscript = files.find(
         (file) => file.is_primary_manuscript,
       );
@@ -528,7 +528,7 @@ export function ConversationsPage({
       }
       setIsLoadingFiles(true);
       try {
-        const files = await getProjectFiles(selectedProject.id);
+        const files = await getProjectFiles(selectedProject.id, true);
         // Find the primary manuscript
         const primaryManuscript = files.find(
           (file) => file.is_primary_manuscript,
@@ -574,7 +574,7 @@ export function ConversationsPage({
       ];
       // Handle file sync for this project
       if (data.projectId === selectedProject.id) {
-        getProjectFiles(selectedProject.id)
+        getProjectFiles(selectedProject.id, true)
           .then((files) => {
             const primaryManuscript = files.find(
               (file) => file.is_primary_manuscript,
@@ -954,7 +954,7 @@ export function ConversationsPage({
 
       await switchManuscript(selectedProject.id, filePath);
       // Refresh manuscript file data after switch
-      const files = await getProjectFiles(selectedProject.id);
+      const files = await getProjectFiles(selectedProject.id, true);
       const newManuscript = files.find((file) => file.is_primary_manuscript);
       setManuscriptFile(newManuscript || null);
 
