@@ -47,6 +47,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const [firewallUpdating, setFirewallUpdating] = useState(false);
   const [firewallStatus, setFirewallStatus] = useState<string | null>(null);
 
+  // Local Agent state
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [localAgentModel, setLocalAgentModel] = useState('claude-sonnet-4-6');
+
   // Manuscript refresh state
   const [isRefreshingManuscripts, setIsRefreshingManuscripts] = useState(false);
   const [manuscriptRefreshError, setManuscriptRefreshError] = useState<string | null>(null);
@@ -68,6 +72,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_SKIP_CHECKSUM).then((v: boolean) => setSkipChecksum(v));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_TRUSTED_DOMAINS).then((d: string[]) => setTrustedDomains(d || []));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_ALLOW_ALL_TRAFFIC).then((v: boolean) => setAllowAllTraffic(v));
+      window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_GET_API_KEY).then((v: string) => setAnthropicApiKey(v || ''));
+      window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_GET_MODEL).then((v: string) => setLocalAgentModel(v || 'claude-sonnet-4-6'));
     } else {
       // Stop polling when modal closes
       stopPolling();
@@ -142,6 +148,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       console.error('[SettingsModal] Zotero sync failed:', err);
       setIsSyncing(false);
     }
+  };
+
+  const saveApiKey = async () => {
+    await window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_SET_API_KEY, anthropicApiKey);
+  };
+
+  const handleModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const model = e.target.value;
+    setLocalAgentModel(model);
+    await window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_SET_MODEL, model);
   };
 
   const handleRefreshManuscriptData = async () => {
@@ -412,6 +428,61 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                       View Conversations
                     </button>
                   </div>
+                </div>
+              </div>
+
+              <div className="settingsSectionLabel">Local Agent</div>
+              <div className="settingsSection">
+                <div className="settingItem">
+                  <div className="settingContent">
+                    <div className="settingLabel">Anthropic API Key</div>
+                    <div className="settingDescription">
+                      Required for local conversations. Get your key from console.anthropic.com
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="password"
+                      value={anthropicApiKey}
+                      onChange={(e) => setAnthropicApiKey(e.target.value)}
+                      placeholder="sk-ant-..."
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--border-color, #ccc)',
+                        fontSize: '13px',
+                        width: '220px',
+                      }}
+                    />
+                    <button
+                      className="zoteroButton zoteroButtonConnect"
+                      onClick={saveApiKey}
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+                <div className="settingItem">
+                  <div className="settingContent">
+                    <div className="settingLabel">Model</div>
+                    <div className="settingDescription">
+                      Claude model to use for local conversations
+                    </div>
+                  </div>
+                  <select
+                    value={localAgentModel}
+                    onChange={handleModelChange}
+                    style={{
+                      padding: '6px 10px',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border-color, #ccc)',
+                      fontSize: '13px',
+                    }}
+                  >
+                    <option value="claude-sonnet-4-6">Claude Sonnet 4</option>
+                    <option value="claude-opus-4-6">Claude Opus 4</option>
+                    <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
+                  </select>
                 </div>
               </div>
 

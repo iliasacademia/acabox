@@ -166,6 +166,19 @@ export const IPC_CHANNELS = {
   // Feature flags
   GET_ALL_APPS_MONITOR_ENABLED: "get-all-apps-monitor-enabled",
   SET_ALL_APPS_MONITOR_ENABLED: "set-all-apps-monitor-enabled",
+
+  // Local Agent
+  LOCAL_AGENT_GET_API_KEY: "local-agent-get-api-key",
+  LOCAL_AGENT_SET_API_KEY: "local-agent-set-api-key",
+  LOCAL_AGENT_GET_MODEL: "local-agent-get-model",
+  LOCAL_AGENT_SET_MODEL: "local-agent-set-model",
+  LOCAL_AGENT_CREATE_CONVERSATION: "local-agent-create-conversation",
+  LOCAL_AGENT_SEND_MESSAGE: "local-agent-send-message",
+  LOCAL_AGENT_LIST_CONVERSATIONS: "local-agent-list-conversations",
+  LOCAL_AGENT_GET_CONVERSATION: "local-agent-get-conversation",
+  LOCAL_AGENT_ARCHIVE_CONVERSATION: "local-agent-archive-conversation",
+  LOCAL_AGENT_UNARCHIVE_CONVERSATION: "local-agent-unarchive-conversation",
+  LOCAL_AGENT_STREAM_UPDATE: "local-agent-stream-update",
 } as const;
 
 // Type for valid IPC channel values - enforces compile-time validation

@@ -1178,6 +1178,23 @@ ipcMain.handle(IPC_CHANNELS.SET_ALL_APPS_MONITOR_ENABLED, async (_event, enabled
   app.quit();
 });
 
+// Local Agent settings
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_GET_API_KEY, () => {
+  return store.get('anthropicApiKey', '');
+});
+
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_SET_API_KEY, (_, key: string) => {
+  store.set('anthropicApiKey', key);
+});
+
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_GET_MODEL, () => {
+  return store.get('localAgentModel', 'claude-sonnet-4-6');
+});
+
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_SET_MODEL, (_, model: string) => {
+  store.set('localAgentModel', model);
+});
+
 // App lifecycle IPC handlers
 ipcMain.handle(IPC_CHANNELS.RESTART_APP, () => {
   logger.info('[App] Restarting app to apply permission changes...');

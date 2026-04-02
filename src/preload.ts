@@ -27,6 +27,9 @@ const VALID_EVENT_CHANNELS: string[] = [
 
   // Deep link / URI handler callbacks
   IPC_CHANNELS.DEEP_LINK_CALLBACK,
+
+  // Local Agent
+  IPC_CHANNELS.LOCAL_AGENT_STREAM_UPDATE,
 ];
 
 /**
