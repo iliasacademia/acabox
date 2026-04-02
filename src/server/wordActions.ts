@@ -282,6 +282,33 @@ end tell`;
   }
 }
 
+export interface ApplyStyleResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Apply a named style to the current selection in Word.
+ */
+export async function applyStyleInWord(style: string): Promise<ApplyStyleResult> {
+  logger.info(`[WordActions] applyStyleInWord called with style: ${style}`);
+
+  try {
+    const escapedStyle = style.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+    const script = `tell application "Microsoft Word"
+  set style of text object of selection to "${escapedStyle}"
+end tell`;
+
+    await runAppleScript(script);
+    return { success: true };
+  } catch (err) {
+    const errorMessage = (err as Error).message || 'Unknown error';
+    logger.info(`[WordActions] applyStyleInWord error: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}
+
 export interface GetFilePathResult {
   success: boolean;
   error?: string;

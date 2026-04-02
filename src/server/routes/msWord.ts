@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { defaultLogger as logger } from '../../utils/logger';
-import { insertParagraphInWord, positionCursorInWord, CursorPositionType, getWordFilePath, saveWordDocument, getWordText, getWordSelection, selectTextInWord, deleteSelectionInWord } from '../wordActions';
+import { insertParagraphInWord, positionCursorInWord, CursorPositionType, getWordFilePath, saveWordDocument, getWordText, getWordSelection, selectTextInWord, deleteSelectionInWord, applyStyleInWord } from '../wordActions';
 
 interface InsertParagraphBody {
   action: 'insert_paragraph';
@@ -205,6 +205,38 @@ export async function registerMsWordRoutes(
       } catch (error) {
         logger.error('[MsWord API] Select text error:', error);
         reply.code(500).send({ success: false, error: 'Failed to select text' });
+      }
+    }
+  );
+
+  fastify.post<{ Body: { action: 'apply_style'; style: string } }>(
+    '/api/ms-word/apply-style',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['action', 'style'],
+          properties: {
+            action: { type: 'string', enum: ['apply_style'] },
+            style: { type: 'string', minLength: 1 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { style } = request.body;
+      logger.info('[MsWord API] POST /api/ms-word/apply-style', { style });
+
+      try {
+        const result = await applyStyleInWord(style);
+        if (!result.success) {
+          reply.code(500).send({ success: false, error: result.error });
+          return;
+        }
+        reply.send({ success: true });
+      } catch (error) {
+        logger.error('[MsWord API] Apply style error:', error);
+        reply.code(500).send({ success: false, error: 'Failed to apply style' });
       }
     }
   );

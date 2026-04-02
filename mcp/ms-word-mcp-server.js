@@ -236,6 +236,24 @@ const GET_FILE_PATH_TOOL = {
   },
 };
 
+const APPLY_STYLE_TOOL = {
+  name: 'ms_word_apply_style',
+  description:
+    'Apply a named paragraph style to the current selection in the active Microsoft Word document. ' +
+    'Use ms_word_select_text first to select the target text, then call this to apply a style. ' +
+    'Common styles: "Normal", "Heading 1", "Heading 2", "Heading 3", "Title", "Subtitle", "Body Text".',
+  inputSchema: {
+    type: 'object',
+    required: ['style'],
+    properties: {
+      style: {
+        type: 'string',
+        description: 'The name of the Word style to apply (e.g., "Heading 1", "Normal", "Body Text").',
+      },
+    },
+  },
+};
+
 const SAVE_DOCUMENT_TOOL = {
   name: 'ms_word_save_document',
   description:
@@ -266,7 +284,7 @@ async function handleRequest(msg) {
       break;
 
     case 'tools/list':
-      sendResponse(id, { tools: [GET_FILE_PATH_TOOL, GET_TEXT_TOOL, GET_SELECTION_TOOL, SAVE_DOCUMENT_TOOL, POSITION_CURSOR_TOOL, INSERT_PARAGRAPH_TOOL, SELECT_TEXT_TOOL, DELETE_SELECTION_TOOL] });
+      sendResponse(id, { tools: [GET_FILE_PATH_TOOL, GET_TEXT_TOOL, GET_SELECTION_TOOL, SAVE_DOCUMENT_TOOL, POSITION_CURSOR_TOOL, INSERT_PARAGRAPH_TOOL, SELECT_TEXT_TOOL, DELETE_SELECTION_TOOL, APPLY_STYLE_TOOL] });
       break;
 
     case 'tools/call': {
@@ -505,6 +523,44 @@ async function handleRequest(msg) {
                 {
                   type: 'text',
                   text: `Failed to get selection: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_apply_style') {
+        if (!args.style) {
+          sendError(id, -32602, 'Missing required parameter: style');
+          return;
+        }
+
+        try {
+          const result = await postToServer('/api/ms-word/apply-style', {
+            action: 'apply_style',
+            style: args.style,
+          });
+
+          if (result.data?.success) {
+            sendResponse(id, {
+              content: [{ type: 'text', text: `Style "${args.style}" applied successfully.` }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to apply style: ${result.data?.error || `HTTP ${result.status}`}`,
                 },
               ],
               isError: true,
