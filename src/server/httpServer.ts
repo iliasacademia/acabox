@@ -31,6 +31,7 @@ import { registerReviewPreCheckRoutes } from './routes/reviewPreCheck';
 import { registerReviewPanelV3Routes } from './routes/reviewPanelV3';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
 import { registerFileDialogRoutes } from './routes/fileDialog';
+import { registerMsWordRoutes } from './routes/msWord';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
 import { defaultLogger as logger } from '../utils/logger';
@@ -270,6 +271,9 @@ export class AcademiaHttpServer {
 
     // Register file dialog route (native file picker for WKWebView overlays)
     await registerFileDialogRoutes(this.fastify);
+
+    // Register MS Word MCP routes
+    await registerMsWordRoutes(this.fastify);
 
     // Start listening - try ports in range (default 23111-23120)
     const startPort = this.config.port;
