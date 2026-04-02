@@ -29,6 +29,8 @@ import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 import { sessionSyncService } from './sessionSyncService';
 import { refreshManuscriptPaths } from './server/services/manuscriptPathsService';
 import { podmanService } from './podmanService';
+import { getLocalConversationDb } from './localConversationDb';
+import { LocalAgentService } from './localAgentService';
 
 // Set display name for menu bar (needed in dev mode where the binary is named "Electron")
 app.setName('Writing Agent');
@@ -123,6 +125,7 @@ let devWindow: BrowserWindow | null = null;
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let httpServer: AcademiaHttpServer | null = null;
+const localAgentService = new LocalAgentService();
 
 // Flags for app lifecycle management
 let isQuitting = false;
@@ -266,6 +269,9 @@ const createMainWindow = async (): Promise<void> => {
 
   // Initialize events manager with main window
   eventsManager.setMainWindow(mainWindow);
+
+  // Initialize local agent service with main window
+  localAgentService.setMainWindow(mainWindow);
 
   // WAGENT-94: Badge updates now handled by new architecture (AcademiaManager)
   // No need for manual badge update callbacks
@@ -916,8 +922,14 @@ app.whenReady().then(async () => {
     const baseUrl = httpServer.getBaseUrl();
     logger.debug(`[HTTP Server] Base URL: ${baseUrl}`);
 
+    // Initialize local agent service with HTTP server info
+    localAgentService.setHttpPort(port);
+    const authToken = httpServer.getAuthToken();
+    if (authToken) {
+      localAgentService.setAuthToken(authToken);
+    }
+
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
-      const authToken = httpServer.getAuthToken();
       if (baseUrl && authToken) {
         windowMonitorService.start(baseUrl, authToken, store.get('windowMonitorAllAppsEnabled', false) as boolean);
       }
@@ -1193,6 +1205,74 @@ ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_GET_MODEL, () => {
 
 ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_SET_MODEL, (_, model: string) => {
   store.set('localAgentModel', model);
+});
+
+// Local Agent conversation handlers
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_LIST_CONVERSATIONS, (_, data: { offset?: number; limit?: number; archived?: boolean }) => {
+  const db = getLocalConversationDb();
+  const offset = data.offset || 0;
+  const limit = data.limit || 20;
+
+  let conversations, totalCount;
+  if (data.archived) {
+    conversations = db.listArchivedConversations.all(limit, offset);
+    totalCount = (db.countArchivedConversations.get() as any).count;
+  } else {
+    conversations = db.listConversations.all(limit, offset);
+    totalCount = (db.countConversations.get() as any).count;
+  }
+
+  return {
+    conversations,
+    has_more: offset + conversations.length < totalCount,
+    total_count: totalCount,
+  };
+});
+
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_GET_CONVERSATION, (_, conversationId: number) => {
+  const db = getLocalConversationDb();
+  const conversation = db.getConversation.get(conversationId);
+  if (!conversation) return null;
+
+  const messages = db.getMessages.all(conversationId);
+
+  const formattedMessages = (messages as any[]).map(msg => ({
+    ...msg,
+    data: msg.data ? JSON.parse(msg.data) : null,
+    contexts: [],
+  }));
+
+  return {
+    conversation,
+    messages: formattedMessages,
+  };
+});
+
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_CREATE_CONVERSATION, async (_, data: { content: string; agent_name: string; title?: string }) => {
+  const userId = notificationManager.getCurrentUserId() || 0;
+  const result = await localAgentService.createConversation(data.content, userId);
+  return { conversation: result.conversation };
+});
+
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_SEND_MESSAGE, async (_, data: { conversation_id: number; content: string }) => {
+  const userId = notificationManager.getCurrentUserId() || 0;
+  await localAgentService.sendMessage(data.conversation_id, data.content, userId);
+
+  const db = getLocalConversationDb();
+  const messages = db.getMessages.all(data.conversation_id) as any[];
+  const userMessage = messages.find(m => m.role === 'user' && m.content === data.content);
+
+  return { message: userMessage ? { ...userMessage, data: null, contexts: [] } : {} };
+});
+
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_ARCHIVE_CONVERSATION, (_, conversationId: number) => {
+  const db = getLocalConversationDb();
+  db.archiveConversation.run(new Date().toISOString(), conversationId);
+});
+
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_UNARCHIVE_CONVERSATION, (_, conversationId: number) => {
+  const db = getLocalConversationDb();
+  db.unarchiveConversation.run(conversationId);
 });
 
 // App lifecycle IPC handlers
