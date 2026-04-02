@@ -109,6 +109,24 @@ function getFromServer(path) {
 
 // --- Tool Definition ---
 
+const OPEN_DOCUMENT_TOOL = {
+  name: 'ms_word_open_document',
+  description:
+    'Open (or focus) a Microsoft Word document by file path, making it the active document. ' +
+    'All subsequent MCP tool calls will operate on this document. ' +
+    'Use this when multiple Word documents are open and you need to target a specific one.',
+  inputSchema: {
+    type: 'object',
+    required: ['filePath'],
+    properties: {
+      filePath: {
+        type: 'string',
+        description: 'The full file path to the Word document to open (e.g., "/Users/me/Documents/paper.docx").',
+      },
+    },
+  },
+};
+
 const GET_TEXT_TOOL = {
   name: 'ms_word_get_text',
   description:
@@ -305,14 +323,52 @@ async function handleRequest(msg) {
       break;
 
     case 'tools/list':
-      sendResponse(id, { tools: [GET_FILE_PATH_TOOL, GET_TEXT_TOOL, GET_SELECTION_TOOL, SAVE_DOCUMENT_TOOL, POSITION_CURSOR_TOOL, INSERT_PARAGRAPH_TOOL, SELECT_TEXT_TOOL, DELETE_SELECTION_TOOL, APPLY_STYLE_TOOL, APPLY_FORMATTING_TOOL] });
+      sendResponse(id, { tools: [OPEN_DOCUMENT_TOOL, GET_FILE_PATH_TOOL, GET_TEXT_TOOL, GET_SELECTION_TOOL, SAVE_DOCUMENT_TOOL, POSITION_CURSOR_TOOL, INSERT_PARAGRAPH_TOOL, SELECT_TEXT_TOOL, DELETE_SELECTION_TOOL, APPLY_STYLE_TOOL, APPLY_FORMATTING_TOOL] });
       break;
 
     case 'tools/call': {
       const toolName = params?.name;
       const args = params?.arguments || {};
 
-      if (toolName === 'ms_word_insert_paragraph') {
+      if (toolName === 'ms_word_open_document') {
+        if (!args.filePath) {
+          sendError(id, -32602, 'Missing required parameter: filePath');
+          return;
+        }
+
+        try {
+          const result = await postToServer('/api/ms-word/open-document', {
+            action: 'open_document',
+            filePath: args.filePath,
+          });
+
+          if (result.data?.success) {
+            sendResponse(id, {
+              content: [{ type: 'text', text: `Document opened: ${result.data.fileName}` }],
+            });
+          } else {
+            sendResponse(id, {
+              content: [
+                {
+                  type: 'text',
+                  text: `Failed to open document: ${result.data?.error || `HTTP ${result.status}`}`,
+                },
+              ],
+              isError: true,
+            });
+          }
+        } catch (err) {
+          sendResponse(id, {
+            content: [
+              {
+                type: 'text',
+                text: `Error connecting to Writing Agent: ${err.message}. Is the app running?`,
+              },
+            ],
+            isError: true,
+          });
+        }
+      } else if (toolName === 'ms_word_insert_paragraph') {
         if (!args.content) {
           sendError(id, -32602, 'Missing required parameter: content');
           return;

@@ -372,6 +372,37 @@ export interface GetFilePathResult {
   fileName?: string;
 }
 
+export interface OpenDocumentResult {
+  success: boolean;
+  error?: string;
+  fileName?: string;
+}
+
+/**
+ * Open (or focus) a Word document by file path, making it the active document.
+ */
+export async function openWordDocument(filePath: string): Promise<OpenDocumentResult> {
+  logger.info('[WordActions] openWordDocument called', { filePath });
+
+  try {
+    const script = `tell application "Microsoft Word"
+  activate
+  open "${filePath.replace(/"/g, '\\"')}"
+  delay 2
+  set doc to active document
+  set docName to name of doc
+  return docName
+end tell`;
+
+    const result = await runAppleScriptStdin(script);
+    return { success: true, fileName: result };
+  } catch (err) {
+    const errorMessage = (err as Error).message || 'Unknown error';
+    logger.info(`[WordActions] openWordDocument error: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}
+
 /**
  * Get the file path of the active Word document.
  */

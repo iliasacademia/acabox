@@ -1,6 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import { defaultLogger as logger } from '../../utils/logger';
-import { insertParagraphInWord, positionCursorInWord, CursorPositionType, getWordFilePath, saveWordDocument, getWordText, getWordSelection, selectTextInWord, deleteSelectionInWord, applyStyleInWord, applyFormattingInWord, ApplyFormattingOptions } from '../wordActions';
+import { insertParagraphInWord, positionCursorInWord, CursorPositionType, getWordFilePath, saveWordDocument, getWordText, getWordSelection, selectTextInWord, deleteSelectionInWord, applyStyleInWord, applyFormattingInWord, ApplyFormattingOptions, openWordDocument } from '../wordActions';
 
 interface InsertParagraphBody {
   action: 'insert_paragraph';
@@ -17,6 +17,38 @@ interface PositionCursorBody {
 export async function registerMsWordRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
+  fastify.post<{ Body: { action: 'open_document'; filePath: string } }>(
+    '/api/ms-word/open-document',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['action', 'filePath'],
+          properties: {
+            action: { type: 'string', enum: ['open_document'] },
+            filePath: { type: 'string', minLength: 1 },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { filePath } = request.body;
+      logger.info('[MsWord API] POST /api/ms-word/open-document', { filePath });
+
+      try {
+        const result = await openWordDocument(filePath);
+        if (!result.success) {
+          reply.code(500).send({ success: false, error: result.error });
+          return;
+        }
+        reply.send({ success: true, fileName: result.fileName });
+      } catch (error) {
+        logger.error('[MsWord API] Open document error:', error);
+        reply.code(500).send({ success: false, error: 'Failed to open document' });
+      }
+    }
+  );
+
   fastify.post<{ Body: InsertParagraphBody }>(
     '/api/ms-word/insert-paragraph',
     {
