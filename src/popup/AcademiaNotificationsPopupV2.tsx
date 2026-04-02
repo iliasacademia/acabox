@@ -275,12 +275,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     console.log('[AcademiaNotificationsPopupV2] View review feedback clicked:', notification);
 
     if (notification.isInProgress) {
-      await postBridge('setReviewState', {
-        projectId: notification.project_id,
-        reviewType: notification.review_type,
-        selectedText: notification.selected_text,
-      });
-      await postBridge('closeWindow', { clearReviewState: false });
+      setViewMode('review-input');
       return;
     }
 
@@ -874,6 +869,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 reviewType={pollData?.isReviewingSelectedText ? (pollData?.reviewType ?? null) : null}
                 isAwaitingReviewInput={isAwaitingReviewInput}
                 effectiveWid={effectiveWid}
+                reviewStartedAt={pollData?.selectedTextReviewStartedAt ?? null}
                 onBack={handleBackFromReviewInput}
                 onClose={handleCloseReviewInput}
               />

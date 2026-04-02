@@ -2,11 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { serverUrl, tokenParam, postBridge, getV4FocusedWid, navigateToPage } from './shared';
 import './ReviewInputView.css';
 
+const ESTIMATED_REVIEW_DURATION_MS = 60_000;
+const MAX_PROGRESS = 90;
+
 export interface ReviewInputViewProps {
   selectedText: string | null;
   reviewType: string | null;
   isAwaitingReviewInput: boolean;
   effectiveWid: string | null;
+  reviewStartedAt: number | null;
   onBack: () => void;
   onClose: () => void;
 }
@@ -16,10 +20,15 @@ export const ReviewInputView: React.FC<ReviewInputViewProps> = ({
   reviewType,
   isAwaitingReviewInput,
   effectiveWid,
+  reviewStartedAt,
   onBack,
   onClose,
 }) => {
-  const [progress, setProgress] = useState(0);
+  const [progress, setProgress] = useState(() => {
+    if (!reviewStartedAt) return 0;
+    const elapsed = Date.now() - reviewStartedAt;
+    return Math.min((elapsed / ESTIMATED_REVIEW_DURATION_MS) * MAX_PROGRESS, MAX_PROGRESS);
+  });
   const [isExpanded, setIsExpanded] = useState(false);
   const [showSelectedTextToggle, setShowSelectedTextToggle] = useState(false);
   const selectedTextRef = useRef<HTMLDivElement>(null);
@@ -56,22 +65,23 @@ export const ReviewInputView: React.FC<ReviewInputViewProps> = ({
     }
   }, [isAwaitingReviewInput, reviewType]);
 
-  // Simulate progress for reviewing mode
+  // Time-based progress anchored to reviewStartedAt
   useEffect(() => {
-    if (reviewType) {
+    if (!reviewType || !reviewStartedAt) {
       setProgress(0);
-      const interval = setInterval(() => {
-        setProgress((prev) => {
-          if (prev >= 90) {
-            clearInterval(interval);
-            return 90;
-          }
-          return prev + Math.random() * 10;
-        });
-      }, 1000);
-      return () => clearInterval(interval);
+      return;
     }
-  }, [reviewType]);
+
+    const tick = () => {
+      const elapsed = Date.now() - reviewStartedAt;
+      const p = Math.min((elapsed / ESTIMATED_REVIEW_DURATION_MS) * MAX_PROGRESS, MAX_PROGRESS);
+      setProgress(p);
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [reviewType, reviewStartedAt]);
 
   const triggerReview = async () => {
     const sendWid = effectiveWid ?? getV4FocusedWid();
