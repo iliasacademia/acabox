@@ -1,5 +1,7 @@
 MCP tools for working with Microsoft Word documents.
 
+Every tool response is automatically prefixed with `[Active document: ...]` showing which document was operated on. If the active document is not the one you expect, use `ms_word_open_document` to switch.
+
 ## Workflow: Switch to a specific document
 
 When multiple Word documents are open, use this to target the one you want to work on:

@@ -310,6 +310,24 @@ const SAVE_DOCUMENT_TOOL = {
   },
 };
 
+// --- Active Document Helper ---
+
+/**
+ * Fetch the active Word document's file path and name.
+ * Returns a prefix string to prepend to tool responses, or empty string on failure.
+ */
+async function getActiveDocumentPrefix() {
+  try {
+    const result = await getFromServer('/api/ms-word/get-file-path');
+    if (result.data?.success) {
+      return `[Active document: ${result.data.fileName} — ${result.data.filePath}]\n\n`;
+    }
+  } catch {
+    // Ignore errors — the actual tool call will surface connection issues
+  }
+  return '';
+}
+
 // --- MCP Request Handler ---
 
 async function handleRequest(msg) {
@@ -336,6 +354,9 @@ async function handleRequest(msg) {
       const toolName = params?.name;
       const args = params?.arguments || {};
 
+      // Fetch active document info to prepend to every tool response
+      const activeDocPrefix = await getActiveDocumentPrefix();
+
       if (toolName === 'ms_word_open_document') {
         if (!args.filePath) {
           sendError(id, -32602, 'Missing required parameter: filePath');
@@ -350,7 +371,7 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             sendResponse(id, {
-              content: [{ type: 'text', text: `Document opened: ${result.data.fileName}` }],
+              content: [{ type: 'text', text: `${activeDocPrefix}Document opened: ${result.data.fileName}` }],
             });
           } else {
             sendResponse(id, {
@@ -390,7 +411,7 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             sendResponse(id, {
-              content: [{ type: 'text', text: 'Paragraph inserted successfully.' }],
+              content: [{ type: 'text', text: `${activeDocPrefix}Paragraph inserted successfully.` }],
             });
           } else {
             sendResponse(id, {
@@ -430,7 +451,7 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             sendResponse(id, {
-              content: [{ type: 'text', text: `Cursor positioned ${cursorType} anchor text.` }],
+              content: [{ type: 'text', text: `${activeDocPrefix}Cursor positioned ${cursorType} anchor text.` }],
             });
           } else {
             sendResponse(id, {
@@ -468,7 +489,7 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             const exact = result.data.exact ? 'exact' : 'approximate';
-            const msg = `Text selected (${exact}, ${result.data.iterations} iterations). Selected ${result.data.selectedText?.length || 0} chars.`;
+            const msg = `${activeDocPrefix}Text selected (${exact}, ${result.data.iterations} iterations). Selected ${result.data.selectedText?.length || 0} chars.`;
             sendResponse(id, {
               content: [{ type: 'text', text: msg }],
             });
@@ -502,8 +523,8 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             const msg = result.data.deletedText
-              ? `Selection deleted: "${result.data.deletedText}"`
-              : 'Selection deleted.';
+              ? `${activeDocPrefix}Selection deleted: "${result.data.deletedText}"`
+              : `${activeDocPrefix}Selection deleted.`;
             sendResponse(id, {
               content: [{ type: 'text', text: msg }],
             });
@@ -535,7 +556,7 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             sendResponse(id, {
-              content: [{ type: 'text', text: `File: ${result.data.fileName}\nPath: ${result.data.filePath}` }],
+              content: [{ type: 'text', text: `${activeDocPrefix}File: ${result.data.fileName}\nPath: ${result.data.filePath}` }],
             });
           } else {
             sendResponse(id, {
@@ -569,7 +590,7 @@ async function handleRequest(msg) {
             const d = result.data;
             const header = `File: ${d.fileName} | Total: ${d.totalLength} chars | Showing: ${d.offset}-${d.offset + d.content.length} | Has more: ${d.hasMore}`;
             sendResponse(id, {
-              content: [{ type: 'text', text: `${header}\n\n${d.content}` }],
+              content: [{ type: 'text', text: `${activeDocPrefix}${header}\n\n${d.content}` }],
             });
           } else {
             sendResponse(id, {
@@ -599,7 +620,7 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             sendResponse(id, {
-              content: [{ type: 'text', text: result.data.selectedText || '(no text selected)' }],
+              content: [{ type: 'text', text: `${activeDocPrefix}${result.data.selectedText || '(no text selected)'}` }],
             });
           } else {
             sendResponse(id, {
@@ -637,7 +658,7 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             sendResponse(id, {
-              content: [{ type: 'text', text: `Style "${args.style}" applied successfully.` }],
+              content: [{ type: 'text', text: `${activeDocPrefix}Style "${args.style}" applied successfully.` }],
             });
           } else {
             sendResponse(id, {
@@ -684,7 +705,7 @@ async function handleRequest(msg) {
               .map((p) => `${p}: ${args[p]}`)
               .join(', ');
             sendResponse(id, {
-              content: [{ type: 'text', text: `Formatting applied successfully: ${applied}` }],
+              content: [{ type: 'text', text: `${activeDocPrefix}Formatting applied successfully: ${applied}` }],
             });
           } else {
             sendResponse(id, {
@@ -716,7 +737,7 @@ async function handleRequest(msg) {
 
           if (result.data?.success) {
             sendResponse(id, {
-              content: [{ type: 'text', text: 'Document saved successfully.' }],
+              content: [{ type: 'text', text: `${activeDocPrefix}Document saved successfully.` }],
             });
           } else {
             sendResponse(id, {
