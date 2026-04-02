@@ -183,10 +183,10 @@ const INSERT_PARAGRAPH_TOOL = {
           'How the cursor was positioned. "after" (default): Enter → paste. "before": paste → Enter. ' +
           'Should match the "type" used in ms_word_position_cursor.',
       },
-      disableBlueInsertion: {
-        type: 'boolean',
+      defaultColor: {
+        type: 'string',
         description:
-          'If true, inserted text will use the default font color instead of blue. Defaults to false.',
+          'Optional hex color (e.g. "#0000FF") to apply to inserted text. If omitted, text uses the document default color.',
       },
     },
   },
@@ -406,7 +406,7 @@ async function handleRequest(msg) {
             action: 'insert_paragraph',
             content: args.content,
             position: args.position || 'after',
-            disableBlueInsertion: args.disableBlueInsertion || false,
+            ...(args.defaultColor ? { defaultColor: args.defaultColor } : {}),
           });
 
           if (result.data?.success) {

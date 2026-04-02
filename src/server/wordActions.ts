@@ -243,7 +243,7 @@ export interface InsertParagraphResult {
 export async function insertParagraphInWord(
   content: string,
   position: CursorPositionType = 'after',
-  disableBlueInsertion?: boolean
+  defaultColor?: string
 ): Promise<InsertParagraphResult> {
   logger.info(`[WordActions] insertParagraphInWord called with position: ${position}`);
 
@@ -264,6 +264,26 @@ export async function insertParagraphInWord(
 
     const keySequence = position === 'after' ? enterThenPaste : pasteThenEnter;
 
+    let colorBlock = '';
+    if (defaultColor) {
+      const hex = defaultColor.replace(/^#/, '');
+      const r = parseInt(hex.substring(0, 2), 16) * 257;
+      const g = parseInt(hex.substring(2, 4), 16) * 257;
+      const b = parseInt(hex.substring(4, 6), 16) * 257;
+      if (isNaN(r) || isNaN(g) || isNaN(b)) {
+        return { success: false, error: `Invalid hex color: ${defaultColor}` };
+      }
+      colorBlock = `
+  set selObj to selection
+  set endPos to selection end of selObj
+  set startPos to endPos - ${content.length}
+  set myRange to create range active document start startPos end endPos
+  select myRange
+  set theFont to get font object of selection
+  set color of theFont to {${r}, ${g}, ${b}}
+  selection end of selObj`;
+    }
+
     const script = `
 set theContent to "${escapedContent}"
 tell application "Microsoft Word" to activate
@@ -275,15 +295,7 @@ tell application "System Events"
 end tell
 delay 0.1
 tell application "Microsoft Word"
-  set style of text object of selection to "Normal"${disableBlueInsertion ? '' : `
-  set selObj to selection
-  set endPos to selection end of selObj
-  set startPos to endPos - ${content.length}
-  set myRange to create range active document start startPos end endPos
-  select myRange
-  set theFont to get font object of selection
-  set color of theFont to {0, 0, 65535}
-  selection end of selObj`}
+  set style of text object of selection to "Normal"${colorBlock}
 end tell`;
 
     await runAppleScript(script);
