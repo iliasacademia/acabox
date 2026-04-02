@@ -85,8 +85,8 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
         if (!_contentBounds) return null;
 
-        // Hide review button when overlay is open
-        if (windowId && service['reviewOverlayOpen'].has(windowId)) return null;
+        // Hide review button when review input is open
+        if (windowId && service['reviewInputOpen'].has(windowId)) return null;
 
         if (!selectionBounds) return null;
 
@@ -245,7 +245,7 @@ export class WindowMonitorService {
   private webviewManagerProcess: ChildProcess | null = null;
   private state: SystemState = createInitialState();
   private popupToggledOpen: Set<string> = new Set();
-  private reviewOverlayOpen: Set<string> = new Set();
+  private reviewInputOpen: Set<string> = new Set();
   private popupHeightOverrides: Map<string, number> = new Map();
   private buttonDragOffsets: Map<string, { dx: number; dy: number }> = new Map();
   private popupSizeOverrides: Map<string, { width: number; height: number }> = new Map();
@@ -438,7 +438,7 @@ export class WindowMonitorService {
           });
         }
         this.popupToggledOpen.delete(event.window.id);
-        this.reviewOverlayOpen.delete(event.window.id);
+        this.reviewInputOpen.delete(event.window.id);
         this.popupHeightOverrides.delete(event.window.id);
         this.buttonDragOffsets.delete(event.window.id);
         this.popupSizeOverrides.delete(event.window.id);
@@ -844,20 +844,20 @@ export class WindowMonitorService {
     return null;
   }
 
-  openReviewOverlay(windowId: string): void {
-    this.reviewOverlayOpen.add(windowId);
-    logger.info(`[WindowMonitor] Review overlay opened for window ${windowId}`);
+  openReviewInput(windowId: string): void {
+    this.reviewInputOpen.add(windowId);
+    logger.info(`[WindowMonitor] Review input opened for window ${windowId}`);
     this.pushWebviewState();
   }
 
-  closeReviewOverlay(windowId: string): void {
-    this.reviewOverlayOpen.delete(windowId);
-    logger.info(`[WindowMonitor] Review overlay closed for window ${windowId}`);
+  closeReviewInput(windowId: string): void {
+    this.reviewInputOpen.delete(windowId);
+    logger.info(`[WindowMonitor] Review input closed for window ${windowId}`);
     this.pushWebviewState();
   }
 
-  isReviewOverlayOpen(windowId: string): boolean {
-    return this.reviewOverlayOpen.has(windowId);
+  isReviewInputOpen(windowId: string): boolean {
+    return this.reviewInputOpen.has(windowId);
   }
 
   openReviewPanelV3(windowId: string): void {
@@ -916,7 +916,7 @@ export class WindowMonitorService {
     this.selectionClearTimers.clear();
     for (const timer of this.documentTextCacheCleanupTimers.values()) clearTimeout(timer);
     this.documentTextCacheCleanupTimers.clear();
-    this.reviewOverlayOpen.clear();
+    this.reviewInputOpen.clear();
     this.reviewErrorMessages.clear();
     this.pendingAutoOpenPaths.clear();
   }

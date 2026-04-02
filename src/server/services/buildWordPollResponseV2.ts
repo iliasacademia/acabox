@@ -191,7 +191,7 @@ export function buildWordPollResponseV2(
   const reviewErrorMessage = windowMonitorService.getReviewErrorMessage(wid) ?? undefined;
 
   // Determine if overlay is in input mode (open but no active review yet)
-  const isOverlayOpen = windowMonitorService.isReviewOverlayOpen(wid);
+  const isOverlayOpen = windowMonitorService.isReviewInputOpen(wid);
   const isAwaitingReviewInput = isOverlayOpen && !reviewState;
 
   // Populate selected text from review state or from cached selection when in input mode
