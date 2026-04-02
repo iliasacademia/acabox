@@ -491,7 +491,7 @@ const positionWindowMiddleRight = (): void => {
   logger.debug(`[WINDOW] Positioned at middle-right: x=${x}, y=${y}`);
 };
 
-// Position Academia app on the left half and Word on the right half of the screen
+// Position Word on the left 70% and Academia app on the right 30% of the screen
 const arrangeSideBySideWithWord = (): void => {
   if (process.platform !== 'darwin') return;
   if (!mainWindow) return;
@@ -499,22 +499,24 @@ const arrangeSideBySideWithWord = (): void => {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
   const workArea = primaryDisplay.workArea;
-  const halfWidth = Math.floor(screenWidth / 2);
+  const wordWidth = Math.floor(screenWidth * 0.7);
+  const appWidth = screenWidth - wordWidth;
 
-  // Move Academia app to left half
-  mainWindow.setBounds({ x: workArea.x, y: workArea.y, width: halfWidth, height: screenHeight }, true);
-  logger.info('[Window] Positioned Academia on left half of screen');
+  // Move Academia app to right 30%
+  const appX = workArea.x + wordWidth;
+  mainWindow.setBounds({ x: appX, y: workArea.y, width: appWidth, height: screenHeight }, true);
+  logger.info('[Window] Positioned Academia on right 30% of screen');
 
-  // Move Word to right half — poll until Word has a window open (up to ~5s)
-  const rightX = workArea.x + halfWidth;
+  // Move Word to left 70% — poll until Word has a window open (up to ~5s)
+  const wordLeft = workArea.x;
+  const wordRight = workArea.x + wordWidth;
   const bottom = workArea.y + screenHeight;
-  const right = workArea.x + screenWidth;
   execFile('osascript', [
     '-e', 'repeat 10 times',
     '-e', 'try',
     '-e', 'tell application "Microsoft Word"',
     '-e', 'if (count of windows) > 0 then',
-    '-e', `set bounds of window 1 to {${rightX}, ${workArea.y}, ${right}, ${bottom}}`,
+    '-e', `set bounds of window 1 to {${wordLeft}, ${workArea.y}, ${wordRight}, ${bottom}}`,
     '-e', 'exit repeat',
     '-e', 'end if',
     '-e', 'end tell',
@@ -523,7 +525,7 @@ const arrangeSideBySideWithWord = (): void => {
     '-e', 'end repeat',
   ], (error) => {
     if (error) logger.warn('[Window] Failed to position Word:', error.message);
-    else logger.info('[Window] Positioned Word on right half of screen');
+    else logger.info('[Window] Positioned Word on left 70% of screen');
   });
 };
 
