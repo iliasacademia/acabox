@@ -18,6 +18,23 @@ function getWordActionsBinPath(): string {
   return path.join(app.getAppPath(), 'window-monitor', 'rust', 'target', 'release', 'word-actions');
 }
 
+/**
+ * Escape a string for safe embedding in an AppleScript "..." literal.
+ * Handles backslashes, double quotes, and characters (newlines, tabs)
+ * that would break the string literal and allow injection.
+ */
+function escapeAppleScriptString(input: string): string {
+  return input
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r\n/g, ' ')
+    .replace(/\r/g, ' ')
+    .replace(/\n/g, ' ')
+    .replace(/\t/g, ' ');
+}
+
+const WORD_EXTENSIONS = new Set(['.doc', '.docx', '.docm', '.dotx', '.dotm', '.rtf']);
+
 function runWordAction(action: Record<string, unknown>): Promise<any> {
   return new Promise((resolve, reject) => {
     const binPath = getWordActionsBinPath();
@@ -146,7 +163,7 @@ export async function reviewPreCheck(windowId: number): Promise<PreCheckResult> 
     }
 
     // Check unsaved changes via AppleScript (runs in Electron process)
-    const escaped = result.doc_filename.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const escaped = escapeAppleScriptString(result.doc_filename);
     const script = `tell application "Microsoft Word" to get (saved of document "${escaped}") as string`;
     try {
       const saved = await runAppleScript(script);
@@ -196,7 +213,7 @@ export async function wordSave(windowId: number): Promise<SaveResult> {
       return { success: false, error: result.error || 'Could not resolve document filename' };
     }
 
-    const escaped = result.doc_filename.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const escaped = escapeAppleScriptString(result.doc_filename);
 
     // Save via AppleScript
     try {
@@ -248,10 +265,6 @@ export async function insertParagraphInWord(
   logger.info(`[WordActions] insertParagraphInWord called with position: ${position}`);
 
   try {
-    const escapedContent = content
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"');
-
     const enterThenPaste = `
       keystroke return
       delay 0.1
@@ -284,12 +297,19 @@ export async function insertParagraphInWord(
   selection end of selObj`;
     }
 
+    // Copy content to clipboard from Node.js — avoids embedding user
+    // content in AppleScript, preventing injection attacks.
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn('/usr/bin/pbcopy', []);
+      proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(`pbcopy exited ${code}`)));
+      proc.on('error', reject);
+      proc.stdin.write(content);
+      proc.stdin.end();
+    });
+
     const script = `
-set theContent to "${escapedContent}"
 tell application "Microsoft Word" to activate
 delay 0.3
-do shell script "printf '%s' " & quoted form of theContent & " | pbcopy"
-delay 0.1
 tell application "System Events"
   ${keySequence}
 end tell
@@ -319,7 +339,7 @@ export async function applyStyleInWord(style: string): Promise<ApplyStyleResult>
   logger.info(`[WordActions] applyStyleInWord called with style: ${style}`);
 
   try {
-    const escapedStyle = style.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const escapedStyle = escapeAppleScriptString(style);
 
     const script = `tell application "Microsoft Word"
   set style of text object of selection to "${escapedStyle}"
@@ -426,10 +446,24 @@ export interface OpenDocumentResult {
 export async function openWordDocument(filePath: string): Promise<OpenDocumentResult> {
   logger.info('[WordActions] openWordDocument called', { filePath });
 
+  // Validate file path to prevent path traversal and unauthorized file access
+  const resolved = path.resolve(filePath);
+  if (!path.isAbsolute(filePath)) {
+    return { success: false, error: 'File path must be absolute' };
+  }
+  if (resolved !== filePath || filePath.includes('..')) {
+    return { success: false, error: 'Invalid file path: path traversal not allowed' };
+  }
+  const ext = path.extname(filePath).toLowerCase();
+  if (!WORD_EXTENSIONS.has(ext)) {
+    return { success: false, error: `Unsupported file extension: ${ext}` };
+  }
+
   try {
+    const escapedPath = escapeAppleScriptString(filePath);
     const script = `tell application "Microsoft Word"
   activate
-  open "${filePath.replace(/"/g, '\\"')}"
+  open "${escapedPath}"
   delay 2
   set doc to active document
   set docName to name of doc
@@ -629,9 +663,7 @@ export async function positionCursorInWord(
     ? (anchor.length > 60 ? anchor.substring(anchor.length - 60) : anchor)
     : (anchor.length > 60 ? anchor.substring(0, 60) : anchor);
 
-  const escaped = searchText
-    .replace(/\\/g, '\\\\')
-    .replace(/"/g, '\\"');
+  const escaped = escapeAppleScriptString(searchText);
 
   // key code 124 = Right arrow (after match), key code 123 = Left arrow (before match)
   const arrowKeyCode = type === 'after' ? 124 : 123;
@@ -693,9 +725,7 @@ export async function selectTextInWord(
   try {
     // Step 1: Position cursor at start of target text using Cmd+F
     const searchPrefix = text.length > 60 ? text.substring(0, 60) : text;
-    const escapedPrefix = searchPrefix
-      .replace(/\\/g, '\\\\')
-      .replace(/"/g, '\\"');
+    const escapedPrefix = escapeAppleScriptString(searchPrefix);
 
     const positionScript = `
 tell application "Microsoft Word" to activate
