@@ -165,7 +165,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       previousHeightRef.current = 0;
       previousWidthRef.current = 0;
       accumulatedSizeRef.current = null;
-      postBridge('closeWindow').catch(() => {});
+      postBridge('closeWindow', { clearReviewState: !(pollData.isReviewingSelectedText ?? false) }).catch(() => {});
       return;
     }
 
@@ -385,7 +385,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
     try {
       onVisibilityChanged('popup', false);
-      await postBridge('closeWindow');
+      const shouldPreserveReviewState = pollData?.isReviewingSelectedText ?? false;
+      await postBridge('closeWindow', { clearReviewState: !shouldPreserveReviewState });
       console.log('[AcademiaNotificationsPopupV2] Close window request sent');
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Close failed:', err);
