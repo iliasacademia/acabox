@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { autoUpdater } from 'electron-updater';
 import log from 'electron-log';
 const { validateCloudFrontDomain } = require('../../utils/validateCloudFrontDomain');
@@ -8,6 +8,7 @@ declare const COBUILD_UPDATE_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 let updateWindow: BrowserWindow | null = null;
 let updaterConfigured = false;
+let isManualCheck = false;
 
 function createUpdateWindow(version: string) {
   if (updateWindow) {
@@ -75,6 +76,21 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
   autoUpdater.on('update-not-available', () => {
     log.info('[UPDATER] No update available.');
     onRebuildTrayMenu('Up to date');
+
+    if (isManualCheck) {
+      isManualCheck = false;
+      const now = new Date();
+      const checkedAt = now.toLocaleString('en-US', {
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      });
+      dialog.showMessageBox({
+        type: 'info',
+        title: 'No Updates Available',
+        message: "You're on the latest version",
+        detail: `Version: ${app.getVersion()}\nChecked at: ${checkedAt}`,
+      });
+    }
   });
 
   autoUpdater.on('download-progress', (progress) => {
@@ -113,6 +129,7 @@ export function isUpdaterConfigured(): boolean {
   return updaterConfigured;
 }
 
-export function checkForUpdates() {
+export function checkForUpdates(manual?: boolean) {
+  isManualCheck = !!manual;
   autoUpdater.checkForUpdates();
 }
