@@ -3,14 +3,12 @@ import { defaultLogger as logger } from '../../utils/logger';
 import { insertParagraphInWord, positionCursorInWord, CursorPositionType, getWordFilePath, saveWordDocument, getWordText, getWordSelection, selectTextInWord, deleteSelectionInWord, applyStyleInWord, applyFormattingInWord, ApplyFormattingOptions, openWordDocument } from '../wordActions';
 
 interface InsertParagraphBody {
-  action: 'insert_paragraph';
   content: string;
   position?: CursorPositionType;
   defaultColor?: string;
 }
 
 interface PositionCursorBody {
-  action: 'position_cursor';
   anchor: string;
   type?: CursorPositionType;
 }
@@ -18,15 +16,14 @@ interface PositionCursorBody {
 export async function registerMsWordRoutes(
   fastify: FastifyInstance,
 ): Promise<void> {
-  fastify.post<{ Body: { action: 'open_document'; filePath: string } }>(
+  fastify.post<{ Body: { filePath: string } }>(
     '/api/ms-word/open-document',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['action', 'filePath'],
+          required: ['filePath'],
           properties: {
-            action: { type: 'string', enum: ['open_document'] },
             filePath: { type: 'string', minLength: 1 },
           },
         },
@@ -56,9 +53,8 @@ export async function registerMsWordRoutes(
       schema: {
         body: {
           type: 'object',
-          required: ['action', 'content'],
+          required: ['content'],
           properties: {
-            action: { type: 'string', enum: ['insert_paragraph'] },
             content: { type: 'string' },
             position: { type: 'string', enum: ['before', 'after'] },
             defaultColor: { type: 'string' },
@@ -90,9 +86,8 @@ export async function registerMsWordRoutes(
       schema: {
         body: {
           type: 'object',
-          required: ['action', 'anchor'],
+          required: ['anchor'],
           properties: {
-            action: { type: 'string', enum: ['position_cursor'] },
             anchor: { type: 'string', minLength: 1 },
             type: { type: 'string', enum: ['before', 'after'] },
           },
@@ -176,16 +171,13 @@ export async function registerMsWordRoutes(
     }
   );
 
-  fastify.post<{ Body: { action: 'save_document' } }>(
+  fastify.post<{ Body: Record<string, never> }>(
     '/api/ms-word/save-document',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['action'],
-          properties: {
-            action: { type: 'string', enum: ['save_document'] },
-          },
+          properties: {},
         },
       },
     },
@@ -206,15 +198,14 @@ export async function registerMsWordRoutes(
     }
   );
 
-  fastify.post<{ Body: { action: 'select_text'; text: string } }>(
+  fastify.post<{ Body: { text: string } }>(
     '/api/ms-word/select-text',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['action', 'text'],
+          required: ['text'],
           properties: {
-            action: { type: 'string', enum: ['select_text'] },
             text: { type: 'string', minLength: 1 },
           },
         },
@@ -243,15 +234,14 @@ export async function registerMsWordRoutes(
     }
   );
 
-  fastify.post<{ Body: { action: 'apply_style'; style: string } }>(
+  fastify.post<{ Body: { style: string } }>(
     '/api/ms-word/apply-style',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['action', 'style'],
+          required: ['style'],
           properties: {
-            action: { type: 'string', enum: ['apply_style'] },
             style: { type: 'string', minLength: 1 },
           },
         },
@@ -275,15 +265,13 @@ export async function registerMsWordRoutes(
     }
   );
 
-  fastify.post<{ Body: { action: 'apply_formatting' } & ApplyFormattingOptions }>(
+  fastify.post<{ Body: ApplyFormattingOptions }>(
     '/api/ms-word/apply-formatting',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['action'],
           properties: {
-            action: { type: 'string', enum: ['apply_formatting'] },
             bold: { type: 'boolean' },
             italic: { type: 'boolean' },
             underline: { type: 'boolean' },
@@ -298,7 +286,7 @@ export async function registerMsWordRoutes(
       },
     },
     async (request, reply) => {
-      const { action, ...formatting } = request.body;
+      const { ...formatting } = request.body;
       logger.info('[MsWord API] POST /api/ms-word/apply-formatting', formatting);
 
       try {
@@ -315,16 +303,13 @@ export async function registerMsWordRoutes(
     }
   );
 
-  fastify.post<{ Body: { action: 'delete_selection' } }>(
+  fastify.post<{ Body: Record<string, never> }>(
     '/api/ms-word/delete-selection',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['action'],
-          properties: {
-            action: { type: 'string', enum: ['delete_selection'] },
-          },
+          properties: {},
         },
       },
     },

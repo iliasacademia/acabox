@@ -13,6 +13,7 @@ import {
 import { IPC_CHANNELS } from '../../../shared/types';
 import { FEEDBACK_FORM_URL } from '../../../shared/constants';
 import { useProjectSyncStatus } from '../../hooks/useProjectSyncStatus';
+import { useUserPreferences } from '../../contexts/UserPreferencesContext';
 import type { UseConversationPollingOptions, MessageCreatedEvent } from '../../../../packages/shared-conversations/src/hooks/useConversationPolling';
 import MSWordIcon from '../../../assets/images/MSWordIcon.png';
 
@@ -25,6 +26,7 @@ interface ConversationsPageWrapperProps {
   onDiffModalOpened?: () => void;
   initialView?: 'conversation' | 'supporting-materials';
   nonProjectConversations?: boolean;
+  onNavigateToLocalConversations?: () => void;
 }
 
 /**
@@ -40,9 +42,12 @@ export function ConversationsPageWrapper({
   onDiffModalOpened,
   initialView,
   nonProjectConversations,
+  onNavigateToLocalConversations,
 }: ConversationsPageWrapperProps) {
   // Track folder sync status for the current project
   const folderSyncStatus = useProjectSyncStatus(selectedProject?.id || null);
+
+  const { preferences } = useUserPreferences();
 
   // Create polling options that use events instead of constant polling
   const pollingOptions = useMemo<UseConversationPollingOptions>(() => ({
@@ -127,6 +132,7 @@ export function ConversationsPageWrapper({
         initialOpenDiffModal={initialOpenDiffModal}
         onDiffModalOpened={onDiffModalOpened}
         initialView={initialView}
+        onSwitchToLocalMode={preferences.show_experimental_features ? onNavigateToLocalConversations : undefined}
         // Analytics callbacks
         onProjectView={trackProjectView}
         onTriggerFullReview={(projectId, fileId) => trackTriggerFullReview('desktop', projectId, fileId)}

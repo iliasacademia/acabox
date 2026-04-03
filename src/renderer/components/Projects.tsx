@@ -19,6 +19,7 @@ import {
 } from '../services/projectsApi';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { ConversationsPageWrapper } from './conversations/ConversationsPageWrapper';
+import { LocalConversationsPageWrapper } from './conversations/LocalConversationsPageWrapper';
 import {
   trackV2FilePickerOpen,
   trackV2FileSelected,
@@ -29,7 +30,7 @@ import {
 } from '../utils/analytics';
 import './Projects.css';
 
-type View = 'list' | 'detail' | 'orphan-conversations';
+type View = 'list' | 'detail' | 'orphan-conversations' | 'local-conversations';
 
 interface DialogState {
   type: 'alert' | 'confirm' | null;
@@ -560,12 +561,20 @@ const Projects: React.FC<ProjectsProps> = ({ userId, userName, onLogout, onLogin
               initialOpenDiffModal={pendingDiffModal}
               onDiffModalOpened={handleDiffModalOpened}
               initialView={pendingInitialView}
+              onNavigateToLocalConversations={() => setCurrentView('local-conversations')}
             />
           ) : currentView === 'orphan-conversations' ? (
             <ConversationsPageWrapper
               selectedProject={null}
               onBack={handleBackToList}
               nonProjectConversations={true}
+              onNavigateToLocalConversations={() => setCurrentView('local-conversations')}
+            />
+          ) : currentView === 'local-conversations' ? (
+            <LocalConversationsPageWrapper
+              userId={userId}
+              selectedProject={selectedProject}
+              onBack={() => setCurrentView('detail')}
             />
           ) : null}
         </>
