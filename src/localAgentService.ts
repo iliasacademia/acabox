@@ -388,7 +388,7 @@ export class LocalAgentService {
             const toolNow = new Date().toISOString();
             db.insertMessage.run(
               resultText,
-              JSON.stringify({ tool_use_id: block.id, tool_name: block.name }),
+              JSON.stringify({ tool_use_id: block.id, tool_name: block.name, tool_call: { name: block.name, parameters: block.input } }),
               null,
               'tool',
               toolNow,

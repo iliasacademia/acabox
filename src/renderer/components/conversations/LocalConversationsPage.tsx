@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ConversationMessage } from '../../../../packages/shared-conversations/src/components/ConversationMessage';
+import { ToolMessageAccordion } from '../../../../packages/shared-conversations/src/components/ToolMessageAccordion';
 import { Message } from '../../../../packages/shared-conversations/src/types/conversation';
 import { IPC_CHANNELS } from '../../../shared/types';
 import '../../../../packages/shared-conversations/src/styles/conversations.css';
@@ -46,7 +47,7 @@ export function LocalConversationsPage({ onSwitchToRegularMode }: LocalConversat
         conversationIdRef.current
       ).then((result: any) => {
         if (result?.messages) {
-          setMessages(result.messages.filter((m: Message) => m.role !== 'tool'));
+          setMessages(result.messages);
         }
       });
     };
@@ -121,6 +122,30 @@ export function LocalConversationsPage({ onSwitchToRegularMode }: LocalConversat
     }
   }, [handleSend]);
 
+  // Group consecutive tool messages for accordion display
+  const groupedMessages = useMemo(() => {
+    const groups: Array<{ type: 'message' | 'toolGroup'; data: Message | Message[] }> = [];
+    let currentToolGroup: Message[] = [];
+
+    messages.forEach((message) => {
+      if (message.role === 'tool') {
+        currentToolGroup.push(message);
+      } else {
+        if (currentToolGroup.length > 0) {
+          groups.push({ type: 'toolGroup', data: currentToolGroup });
+          currentToolGroup = [];
+        }
+        groups.push({ type: 'message', data: message });
+      }
+    });
+
+    if (currentToolGroup.length > 0) {
+      groups.push({ type: 'toolGroup', data: currentToolGroup });
+    }
+
+    return groups;
+  }, [messages]);
+
   return (
     <div className="conversationsPage">
       {/* Top Bar */}
@@ -141,17 +166,24 @@ export function LocalConversationsPage({ onSwitchToRegularMode }: LocalConversat
       <div className="localConversationBody">
         {/* Messages */}
         <div className="conversationMessages" ref={messagesContainerRef}>
-          {messages.length === 0 && !isSending ? (
+          {groupedMessages.length === 0 && !isSending ? (
             <div className="noMessages">
               <p>No messages yet. Start the conversation below!</p>
             </div>
           ) : (
-            messages.map((msg) => (
-              <ConversationMessage
-                key={msg.id}
-                message={msg}
-                hideContexts
-              />
+            groupedMessages.map((item, index) => (
+              item.type === 'message' ? (
+                <ConversationMessage
+                  key={(item.data as Message).id}
+                  message={item.data as Message}
+                  hideContexts
+                />
+              ) : (
+                <ToolMessageAccordion
+                  key={`tool-group-${index}`}
+                  messages={item.data as Message[]}
+                />
+              )
             ))
           )}
 
