@@ -12,6 +12,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('sessionsAPI', {
+  list: () => ipcRenderer.invoke('sessions:list'),
+  get: (id: string) => ipcRenderer.invoke('sessions:get', id),
+  rename: (id: string, title: string) => ipcRenderer.invoke('sessions:rename', id, title),
+  delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
+  listMessages: (sessionId: string) => ipcRenderer.invoke('messages:list', sessionId),
+});
+
 contextBridge.exposeInMainWorld('chatAPI', {
   sendMessage: (threadId: string, text: string) => {
     ipcRenderer.send('chat:send', { threadId, text });

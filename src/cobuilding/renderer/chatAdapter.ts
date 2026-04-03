@@ -1,8 +1,10 @@
+import { useMemo } from 'react';
 import type {
   ChatModelAdapter,
   ThreadAssistantMessagePart,
   ToolCallMessagePart,
 } from '@assistant-ui/react';
+import { useAui } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream } from '../shared/types';
 
 function toAsyncIterable(
@@ -15,32 +17,40 @@ function toAsyncIterable(
   };
 }
 
-export const electronChatAdapter: ChatModelAdapter = {
-  async *run({ messages, unstable_threadId }) {
-    const lastUserMessage = messages.filter((m) => m.role === 'user').pop();
-    if (!lastUserMessage) return;
+export function useElectronChatAdapter(): ChatModelAdapter {
+  const aui = useAui() as any;
+  return useMemo(() => createElectronChatAdapter(aui), [aui]);
+}
 
-    const threadId = unstable_threadId ?? 'default';
+function createElectronChatAdapter(aui: any): ChatModelAdapter {
+  return {
+    async *run({ messages }) {
+      const lastUserMessage = messages.filter((m) => m.role === 'user').pop();
+      if (!lastUserMessage) return;
 
-    const userText = lastUserMessage.content
-      .filter(
-        (part): part is { type: 'text'; text: string } => part.type === 'text',
-      )
-      .map((part) => part.text)
-      .join('');
+      const { remoteId } = await aui.threadListItem().initialize();
+      const threadId = remoteId;
 
-    const responseStream = toAsyncIterable(
-      window.chatAPI.sendMessage(threadId, userText),
-    );
+      const userText = lastUserMessage.content
+        .filter(
+          (part): part is { type: 'text'; text: string } => part.type === 'text',
+        )
+        .map((part) => part.text)
+        .join('');
 
-    const response = responseBuilder();
+      const responseStream = toAsyncIterable(
+        window.chatAPI.sendMessage(threadId, userText),
+      );
 
-    for await (const msg of responseStream) {
-      response.onMessage(msg);
-      yield { content: response.getContent() };
-    }
-  },
-};
+      const response = responseBuilder();
+
+      for await (const msg of responseStream) {
+        response.onMessage(msg);
+        yield { content: response.getContent() };
+      }
+    },
+  };
+}
 
 function responseBuilder() {
   const messages: ThreadAssistantMessagePart[] = [];

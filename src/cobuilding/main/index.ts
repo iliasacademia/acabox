@@ -1,6 +1,14 @@
 import { app, BrowserWindow, ipcMain } from 'electron';
 import * as path from 'path';
 import { createAgentSession, type AgentSession } from './agentSession';
+import { initDatabase, closeDatabase } from './db/database';
+import {
+  listSessions,
+  getSession,
+  updateSessionTitle,
+  deleteSession,
+  getMessages,
+} from './db/chatRepository';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -13,6 +21,8 @@ let mainWindow: BrowserWindow | null = null;
 const sessions = new Map<string, AgentSession>();
 
 app.whenReady().then(() => {
+  initDatabase(app.getPath('userData'));
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -32,16 +42,29 @@ app.whenReady().then(() => {
   });
 });
 
+ipcMain.handle('sessions:list', () => listSessions());
+ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
+ipcMain.handle('sessions:rename', (_event, id: string, title: string) => updateSessionTitle(id, title));
+ipcMain.handle('sessions:delete', (_event, id: string) => {
+  deleteSession(id);
+  if (sessions.has(id)) {
+    sessions.get(id)!.destroy();
+    sessions.delete(id);
+  }
+});
+ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
+
 ipcMain.on('chat:send', (event, { threadId, text }: { threadId: string; text: string }) => {
   if (!sessions.has(threadId)) {
-    const session = createAgentSession({
+    const existingSession = getSession(threadId);
+    const session = createAgentSession(threadId, {
       onEvent: (msg) => event.sender.send('chat:event', threadId, msg),
       onDone: () => event.sender.send('chat:done', threadId),
       onError: (err) => {
         event.sender.send('chat:error', threadId, err);
         sessions.delete(threadId);
       },
-    });
+    }, existingSession?.sdk_session_id ?? undefined);
 
     sessions.set(threadId, session);
 
@@ -59,5 +82,6 @@ app.on('window-all-closed', () => {
     session.destroy();
   }
   sessions.clear();
+  closeDatabase();
   app.quit();
 });

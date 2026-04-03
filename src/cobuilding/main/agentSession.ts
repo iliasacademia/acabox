@@ -1,5 +1,6 @@
-import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKUserMessage, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage } from '../shared/types';
+import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
 
 export interface ChatCallbacks {
   onEvent: (msg: ChatStreamMessage) => void;
@@ -12,8 +13,10 @@ export interface AgentSession {
   destroy(): void;
 }
 
-export function createAgentSession(callbacks: ChatCallbacks): AgentSession {
+export function createAgentSession(sessionId: string, callbacks: ChatCallbacks, sdkSessionId?: string): AgentSession {
   const messageQueue = createMessageQueue<string>();
+
+  createSession(sessionId);
 
   async function* userMessageGenerator(): AsyncGenerator<SDKUserMessage> {
     for await (const text of messageQueue) {
@@ -32,6 +35,7 @@ export function createAgentSession(callbacks: ChatCallbacks): AgentSession {
         prompt: userMessageGenerator(),
         options: {
           model: 'claude-sonnet-4-6',
+          ...(sdkSessionId && { resume: sdkSessionId }),
           includePartialMessages: true,
           cwd: process.cwd(),
           settingSources: ['project'],
@@ -40,7 +44,36 @@ export function createAgentSession(callbacks: ChatCallbacks): AgentSession {
       })) {
         processQueryMessage(message, state, callbacks.onEvent);
 
+        if (message.type === 'system') {
+          setSdkSessionId(sessionId, message.session_id);
+        }
+
+        if (message.type === 'assistant') {
+          insertMessage(sessionId, 'assistant', JSON.stringify(message.message.content));
+        }
+
+        if (message.type === 'user') {
+          const content = message.message.content;
+          if (Array.isArray(content)) {
+            const hasToolResults = content.some(
+              (block) => typeof block !== 'string' && block.type === 'tool_result',
+            );
+            if (hasToolResults) {
+              insertMessage(sessionId, 'tool_result', JSON.stringify(content));
+            }
+          }
+        }
+
         if (message.type === 'result') {
+          insertMessage(
+            sessionId,
+            'result',
+            JSON.stringify({
+              subtype: message.subtype,
+              result: message.subtype === 'success' ? message.result : undefined,
+              is_error: message.is_error,
+            }),
+          );
           callbacks.onDone();
         }
       }
@@ -52,6 +85,7 @@ export function createAgentSession(callbacks: ChatCallbacks): AgentSession {
 
   return {
     sendMessage(userMessage: string) {
+      insertMessage(sessionId, 'user', userMessage);
       messageQueue.push(userMessage);
     },
 
@@ -66,7 +100,7 @@ interface MessageProcessingState {
 }
 
 function processQueryMessage(
-  message: any,
+  message: SDKMessage,
   state: MessageProcessingState,
   onEvent: (msg: ChatStreamMessage) => void,
 ): void {
