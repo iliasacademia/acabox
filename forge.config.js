@@ -27,7 +27,7 @@ const loggerPort = findAvailablePort(devServerPort + 1000);
 
 // Root native modules that need to be copied outside the asar archive.
 // Transitive runtime dependencies are resolved automatically.
-const nativeModuleRoots = ['canvas', 'better-sqlite3'];
+const nativeModuleRoots = ['canvas', 'better-sqlite3', '@anthropic-ai/claude-agent-sdk'];
 
 // Packages only needed at install/build time — never needed at runtime.
 const installTimeOnly = new Set([
@@ -81,7 +81,7 @@ const packagerConfig = {
     },
   ],
   asar: {
-    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*}',
+    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*}',
   },
   extraResource: [
     ...(platform === 'darwin' ? [
@@ -104,6 +104,21 @@ const packagerConfig = {
     },
   } : {}),
 };
+
+// Override product name and identifiers for cobuilding entry point
+const entryPoint = process.env.ENTRY_POINT || '';
+console.log(`[forge.config.js] ENTRY_POINT = "${entryPoint}"`);
+
+if (entryPoint === 'cobuilding') {
+  packagerConfig.name = 'Academia Coscientist';
+  packagerConfig.appBundleId = 'com.electron.academia-coscientist';
+  packagerConfig.protocols = [
+    {
+      name: 'Academia Coscientist',
+      schemes: ['academia-coscientist'],
+    },
+  ];
+}
 
 // Only add code signing configuration if we have a valid identity
 if (codeSignIdentity) {

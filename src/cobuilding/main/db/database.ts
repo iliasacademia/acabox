@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import path from 'path';
+import log from 'electron-log';
 
 let db: Database.Database | null = null;
 
@@ -64,7 +65,7 @@ export function initDatabase(userDataPath: string): Database.Database {
 
   runMigrations(db);
 
-  console.log(`Cobuilding database initialized at ${dbPath}`);
+  log.info('[DB] Cobuilding database initialized at', dbPath);
   return db;
 }
 
