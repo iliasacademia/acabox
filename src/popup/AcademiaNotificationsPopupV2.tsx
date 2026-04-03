@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
 import { onVisibilityChanged, cacheFullStoryConfig } from './utils/fullstory';
 import { ConversationView } from './popupV2/ConversationView';
+import { ReviewInputView } from './popupV2/ReviewInputView';
 import {
   ConversationItem,
   NotificationData,
@@ -23,6 +24,8 @@ import {
   POPUP_HEIGHT_ENABLE_FEEDBACK,
   POPUP_HEIGHT_UNSAVED_DOCUMENT,
   POPUP_HEIGHT_PER_CONVERSATION,
+  POPUP_HEIGHT_REVIEW_INPUT,
+  POPUP_HEIGHT_REVIEW_INPUT_PROGRESS,
   REVIEW_STATUS_CARD_HEIGHT,
   ERROR_MESSAGE_HEIGHT,
 } from './popupV2/shared';
@@ -57,6 +60,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   // State for review status
   const [reviewState, setReviewState] = useState<ReviewState>('idle');
+  // State for review input view (selected-text review)
+  const [isAwaitingReviewInput, setIsAwaitingReviewInput] = useState(false);
+  const [selectedTextForReview, setSelectedTextForReview] = useState<string | null>(null);
   // Track previous height to avoid unnecessary resize calls (prevents infinite loop)
   const previousHeightRef = useRef<number>(0);
   // Track logged notification IDs to avoid stale closure logging issues
@@ -90,6 +96,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // State for inline review view
   const [viewMode, setViewMode] = useState<ViewMode>('menu');
   const [activeNotification, setActiveNotification] = useState<NotificationData | null>(null);
+  const prevShowPopupRef = useRef(false);
 
   // Width toggle state
   const [isWide, setIsWide] = useState(false);
@@ -146,6 +153,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setIsEnableFeedback(pollData.isEnableFeedback ?? false);
     setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
     setReviewErrorMessage(pollData.reviewErrorMessage ?? null);
+    setIsAwaitingReviewInput(pollData.isAwaitingReviewInput ?? false);
+    setSelectedTextForReview(pollData.selectedText ?? null);
 
     if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShowPopupV2=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
@@ -157,7 +166,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       previousHeightRef.current = 0;
       previousWidthRef.current = 0;
       accumulatedSizeRef.current = null;
-      postBridge('closeWindow').catch(() => {});
+      postBridge('closeWindow', { clearReviewState: !(pollData.isReviewingSelectedText ?? false) }).catch(() => {});
       return;
     }
 
@@ -199,6 +208,32 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       .catch(() => {});
   }, [projectId]);
 
+  // Reset viewMode when popup transitions from hidden to visible
+  useEffect(() => {
+    const isVisible = pollData?.shouldShowPopupV2 ?? false;
+    const wasVisible = prevShowPopupRef.current;
+    prevShowPopupRef.current = isVisible;
+
+    if (isVisible && !wasVisible) {
+      if (isAwaitingReviewInput || pollData?.isReviewingSelectedText) {
+        setViewMode('review-input');
+      } else {
+        setViewMode('menu');
+      }
+    }
+  }, [pollData?.shouldShowPopupV2, isAwaitingReviewInput, pollData?.isReviewingSelectedText]);
+
+  // Auto-switch to review-input view when poll data indicates awaiting input or reviewing selected text
+  useEffect(() => {
+    if (isAwaitingReviewInput || pollData?.isReviewingSelectedText) {
+      if (viewMode !== 'review-input') {
+        setViewMode('review-input');
+      }
+    } else if (viewMode === 'review-input') {
+      setViewMode('menu');
+    }
+  }, [isAwaitingReviewInput, pollData?.isReviewingSelectedText]);
+
   // Handle window resizing based on view mode and notification count
   useEffect(() => {
     let height: number;
@@ -211,6 +246,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       height = POPUP_HEIGHT_ENABLE_FEEDBACK;
     } else if (viewMode === 'review') {
       height = POPUP_HEIGHT_REVIEW_VIEW;
+    } else if (viewMode === 'review-input') {
+      height = pollData?.isReviewingSelectedText ? POPUP_HEIGHT_REVIEW_INPUT_PROGRESS : POPUP_HEIGHT_REVIEW_INPUT;
     } else {
       // Base height covers section header + "View all" row + "Get feedback" section
       height = POPUP_HEIGHT_NO_NOTIFICATIONS;
@@ -254,12 +291,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     console.log('[AcademiaNotificationsPopupV2] View review feedback clicked:', notification);
 
     if (notification.isInProgress) {
-      await postBridge('setReviewState', {
-        projectId: notification.project_id,
-        reviewType: notification.review_type,
-        selectedText: notification.selected_text,
-      });
-      await postBridge('closeWindow', { clearReviewState: false });
+      setViewMode('review-input');
       return;
     }
 
@@ -342,12 +374,19 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     });
   };
 
+  // Handle clicking "Back" from review input view - return to menu
+  const handleBackFromReviewInput = () => {
+    console.log('[AcademiaNotificationsPopupV2] Back from review input clicked');
+    setViewMode('menu');
+  };
+
   const handleClose = async () => {
     console.log('[AcademiaNotificationsPopupV2] Close button clicked');
 
     try {
       onVisibilityChanged('popup', false);
-      await postBridge('closeWindow');
+      const shouldPreserveReviewState = pollData?.isReviewingSelectedText ?? false;
+      await postBridge('closeWindow', { clearReviewState: !shouldPreserveReviewState });
       console.log('[AcademiaNotificationsPopupV2] Close window request sent');
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Close failed:', err);
@@ -829,6 +868,15 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           </div>
         ) : isEnableFeedback
           ? <EnableFeedbackView isUnsavedDocument={isUnsavedDocument} />
+          : viewMode === 'review-input'
+            ? <ReviewInputView
+                selectedText={selectedTextForReview}
+                reviewType={pollData?.isReviewingSelectedText ? (pollData?.reviewType ?? null) : null}
+                isAwaitingReviewInput={isAwaitingReviewInput}
+                effectiveWid={effectiveWid}
+                reviewStartedAt={pollData?.selectedTextReviewStartedAt ?? null}
+                onBack={handleBackFromReviewInput}
+              />
           : viewMode === 'review' && activeNotification
             ? <ConversationView
                 activeNotification={activeNotification}

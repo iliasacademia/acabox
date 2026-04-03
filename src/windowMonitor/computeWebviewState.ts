@@ -77,7 +77,7 @@ export function computeWebviewStateV4(
     const separator = config.pathSuffix.includes('?') ? '&' : '?';
     const url = `${baseUrl}${config.pathSuffix}${separator}mode=v4&token=${authToken}`;
 
-    const isStableButton = config.keyPrefix === 'button-v2' || config.keyPrefix === 'review-button' || config.keyPrefix === 'review-status-overlay' || config.keyPrefix === 'review-button-v3';
+    const isStableButton = config.keyPrefix === 'button-v2' || config.keyPrefix === 'review-button' || config.keyPrefix === 'review-button-v3';
     const isVisible = isStableButton ? true : visible;
 
     const entry: WebviewEntryState = frame !== null

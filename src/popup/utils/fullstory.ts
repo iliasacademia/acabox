@@ -53,8 +53,8 @@ export function cacheFullStoryConfig(config: FullStoryConfig): void {
  *
  * FullStory is eagerly initialized on the FIRST call (even with `visible=false`)
  * so the recording script has time to load before the webview becomes visible.
- * This is critical for short-lived webviews like review-button and
- * review-status-overlay that may only be visible briefly.
+ * This is critical for short-lived webviews like review-button that may
+ * only be visible briefly.
  *
  * Visibility changes fire "${Context} Shown" / "${Context} Hidden" events and
  * set a page-level `visible` property so sessions can be filtered in the
