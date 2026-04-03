@@ -16,7 +16,7 @@ export function rebuildTrayMenu(statusLabel?: string) {
     enabled: !statusLabel && isUpdaterConfigured(),
     click: () => {
       rebuildTrayMenu('Checking...');
-      checkForUpdates();
+      checkForUpdates(true);
     },
   });
   if (statusLabel) {
