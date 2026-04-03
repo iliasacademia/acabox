@@ -1,6 +1,7 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import { registerFileHandlers } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession, type AgentSession } from './agentSession';
@@ -53,12 +54,20 @@ function validateWorkspaceName(name: string): string {
   return trimmed;
 }
 
+const SENSITIVE_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.config', '.password-store'];
+
 function validateDirectoryPath(directoryPath: string): string {
   const resolved = path.resolve(directoryPath);
   const homeDir = app.getPath('home');
 
   if (!resolved.startsWith(homeDir + path.sep) && resolved !== homeDir) {
     throw new Error('Workspace directory must be within your home directory.');
+  }
+
+  const relative = path.relative(homeDir, resolved);
+  const firstSegment = relative.split(path.sep)[0];
+  if (SENSITIVE_HOME_DIRS.includes(firstSegment)) {
+    throw new Error('Cannot create a workspace in a sensitive directory.');
   }
 
   return resolved;
@@ -73,6 +82,21 @@ let activeWorkspace: Workspace | null = null;
 const sessions = new Map<string, AgentSession>();
 
 app.whenReady().then(() => {
+  protocol.handle('local-file', (request) => {
+    const filePath = decodeURIComponent(request.url.slice('local-file://'.length));
+    const resolved = path.resolve(filePath);
+    if (
+      !activeWorkspace ||
+      (!resolved.startsWith(activeWorkspace.directory_path + path.sep) &&
+        resolved !== activeWorkspace.directory_path)
+    ) {
+      return new Response('Forbidden', { status: 403 });
+    }
+    return net.fetch(`file://${resolved}`);
+  });
+
+  initDatabase(app.getPath('userData'));
+  activeWorkspace = getActiveWorkspace() ?? null;
   log.info('[APP] App ready. Version:', app.getVersion(), 'Packaged:', app.isPackaged);
   log.info('[APP] userData path:', app.getPath('userData'));
 
@@ -99,6 +123,7 @@ app.whenReady().then(() => {
     });
     log.info('[APP] Main window created.');
 
+    registerFileHandlers(() => activeWorkspace?.directory_path ?? null);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();

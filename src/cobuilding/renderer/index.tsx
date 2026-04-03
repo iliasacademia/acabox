@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useLocalRuntime, useRemoteThreadListRuntime, AssistantRuntimeProvider } from '@assistant-ui/react';
-import { SettingsIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, SettingsIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
+import { FilesTab } from './components/FilesTab';
+import { FileViewer } from './components/FileViewer';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
@@ -16,6 +18,8 @@ import './App.css';
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [activeTab, setActiveTab] = useState<'chats' | 'files'>('chats');
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
@@ -32,22 +36,50 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
         <div className="appLayout">
+          <div className="activityBar">
+            <button
+              className={`activityBarBtn ${activeTab === 'files' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setActiveTab('files')}
+              title="Files"
+            >
+              <FolderIcon style={{ width: 22, height: 22 }} />
+            </button>
+            <button
+              className={`activityBarBtn ${activeTab === 'chats' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setActiveTab('chats')}
+              title="Chats"
+            >
+              <MessageSquareIcon style={{ width: 22, height: 22 }} />
+            </button>
+            <button
+              className="activityBarBtn activityBarBtn--bottom"
+              onClick={() => setShowSettings(true)}
+              title="Settings"
+            >
+              <SettingsIcon style={{ width: 22, height: 22 }} />
+            </button>
+          </div>
           <div className="sidebarPanel">
             <div className="sidebarContent">
-              <ThreadList />
-            </div>
-            <div className="sidebarFooter">
-              <button
-                className="sidebarSettingsBtn"
-                onClick={() => setShowSettings(true)}
-              >
-                <SettingsIcon style={{ width: 16, height: 16 }} />
-                Settings
-              </button>
+              {activeTab === 'chats' ? (
+                <ThreadList />
+              ) : (
+                <FilesTab
+                  workspacePath={workspace.directory_path}
+                  onSelectFile={(p) => setSelectedFilePath(p)}
+                />
+              )}
             </div>
           </div>
           <div className="mainPanel">
-            <Thread />
+            {selectedFilePath ? (
+              <FileViewer
+                filePath={selectedFilePath}
+                onClose={() => setSelectedFilePath(null)}
+              />
+            ) : (
+              <Thread />
+            )}
           </div>
         </div>
         {showSettings && (

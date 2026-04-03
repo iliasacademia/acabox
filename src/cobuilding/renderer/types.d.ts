@@ -1,5 +1,35 @@
 import type { ChatAPI, Workspace } from '../shared/types';
 
+interface DirEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
+
+type FileContent =
+  | { type: 'text'; content: string }
+  | { type: 'image'; fileUrl: string }
+  | { error: 'too-large'; size: number };
+
+interface CopyProgress {
+  copied: number;
+  total: number;
+  currentName: string | null;
+}
+
+interface FilesAPI {
+  readDirectory(dirPath: string): Promise<DirEntry[]>;
+  readFile(filePath: string): Promise<FileContent>;
+  copyToWorkspace(sourcePaths: string[], destinationDir: string): Promise<{ copied: number }>;
+  moveFile(sourcePath: string, destinationDir: string): Promise<void>;
+  deleteFile(filePath: string): Promise<void>;
+  createFile(filePath: string): Promise<void>;
+  createDirectory(dirPath: string): Promise<void>;
+  renameFile(filePath: string, newName: string): Promise<void>;
+  getPathForFile(file: File): string;
+  onCopyProgress(callback: (progress: CopyProgress) => void): () => void;
+}
+
 interface WorkspacesAPI {
   getActive(): Promise<Workspace | null>;
   getDefaultDirectory(name: string): Promise<string>;
@@ -34,6 +64,7 @@ interface SessionsAPI {
 declare global {
   interface Window {
     chatAPI: ChatAPI;
+    filesAPI: FilesAPI;
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
   }

@@ -10,10 +10,12 @@ import type { FC } from 'react';
 export const ThreadList: FC = () => {
   return (
     <ThreadListPrimitive.Root className="threadListRoot">
+      <div className="threadListItems">
+        <ThreadListPrimitive.Items>
+          {() => <ThreadListItem />}
+        </ThreadListPrimitive.Items>
+      </div>
       <ThreadListNew />
-      <ThreadListPrimitive.Items>
-        {() => <ThreadListItem />}
-      </ThreadListPrimitive.Items>
     </ThreadListPrimitive.Root>
   );
 };

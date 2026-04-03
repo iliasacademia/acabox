@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
@@ -8,6 +8,26 @@ contextBridge.exposeInMainWorld('workspacesAPI', {
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
   update: (data: { name: string; directoryPath: string; apiKey: string }) =>
     ipcRenderer.invoke('workspaces:update', data),
+});
+
+contextBridge.exposeInMainWorld('filesAPI', {
+  readDirectory: (dirPath: string) => ipcRenderer.invoke('files:readDirectory', dirPath),
+  readFile: (filePath: string) => ipcRenderer.invoke('files:readFile', filePath),
+  copyToWorkspace: (sourcePaths: string[], destinationDir: string) =>
+    ipcRenderer.invoke('files:copyToWorkspace', sourcePaths, destinationDir),
+  moveFile: (sourcePath: string, destinationDir: string) =>
+    ipcRenderer.invoke('files:moveFile', sourcePath, destinationDir),
+  deleteFile: (filePath: string) => ipcRenderer.invoke('files:deleteFile', filePath),
+  createFile: (filePath: string) => ipcRenderer.invoke('files:createFile', filePath),
+  createDirectory: (dirPath: string) => ipcRenderer.invoke('files:createDirectory', dirPath),
+  renameFile: (filePath: string, newName: string) =>
+    ipcRenderer.invoke('files:renameFile', filePath, newName),
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
+  onCopyProgress: (callback: (progress: { copied: number; total: number; currentName: string | null }) => void) => {
+    const handler = (_event: unknown, progress: { copied: number; total: number; currentName: string | null }) => callback(progress);
+    ipcRenderer.on('files:copyProgress', handler);
+    return () => { ipcRenderer.removeListener('files:copyProgress', handler); };
+  },
 });
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
