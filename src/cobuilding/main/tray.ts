@@ -1,5 +1,6 @@
 import { app, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
+import log from 'electron-log';
 import { isUpdaterConfigured, checkForUpdates } from './updater';
 
 let tray: Tray | null = null;
@@ -93,10 +94,14 @@ function createTrayIcon(): Electron.NativeImage | null {
 
 export function createTray() {
   const icon = createTrayIcon();
-  if (!icon) return;
+  if (!icon) {
+    log.warn('[TRAY] Failed to load tray icon, skipping tray creation.');
+    return;
+  }
 
   tray = new Tray(icon);
   tray.setToolTip('Cobuilding');
+  log.info('[TRAY] Tray created.');
 
   // Use click handlers instead of setContextMenu to work around Electron tray menu crash on macOS
   tray.on('click', () => {
