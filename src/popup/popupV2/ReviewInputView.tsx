@@ -12,7 +12,6 @@ export interface ReviewInputViewProps {
   effectiveWid: string | null;
   reviewStartedAt: number | null;
   onBack: () => void;
-  onClose: () => void;
 }
 
 export const ReviewInputView: React.FC<ReviewInputViewProps> = ({
@@ -22,7 +21,6 @@ export const ReviewInputView: React.FC<ReviewInputViewProps> = ({
   effectiveWid,
   reviewStartedAt,
   onBack,
-  onClose,
 }) => {
   const [progress, setProgress] = useState(() => {
     if (!reviewStartedAt) return 0;
@@ -229,20 +227,6 @@ export const ReviewInputView: React.FC<ReviewInputViewProps> = ({
           </button>
           <div className="review-status-title">{getHeaderText()}</div>
         </div>
-        <button
-          className="review-status-close"
-          onClick={onClose}
-          aria-label="Close"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M12 4L4 12M4 4L12 12"
-              stroke="#141413"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
       </div>
       <div className="review-status-content">
         {selectedText ? (

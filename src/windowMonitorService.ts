@@ -788,6 +788,7 @@ export class WindowMonitorService {
       this.popupSizeOverrides.delete(windowId);
       if (clearReviewState) {
         this.clearSelectedTextReviewState(windowId);
+        this.closeReviewInput(windowId);
       }
       this.reviewErrorMessages.delete(windowId);
       this.pushWebviewState();

@@ -96,6 +96,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // State for inline review view
   const [viewMode, setViewMode] = useState<ViewMode>('menu');
   const [activeNotification, setActiveNotification] = useState<NotificationData | null>(null);
+  const prevShowPopupRef = useRef(false);
 
   // Width toggle state
   const [isWide, setIsWide] = useState(false);
@@ -206,6 +207,21 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       .then(data => { if (data?.conversations) setConversations(data.conversations); })
       .catch(() => {});
   }, [projectId]);
+
+  // Reset viewMode when popup transitions from hidden to visible
+  useEffect(() => {
+    const isVisible = pollData?.shouldShowPopupV2 ?? false;
+    const wasVisible = prevShowPopupRef.current;
+    prevShowPopupRef.current = isVisible;
+
+    if (isVisible && !wasVisible) {
+      if (isAwaitingReviewInput || pollData?.isReviewingSelectedText) {
+        setViewMode('review-input');
+      } else {
+        setViewMode('menu');
+      }
+    }
+  }, [pollData?.shouldShowPopupV2, isAwaitingReviewInput, pollData?.isReviewingSelectedText]);
 
   // Auto-switch to review-input view when poll data indicates awaiting input or reviewing selected text
   useEffect(() => {
@@ -362,17 +378,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const handleBackFromReviewInput = () => {
     console.log('[AcademiaNotificationsPopupV2] Back from review input clicked');
     setViewMode('menu');
-  };
-
-  // Handle clicking "Close" from review input view - clear review and close popup
-  const handleCloseReviewInput = async () => {
-    console.log('[AcademiaNotificationsPopupV2] Close review input clicked');
-    try {
-      await postBridge('clearReview');
-      await postBridge('closeWindow');
-    } catch (err) {
-      console.error('[AcademiaNotificationsPopupV2] Close review input failed:', err);
-    }
   };
 
   const handleClose = async () => {
@@ -871,7 +876,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 effectiveWid={effectiveWid}
                 reviewStartedAt={pollData?.selectedTextReviewStartedAt ?? null}
                 onBack={handleBackFromReviewInput}
-                onClose={handleCloseReviewInput}
               />
           : viewMode === 'review' && activeNotification
             ? <ConversationView
