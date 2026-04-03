@@ -1,5 +1,7 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import * as fs from 'fs';
 import * as path from 'path';
+import { randomUUID } from 'crypto';
 import { createAgentSession, type AgentSession } from './agentSession';
 import { initDatabase, closeDatabase } from './db/database';
 import {
@@ -9,24 +11,31 @@ import {
   deleteSession,
   getMessages,
 } from './db/chatRepository';
+import {
+  createWorkspace,
+  getActiveWorkspace,
+  type Workspace,
+} from './db/workspaceRepository';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
-app.setName('Cobuilding');
+app.setName('Academia Coscientist');
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron'));
 
 let mainWindow: BrowserWindow | null = null;
+let activeWorkspace: Workspace | null = null;
 
 const sessions = new Map<string, AgentSession>();
 
 app.whenReady().then(() => {
   initDatabase(app.getPath('userData'));
+  activeWorkspace = getActiveWorkspace() ?? null;
 
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    title: 'Cobuilding',
+    title: 'Academia Coscientist',
     show: false,
     webPreferences: {
       preload: COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY,
@@ -42,7 +51,46 @@ app.whenReady().then(() => {
   });
 });
 
-ipcMain.handle('sessions:list', () => listSessions());
+// Workspace IPC handlers
+ipcMain.handle('workspaces:getActive', () => {
+  return activeWorkspace ?? null;
+});
+
+ipcMain.handle('workspaces:getDefaultDirectory', (_event, name: string) => {
+  const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'my-workspace';
+  return path.join(app.getPath('home'), 'Academia Coscientist', safeName);
+});
+
+ipcMain.handle(
+  'workspaces:create',
+  (_event, data: { name: string; directoryPath: string; apiKey: string }) => {
+    if (fs.existsSync(data.directoryPath)) {
+      throw new Error('Directory already exists. Please choose a path that does not exist yet.');
+    }
+
+    fs.mkdirSync(data.directoryPath, { recursive: true });
+
+    const id = randomUUID();
+    createWorkspace(id, data.name, data.directoryPath, data.apiKey);
+    activeWorkspace = getActiveWorkspace() ?? null;
+    return activeWorkspace ?? null;
+  },
+);
+
+ipcMain.handle('dialog:selectDirectory', async () => {
+  if (!mainWindow) return undefined;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  if (result.canceled || result.filePaths.length === 0) return undefined;
+  return result.filePaths[0];
+});
+
+// Session IPC handlers
+ipcMain.handle('sessions:list', () => {
+  if (!activeWorkspace) return [];
+  return listSessions(activeWorkspace.id);
+});
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
 ipcMain.handle('sessions:rename', (_event, id: string, title: string) => updateSessionTitle(id, title));
 ipcMain.handle('sessions:delete', (_event, id: string) => {
@@ -55,16 +103,26 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
 ipcMain.on('chat:send', (event, { threadId, text }: { threadId: string; text: string }) => {
+  if (!activeWorkspace) {
+    event.sender.send('chat:error', threadId, 'No active workspace');
+    return;
+  }
+
   if (!sessions.has(threadId)) {
     const existingSession = getSession(threadId);
-    const session = createAgentSession(threadId, {
-      onEvent: (msg) => event.sender.send('chat:event', threadId, msg),
-      onDone: () => event.sender.send('chat:done', threadId),
-      onError: (err) => {
-        event.sender.send('chat:error', threadId, err);
-        sessions.delete(threadId);
+    const session = createAgentSession(
+      threadId,
+      {
+        onEvent: (msg) => event.sender.send('chat:event', threadId, msg),
+        onDone: () => event.sender.send('chat:done', threadId),
+        onError: (err) => {
+          event.sender.send('chat:error', threadId, err);
+          sessions.delete(threadId);
+        },
       },
-    }, existingSession?.sdk_session_id ?? undefined);
+      activeWorkspace,
+      existingSession?.sdk_session_id ?? undefined,
+    );
 
     sessions.set(threadId, session);
 

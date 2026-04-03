@@ -1,5 +1,5 @@
 import { query, type SDKUserMessage, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { ChatStreamMessage } from '../shared/types';
+import type { ChatStreamMessage, Workspace } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
 
 export interface ChatCallbacks {
@@ -13,10 +13,15 @@ export interface AgentSession {
   destroy(): void;
 }
 
-export function createAgentSession(sessionId: string, callbacks: ChatCallbacks, sdkSessionId?: string): AgentSession {
+export function createAgentSession(
+  sessionId: string,
+  callbacks: ChatCallbacks,
+  workspace: Workspace,
+  sdkSessionId?: string,
+): AgentSession {
   const messageQueue = createMessageQueue<string>();
 
-  createSession(sessionId);
+  createSession(sessionId, workspace.id);
 
   async function* userMessageGenerator(): AsyncGenerator<SDKUserMessage> {
     for await (const text of messageQueue) {
@@ -37,9 +42,22 @@ export function createAgentSession(sessionId: string, callbacks: ChatCallbacks, 
           model: 'claude-sonnet-4-6',
           ...(sdkSessionId && { resume: sdkSessionId }),
           includePartialMessages: true,
-          cwd: process.cwd(),
+          cwd: workspace.directory_path,
+          env: { ...process.env, ANTHROPIC_API_KEY: workspace.api_key },
           settingSources: ['project'],
-          allowedTools: [],
+          allowedTools: [
+            "Bash",
+            "Read",
+            "Write",
+            "Edit",
+            "Glob",
+            "Grep",
+            "Agent",
+            "NotebookEdit",
+            "WebSearch",
+            "Skill",
+            "TodoWrite",
+          ],
         },
       })) {
         processQueryMessage(message, state, callbacks.onEvent);

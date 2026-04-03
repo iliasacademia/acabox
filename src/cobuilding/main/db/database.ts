@@ -7,8 +7,18 @@ const migrations = [
   {
     version: 1,
     sql: `
+      CREATE TABLE workspaces (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        directory_path TEXT NOT NULL,
+        api_key TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+
       CREATE TABLE sessions (
         id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
         sdk_session_id TEXT,
         title TEXT NOT NULL DEFAULT 'New Chat',
         created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),

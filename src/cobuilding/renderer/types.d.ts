@@ -1,4 +1,11 @@
-import type { ChatAPI } from '../shared/types';
+import type { ChatAPI, Workspace } from '../shared/types';
+
+interface WorkspacesAPI {
+  getActive(): Promise<Workspace | null>;
+  getDefaultDirectory(name: string): Promise<string>;
+  create(data: { name: string; directoryPath: string; apiKey: string }): Promise<Workspace>;
+  selectDirectory(): Promise<string | undefined>;
+}
 
 interface SessionData {
   id: string;
@@ -26,6 +33,7 @@ interface SessionsAPI {
 declare global {
   interface Window {
     chatAPI: ChatAPI;
+    workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
     electronAPI: {
       invoke: (channel: string, ...args: any[]) => Promise<any>;

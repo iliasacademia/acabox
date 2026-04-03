@@ -16,8 +16,10 @@ export interface Message {
   created_at: string;
 }
 
-export function createSession(id: string): void {
-  getDatabase().prepare('INSERT OR IGNORE INTO sessions (id) VALUES (?)').run(id);
+export function createSession(id: string, workspaceId: string): void {
+  getDatabase()
+    .prepare('INSERT OR IGNORE INTO sessions (id, workspace_id) VALUES (?, ?)')
+    .run(id, workspaceId);
 }
 
 export function getSession(id: string): Session | undefined {
@@ -26,10 +28,10 @@ export function getSession(id: string): Session | undefined {
     .get(id) as Session | undefined;
 }
 
-export function listSessions(): Session[] {
+export function listSessions(workspaceId: string): Session[] {
   return getDatabase()
-    .prepare('SELECT * FROM sessions ORDER BY updated_at DESC')
-    .all() as Session[];
+    .prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY updated_at DESC')
+    .all(workspaceId) as Session[];
 }
 
 export function updateSessionTitle(id: string, title: string): void {

@@ -12,6 +12,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('workspacesAPI', {
+  getActive: () => ipcRenderer.invoke('workspaces:getActive'),
+  getDefaultDirectory: (name: string) => ipcRenderer.invoke('workspaces:getDefaultDirectory', name),
+  create: (data: { name: string; directoryPath: string; apiKey: string }) =>
+    ipcRenderer.invoke('workspaces:create', data),
+  selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
+});
+
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: () => ipcRenderer.invoke('sessions:list'),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
