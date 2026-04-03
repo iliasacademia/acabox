@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession, type AgentSession } from './agentSession';
 import type { IPCAttachment } from '../shared/types';
+import { copySkillsToWorkspace } from './skills';
 import { initDatabase, closeDatabase } from './db/database';
 import {
   listSessions,
@@ -180,6 +181,7 @@ ipcMain.handle(
     }
 
     fs.mkdirSync(directoryPath, { recursive: true });
+    copySkillsToWorkspace(directoryPath);
 
     const id = randomUUID();
     createWorkspace(id, name, directoryPath, data.apiKey);
@@ -209,6 +211,7 @@ ipcMain.handle(
 
     if (directoryPath !== activeWorkspace.directory_path && !fs.existsSync(directoryPath)) {
       fs.mkdirSync(directoryPath, { recursive: true });
+      copySkillsToWorkspace(directoryPath);
     }
 
     updateWorkspace(activeWorkspace.id, name, directoryPath, data.apiKey);
