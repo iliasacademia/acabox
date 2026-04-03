@@ -84,6 +84,10 @@ module.exports = [
           to: 'native/build/Release/word_accessibility.node',
           noErrorOnMissing: true,
         },
+        {
+          from: 'mcp/ms-word.md',
+          to: 'mcp/ms-word.md',
+        },
       ] : []),
       {
         from: 'dist/popup',
