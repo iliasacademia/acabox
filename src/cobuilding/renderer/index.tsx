@@ -1,11 +1,20 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { useLocalRuntime, AssistantRuntimeProvider } from '@assistant-ui/react';
+import { TooltipProvider } from './components/ui/tooltip';
+import { Thread } from './components/assistant-ui/thread';
+import { electronChatAdapter } from './chatAdapter';
+import './App.css';
 
 function App() {
+  const runtime = useLocalRuntime(electronChatAdapter);
+
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
-      <h1>Cobuilding Mode</h1>
-    </div>
+    <AssistantRuntimeProvider runtime={runtime}>
+      <TooltipProvider>
+        <Thread />
+      </TooltipProvider>
+    </AssistantRuntimeProvider>
   );
 }
 
