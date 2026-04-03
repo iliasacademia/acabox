@@ -12,6 +12,7 @@
     "download-podman": "bash scripts/download-podman-binaries.sh",
     "prestart": "npm run build:native && npm run build:popup",
     "start": "dotenv -e .env.local -- cross-env NODE_ENV=development electron-forge start",
+    "start:cobuilding": "dotenv -e .env.local -- cross-env NODE_ENV=development electron-forge start",
     "cleanup": "./cleanup.sh",
     "test:cleanup": "./test-cleanup.sh",
     "typecheck": "tsc --noEmit",

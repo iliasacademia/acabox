@@ -190,6 +190,14 @@ module.exports = {
                 js: './src/preload.ts',
               },
             },
+            {
+              html: './src/cobuilding/renderer/index.html',
+              js: './src/cobuilding/renderer/index.tsx',
+              name: 'cobuilding_window',
+              preload: {
+                js: './src/cobuilding/main/preload.ts',
+              },
+            },
           ],
         },
       },
