@@ -2776,6 +2776,14 @@
     transform: none;
 }
 
+.sendButton.stopButton {
+    background-color: #ef4444;
+}
+
+.sendButton.stopButton:hover {
+    background-color: #dc2626;
+}
+
 /* ============================================================================
    FILE ATTACHMENT CHIPS
    ============================================================================ */

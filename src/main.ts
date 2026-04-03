@@ -1265,6 +1265,10 @@ ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_SEND_MESSAGE, async (_, data: { conversa
   return { message: userMessage ? { ...userMessage, data: null, contexts: [] } : {} };
 });
 
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_STOP, (_, conversationId: number) => {
+  localAgentService.stopConversation(conversationId);
+});
+
 ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_ARCHIVE_CONVERSATION, (_, conversationId: number) => {
   const db = getLocalConversationDb();
   db.archiveConversation.run(new Date().toISOString(), conversationId);

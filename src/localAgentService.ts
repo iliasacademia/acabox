@@ -4,8 +4,22 @@ import { store } from './appStore';
 import { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from './shared/types';
 import { defaultLogger as logger } from './utils/logger';
+import * as fs from 'fs';
+import * as path from 'path';
 
-const SYSTEM_PROMPT = `You are a helpful writing assistant. You can read and edit Microsoft Word documents using the available tools. When the user asks you to make changes to their document, use the tools to read the current content, make edits, and verify your changes.`;
+let MS_WORD_INSTRUCTIONS = '';
+try {
+  MS_WORD_INSTRUCTIONS = fs.readFileSync(
+    path.join(__dirname, 'mcp', 'ms-word.md'),
+    'utf-8'
+  );
+} catch {
+  // Fallback: file may not exist in non-macOS builds
+}
+
+const SYSTEM_PROMPT = `You are a helpful writing assistant. You can read and edit Microsoft Word documents using the available tools. When the user asks you to make changes to their document, use the tools to read the current content, make edits, and verify your changes.${
+  MS_WORD_INSTRUCTIONS ? `\n\n## Tool Usage Guide\n${MS_WORD_INSTRUCTIONS}` : ''
+}`;
 
 // Types matching Anthropic Messages API format (used by InvokeModelCommand body)
 interface TextBlock { type: 'text'; text: string }
@@ -228,6 +242,7 @@ async function executeTool(
   toolInput: Record<string, unknown>,
   port: number,
   authToken: string,
+  signal?: AbortSignal,
 ): Promise<string> {
   const route = TOOL_ROUTES[toolName];
   if (!route) {
@@ -248,7 +263,7 @@ async function executeTool(
     }
     const queryString = params.toString();
     const url = queryString ? `${baseUrl}${route.path}?${queryString}` : `${baseUrl}${route.path}`;
-    const response = await fetch(url, { headers });
+    const response = await fetch(url, { headers, signal });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${await response.text()}`);
     }
@@ -259,6 +274,7 @@ async function executeTool(
       method: 'POST',
       headers,
       body: JSON.stringify(toolInput),
+      signal,
     });
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${await response.text()}`);
@@ -272,6 +288,7 @@ export class LocalAgentService {
   private httpPort: number = 23111;
   private authToken: string = '';
   private manuscriptPaths: Map<number, string> = new Map();
+  private activeLoops: Map<number, AbortController> = new Map();
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -283,6 +300,13 @@ export class LocalAgentService {
 
   setAuthToken(token: string) {
     this.authToken = token;
+  }
+
+  stopConversation(conversationId: number) {
+    const controller = this.activeLoops.get(conversationId);
+    if (controller) {
+      controller.abort();
+    }
   }
 
   async createConversation(content: string, userId: number, manuscriptFilePath?: string): Promise<{ conversation: any }> {
@@ -331,6 +355,11 @@ export class LocalAgentService {
       return;
     }
 
+    // Set up abort controller for this conversation
+    const abortController = new AbortController();
+    this.activeLoops.set(conversationId, abortController);
+    const signal = abortController.signal;
+
     // Build dynamic system prompt with manuscript path if available
     const manuscriptFilePath = this.manuscriptPaths.get(conversationId);
     let systemPrompt = SYSTEM_PROMPT;
@@ -354,11 +383,13 @@ export class LocalAgentService {
     try {
       // 3. Call Bedrock via InvokeModel (Anthropic Messages API format)
       logger.debug(`[LocalAgent] Sending initial request to Bedrock (${messages.length} messages)`);
-      let response = await this.invokeModel(client, model, messages, { system: systemPrompt });
+      let response = await this.invokeModel(client, model, messages, { system: systemPrompt, signal });
       logger.debug(`[LocalAgent] Received response, stop_reason: ${response.stop_reason}`);
 
       // 4. Agentic loop — keep calling tools until stop_reason is not tool_use
       while (response.stop_reason === 'tool_use') {
+        if (signal.aborted) break;
+
         const assistantNow = new Date().toISOString();
 
         // Store assistant message with tool_use blocks
@@ -381,6 +412,7 @@ export class LocalAgentService {
 
         // Execute each tool and store results
         for (const block of assistantContent) {
+          if (signal.aborted) break;
           if (block.type === 'tool_use') {
             logger.debug(`[LocalAgent] Executing tool: ${block.name} (id: ${block.id})`);
             let resultText: string;
@@ -390,16 +422,18 @@ export class LocalAgentService {
                 block.input as Record<string, unknown>,
                 this.httpPort,
                 this.authToken,
+                signal,
               );
               logger.debug(`[LocalAgent] Tool ${block.name} succeeded (${resultText.length} chars)`);
             } catch (err) {
+              if (signal.aborted) break;
               resultText = `Error: ${err instanceof Error ? err.message : String(err)}`;
               logger.error(`[LocalAgent] Tool ${block.name} failed: ${resultText}`);
             }
 
             const toolNow = new Date().toISOString();
             db.insertMessage.run(
-              resultText,
+              resultText!,
               JSON.stringify({ tool_use_id: block.id, tool_name: block.name, tool_call: { name: block.name, parameters: block.input } }),
               null,
               'tool',
@@ -412,11 +446,21 @@ export class LocalAgentService {
           }
         }
 
+        if (signal.aborted) break;
+
         // Rebuild messages and call API again
         const updatedMessages = this.buildAnthropicMessages(conversationId);
         logger.debug(`[LocalAgent] Continuing agent loop (${updatedMessages.length} messages)`);
-        response = await this.invokeModel(client, model, updatedMessages, { system: systemPrompt });
+        response = await this.invokeModel(client, model, updatedMessages, { system: systemPrompt, signal });
         logger.debug(`[LocalAgent] Received response, stop_reason: ${response.stop_reason}`);
+      }
+
+      if (signal.aborted) {
+        const stoppedNow = new Date().toISOString();
+        db.insertMessage.run('Stopped by user.', null, null, 'assistant', stoppedNow, stoppedNow, conversationId, null);
+        this.sendStreamUpdate(conversationId, { role: 'assistant', is_final: true });
+        logger.info(`[LocalAgent] Agent loop stopped by user for conversation ${conversationId}`);
+        return;
       }
 
       // 5. Store final assistant response
@@ -435,15 +479,24 @@ export class LocalAgentService {
         this.generateTitle(client, model, conversationId, userContent, finalText);
       }
     } catch (err) {
+      if (signal.aborted) {
+        const stoppedNow = new Date().toISOString();
+        db.insertMessage.run('Stopped by user.', null, null, 'assistant', stoppedNow, stoppedNow, conversationId, null);
+        this.sendStreamUpdate(conversationId, { role: 'assistant', is_final: true });
+        logger.info(`[LocalAgent] Agent loop stopped by user for conversation ${conversationId}`);
+        return;
+      }
       const errorNow = new Date().toISOString();
       const errorMsg = `Error: ${err instanceof Error ? err.message : String(err)}`;
       logger.error(`[LocalAgent] Agent loop failed for conversation ${conversationId}: ${errorMsg}`);
       db.insertMessage.run(errorMsg, null, null, 'assistant', errorNow, errorNow, conversationId, null);
       this.sendStreamUpdate(conversationId, { role: 'assistant', is_final: true });
+    } finally {
+      this.activeLoops.delete(conversationId);
     }
   }
 
-  private async invokeModel(client: BedrockRuntimeClient, modelId: string, messages: MessageParam[], options?: { max_tokens?: number; system?: string; tools?: ToolDef[] }) {
+  private async invokeModel(client: BedrockRuntimeClient, modelId: string, messages: MessageParam[], options?: { max_tokens?: number; system?: string; tools?: ToolDef[]; signal?: AbortSignal }) {
     const body = {
       anthropic_version: 'bedrock-2023-05-31',
       max_tokens: options?.max_tokens ?? 4096,
@@ -460,7 +513,7 @@ export class LocalAgentService {
     });
 
     logger.debug(`[LocalAgent] InvokeModel request to ${modelId}`);
-    const result = await client.send(command);
+    const result = await client.send(command, { abortSignal: options?.signal });
     const parsed = JSON.parse(Buffer.from(result.body!).toString('utf-8'));
     logger.debug(`[LocalAgent] InvokeModel response: stop_reason=${parsed.stop_reason}, usage=${JSON.stringify(parsed.usage)}`);
     return parsed;

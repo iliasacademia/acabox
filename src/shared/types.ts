@@ -178,6 +178,7 @@ export const IPC_CHANNELS = {
   LOCAL_AGENT_GET_CONVERSATION: "local-agent-get-conversation",
   LOCAL_AGENT_ARCHIVE_CONVERSATION: "local-agent-archive-conversation",
   LOCAL_AGENT_UNARCHIVE_CONVERSATION: "local-agent-unarchive-conversation",
+  LOCAL_AGENT_STOP: "local-agent-stop",
   LOCAL_AGENT_STREAM_UPDATE: "local-agent-stream-update",
 } as const;
 

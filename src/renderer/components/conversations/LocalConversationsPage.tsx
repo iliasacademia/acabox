@@ -377,16 +377,36 @@ export function LocalConversationsPage({ onSwitchToRegularMode, manuscriptFilePa
                   />
                   <div className="inputToolbar">
                     <div className="inputToolbarLeft" />
-                    <button
-                      type="submit"
-                      className="sendButton"
-                      disabled={!inputValue.trim() || isSending}
-                      aria-label={isSending ? 'Sending...' : 'Send message'}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <path d="M8 12V4M4 8l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                      </svg>
-                    </button>
+                    {isAwaitingResponse ? (
+                      <button
+                        type="button"
+                        className="sendButton stopButton"
+                        onClick={() => {
+                          if (conversationIdRef.current) {
+                            window.electronAPI.invoke(
+                              IPC_CHANNELS.LOCAL_AGENT_STOP,
+                              conversationIdRef.current
+                            );
+                          }
+                        }}
+                        aria-label="Stop generating"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                          <rect x="2" y="2" width="10" height="10" rx="1.5" fill="currentColor"/>
+                        </svg>
+                      </button>
+                    ) : (
+                      <button
+                        type="submit"
+                        className="sendButton"
+                        disabled={!inputValue.trim() || isSending}
+                        aria-label={isSending ? 'Sending...' : 'Send message'}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                          <path d="M8 12V4M4 8l4-4 4 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
