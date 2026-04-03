@@ -47,6 +47,79 @@
     overflow: hidden;
 }
 
+.localConversationLayout {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.localConversationSidebar {
+    width: 260px;
+    min-width: 260px;
+    display: flex;
+    flex-direction: column;
+    background-color: #ffffff;
+    border-right: 1px solid #e5e5ea;
+    overflow: hidden;
+}
+
+.localSidebarHeader {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px;
+    border-bottom: 1px solid #f0f0f0;
+    flex-shrink: 0;
+}
+
+.localSidebarTitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #535366;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.localNewChatButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid #e5e5ea;
+    border-radius: 6px;
+    color: #535366;
+    cursor: pointer;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.localNewChatButton:hover {
+    background-color: #f5f5f7;
+    color: #141413;
+}
+
+.localSidebarEmpty {
+    padding: 24px 14px;
+    text-align: center;
+}
+
+.localSidebarEmpty p {
+    margin: 0;
+    font-size: 13px;
+    color: #8e8e93;
+}
+
+.localConversationSidebar .conversationsList {
+    padding: 8px;
+}
+
+.localConversationSidebar .conversationItem {
+    padding: 10px 12px;
+    margin: 0 0 4px 0;
+}
+
 .localConversationBody {
     display: flex;
     flex-direction: column;
