@@ -6,6 +6,7 @@ import { TooltipIconButton } from './tooltip-icon-button';
 import { Button } from '../ui/button';
 import {
   ActionBarPrimitive,
+  AttachmentPrimitive,
   AuiIf,
   BranchPickerPrimitive,
   ComposerPrimitive,
@@ -21,32 +22,36 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
+  PaperclipIcon,
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
+  XIcon,
 } from 'lucide-react';
 import type { FC } from 'react';
 
 export const Thread: FC = () => {
   return (
     <ThreadPrimitive.Root className="threadRoot">
-      <ThreadPrimitive.Viewport
-        turnAnchor="top"
-        className="threadViewport"
-      >
-        <AuiIf condition={(s: any) => s.thread.isEmpty}>
-          <ThreadWelcome />
-        </AuiIf>
+      <ComposerPrimitive.AttachmentDropzone className="threadDropzone">
+        <ThreadPrimitive.Viewport
+          turnAnchor="top"
+          className="threadViewport"
+        >
+          <AuiIf condition={(s: any) => s.thread.isEmpty}>
+            <ThreadWelcome />
+          </AuiIf>
 
-        <ThreadPrimitive.Messages>
-          {() => <ThreadMessage />}
-        </ThreadPrimitive.Messages>
+          <ThreadPrimitive.Messages>
+            {() => <ThreadMessage />}
+          </ThreadPrimitive.Messages>
 
-        <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
-          <ThreadScrollToBottom />
-          <Composer />
-        </ThreadPrimitive.ViewportFooter>
-      </ThreadPrimitive.Viewport>
+          <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
+            <ThreadScrollToBottom />
+            <Composer />
+          </ThreadPrimitive.ViewportFooter>
+        </ThreadPrimitive.Viewport>
+      </ComposerPrimitive.AttachmentDropzone>
     </ThreadPrimitive.Root>
   );
 };
@@ -88,10 +93,70 @@ const ThreadWelcome: FC = () => {
   );
 };
 
+const ComposerImageAttachment: FC = () => {
+  const attachment = useAuiState((s: any) => s.attachment);
+  const imageSrc = attachment?.content?.find((p: any) => p.type === 'image')?.image
+    ?? (attachment?.file ? URL.createObjectURL(attachment.file) : undefined);
+  return (
+    <AttachmentPrimitive.Root className="composerImageAttachment">
+      {imageSrc && <img src={imageSrc} alt={attachment?.name} className="composerImagePreview" />}
+      <AttachmentPrimitive.Remove asChild>
+        <TooltipIconButton
+          tooltip="Remove"
+          variant="ghost"
+          size="icon"
+          className="composerImageRemove"
+        >
+          <XIcon />
+        </TooltipIconButton>
+      </AttachmentPrimitive.Remove>
+    </AttachmentPrimitive.Root>
+  );
+};
+
+const ComposerDocumentAttachment: FC = () => {
+  return (
+    <AttachmentPrimitive.Root className="composerAttachmentItem">
+      <AttachmentPrimitive.unstable_Thumb className="composerAttachmentThumb" />
+      <span className="composerAttachmentName"><AttachmentPrimitive.Name /></span>
+      <AttachmentPrimitive.Remove asChild>
+        <TooltipIconButton
+          tooltip="Remove"
+          variant="ghost"
+          size="icon"
+          className="composerAttachmentRemove"
+        >
+          <XIcon />
+        </TooltipIconButton>
+      </AttachmentPrimitive.Remove>
+    </AttachmentPrimitive.Root>
+  );
+};
+
 const Composer: FC = () => {
   return (
     <ComposerPrimitive.Root className="composerRoot">
+      <ComposerPrimitive.Attachments
+        components={{
+          Image: ComposerImageAttachment,
+          Document: ComposerDocumentAttachment,
+          File: ComposerDocumentAttachment,
+          Attachment: ComposerDocumentAttachment,
+        }}
+      />
       <div className="composerShell">
+        <ComposerPrimitive.AddAttachment asChild>
+          <TooltipIconButton
+            tooltip="Attach file"
+            side="bottom"
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="composerAttach"
+          >
+            <PaperclipIcon className="composerAttachIcon" />
+          </TooltipIconButton>
+        </ComposerPrimitive.AddAttachment>
         <ComposerPrimitive.Input
           placeholder="Send a message..."
           className="composerInput"
@@ -201,6 +266,32 @@ const AssistantActionBar: FC = () => {
   );
 };
 
+const UserImageAttachment: FC = () => {
+  const attachment = useAuiState((s: any) => s.attachment);
+  const imageSrc = attachment?.content?.find((p: any) => p.type === 'image')?.image;
+  if (!imageSrc) {
+    return (
+      <AttachmentPrimitive.Root className="userAttachmentItem">
+        <span className="userAttachmentName"><AttachmentPrimitive.Name /></span>
+      </AttachmentPrimitive.Root>
+    );
+  }
+  return (
+    <AttachmentPrimitive.Root className="userImageAttachment">
+      <img src={imageSrc} alt={attachment?.name} className="userImagePreview" />
+    </AttachmentPrimitive.Root>
+  );
+};
+
+const UserDocumentAttachment: FC = () => {
+  return (
+    <AttachmentPrimitive.Root className="userAttachmentItem">
+      <AttachmentPrimitive.unstable_Thumb className="userAttachmentThumb" />
+      <span className="userAttachmentName"><AttachmentPrimitive.Name /></span>
+    </AttachmentPrimitive.Root>
+  );
+};
+
 const UserMessage: FC = () => {
   return (
     <MessagePrimitive.Root
@@ -209,6 +300,14 @@ const UserMessage: FC = () => {
     >
       <div className="userMessageContentWrapper">
         <div className="userMessageBubble">
+          <MessagePrimitive.Attachments
+            components={{
+              Image: UserImageAttachment,
+              Document: UserDocumentAttachment,
+              File: UserDocumentAttachment,
+              Attachment: UserDocumentAttachment,
+            }}
+          />
           <MessagePrimitive.Parts />
         </div>
         <div className="userActionBarWrapper">

@@ -79,7 +79,7 @@ function convertToThreadMessages(
 
   for (const msg of dbMessages) {
     if (msg.type === 'user') {
-      messages.push({ role: 'user', content: msg.content });
+      messages.push(convertUserMessage(msg.content));
     } else if (msg.type === 'assistant') {
       messages.push({
         role: 'assistant',
@@ -89,6 +89,33 @@ function convertToThreadMessages(
   }
 
   return messages;
+}
+
+interface StoredAttachment {
+  type: 'image' | 'document';
+  mediaType: string;
+  name?: string;
+  title?: string;
+}
+
+function convertUserMessage(content: string): ThreadMessageLike {
+  const parsed = JSON.parse(content) as { text: string; attachments?: StoredAttachment[] };
+  const storedAttachments = parsed.attachments ?? [];
+
+  const attachments = storedAttachments.map((att: StoredAttachment, i: number) => ({
+    id: `att-${i}`,
+    type: att.type,
+    name: att.name ?? att.title ?? (att.type === 'image' ? 'image' : 'file'),
+    contentType: att.mediaType,
+    status: { type: 'complete' as const },
+    content: [] as any[],
+  }));
+
+  return {
+    role: 'user',
+    content: parsed.text,
+    ...(attachments.length > 0 ? { attachments } : {}),
+  };
 }
 
 function convertAssistantContent(content: string, toolResults: ToolResultsMap) {

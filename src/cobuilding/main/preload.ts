@@ -1,23 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-contextBridge.exposeInMainWorld('electronAPI', {
-  invoke: (channel: string, ...args: any[]) => {
-    return ipcRenderer.invoke(channel, ...args);
-  },
-  on: (channel: string, callback: (...args: any[]) => void) => {
-    ipcRenderer.on(channel, callback);
-  },
-  removeListener: (channel: string, callback: (...args: any[]) => void) => {
-    ipcRenderer.removeListener(channel, callback);
-  },
-});
-
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
   getDefaultDirectory: (name: string) => ipcRenderer.invoke('workspaces:getDefaultDirectory', name),
   create: (data: { name: string; directoryPath: string; apiKey: string }) =>
     ipcRenderer.invoke('workspaces:create', data),
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
+  update: (data: { name: string; directoryPath: string; apiKey: string }) =>
+    ipcRenderer.invoke('workspaces:update', data),
 });
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
@@ -29,8 +19,8 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
 });
 
 contextBridge.exposeInMainWorld('chatAPI', {
-  sendMessage: (threadId: string, text: string) => {
-    ipcRenderer.send('chat:send', { threadId, text });
+  sendMessage: (threadId: string, text: string, attachments?: any[]) => {
+    ipcRenderer.send('chat:send', { threadId, text, attachments });
 
     const pending: any[] = [];
     let resolve: (() => void) | null = null;

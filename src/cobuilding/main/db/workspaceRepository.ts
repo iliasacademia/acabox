@@ -34,6 +34,19 @@ export function listWorkspaces(): Workspace[] {
     .all() as Workspace[];
 }
 
+export function updateWorkspace(
+  id: string,
+  name: string,
+  directoryPath: string,
+  apiKey: string,
+): void {
+  getDatabase()
+    .prepare(
+      "UPDATE workspaces SET name = ?, directory_path = ?, api_key = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE id = ?",
+    )
+    .run(name, directoryPath, apiKey, id);
+}
+
 export function getActiveWorkspace(): Workspace | undefined {
   return getDatabase()
     .prepare('SELECT * FROM workspaces ORDER BY created_at LIMIT 1')

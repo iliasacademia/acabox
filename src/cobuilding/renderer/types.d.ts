@@ -4,6 +4,7 @@ interface WorkspacesAPI {
   getActive(): Promise<Workspace | null>;
   getDefaultDirectory(name: string): Promise<string>;
   create(data: { name: string; directoryPath: string; apiKey: string }): Promise<Workspace>;
+  update(data: { name: string; directoryPath: string; apiKey: string }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
 }
 
@@ -35,10 +36,5 @@ declare global {
     chatAPI: ChatAPI;
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
-    electronAPI: {
-      invoke: (channel: string, ...args: any[]) => Promise<any>;
-      on: (channel: string, callback: (...args: any[]) => void) => void;
-      removeListener: (channel: string, callback: (...args: any[]) => void) => void;
-    };
   }
 }

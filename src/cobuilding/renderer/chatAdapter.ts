@@ -5,7 +5,7 @@ import type {
   ToolCallMessagePart,
 } from '@assistant-ui/react';
 import { useAui } from '@assistant-ui/react';
-import type { ChatStreamMessage, ChatMessageStream } from '../shared/types';
+import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../shared/types';
 
 function toAsyncIterable(
   stream: ChatMessageStream,
@@ -39,7 +39,7 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
         .join('');
 
       const responseStream = toAsyncIterable(
-        window.chatAPI.sendMessage(threadId, userText),
+        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage)),
       );
 
       const response = responseBuilder();
@@ -138,4 +138,30 @@ function responseBuilder() {
     onMessage,
     getContent,
   };
+}
+
+function extractAttachments(message: { attachments?: readonly any[] }): IPCAttachment[] | undefined {
+  if (!message.attachments?.length) return undefined;
+
+  const attachments: IPCAttachment[] = [];
+  for (const attachment of message.attachments) {
+    for (const part of attachment.content ?? []) {
+      if (part.type === 'image') {
+        const match = (part.image as string).match(/^data:(image\/[^;]+);base64,(.+)$/s);
+        if (match) {
+          attachments.push({ type: 'image', data: match[2], mediaType: match[1], name: attachment.name });
+        }
+      } else if (part.type === 'file') {
+        attachments.push({
+          type: 'document',
+          data: part.data as string,
+          mediaType: part.mimeType as string,
+          title: part.filename as string | undefined,
+          name: attachment.name,
+        });
+      }
+    }
+  }
+
+  return attachments.length > 0 ? attachments : undefined;
 }

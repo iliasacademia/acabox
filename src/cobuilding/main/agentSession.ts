@@ -1,5 +1,6 @@
 import { query, type SDKUserMessage, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
-import type { ChatStreamMessage, Workspace } from '../shared/types';
+import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
+import type { ChatStreamMessage, IPCAttachment, Workspace } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
 
 export interface ChatCallbacks {
@@ -9,7 +10,7 @@ export interface ChatCallbacks {
 }
 
 export interface AgentSession {
-  sendMessage(userMessage: string): void;
+  sendMessage(userMessage: string, attachments?: IPCAttachment[]): void;
   destroy(): void;
 }
 
@@ -19,15 +20,15 @@ export function createAgentSession(
   workspace: Workspace,
   sdkSessionId?: string,
 ): AgentSession {
-  const messageQueue = createMessageQueue<string>();
+  const messageQueue = createMessageQueue<UserMessagePayload>();
 
   createSession(sessionId, workspace.id);
 
   async function* userMessageGenerator(): AsyncGenerator<SDKUserMessage> {
-    for await (const text of messageQueue) {
+    for await (const payload of messageQueue) {
       yield {
         type: 'user',
-        message: { role: 'user', content: text },
+        message: { role: 'user', content: buildContentBlocks(payload) },
       } as SDKUserMessage;
     }
   }
@@ -102,15 +103,79 @@ export function createAgentSession(
   })();
 
   return {
-    sendMessage(userMessage: string) {
-      insertMessage(sessionId, 'user', userMessage);
-      messageQueue.push(userMessage);
+    sendMessage(userMessage: string, attachments?: IPCAttachment[]) {
+      const storedAttachments = attachments?.map((att) => ({
+        type: att.type,
+        mediaType: att.mediaType,
+        name: att.name,
+        title: att.type === 'document' ? att.title : undefined,
+      }));
+      insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }));
+      messageQueue.push({ text: userMessage, attachments });
     },
 
     destroy() {
       messageQueue.done();
     },
   };
+}
+
+type UserMessagePayload = {
+  text: string;
+  attachments?: IPCAttachment[];
+};
+
+function buildContentBlocks(payload: UserMessagePayload): string | ContentBlockParam[] {
+  const { text, attachments } = payload;
+
+  if (!attachments || attachments.length === 0) {
+    return text;
+  }
+
+  const blocks: ContentBlockParam[] = [];
+
+  for (const attachment of attachments) {
+    if (attachment.type === 'image') {
+      blocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: attachment.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+          data: attachment.data,
+        },
+      });
+    } else if (attachment.type === 'document') {
+      if (attachment.mediaType === 'application/pdf') {
+        blocks.push({
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: 'application/pdf',
+            data: attachment.data,
+          },
+          title: attachment.title ?? null,
+        });
+      } else {
+        // Text-based documents: decode base64 to string
+        const textContent = Buffer.from(attachment.data, 'base64').toString('utf-8');
+        blocks.push({
+          type: 'document',
+          source: {
+            type: 'text',
+            media_type: 'text/plain',
+            data: textContent,
+          },
+          title: attachment.title ?? null,
+        });
+      }
+    }
+  }
+
+  if (text) {
+    blocks.push({ type: 'text', text });
+  }
+
+  return blocks;
 }
 
 interface MessageProcessingState {

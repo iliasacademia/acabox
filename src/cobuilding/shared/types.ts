@@ -24,8 +24,12 @@ export interface ChatMessageStream {
   next(): Promise<{ value: ChatStreamMessage | null; done: boolean }>;
 }
 
+export type IPCAttachment =
+  | { type: 'image'; data: string; mediaType: string; name?: string }
+  | { type: 'document'; data: string; mediaType: string; title?: string; name?: string };
+
 export interface ChatAPI {
-  sendMessage(threadId: string, text: string): ChatMessageStream;
+  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[]): ChatMessageStream;
 }
 
 export interface Workspace {

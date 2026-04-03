@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import { createAgentSession, type AgentSession } from './agentSession';
+import type { IPCAttachment } from '../shared/types';
 import { initDatabase, closeDatabase } from './db/database';
 import {
   listSessions,
@@ -13,12 +14,37 @@ import {
 } from './db/chatRepository';
 import {
   createWorkspace,
+  updateWorkspace,
   getActiveWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+const MAX_WORKSPACE_NAME_LENGTH = 100;
+
+function validateWorkspaceName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length === 0) {
+    throw new Error('Workspace name cannot be empty.');
+  }
+  if (trimmed.length > MAX_WORKSPACE_NAME_LENGTH) {
+    throw new Error(`Workspace name cannot exceed ${MAX_WORKSPACE_NAME_LENGTH} characters.`);
+  }
+  return trimmed;
+}
+
+function validateDirectoryPath(directoryPath: string): string {
+  const resolved = path.resolve(directoryPath);
+  const homeDir = app.getPath('home');
+
+  if (!resolved.startsWith(homeDir + path.sep) && resolved !== homeDir) {
+    throw new Error('Workspace directory must be within your home directory.');
+  }
+
+  return resolved;
+}
 
 app.setName('Academia Coscientist');
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron'));
@@ -57,21 +83,27 @@ ipcMain.handle('workspaces:getActive', () => {
 });
 
 ipcMain.handle('workspaces:getDefaultDirectory', (_event, name: string) => {
-  const safeName = name.replace(/[^a-zA-Z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || 'my-workspace';
+  const safeName = name.slice(0, MAX_WORKSPACE_NAME_LENGTH)
+    .replace(/[^a-zA-Z0-9_-]/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '') || 'my-workspace';
   return path.join(app.getPath('home'), 'Academia Coscientist', safeName);
 });
 
 ipcMain.handle(
   'workspaces:create',
   (_event, data: { name: string; directoryPath: string; apiKey: string }) => {
-    if (fs.existsSync(data.directoryPath)) {
+    const name = validateWorkspaceName(data.name);
+    const directoryPath = validateDirectoryPath(data.directoryPath);
+
+    if (fs.existsSync(directoryPath)) {
       throw new Error('Directory already exists. Please choose a path that does not exist yet.');
     }
 
-    fs.mkdirSync(data.directoryPath, { recursive: true });
+    fs.mkdirSync(directoryPath, { recursive: true });
 
     const id = randomUUID();
-    createWorkspace(id, data.name, data.directoryPath, data.apiKey);
+    createWorkspace(id, name, directoryPath, data.apiKey);
     activeWorkspace = getActiveWorkspace() ?? null;
     return activeWorkspace ?? null;
   },
@@ -85,6 +117,26 @@ ipcMain.handle('dialog:selectDirectory', async () => {
   if (result.canceled || result.filePaths.length === 0) return undefined;
   return result.filePaths[0];
 });
+
+ipcMain.handle(
+  'workspaces:update',
+  (_event, data: { name: string; directoryPath: string; apiKey: string }) => {
+    if (!activeWorkspace) {
+      throw new Error('No active workspace to update.');
+    }
+
+    const name = validateWorkspaceName(data.name);
+    const directoryPath = validateDirectoryPath(data.directoryPath);
+
+    if (directoryPath !== activeWorkspace.directory_path && !fs.existsSync(directoryPath)) {
+      fs.mkdirSync(directoryPath, { recursive: true });
+    }
+
+    updateWorkspace(activeWorkspace.id, name, directoryPath, data.apiKey);
+    activeWorkspace = getActiveWorkspace() ?? null;
+    return activeWorkspace ?? null;
+  },
+);
 
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {
@@ -102,7 +154,7 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
-ipcMain.on('chat:send', (event, { threadId, text }: { threadId: string; text: string }) => {
+ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: string; text: string; attachments?: IPCAttachment[] }) => {
   if (!activeWorkspace) {
     event.sender.send('chat:error', threadId, 'No active workspace');
     return;
@@ -132,7 +184,7 @@ ipcMain.on('chat:send', (event, { threadId, text }: { threadId: string; text: st
     });
   }
 
-  sessions.get(threadId)!.sendMessage(text);
+  sessions.get(threadId)!.sendMessage(text, attachments);
 });
 
 app.on('window-all-closed', () => {
