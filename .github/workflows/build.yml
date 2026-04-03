@@ -12,9 +12,28 @@ on:
           - major
           - minor
           - patch
+      channel:
+        description: 'Release channel (auto = default for branch)'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - stable
+          - beta
+          - cobuild
+      entry_point:
+        description: 'App entry point (auto = default for channel)'
+        required: false
+        default: 'auto'
+        type: choice
+        options:
+          - auto
+          - cobuilding
   push:
     branches:
       - main
+      - cobuild
     tags:
       - 'v*'
 
@@ -59,8 +78,12 @@ jobs:
             exit 0
           fi
 
-          # Determine channel based on branch
-          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+          # Determine channel: manual override takes precedence, then branch-based
+          if [[ "${{ inputs.channel }}" != "" && "${{ inputs.channel }}" != "auto" ]]; then
+            CHANNEL="${{ inputs.channel }}"
+          elif [[ "${{ github.ref }}" == "refs/heads/cobuild" ]]; then
+            CHANNEL="cobuild"
+          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             CHANNEL="stable"
           else
             CHANNEL="beta"
@@ -104,7 +127,7 @@ jobs:
             esac
             VERSION="${MAJOR}.${MINOR}.${PATCH}"
           else
-            # Beta: calculate what the next stable version would be
+            # Beta/Cobuild: calculate what the next stable version would be
             case "$BUMP_TYPE" in
               major) NEXT_MAJOR=$((MAJOR + 1)); NEXT_MINOR=0; NEXT_PATCH=0 ;;
               minor) NEXT_MAJOR=$MAJOR; NEXT_MINOR=$((MINOR + 1)); NEXT_PATCH=0 ;;
@@ -112,19 +135,20 @@ jobs:
             esac
             BASE_VERSION="${NEXT_MAJOR}.${NEXT_MINOR}.${NEXT_PATCH}"
 
-            # Find existing beta releases for this base version
-            echo "Checking for existing beta releases of ${BASE_VERSION}..."
-            BETA_RELEASES=$(gh release list --limit 100 --json tagName -q ".[].tagName" 2>/dev/null | grep "^${BASE_VERSION}-beta\." || echo "")
+            # Find existing releases for this base version and channel
+            SUFFIX="${CHANNEL}"
+            echo "Checking for existing ${SUFFIX} releases of ${BASE_VERSION}..."
+            EXISTING_RELEASES=$(gh release list --limit 100 --json tagName -q ".[].tagName" 2>/dev/null | grep "^${BASE_VERSION}-${SUFFIX}\." || echo "")
 
-            if [ -z "$BETA_RELEASES" ]; then
-              BETA_NUM=1
+            if [ -z "$EXISTING_RELEASES" ]; then
+              RELEASE_NUM=1
             else
-              echo "Found existing beta releases: ${BETA_RELEASES}"
-              MAX_BETA=$(echo "$BETA_RELEASES" | sed 's/.*-beta\.//' | sort -n | tail -1)
-              BETA_NUM=$((MAX_BETA + 1))
+              echo "Found existing ${SUFFIX} releases: ${EXISTING_RELEASES}"
+              MAX_NUM=$(echo "$EXISTING_RELEASES" | sed "s/.*-${SUFFIX}\.//" | sort -n | tail -1)
+              RELEASE_NUM=$((MAX_NUM + 1))
             fi
 
-            VERSION="${BASE_VERSION}-beta.${BETA_NUM}"
+            VERSION="${BASE_VERSION}-${SUFFIX}.${RELEASE_NUM}"
           fi
 
           echo "Calculated version: ${VERSION} (channel: ${CHANNEL})"
@@ -268,12 +292,27 @@ jobs:
             ARTIFACT_NAME="academia-electron-windows-${BRANCH_NAME_SHORT}-${TIMESTAMP_READABLE}"
           fi
 
+          # Determine ENTRY_POINT: explicit input > channel-based default
+          if [[ "${{ inputs.entry_point }}" == "cobuilding" ]]; then
+            ENTRY_POINT="cobuilding"
+          elif [[ "${{ inputs.entry_point }}" == "auto" || -z "${{ inputs.entry_point }}" ]]; then
+            # Auto: cobuild channel implies cobuilding entry point
+            if [[ "$CHANNEL" == "cobuild" ]]; then
+              ENTRY_POINT="cobuilding"
+            else
+              ENTRY_POINT=""
+            fi
+          else
+            ENTRY_POINT=""
+          fi
+
           # Output for use in subsequent steps
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "name=${ARTIFACT_NAME}" >> $GITHUB_OUTPUT
           echo "channel=${CHANNEL}" >> $GITHUB_OUTPUT
           echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
           echo "arch=${{ matrix.arch }}" >> $GITHUB_OUTPUT
+          echo "entry_point=${ENTRY_POINT}" >> $GITHUB_OUTPUT
 
       - name: Package application
         run: npm run make
@@ -286,6 +325,7 @@ jobs:
           DATADOG_APPLICATION_ID: ${{ vars.DATADOG_APPLICATION_ID }}
           DATADOG_CLIENT_TOKEN: ${{ vars.DATADOG_CLIENT_TOKEN }}
           DATADOG_SITE: ${{ vars.DATADOG_SITE }}
+          ENTRY_POINT: ${{ steps.artifact-name.outputs.entry_point }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -460,8 +500,33 @@ jobs:
             rm certificate.pfx
           fi
 
+      - name: Create Pre-Release (Cobuild)
+        if: steps.artifact-name.outputs.channel == 'cobuild'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            out/make/**/*.dmg
+            out/make/**/*.zip
+            out/make/**/*.exe
+            out/make/**/*.nupkg
+            out/make/**/RELEASES
+          tag_name: ${{ steps.artifact-name.outputs.version }}
+          name: "Cobuild v${{ steps.artifact-name.outputs.version }}"
+          body: |
+            Cobuild release from branch `${{ github.ref_name }}`
+
+            **Build Information:**
+            - Version: ${{ steps.artifact-name.outputs.version }}
+            - Channel: cobuild
+            - Branch: ${{ github.ref_name }}
+            - Commit: ${{ github.sha }}
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Create Pre-Release (Feature Branches)
-        if: "!startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/heads/main' && github.event_name == 'workflow_dispatch'"
+        if: "!startsWith(github.ref, 'refs/tags/v') && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/cobuild' && github.event_name == 'workflow_dispatch'"
         uses: softprops/action-gh-release@v1
         with:
           files: |

@@ -198,6 +198,14 @@ module.exports = {
                 js: './src/cobuilding/main/preload.ts',
               },
             },
+            {
+              html: './src/cobuilding/renderer/update.html',
+              js: './src/cobuilding/renderer/update.tsx',
+              name: 'cobuild_update_window',
+              preload: {
+                js: './src/cobuilding/main/preload.ts',
+              },
+            },
           ],
         },
       },
