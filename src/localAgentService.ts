@@ -271,6 +271,7 @@ export class LocalAgentService {
   private mainWindow: BrowserWindow | null = null;
   private httpPort: number = 23111;
   private authToken: string = '';
+  private manuscriptPaths: Map<number, string> = new Map();
 
   setMainWindow(window: BrowserWindow) {
     this.mainWindow = window;
@@ -284,7 +285,7 @@ export class LocalAgentService {
     this.authToken = token;
   }
 
-  async createConversation(content: string, userId: number): Promise<{ conversation: any }> {
+  async createConversation(content: string, userId: number, manuscriptFilePath?: string): Promise<{ conversation: any }> {
     const db = getLocalConversationDb();
     const now = new Date().toISOString();
 
@@ -299,6 +300,10 @@ export class LocalAgentService {
       userId,        // user_id
     );
     const conversationId = Number(result.lastInsertRowid);
+
+    if (manuscriptFilePath) {
+      this.manuscriptPaths.set(conversationId, manuscriptFilePath);
+    }
 
     // Run agent loop async — sends stream updates
     this.runAgentLoop(conversationId, content, userId);
@@ -326,6 +331,13 @@ export class LocalAgentService {
       return;
     }
 
+    // Build dynamic system prompt with manuscript path if available
+    const manuscriptFilePath = this.manuscriptPaths.get(conversationId);
+    let systemPrompt = SYSTEM_PROMPT;
+    if (manuscriptFilePath) {
+      systemPrompt += `\n\nThe user is working on a specific document located at: ${manuscriptFilePath}\nAt the start of the conversation, use the ms_word_open_document tool to open this document before responding to the user's request. This ensures all subsequent tool calls operate on the correct document.`;
+    }
+
     logger.info(`[LocalAgent] Starting agent loop for conversation ${conversationId}, model: ${model}`);
 
     // Set bearer token for Bedrock API key auth
@@ -342,7 +354,7 @@ export class LocalAgentService {
     try {
       // 3. Call Bedrock via InvokeModel (Anthropic Messages API format)
       logger.debug(`[LocalAgent] Sending initial request to Bedrock (${messages.length} messages)`);
-      let response = await this.invokeModel(client, model, messages);
+      let response = await this.invokeModel(client, model, messages, { system: systemPrompt });
       logger.debug(`[LocalAgent] Received response, stop_reason: ${response.stop_reason}`);
 
       // 4. Agentic loop — keep calling tools until stop_reason is not tool_use
@@ -403,7 +415,7 @@ export class LocalAgentService {
         // Rebuild messages and call API again
         const updatedMessages = this.buildAnthropicMessages(conversationId);
         logger.debug(`[LocalAgent] Continuing agent loop (${updatedMessages.length} messages)`);
-        response = await this.invokeModel(client, model, updatedMessages);
+        response = await this.invokeModel(client, model, updatedMessages, { system: systemPrompt });
         logger.debug(`[LocalAgent] Received response, stop_reason: ${response.stop_reason}`);
       }
 

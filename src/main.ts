@@ -1248,9 +1248,9 @@ ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_GET_CONVERSATION, (_, conversationId: nu
   };
 });
 
-ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_CREATE_CONVERSATION, async (_, data: { content: string; agent_name: string; title?: string }) => {
+ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_CREATE_CONVERSATION, async (_, data: { content: string; agent_name: string; title?: string; manuscript_file_path?: string }) => {
   const userId = notificationManager.getCurrentUserId() || 0;
-  const result = await localAgentService.createConversation(data.content, userId);
+  const result = await localAgentService.createConversation(data.content, userId, data.manuscript_file_path);
   return { conversation: result.conversation };
 });
 

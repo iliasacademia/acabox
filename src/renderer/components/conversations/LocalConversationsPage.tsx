@@ -7,9 +7,10 @@ import '../../../../packages/shared-conversations/src/styles/conversations.css';
 
 interface LocalConversationsPageProps {
   onSwitchToRegularMode: () => void;
+  manuscriptFilePath?: string | null;
 }
 
-export function LocalConversationsPage({ onSwitchToRegularMode }: LocalConversationsPageProps) {
+export function LocalConversationsPage({ onSwitchToRegularMode, manuscriptFilePath }: LocalConversationsPageProps) {
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
@@ -77,7 +78,7 @@ export function LocalConversationsPage({ onSwitchToRegularMode }: LocalConversat
         // First message — create conversation
         const result = await window.electronAPI.invoke(
           IPC_CHANNELS.LOCAL_AGENT_CREATE_CONVERSATION,
-          { content, agent_name: 'local' }
+          { content, agent_name: 'local', manuscript_file_path: manuscriptFilePath || undefined }
         );
         const newId = result.conversation.id;
         setConversationId(newId);
@@ -113,7 +114,7 @@ export function LocalConversationsPage({ onSwitchToRegularMode }: LocalConversat
     } finally {
       setIsSending(false);
     }
-  }, [inputValue, isSending]);
+  }, [inputValue, isSending, manuscriptFilePath]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -152,7 +153,7 @@ export function LocalConversationsPage({ onSwitchToRegularMode }: LocalConversat
       <div className="conversationsTopBar">
         <div className="topBarLeft">
           <h2 className="docName">
-            <span className="docNameText">Local Mode</span>
+            <span className="docNameText">Local Mode{manuscriptFilePath ? ` — ${manuscriptFilePath.split('/').pop()}` : ''}</span>
           </h2>
         </div>
         <div className="topBarRight">
