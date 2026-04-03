@@ -18,6 +18,8 @@ import {
   getActiveWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
+import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
+import { createTray, rebuildTrayMenu } from './tray';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -69,6 +71,10 @@ app.whenReady().then(() => {
       contextIsolation: true,
     },
   });
+
+  setupUpdaterIpcHandlers();
+  setupUpdater(rebuildTrayMenu);
+  createTray();
 
   mainWindow.loadURL(COBUILDING_WINDOW_WEBPACK_ENTRY);
 
