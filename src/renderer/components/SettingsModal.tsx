@@ -48,8 +48,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const [firewallStatus, setFirewallStatus] = useState<string | null>(null);
 
   // Local Agent state
-  const [anthropicApiKey, setAnthropicApiKey] = useState('');
-  const [localAgentModel, setLocalAgentModel] = useState('claude-sonnet-4-6');
+  const [bedrockApiKey, setBedrockApiKey] = useState('');
+  const [localAgentModel, setLocalAgentModel] = useState('us.anthropic.claude-sonnet-4-6-20250514-v1:0');
 
   // Manuscript refresh state
   const [isRefreshingManuscripts, setIsRefreshingManuscripts] = useState(false);
@@ -72,8 +72,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_SKIP_CHECKSUM).then((v: boolean) => setSkipChecksum(v));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_TRUSTED_DOMAINS).then((d: string[]) => setTrustedDomains(d || []));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_ALLOW_ALL_TRAFFIC).then((v: boolean) => setAllowAllTraffic(v));
-      window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_GET_API_KEY).then((v: string) => setAnthropicApiKey(v || ''));
-      window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_GET_MODEL).then((v: string) => setLocalAgentModel(v || 'claude-sonnet-4-6'));
+      window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_GET_API_KEY).then((v: string) => setBedrockApiKey(v || ''));
+      window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_GET_MODEL).then((v: string) => setLocalAgentModel(v || 'us.anthropic.claude-sonnet-4-6-20250514-v1:0'));
     } else {
       // Stop polling when modal closes
       stopPolling();
@@ -151,13 +151,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   };
 
   const saveApiKey = async () => {
-    await window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_SET_API_KEY, anthropicApiKey);
+    await window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_SET_API_KEY, bedrockApiKey);
   };
 
-  const handleModelChange = async (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const model = e.target.value;
-    setLocalAgentModel(model);
-    await window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_SET_MODEL, model);
+  const saveModel = async () => {
+    await window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_SET_MODEL, localAgentModel);
   };
 
   const handleRefreshManuscriptData = async () => {
@@ -435,17 +433,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
               <div className="settingsSection">
                 <div className="settingItem">
                   <div className="settingContent">
-                    <div className="settingLabel">Anthropic API Key</div>
+                    <div className="settingLabel">Bedrock API Key</div>
                     <div className="settingDescription">
-                      Required for local conversations. Get your key from console.anthropic.com
+                      Required for local conversations. Enter your Bedrock API key.
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <input
                       type="password"
-                      value={anthropicApiKey}
-                      onChange={(e) => setAnthropicApiKey(e.target.value)}
-                      placeholder="sk-ant-..."
+                      value={bedrockApiKey}
+                      onChange={(e) => setBedrockApiKey(e.target.value)}
+                      placeholder="bedrock-api-key-..."
                       style={{
                         padding: '6px 10px',
                         borderRadius: '4px',
@@ -469,20 +467,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
                       Claude model to use for local conversations
                     </div>
                   </div>
-                  <select
-                    value={localAgentModel}
-                    onChange={handleModelChange}
-                    style={{
-                      padding: '6px 10px',
-                      borderRadius: '4px',
-                      border: '1px solid var(--border-color, #ccc)',
-                      fontSize: '13px',
-                    }}
-                  >
-                    <option value="claude-sonnet-4-6">Claude Sonnet 4</option>
-                    <option value="claude-opus-4-6">Claude Opus 4</option>
-                    <option value="claude-haiku-4-5">Claude Haiku 4.5</option>
-                  </select>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input
+                      type="text"
+                      value={localAgentModel}
+                      onChange={(e) => setLocalAgentModel(e.target.value)}
+                      placeholder="us.anthropic.claude-sonnet-4-6-20250514-v1:0"
+                      style={{
+                        padding: '6px 10px',
+                        borderRadius: '4px',
+                        border: '1px solid var(--border-color, #ccc)',
+                        fontSize: '13px',
+                        width: '220px',
+                      }}
+                    />
+                    <button
+                      className="zoteroButton zoteroButtonConnect"
+                      onClick={saveModel}
+                    >
+                      Save
+                    </button>
+                  </div>
                 </div>
               </div>
 

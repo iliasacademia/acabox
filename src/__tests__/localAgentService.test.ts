@@ -22,16 +22,27 @@ jest.mock('../localConversationDb', () => ({
   getLocalConversationDb: () => testDb,
 }));
 
-// Mock @anthropic-ai/sdk
-const mockCreate = jest.fn();
-jest.mock('@anthropic-ai/sdk', () => {
-  return jest.fn().mockImplementation(() => ({
-    messages: { create: mockCreate },
-  }));
-});
+// Mock logger
+jest.mock('../utils/logger', () => ({
+  defaultLogger: { info: jest.fn(), debug: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}));
+
+// Mock @aws-sdk/client-bedrock-runtime
+const mockSend = jest.fn();
+jest.mock('@aws-sdk/client-bedrock-runtime', () => ({
+  BedrockRuntimeClient: jest.fn().mockImplementation(() => ({
+    send: mockSend,
+  })),
+  InvokeModelCommand: jest.fn().mockImplementation((input: any) => input),
+}));
 
 import { LocalAgentService } from '../localAgentService';
 import { store } from '../appStore';
+
+// Helper to wrap response in InvokeModel format (Uint8Array body)
+const bedrockResponse = (data: any) => ({
+  body: Buffer.from(JSON.stringify(data)),
+});
 
 describe('LocalAgentService', () => {
   let service: LocalAgentService;
@@ -51,7 +62,7 @@ describe('LocalAgentService', () => {
     service.setHttpPort(23111);
     service.setAuthToken('test-token');
 
-    mockCreate.mockReset();
+    mockSend.mockReset();
     (store.get as jest.Mock).mockReset();
   });
 
@@ -62,15 +73,15 @@ describe('LocalAgentService', () => {
   describe('createConversation', () => {
     it('creates a conversation and returns it', async () => {
       (store.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'anthropicApiKey') return 'test-api-key';
-        if (key === 'localAgentModel') return 'claude-sonnet-4-6';
+        if (key === 'bedrockApiKey') return 'test-api-key';
+        if (key === 'localAgentModel') return 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
         return undefined;
       });
 
-      mockCreate.mockResolvedValue({
+      mockSend.mockResolvedValue(bedrockResponse({
         stop_reason: 'end_turn',
         content: [{ type: 'text', text: 'Hello! How can I help?' }],
-      });
+      }));
 
       const result = await service.createConversation('Hi there', 1);
 
@@ -84,15 +95,15 @@ describe('LocalAgentService', () => {
   describe('runAgentLoop', () => {
     it('handles single-turn conversation without tool use', async () => {
       (store.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'anthropicApiKey') return 'test-api-key';
-        if (key === 'localAgentModel') return 'claude-sonnet-4-6';
+        if (key === 'bedrockApiKey') return 'test-api-key';
+        if (key === 'localAgentModel') return 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
         return undefined;
       });
 
-      mockCreate.mockResolvedValue({
+      mockSend.mockResolvedValue(bedrockResponse({
         stop_reason: 'end_turn',
         content: [{ type: 'text', text: 'Hello! How can I help you?' }],
-      });
+      }));
 
       await service.createConversation('Hello', 1);
 
@@ -117,14 +128,14 @@ describe('LocalAgentService', () => {
 
     it('handles tool-use loop', async () => {
       (store.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'anthropicApiKey') return 'test-api-key';
-        if (key === 'localAgentModel') return 'claude-sonnet-4-6';
+        if (key === 'bedrockApiKey') return 'test-api-key';
+        if (key === 'localAgentModel') return 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
         return undefined;
       });
 
       // First call: tool_use
-      mockCreate
-        .mockResolvedValueOnce({
+      mockSend
+        .mockResolvedValueOnce(bedrockResponse({
           stop_reason: 'tool_use',
           content: [
             { type: 'text', text: 'Let me get the document text.' },
@@ -135,12 +146,12 @@ describe('LocalAgentService', () => {
               input: {},
             },
           ],
-        })
+        }))
         // Second call: final response
-        .mockResolvedValueOnce({
+        .mockResolvedValueOnce(bedrockResponse({
           stop_reason: 'end_turn',
           content: [{ type: 'text', text: 'The document contains your essay.' }],
-        });
+        }));
 
       // Mock the HTTP fetch for tool execution
       const originalFetch = global.fetch;
@@ -165,7 +176,7 @@ describe('LocalAgentService', () => {
         expect(messages[3].content).toBe('The document contains your essay.');
 
         // Verify API was called twice
-        expect(mockCreate).toHaveBeenCalledTimes(2);
+        expect(mockSend).toHaveBeenCalledTimes(2);
       } finally {
         global.fetch = originalFetch;
       }
@@ -173,7 +184,7 @@ describe('LocalAgentService', () => {
 
     it('sends error when API key is missing', async () => {
       (store.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'anthropicApiKey') return '';
+        if (key === 'bedrockApiKey') return '';
         return undefined;
       });
 
@@ -182,19 +193,19 @@ describe('LocalAgentService', () => {
 
       const sendCalls = mockWindow.webContents.send.mock.calls;
       const errorUpdate = sendCalls.find(
-        (call: any[]) => call[1]?.content?.includes('No Anthropic API key'),
+        (call: any[]) => call[1]?.content?.includes('No Bedrock API key'),
       );
       expect(errorUpdate).toBeDefined();
     });
 
     it('handles API error gracefully', async () => {
       (store.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'anthropicApiKey') return 'test-api-key';
-        if (key === 'localAgentModel') return 'claude-sonnet-4-6';
+        if (key === 'bedrockApiKey') return 'test-api-key';
+        if (key === 'localAgentModel') return 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
         return undefined;
       });
 
-      mockCreate.mockRejectedValue(new Error('API rate limit exceeded'));
+      mockSend.mockRejectedValue(new Error('API rate limit exceeded'));
 
       await service.createConversation('Hello', 1);
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -217,15 +228,15 @@ describe('LocalAgentService', () => {
   describe('sendMessage', () => {
     it('adds message to existing conversation', async () => {
       (store.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'anthropicApiKey') return 'test-api-key';
-        if (key === 'localAgentModel') return 'claude-sonnet-4-6';
+        if (key === 'bedrockApiKey') return 'test-api-key';
+        if (key === 'localAgentModel') return 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
         return undefined;
       });
 
-      mockCreate.mockResolvedValue({
+      mockSend.mockResolvedValue(bedrockResponse({
         stop_reason: 'end_turn',
         content: [{ type: 'text', text: 'Response' }],
-      });
+      }));
 
       // Create a conversation first
       const now = new Date().toISOString();
@@ -246,15 +257,15 @@ describe('LocalAgentService', () => {
   describe('message storage schema', () => {
     it('stores messages with correct fields', async () => {
       (store.get as jest.Mock).mockImplementation((key: string) => {
-        if (key === 'anthropicApiKey') return 'test-api-key';
-        if (key === 'localAgentModel') return 'claude-sonnet-4-6';
+        if (key === 'bedrockApiKey') return 'test-api-key';
+        if (key === 'localAgentModel') return 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
         return undefined;
       });
 
-      mockCreate.mockResolvedValue({
+      mockSend.mockResolvedValue(bedrockResponse({
         stop_reason: 'end_turn',
         content: [{ type: 'text', text: 'Test response' }],
-      });
+      }));
 
       await service.createConversation('Test input', 1);
       await new Promise(resolve => setTimeout(resolve, 50));

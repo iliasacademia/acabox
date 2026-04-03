@@ -1192,15 +1192,15 @@ ipcMain.handle(IPC_CHANNELS.SET_ALL_APPS_MONITOR_ENABLED, async (_event, enabled
 
 // Local Agent settings
 ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_GET_API_KEY, () => {
-  return store.get('anthropicApiKey', '');
+  return store.get('bedrockApiKey', '');
 });
 
 ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_SET_API_KEY, (_, key: string) => {
-  store.set('anthropicApiKey', key);
+  store.set('bedrockApiKey', key);
 });
 
 ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_GET_MODEL, () => {
-  return store.get('localAgentModel', 'claude-sonnet-4-6');
+  return store.get('localAgentModel', 'us.anthropic.claude-sonnet-4-6-20250514-v1:0');
 });
 
 ipcMain.handle(IPC_CHANNELS.LOCAL_AGENT_SET_MODEL, (_, model: string) => {

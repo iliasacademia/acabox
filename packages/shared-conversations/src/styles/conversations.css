@@ -47,6 +47,14 @@
     overflow: hidden;
 }
 
+.localConversationBody {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    padding: 0 24px;
+}
+
 .conversationsPage.empty {
     display: flex;
     align-items: center;

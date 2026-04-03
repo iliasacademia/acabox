@@ -77,6 +77,13 @@ export interface ConversationsPageProps {
   // Whether to run pre-review checks (unsaved changes, duplicate window names).
   // Only set to true in the Electron desktop app, not on web.
   shouldPrecheck?: boolean;
+
+  // Optional intercept for the "New" button — allows the wrapper to show a dropdown
+  // before creating a draft. Receives a createDraft callback that accepts an agent name.
+  onNewConversationIntercept?: (createDraft: (agentName: string) => void) => void;
+
+  // Optional callback to switch to local conversation mode
+  onSwitchToLocalMode?: () => void;
 }
 
 export function ConversationsPage({
@@ -106,6 +113,8 @@ export function ConversationsPage({
   onRegisterReviewStateUpdates,
   initialView,
   shouldPrecheck = false,
+  onNewConversationIntercept,
+  onSwitchToLocalMode,
 }: ConversationsPageProps) {
   // Selected view type: conversation or supporting-materials
   const [selectedView, setSelectedView] = useState<'conversation' | 'supporting-materials'>(initialView ?? 'conversation');
@@ -655,6 +664,24 @@ export function ConversationsPage({
   };
 
   const handleNewConversation = () => {
+    if (onNewConversationIntercept) {
+      onNewConversationIntercept((agentName: string) => {
+        const draft: DraftConversation = {
+          id: -1,
+          agent_name: agentName,
+          title: "New Conversation",
+          summary: null,
+          created_at: '',
+          updated_at: '',
+          parent_id: selectedProject?.id || null,
+          parent_type: selectedProject ? "Project" : null,
+          isDraft: true,
+        };
+        setDraftConversation(draft);
+        setSelectedConversation(draft);
+      });
+      return;
+    }
     const draft: DraftConversation = {
       id: -1,
       agent_name: "co_scientist",
@@ -1062,6 +1089,11 @@ export function ConversationsPage({
           ) : null}
         </div>
         <div className="topBarRight">
+          {onSwitchToLocalMode && (
+            <button className="secondaryButton" onClick={onSwitchToLocalMode}>
+              Switch to local mode
+            </button>
+          )}
           {manuscriptFile && (
             <>
               {/* Switch Manuscript Button */}

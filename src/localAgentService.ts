@@ -1,13 +1,22 @@
-import Anthropic from '@anthropic-ai/sdk';
+import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { getLocalConversationDb } from './localConversationDb';
 import { store } from './appStore';
 import { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from './shared/types';
+import { defaultLogger as logger } from './utils/logger';
 
 const SYSTEM_PROMPT = `You are a helpful writing assistant. You can read and edit Microsoft Word documents using the available tools. When the user asks you to make changes to their document, use the tools to read the current content, make edits, and verify your changes.`;
 
+// Types matching Anthropic Messages API format (used by InvokeModelCommand body)
+interface TextBlock { type: 'text'; text: string }
+interface ToolUseBlock { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+interface ToolResultBlock { type: 'tool_result'; tool_use_id: string; content: string }
+type ContentBlock = TextBlock | ToolUseBlock;
+interface MessageParam { role: 'user' | 'assistant'; content: string | ContentBlock[] | ToolResultBlock[] }
+interface ToolDef { name: string; description: string; input_schema: Record<string, unknown> }
+
 // Tool definitions extracted from mcp/ms-word-mcp-server.js, converted to Anthropic API format
-const MS_WORD_TOOLS: Anthropic.Tool[] = [
+const MS_WORD_TOOLS: ToolDef[] = [
   {
     name: 'ms_word_open_document',
     description:
@@ -304,19 +313,24 @@ export class LocalAgentService {
 
   private async runAgentLoop(conversationId: number, userContent: string, userId: number) {
     const db = getLocalConversationDb();
-    const apiKey = store.get('anthropicApiKey') as string;
-    const model = (store.get('localAgentModel') as string) || 'claude-sonnet-4-6';
+    const apiKey = store.get('bedrockApiKey') as string;
+    const model = (store.get('localAgentModel') as string) || 'us.anthropic.claude-sonnet-4-6-20250514-v1:0';
 
     if (!apiKey) {
+      logger.warn('[LocalAgent] No Bedrock API key configured');
       this.sendStreamUpdate(conversationId, {
         role: 'assistant',
-        content: 'Error: No Anthropic API key configured. Please set your API key in Settings.',
+        content: 'Error: No Bedrock API key configured. Please set your API key in Settings.',
         is_final: true,
       });
       return;
     }
 
-    const client = new Anthropic({ apiKey });
+    logger.info(`[LocalAgent] Starting agent loop for conversation ${conversationId}, model: ${model}`);
+
+    // Set bearer token for Bedrock API key auth
+    process.env.AWS_BEARER_TOKEN_BEDROCK = apiKey;
+    const client = new BedrockRuntimeClient({ region: 'us-east-1' });
     const now = new Date().toISOString();
 
     // 1. Insert user message
@@ -326,23 +340,19 @@ export class LocalAgentService {
     const messages = this.buildAnthropicMessages(conversationId);
 
     try {
-      // 3. Call Anthropic API
-      let response = await client.messages.create({
-        model,
-        max_tokens: 4096,
-        system: SYSTEM_PROMPT,
-        tools: MS_WORD_TOOLS,
-        messages,
-      });
+      // 3. Call Bedrock via InvokeModel (Anthropic Messages API format)
+      logger.debug(`[LocalAgent] Sending initial request to Bedrock (${messages.length} messages)`);
+      let response = await this.invokeModel(client, model, messages);
+      logger.debug(`[LocalAgent] Received response, stop_reason: ${response.stop_reason}`);
 
       // 4. Agentic loop — keep calling tools until stop_reason is not tool_use
       while (response.stop_reason === 'tool_use') {
         const assistantNow = new Date().toISOString();
 
         // Store assistant message with tool_use blocks
-        const assistantContent = response.content;
+        const assistantContent = response.content as ContentBlock[];
         const textParts = assistantContent
-          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+          .filter((b): b is TextBlock => b.type === 'text')
           .map(b => b.text)
           .join('\n');
         db.insertMessage.run(
@@ -360,6 +370,7 @@ export class LocalAgentService {
         // Execute each tool and store results
         for (const block of assistantContent) {
           if (block.type === 'tool_use') {
+            logger.debug(`[LocalAgent] Executing tool: ${block.name} (id: ${block.id})`);
             let resultText: string;
             try {
               resultText = await executeTool(
@@ -368,8 +379,10 @@ export class LocalAgentService {
                 this.httpPort,
                 this.authToken,
               );
+              logger.debug(`[LocalAgent] Tool ${block.name} succeeded (${resultText.length} chars)`);
             } catch (err) {
               resultText = `Error: ${err instanceof Error ? err.message : String(err)}`;
+              logger.error(`[LocalAgent] Tool ${block.name} failed: ${resultText}`);
             }
 
             const toolNow = new Date().toISOString();
@@ -389,23 +402,20 @@ export class LocalAgentService {
 
         // Rebuild messages and call API again
         const updatedMessages = this.buildAnthropicMessages(conversationId);
-        response = await client.messages.create({
-          model,
-          max_tokens: 4096,
-          system: SYSTEM_PROMPT,
-          tools: MS_WORD_TOOLS,
-          messages: updatedMessages,
-        });
+        logger.debug(`[LocalAgent] Continuing agent loop (${updatedMessages.length} messages)`);
+        response = await this.invokeModel(client, model, updatedMessages);
+        logger.debug(`[LocalAgent] Received response, stop_reason: ${response.stop_reason}`);
       }
 
       // 5. Store final assistant response
-      const finalText = response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+      const finalText = (response.content as ContentBlock[])
+        .filter((b): b is TextBlock => b.type === 'text')
         .map(b => b.text)
         .join('\n');
       const finalNow = new Date().toISOString();
       db.insertMessage.run(finalText, null, 'markdown', 'assistant', finalNow, finalNow, conversationId, null);
       this.sendStreamUpdate(conversationId, { role: 'assistant', is_final: true });
+      logger.info(`[LocalAgent] Agent loop completed for conversation ${conversationId} (${finalText.length} chars)`);
 
       // 6. Generate title after first exchange
       const messageCount = (db.getMessages.all(conversationId) as any[]).length;
@@ -415,15 +425,39 @@ export class LocalAgentService {
     } catch (err) {
       const errorNow = new Date().toISOString();
       const errorMsg = `Error: ${err instanceof Error ? err.message : String(err)}`;
+      logger.error(`[LocalAgent] Agent loop failed for conversation ${conversationId}: ${errorMsg}`);
       db.insertMessage.run(errorMsg, null, null, 'assistant', errorNow, errorNow, conversationId, null);
       this.sendStreamUpdate(conversationId, { role: 'assistant', is_final: true });
     }
   }
 
-  private buildAnthropicMessages(conversationId: number): Anthropic.MessageParam[] {
+  private async invokeModel(client: BedrockRuntimeClient, modelId: string, messages: MessageParam[], options?: { max_tokens?: number; system?: string; tools?: ToolDef[] }) {
+    const body = {
+      anthropic_version: 'bedrock-2023-05-31',
+      max_tokens: options?.max_tokens ?? 4096,
+      system: options?.system ?? SYSTEM_PROMPT,
+      messages,
+      ...(options?.tools !== undefined ? { tools: options.tools } : { tools: MS_WORD_TOOLS }),
+    };
+
+    const command = new InvokeModelCommand({
+      modelId,
+      body: Buffer.from(JSON.stringify(body)),
+      contentType: 'application/json',
+      accept: 'application/json',
+    });
+
+    logger.debug(`[LocalAgent] InvokeModel request to ${modelId}`);
+    const result = await client.send(command);
+    const parsed = JSON.parse(Buffer.from(result.body!).toString('utf-8'));
+    logger.debug(`[LocalAgent] InvokeModel response: stop_reason=${parsed.stop_reason}, usage=${JSON.stringify(parsed.usage)}`);
+    return parsed;
+  }
+
+  private buildAnthropicMessages(conversationId: number): MessageParam[] {
     const db = getLocalConversationDb();
     const dbMessages = db.getMessages.all(conversationId) as any[];
-    const anthropicMessages: Anthropic.MessageParam[] = [];
+    const anthropicMessages: MessageParam[] = [];
 
     for (const msg of dbMessages) {
       if (msg.role === 'user') {
@@ -454,32 +488,29 @@ export class LocalAgentService {
   }
 
   private async generateTitle(
-    client: Anthropic,
+    client: BedrockRuntimeClient,
     model: string,
     conversationId: number,
     userMessage: string,
     assistantResponse: string,
   ) {
     try {
-      const titleResponse = await client.messages.create({
-        model,
-        max_tokens: 50,
-        messages: [
-          {
-            role: 'user',
-            content: `Generate a short title (max 6 words) for a conversation that starts with this exchange:\nUser: ${userMessage}\nAssistant: ${assistantResponse}\n\nRespond with only the title, no quotes.`,
-          },
-        ],
-      });
+      const titleResponse = await this.invokeModel(client, model, [
+        {
+          role: 'user',
+          content: `Generate a short title (max 6 words) for a conversation that starts with this exchange:\nUser: ${userMessage}\nAssistant: ${assistantResponse}\n\nRespond with only the title, no quotes.`,
+        },
+      ], { max_tokens: 50, system: SYSTEM_PROMPT, tools: [] });
       const title =
         titleResponse.content[0].type === 'text'
           ? titleResponse.content[0].text.trim()
           : 'New Conversation';
+      logger.debug(`[LocalAgent] Generated title for conversation ${conversationId}: "${title}"`);
       const db = getLocalConversationDb();
       db.updateConversationTitle.run(title, new Date().toISOString(), conversationId);
       this.sendStreamUpdate(conversationId, { titleUpdated: title, is_final: false });
-    } catch {
-      // Title generation is best-effort
+    } catch (err) {
+      logger.warn(`[LocalAgent] Title generation failed for conversation ${conversationId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
