@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
+import log from 'electron-log';
 import { createAgentSession, type AgentSession } from './agentSession';
 import type { IPCAttachment } from '../shared/types';
 import { initDatabase, closeDatabase } from './db/database';
@@ -23,6 +24,21 @@ import { createTray, rebuildTrayMenu } from './tray';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+// Configure electron-log for cobuilding
+log.transports.file.fileName = app.isPackaged ? 'cobuilding-cobuild.log' : 'cobuilding-dev.log';
+log.transports.file.level = 'debug';
+log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB
+log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
+log.transports.console.level = app.isPackaged ? false : 'debug';
+
+process.on('uncaughtException', (error) => {
+  log.error('[FATAL] Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  log.error('[FATAL] Unhandled rejection:', reason);
+});
 
 const MAX_WORKSPACE_NAME_LENGTH = 100;
 
@@ -57,30 +73,62 @@ let activeWorkspace: Workspace | null = null;
 const sessions = new Map<string, AgentSession>();
 
 app.whenReady().then(() => {
-  initDatabase(app.getPath('userData'));
-  activeWorkspace = getActiveWorkspace() ?? null;
+  log.info('[APP] App ready. Version:', app.getVersion(), 'Packaged:', app.isPackaged);
+  log.info('[APP] userData path:', app.getPath('userData'));
 
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    title: 'Academia Coscientist',
-    show: false,
-    webPreferences: {
-      preload: COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY,
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
-  });
+  try {
+    log.info('[APP] Initializing database...');
+    initDatabase(app.getPath('userData'));
+    log.info('[APP] Database initialized.');
 
-  setupUpdaterIpcHandlers();
-  setupUpdater(rebuildTrayMenu);
-  createTray();
+    log.info('[APP] Loading active workspace...');
+    activeWorkspace = getActiveWorkspace() ?? null;
+    log.info('[APP] Active workspace:', activeWorkspace ? activeWorkspace.name : 'none');
 
-  mainWindow.loadURL(COBUILDING_WINDOW_WEBPACK_ENTRY);
+    log.info('[APP] Creating main window...');
+    mainWindow = new BrowserWindow({
+      width: 1440,
+      height: 900,
+      title: 'Academia Coscientist',
+      show: false,
+      webPreferences: {
+        preload: COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY,
+        nodeIntegration: false,
+        contextIsolation: true,
+      },
+    });
+    log.info('[APP] Main window created.');
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
-  });
+    setupUpdaterIpcHandlers();
+    setupUpdater(rebuildTrayMenu);
+    createTray();
+    log.info('[APP] Updater and tray initialized.');
+
+    const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
+    log.info('[APP] Loading URL:', url);
+    mainWindow.loadURL(url);
+
+    mainWindow.once('ready-to-show', () => {
+      log.info('[APP] Window ready-to-show, calling show().');
+      mainWindow?.show();
+    });
+
+    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+      log.error('[APP] Window failed to load:', errorCode, errorDescription);
+    });
+
+    mainWindow.webContents.on('did-finish-load', () => {
+      log.info('[APP] Window did-finish-load.');
+    });
+  } catch (error) {
+    log.error('[APP] Fatal error during startup:', error);
+    dialog.showErrorBox(
+      'Academia Coscientist - Startup Error',
+      `The application failed to start.\n\n${error instanceof Error ? error.message : String(error)}\n\nCheck the log file for details:\n${log.transports.file.getFile().path}`,
+    );
+  }
+}).catch((error) => {
+  log.error('[APP] app.whenReady() rejected:', error);
 });
 
 // Workspace IPC handlers
