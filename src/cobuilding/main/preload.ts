@@ -1,5 +1,15 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
+contextBridge.exposeInMainWorld('electronAPI', {
+  on: (channel: string, callback: (...args: any[]) => void) => {
+    ipcRenderer.on(channel, callback);
+  },
+  removeListener: (channel: string, callback: (...args: any[]) => void) => {
+    ipcRenderer.removeListener(channel, callback);
+  },
+  invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
+});
+
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
   getDefaultDirectory: (name: string) => ipcRenderer.invoke('workspaces:getDefaultDirectory', name),

@@ -9,12 +9,15 @@ declare const COBUILD_UPDATE_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 let updateWindow: BrowserWindow | null = null;
 let updaterConfigured = false;
 let isManualCheck = false;
+let pendingUpdateVersion: string | null = null;
 
 function createUpdateWindow(version: string) {
   if (updateWindow) {
     updateWindow.focus();
     return;
   }
+
+  pendingUpdateVersion = version;
 
   updateWindow = new BrowserWindow({
     width: 400,
@@ -35,11 +38,11 @@ function createUpdateWindow(version: string) {
 
   updateWindow.once('ready-to-show', () => {
     updateWindow?.show();
-    updateWindow?.webContents.send('cobuild:update-init', { version });
   });
 
   updateWindow.on('closed', () => {
     updateWindow = null;
+    pendingUpdateVersion = null;
   });
 }
 
@@ -126,6 +129,10 @@ export function setupUpdaterIpcHandlers() {
       }
     }
     return null;
+  });
+
+  ipcMain.handle('cobuild:get-update-version', () => {
+    return pendingUpdateVersion;
   });
 
   ipcMain.handle('cobuild:cancel-update', () => {
