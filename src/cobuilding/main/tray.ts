@@ -100,7 +100,7 @@ export function createTray() {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip('Cobuilding');
+  tray.setToolTip('Cobuilding (updater test)');
   log.info('[TRAY] Tray created.');
 
   // Use click handlers instead of setContextMenu to work around Electron tray menu crash on macOS
