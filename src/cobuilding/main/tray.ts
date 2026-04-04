@@ -25,7 +25,7 @@ export function rebuildTrayMenu(statusLabel?: string) {
 
   menuItems.push(
     {
-      label: `Version: ${app.getVersion()} (updater test)`,
+      label: `Version: ${app.getVersion()}`,
       enabled: false,
     },
     { type: 'separator' },
@@ -100,7 +100,7 @@ export function createTray() {
   }
 
   tray = new Tray(icon);
-  tray.setToolTip('Cobuilding (updater test)');
+  tray.setToolTip('Cobuilding');
   log.info('[TRAY] Tray created.');
 
   // Use click handlers instead of setContextMenu to work around Electron tray menu crash on macOS
