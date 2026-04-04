@@ -70,7 +70,7 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
   autoUpdater.on('update-available', (info) => {
     log.info('[UPDATER] Update available:', info.version);
     createUpdateWindow(info.version);
-    onRebuildTrayMenu();
+    onRebuildTrayMenu(`Update available: v${info.version}`);
   });
 
   autoUpdater.on('update-not-available', () => {
@@ -94,6 +94,7 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
   });
 
   autoUpdater.on('download-progress', (progress) => {
+    log.info(`[UPDATER] Download progress: ${Math.round(progress.percent)}% (${progress.transferred}/${progress.total})`);
     updateWindow?.webContents.send('cobuild:download-progress', { percent: progress.percent });
   });
 
@@ -112,9 +113,17 @@ export function setupUpdater(onRebuildTrayMenu: (statusLabel?: string) => void) 
 }
 
 export function setupUpdaterIpcHandlers() {
-  ipcMain.handle('cobuild:download-and-restart', () => {
+  ipcMain.handle('cobuild:download-and-restart', async () => {
     if (updaterConfigured) {
-      return autoUpdater.downloadUpdate();
+      log.info('[UPDATER] Starting update download...');
+      try {
+        const result = await autoUpdater.downloadUpdate();
+        log.info('[UPDATER] downloadUpdate() resolved:', result);
+        return result;
+      } catch (err) {
+        log.error('[UPDATER] downloadUpdate() failed:', (err as Error).message);
+        throw err;
+      }
     }
     return null;
   });
