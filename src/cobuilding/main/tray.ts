@@ -25,7 +25,7 @@ export function rebuildTrayMenu(statusLabel?: string) {
 
   menuItems.push(
     {
-      label: `Version: ${app.getVersion()}`,
+      label: `Version: ${app.getVersion()} (updater test)`,
       enabled: false,
     },
     { type: 'separator' },
