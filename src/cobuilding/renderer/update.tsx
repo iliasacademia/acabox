@@ -13,9 +13,10 @@ function UpdateWindow() {
     const api = (window as any).electronAPI;
     if (!api) return;
 
-    const onInit = (_: any, data: { version: string }) => {
-      setVersion(data.version);
-    };
+    api.invoke('cobuild:get-update-version').then((ver: string | null) => {
+      if (ver) setVersion(ver);
+    });
+
     const onProgress = (_: any, data: { percent: number }) => {
       setDownloadPercent(Math.round(data.percent));
       setState('downloading');
@@ -25,12 +26,10 @@ function UpdateWindow() {
       setState('error');
     };
 
-    api.on('cobuild:update-init', onInit);
     api.on('cobuild:download-progress', onProgress);
     api.on('cobuild:update-error', onError);
 
     return () => {
-      api.removeListener('cobuild:update-init', onInit);
       api.removeListener('cobuild:download-progress', onProgress);
       api.removeListener('cobuild:update-error', onError);
     };
