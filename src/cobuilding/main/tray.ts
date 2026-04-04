@@ -19,7 +19,7 @@ export function rebuildTrayMenu(statusLabel?: string) {
       checkForUpdates(true);
     },
   });
-  if (statusLabel) {
+  if (statusLabel && !statusLabel.startsWith('Update available')) {
     setTimeout(() => rebuildTrayMenu(), 5000);
   }
 
