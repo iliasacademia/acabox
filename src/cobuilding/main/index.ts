@@ -31,7 +31,7 @@ declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 log.transports.file.fileName = app.isPackaged ? 'cobuilding-cobuild.log' : 'cobuilding-dev.log';
 log.transports.file.level = 'debug';
 log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB
-log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}] {text}';
+log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v' + app.getVersion() + '] [{level}] {text}';
 log.transports.console.level = app.isPackaged ? false : 'debug';
 
 process.on('uncaughtException', (error) => {
