@@ -40,6 +40,24 @@ contextBridge.exposeInMainWorld('filesAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('containerAPI', {
+  start: () => ipcRenderer.invoke('container:start'),
+  stop: () => ipcRenderer.invoke('container:stop'),
+  status: () => ipcRenderer.invoke('container:status'),
+  exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
+  getBinaryMode: () => ipcRenderer.invoke('container:getBinaryMode'),
+  setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
+  getBundledStatus: () => ipcRenderer.invoke('container:getBundledStatus'),
+  downloadBinaries: () => ipcRenderer.invoke('container:downloadBinaries'),
+  getName: () => ipcRenderer.invoke('container:getName'),
+  isImageBuilt: () => ipcRenderer.invoke('container:isImageBuilt'),
+  onProgress: (callback: (progress: { stage: string; message: string }) => void) => {
+    const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
+    ipcRenderer.on('container:progress', handler);
+    return () => { ipcRenderer.removeListener('container:progress', handler); };
+  },
+});
+
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: () => ipcRenderer.invoke('sessions:list'),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),

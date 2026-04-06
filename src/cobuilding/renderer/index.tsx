@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useLocalRuntime, useRemoteThreadListRuntime, AssistantRuntimeProvider } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, SettingsIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
 import { FilesTab } from './components/FilesTab';
+import { DebugSidebar, DebugContent, type DebugSection } from './components/DebugPanel';
 import { FileViewer } from './components/FileViewer';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
@@ -18,8 +19,9 @@ import './App.css';
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chats' | 'files'>('chats');
+  const [activeTab, setActiveTab] = useState<'chats' | 'files' | 'debug'>('chats');
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [debugSection, setDebugSection] = useState<DebugSection>('podman');
 
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
@@ -52,7 +54,14 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <MessageSquareIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
-              className="activityBarBtn activityBarBtn--bottom"
+              className={`activityBarBtn activityBarBtn--bottom ${activeTab === 'debug' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setActiveTab('debug')}
+              title="Debug"
+            >
+              <BracesIcon style={{ width: 22, height: 22 }} />
+            </button>
+            <button
+              className="activityBarBtn"
               onClick={() => setShowSettings(true)}
               title="Settings"
             >
@@ -63,16 +72,20 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             <div className="sidebarContent">
               {activeTab === 'chats' ? (
                 <ThreadList />
-              ) : (
+              ) : activeTab === 'files' ? (
                 <FilesTab
                   workspacePath={workspace.directory_path}
                   onSelectFile={(p) => setSelectedFilePath(p)}
                 />
-              )}
+              ) : activeTab === 'debug' ? (
+                <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
+              ) : null}
             </div>
           </div>
           <div className="mainPanel">
-            {selectedFilePath ? (
+            {activeTab === 'debug' ? (
+              <DebugContent activeSection={debugSection} />
+            ) : selectedFilePath ? (
               <FileViewer
                 filePath={selectedFilePath}
                 onClose={() => setSelectedFilePath(null)}

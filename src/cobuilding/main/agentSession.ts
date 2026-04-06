@@ -1,9 +1,10 @@
-import { query, type SDKUserMessage, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { query, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { ChatStreamMessage, IPCAttachment, Workspace } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
-import { app } from 'electron';
 import path from 'path';
+import log from 'electron-log';
+import { app } from 'electron';
 
 function getClaudeCliPath(): string {
   if (app.isPackaged) {
@@ -44,6 +45,8 @@ export function createAgentSession(
 
   const state: MessageProcessingState = { currentToolCallId: null };
 
+  const workspaceBoundaryHook = createWorkspaceBoundaryHook(workspace.directory_path);
+
   (async () => {
     try {
       for await (const message of query({
@@ -72,6 +75,11 @@ export function createAgentSession(
             "Skill",
             "TodoWrite",
           ],
+          hooks: {
+            PreToolUse: [{
+              hooks: [workspaceBoundaryHook],
+            }],
+          },
         },
       })) {
         processQueryMessage(message, state, callbacks.onEvent);
@@ -190,6 +198,88 @@ function buildContentBlocks(payload: UserMessagePayload): string | ContentBlockP
 
   return blocks;
 }
+
+// ─── Workspace Boundary Hook ──────────────────────────────────────
+
+function isWithinWorkspace(filePath: string, workspaceDir: string): boolean {
+  const resolved = path.resolve(workspaceDir, filePath);
+  return resolved === workspaceDir || resolved.startsWith(workspaceDir + path.sep);
+}
+
+function extractPathsFromToolInput(toolName: string, toolInput: Record<string, unknown>): string[] {
+  const paths: string[] = [];
+
+  switch (toolName) {
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+      if (typeof toolInput.file_path === 'string') {
+        paths.push(toolInput.file_path);
+      }
+      break;
+
+    case 'Glob':
+    case 'Grep':
+      if (typeof toolInput.path === 'string') {
+        paths.push(toolInput.path);
+      }
+      break;
+
+    case 'NotebookEdit':
+      if (typeof toolInput.notebook_path === 'string') {
+        paths.push(toolInput.notebook_path);
+      }
+      break;
+
+    case 'Bash': {
+      if (typeof toolInput.command === 'string') {
+        // Extract absolute paths from the command string
+        const absolutePathPattern = /(?:^|\s|=|"|')(\/([\w.\-]+\/)+[\w.\-]*)/g;
+        let match;
+        while ((match = absolutePathPattern.exec(toolInput.command)) !== null) {
+          paths.push(match[1]);
+        }
+      }
+      break;
+    }
+  }
+
+  return paths;
+}
+
+function createWorkspaceBoundaryHook(workspaceDir: string) {
+  const resolvedWorkspace = path.resolve(workspaceDir);
+
+  return async (input: HookInput, _toolUseID: string | undefined, _options: { signal: AbortSignal }): Promise<SyncHookJSONOutput> => {
+    if (input.hook_event_name !== 'PreToolUse') {
+      return {};
+    }
+
+    const { tool_name, tool_input } = input;
+
+    // Tools without filesystem access are always allowed
+    const fsTools = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'NotebookEdit', 'Bash'];
+    if (!fsTools.includes(tool_name)) {
+      return {};
+    }
+
+    const paths = extractPathsFromToolInput(tool_name, (tool_input ?? {}) as Record<string, unknown>);
+
+    for (const p of paths) {
+      if (!isWithinWorkspace(p, resolvedWorkspace)) {
+        log.warn(`[WorkspaceBoundary] Blocked ${tool_name}: path "${p}" is outside workspace "${resolvedWorkspace}"`);
+        return {
+          decision: 'block',
+          reason: `Path "${p}" is outside the workspace directory. All file operations must stay within "${resolvedWorkspace}".`,
+        };
+      }
+    }
+
+    return {};
+  };
+}
+
+// ─── Message Processing ───────────────────────────────────────────
 
 interface MessageProcessingState {
   currentToolCallId: string | null;

@@ -239,6 +239,36 @@ ipcMain.handle('container:status', () => {
   return { running: containerService.isRunning() };
 });
 
+ipcMain.handle('container:exec', async (_event, command: string[]) => {
+  return containerService.exec(command);
+});
+
+ipcMain.handle('container:getBinaryMode', () => {
+  return containerService.getBinaryMode();
+});
+
+ipcMain.handle('container:setBinaryMode', (_event, mode: string) => {
+  containerService.setBinaryMode(mode as 'system' | 'bundled');
+});
+
+ipcMain.handle('container:getBundledStatus', () => {
+  return containerService.getBundledBinaryStatus();
+});
+
+ipcMain.handle('container:downloadBinaries', async () => {
+  await containerService.downloadBundledBinaries((stage, message) => {
+    mainWindow?.webContents.send('container:progress', { stage, message });
+  });
+});
+
+ipcMain.handle('container:getName', () => {
+  return containerService.getContainerName();
+});
+
+ipcMain.handle('container:isImageBuilt', async () => {
+  return containerService.isImageBuilt();
+});
+
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {
   if (!activeWorkspace) return [];

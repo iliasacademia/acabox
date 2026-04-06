@@ -18,16 +18,16 @@ This skill runs a pre-built R script that performs differential expression analy
 
 ## How to run
 
-All skill scripts run inside a Docker container that is automatically started by the application. The workspace directory is mounted at `/data` inside the container, so use `/data/`-prefixed paths for all input and output file arguments.
+All skill scripts run inside a Podman container that is automatically started by the application. The workspace directory is mounted at `/data` inside the container, so use `/data/`-prefixed paths for all input and output file arguments.
 
 ```bash
-docker exec cobuilding-container Rscript /skills/differential-expression/scripts/differential_expression_cli.R <args>
+podman exec cobuilding-container Rscript /skills/differential-expression/scripts/differential_expression_cli.R <args>
 ```
 
 For example, if the user's counts file is at `./raw_counts.csv` and coldata is at `./sample_annotations.csv`:
 
 ```bash
-docker exec cobuilding-container Rscript /skills/differential-expression/scripts/differential_expression_cli.R \
+podman exec cobuilding-container Rscript /skills/differential-expression/scripts/differential_expression_cli.R \
   --counts_file /data/raw_counts.csv \
   --coldata_file /data/sample_annotations.csv \
   --design_variable group \

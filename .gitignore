@@ -51,6 +51,7 @@ src/native/build/
 src/native/build/SimpleTests
 
 .claude
+.windsurf
 
 # Rust build artifacts
 window-monitor/rust/target/
