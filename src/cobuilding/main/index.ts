@@ -24,7 +24,7 @@ import {
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
-import { startReactions, stopReactions } from './reactions';
+import { startReactions, stopReactions } from './browserMonitor';
 import { initFileMonitor, stopFileMonitor } from './fileMonitor';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
