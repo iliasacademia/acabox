@@ -25,6 +25,7 @@ import {
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
 import { startReactions, stopReactions } from './reactions';
+import { stopFileMonitor } from './fileMonitor';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -349,6 +350,7 @@ app.on('window-all-closed', () => {
   }
   sessions.clear();
   containerService.stop();
+  stopFileMonitor();
   stopReactions();
   closeDatabase();
   app.quit();

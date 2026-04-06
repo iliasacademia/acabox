@@ -2,6 +2,7 @@ import { app, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
 import { isUpdaterConfigured, checkForUpdates } from './updater';
+import { startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
 
 let tray: Tray | null = null;
 let currentTrayMenu: Electron.Menu | null = null;
@@ -23,7 +24,34 @@ export function rebuildTrayMenu(statusLabel?: string) {
     setTimeout(() => rebuildTrayMenu(), 5000);
   }
 
+  menuItems.push({ type: 'separator' });
+
+  if (isFileMonitorRunning()) {
+    menuItems.push(
+      {
+        label: 'File Monitor Enabled',
+        enabled: false,
+      },
+      {
+        label: 'Stop File Monitor',
+        click: () => {
+          stopFileMonitor();
+          rebuildTrayMenu();
+        },
+      },
+    );
+  } else {
+    menuItems.push({
+      label: 'Start File Monitor',
+      click: () => {
+        startFileMonitor();
+        rebuildTrayMenu();
+      },
+    });
+  }
+
   menuItems.push(
+    { type: 'separator' },
     {
       label: `Version: ${app.getVersion()}`,
       enabled: false,

@@ -57,6 +57,22 @@ const migrations = [
       );
     `,
   },
+  {
+    version: 3,
+    sql: `
+      CREATE TABLE file_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_url TEXT NOT NULL,
+        app_name TEXT NOT NULL,
+        app_bundle_id TEXT NOT NULL,
+        window_title TEXT,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        poll_count INTEGER NOT NULL DEFAULT 1
+      );
+      CREATE INDEX idx_file_sessions_document_url ON file_sessions(document_url);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {
