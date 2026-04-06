@@ -1,1 +1,1 @@
-export { startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitorService';
+export { initFileMonitor, startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitorService';

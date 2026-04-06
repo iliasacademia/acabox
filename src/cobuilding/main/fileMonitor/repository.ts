@@ -11,6 +11,7 @@ export interface FileSession {
   last_seen: string;
   poll_count: number;
   app_version: string;
+  snapshot_ulid: string | null;
 }
 
 let stmts: ReturnType<typeof prepareStatements> | null = null;
@@ -19,8 +20,8 @@ function prepareStatements() {
   const db = getDatabase();
   return {
     insert: db.prepare(`
-      INSERT INTO file_sessions (document_url, app_name, app_bundle_id, window_title, session_date, first_seen, last_seen, poll_count, app_version)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO file_sessions (document_url, app_name, app_bundle_id, window_title, session_date, first_seen, last_seen, poll_count, app_version, snapshot_ulid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     update: db.prepare(`
       UPDATE file_sessions SET last_seen = ?, poll_count = poll_count + 1, window_title = ? WHERE id = ?
@@ -52,6 +53,7 @@ export function createFileSession(session: Omit<FileSession, 'id'>): number {
     session.last_seen,
     session.poll_count,
     session.app_version,
+    session.snapshot_ulid,
   );
   return result.lastInsertRowid as number;
 }

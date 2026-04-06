@@ -70,7 +70,8 @@ const migrations = [
         first_seen TEXT NOT NULL,
         last_seen TEXT NOT NULL,
         poll_count INTEGER NOT NULL DEFAULT 1,
-        app_version TEXT NOT NULL DEFAULT ''
+        app_version TEXT NOT NULL DEFAULT '',
+        snapshot_ulid TEXT
       );
       CREATE UNIQUE INDEX idx_file_sessions_url_date ON file_sessions(document_url, session_date);
     `,

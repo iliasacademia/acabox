@@ -1,8 +1,10 @@
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, execFileSync, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
+import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import log from 'electron-log';
+import { ulid } from 'ulid';
 const appVersion = app.getVersion();
 import { createFileSession, updateFileSession, findFileSession } from './repository';
 
@@ -23,6 +25,11 @@ interface FileMonitorEvent {
 }
 
 let childProcess: ChildProcess | null = null;
+let getWorkspacePath: () => string | null = () => null;
+
+export function initFileMonitor(workspacePathGetter: () => string | null): void {
+  getWorkspacePath = workspacePathGetter;
+}
 
 function getBinaryPath(): string {
   if (app.isPackaged) {
@@ -39,6 +46,34 @@ function getLocalDate(): string {
   return `${year}-${month}-${day}`;
 }
 
+function resolveFilePath(documentUrl: string): string {
+  if (documentUrl.startsWith('file://')) {
+    return decodeURIComponent(new URL(documentUrl).pathname);
+  }
+  return documentUrl;
+}
+
+function snapshotFile(documentUrl: string): string | null {
+  const workspacePath = getWorkspacePath();
+  if (!workspacePath) return null;
+
+  const srcPath = resolveFilePath(documentUrl);
+  const ext = path.extname(srcPath);
+  const snapshotId = ulid();
+  const snapshotDir = path.join(workspacePath, 'file-snapshots');
+  const destPath = path.join(snapshotDir, `${snapshotId}${ext}`);
+
+  try {
+    fs.mkdirSync(snapshotDir, { recursive: true });
+    execFileSync('cp', ['-c', srcPath, destPath]);
+    log.info('[FileMonitor] Snapshot created:', destPath);
+    return snapshotId;
+  } catch (err) {
+    log.warn('[FileMonitor] Failed to snapshot file:', srcPath, err);
+    return null;
+  }
+}
+
 function handleEvent(event: FileMonitorEvent): void {
   if (event.event === 'APP_UNFOCUSED') return;
 
@@ -52,6 +87,7 @@ function handleEvent(event: FileMonitorEvent): void {
   if (existing) {
     updateFileSession(existing.id!, timestamp, event.window.title);
   } else {
+    const snapshotUlid = snapshotFile(documentUrl);
     createFileSession({
       document_url: documentUrl,
       app_name: event.app.name,
@@ -62,6 +98,7 @@ function handleEvent(event: FileMonitorEvent): void {
       last_seen: timestamp,
       poll_count: 1,
       app_version: appVersion,
+      snapshot_ulid: snapshotUlid,
     });
     log.info('[FileMonitor] New file session:', documentUrl, sessionDate);
   }
