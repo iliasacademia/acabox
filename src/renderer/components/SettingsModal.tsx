@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useUserPreferences } from '../contexts/UserPreferencesContext';
 import { getZoteroStatus, disconnectZotero, syncZotero, getZoteroAuthorizeUrl, ZoteroStatus } from '../services/zoteroApi';
+import { getCustomInstructions, saveCustomInstructions } from '../services/userPreferenceMemoryApi';
 import { IPC_CHANNELS } from '../../shared/types';
 import './SettingsModal.css';
 
@@ -51,6 +52,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   const [bedrockApiKey, setBedrockApiKey] = useState('');
   const [localAgentModel, setLocalAgentModel] = useState('us.anthropic.claude-sonnet-4-6-20250514-v1:0');
 
+  // Custom instructions state
+  const [customInstructions, setCustomInstructions] = useState('');
+
   // Manuscript refresh state
   const [isRefreshingManuscripts, setIsRefreshingManuscripts] = useState(false);
   const [manuscriptRefreshError, setManuscriptRefreshError] = useState<string | null>(null);
@@ -74,6 +78,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_ALLOW_ALL_TRAFFIC).then((v: boolean) => setAllowAllTraffic(v));
       window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_GET_API_KEY).then((v: string) => setBedrockApiKey(v || ''));
       window.electronAPI.invoke(IPC_CHANNELS.LOCAL_AGENT_GET_MODEL).then((v: string) => setLocalAgentModel(v || 'us.anthropic.claude-sonnet-4-6-20250514-v1:0'));
+      getCustomInstructions().then(setCustomInstructions);
     } else {
       // Stop polling when modal closes
       stopPolling();
@@ -242,8 +247,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
     setSaving(true);
     setError(null);
     try {
-      // Only send the specific field we're updating
-      await updatePreferences({ auto_diff_review: autoDiffReview });
+      await Promise.all([
+        updatePreferences({ auto_diff_review: autoDiffReview }),
+        saveCustomInstructions(customInstructions),
+      ]);
       onClose();
     } catch (err: any) {
       const errorMessage = err.message || 'Failed to save preferences';
@@ -268,6 +275,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
 
         <div className="wizardContent">
           <h2 className="wizardTitle">Settings</h2>
+
+          <div className="settingsSectionLabel">Custom instructions</div>
+          <div className="settingsSection">
+            <div className="customInstructionsContainer">
+              <textarea
+                className="customInstructionsTextarea"
+                value={customInstructions}
+                onChange={(e) => setCustomInstructions(e.target.value)}
+                placeholder="Share anything you'd like the AI to consider in its responses."
+                maxLength={10000}
+              />
+              <div className="customInstructionsCharCount">
+                {customInstructions.length.toLocaleString()} / 10,000
+              </div>
+            </div>
+          </div>
 
           <div className="settingsSection">
             <div
