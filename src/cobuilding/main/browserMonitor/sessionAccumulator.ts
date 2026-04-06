@@ -1,3 +1,4 @@
+import { app } from 'electron';
 import log from 'electron-log';
 import type { SnapshotPayload, ReadingSession } from './types';
 import { upsertSession, getAllSessions } from './repository';
@@ -35,6 +36,7 @@ export class SessionAccumulator {
         selections: payload.selection ? [payload.selection] : [],
         snapshot_count: 1,
         triage_state: 'pending',
+        app_version: app.getVersion(),
       };
       this.sessions.set(payload.url, session);
       upsertSession(session);

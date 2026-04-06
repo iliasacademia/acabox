@@ -25,4 +25,5 @@ export interface ReadingSession {
   selections: string[];
   snapshot_count: number;
   triage_state: 'pending' | 'triaged' | 'reacting' | 'reacted' | 'skipped';
+  app_version: string;
 }

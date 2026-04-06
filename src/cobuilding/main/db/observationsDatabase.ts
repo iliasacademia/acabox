@@ -21,7 +21,8 @@ const migrations = [
         max_scroll_depth REAL NOT NULL DEFAULT 0,
         selections TEXT NOT NULL DEFAULT '[]',
         snapshot_count INTEGER NOT NULL DEFAULT 1,
-        triage_state TEXT NOT NULL DEFAULT 'pending'
+        triage_state TEXT NOT NULL DEFAULT 'pending',
+        app_version TEXT NOT NULL DEFAULT ''
       );
 
       CREATE TABLE file_sessions (

@@ -9,8 +9,8 @@ function prepareStatements() {
     upsert: db.prepare(`
       INSERT OR REPLACE INTO browser_sessions
         (url, title, referrer, meta_tags, full_text, text_hash, first_seen, last_snapshot,
-         total_dwell, max_scroll_depth, selections, snapshot_count, triage_state)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         total_dwell, max_scroll_depth, selections, snapshot_count, triage_state, app_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     getAll: db.prepare('SELECT * FROM browser_sessions'),
     deleteByUrl: db.prepare('DELETE FROM browser_sessions WHERE url = ?'),
@@ -37,6 +37,7 @@ export function upsertSession(session: ReadingSession): void {
     JSON.stringify(session.selections),
     session.snapshot_count,
     session.triage_state,
+    session.app_version,
   );
 }
 
@@ -56,6 +57,7 @@ export function getAllSessions(): ReadingSession[] {
     selections: JSON.parse(row.selections),
     snapshot_count: row.snapshot_count,
     triage_state: row.triage_state,
+    app_version: row.app_version,
   }));
 }
 
