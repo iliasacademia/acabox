@@ -94,8 +94,8 @@ const packagerConfig = {
     'dist/popup',
     'src/assets/icons',
     'app-update.yml',
-    'src/podman',
     'src/cobuilding/skills',
+    'src/cobuilding/Dockerfile',
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {

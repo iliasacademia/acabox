@@ -44,7 +44,10 @@ export function createAgentSession(
           ...(sdkSessionId && { resume: sdkSessionId }),
           includePartialMessages: true,
           cwd: workspace.directory_path,
-          env: { ...process.env, ANTHROPIC_API_KEY: workspace.api_key },
+          env: {
+            ...process.env,
+            ANTHROPIC_API_KEY: workspace.api_key,
+          },
           settingSources: ['project'],
           allowedTools: [
             "Bash",

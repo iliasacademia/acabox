@@ -7,6 +7,7 @@ import log from 'electron-log';
 import { createAgentSession, type AgentSession } from './agentSession';
 import type { IPCAttachment } from '../shared/types';
 import { copySkillsToWorkspace } from './skills';
+import { containerService } from './containerService';
 import { initDatabase, closeDatabase } from './db/database';
 import {
   listSessions,
@@ -220,6 +221,24 @@ ipcMain.handle(
   },
 );
 
+// Container IPC handlers
+ipcMain.handle('container:start', async () => {
+  if (!activeWorkspace) {
+    throw new Error('No active workspace');
+  }
+  await containerService.start(activeWorkspace.directory_path, (stage, message) => {
+    mainWindow?.webContents.send('container:progress', { stage, message });
+  });
+});
+
+ipcMain.handle('container:stop', () => {
+  containerService.stop();
+});
+
+ipcMain.handle('container:status', () => {
+  return { running: containerService.isRunning() };
+});
+
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {
   if (!activeWorkspace) return [];
@@ -274,6 +293,7 @@ app.on('window-all-closed', () => {
     session.destroy();
   }
   sessions.clear();
+  containerService.stop();
   closeDatabase();
   app.quit();
 });

@@ -1,0 +1,80 @@
+FROM bioconductor/bioconductor_docker:3.21
+
+# System dependencies for office/PDF skills and LaTeX posters
+RUN apt-get update && apt-get install -y \
+    pandoc \
+    poppler-utils \
+    libreoffice \
+    texlive-latex-base \
+    texlive-latex-extra \
+    texlive-latex-recommended \
+    texlive-fonts-recommended \
+    texlive-fonts-extra \
+    texlive-science \
+    texlive-pictures \
+    texlive-luatex \
+    texlive-xetex \
+    lmodern \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js and npm packages for document creation
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && npm install -g docx pptxgenjs esbuild react react-dom react-plotly.js plotly.js lucide-react
+
+ENV NODE_PATH=/usr/lib/node_modules
+
+# Install Python packages for office/PDF skills
+RUN pip3 install --no-cache-dir --break-system-packages \
+    defusedxml \
+    lxml \
+    pypdf \
+    pdfplumber \
+    pdf2image \
+    Pillow \
+    openpyxl \
+    "markitdown[pptx]" \
+    jupyter_kernel_gateway \
+    ipykernel
+
+# Install Bioconductor packages
+RUN R -e 'BiocManager::install(c( \
+    "DESeq2", \
+    "SummarizedExperiment", \
+    "apeglm", \
+    "AnnotationDbi", \
+    "org.Hs.eg.db", \
+    "org.Mm.eg.db", \
+    "BiocParallel", \
+    "fgsea" \
+))'
+
+# Register R kernel for Jupyter
+RUN R -e 'install.packages("IRkernel"); IRkernel::installspec(user = FALSE)'
+
+# Install CRAN packages
+ENV CRAN=https://packagemanager.posit.co/cran/__linux__/jammy/latest
+RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
+    "argparse", \
+    "data.table", \
+    "dplyr", \
+    "tibble", \
+    "stringr", \
+    "ggplot2", \
+    "jsonlite", \
+    "tidyr", \
+    "patchwork", \
+    "readr", \
+    "purrr", \
+    "ggtext", \
+    "ggrepel", \
+    "igraph", \
+    "ggraph", \
+    "ggnewscale" \
+))'
+
+# Copy skill scripts into the image
+COPY skills/differential-expression/scripts/ /skills/differential-expression/scripts/
+
+WORKDIR /data
