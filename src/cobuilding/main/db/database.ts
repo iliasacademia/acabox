@@ -66,11 +66,13 @@ const migrations = [
         app_name TEXT NOT NULL,
         app_bundle_id TEXT NOT NULL,
         window_title TEXT,
+        session_date TEXT NOT NULL,
         first_seen TEXT NOT NULL,
         last_seen TEXT NOT NULL,
-        poll_count INTEGER NOT NULL DEFAULT 1
+        poll_count INTEGER NOT NULL DEFAULT 1,
+        app_version TEXT NOT NULL DEFAULT ''
       );
-      CREATE INDEX idx_file_sessions_document_url ON file_sessions(document_url);
+      CREATE UNIQUE INDEX idx_file_sessions_url_date ON file_sessions(document_url, session_date);
     `,
   },
 ];

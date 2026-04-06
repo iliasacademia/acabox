@@ -3,7 +3,8 @@ import { createInterface } from 'readline';
 import * as path from 'path';
 import { app } from 'electron';
 import log from 'electron-log';
-import { createFileSession, updateFileSession } from './repository';
+const appVersion = app.getVersion();
+import { createFileSession, updateFileSession, findFileSession } from './repository';
 
 interface FileMonitorEvent {
   event: 'APP_FOCUSED' | 'APP_UNFOCUSED' | 'WINDOW_FOCUSED' | 'FILE_MONITOR_POLL';
@@ -22,9 +23,6 @@ interface FileMonitorEvent {
 }
 
 let childProcess: ChildProcess | null = null;
-let currentDocumentUrl: string | null = null;
-let currentSessionId: number | null = null;
-let currentPollCount = 0;
 
 function getBinaryPath(): string {
   if (app.isPackaged) {
@@ -33,35 +31,39 @@ function getBinaryPath(): string {
   return path.join(app.getAppPath(), 'cobuilding/rust/file-monitor-mac/target/debug/file-monitor-mac');
 }
 
-function handleEvent(event: FileMonitorEvent): void {
-  const timestamp = event.timestamp;
+function getLocalDate(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
-  if (event.event === 'APP_UNFOCUSED') {
-    currentDocumentUrl = null;
-    currentSessionId = null;
-    currentPollCount = 0;
-    return;
-  }
+function handleEvent(event: FileMonitorEvent): void {
+  if (event.event === 'APP_UNFOCUSED') return;
 
   const documentUrl = event.window.documentUrl;
   if (!documentUrl) return;
 
-  if (documentUrl === currentDocumentUrl && currentSessionId !== null) {
-    currentPollCount++;
-    updateFileSession(currentSessionId, timestamp, currentPollCount, event.window.title);
+  const sessionDate = getLocalDate();
+  const timestamp = event.timestamp;
+  const existing = findFileSession(documentUrl, sessionDate);
+
+  if (existing) {
+    updateFileSession(existing.id!, timestamp, event.window.title);
   } else {
-    currentDocumentUrl = documentUrl;
-    currentPollCount = 1;
-    currentSessionId = createFileSession({
+    createFileSession({
       document_url: documentUrl,
       app_name: event.app.name,
       app_bundle_id: event.app.bundleId,
       window_title: event.window.title,
+      session_date: sessionDate,
       first_seen: timestamp,
       last_seen: timestamp,
       poll_count: 1,
+      app_version: appVersion,
     });
-    log.info('[FileMonitor] New file session:', documentUrl);
+    log.info('[FileMonitor] New file session:', documentUrl, sessionDate);
   }
 }
 
@@ -93,17 +95,11 @@ export function startFileMonitor(): void {
   childProcess.on('error', (err) => {
     log.error('[FileMonitor] Process error:', err);
     childProcess = null;
-    currentDocumentUrl = null;
-    currentSessionId = null;
-    currentPollCount = 0;
   });
 
   childProcess.on('exit', (code, signal) => {
     log.info('[FileMonitor] Process exited:', { code, signal });
     childProcess = null;
-    currentDocumentUrl = null;
-    currentSessionId = null;
-    currentPollCount = 0;
   });
 }
 
@@ -112,9 +108,6 @@ export function stopFileMonitor(): void {
   log.info('[FileMonitor] Stopping');
   childProcess.kill('SIGTERM');
   childProcess = null;
-  currentDocumentUrl = null;
-  currentSessionId = null;
-  currentPollCount = 0;
 }
 
 export function isFileMonitorRunning(): boolean {
