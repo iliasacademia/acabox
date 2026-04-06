@@ -18,6 +18,7 @@ Academia Electron is an Electron-based desktop application that provides a user-
 ## Prerequisites
 
 - Node.js 14+ and npm
+- Rust (for native module compilation)
 - An Academia.edu account
 
 ## Installation
@@ -36,13 +37,19 @@ Academia Electron is an Electron-based desktop application that provides a user-
 
 ### Running the Application
 
-Start the application in development mode:
+Start the Cobuild (Coscientist) application in development mode:
+
+```bash
+npm run start:cobuilding
+```
+
+This launches the Cobuild Electron app with hot-reloading enabled.
+
+To run the writing agent application instead:
 
 ```bash
 npm start
 ```
-
-This will launch the Electron app with hot-reloading enabled.
 
 ### Development Tools
 
@@ -74,6 +81,21 @@ Supported platforms:
 - **macOS**: ZIP archive
 - **Windows**: Squirrel installer
 - **Linux**: DEB and RPM packages
+
+## Contributing
+
+- All pull requests should target the **`cobuild`** branch, not `main`.
+- Do not push directly to `main`. The `main` branch is reserved for stable releases.
+- All code specific to the cobuild application lives in the `src/cobuilding/` directory.
+
+## Release Pipeline
+
+The release pipeline is powered by GitHub Actions (`.github/workflows/build.yml`):
+
+- **Pushes to `cobuild`** trigger automatic builds and create GitHub **pre-releases** with version format `X.Y.Z-cobuild.N`.
+- **Pushes to `main`** create **stable releases**.
+- Build artifacts (macOS arm64/x64, Windows) are uploaded to S3 and served via CloudFront.
+- The app's built-in auto-updater checks the CloudFront feed URL for new cobuild versions.
 
 ## Project Structure
 
