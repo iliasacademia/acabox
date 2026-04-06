@@ -1,10 +1,10 @@
-import { getDatabase } from '../db/database';
+import { getObservationsDatabase } from '../db/observationsDatabase';
 import type { ReadingSession } from './types';
 
 let stmts: ReturnType<typeof prepareStatements> | null = null;
 
 function prepareStatements() {
-  const db = getDatabase();
+  const db = getObservationsDatabase();
   return {
     upsert: db.prepare(`
       INSERT OR REPLACE INTO browser_sessions

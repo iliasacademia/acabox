@@ -9,6 +9,7 @@ import type { IPCAttachment } from '../shared/types';
 import { copySkillsToWorkspace } from './skills';
 import { containerService } from './containerService';
 import { initDatabase, closeDatabase } from './db/database';
+import { initObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
 import {
   listSessions,
   getSession,
@@ -100,6 +101,7 @@ app.whenReady().then(() => {
   });
 
   initDatabase(app.getPath('userData'));
+  initObservationsDatabase(app.getPath('userData'));
   activeWorkspace = getActiveWorkspace() ?? null;
   log.info('[APP] App ready. Version:', app.getVersion(), 'Packaged:', app.isPackaged);
   log.info('[APP] userData path:', app.getPath('userData'));
@@ -107,6 +109,7 @@ app.whenReady().then(() => {
   try {
     log.info('[APP] Initializing database...');
     initDatabase(app.getPath('userData'));
+    initObservationsDatabase(app.getPath('userData'));
     log.info('[APP] Database initialized.');
 
     log.info('[APP] Loading active workspace...');
@@ -353,6 +356,7 @@ app.on('window-all-closed', () => {
   containerService.stop();
   stopFileMonitor();
   stopReactions();
+  closeObservationsDatabase();
   closeDatabase();
   app.quit();
 });

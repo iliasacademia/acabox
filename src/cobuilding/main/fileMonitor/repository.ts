@@ -1,4 +1,4 @@
-import { getDatabase } from '../db/database';
+import { getObservationsDatabase } from '../db/observationsDatabase';
 
 export interface FileSession {
   id?: number;
@@ -17,7 +17,7 @@ export interface FileSession {
 let stmts: ReturnType<typeof prepareStatements> | null = null;
 
 function prepareStatements() {
-  const db = getDatabase();
+  const db = getObservationsDatabase();
   return {
     insert: db.prepare(`
       INSERT INTO file_sessions (document_url, app_name, app_bundle_id, window_title, session_date, first_seen, last_seen, poll_count, app_version, snapshot_ulid)
