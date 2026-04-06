@@ -1,0 +1,265 @@
+.debugSidebar__header {
+  padding: 12px 14px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+}
+
+.debugSidebar__item {
+  display: block;
+  width: 100%;
+  padding: 8px 14px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-size: 13px;
+  color: #444;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.debugSidebar__item:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #222;
+}
+
+.debugSidebar__item--active {
+  background: rgba(0, 0, 0, 0.08);
+  color: #111;
+  font-weight: 500;
+}
+
+.debugContent {
+  padding: 20px;
+  height: 100%;
+  overflow-y: auto;
+}
+
+/* ─── Debug Section (reusable for each debug panel) ─── */
+
+.debugSection__title {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #222;
+}
+
+.debugSection__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #444;
+}
+
+.debugSection__indicator {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.debugSection__indicator--running {
+  background: #34c759;
+  box-shadow: 0 0 6px rgba(52, 199, 89, 0.5);
+}
+
+.debugSection__indicator--stopped {
+  background: #999;
+}
+
+.debugSection__actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.debugSection__btn {
+  padding: 6px 16px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, opacity 0.12s;
+  background: #fff;
+  color: #333;
+}
+
+.debugSection__btn:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #aaa;
+}
+
+.debugSection__btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.debugSection__btn--start {
+  color: #1a7f37;
+  border-color: #1a7f37;
+}
+
+.debugSection__btn--start:hover:not(:disabled) {
+  background: #e6f9ed;
+}
+
+.debugSection__btn--stop {
+  color: #cf222e;
+  border-color: #cf222e;
+}
+
+.debugSection__btn--stop:hover:not(:disabled) {
+  background: #fde8e8;
+}
+
+.debugSection__progress {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #f0f4ff;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #555;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  word-break: break-word;
+}
+
+.debugSection__error {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #fff0f0;
+  border: 1px solid #fcc;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #c00;
+  word-break: break-word;
+}
+
+/* ─── Binary mode toggle ─── */
+
+.debugSection__modeToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.debugSection__modeLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: #666;
+  margin-right: 2px;
+}
+
+.debugSection__modeBtn {
+  padding: 3px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  background: #fff;
+  color: #555;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.debugSection__modeBtn:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #aaa;
+}
+
+.debugSection__modeBtn--active {
+  background: #e8f0fe;
+  border-color: #4285f4;
+  color: #1a73e8;
+  font-weight: 500;
+}
+
+.debugSection__modeBtn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.debugSection__modeLock {
+  font-size: 11px;
+  color: #999;
+  font-style: italic;
+  margin-left: 4px;
+}
+
+/* ─── Bundled binary status ─── */
+
+.debugSection__bundledStatus {
+  margin-bottom: 14px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #f8f8f8;
+  border: 1px solid #e8e8e8;
+}
+
+.debugSection__bundledOk {
+  font-size: 12px;
+  color: #1a7f37;
+  font-weight: 500;
+}
+
+.debugSection__bundledMissing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: #b45309;
+}
+
+.debugSection__btn--download {
+  color: #1a73e8;
+  border-color: #1a73e8;
+}
+
+.debugSection__btn--download:hover:not(:disabled) {
+  background: #e8f0fe;
+}
+
+/* ─── Info rows ─── */
+
+.debugSection__infoRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.debugSection__infoLabel {
+  color: #666;
+  font-weight: 500;
+}
+
+.debugSection__infoValue {
+  color: #333;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 11px;
+  background: #f0f0f0;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.debugSection__imageNotBuilt {
+  font-size: 12px;
+  color: #b45309;
+  font-weight: 500;
+}
+
+/* ─── Starting indicator ─── */
+
+.debugSection__indicator--starting {
+  background: #f59e0b;
+  animation: debugSection-pulse 1s infinite;
+}
+
+@keyframes debugSection-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}

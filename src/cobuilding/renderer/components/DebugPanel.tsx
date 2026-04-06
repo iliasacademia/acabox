@@ -1,0 +1,37 @@
+import React from 'react';
+import { PodmanDebug } from './PodmanDebug';
+import './DebugPanel.css';
+
+export type DebugSection = 'podman';
+
+const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
+  { id: 'podman', label: 'Podman' },
+];
+
+export const DebugSidebar: React.FC<{
+  activeSection: DebugSection;
+  onSelect: (section: DebugSection) => void;
+}> = ({ activeSection, onSelect }) => {
+  return (
+    <>
+      <div className="debugSidebar__header">Debug</div>
+      {DEBUG_SECTIONS.map((section) => (
+        <button
+          key={section.id}
+          className={`debugSidebar__item ${activeSection === section.id ? 'debugSidebar__item--active' : ''}`}
+          onClick={() => onSelect(section.id)}
+        >
+          {section.label}
+        </button>
+      ))}
+    </>
+  );
+};
+
+export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ activeSection }) => {
+  return (
+    <div className="debugContent">
+      {activeSection === 'podman' && <PodmanDebug />}
+    </div>
+  );
+};

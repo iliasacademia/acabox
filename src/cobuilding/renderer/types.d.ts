@@ -61,11 +61,26 @@ interface SessionsAPI {
   listMessages(sessionId: string): Promise<MessageData[]>;
 }
 
+interface ContainerAPI {
+  start(): Promise<void>;
+  stop(): Promise<void>;
+  status(): Promise<{ running: boolean }>;
+  exec(command: string[]): Promise<{ stdout: string; stderr: string }>;
+  getBinaryMode(): Promise<'system' | 'bundled'>;
+  setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
+  getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
+  downloadBinaries(): Promise<void>;
+  getName(): Promise<string>;
+  isImageBuilt(): Promise<boolean>;
+  onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
+}
+
 declare global {
   interface Window {
     chatAPI: ChatAPI;
     filesAPI: FilesAPI;
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
+    containerAPI: ContainerAPI;
   }
 }
