@@ -11,7 +11,7 @@ import { ConversationMessage } from './ConversationMessage';
 import { ToolMessageAccordion } from './ToolMessageAccordion';
 import DiffModal from './DiffModal';
 import { FilePicker } from './FilePicker';
-import { getCustomInstructions, saveCustomInstructions } from '../../../../src/renderer/services/userPreferenceMemoryApi';
+
 
 interface AttachedFile {
   localId: string;
@@ -512,15 +512,38 @@ export function ConversationDetail({
   };
 
   const handleOpenCustomInstructions = async () => {
-    const content = await getCustomInstructions();
-    setCustomInstructions(content);
+    try {
+      const response = await apiClient.invoke<{ content: unknown }>({
+        method: 'GET',
+        endpoint: '/v0/co_scientist/user_preference_memory',
+      });
+      const raw = response.content;
+      let instructions = '';
+      if (raw && typeof raw === 'object') {
+        instructions = ((raw as Record<string, unknown>).custom_instructions as string) ?? '';
+      } else if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw);
+          instructions = parsed?.custom_instructions ?? '';
+        } catch {
+          instructions = raw;
+        }
+      }
+      setCustomInstructions(instructions);
+    } catch {
+      setCustomInstructions('');
+    }
     setShowCustomInstructionsModal(true);
   };
 
   const handleSaveCustomInstructions = async () => {
     setCustomInstructionsSaving(true);
     try {
-      await saveCustomInstructions(customInstructions);
+      await apiClient.invoke({
+        method: 'PATCH',
+        endpoint: '/v0/co_scientist/user_preference_memory',
+        data: { content: JSON.stringify({ custom_instructions: customInstructions }) },
+      });
       setShowCustomInstructionsModal(false);
     } finally {
       setCustomInstructionsSaving(false);
