@@ -2,6 +2,15 @@ import { query, type SDKUserMessage, type SDKMessage } from '@anthropic-ai/claud
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { ChatStreamMessage, IPCAttachment, Workspace } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
+import { app } from 'electron';
+import path from 'path';
+
+function getClaudeCliPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
+  }
+  return path.join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
+}
 
 export interface ChatCallbacks {
   onEvent: (msg: ChatStreamMessage) => void;
@@ -40,6 +49,7 @@ export function createAgentSession(
       for await (const message of query({
         prompt: userMessageGenerator(),
         options: {
+          pathToClaudeCodeExecutable: getClaudeCliPath(),
           model: 'claude-sonnet-4-6',
           ...(sdkSessionId && { resume: sdkSessionId }),
           includePartialMessages: true,
