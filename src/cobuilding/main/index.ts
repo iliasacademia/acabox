@@ -251,6 +251,14 @@ ipcMain.handle('container:setBinaryMode', (_event, mode: string) => {
   containerService.setBinaryMode(mode as 'system' | 'bundled');
 });
 
+ipcMain.handle('container:getImageSource', () => {
+  return containerService.getImageSource();
+});
+
+ipcMain.handle('container:setImageSource', (_event, source: string) => {
+  containerService.setImageSource(source as 'registry' | 'local');
+});
+
 ipcMain.handle('container:getBundledStatus', () => {
   return containerService.getBundledBinaryStatus();
 });

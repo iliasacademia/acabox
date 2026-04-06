@@ -15,10 +15,12 @@ import {
 const execFileAsync = promisify(execFile);
 
 const GHCR_BASE_IMAGE = 'ghcr.io/academia-edu/cobuilding-base:latest';
+const LOCAL_BASE_IMAGE = 'cobuilding-base:local';
 const IMAGE_NAME = 'cobuilding-container';
 const CONTAINER_NAME = 'cobuilding-container';
 
 type BinaryMode = 'system' | 'bundled';
+type ImageSource = 'registry' | 'local';
 type ProgressCallback = (stage: string, message: string) => void;
 
 function getSettingsPath(): string {
@@ -43,6 +45,27 @@ function writeBinaryMode(mode: BinaryMode): void {
     // File doesn't exist yet
   }
   data.binaryMode = mode;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function readImageSource(): ImageSource {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.imageSource === 'local' ? 'local' : 'registry';
+  } catch {
+    return 'registry';
+  }
+}
+
+function writeImageSource(source: ImageSource): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch {
+    // File doesn't exist yet
+  }
+  data.imageSource = source;
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -151,6 +174,20 @@ class CobuildingContainerService {
     }
     writeBinaryMode(mode);
     log.debug(`[ContainerService] Binary mode set to: ${mode}`);
+  }
+
+  // ─── Image Source ──────────────────────────────────────────────
+
+  getImageSource(): ImageSource {
+    return readImageSource();
+  }
+
+  setImageSource(source: ImageSource): void {
+    if (this.isRunning()) {
+      throw new Error('Cannot change image source while container is running');
+    }
+    writeImageSource(source);
+    log.debug(`[ContainerService] Image source set to: ${source}`);
   }
 
   getBundledBinaryStatus(): { downloaded: boolean; binDir: string } {
@@ -395,8 +432,15 @@ class CobuildingContainerService {
       return;
     }
 
-    // Pull the prebuilt base image from GHCR if not already present
-    await this.ensureBaseImagePulled(podmanBin, onProgress);
+    const imageSource = readImageSource();
+
+    if (imageSource === 'registry') {
+      // Pull the prebuilt base image from GHCR if not already present
+      await this.ensureBaseImagePulled(podmanBin, onProgress);
+    } else {
+      // Build the base image locally from Dockerfile.base
+      await this.buildBaseImageLocally(podmanBin, onProgress);
+    }
 
     if (imageHash) {
       log.debug(`[ContainerService] Skills changed (${imageHash} -> ${currentHash}), rebuilding...`);
@@ -408,16 +452,53 @@ class CobuildingContainerService {
 
     const contextDir = this.getDockerfileDir();
     const dockerfilePath = path.join(contextDir, 'Dockerfile');
+    const baseImage = imageSource === 'registry'
+      ? GHCR_BASE_IMAGE
+      : LOCAL_BASE_IMAGE;
 
+    return this.spawnBuild(podmanBin, [
+      'build',
+      '--label', `dockerfile.hash=${currentHash}`,
+      '--build-arg', `BASE_IMAGE=${baseImage}`,
+      '-t', IMAGE_NAME,
+      '-f', dockerfilePath,
+      contextDir,
+    ], onProgress);
+  }
+
+  private async buildBaseImageLocally(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
+    // Check if local base image already exists
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'image', 'inspect', '--format', '{{.Id}}', LOCAL_BASE_IMAGE,
+      ], this.getExecEnv());
+      if (stdout.trim().length > 0) {
+        log.debug('[ContainerService] Local base image already built');
+        return;
+      }
+    } catch {
+      // Image not present — build it
+    }
+
+    log.debug('[ContainerService] Building base image locally (this will take a while)...');
+    onProgress?.('build', 'Building base image locally (this may take 20+ minutes)...');
+
+    const contextDir = this.getDockerfileDir();
+    const dockerfileBasePath = path.join(contextDir, 'Dockerfile.base');
+
+    await this.spawnBuild(podmanBin, [
+      'build',
+      '-t', LOCAL_BASE_IMAGE,
+      '-f', dockerfileBasePath,
+      contextDir,
+    ], onProgress);
+
+    log.debug('[ContainerService] Local base image built successfully');
+  }
+
+  private spawnBuild(podmanBin: string, args: string[], onProgress?: ProgressCallback): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const proc = spawn(podmanBin, [
-        'build',
-        '--label', `dockerfile.hash=${currentHash}`,
-        '--build-arg', `BASE_IMAGE=${GHCR_BASE_IMAGE}`,
-        '-t', IMAGE_NAME,
-        '-f', dockerfilePath,
-        contextDir,
-      ], {
+      const proc = spawn(podmanBin, args, {
         env: this.getExecEnv(),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -437,7 +518,7 @@ class CobuildingContainerService {
 
       proc.on('close', (code) => {
         if (code === 0) {
-          log.debug('[ContainerService] Image built successfully');
+          log.debug('[ContainerService] Build completed successfully');
           resolve();
         } else {
           reject(new Error(`podman build exited with code ${code}`));

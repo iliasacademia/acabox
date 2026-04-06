@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ContainerTests } from './ContainerTests';
 
 type BinaryMode = 'system' | 'bundled';
+type ImageSource = 'registry' | 'local';
 
 export const PodmanDebug: React.FC = () => {
   const [running, setRunning] = useState(false);
@@ -14,21 +15,24 @@ export const PodmanDebug: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
   const [containerName, setContainerName] = useState('');
   const [imageBuilt, setImageBuilt] = useState(false);
+  const [imageSource, setImageSource] = useState<ImageSource>('registry');
 
   const refreshStatus = useCallback(async () => {
     try {
-      const [{ running: isRunning }, mode, bundled, name, imgBuilt] = await Promise.all([
+      const [{ running: isRunning }, mode, bundled, name, imgBuilt, imgSource] = await Promise.all([
         window.containerAPI.status(),
         window.containerAPI.getBinaryMode(),
         window.containerAPI.getBundledStatus(),
         window.containerAPI.getName(),
         window.containerAPI.isImageBuilt(),
+        window.containerAPI.getImageSource(),
       ]);
       setRunning(isRunning);
       setBinaryMode(mode);
       setBundledDownloaded(bundled.downloaded);
       setContainerName(name);
       setImageBuilt(imgBuilt);
+      setImageSource(imgSource);
     } catch {
       setRunning(false);
     } finally {
@@ -48,6 +52,16 @@ export const PodmanDebug: React.FC = () => {
     });
     return cleanup;
   }, []);
+
+  const handleImageSourceChange = async (source: ImageSource) => {
+    setError(null);
+    try {
+      await window.containerAPI.setImageSource(source);
+      setImageSource(source);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   const handleModeChange = async (mode: BinaryMode) => {
     setError(null);
@@ -176,7 +190,7 @@ export const PodmanDebug: React.FC = () => {
                 disabled={running}
                 title="Remove downloaded Podman binaries"
               >
-                Delete Binaries
+                🗑︎
               </button>
             </div>
           ) : (
@@ -193,6 +207,27 @@ export const PodmanDebug: React.FC = () => {
           )}
         </div>
       )}
+
+      <div className="debugSection__modeToggle">
+        <span className="debugSection__modeLabel">Container Image:</span>
+        <button
+          className={`debugSection__modeBtn ${imageSource === 'registry' ? 'debugSection__modeBtn--active' : ''}`}
+          onClick={() => handleImageSourceChange('registry')}
+          disabled={running}
+          title="Pull prebuilt base image from GitHub Container Registry"
+        >
+          From Registry
+        </button>
+        <button
+          className={`debugSection__modeBtn ${imageSource === 'local' ? 'debugSection__modeBtn--active' : ''}`}
+          onClick={() => handleImageSourceChange('local')}
+          disabled={running}
+          title="Build the base image locally from Dockerfile.base (slow)"
+        >
+          Build Locally
+        </button>
+        {running && <span className="debugSection__modeLock">locked while running</span>}
+      </div>
 
       <div className="debugSection__infoRow">
         <span className="debugSection__infoLabel">Container:</span>
@@ -211,7 +246,7 @@ export const PodmanDebug: React.FC = () => {
             disabled={running}
             title="Remove the container image"
           >
-            Delete Image
+            🗑︎
           </button>
         )}
       </div>

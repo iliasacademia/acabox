@@ -96,6 +96,7 @@ const packagerConfig = {
     'app-update.yml',
     'src/cobuilding/skills',
     'src/cobuilding/Dockerfile',
+    'src/cobuilding/Dockerfile.base',
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {

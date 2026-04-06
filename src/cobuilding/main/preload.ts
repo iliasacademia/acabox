@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('containerAPI', {
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
   getBinaryMode: () => ipcRenderer.invoke('container:getBinaryMode'),
   setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
+  getImageSource: () => ipcRenderer.invoke('container:getImageSource'),
+  setImageSource: (source: string) => ipcRenderer.invoke('container:setImageSource', source),
   getBundledStatus: () => ipcRenderer.invoke('container:getBundledStatus'),
   downloadBinaries: () => ipcRenderer.invoke('container:downloadBinaries'),
   deleteBinaries: () => ipcRenderer.invoke('container:deleteBinaries'),
