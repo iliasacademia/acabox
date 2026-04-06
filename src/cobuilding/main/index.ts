@@ -269,6 +269,20 @@ ipcMain.handle('container:isImageBuilt', async () => {
   return containerService.isImageBuilt();
 });
 
+ipcMain.handle('container:deleteBinaries', () => {
+  containerService.deleteBundledBinaries();
+});
+
+ipcMain.handle('container:deleteImage', async () => {
+  await containerService.deleteImage();
+});
+
+ipcMain.handle('container:ensureSetup', async () => {
+  await containerService.ensureSetup((stage, message) => {
+    mainWindow?.webContents.send('setup:progress', { stage, message });
+  });
+});
+
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {
   if (!activeWorkspace) return [];

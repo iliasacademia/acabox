@@ -108,6 +108,26 @@ export const PodmanDebug: React.FC = () => {
     }
   };
 
+  const handleDeleteBinaries = async () => {
+    setError(null);
+    try {
+      await window.containerAPI.deleteBinaries();
+      setBundledDownloaded(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDeleteImage = async () => {
+    setError(null);
+    try {
+      await window.containerAPI.deleteImage();
+      setImageBuilt(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   if (initializing) {
     return (
       <div className="debugSection">
@@ -148,7 +168,17 @@ export const PodmanDebug: React.FC = () => {
       {binaryMode === 'bundled' && (
         <div className="debugSection__bundledStatus">
           {bundledDownloaded ? (
-            <span className="debugSection__bundledOk">✓ Bundled binaries present</span>
+            <div className="debugSection__bundledRow">
+              <span className="debugSection__bundledOk">✓ Bundled binaries present</span>
+              <button
+                className="debugSection__btnInline debugSection__btnInline--danger"
+                onClick={handleDeleteBinaries}
+                disabled={running}
+                title="Remove downloaded Podman binaries"
+              >
+                Delete Binaries
+              </button>
+            </div>
           ) : (
             <div className="debugSection__bundledMissing">
               <span>Bundled binaries not found</span>
@@ -174,6 +204,16 @@ export const PodmanDebug: React.FC = () => {
         <span className={imageBuilt ? 'debugSection__bundledOk' : 'debugSection__imageNotBuilt'}>
           {imageBuilt ? 'Image built' : 'Image not built'}
         </span>
+        {imageBuilt && (
+          <button
+            className="debugSection__btnInline debugSection__btnInline--danger"
+            onClick={handleDeleteImage}
+            disabled={running}
+            title="Remove the container image"
+          >
+            Delete Image
+          </button>
+        )}
       </div>
 
       <div className="debugSection__status">

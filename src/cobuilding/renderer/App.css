@@ -26,9 +26,17 @@ body,
 
 /* --- App Layout --- */
 
+.appRoot {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+}
+
 .appLayout {
   display: flex;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
   width: 100%;
 }
 
