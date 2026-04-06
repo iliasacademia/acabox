@@ -24,6 +24,7 @@ import {
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
+import { startReactions, stopReactions } from './reactions';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -130,6 +131,8 @@ app.whenReady().then(() => {
     setupUpdater(rebuildTrayMenu);
     createTray();
     log.info('[APP] Updater and tray initialized.');
+
+    startReactions();
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
     log.info('[APP] Loading URL:', url);
@@ -346,6 +349,7 @@ app.on('window-all-closed', () => {
   }
   sessions.clear();
   containerService.stop();
+  stopReactions();
   closeDatabase();
   app.quit();
 });

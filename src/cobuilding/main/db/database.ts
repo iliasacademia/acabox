@@ -37,6 +37,26 @@ const migrations = [
       CREATE INDEX idx_messages_session_id ON messages(session_id, id);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      CREATE TABLE browser_sessions (
+        url TEXT PRIMARY KEY,
+        title TEXT NOT NULL DEFAULT '',
+        referrer TEXT NOT NULL DEFAULT '',
+        meta_tags TEXT NOT NULL DEFAULT '{}',
+        full_text TEXT,
+        text_hash TEXT NOT NULL DEFAULT '',
+        first_seen TEXT NOT NULL,
+        last_snapshot TEXT NOT NULL,
+        total_dwell REAL NOT NULL DEFAULT 0,
+        max_scroll_depth REAL NOT NULL DEFAULT 0,
+        selections TEXT NOT NULL DEFAULT '[]',
+        snapshot_count INTEGER NOT NULL DEFAULT 1,
+        triage_state TEXT NOT NULL DEFAULT 'pending'
+      );
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

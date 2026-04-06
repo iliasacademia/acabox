@@ -1,0 +1,65 @@
+import log from 'electron-log';
+import type { SnapshotPayload, ReadingSession } from './types';
+import { upsertSession, getAllSessions } from './repository';
+
+export class SessionAccumulator {
+  private sessions = new Map<string, ReadingSession>();
+
+  constructor() {
+    try {
+      const persisted = getAllSessions();
+      for (const session of persisted) {
+        this.sessions.set(session.url, session);
+      }
+      log.info(`[Reactions] Restored ${persisted.length} sessions from DB`);
+    } catch (err) {
+      log.error('[Reactions] Failed to restore sessions from DB:', err);
+    }
+  }
+
+  ingestSnapshot(payload: SnapshotPayload): void {
+    const existing = this.sessions.get(payload.url);
+
+    if (!existing) {
+      const session: ReadingSession = {
+        url: payload.url,
+        title: payload.title,
+        referrer: payload.referrer,
+        meta_tags: payload.meta_tags,
+        full_text: payload.full_text,
+        text_hash: payload.text_hash,
+        first_seen: payload.timestamp,
+        last_snapshot: payload.timestamp,
+        total_dwell: payload.dwell_seconds,
+        max_scroll_depth: payload.scroll.depth,
+        selections: payload.selection ? [payload.selection] : [],
+        snapshot_count: 1,
+        triage_state: 'pending',
+      };
+      this.sessions.set(payload.url, session);
+      upsertSession(session);
+      log.info('[Reactions] New session:', payload.url);
+      return;
+    }
+
+    if (payload.full_text !== null) {
+      existing.full_text = payload.full_text;
+      existing.text_hash = payload.text_hash;
+    }
+
+    existing.last_snapshot = payload.timestamp;
+    existing.total_dwell = payload.dwell_seconds;
+    existing.max_scroll_depth = Math.max(existing.max_scroll_depth, payload.scroll.depth);
+    existing.snapshot_count++;
+
+    if (payload.selection) {
+      existing.selections.push(payload.selection);
+    }
+
+    upsertSession(existing);
+  }
+
+  getSessions(): ReadingSession[] {
+    return Array.from(this.sessions.values());
+  }
+}

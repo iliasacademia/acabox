@@ -1,0 +1,64 @@
+import { getDatabase } from '../db/database';
+import type { ReadingSession } from './types';
+
+let stmts: ReturnType<typeof prepareStatements> | null = null;
+
+function prepareStatements() {
+  const db = getDatabase();
+  return {
+    upsert: db.prepare(`
+      INSERT OR REPLACE INTO browser_sessions
+        (url, title, referrer, meta_tags, full_text, text_hash, first_seen, last_snapshot,
+         total_dwell, max_scroll_depth, selections, snapshot_count, triage_state)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    getAll: db.prepare('SELECT * FROM browser_sessions'),
+    deleteByUrl: db.prepare('DELETE FROM browser_sessions WHERE url = ?'),
+  };
+}
+
+function getStmts() {
+  if (!stmts) stmts = prepareStatements();
+  return stmts;
+}
+
+export function upsertSession(session: ReadingSession): void {
+  getStmts().upsert.run(
+    session.url,
+    session.title,
+    session.referrer,
+    JSON.stringify(session.meta_tags),
+    session.full_text,
+    session.text_hash,
+    session.first_seen,
+    session.last_snapshot,
+    session.total_dwell,
+    session.max_scroll_depth,
+    JSON.stringify(session.selections),
+    session.snapshot_count,
+    session.triage_state,
+  );
+}
+
+export function getAllSessions(): ReadingSession[] {
+  const rows = getStmts().getAll.all() as any[];
+  return rows.map((row) => ({
+    url: row.url,
+    title: row.title,
+    referrer: row.referrer,
+    meta_tags: JSON.parse(row.meta_tags),
+    full_text: row.full_text,
+    text_hash: row.text_hash,
+    first_seen: row.first_seen,
+    last_snapshot: row.last_snapshot,
+    total_dwell: row.total_dwell,
+    max_scroll_depth: row.max_scroll_depth,
+    selections: JSON.parse(row.selections),
+    snapshot_count: row.snapshot_count,
+    triage_state: row.triage_state,
+  }));
+}
+
+export function deleteSession(url: string): void {
+  getStmts().deleteByUrl.run(url);
+}
