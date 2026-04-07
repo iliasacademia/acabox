@@ -1,6 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { useLocalRuntime, useRemoteThreadListRuntime, AssistantRuntimeProvider } from '@assistant-ui/react';
+import {
+  useLocalRuntime,
+  useRemoteThreadListRuntime,
+  AssistantRuntimeProvider,
+  useThreadList,
+} from '@assistant-ui/react';
 import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
@@ -17,6 +22,24 @@ import WorkspaceSettings from './components/WorkspaceSettings';
 import { SetupBanner } from './components/SetupBanner';
 import type { Workspace } from '../shared/types';
 import './App.css';
+
+/** When the user picks a thread (or new thread), close the file viewer so the chat shows. */
+function CloseFileOnThreadSelect({ onCloseFile }: { onCloseFile: () => void }) {
+  const mainThreadId = useThreadList((s) => s.mainThreadId);
+  const prevRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (mainThreadId == null) return;
+    const prev = prevRef.current;
+    if (prev !== undefined && prev !== mainThreadId) {
+      onCloseFile();
+    }
+    prevRef.current = mainThreadId;
+  }, [mainThreadId, onCloseFile]);
+
+  return null;
+}
+
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   const [showSettings, setShowSettings] = useState(false);
@@ -35,8 +58,11 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     adapter: sessionListAdapter,
   });
 
+  const clearSelectedFile = useCallback(() => setSelectedFilePath(null), []);
+
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <CloseFileOnThreadSelect onCloseFile={clearSelectedFile} />
       <TooltipProvider>
         <div className="appRoot">
           <SetupBanner />

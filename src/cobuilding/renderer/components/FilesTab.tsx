@@ -1,7 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { ChevronRightIcon, FileIcon, FolderIcon, FolderOpenIcon, FilePlusIcon, FolderPlusIcon, RefreshCwIcon } from 'lucide-react';
+import {
+  ChevronRightIcon,
+  FileIcon,
+  FolderIcon,
+  FolderOpenIcon,
+  FilePlusIcon,
+  FolderPlusIcon,
+  PencilIcon,
+  RefreshCwIcon,
+  TrashIcon,
+} from 'lucide-react';
 
 const INTERNAL_DRAG_TYPE = 'application/x-filetree-path';
+
+/** Uniform indent: same extra offset for each nesting level (depth 1 = first level under workspace). */
+const FILE_TREE_INDENT_BASE = 4;
+const FILE_TREE_INDENT_STEP = 12;
+
+function fileTreeRowPaddingLeft(depth: number): number {
+  return FILE_TREE_INDENT_BASE + depth * FILE_TREE_INDENT_STEP;
+}
 
 interface TreeNode {
   name: string;
@@ -205,6 +223,18 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
     setContextMenu(null);
   }, [contextMenu]);
 
+  const handleRenameNodePath = useCallback((path: string) => {
+    setRenamingPath(path);
+  }, []);
+
+  const handleDeleteNodePath = useCallback(
+    async (path: string) => {
+      await window.filesAPI.deleteFile(path);
+      await refreshTree();
+    },
+    [refreshTree],
+  );
+
   const handleRenameCommit = useCallback(async (filePath: string, newName: string) => {
     setRenamingPath(null);
     const trimmed = newName.trim();
@@ -221,8 +251,11 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
 
   const handleCreateNew = useCallback((dirPath: string, type: 'file' | 'folder') => {
     setContextMenu(null);
+    if (dirPath === workspacePath) {
+      setRootExpanded(true);
+    }
     setCreatingIn({ dirPath, type });
-  }, []);
+  }, [workspacePath]);
 
   const handleCreateCommit = useCallback(async (name: string) => {
     if (!creatingIn) return;
@@ -268,39 +301,41 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
           />
           <FolderOpenIcon className="fileTreeIcon" />
           <span className="fileTreeName fileTreeName--root">{workspaceName}</span>
-          <button
-            className="fileTreeRefresh"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleCreateNew(workspacePath, 'file');
-            }}
-            title="New file"
-          >
-            <FilePlusIcon style={{ width: 14, height: 14 }} />
-          </button>
-          <button
-            className="fileTreeRefresh"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleCreateNew(workspacePath, 'folder');
-            }}
-            title="New folder"
-          >
-            <FolderPlusIcon style={{ width: 14, height: 14 }} />
-          </button>
-          <button
-            className="fileTreeRefresh"
-            onClick={(e) => {
-              e.stopPropagation();
-              refreshTree();
-            }}
-            title="Refresh files"
-          >
-            <RefreshCwIcon style={{ width: 14, height: 14 }} />
-          </button>
+          <div className="fileTreeRowActions">
+            <button
+              className="fileTreeRefresh"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCreateNew(workspacePath, 'file');
+              }}
+              title="New file"
+            >
+              <FilePlusIcon style={{ width: 14, height: 14 }} />
+            </button>
+            <button
+              className="fileTreeRefresh"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCreateNew(workspacePath, 'folder');
+              }}
+              title="New folder"
+            >
+              <FolderPlusIcon style={{ width: 14, height: 14 }} />
+            </button>
+            <button
+              className="fileTreeRefresh"
+              onClick={(e) => {
+                e.stopPropagation();
+                refreshTree();
+              }}
+              title="Refresh files"
+            >
+              <RefreshCwIcon style={{ width: 14, height: 14 }} />
+            </button>
+          </div>
         </div>
         {rootExpanded && creatingIn?.dirPath === workspacePath && (
-          <div className="fileTreeRow" style={{ paddingLeft: 8 + 1 * 16 }}>
+          <div className="fileTreeRow" style={{ paddingLeft: fileTreeRowPaddingLeft(1) }}>
             {creatingIn.type === 'folder' ? (
               <FolderIcon className="fileTreeIcon" style={{ marginLeft: 18 }} />
             ) : (
@@ -333,6 +368,8 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
               renamingPath={renamingPath}
               onRenameCommit={handleRenameCommit}
               onRenameCancel={handleRenameCancel}
+              onRenameRequest={handleRenameNodePath}
+              onDeleteRequest={handleDeleteNodePath}
               creatingIn={creatingIn}
               onCreateCommit={handleCreateCommit}
               onCreateCancel={handleCreateCancel}
@@ -395,6 +432,8 @@ interface FileTreeNodeProps {
   renamingPath: string | null;
   onRenameCommit: (filePath: string, newName: string) => void;
   onRenameCancel: () => void;
+  onRenameRequest: (path: string) => void;
+  onDeleteRequest: (path: string) => void | Promise<void>;
   creatingIn: { dirPath: string; type: 'file' | 'folder' } | null;
   onCreateCommit: (name: string) => void;
   onCreateCancel: () => void;
@@ -414,6 +453,8 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   renamingPath,
   onRenameCommit,
   onRenameCancel,
+  onRenameRequest,
+  onDeleteRequest,
   creatingIn,
   onCreateCommit,
   onCreateCancel,
@@ -422,6 +463,22 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   const [children, setChildren] = useState<TreeNode[]>(node.children ?? []);
   const [loaded, setLoaded] = useState(false);
   const isRenaming = renamingPath === node.path;
+
+  // Expand (and load) so "New file/folder" is visible when the row toolbar or context menu targets this dir or a descendant.
+  useEffect(() => {
+    if (!creatingIn || !node.isDirectory) return;
+    const target = creatingIn.dirPath;
+    const mustReveal =
+      target === node.path || target.startsWith(node.path + '/');
+    if (!mustReveal) return;
+    setExpanded(true);
+    if (!loaded) {
+      void loadChildren(node).then((kids) => {
+        setChildren(kids);
+        setLoaded(true);
+      });
+    }
+  }, [creatingIn?.dirPath, creatingIn?.type, node.path, node.isDirectory, loadChildren, loaded]);
 
   // Re-fetch children when refreshKey changes (after copy/move operations)
   useEffect(() => {
@@ -455,12 +512,9 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   return (
     <>
       <div
-        className={`fileTreeRow ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
-        style={{ paddingLeft: 8 + depth * 16 }}
-        onClick={handleClick}
+        className={`fileTreeRow fileTreeRow--node ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
+        style={{ paddingLeft: fileTreeRowPaddingLeft(depth) }}
         onContextMenu={(e) => onContextMenu(e, node)}
-        draggable={!isRenaming}
-        onDragStart={handleDragStart}
         {...(node.isDirectory
           ? {
               onDragOver: (e: React.DragEvent) => onDragOverDir(e, node.path),
@@ -469,35 +523,68 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
             }
           : {})}
       >
-        {node.isDirectory ? (
-          <>
-            <ChevronRightIcon
-              className={`fileTreeChevron ${expanded ? 'fileTreeChevron--open' : ''}`}
+        <div
+          className="fileTreeRowMain"
+          onClick={handleClick}
+          draggable={!isRenaming}
+          onDragStart={handleDragStart}
+        >
+          {node.isDirectory ? (
+            <>
+              <ChevronRightIcon
+                className={`fileTreeChevron ${expanded ? 'fileTreeChevron--open' : ''}`}
+              />
+              {expanded ? (
+                <FolderOpenIcon className="fileTreeIcon" />
+              ) : (
+                <FolderIcon className="fileTreeIcon" />
+              )}
+            </>
+          ) : (
+            <>
+              <span className="fileTreeChevronSpacer" />
+              <FileIcon className="fileTreeIcon" />
+            </>
+          )}
+          {isRenaming ? (
+            <RenameInput
+              initialName={node.name}
+              onCommit={(newName) => onRenameCommit(node.path, newName)}
+              onCancel={onRenameCancel}
             />
-            {expanded ? (
-              <FolderOpenIcon className="fileTreeIcon" />
-            ) : (
-              <FolderIcon className="fileTreeIcon" />
-            )}
-          </>
-        ) : (
-          <>
-            <span className="fileTreeChevronSpacer" />
-            <FileIcon className="fileTreeIcon" />
-          </>
-        )}
-        {isRenaming ? (
-          <RenameInput
-            initialName={node.name}
-            onCommit={(newName) => onRenameCommit(node.path, newName)}
-            onCancel={onRenameCancel}
-          />
-        ) : (
-          <span className="fileTreeName">{node.name}</span>
+          ) : (
+            <span className="fileTreeName">{node.name}</span>
+          )}
+        </div>
+        {!isRenaming && (
+          <div className="fileTreeRowActions">
+            <button
+              type="button"
+              className="fileTreeRowAction"
+              title="Rename"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRenameRequest(node.path);
+              }}
+            >
+              <PencilIcon style={{ width: 14, height: 14 }} />
+            </button>
+            <button
+              type="button"
+              className="fileTreeRowAction fileTreeRowAction--delete"
+              title="Delete"
+              onClick={(e) => {
+                e.stopPropagation();
+                void onDeleteRequest(node.path);
+              }}
+            >
+              <TrashIcon style={{ width: 14, height: 14 }} />
+            </button>
+          </div>
         )}
       </div>
       {expanded && creatingIn?.dirPath === node.path && (
-        <div className="fileTreeRow" style={{ paddingLeft: 8 + (depth + 1) * 16 }}>
+        <div className="fileTreeRow" style={{ paddingLeft: fileTreeRowPaddingLeft(depth + 1) }}>
           {creatingIn.type === 'folder' ? (
             <FolderIcon className="fileTreeIcon" style={{ marginLeft: 18 }} />
           ) : (
@@ -530,6 +617,8 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
             renamingPath={renamingPath}
             onRenameCommit={onRenameCommit}
             onRenameCancel={onRenameCancel}
+            onRenameRequest={onRenameRequest}
+            onDeleteRequest={onDeleteRequest}
             creatingIn={creatingIn}
             onCreateCommit={onCreateCommit}
             onCreateCancel={onCreateCancel}
