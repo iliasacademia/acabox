@@ -1,4 +1,5 @@
 import * as path from 'path';
+import { DateTime } from 'luxon';
 import { getBrowserSessionsByTimeRange } from './browserMonitor/repository';
 import { getFileSessionsByTimeRange } from './fileMonitor/repository';
 import { getSessionFilesBySessionIds } from './db/sessionFilesRepository';
@@ -26,23 +27,16 @@ export interface ActivityQueryResult {
 }
 
 export function periodToSince(period?: string): string | null {
-  const now = new Date();
+  const now = DateTime.now();
   switch (period) {
-    case 'today': {
-      const start = new Date(now);
-      start.setHours(0, 0, 0, 0);
-      return start.toISOString();
-    }
+    case 'today':
+      return now.startOf('day').toUTC().toISO();
     case 'last_2h':
-      return new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+      return now.minus({ hours: 2 }).toUTC().toISO();
     case 'last_24h':
-      return new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
-    case 'this_week': {
-      const start = new Date(now);
-      start.setDate(start.getDate() - start.getDay());
-      start.setHours(0, 0, 0, 0);
-      return start.toISOString();
-    }
+      return now.minus({ hours: 24 }).toUTC().toISO();
+    case 'this_week':
+      return now.startOf('week', { useLocaleWeeks: true }).toUTC().toISO();
     default:
       return null;
   }
