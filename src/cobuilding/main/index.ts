@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession, type AgentSession } from './agentSession';
 import type { IPCAttachment } from '../shared/types';
-import { copySkillsToWorkspace } from './skills';
+import { copyClaudeMdToWorkspace, copySkillsToWorkspace } from './skills';
 import { containerService } from './containerService';
 import { initDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -118,6 +118,11 @@ app.whenReady().then(() => {
     activeWorkspace = getActiveWorkspace() ?? null;
     log.info('[APP] Active workspace:', activeWorkspace ? activeWorkspace.name : 'none');
 
+    if (activeWorkspace) {
+      copySkillsToWorkspace(activeWorkspace.directory_path);
+      copyClaudeMdToWorkspace(activeWorkspace.directory_path);
+    }
+
     log.info('[APP] Creating main window...');
     mainWindow = new BrowserWindow({
       width: 1440,
@@ -196,6 +201,7 @@ ipcMain.handle(
 
     fs.mkdirSync(directoryPath, { recursive: true });
     copySkillsToWorkspace(directoryPath);
+    copyClaudeMdToWorkspace(directoryPath);
 
     const id = randomUUID();
     createWorkspace(id, name, directoryPath, data.apiKey);
@@ -223,9 +229,15 @@ ipcMain.handle(
     const name = validateWorkspaceName(data.name);
     const directoryPath = validateDirectoryPath(data.directoryPath);
 
-    if (directoryPath !== activeWorkspace.directory_path && !fs.existsSync(directoryPath)) {
-      fs.mkdirSync(directoryPath, { recursive: true });
+    if (directoryPath !== activeWorkspace.directory_path) {
+      // Stop the container so it restarts with the new volume mount
+      containerService.stop();
+
+      if (!fs.existsSync(directoryPath)) {
+        fs.mkdirSync(directoryPath, { recursive: true });
+      }
       copySkillsToWorkspace(directoryPath);
+      copyClaudeMdToWorkspace(directoryPath);
     }
 
     updateWorkspace(activeWorkspace.id, name, directoryPath, data.apiKey);

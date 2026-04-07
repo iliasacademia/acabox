@@ -31,9 +31,9 @@ const TESTS: TestDefinition[] = [
     name: 'Skill scripts present',
     description: 'Check that DE analysis scripts are installed',
     run: async () => {
-      const { stdout } = await window.containerAPI.exec(['ls', '/skills/differential-expression/scripts/']);
+      const { stdout } = await window.containerAPI.exec(['ls', '.claude/skills/differential-expression/scripts/']);
       const files = stdout.trim().split('\n').filter(Boolean);
-      if (files.length === 0) return { pass: false, detail: 'No scripts found in /skills/differential-expression/scripts/' };
+      if (files.length === 0) return { pass: false, detail: 'No scripts found in .claude/skills/differential-expression/scripts/' };
       return { pass: true, detail: `Found: ${files.join(', ')}` };
     },
   },
