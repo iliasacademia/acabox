@@ -2,6 +2,9 @@ import { app, Tray, Menu, nativeImage } from 'electron';
 import * as path from 'path';
 import log from 'electron-log';
 import { isUpdaterConfigured, checkForUpdates } from './updater';
+import { startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
+import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from './browserMonitor';
+import { startHourlySummary, stopHourlySummary, isHourlySummaryRunning } from './hourlySummary';
 
 let tray: Tray | null = null;
 let currentTrayMenu: Electron.Menu | null = null;
@@ -23,7 +26,82 @@ export function rebuildTrayMenu(statusLabel?: string) {
     setTimeout(() => rebuildTrayMenu(), 5000);
   }
 
+  menuItems.push({ type: 'separator' });
+
+  if (isBrowserMonitorRunning()) {
+    menuItems.push(
+      {
+        label: 'Browser Monitor Enabled',
+        enabled: false,
+      },
+      {
+        label: 'Stop Browser Monitor',
+        click: async () => {
+          await stopBrowserMonitor();
+          rebuildTrayMenu();
+        },
+      },
+    );
+  } else {
+    menuItems.push({
+      label: 'Start Browser Monitor',
+      click: async () => {
+        await startBrowserMonitor();
+        rebuildTrayMenu();
+      },
+    });
+  }
+
+  if (isFileMonitorRunning()) {
+    menuItems.push(
+      {
+        label: 'File Monitor Enabled',
+        enabled: false,
+      },
+      {
+        label: 'Stop File Monitor',
+        click: () => {
+          stopFileMonitor();
+          rebuildTrayMenu();
+        },
+      },
+    );
+  } else {
+    menuItems.push({
+      label: 'Start File Monitor',
+      click: () => {
+        startFileMonitor();
+        rebuildTrayMenu();
+      },
+    });
+  }
+
+  if (isHourlySummaryRunning()) {
+    menuItems.push(
+      {
+        label: 'Hourly Summary Enabled',
+        enabled: false,
+      },
+      {
+        label: 'Stop Hourly Summary',
+        click: () => {
+          stopHourlySummary();
+          rebuildTrayMenu();
+        },
+      },
+    );
+  } else {
+    menuItems.push({
+      label: 'Start Hourly Summary',
+      click: () => {
+        startHourlySummary();
+        rebuildTrayMenu();
+      },
+    });
+  }
+
   menuItems.push(
+    { type: 'separator' },
     {
       label: `Version: ${app.getVersion()}`,
       enabled: false,
