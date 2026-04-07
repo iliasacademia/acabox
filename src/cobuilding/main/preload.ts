@@ -72,6 +72,12 @@ contextBridge.exposeInMainWorld('containerAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('jupyterAPI', {
+  startGateway: () => ipcRenderer.invoke('jupyter:startGateway'),
+  stopGateway: () => ipcRenderer.invoke('jupyter:stopGateway'),
+  gatewayStatus: () => ipcRenderer.invoke('jupyter:gatewayStatus'),
+});
+
 contextBridge.exposeInMainWorld('observationsAPI', {
   getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
   getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),

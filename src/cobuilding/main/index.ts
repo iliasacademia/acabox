@@ -8,6 +8,7 @@ import { createAgentSession, type AgentSession } from './agentSession';
 import type { IPCAttachment } from '../shared/types';
 import { copyClaudeMdToWorkspace, copySkillsToWorkspace, syncMiniAppAssets } from './skills';
 import { containerService } from './containerService';
+import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
 import {
@@ -106,9 +107,6 @@ app.whenReady().then(() => {
     return net.fetch(`file://${resolved}`);
   });
 
-  initDatabase(app.getPath('userData'));
-  initObservationsDatabase(app.getPath('userData'));
-  activeWorkspace = getActiveWorkspace() ?? null;
   log.info('[APP] App ready. Version:', app.getVersion(), 'Packaged:', app.isPackaged);
   log.info('[APP] userData path:', app.getPath('userData'));
 
@@ -236,7 +234,8 @@ ipcMain.handle(
     const directoryPath = validateDirectoryPath(data.directoryPath);
 
     if (directoryPath !== activeWorkspace.directory_path) {
-      // Stop the container so it restarts with the new volume mount
+      // Stop containers so they restart with the new volume mount
+      kernelGatewayService.stop();
       containerService.stop();
 
       if (!fs.existsSync(directoryPath)) {
@@ -322,6 +321,24 @@ ipcMain.handle('container:ensureSetup', async () => {
   });
 });
 
+// Jupyter kernel gateway IPC handlers
+ipcMain.handle('jupyter:startGateway', async () => {
+  try {
+    if (!activeWorkspace) return { error: 'No active workspace' };
+    return await kernelGatewayService.start(activeWorkspace.directory_path);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('jupyter:stopGateway', () => {
+  kernelGatewayService.stop();
+});
+
+ipcMain.handle('jupyter:gatewayStatus', () => {
+  return kernelGatewayService.getStatus();
+});
+
 // Observations IPC handlers
 ipcMain.handle('observations:getBrowserSessions', () => getAllBrowserSessions());
 ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
@@ -381,6 +398,7 @@ app.on('window-all-closed', () => {
     session.destroy();
   }
   sessions.clear();
+  kernelGatewayService.stop();
   containerService.stop();
   stopHourlySummary();
   stopFileMonitor();

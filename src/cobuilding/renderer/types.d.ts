@@ -84,6 +84,12 @@ interface ContainerAPI {
   onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
 }
 
+interface JupyterAPI {
+  startGateway(): Promise<{ url: string } | { error: string }>;
+  stopGateway(): Promise<void>;
+  gatewayStatus(): Promise<{ running: boolean; url: string | null }>;
+}
+
 declare global {
   interface Window {
     chatAPI: ChatAPI;
@@ -91,5 +97,6 @@ declare global {
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
     containerAPI: ContainerAPI;
+    jupyterAPI: JupyterAPI;
   }
 }
