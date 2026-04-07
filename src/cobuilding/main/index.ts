@@ -27,6 +27,7 @@ import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
 import { startReactions, stopReactions } from './browserMonitor';
 import { initFileMonitor, stopFileMonitor } from './fileMonitor';
+import { startHourlySummary, stopHourlySummary } from './hourlySummary';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -138,6 +139,7 @@ app.whenReady().then(() => {
     log.info('[APP] Updater and tray initialized.');
 
     startReactions();
+    startHourlySummary();
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
     log.info('[APP] Loading URL:', url);
@@ -354,6 +356,7 @@ app.on('window-all-closed', () => {
   }
   sessions.clear();
   containerService.stop();
+  stopHourlySummary();
   stopFileMonitor();
   stopReactions();
   closeObservationsDatabase();
