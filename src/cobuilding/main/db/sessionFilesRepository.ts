@@ -39,6 +39,7 @@ function prepareStatements() {
     getBySessionIds: db.prepare(`
       SELECT * FROM session_files WHERE session_type = ? AND session_id IN (SELECT value FROM json_each(?))
     `),
+    getAll: db.prepare('SELECT * FROM session_files ORDER BY created_at DESC'),
   };
 }
 
@@ -94,6 +95,10 @@ export function createSessionFile(
     log.warn('[SessionFiles] Failed to create session file:', err);
     return null;
   }
+}
+
+export function getAllSessionFiles(): SessionFile[] {
+  return getStmts().getAll.all() as SessionFile[];
 }
 
 export function getSessionFiles(sessionType: string, sessionId: number): SessionFileWithPath[] {

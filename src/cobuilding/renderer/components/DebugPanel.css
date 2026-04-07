@@ -310,3 +310,53 @@
   background: #fde8e8;
   border-color: #cf222e;
 }
+
+/* ─── Subtitles ─── */
+
+.debugSection__subtitle {
+  margin: 20px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #444;
+}
+
+/* ─── Tables ─── */
+
+.debugSection__tableWrap {
+  overflow-x: auto;
+  margin-bottom: 8px;
+}
+
+.debugSection__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.debugSection__table th,
+.debugSection__table td {
+  padding: 4px 8px;
+  border: 1px solid #e0e0e0;
+  text-align: left;
+  white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.debugSection__table th {
+  background: #f5f5f5;
+  font-weight: 600;
+  color: #555;
+  position: sticky;
+  top: 0;
+}
+
+.debugSection__table tr:hover {
+  background: #f8f8ff;
+}
+
+.debugSection__mono {
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 10px;
+}
