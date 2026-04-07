@@ -1,20 +1,25 @@
+import { DateTime } from 'luxon';
+
 export function getLocalDate(date?: Date): string {
-  const d = date ?? new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const dt = date ? DateTime.fromJSDate(date) : DateTime.now();
+  return dt.toFormat('yyyy-MM-dd');
 }
 
 export function getLocalTime(date?: Date): string {
-  const d = date ?? new Date();
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const dt = date ? DateTime.fromJSDate(date) : DateTime.now();
+  return dt.toFormat('HH:mm');
 }
 
 export function getLocalTimezone(): string {
-  return new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
-    .formatToParts(new Date())
-    .find((p) => p.type === 'timeZoneName')?.value ?? '';
+  return DateTime.now().offsetNameShort ?? '';
+}
+
+export function utcToLocal(timestamp: string | number): string {
+  const dt = typeof timestamp === 'number'
+    ? DateTime.fromSeconds(timestamp, { zone: 'utc' })
+    : DateTime.fromISO(timestamp, { zone: 'utc' });
+  if (!dt.isValid) return String(timestamp);
+  return dt.toLocal().toISO()!;
 }
 
 /**
