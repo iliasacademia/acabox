@@ -81,7 +81,7 @@ function validateDirectoryPath(directoryPath: string): string {
 }
 
 app.setName('Academia Coscientist');
-app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron'));
+app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron', app.isPackaged ? 'production' : 'development'));
 
 let mainWindow: BrowserWindow | null = null;
 let activeWorkspace: Workspace | null = null;
