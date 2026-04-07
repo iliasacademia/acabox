@@ -14,7 +14,15 @@ export async function startServer(accumulator: SessionAccumulator): Promise<numb
 
   fastify = Fastify({ logger: false, disableRequestLogging: true });
 
-  await fastify.register(cors, { origin: '*' });
+  await fastify.register(cors, {
+    origin: (origin, cb) => {
+      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Not allowed'), false);
+      }
+    },
+  });
   await registerBrowserMonitorRoutes(fastify, accumulator);
 
   const port = BROWSER_MONITOR_CONFIG.server_port;

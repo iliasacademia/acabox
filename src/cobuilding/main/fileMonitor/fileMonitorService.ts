@@ -1,4 +1,4 @@
-import { spawn, execFileSync, type ChildProcess } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { createInterface } from 'readline';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -71,7 +71,7 @@ function snapshotFile(documentUrl: string): string | null {
 
   try {
     fs.mkdirSync(snapshotDir, { recursive: true });
-    execFileSync('cp', ['-c', srcPath, destPath]);
+    fs.copyFileSync(srcPath, destPath, fs.constants.COPYFILE_FICLONE);
     log.info('[FileMonitor] Snapshot created:', destPath);
     return snapshotId;
   } catch (err) {

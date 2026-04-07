@@ -39,7 +39,7 @@ function prepareStatements() {
              total_dwell, max_scroll_depth, selections, snapshot_count
       FROM browser_sessions
       WHERE last_snapshot >= ? AND last_snapshot <= ?
-        AND (title LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+        AND (title LIKE '%' || ? || '%' ESCAPE '\' OR url LIKE '%' || ? || '%' ESCAPE '\')
       ORDER BY last_snapshot DESC
     `),
     getByTimeRangeWithContent: db.prepare(`
@@ -54,7 +54,7 @@ function prepareStatements() {
              total_dwell, max_scroll_depth, selections, snapshot_count, full_text
       FROM browser_sessions
       WHERE last_snapshot >= ? AND last_snapshot <= ?
-        AND (title LIKE '%' || ? || '%' OR url LIKE '%' || ? || '%')
+        AND (title LIKE '%' || ? || '%' ESCAPE '\' OR url LIKE '%' || ? || '%' ESCAPE '\')
       ORDER BY last_snapshot DESC
     `),
   };
@@ -132,10 +132,11 @@ export function getBrowserSessionsByTimeRange(
   includeContent?: boolean,
 ): BrowserSessionSummary[] {
   let rows: any[];
-  if (search && includeContent) {
-    rows = getStmts().getByTimeRangeWithSearchAndContent.all(since, until, search, search) as any[];
-  } else if (search) {
-    rows = getStmts().getByTimeRangeWithSearch.all(since, until, search, search) as any[];
+  const escapedSearch = search ? search.replace(/[%_\\]/g, '\\$&') : undefined;
+  if (escapedSearch && includeContent) {
+    rows = getStmts().getByTimeRangeWithSearchAndContent.all(since, until, escapedSearch, escapedSearch) as any[];
+  } else if (escapedSearch) {
+    rows = getStmts().getByTimeRangeWithSearch.all(since, until, escapedSearch, escapedSearch) as any[];
   } else if (includeContent) {
     rows = getStmts().getByTimeRangeWithContent.all(since, until) as any[];
   } else {
