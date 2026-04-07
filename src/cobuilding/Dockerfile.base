@@ -75,8 +75,20 @@ RUN UBUNTU_CODENAME=$(grep UBUNTU_CODENAME /etc/os-release | cut -d= -f2) && \
     'ggnewscale' \
     ))"
 
-# Verify R packages load correctly at build time
-RUN R --no-save -e 'library(DESeq2); library(ggplot2); library(dplyr); library(jsonlite); cat("All R packages verified OK\n")'
+# Verify R packages load correctly at build time (verbose errors for CI debugging)
+RUN R --no-save -e ' \
+    pkgs <- c("DESeq2","SummarizedExperiment","apeglm","AnnotationDbi","fgsea", \
+              "ggplot2","dplyr","jsonlite","IRkernel","data.table","tidyr", \
+              "stringr","readr","purrr","ggtext","ggrepel","igraph","ggraph","ggnewscale"); \
+    failed <- character(0); \
+    for (p in pkgs) { \
+      tryCatch( \
+        { library(p, character.only=TRUE); cat(p, as.character(packageVersion(p)), "OK\n") }, \
+        error = function(e) { cat("FAIL", p, ":", conditionMessage(e), "\n"); failed <<- c(failed, p) } \
+      ) \
+    }; \
+    if (length(failed) > 0) { cat("\n** FAILED packages:", paste(failed, collapse=", "), "\n"); quit(status=1) }; \
+    cat("\nAll", length(pkgs), "R packages verified OK\n")'
 
 # Register R kernel for Jupyter (manual kernelspec to avoid installspec issues in CI)
 RUN mkdir -p /usr/local/share/jupyter/kernels/ir && \
