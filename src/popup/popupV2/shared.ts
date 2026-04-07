@@ -29,6 +29,8 @@ export const POPUP_HEIGHT_ENABLE_FEEDBACK = 250 + POPUP_TITLE_BAR_HEIGHT;
 export const POPUP_HEIGHT_UNSAVED_DOCUMENT = 190 + POPUP_TITLE_BAR_HEIGHT;
 export const REVIEW_STATUS_CARD_HEIGHT = 72;
 export const ERROR_MESSAGE_HEIGHT = 60;
+export const POPUP_HEIGHT_REVIEW_INPUT = 380 + POPUP_TITLE_BAR_HEIGHT;
+export const POPUP_HEIGHT_REVIEW_INPUT_PROGRESS = 250 + POPUP_TITLE_BAR_HEIGHT;
 export const POPUP_HEIGHT_CONVERSATIONS_BASE = 100; // section header + "view all" row + spacing
 export const POPUP_HEIGHT_PER_CONVERSATION = 74; // height per conversation card including gap
 
@@ -83,6 +85,7 @@ export interface WordPollResponse {
   reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
   selectedTextReviewStartedAt?: number;
   selectedText?: string;
+  isAwaitingReviewInput?: boolean;
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
   fullStoryConfig?: FullStoryConfig;
@@ -100,7 +103,7 @@ export interface WebSocketMessage {
 
 export type ReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
 
-export type ViewMode = 'menu' | 'review';
+export type ViewMode = 'menu' | 'review' | 'review-input';
 
 export interface NavigateRequest {
   page: 'conversation' | 'conversations' | 'external';

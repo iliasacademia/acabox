@@ -6,7 +6,7 @@
  */
 
 export interface ApiCallOptions {
-  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   endpoint: string;
   data?: Record<string, unknown>;
   /** Browser File object for overlay environments where filesystem paths are unavailable */

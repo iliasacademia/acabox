@@ -152,7 +152,8 @@ export async function registerBridgeRoutes(
           windowMonitorService.openPopupForWindow(wid);
         }
       } else if (action === 'showReviewInputOverlay' && wid) {
-        windowMonitorService.openReviewOverlay(wid);
+        windowMonitorService.openReviewInput(wid);
+        windowMonitorService.openPopupForWindow(wid);
       } else if (action === 'openReviewPanelV3' && wid) {
         windowMonitorService.openReviewPanelV3(wid);
       } else if (action === 'closeReviewPanelV3' && wid) {
@@ -160,7 +161,7 @@ export async function registerBridgeRoutes(
       } else if (action === 'clearReview' && wid) {
         // Clear review state when user dismisses the overlay
         windowMonitorService.clearSelectedTextReviewState(wid);
-        windowMonitorService.closeReviewOverlay(wid);
+        windowMonitorService.closeReviewInput(wid);
       } else {
         logger.info(`[Bridge API] Unhandled action: ${action}, wid: ${wid}`);
       }

@@ -17,6 +17,7 @@ export const PodmanDebug: React.FC = () => {
   const [containerName, setContainerName] = useState('');
   const [imageBuilt, setImageBuilt] = useState(false);
   const [imageSource, setImageSource] = useState<ImageSource>('local');
+  const [imageInProgress, setImageInProgress] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -50,6 +51,13 @@ export const PodmanDebug: React.FC = () => {
   useEffect(() => {
     const cleanup = window.containerAPI.onProgress((progress) => {
       setProgressMessage(`[${progress.stage}] ${progress.message}`);
+      const imageStages = ['pull', 'build', 'build-image'];
+      const imageDoneStages = ['build-image-done', 'run', 'ready', 'setup-done'];
+      if (imageStages.includes(progress.stage)) {
+        setImageInProgress(true);
+      } else if (imageDoneStages.includes(progress.stage)) {
+        setImageInProgress(false);
+      }
     });
     return cleanup;
   }, []);
@@ -210,7 +218,7 @@ export const PodmanDebug: React.FC = () => {
       )}
 
       <div className="debugSection__modeToggle">
-        <span className="debugSection__modeLabel">Container Image:</span>
+        <span className="debugSection__modeLabel">Image Source:</span>
         <button
           className={`debugSection__modeBtn ${imageSource === 'registry' ? 'debugSection__modeBtn--active' : ''}`}
           onClick={() => handleImageSourceChange('registry')}
@@ -231,25 +239,42 @@ export const PodmanDebug: React.FC = () => {
       </div>
 
       <div className="debugSection__infoRow">
-        <span className="debugSection__infoLabel">Container:</span>
-        <code className="debugSection__infoValue">{containerName}</code>
+        <span className="debugSection__infoLabel">Image:</span>
+        {imageInProgress ? (
+          <span className="debugSection__imageInProgress">
+            {imageSource === 'registry' ? 'Downloading...' : 'Building...'}
+          </span>
+        ) : imageBuilt ? (
+          <>
+            <span className="debugSection__bundledOk">
+              {imageSource === 'registry' ? 'Image downloaded' : 'Ready'}
+            </span>
+            <button
+              className="debugSection__btnInline debugSection__btnInline--danger"
+              onClick={handleDeleteImage}
+              disabled={running}
+              title="Remove the container image"
+            >
+              <Trash2 size={14} />
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="debugSection__imageNotBuilt">Not built</span>
+            <button
+              className="debugSection__btnInline"
+              onClick={handleStart}
+              disabled={loading || running || needsDownload}
+            >
+              {imageSource === 'local' ? 'Build image' : 'Download image'}
+            </button>
+          </>
+        )}
       </div>
 
       <div className="debugSection__infoRow">
-        <span className="debugSection__infoLabel">Image:</span>
-        <span className={imageBuilt ? 'debugSection__bundledOk' : 'debugSection__imageNotBuilt'}>
-          {imageBuilt ? 'Image built' : 'Image not built'}
-        </span>
-        {imageBuilt && (
-          <button
-            className="debugSection__btnInline debugSection__btnInline--danger"
-            onClick={handleDeleteImage}
-            disabled={running}
-            title="Remove the container image"
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
+        <span className="debugSection__infoLabel">Container Name:</span>
+        <code className="debugSection__infoValue">{containerName}</code>
       </div>
 
       <div className="debugSection__status">

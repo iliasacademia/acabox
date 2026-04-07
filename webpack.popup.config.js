@@ -18,7 +18,6 @@ module.exports = {
     reviewButton: './src/popup/ReviewButton.tsx',
     reviewButtonV3: './src/popup/ReviewButtonV3.tsx',
     reviewPanelV3: './src/popup/ReviewPanelV3.tsx',
-    reviewStatusOverlay: './src/popup/ReviewStatusOverlay.tsx',
   },
   output: {
     path: path.resolve(__dirname, 'dist/popup'),
@@ -84,13 +83,6 @@ module.exports = {
       template: './src/popup/review-panel-v3.html',
       filename: 'reviewPanelV3/index.html',
       chunks: ['reviewPanelV3'],
-      inject: false,
-      scriptLoading: 'blocking',
-    }),
-    new HtmlWebpackPlugin({
-      template: './src/popup/review-status-overlay.html',
-      filename: 'reviewStatusOverlay/index.html',
-      chunks: ['reviewStatusOverlay'],
       inject: false,
       scriptLoading: 'blocking',
     }),

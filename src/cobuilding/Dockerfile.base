@@ -9,7 +9,6 @@ RUN apt-get update && apt-get install -y \
     texlive-latex-extra \
     texlive-latex-recommended \
     texlive-fonts-recommended \
-    texlive-fonts-extra \
     texlive-science \
     texlive-pictures \
     texlive-luatex \
@@ -36,6 +35,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     openpyxl \
     "markitdown[pptx]" \
     jupyter_kernel_gateway \
+    jupyter-client \
     ipykernel
 
 # Install Bioconductor packages
@@ -50,12 +50,10 @@ RUN R -e 'BiocManager::install(c( \
     "fgsea" \
 ))'
 
-# Register R kernel for Jupyter
-RUN R -e 'install.packages("IRkernel"); IRkernel::installspec(user = FALSE)'
-
-# Install CRAN packages
+# Install CRAN packages + IRkernel
 ENV CRAN=https://packagemanager.posit.co/cran/__linux__/jammy/latest
 RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
+    "IRkernel", \
     "argparse", \
     "data.table", \
     "dplyr", \
@@ -73,5 +71,14 @@ RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
     "ggraph", \
     "ggnewscale" \
 ))'
+
+# Verify jupyter is available
+RUN which jupyter && jupyter --version
+
+# Register R kernel for Jupyter
+RUN R -e 'cat("IRkernel version:", as.character(packageVersion("IRkernel")), "\n"); IRkernel::installspec(user = FALSE)'
+
+# Verify kernel was registered
+RUN jupyter kernelspec list
 
 WORKDIR /data

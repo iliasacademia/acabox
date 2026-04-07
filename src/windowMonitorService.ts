@@ -29,9 +29,6 @@ const POPUP_WIDTH = 370;
 const POPUP_HEIGHT = 400;
 const POPUP_GAP_ABOVE_BUTTON = 10;
 
-const REVIEW_STATUS_OVERLAY_HEIGHT = 250;
-const REVIEW_STATUS_OVERLAY_INPUT_HEIGHT = 380;
-const REVIEW_STATUS_OVERLAY_GAP = 4;
 
 const REVIEW_BUTTON_WIDTH = 120;
 const REVIEW_BUTTON_HEIGHT = 46;
@@ -67,36 +64,6 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       },
     },
     {
-      keyPrefix: 'review-status-overlay',
-      pathSuffix: '/ui/popup/reviewStatusOverlay/',
-      forApp: 'com.microsoft.Word',
-      computeFrame: (bounds: WindowBounds, screenHeight: number, _contentBounds, _selectionBounds, windowId?: string) => {
-        // Don't show if popup is open (they overlap)
-        if (windowId && service['popupToggledOpen'].has(windowId)) {
-          return null;
-        }
-
-        // Show if overlay explicitly opened (input mode) OR active review
-        if (!windowId || (!service['reviewOverlayOpen'].has(windowId) && !service['selectedTextReviewState'].has(windowId))) {
-          return null;
-        }
-
-        // Taller when in input mode (overlay open but no active review yet)
-        const isInputMode = service['reviewOverlayOpen'].has(windowId) && !service['selectedTextReviewState'].has(windowId);
-        const overlayHeight = isInputMode ? REVIEW_STATUS_OVERLAY_INPUT_HEIGHT : REVIEW_STATUS_OVERLAY_HEIGHT;
-
-        const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
-        const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
-
-        return {
-          x: bounds.x + BUTTON_LEFT_MARGIN,
-          y: buttonTopEdge + REVIEW_STATUS_OVERLAY_GAP,
-          width: POPUP_WIDTH,
-          height: overlayHeight,
-        };
-      },
-    },
-    {
       keyPrefix: 'popup-v2',
       pathSuffix: '/ui/popup/academiaNotificationsV2/',
       forApp: 'com.microsoft.Word',
@@ -118,8 +85,8 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
         if (!_contentBounds) return null;
 
-        // Hide review button when overlay is open
-        if (windowId && service['reviewOverlayOpen'].has(windowId)) return null;
+        // Hide review button when review input is open
+        if (windowId && service['reviewInputOpen'].has(windowId)) return null;
 
         if (!selectionBounds) return null;
 
@@ -278,7 +245,7 @@ export class WindowMonitorService {
   private webviewManagerProcess: ChildProcess | null = null;
   private state: SystemState = createInitialState();
   private popupToggledOpen: Set<string> = new Set();
-  private reviewOverlayOpen: Set<string> = new Set();
+  private reviewInputOpen: Set<string> = new Set();
   private popupHeightOverrides: Map<string, number> = new Map();
   private buttonDragOffsets: Map<string, { dx: number; dy: number }> = new Map();
   private popupSizeOverrides: Map<string, { width: number; height: number }> = new Map();
@@ -471,7 +438,7 @@ export class WindowMonitorService {
           });
         }
         this.popupToggledOpen.delete(event.window.id);
-        this.reviewOverlayOpen.delete(event.window.id);
+        this.reviewInputOpen.delete(event.window.id);
         this.popupHeightOverrides.delete(event.window.id);
         this.buttonDragOffsets.delete(event.window.id);
         this.popupSizeOverrides.delete(event.window.id);
@@ -594,8 +561,6 @@ export class WindowMonitorService {
       const offset = this.buttonDragOffsets.get(windowId)!;
       const buttonKey = 'button-v2';
       const popupKey = 'popup-v2';
-      const reviewStatusKey = 'review-status-overlay';
-
       let windowBounds: WindowBounds | null = focused?.window.bounds ?? null;
 
       if (windowBounds) {
@@ -621,20 +586,12 @@ export class WindowMonitorService {
           desiredState[popupKey].frame.x += clampedDx;
           desiredState[popupKey].frame.y += clampedDy;
         }
-        if (desiredState[reviewStatusKey]) {
-          desiredState[reviewStatusKey].frame.x += clampedDx;
-          desiredState[reviewStatusKey].frame.y += clampedDy;
-        }
       } else {
         desiredState[buttonKey].frame.x += offset.dx;
         desiredState[buttonKey].frame.y += offset.dy;
         if (desiredState[popupKey]) {
           desiredState[popupKey].frame.x += offset.dx;
           desiredState[popupKey].frame.y += offset.dy;
-        }
-        if (desiredState[reviewStatusKey]) {
-          desiredState[reviewStatusKey].frame.x += offset.dx;
-          desiredState[reviewStatusKey].frame.y += offset.dy;
         }
       }
     }
@@ -644,7 +601,7 @@ export class WindowMonitorService {
     }
 
     // Diff visibility — v4 uses global keys directly
-    const V4_VISIBILITY_KEYS = ['button-v2', 'popup-v2', 'review-button', 'review-status-overlay', 'review-panel-v3', 'review-button-v3'];
+    const V4_VISIBILITY_KEYS = ['button-v2', 'popup-v2', 'review-button', 'review-panel-v3', 'review-button-v3'];
     let visibilityChanged = false;
     for (const key of V4_VISIBILITY_KEYS) {
       const newVisible = desiredState[key]?.visible ?? false;
@@ -831,6 +788,7 @@ export class WindowMonitorService {
       this.popupSizeOverrides.delete(windowId);
       if (clearReviewState) {
         this.clearSelectedTextReviewState(windowId);
+        this.closeReviewInput(windowId);
       }
       this.reviewErrorMessages.delete(windowId);
       this.pushWebviewState();
@@ -887,20 +845,20 @@ export class WindowMonitorService {
     return null;
   }
 
-  openReviewOverlay(windowId: string): void {
-    this.reviewOverlayOpen.add(windowId);
-    logger.info(`[WindowMonitor] Review overlay opened for window ${windowId}`);
+  openReviewInput(windowId: string): void {
+    this.reviewInputOpen.add(windowId);
+    logger.info(`[WindowMonitor] Review input opened for window ${windowId}`);
     this.pushWebviewState();
   }
 
-  closeReviewOverlay(windowId: string): void {
-    this.reviewOverlayOpen.delete(windowId);
-    logger.info(`[WindowMonitor] Review overlay closed for window ${windowId}`);
+  closeReviewInput(windowId: string): void {
+    this.reviewInputOpen.delete(windowId);
+    logger.info(`[WindowMonitor] Review input closed for window ${windowId}`);
     this.pushWebviewState();
   }
 
-  isReviewOverlayOpen(windowId: string): boolean {
-    return this.reviewOverlayOpen.has(windowId);
+  isReviewInputOpen(windowId: string): boolean {
+    return this.reviewInputOpen.has(windowId);
   }
 
   openReviewPanelV3(windowId: string): void {
@@ -959,7 +917,7 @@ export class WindowMonitorService {
     this.selectionClearTimers.clear();
     for (const timer of this.documentTextCacheCleanupTimers.values()) clearTimeout(timer);
     this.documentTextCacheCleanupTimers.clear();
-    this.reviewOverlayOpen.clear();
+    this.reviewInputOpen.clear();
     this.reviewErrorMessages.clear();
     this.pendingAutoOpenPaths.clear();
   }
