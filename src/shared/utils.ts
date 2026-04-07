@@ -1,3 +1,22 @@
+export function getLocalDate(date?: Date): string {
+  const d = date ?? new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function getLocalTime(date?: Date): string {
+  const d = date ?? new Date();
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+export function getLocalTimezone(): string {
+  return new Intl.DateTimeFormat('en-US', { timeZoneName: 'short' })
+    .formatToParts(new Date())
+    .find((p) => p.type === 'timeZoneName')?.value ?? '';
+}
+
 /**
  * Strip HTML tags from a string and decode HTML entities
  * @param html HTML string to strip
