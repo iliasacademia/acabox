@@ -1,4 +1,4 @@
-import { query, createSdkMcpServer, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, type SDKUserMessage, type SDKMessage, type SpawnOptions, type HookInput, type SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { ChatStreamMessage, IPCAttachment, Workspace } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
@@ -7,6 +7,7 @@ import { app } from 'electron';
 import path from 'path';
 import log from 'electron-log';
 import { z } from 'zod';
+import { spawn } from 'child_process';
 
 function createActivityMcpServer() {
   return createSdkMcpServer({
@@ -96,6 +97,14 @@ export function createAgentSession(
         prompt: userMessageGenerator(),
         options: {
           pathToClaudeCodeExecutable: getClaudeCliPath(),
+          // Use Electron's bundled Node.js to run cli.js so researchers don't
+          // need Node.js installed. RunAsNode fuse must be enabled in forge.config.js.
+          spawnClaudeCodeProcess: (options: SpawnOptions) =>
+            spawn(process.execPath, ['--no-sandbox', ...options.args], {
+              cwd: options.cwd,
+              env: options.env,
+              signal: options.signal,
+            }),
           model: 'claude-sonnet-4-6',
           ...(sdkSessionId && { resume: sdkSessionId }),
           includePartialMessages: true,
