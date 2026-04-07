@@ -17,6 +17,7 @@ export const PodmanDebug: React.FC = () => {
   const [containerName, setContainerName] = useState('');
   const [imageBuilt, setImageBuilt] = useState(false);
   const [imageSource, setImageSource] = useState<ImageSource>('local');
+  const [imageInProgress, setImageInProgress] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -50,6 +51,13 @@ export const PodmanDebug: React.FC = () => {
   useEffect(() => {
     const cleanup = window.containerAPI.onProgress((progress) => {
       setProgressMessage(`[${progress.stage}] ${progress.message}`);
+      const imageStages = ['pull', 'build', 'build-image'];
+      const imageDoneStages = ['build-image-done', 'run', 'ready', 'setup-done'];
+      if (imageStages.includes(progress.stage)) {
+        setImageInProgress(true);
+      } else if (imageDoneStages.includes(progress.stage)) {
+        setImageInProgress(false);
+      }
     });
     return cleanup;
   }, []);
@@ -232,7 +240,11 @@ export const PodmanDebug: React.FC = () => {
 
       <div className="debugSection__infoRow">
         <span className="debugSection__infoLabel">Image:</span>
-        {imageBuilt ? (
+        {imageInProgress ? (
+          <span className="debugSection__imageInProgress">
+            {imageSource === 'registry' ? 'Downloading...' : 'Building...'}
+          </span>
+        ) : imageBuilt ? (
           <>
             <span className="debugSection__bundledOk">
               {imageSource === 'registry' ? 'Image downloaded' : 'Ready'}

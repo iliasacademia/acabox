@@ -50,12 +50,10 @@ RUN R -e 'BiocManager::install(c( \
     "fgsea" \
 ))'
 
-# Register R kernel for Jupyter
-RUN R -e 'install.packages("IRkernel"); IRkernel::installspec(user = FALSE)'
-
-# Install CRAN packages
+# Install CRAN packages + IRkernel
 ENV CRAN=https://packagemanager.posit.co/cran/__linux__/jammy/latest
 RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
+    "IRkernel", \
     "argparse", \
     "data.table", \
     "dplyr", \
@@ -73,5 +71,8 @@ RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
     "ggraph", \
     "ggnewscale" \
 ))'
+
+# Register R kernel for Jupyter
+RUN R -e 'IRkernel::installspec(user = FALSE)'
 
 WORKDIR /data
