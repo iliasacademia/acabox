@@ -17,6 +17,17 @@ export function getLocalTimezone(): string {
     .find((p) => p.type === 'timeZoneName')?.value ?? '';
 }
 
+export function utcToLocal(timestamp: string | number): string {
+  const d = new Date(typeof timestamp === 'number' ? timestamp * 1000 : timestamp);
+  if (isNaN(d.getTime())) return String(timestamp);
+  const offset = -d.getTimezoneOffset();
+  const sign = offset >= 0 ? '+' : '-';
+  const abs = Math.abs(offset);
+  const hh = String(Math.floor(abs / 60)).padStart(2, '0');
+  const mm = String(abs % 60).padStart(2, '0');
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}.${String(d.getMilliseconds()).padStart(3, '0')}${sign}${hh}:${mm}`;
+}
+
 /**
  * Strip HTML tags from a string and decode HTML entities
  * @param html HTML string to strip

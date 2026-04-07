@@ -1,4 +1,4 @@
-import { stripHtml, getLocalDate, getLocalTime, getLocalTimezone } from '../utils';
+import { stripHtml, getLocalDate, getLocalTime, getLocalTimezone, utcToLocal } from '../utils';
 
 describe('getLocalDate', () => {
   it('should return YYYY-MM-DD for a given date', () => {
@@ -26,6 +26,34 @@ describe('getLocalTimezone', () => {
     const tz = getLocalTimezone();
     expect(typeof tz).toBe('string');
     expect(tz.length).toBeGreaterThan(0);
+  });
+});
+
+describe('utcToLocal', () => {
+  it('should convert a UTC ISO string to local time with offset', () => {
+    const utc = '2024-06-15T10:30:00.000Z';
+    const result = utcToLocal(utc);
+    // Verify it parses to the same instant
+    expect(new Date(result).getTime()).toBe(new Date(utc).getTime());
+    // Verify it contains a timezone offset (not Z)
+    expect(result).not.toContain('Z');
+    expect(result).toMatch(/[+-]\d{2}:\d{2}$/);
+    // Verify local hours are used
+    const localHours = String(new Date(utc).getHours()).padStart(2, '0');
+    expect(result).toContain(`T${localHours}:`);
+  });
+
+  it('should handle Unix epoch seconds', () => {
+    const epochSecs = 1718446200; // 2024-06-15T10:30:00Z
+    const result = utcToLocal(epochSecs);
+    const d = new Date(epochSecs * 1000);
+    const localHours = String(d.getHours()).padStart(2, '0');
+    expect(result).toContain(`T${localHours}:`);
+    expect(result).toMatch(/[+-]\d{2}:\d{2}$/);
+  });
+
+  it('should pass through invalid timestamps', () => {
+    expect(utcToLocal('not-a-date')).toBe('not-a-date');
   });
 });
 

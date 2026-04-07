@@ -2,6 +2,7 @@ import * as path from 'path';
 import { getBrowserSessionsByTimeRange } from './browserMonitor/repository';
 import { getFileSessionsByTimeRange } from './fileMonitor/repository';
 import { getSessionFilesBySessionIds } from './db/sessionFilesRepository';
+import { utcToLocal, getLocalTimezone } from '../../shared/utils';
 
 let getWorkspacePath: () => string | null = () => null;
 
@@ -19,7 +20,7 @@ export interface ActivityQueryParams {
 }
 
 export interface ActivityQueryResult {
-  query: { since: string; until: string };
+  query: { since: string; until: string; timezone: string };
   browser_sessions?: unknown[];
   file_sessions?: unknown[];
 }
@@ -58,15 +59,24 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
   const until = params.until || new Date().toISOString();
 
   const result: ActivityQueryResult = {
-    query: { since, until },
+    query: { since: utcToLocal(since), until: utcToLocal(until), timezone: getLocalTimezone() },
   };
 
   if (source === 'all' || source === 'browser') {
-    result.browser_sessions = getBrowserSessionsByTimeRange(since, until, search);
+    const rawSessions = getBrowserSessionsByTimeRange(since, until, search);
+    result.browser_sessions = rawSessions.map((s) => ({
+      ...s,
+      first_seen: utcToLocal(s.first_seen),
+      last_snapshot: utcToLocal(s.last_snapshot),
+    }));
   }
 
   if (source === 'all' || source === 'file') {
-    const fileSessions = getFileSessionsByTimeRange(since, until, search);
+    const fileSessions = getFileSessionsByTimeRange(since, until, search).map((s) => ({
+      ...s,
+      first_seen: utcToLocal(s.first_seen),
+      last_seen: utcToLocal(s.last_seen),
+    }));
     if (include_content) {
       const workspacePath = getWorkspacePath();
       const fileSessionIds = fileSessions.map((s) => s.id);
