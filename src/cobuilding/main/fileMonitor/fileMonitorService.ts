@@ -10,6 +10,7 @@ import { createFileSession, updateFileSession, findFileSession } from './reposit
 import { getLocalDate } from '../../shared/utils';
 import { extractText } from './textExtractor';
 import { createSessionFile } from '../db/sessionFilesRepository';
+import { getLocalDate } from '../../shared/utils';
 
 export interface FileMonitorEvent {
   event: 'APP_FOCUSED' | 'APP_UNFOCUSED' | 'WINDOW_FOCUSED' | 'FILE_MONITOR_POLL';

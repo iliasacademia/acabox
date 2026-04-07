@@ -1,4 +1,33 @@
-import { stripHtml } from '../utils';
+import { stripHtml, getLocalDate, getLocalTime, getLocalTimezone } from '../utils';
+
+describe('getLocalDate', () => {
+  it('should return YYYY-MM-DD for a given date', () => {
+    expect(getLocalDate(new Date(2024, 0, 1))).toBe('2024-01-01');
+    expect(getLocalDate(new Date(2024, 11, 31))).toBe('2024-12-31');
+  });
+
+  it('should default to today', () => {
+    const now = new Date();
+    const expected = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    expect(getLocalDate()).toBe(expected);
+  });
+});
+
+describe('getLocalTime', () => {
+  it('should return HH:MM for a given date', () => {
+    expect(getLocalTime(new Date(2024, 0, 1, 9, 5))).toBe('09:05');
+    expect(getLocalTime(new Date(2024, 0, 1, 14, 30))).toBe('14:30');
+    expect(getLocalTime(new Date(2024, 0, 1, 0, 0))).toBe('00:00');
+  });
+});
+
+describe('getLocalTimezone', () => {
+  it('should return a non-empty string', () => {
+    const tz = getLocalTimezone();
+    expect(typeof tz).toBe('string');
+    expect(tz.length).toBeGreaterThan(0);
+  });
+});
 
 describe('stripHtml', () => {
   it('should remove HTML tags from string', () => {
