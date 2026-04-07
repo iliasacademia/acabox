@@ -45,21 +45,6 @@ function prepareStatements() {
         AND (title LIKE '%' || ? || '%' ESCAPE '\' OR url LIKE '%' || ? || '%' ESCAPE '\')
       ORDER BY last_snapshot DESC
     `),
-    getByTimeRangeWithContent: db.prepare(`
-      SELECT id, url, title, session_date, first_seen, last_snapshot,
-             total_dwell, max_scroll_depth, selections, snapshot_count, full_text
-      FROM browser_sessions
-      WHERE last_snapshot >= ? AND last_snapshot <= ?
-      ORDER BY last_snapshot DESC
-    `),
-    getByTimeRangeWithSearchAndContent: db.prepare(`
-      SELECT id, url, title, session_date, first_seen, last_snapshot,
-             total_dwell, max_scroll_depth, selections, snapshot_count, full_text
-      FROM browser_sessions
-      WHERE last_snapshot >= ? AND last_snapshot <= ?
-        AND (title LIKE '%' || ? || '%' ESCAPE '\' OR url LIKE '%' || ? || '%' ESCAPE '\')
-      ORDER BY last_snapshot DESC
-    `),
   };
 }
 
@@ -74,7 +59,7 @@ export function upsertSession(session: ReadingSession): number {
     session.title,
     session.referrer,
     JSON.stringify(session.meta_tags),
-    session.full_text,
+    null, // full_text stored in session files on disk
     session.text_hash,
     session.first_seen,
     session.last_snapshot,
@@ -98,7 +83,7 @@ export function getAllSessions(): ReadingSession[] {
     title: row.title,
     referrer: row.referrer,
     meta_tags: JSON.parse(row.meta_tags),
-    full_text: row.full_text,
+    full_text: null, // full_text stored in session files on disk
     text_hash: row.text_hash,
     first_seen: row.first_seen,
     last_snapshot: row.last_snapshot,
@@ -127,23 +112,17 @@ export interface BrowserSessionSummary {
   max_scroll_depth: number;
   selections: string[];
   snapshot_count: number;
-  full_text?: string | null;
 }
 
 export function getBrowserSessionsByTimeRange(
   since: string,
   until: string,
   search?: string,
-  includeContent?: boolean,
 ): BrowserSessionSummary[] {
   let rows: any[];
   const escapedSearch = search ? search.replace(/[%_\\]/g, '\\$&') : undefined;
-  if (escapedSearch && includeContent) {
-    rows = getStmts().getByTimeRangeWithSearchAndContent.all(since, until, escapedSearch, escapedSearch) as any[];
-  } else if (escapedSearch) {
+  if (escapedSearch) {
     rows = getStmts().getByTimeRangeWithSearch.all(since, until, escapedSearch, escapedSearch) as any[];
-  } else if (includeContent) {
-    rows = getStmts().getByTimeRangeWithContent.all(since, until) as any[];
   } else {
     rows = getStmts().getByTimeRange.all(since, until) as any[];
   }
@@ -158,6 +137,5 @@ export function getBrowserSessionsByTimeRange(
     max_scroll_depth: row.max_scroll_depth,
     selections: JSON.parse(row.selections),
     snapshot_count: row.snapshot_count,
-    ...(includeContent ? { full_text: row.full_text } : {}),
   }));
 }

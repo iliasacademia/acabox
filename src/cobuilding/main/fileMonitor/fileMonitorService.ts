@@ -11,7 +11,7 @@ import { getLocalDate } from '../../shared/utils';
 import { extractText } from './textExtractor';
 import { createSessionFile } from '../db/sessionFilesRepository';
 
-interface FileMonitorEvent {
+export interface FileMonitorEvent {
   event: 'APP_FOCUSED' | 'APP_UNFOCUSED' | 'WINDOW_FOCUSED' | 'FILE_MONITOR_POLL';
   timestamp: string;
   platform: string;
@@ -85,7 +85,7 @@ function calcDwellIncrement(newTimestamp: string): number {
   return Math.min(elapsed, MAX_DWELL_INCREMENT);
 }
 
-async function handleEvent(event: FileMonitorEvent): Promise<void> {
+export async function handleEvent(event: FileMonitorEvent): Promise<void> {
   const timestamp = event.timestamp;
 
   if (event.event === 'APP_UNFOCUSED') {

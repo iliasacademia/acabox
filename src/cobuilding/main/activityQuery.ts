@@ -62,7 +62,7 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
   };
 
   if (source === 'all' || source === 'browser') {
-    result.browser_sessions = getBrowserSessionsByTimeRange(since, until, search, include_content);
+    result.browser_sessions = getBrowserSessionsByTimeRange(since, until, search);
   }
 
   if (source === 'all' || source === 'file') {
