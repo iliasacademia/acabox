@@ -24,6 +24,10 @@ export function startHourlySummary(): void {
   log.info('[HourlySummary] Service started');
 }
 
+export function isHourlySummaryRunning(): boolean {
+  return scheduler !== null;
+}
+
 export function stopHourlySummary(): void {
   if (!scheduler) return;
   scheduler.stop();

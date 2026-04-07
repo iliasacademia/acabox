@@ -4,6 +4,7 @@ import log from 'electron-log';
 import { isUpdaterConfigured, checkForUpdates } from './updater';
 import { startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
 import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from './browserMonitor';
+import { startHourlySummary, stopHourlySummary, isHourlySummaryRunning } from './hourlySummary';
 
 let tray: Tray | null = null;
 let currentTrayMenu: Electron.Menu | null = null;
@@ -70,6 +71,30 @@ export function rebuildTrayMenu(statusLabel?: string) {
       label: 'Start File Monitor',
       click: () => {
         startFileMonitor();
+        rebuildTrayMenu();
+      },
+    });
+  }
+
+  if (isHourlySummaryRunning()) {
+    menuItems.push(
+      {
+        label: 'Hourly Summary Enabled',
+        enabled: false,
+      },
+      {
+        label: 'Stop Hourly Summary',
+        click: () => {
+          stopHourlySummary();
+          rebuildTrayMenu();
+        },
+      },
+    );
+  } else {
+    menuItems.push({
+      label: 'Start Hourly Summary',
+      click: () => {
+        startHourlySummary();
         rebuildTrayMenu();
       },
     });
