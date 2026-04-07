@@ -120,18 +120,22 @@ function convertUserMessage(content: string): ThreadMessageLike {
 
 function convertAssistantContent(content: string, toolResults: ToolResultsMap) {
   const blocks = JSON.parse(content) as AnthropicContentBlock[];
-  return blocks.map((block) => {
-    if (block.type === 'text') {
-      return { type: 'text' as const, text: block.text };
-    }
-    const result = toolResults.get(block.id);
-    return {
-      type: 'tool-call' as const,
-      toolCallId: block.id,
-      toolName: block.name,
-      args: block.input as ReadonlyJSONObject,
-      result: result?.result,
-      isError: result?.isError ?? false,
-    };
-  });
+  return blocks
+    .filter((block): block is AnthropicContentBlock =>
+      block.type === 'text' || block.type === 'tool_use',
+    )
+    .map((block) => {
+      if (block.type === 'text') {
+        return { type: 'text' as const, text: block.text };
+      }
+      const result = toolResults.get(block.id);
+      return {
+        type: 'tool-call' as const,
+        toolCallId: block.id,
+        toolName: block.name,
+        args: block.input as ReadonlyJSONObject,
+        result: result?.result,
+        isError: result?.isError ?? false,
+      };
+    });
 }
