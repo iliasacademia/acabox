@@ -41,6 +41,46 @@ const migrations = [
       CREATE UNIQUE INDEX idx_file_sessions_url_date ON file_sessions(document_url, session_date);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      ALTER TABLE browser_sessions RENAME TO browser_sessions_v1;
+
+      CREATE TABLE browser_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        url TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        referrer TEXT NOT NULL DEFAULT '',
+        meta_tags TEXT NOT NULL DEFAULT '{}',
+        full_text TEXT,
+        text_hash TEXT NOT NULL DEFAULT '',
+        first_seen TEXT NOT NULL,
+        last_snapshot TEXT NOT NULL,
+        total_dwell REAL NOT NULL DEFAULT 0,
+        max_scroll_depth REAL NOT NULL DEFAULT 0,
+        selections TEXT NOT NULL DEFAULT '[]',
+        snapshot_count INTEGER NOT NULL DEFAULT 1,
+        triage_state TEXT NOT NULL DEFAULT 'pending',
+        app_version TEXT NOT NULL DEFAULT '',
+        session_date TEXT NOT NULL
+      );
+      CREATE UNIQUE INDEX idx_browser_sessions_url_date ON browser_sessions(url, session_date);
+
+      INSERT INTO browser_sessions (url, title, referrer, meta_tags, full_text, text_hash,
+        first_seen, last_snapshot, total_dwell, max_scroll_depth, selections, snapshot_count,
+        triage_state, app_version, session_date)
+      SELECT url, title, referrer, meta_tags, full_text, text_hash,
+        first_seen, last_snapshot, total_dwell, max_scroll_depth, selections, snapshot_count,
+        triage_state, app_version, date(first_seen)
+      FROM browser_sessions_v1;
+
+      DROP TABLE browser_sessions_v1;
+    `,
+  },
+  {
+    version: 3,
+    sql: `ALTER TABLE file_sessions ADD COLUMN total_dwell REAL NOT NULL DEFAULT 0;`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {
