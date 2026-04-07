@@ -7,41 +7,11 @@ import { updateSessionTitle } from '../db/chatRepository';
 import { getLocalDate, getLocalTime, getLocalTimezone } from '../../shared/utils';
 import type { Workspace } from '../../shared/types';
 
-const SCRATCHPAD_DIR = '.academia';
-const SCRATCHPAD_FILE = 'hourly-scratchpad.md';
-const SUMMARIES_DIR = 'summaries';
-
-function archiveIfNewDay(workspacePath: string): void {
-  const scratchpadPath = path.join(workspacePath, SCRATCHPAD_DIR, SCRATCHPAD_FILE);
-  let scratchpad: string;
-  try {
-    scratchpad = fs.readFileSync(scratchpadPath, 'utf-8');
-  } catch {
-    return;
-  }
-
-  if (!scratchpad) return;
-
-  const today = getLocalDate();
-  const dateMatch = scratchpad.match(/^# Activity Summary — (\d{4}-\d{2}-\d{2})/);
-  if (!dateMatch || dateMatch[1] === today) return;
-
-  const archiveDir = path.join(workspacePath, SCRATCHPAD_DIR, SUMMARIES_DIR);
-  fs.mkdirSync(archiveDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(archiveDir, `${dateMatch[1]}.md`),
-    scratchpad,
-    'utf-8',
-  );
-
-  fs.unlinkSync(scratchpadPath);
-  log.info(`[HourlySummary] Archived scratchpad for ${dateMatch[1]}`);
-}
+const SUMMARIES_DIR = path.join('.academia', 'summaries');
 
 export function runSummaryAgent(workspace: Workspace): Promise<void> {
   return new Promise((resolve, reject) => {
-    fs.mkdirSync(path.join(workspace.directory_path, SCRATCHPAD_DIR), { recursive: true });
-    archiveIfNewDay(workspace.directory_path);
+    fs.mkdirSync(path.join(workspace.directory_path, SUMMARIES_DIR), { recursive: true });
 
     const now = new Date();
     const timeLabel = getLocalTime(now);
@@ -67,6 +37,6 @@ export function runSummaryAgent(workspace: Workspace): Promise<void> {
       workspace,
     );
 
-    session.sendMessage('Use the activity-summary skill to update the activity scratchpad with recent activity.');
+    session.sendMessage('Use the activity-summary skill to update the daily summary with recent activity.');
   });
 }
