@@ -21,9 +21,9 @@ export class SessionAccumulator {
       for (const session of persisted) {
         this.sessions.set(sessionKey(session.url, session.session_date), session);
       }
-      log.info(`[Reactions] Restored ${persisted.length} sessions from DB`);
+      log.info(`[Browser Monitor] Restored ${persisted.length} sessions from DB`);
     } catch (err) {
-      log.error('[Reactions] Failed to restore sessions from DB:', err);
+      log.error('[Browser Monitor] Failed to restore sessions from DB:', err);
     }
   }
 
@@ -52,7 +52,7 @@ export class SessionAccumulator {
       };
       this.sessions.set(key, session);
       upsertSession(session);
-      log.info('[Reactions] New session:', payload.url);
+      log.info('[Browser Monitor] New session:', payload.url);
       return;
     }
 

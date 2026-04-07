@@ -3,7 +3,7 @@ import type { SessionAccumulator } from './sessionAccumulator';
 import type { SnapshotPayload } from './types';
 import { queryActivity, type ActivityQueryParams } from '../activityQuery';
 
-export async function registerReactionRoutes(
+export async function registerBrowserMonitorRoutes(
   fastify: FastifyInstance,
   accumulator: SessionAccumulator,
 ): Promise<void> {

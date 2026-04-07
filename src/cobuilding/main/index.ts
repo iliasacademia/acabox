@@ -25,8 +25,8 @@ import {
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
-import { startReactions, stopReactions } from './browserMonitor';
-import { initFileMonitor, stopFileMonitor } from './fileMonitor';
+import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
+import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
 import { initActivityQuery } from './activityQuery';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
 
@@ -140,7 +140,8 @@ app.whenReady().then(() => {
     createTray();
     log.info('[APP] Updater and tray initialized.');
 
-    startReactions();
+    startFileMonitor();
+    startBrowserMonitor().then(() => rebuildTrayMenu());
     startHourlySummary();
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
@@ -360,7 +361,7 @@ app.on('window-all-closed', () => {
   containerService.stop();
   stopHourlySummary();
   stopFileMonitor();
-  stopReactions();
+  stopBrowserMonitor();
   closeObservationsDatabase();
   closeDatabase();
   app.quit();

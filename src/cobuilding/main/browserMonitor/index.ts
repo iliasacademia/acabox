@@ -4,22 +4,22 @@ import { startServer, stopServer } from './server';
 
 let accumulator: SessionAccumulator | null = null;
 
-export async function startReactions(): Promise<void> {
+export async function startBrowserMonitor(): Promise<void> {
   try {
     accumulator = new SessionAccumulator();
     await startServer(accumulator);
-    log.info('[Reactions] Started successfully');
+    log.info('[Browser Monitor] Started successfully');
   } catch (err) {
-    log.error('[Reactions] Failed to start:', err);
+    log.error('[Browser Monitor] Failed to start:', err);
   }
 }
 
-export async function stopReactions(): Promise<void> {
+export async function stopBrowserMonitor(): Promise<void> {
   accumulator = null;
   await stopServer();
-  log.info('[Reactions] Stopped');
+  log.info('[Browser Monitor] Stopped');
 }
 
-export function isReactionsRunning(): boolean {
+export function isBrowserMonitorRunning(): boolean {
   return accumulator !== null;
 }
