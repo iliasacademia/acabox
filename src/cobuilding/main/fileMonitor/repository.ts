@@ -13,6 +13,8 @@ export interface FileSession {
   total_dwell: number;
   app_version: string;
   snapshot_ulid: string | null;
+  last_modified: string | null;
+  diff_ulid: string | null;
 }
 
 let stmts: ReturnType<typeof prepareStatements> | null = null;
@@ -21,24 +23,30 @@ function prepareStatements() {
   const db = getObservationsDatabase();
   return {
     insert: db.prepare(`
-      INSERT INTO file_sessions (document_url, app_name, app_bundle_id, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, app_version, snapshot_ulid)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO file_sessions (document_url, app_name, app_bundle_id, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, app_version, snapshot_ulid, last_modified)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `),
     update: db.prepare(`
       UPDATE file_sessions SET last_seen = ?, poll_count = poll_count + 1, window_title = ?, total_dwell = total_dwell + ? WHERE id = ?
+    `),
+    updateDiff: db.prepare(`
+      UPDATE file_sessions SET last_modified = ?, diff_ulid = ? WHERE id = ?
+    `),
+    updateLastModified: db.prepare(`
+      UPDATE file_sessions SET last_modified = ? WHERE id = ?
     `),
     findByUrlAndDate: db.prepare(`
       SELECT * FROM file_sessions WHERE document_url = ? AND session_date = ?
     `),
     getAll: db.prepare('SELECT * FROM file_sessions ORDER BY last_seen DESC'),
     getByTimeRange: db.prepare(`
-      SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, snapshot_ulid
+      SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, snapshot_ulid, diff_ulid
       FROM file_sessions
       WHERE last_seen >= ? AND last_seen <= ?
       ORDER BY last_seen DESC
     `),
     getByTimeRangeWithSearch: db.prepare(`
-      SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, snapshot_ulid
+      SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, snapshot_ulid, diff_ulid
       FROM file_sessions
       WHERE last_seen >= ? AND last_seen <= ?
         AND (window_title LIKE '%' || ? || '%' OR document_url LIKE '%' || ? || '%')
@@ -69,8 +77,17 @@ export function createFileSession(session: Omit<FileSession, 'id'>): number {
     session.total_dwell,
     session.app_version,
     session.snapshot_ulid,
+    session.last_modified,
   );
   return result.lastInsertRowid as number;
+}
+
+export function updateFileSessionDiff(id: number, lastModified: string, diffUlid: string): void {
+  getStmts().updateDiff.run(lastModified, diffUlid, id);
+}
+
+export function updateFileSessionLastModified(id: number, lastModified: string): void {
+  getStmts().updateLastModified.run(lastModified, id);
 }
 
 export function updateFileSession(id: number, lastSeen: string, windowTitle: string | null, dwellIncrement: number): void {
@@ -92,6 +109,7 @@ export interface FileSessionSummary {
   poll_count: number;
   total_dwell: number;
   snapshot_ulid: string | null;
+  diff_ulid: string | null;
 }
 
 export function getFileSessionsByTimeRange(
