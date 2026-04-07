@@ -95,6 +95,7 @@ const packagerConfig = {
     'src/assets/icons',
     'app-update.yml',
     'src/cobuilding/skills',
+    'src/cobuilding/CLAUDE.md',
     'src/cobuilding/Dockerfile',
     'src/cobuilding/Dockerfile.base',
   ],

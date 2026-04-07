@@ -18,20 +18,18 @@ This skill runs a pre-built R script that performs differential expression analy
 
 ## How to run
 
-All skill scripts run inside a Podman container that is automatically started by the application. The workspace directory is mounted at `/data` inside the container, so use `/data/`-prefixed paths for all input and output file arguments.
-
 ```bash
-podman exec cobuilding-container Rscript /skills/differential-expression/scripts/differential_expression_cli.R <args>
+podman exec cobuilding-container Rscript .claude/skills/differential-expression/scripts/differential_expression_cli.R <args>
 ```
 
 For example, if the user's counts file is at `./raw_counts.csv` and coldata is at `./sample_annotations.csv`:
 
 ```bash
-podman exec cobuilding-container Rscript /skills/differential-expression/scripts/differential_expression_cli.R \
-  --counts_file /data/raw_counts.csv \
-  --coldata_file /data/sample_annotations.csv \
+podman exec cobuilding-container Rscript .claude/skills/differential-expression/scripts/differential_expression_cli.R \
+  --counts_file ./raw_counts.csv \
+  --coldata_file ./sample_annotations.csv \
   --design_variable group \
-  --outdir /data/de_results
+  --outdir ./de_results
 ```
 
 ## Using in an R notebook
@@ -39,13 +37,13 @@ podman exec cobuilding-container Rscript /skills/differential-expression/scripts
 The library script can be sourced into an R notebook running inside the container. It defines functions without any side effects, so only the `run_differential_expression()` function is loaded.
 
 ```r
-source("/skills/differential-expression/scripts/differential_expression.R")
+source(".claude/skills/differential-expression/scripts/differential_expression.R")
 
 results <- run_differential_expression(
-  counts_file = "/data/raw_counts.csv",
-  coldata_file = "/data/sample_annotations.csv",
+  counts_file = "./raw_counts.csv",
+  coldata_file = "./sample_annotations.csv",
   design_variable = "group",
-  outdir = "/data/de_results"
+  outdir = "./de_results"
 )
 ```
 

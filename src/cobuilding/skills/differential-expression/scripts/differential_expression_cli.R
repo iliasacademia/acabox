@@ -2,7 +2,7 @@
 
 suppressPackageStartupMessages(library(argparse))
 
-source("/skills/differential-expression/scripts/differential_expression.R")
+source(".claude/skills/differential-expression/scripts/differential_expression.R")
 
 create_parser <- function() {
   p <- ArgumentParser(description="High-level modular DESeq2 pipeline with formula support (fast, parallel, offline gene annotation)")

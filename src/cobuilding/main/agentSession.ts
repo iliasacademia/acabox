@@ -9,6 +9,7 @@ import path from 'path';
 import log from 'electron-log';
 import { z } from 'zod';
 import { fork } from 'child_process';
+import { containerService } from './containerService';
 
 function createActivityMcpServer() {
   return createSdkMcpServer({
@@ -111,7 +112,7 @@ export function createAgentSession(
           includePartialMessages: true,
           cwd: workspace.directory_path,
           env: {
-            ...process.env,
+            ...containerService.getPodmanEnv(),
             ANTHROPIC_API_KEY: workspace.api_key,
           },
           settingSources: ['project'],

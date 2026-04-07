@@ -72,15 +72,22 @@ function writeImageSource(source: ImageSource): void {
 class CobuildingContainerService {
   private containerStarted = false;
   private isStarting = false;
+  private currentWorkspacePath: string | null = null;
 
   // ─── Public API ─────────────────────────────────────────────────
 
   async start(workspacePath: string, onProgress?: ProgressCallback): Promise<void> {
-    if (this.isRunning()) {
+    if (this.isRunning() && this.currentWorkspacePath === workspacePath) {
       return;
     }
     if (this.isStarting) {
       return;
+    }
+
+    // If running with a different workspace, stop the old container first
+    if (this.isRunning() && this.currentWorkspacePath !== workspacePath) {
+      log.debug(`[ContainerService] Workspace changed (${this.currentWorkspacePath} -> ${workspacePath}), restarting container...`);
+      this.stop();
     }
     this.isStarting = true;
 
@@ -137,6 +144,7 @@ class CobuildingContainerService {
     }
 
     this.containerStarted = false;
+    this.currentWorkspacePath = null;
   }
 
   isRunning(): boolean {
@@ -232,6 +240,10 @@ class CobuildingContainerService {
 
   getContainerName(): string {
     return CONTAINER_NAME;
+  }
+
+  getPodmanEnv(): NodeJS.ProcessEnv {
+    return this.getExecEnv();
   }
 
   async ensureSetup(onProgress?: ProgressCallback): Promise<void> {
@@ -366,18 +378,6 @@ class CobuildingContainerService {
 
     const dockerfilePath = path.join(contextDir, 'Dockerfile');
     hash.update(fs.readFileSync(dockerfilePath));
-
-    const scriptsDir = path.join(contextDir, 'skills', 'differential-expression', 'scripts');
-    if (fs.existsSync(scriptsDir)) {
-      const files = fs.readdirSync(scriptsDir).sort();
-      for (const file of files) {
-        const filePath = path.join(scriptsDir, file);
-        if (fs.statSync(filePath).isFile()) {
-          hash.update(file);
-          hash.update(fs.readFileSync(filePath));
-        }
-      }
-    }
 
     return hash.digest('hex').substring(0, 16);
   }
@@ -534,17 +534,33 @@ class CobuildingContainerService {
   // ─── Container Lifecycle ──────────────────────────────────────
 
   private async removeStaleContainer(podmanBin: string): Promise<void> {
+    const env = this.getExecEnv();
+
+    // Check if a container with this name exists at all
     try {
-      await this.execAsync(podmanBin, ['rm', '-f', CONTAINER_NAME], this.getExecEnv());
-      log.debug('[ContainerService] Removed stale container');
+      const { stdout } = await this.execAsync(podmanBin, [
+        'inspect', '--format', '{{.State.Status}}', CONTAINER_NAME,
+      ], env);
+      log.debug(`[ContainerService] Found existing container in state: ${stdout.trim()}`);
     } catch {
-      // Container didn't exist — that's fine
+      log.debug('[ContainerService] No existing container found');
+      return;
+    }
+
+    // Stop and remove it
+    try {
+      await this.execAsync(podmanBin, ['rm', '-f', CONTAINER_NAME], env);
+      log.debug('[ContainerService] Removed existing container');
+    } catch (error) {
+      log.error('[ContainerService] Failed to remove container:', (error as Error).message);
     }
   }
 
   private async runContainer(podmanBin: string, workspacePath: string): Promise<void> {
+    const env = this.getExecEnv();
     const args = [
       'run', '-d',
+      '--replace',
       '--name', CONTAINER_NAME,
       '-v', `${workspacePath}:/data`,
       IMAGE_NAME,
@@ -553,10 +569,25 @@ class CobuildingContainerService {
 
     log.debug(`[ContainerService] Running: podman ${args.join(' ')}`);
 
-    const { stdout } = await this.execAsync(podmanBin, args, this.getExecEnv());
+    const { stdout } = await this.execAsync(podmanBin, args, env);
     const containerId = stdout.trim().substring(0, 12);
     log.debug(`[ContainerService] Container started with ID: ${containerId}`);
+
+    // Verify the mount is correct
+    try {
+      const { stdout: mountSource } = await this.execAsync(podmanBin, [
+        'inspect', '--format', '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}', CONTAINER_NAME,
+      ], env);
+      log.debug(`[ContainerService] Container /data mount source: ${mountSource.trim()}`);
+      if (mountSource.trim() !== workspacePath) {
+        log.error(`[ContainerService] Mount mismatch! Expected "${workspacePath}", got "${mountSource.trim()}"`);
+      }
+    } catch (err) {
+      log.warn(`[ContainerService] Could not verify mount: ${(err as Error).message}`);
+    }
+
     this.containerStarted = true;
+    this.currentWorkspacePath = workspacePath;
   }
 
   // ─── Utilities ────────────────────────────────────────────────
