@@ -20,6 +20,9 @@ interface CopyProgress {
 interface FilesAPI {
   readDirectory(dirPath: string): Promise<DirEntry[]>;
   readFile(filePath: string): Promise<FileContent>;
+  writeFile(filePath: string, content: string): Promise<void>;
+  selectFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
+  selectDirectory(): Promise<string | null>;
   copyToWorkspace(sourcePaths: string[], destinationDir: string): Promise<{ copied: number }>;
   moveFile(sourcePath: string, destinationDir: string): Promise<void>;
   deleteFile(filePath: string): Promise<void>;
@@ -65,7 +68,7 @@ interface ContainerAPI {
   start(): Promise<void>;
   stop(): Promise<void>;
   status(): Promise<{ running: boolean }>;
-  exec(command: string[]): Promise<{ stdout: string; stderr: string }>;
+  exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   getBinaryMode(): Promise<'system' | 'bundled'>;
   setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
   getImageSource(): Promise<'registry' | 'local'>;

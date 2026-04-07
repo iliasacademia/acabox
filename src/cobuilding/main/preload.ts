@@ -32,6 +32,10 @@ contextBridge.exposeInMainWorld('filesAPI', {
   createDirectory: (dirPath: string) => ipcRenderer.invoke('files:createDirectory', dirPath),
   renameFile: (filePath: string, newName: string) =>
     ipcRenderer.invoke('files:renameFile', filePath, newName),
+  writeFile: (filePath: string, content: string) => ipcRenderer.invoke('files:writeFile', filePath, content),
+  selectFile: (filters?: { name: string; extensions: string[] }[]) =>
+    ipcRenderer.invoke('files:selectFile', filters),
+  selectDirectory: () => ipcRenderer.invoke('files:selectDirectory'),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   onCopyProgress: (callback: (progress: { copied: number; total: number; currentName: string | null }) => void) => {
     const handler = (_event: unknown, progress: { copied: number; total: number; currentName: string | null }) => callback(progress);

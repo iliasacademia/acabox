@@ -2,7 +2,7 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SKILL_NAMES = ['docx', 'pdf', 'pptx', 'xlsx', 'differential-expression', 'activity-summary'];
+const SKILL_NAMES = ['docx', 'pdf', 'pptx', 'xlsx', 'differential-expression', 'activity-summary', 'manage-mini-application'];
 
 function getCobuildingSourceDir(): string {
   if (app.isPackaged) {
@@ -19,6 +19,28 @@ export function copySkillsToWorkspace(workspaceDir: string): void {
     const src = path.join(skillsSourceDir, skill);
     const dest = path.join(targetDir, skill);
     fs.cpSync(src, dest, { recursive: true });
+  }
+}
+
+export function syncMiniAppAssets(workspaceDir: string): void {
+  const skillsSourceDir = path.join(getCobuildingSourceDir(), 'skills');
+  const assetsDir = path.join(skillsSourceDir, 'manage-mini-application', 'assets');
+  const appsDir = path.join(workspaceDir, '.applications');
+
+  const bridgeSrc = path.join(assetsDir, 'bridge');
+  const bridgeDest = path.join(appsDir, '_bridge');
+  fs.cpSync(bridgeSrc, bridgeDest, { recursive: true });
+
+  const vendorSrc = path.join(assetsDir, 'vendor');
+  if (fs.existsSync(vendorSrc)) {
+    const vendorDest = path.join(appsDir, '_vendor');
+    fs.cpSync(vendorSrc, vendorDest, { recursive: true });
+  }
+
+  const templatesSrc = path.join(assetsDir, 'templates');
+  if (fs.existsSync(templatesSrc)) {
+    const templatesDest = path.join(appsDir, '_templates');
+    fs.cpSync(templatesSrc, templatesDest, { recursive: true });
   }
 }
 

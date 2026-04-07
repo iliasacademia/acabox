@@ -1,10 +1,11 @@
 
-import { query, createSdkMcpServer, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput, type SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, tool, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput, type SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { ChatStreamMessage, IPCAttachment, Workspace } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
 import { queryActivity } from './activityQuery';
 import { app } from 'electron';
+import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import { z } from 'zod';
@@ -94,6 +95,7 @@ export function createAgentSession(
   (async () => {
     try {
       const activityMcpServer = createActivityMcpServer();
+      const miniAppServer = createMiniAppMcpServer(workspace.directory_path);
 
       for await (const message of query({
         prompt: userMessageGenerator(),
@@ -114,9 +116,10 @@ export function createAgentSession(
           env: {
             ...containerService.getPodmanEnv(),
             ANTHROPIC_API_KEY: workspace.api_key,
+            MINI_APP_WORKSPACE_DIR: workspace.directory_path,
           },
           settingSources: ['project'],
-          mcpServers: { activity: activityMcpServer },
+          mcpServers: { activity: activityMcpServer, 'mini-apps': miniAppServer },
           allowedTools: [
             "Bash",
             "Read",
@@ -130,6 +133,7 @@ export function createAgentSession(
             "Skill",
             "TodoWrite",
             "mcp__activity__query_activity",
+            "mcp__mini-apps__open_mini_application",
           ],
           hooks: {
             PreToolUse: [{
@@ -253,6 +257,46 @@ function buildContentBlocks(payload: UserMessagePayload): string | ContentBlockP
   }
 
   return blocks;
+}
+
+// ─── Mini-App MCP Server ─────────────────────────────────────────
+
+function createMiniAppMcpServer(workspaceDir: string) {
+  return createSdkMcpServer({
+    name: 'mini-apps',
+    tools: [
+      tool(
+        'open_mini_application',
+        'Open an existing mini-application in the UI. The mini-application will take over the center content area and the chat will move to the right sidebar.',
+        {
+          dir_name: z.string().describe('The directory name of the mini-application (the lowerCamelCase name under .applications/)'),
+        },
+        async (args) => {
+          const appDir = path.join(workspaceDir, '.applications', args.dir_name);
+          const exists = await fs.promises.access(appDir).then(() => true, () => false);
+          if (!exists) {
+            return {
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `Mini-application directory not found: .applications/${args.dir_name}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+          return {
+            content: [
+              {
+                type: 'text' as const,
+                text: `Opened mini-application: ${args.dir_name}`,
+              },
+            ],
+          };
+        },
+      ),
+    ],
+  });
 }
 
 // ─── Workspace Boundary Hook ──────────────────────────────────────

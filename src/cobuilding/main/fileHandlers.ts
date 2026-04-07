@@ -1,4 +1,4 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, type BrowserWindow } from 'electron';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 
@@ -39,7 +39,7 @@ function requireWorkspace(getWorkspacePath: () => string | null): string {
   return wp;
 }
 
-export function registerFileHandlers(getWorkspacePath: () => string | null): void {
+export function registerFileHandlers(getWorkspacePath: () => string | null, getMainWindow: () => BrowserWindow | null): void {
   ipcMain.handle('files:readDirectory', async (_event, dirPath: string) => {
     const workspaceDir = requireWorkspace(getWorkspacePath);
     const resolved = assertWithinWorkspace(dirPath, workspaceDir);
@@ -153,4 +153,34 @@ export function registerFileHandlers(getWorkspacePath: () => string | null): voi
       await fsPromises.mkdir(dirPath);
     },
   );
+
+  ipcMain.handle(
+    'files:writeFile',
+    async (_event, filePath: string, content: string) => {
+      const workspaceDir = requireWorkspace(getWorkspacePath);
+      assertWithinWorkspace(filePath, workspaceDir);
+      await fsPromises.writeFile(filePath, content, 'utf-8');
+    },
+  );
+
+  ipcMain.handle('files:selectFile', async (_event, filters?: { name: string; extensions: string[] }[]) => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: filters ?? undefined,
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('files:selectDirectory', async () => {
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
 }
