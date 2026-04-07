@@ -14,6 +14,7 @@ import { ThreadList } from './components/assistant-ui/thread-list';
 import { FilesTab } from './components/FilesTab';
 import { DebugSidebar, DebugContent, type DebugSection } from './components/DebugPanel';
 import { FileViewer } from './components/FileViewer';
+import { NotebookViewer } from './components/notebook';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -164,6 +165,11 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 dirName={activeMiniAppDirName}
                 workspacePath={workspace.directory_path}
                 onClose={() => setActiveMiniAppDirName(null)}
+              />
+            ) : selectedFilePath?.endsWith('.ipynb') ? (
+              <NotebookViewer
+                filePath={selectedFilePath}
+                onClose={() => setSelectedFilePath(null)}
               />
             ) : selectedFilePath ? (
               <FileViewer
