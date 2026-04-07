@@ -6,8 +6,8 @@ import './DebugPanel.css';
 export type DebugSection = 'podman' | 'apps';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
+  { id: 'apps', label: 'Logs' },
   { id: 'podman', label: 'Podman' },
-  { id: 'apps', label: 'Apps' },
 ];
 
 export const DebugSidebar: React.FC<{

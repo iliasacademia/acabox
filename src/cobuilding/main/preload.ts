@@ -85,6 +85,15 @@ contextBridge.exposeInMainWorld('commandLogAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('systemLogAPI', {
+  getAll: () => ipcRenderer.invoke('systemLog:getAll'),
+  onEntry: (callback: (entry: any) => void) => {
+    const handler = (_event: unknown, entry: any) => callback(entry);
+    ipcRenderer.on('systemLog:entry', handler);
+    return () => { ipcRenderer.removeListener('systemLog:entry', handler); };
+  },
+});
+
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: () => ipcRenderer.invoke('sessions:list'),

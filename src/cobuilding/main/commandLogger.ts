@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as path from 'path';
+import { app } from 'electron';
 import log from 'electron-log';
 
 export type CommandSource = 'agent' | 'iframe';
@@ -31,9 +34,66 @@ class CommandLogger {
   private nextId = 1;
   private maxEntries: number;
   private listeners = new Set<(entry: CommandLogEntry) => void>();
+  private logFilePath: string | null = null;
 
-  constructor(maxEntries = 500) {
+  constructor(maxEntries = 10_000) {
     this.maxEntries = maxEntries;
+  }
+
+  init(): void {
+    try {
+      this.logFilePath = path.join(app.getPath('userData'), 'cobuilding-command-log.jsonl');
+      this.loadFromDisk();
+    } catch (err) {
+      log.warn('[CommandLogger] Failed to load log from disk:', err);
+    }
+  }
+
+  private loadFromDisk(): void {
+    if (!this.logFilePath || !fs.existsSync(this.logFilePath)) return;
+    try {
+      const content = fs.readFileSync(this.logFilePath, 'utf-8');
+      const lines = content.split('\n').filter(Boolean);
+      // Keep only the last maxEntries lines
+      const recent = lines.slice(-this.maxEntries);
+      for (const line of recent) {
+        try {
+          const entry = JSON.parse(line) as CommandLogEntry;
+          this.entries.push(entry);
+          if (entry.id >= this.nextId) {
+            this.nextId = entry.id + 1;
+          }
+        } catch {
+          // skip malformed lines
+        }
+      }
+      // If file had more than maxEntries, rewrite it trimmed
+      if (lines.length > this.maxEntries) {
+        this.rewriteDisk();
+      }
+      log.debug(`[CommandLogger] Loaded ${this.entries.length} entries from disk`);
+    } catch (err) {
+      log.warn('[CommandLogger] Failed to read log file:', err);
+    }
+  }
+
+  private appendToDisk(entry: CommandLogEntry): void {
+    if (!this.logFilePath) return;
+    try {
+      fs.appendFileSync(this.logFilePath, JSON.stringify(entry) + '\n', 'utf-8');
+    } catch (err) {
+      log.warn('[CommandLogger] Failed to append to log file:', err);
+    }
+  }
+
+  private rewriteDisk(): void {
+    if (!this.logFilePath) return;
+    try {
+      const content = this.entries.map(e => JSON.stringify(e)).join('\n') + '\n';
+      fs.writeFileSync(this.logFilePath, content, 'utf-8');
+    } catch (err) {
+      log.warn('[CommandLogger] Failed to rewrite log file:', err);
+    }
   }
 
   log(entry: Omit<CommandLogEntry, 'id' | 'timestamp'>): CommandLogEntry {
@@ -45,8 +105,10 @@ class CommandLogger {
       timestamp: new Date().toISOString(),
     };
     this.entries.push(full);
+    this.appendToDisk(full);
     if (this.entries.length > this.maxEntries) {
-      this.entries.shift();
+      this.entries = this.entries.slice(-this.maxEntries);
+      this.rewriteDisk();
     }
     log.debug(`[CommandLogger] ${entry.source} command (app=${entry.appDirName ?? 'none'}): ${entry.command.join(' ').slice(0, 120)}`);
     for (const listener of this.listeners) {
@@ -79,6 +141,9 @@ class CommandLogger {
   clear(): void {
     this.entries = [];
     this.nextId = 1;
+    if (this.logFilePath && fs.existsSync(this.logFilePath)) {
+      fs.unlinkSync(this.logFilePath);
+    }
   }
 }
 

@@ -1,28 +1,19 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
+
+type LogTab = 'system' | 'commands';
 
 export const AppsDebug: React.FC = () => {
-  const [entries, setEntries] = useState<CommandLogEntry[]>([]);
-  const [appNames, setAppNames] = useState<string[]>([]);
+  const [activeTab, setActiveTab] = useState<LogTab>('system');
   const [selectedApp, setSelectedApp] = useState('all');
-  const [expandedId, setExpandedId] = useState<number | null>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const [appNames, setAppNames] = useState<string[]>([]);
 
-  const refresh = useCallback(async () => {
-    const [all, names] = await Promise.all([
-      window.commandLogAPI.getAll(),
-      window.commandLogAPI.getAppNames(),
-    ]);
-    setEntries(all);
-    setAppNames(names);
+  useEffect(() => {
+    window.commandLogAPI.getAppNames().then(setAppNames);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
-
-  // Live updates
   useEffect(() => {
     const cleanup = window.commandLogAPI.onEntry((entry) => {
-      setEntries(prev => [...prev, entry]);
       if (entry.appDirName) {
         setAppNames(prev =>
           prev.includes(entry.appDirName!) ? prev : [...prev, entry.appDirName!].sort()
@@ -32,111 +23,146 @@ export const AppsDebug: React.FC = () => {
     return cleanup;
   }, []);
 
-  // Auto-scroll on new entries
+  return (
+    <div className="logViewer">
+      <div className="logViewer__tabs">
+        <button
+          className={`logViewer__tab ${activeTab === 'system' ? 'logViewer__tab--active' : ''}`}
+          onClick={() => setActiveTab('system')}
+        >
+          System Logs
+        </button>
+        <button
+          className={`logViewer__tab ${activeTab === 'commands' ? 'logViewer__tab--active' : ''}`}
+          onClick={() => setActiveTab('commands')}
+        >
+          Command Logs
+        </button>
+        {activeTab === 'commands' && (
+          <Select value={selectedApp} onValueChange={setSelectedApp}>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Apps</SelectItem>
+              {appNames.map(name => (
+                <SelectItem key={name} value={name}>{name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
+      {activeTab === 'system' ? <SystemLogs /> : <CommandLogs selectedApp={selectedApp} />}
+    </div>
+  );
+};
+
+// ─── System Logs ─────────────────────────────────────────────
+
+const SystemLogs: React.FC = () => {
+  const [entries, setEntries] = useState<SystemLogEntry[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const initialScrollDone = useRef(false);
+
   useEffect(() => {
-    if (autoScroll && scrollRef.current) {
+    window.systemLogAPI.getAll().then(setEntries);
+  }, []);
+
+  useEffect(() => {
+    const cleanup = window.systemLogAPI.onEntry((entry) => {
+      setEntries(prev => [...prev, entry]);
+    });
+    return cleanup;
+  }, []);
+
+  // Scroll to bottom on initial load
+  useEffect(() => {
+    if (!initialScrollDone.current && entries.length > 0 && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      initialScrollDone.current = true;
     }
-  }, [entries, autoScroll]);
+  }, [entries]);
+
+  return (
+    <div className="logViewer__scroll" ref={scrollRef}>
+      {entries.length === 0 ? (
+        <div className="logViewer__empty">No system logs yet</div>
+      ) : entries.map(entry => (
+        <div key={entry.id} className={`sysLog sysLog--${entry.level}`}>
+          <span className="sysLog__time">{formatTime(entry.timestamp)}</span>
+          <span className={`sysLog__level sysLog__level--${entry.level}`}>{entry.level}</span>
+          <span className="sysLog__text">{entry.text}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ─── Command Logs ────────────────────────────────────────────
+
+const CommandLogs: React.FC<{ selectedApp: string }> = ({ selectedApp }) => {
+  const [entries, setEntries] = useState<CommandLogEntry[]>([]);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const initialScrollDone = useRef(false);
+
+  const refresh = useCallback(async () => {
+    const all = await window.commandLogAPI.getAll();
+    setEntries(all);
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  useEffect(() => {
+    const cleanup = window.commandLogAPI.onEntry((entry) => {
+      setEntries(prev => [...prev, entry]);
+    });
+    return cleanup;
+  }, []);
+
+  // Scroll to bottom on initial load
+  useEffect(() => {
+    if (!initialScrollDone.current && entries.length > 0 && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      initialScrollDone.current = true;
+    }
+  }, [entries]);
 
   const filtered = selectedApp === 'all'
     ? entries
     : entries.filter(e => e.appDirName === selectedApp);
 
   return (
-    <div className="debugSection">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
-        <h3 className="debugSection__title" style={{ margin: 0 }}>App Commands</h3>
-        <select
-          value={selectedApp}
-          onChange={e => setSelectedApp(e.target.value)}
-          style={{ fontSize: 12, padding: '2px 6px', borderRadius: 4, border: '1px solid #ccc' }}
+    <div className="logViewer__scroll" ref={scrollRef}>
+      {filtered.length === 0 ? (
+        <div className="logViewer__empty">No commands logged yet</div>
+      ) : filtered.map(entry => (
+        <div
+          key={entry.id}
+          className={`logEntry ${entry.exitCode !== 0 ? 'logEntry--error' : ''}`}
         >
-          <option value="all">All ({entries.length})</option>
-          {appNames.map(name => (
-            <option key={name} value={name}>{name}</option>
-          ))}
-        </select>
-        <label style={{ fontSize: 12, color: '#666', display: 'flex', alignItems: 'center', gap: 4 }}>
-          <input type="checkbox" checked={autoScroll} onChange={e => setAutoScroll(e.target.checked)} />
-          Auto-scroll
-        </label>
-      </div>
-
-      <div className="debugSection__tableWrap" ref={scrollRef} style={{ maxHeight: '70vh', overflowY: 'auto' }}>
-        <table className="debugSection__table">
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Source</th>
-              <th>App</th>
-              <th>Command</th>
-              <th>Exit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 ? (
-              <tr>
-                <td colSpan={5} style={{ textAlign: 'center', color: '#999', padding: 24 }}>
-                  No commands logged yet
-                </td>
-              </tr>
-            ) : filtered.map(entry => (
-              <React.Fragment key={entry.id}>
-                <tr
-                  onClick={() => setExpandedId(expandedId === entry.id ? null : entry.id)}
-                  style={{
-                    cursor: 'pointer',
-                    background: entry.exitCode !== 0 ? '#fff0f0' : undefined,
-                  }}
-                >
-                  <td className="debugSection__mono" style={{ whiteSpace: 'nowrap' }}>
-                    {formatTime(entry.timestamp)}
-                  </td>
-                  <td>
-                    <span style={{
-                      fontSize: 10,
-                      padding: '1px 5px',
-                      borderRadius: 3,
-                      background: entry.source === 'agent' ? '#e8f0fe' : '#fef3e0',
-                      color: entry.source === 'agent' ? '#1a73e8' : '#e65100',
-                    }}>
-                      {entry.source}
-                    </span>
-                  </td>
-                  <td style={{ fontSize: 12 }}>{entry.appDirName ?? '—'}</td>
-                  <td className="debugSection__mono" title={entry.command.join(' ')} style={{ maxWidth: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {entry.command.join(' ')}
-                  </td>
-                  <td style={{ color: entry.exitCode !== 0 ? '#c00' : '#1a7f37', fontWeight: 600 }}>
-                    {entry.exitCode}
-                  </td>
-                </tr>
-                {expandedId === entry.id && (
-                  <tr>
-                    <td colSpan={5} style={{ padding: 0 }}>
-                      <pre className="debugSection__mono" style={{
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-all',
-                        maxHeight: 200,
-                        overflow: 'auto',
-                        margin: 0,
-                        padding: '8px 10px',
-                        background: '#f8f8f8',
-                        fontSize: 11,
-                        lineHeight: 1.5,
-                      }}>
-                        {entry.stdout || '(no stdout)'}
-                        {entry.stderr ? `\n--- stderr ---\n${entry.stderr}` : ''}
-                      </pre>
-                    </td>
-                  </tr>
-                )}
-              </React.Fragment>
-            ))}
-          </tbody>
-        </table>
-      </div>
+          <div className="logEntry__header">
+            <span className="logEntry__time">{formatTime(entry.timestamp)}</span>
+            <span className={`logEntry__source logEntry__source--${entry.source}`}>
+              {entry.source}
+            </span>
+            {entry.appDirName && (
+              <span className="logEntry__app">{entry.appDirName}</span>
+            )}
+            <span className={`logEntry__exit ${entry.exitCode !== 0 ? 'logEntry__exit--error' : ''}`}>
+              exit {entry.exitCode}
+            </span>
+          </div>
+          <div className="logEntry__command">
+            <span className="logEntry__prompt">$</span> {entry.command.join(' ')}
+          </div>
+          {entry.stdout && (
+            <pre className="logEntry__output">{entry.stdout}</pre>
+          )}
+          {entry.stderr && (
+            <pre className="logEntry__output logEntry__output--stderr">{entry.stderr}</pre>
+          )}
+        </div>
+      ))}
     </div>
   );
 };

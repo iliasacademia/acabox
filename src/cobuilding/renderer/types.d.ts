@@ -103,6 +103,18 @@ interface CommandLogAPI {
   onEntry(callback: (entry: CommandLogEntry) => void): () => void;
 }
 
+interface SystemLogEntry {
+  id: number;
+  timestamp: string;
+  level: string;
+  text: string;
+}
+
+interface SystemLogAPI {
+  getAll(): Promise<SystemLogEntry[]>;
+  onEntry(callback: (entry: SystemLogEntry) => void): () => void;
+}
+
 declare global {
   interface Window {
     chatAPI: ChatAPI;
@@ -111,5 +123,6 @@ declare global {
     sessionsAPI: SessionsAPI;
     containerAPI: ContainerAPI;
     commandLogAPI: CommandLogAPI;
+    systemLogAPI: SystemLogAPI;
   }
 }

@@ -41,6 +41,9 @@ log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB
 log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v' + app.getVersion() + '] [{level}] {text}';
 log.transports.console.level = app.isPackaged ? false : 'debug';
 
+import { systemLogger } from './systemLogger';
+systemLogger.init();
+
 process.on('uncaughtException', (error) => {
   log.error('[FATAL] Uncaught exception:', error);
 });
@@ -105,6 +108,7 @@ app.whenReady().then(() => {
 
   initDatabase(app.getPath('userData'));
   initObservationsDatabase(app.getPath('userData'));
+  commandLogger.init();
   activeWorkspace = getActiveWorkspace() ?? null;
   log.info('[APP] App ready. Version:', app.getVersion(), 'Packaged:', app.isPackaged);
   log.info('[APP] userData path:', app.getPath('userData'));
@@ -332,6 +336,13 @@ ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
 
 commandLogger.onEntry((entry) => {
   mainWindow?.webContents.send('commandLog:entry', entry);
+});
+
+// System log IPC handlers
+ipcMain.handle('systemLog:getAll', () => systemLogger.getAll());
+
+systemLogger.onEntry((entry) => {
+  mainWindow?.webContents.send('systemLog:entry', entry);
 });
 
 // Session IPC handlers
