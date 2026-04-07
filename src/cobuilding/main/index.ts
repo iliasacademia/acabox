@@ -28,9 +28,6 @@ import { createTray, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
 import { initActivityQuery } from './activityQuery';
-import { getAllSessions as getAllBrowserSessions } from './browserMonitor/repository';
-import { getAllFileSessions } from './fileMonitor/repository';
-import { getAllSessionFiles } from './db/sessionFilesRepository';
 import { initSessionFiles } from './db/sessionFilesRepository';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
 
@@ -274,6 +271,10 @@ ipcMain.handle('container:exec', async (_event, command: string[]) => {
   return containerService.exec(command);
 });
 
+ipcMain.handle('container:execLogged', async (_event, command: string[], meta?: { source?: string; appDirName?: string | null }) => {
+  return containerService.execLogged(command, meta as any);
+});
+
 ipcMain.handle('container:getBinaryMode', () => {
   return containerService.getBinaryMode();
 });
@@ -322,10 +323,16 @@ ipcMain.handle('container:ensureSetup', async () => {
   });
 });
 
-// Observations IPC handlers
-ipcMain.handle('observations:getBrowserSessions', () => getAllBrowserSessions());
-ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
-ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
+// Command log IPC handlers
+import { commandLogger } from './commandLogger';
+
+ipcMain.handle('commandLog:getAll', () => commandLogger.getAll());
+ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLogger.getByApp(appDirName));
+ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
+
+commandLogger.onEntry((entry) => {
+  mainWindow?.webContents.send('commandLog:entry', entry);
+});
 
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {

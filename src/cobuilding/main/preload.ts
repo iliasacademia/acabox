@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('containerAPI', {
   stop: () => ipcRenderer.invoke('container:stop'),
   status: () => ipcRenderer.invoke('container:status'),
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
+  execLogged: (command: string[], meta?: { source?: string; appDirName?: string | null }) =>
+    ipcRenderer.invoke('container:execLogged', command, meta),
   getBinaryMode: () => ipcRenderer.invoke('container:getBinaryMode'),
   setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
   getImageSource: () => ipcRenderer.invoke('container:getImageSource'),
@@ -72,11 +74,17 @@ contextBridge.exposeInMainWorld('containerAPI', {
   },
 });
 
-contextBridge.exposeInMainWorld('observationsAPI', {
-  getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
-  getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),
-  getSessionFiles: () => ipcRenderer.invoke('observations:getSessionFiles'),
+contextBridge.exposeInMainWorld('commandLogAPI', {
+  getAll: () => ipcRenderer.invoke('commandLog:getAll'),
+  getByApp: (appDirName: string) => ipcRenderer.invoke('commandLog:getByApp', appDirName),
+  getAppNames: () => ipcRenderer.invoke('commandLog:getAppNames'),
+  onEntry: (callback: (entry: any) => void) => {
+    const handler = (_event: unknown, entry: any) => callback(entry);
+    ipcRenderer.on('commandLog:entry', handler);
+    return () => { ipcRenderer.removeListener('commandLog:entry', handler); };
+  },
 });
+
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: () => ipcRenderer.invoke('sessions:list'),

@@ -69,6 +69,7 @@ interface ContainerAPI {
   stop(): Promise<void>;
   status(): Promise<{ running: boolean }>;
   exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  execLogged(command: string[], meta?: { source?: string; appDirName?: string | null }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
   getBinaryMode(): Promise<'system' | 'bundled'>;
   setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
   getImageSource(): Promise<'registry' | 'local'>;
@@ -84,6 +85,24 @@ interface ContainerAPI {
   onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
 }
 
+interface CommandLogEntry {
+  id: number;
+  timestamp: string;
+  command: string[];
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+  appDirName: string | null;
+  source: 'agent' | 'iframe';
+}
+
+interface CommandLogAPI {
+  getAll(): Promise<CommandLogEntry[]>;
+  getByApp(appDirName: string): Promise<CommandLogEntry[]>;
+  getAppNames(): Promise<string[]>;
+  onEntry(callback: (entry: CommandLogEntry) => void): () => void;
+}
+
 declare global {
   interface Window {
     chatAPI: ChatAPI;
@@ -91,5 +110,6 @@ declare global {
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
     containerAPI: ContainerAPI;
+    commandLogAPI: CommandLogAPI;
   }
 }

@@ -1862,21 +1862,33 @@ body,
 
 .miniAppsTabItem {
   display: flex;
+  min-height: 36px;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
-  padding: 6px 12px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 0.8125rem;
-  color: #333;
-  text-align: left;
-  border-radius: 0;
+  border-radius: 8px;
+  padding: 2px 0;
+  transition: background-color 0.15s;
 }
 
 .miniAppsTabItem:hover {
   background: #f0f0f0;
+}
+
+.miniAppsTabItemTrigger {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: calc(0.8125rem + 1px);
+  font-family: inherit;
+  color: #333;
+  text-align: left;
 }
 
 .miniAppsTabItemName {
@@ -1884,6 +1896,91 @@ body,
   text-overflow: ellipsis;
   white-space: nowrap;
   text-transform: capitalize;
+}
+
+.miniAppsTabItemAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: none;
+  color: #999;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+
+.miniAppsTabItemAction:last-child {
+  margin-right: 4px;
+}
+
+.miniAppsTabItem:hover .miniAppsTabItemAction {
+  opacity: 1;
+}
+
+.miniAppsTabItemDelete:hover {
+  background: rgba(204, 51, 51, 0.1);
+  color: #c33;
+}
+
+/* Delete confirmation modal */
+.miniAppsModal__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.miniAppsModal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  width: 340px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+
+.miniAppsModal__message {
+  margin: 0 0 20px;
+  font-size: 0.875rem;
+  color: #333;
+  line-height: 1.5;
+}
+
+.miniAppsModal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.miniAppsModal__btn {
+  padding: 6px 16px;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  background: #fff;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.miniAppsModal__btn:hover {
+  background: #f5f5f5;
+}
+
+.miniAppsModal__btn--danger {
+  background: #c33;
+  color: #fff;
+  border-color: #c33;
+}
+
+.miniAppsModal__btn--danger:hover {
+  background: #a22;
 }
 
 .miniAppsTabEmpty {

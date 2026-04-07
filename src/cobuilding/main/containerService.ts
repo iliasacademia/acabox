@@ -11,6 +11,7 @@ import {
   getBundledPodmanEnv,
   ensureBinariesDownloaded,
 } from './podmanBinaries';
+import { commandLogger, parseAppDirFromArgs, type CommandSource } from './commandLogger';
 
 const execFileAsync = promisify(execFile);
 
@@ -190,6 +191,22 @@ class CobuildingContainerService {
       const exitCode = typeof err.code === 'number' ? err.code : 1;
       return { stdout: err.stdout ?? '', stderr: err.stderr ?? '', exitCode };
     }
+  }
+
+  async execLogged(
+    command: string[],
+    meta?: { source?: CommandSource; appDirName?: string | null },
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    const result = await this.exec(command);
+    commandLogger.log({
+      command,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      appDirName: meta?.appDirName ?? parseAppDirFromArgs(command),
+      source: meta?.source ?? 'agent',
+    });
+    return result;
   }
 
   // ─── Binary Mode ──────────────────────────────────────────────
