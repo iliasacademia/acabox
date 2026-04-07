@@ -3,6 +3,7 @@ import * as path from 'path';
 import log from 'electron-log';
 import { isUpdaterConfigured, checkForUpdates } from './updater';
 import { startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
+import { startReactions, stopReactions, isReactionsRunning } from './browserMonitor';
 
 let tray: Tray | null = null;
 let currentTrayMenu: Electron.Menu | null = null;
@@ -25,6 +26,30 @@ export function rebuildTrayMenu(statusLabel?: string) {
   }
 
   menuItems.push({ type: 'separator' });
+
+  if (isReactionsRunning()) {
+    menuItems.push(
+      {
+        label: 'Browser Monitor Enabled',
+        enabled: false,
+      },
+      {
+        label: 'Stop Browser Monitor',
+        click: async () => {
+          await stopReactions();
+          rebuildTrayMenu();
+        },
+      },
+    );
+  } else {
+    menuItems.push({
+      label: 'Start Browser Monitor',
+      click: async () => {
+        await startReactions();
+        rebuildTrayMenu();
+      },
+    });
+  }
 
   if (isFileMonitorRunning()) {
     menuItems.push(

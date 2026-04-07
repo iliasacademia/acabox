@@ -19,3 +19,7 @@ export async function stopReactions(): Promise<void> {
   await stopServer();
   log.info('[Reactions] Stopped');
 }
+
+export function isReactionsRunning(): boolean {
+  return accumulator !== null;
+}
