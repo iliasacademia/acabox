@@ -72,13 +72,10 @@ RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
     "ggnewscale" \
 ))'
 
-# Verify jupyter is available
-RUN which jupyter && jupyter --version
-
-# Register R kernel for Jupyter
-RUN R -e 'cat("IRkernel version:", as.character(packageVersion("IRkernel")), "\n"); IRkernel::installspec(user = FALSE)'
-
-# Verify kernel was registered
-RUN jupyter kernelspec list
+# Register R kernel for Jupyter (manual kernelspec to avoid installspec issues in CI)
+RUN mkdir -p /usr/local/share/jupyter/kernels/ir && \
+    echo '{"argv": ["R", "--slave", "-e", "IRkernel::main()", "--args", "{connection_file}"], "display_name": "R", "language": "R"}' \
+    > /usr/local/share/jupyter/kernels/ir/kernel.json && \
+    jupyter kernelspec list
 
 WORKDIR /data
