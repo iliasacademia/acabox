@@ -41,7 +41,7 @@ function getBinaryPath(): string {
   if (app.isPackaged) {
     return path.join(process.resourcesPath, 'file-monitor-mac');
   }
-  return path.join(app.getAppPath(), 'cobuilding/rust/file-monitor-mac/target/debug/file-monitor-mac');
+  return path.join(app.getAppPath(), 'src/cobuilding/rust/file-monitor-mac/target/debug/file-monitor-mac');
 }
 
 function getLocalDate(): string {
