@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutGridIcon, RefreshCwIcon } from 'lucide-react';
+import { LayoutGridIcon, PlusIcon } from 'lucide-react';
+import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
 interface MiniAppEntry {
   name: string;
@@ -9,12 +10,16 @@ interface MiniAppEntry {
 export function MiniAppsTab({
   workspacePath,
   onSelectApp,
+  onNewApplication,
 }: {
   workspacePath: string;
   onSelectApp: (dirName: string) => void;
+  onNewApplication?: () => void;
 }) {
   const [apps, setApps] = useState<MiniAppEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const assistantRuntime = useAssistantRuntime();
+  const composerRuntime = useComposerRuntime();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -40,19 +45,36 @@ export function MiniAppsTab({
     refresh();
   }, [refresh]);
 
+  const handleNewApplication = useCallback(() => {
+    assistantRuntime.switchToNewThread();
+    // Set composer text after the thread switch settles
+    setTimeout(() => {
+      composerRuntime.setText('Make a new application for me that does the following: ');
+      onNewApplication?.();
+      // Focus the composer input and highlight after tab switch renders
+      setTimeout(() => {
+        const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
+        if (input) {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+        const shell = document.querySelector('.composerShell');
+        if (shell) {
+          shell.classList.remove('composerShell--highlight');
+          // Force reflow so re-adding the class restarts the animation
+          void (shell as HTMLElement).offsetWidth;
+          shell.classList.add('composerShell--highlight');
+        }
+      }, 0);
+    }, 0);
+  }, [assistantRuntime, composerRuntime, onNewApplication]);
+
   return (
     <div className="miniAppsTab">
-      <div className="miniAppsTabHeader">
-        <span className="miniAppsTabTitle">Applications</span>
-        <button
-          className="miniAppsTabRefresh"
-          onClick={refresh}
-          title="Refresh"
-          disabled={loading}
-        >
-          <RefreshCwIcon style={{ width: 14, height: 14 }} />
-        </button>
-      </div>
+      <button className="threadListNewBtn" onClick={handleNewApplication}>
+        <PlusIcon style={{ width: 16, height: 16 }} />
+        New Application
+      </button>
       {loading && apps.length === 0 ? (
         <div className="miniAppsTabEmpty">Loading…</div>
       ) : apps.length === 0 ? (

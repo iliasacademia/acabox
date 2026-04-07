@@ -622,6 +622,15 @@ body,
   box-shadow: 0 0 0 2px rgba(6, 69, 177, 0.15);
 }
 
+@keyframes composerHighlight {
+  0%   { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.45), 0 0 16px rgba(59, 130, 246, 0.25); border-color: rgba(59, 130, 246, 0.7); }
+  100% { box-shadow: 0 0 0 2px rgba(6, 69, 177, 0.15); border-color: rgba(6, 69, 177, 0.5); }
+}
+
+.composerShell--highlight {
+  animation: composerHighlight 1s ease-out;
+}
+
 .composerInput {
   max-height: 128px;
   min-height: 40px;
@@ -1882,4 +1891,9 @@ body,
   text-align: center;
   font-size: 0.8125rem;
   color: #999;
+}
+
+.miniAppsTab > .threadListNewBtn {
+  margin-bottom: 8px;
+  flex-shrink: 0;
 }
