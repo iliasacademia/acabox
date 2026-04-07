@@ -7,6 +7,7 @@ import log from 'electron-log';
 import { ulid } from 'ulid';
 const appVersion = app.getVersion();
 import { createFileSession, updateFileSession, findFileSession } from './repository';
+import { getLocalDate } from '../../shared/utils';
 
 interface FileMonitorEvent {
   event: 'APP_FOCUSED' | 'APP_UNFOCUSED' | 'WINDOW_FOCUSED' | 'FILE_MONITOR_POLL';
@@ -42,14 +43,6 @@ function getBinaryPath(): string {
     return path.join(process.resourcesPath, 'file-monitor-mac');
   }
   return path.join(app.getAppPath(), 'src/cobuilding/rust/file-monitor-mac/target/debug/file-monitor-mac');
-}
-
-function getLocalDate(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
 }
 
 function resolveFilePath(documentUrl: string): string {

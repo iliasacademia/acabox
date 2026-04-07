@@ -4,6 +4,7 @@ import path from 'path';
 import { randomUUID } from 'crypto';
 import { createAgentSession } from '../agentSession';
 import { updateSessionTitle } from '../db/chatRepository';
+import { getLocalDate, getLocalTime, getLocalTimezone } from '../../shared/utils';
 import type { Workspace } from '../../shared/types';
 
 const SCRATCHPAD_DIR = '.academia';
@@ -21,7 +22,7 @@ function archiveIfNewDay(workspacePath: string): void {
 
   if (!scratchpad) return;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDate();
   const dateMatch = scratchpad.match(/^# Activity Summary — (\d{4}-\d{2}-\d{2})/);
   if (!dateMatch || dateMatch[1] === today) return;
 
@@ -43,7 +44,8 @@ export function runSummaryAgent(workspace: Workspace): Promise<void> {
     archiveIfNewDay(workspace.directory_path);
 
     const now = new Date();
-    const timeLabel = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    const timeLabel = getLocalTime(now);
+    const tz = getLocalTimezone();
 
     const sessionId = randomUUID();
     const session = createAgentSession(
@@ -51,7 +53,7 @@ export function runSummaryAgent(workspace: Workspace): Promise<void> {
       {
         onEvent: () => {},
         onDone: () => {
-          updateSessionTitle(sessionId, `Activity Summary — ${now.toISOString().slice(0, 10)} ${timeLabel}`);
+          updateSessionTitle(sessionId, `Activity Summary — ${getLocalDate(now)}${tz ? ` (${tz})` : ''} ${timeLabel}`);
           log.info(`[HourlySummary] Agent session completed: ${sessionId}`);
           session.destroy();
           resolve();

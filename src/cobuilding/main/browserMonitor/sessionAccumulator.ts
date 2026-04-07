@@ -2,10 +2,12 @@ import { app } from 'electron';
 import log from 'electron-log';
 import type { SnapshotPayload, ReadingSession } from './types';
 import { upsertSession, getAllSessions } from './repository';
+import { createSessionFile } from '../db/sessionFilesRepository';
+import { getLocalDate } from '../../shared/utils';
 
 function toSessionDate(timestamp: string | number): string {
   const d = new Date(typeof timestamp === 'number' ? timestamp * 1000 : timestamp);
-  return d.toISOString().slice(0, 10);
+  return getLocalDate(d);
 }
 
 function sessionKey(url: string, sessionDate: string): string {
@@ -51,7 +53,10 @@ export class SessionAccumulator {
         session_date: date,
       };
       this.sessions.set(key, session);
-      upsertSession(session);
+      const sessionId = upsertSession(session);
+      if (payload.full_text) {
+        createSessionFile('browser', sessionId, 'full_text', payload.full_text);
+      }
       log.info('[Browser Monitor] New session:', payload.url);
       return;
     }
@@ -70,7 +75,10 @@ export class SessionAccumulator {
       existing.selections.push(payload.selection);
     }
 
-    upsertSession(existing);
+    const sessionId = upsertSession(existing);
+    if (payload.full_text !== null) {
+      createSessionFile('browser', sessionId, 'full_text', payload.full_text);
+    }
   }
 
   getSessions(): ReadingSession[] {
