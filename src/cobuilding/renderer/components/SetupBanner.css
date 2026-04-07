@@ -1,0 +1,47 @@
+.setupBanner {
+  position: relative;
+  padding: 10px 16px;
+  background: #4a9aea;
+  color: #fff;
+  font-size: 13px;
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+.setupBanner--done {
+  background: #1a7f37;
+  padding: 8px 16px;
+  text-align: center;
+  animation: setupBanner-fadeOut 2s ease forwards;
+}
+
+.setupBanner--error {
+  background: #cf222e;
+}
+
+.setupBanner__title {
+  display: block;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-bottom: 6px;
+}
+
+.setupBanner__progressTrack {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.25);
+  overflow: hidden;
+}
+
+.setupBanner__progressBar {
+  height: 100%;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.9);
+  transition: width 0.4s ease;
+  width: 0%;
+}
+
+@keyframes setupBanner-fadeOut {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}

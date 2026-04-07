@@ -72,12 +72,19 @@ export async function ensureBinariesDownloaded(onProgress?: ProgressCallback, sk
   onProgress?.('download', 'Downloading Podman binaries...');
   log.debug('[PodmanBinaries] Downloading podman binaries...');
 
+  // Weights: podman pkg ~80%, gvproxy ~10%, vfkit ~10%
+  const needsPodman = !fs.existsSync(podmanBin);
+  const needsGvproxy = !fs.existsSync(gvproxyBin);
+  const needsVfkit = !fs.existsSync(vfkitBin);
+
   // Download podman from .pkg and extract
-  if (!fs.existsSync(podmanBin)) {
+  if (needsPodman) {
     onProgress?.('download', 'Downloading podman...');
     const pkgUrl = `https://github.com/containers/podman/releases/download/v${PODMAN_VERSION}/podman-installer-macos-universal.pkg`;
     const pkgPath = path.join(binDir, 'podman.pkg');
-    await downloadFile(pkgUrl, pkgPath);
+    await downloadFile(pkgUrl, pkgPath, (pct) => {
+      onProgress?.('download-percent', String(Math.round(pct * 0.8)));
+    });
 
     log.debug('[PodmanBinaries] Extracting podman from .pkg...');
     const tempDir = path.join(binDir, '_extract_tmp');
@@ -99,26 +106,30 @@ export async function ensureBinariesDownloaded(onProgress?: ProgressCallback, sk
   }
 
   // Download gvproxy
-  if (!fs.existsSync(gvproxyBin)) {
+  if (needsGvproxy) {
     onProgress?.('download', 'Downloading gvproxy...');
     const gvproxyUrl = `https://github.com/containers/gvisor-tap-vsock/releases/download/v${GVPROXY_VERSION}/gvproxy-darwin`;
-    await downloadFile(gvproxyUrl, gvproxyBin);
+    await downloadFile(gvproxyUrl, gvproxyBin, (pct) => {
+      onProgress?.('download-percent', String(80 + Math.round(pct * 0.1)));
+    });
     fs.chmodSync(gvproxyBin, 0o755);
     if (!skipChecksum) verifyChecksum(gvproxyBin, 'gvproxy');
     log.debug(`[PodmanBinaries] gvproxy downloaded${skipChecksum ? '' : ' and verified'}`);
   }
 
   // Download vfkit
-  if (!fs.existsSync(vfkitBin)) {
+  if (needsVfkit) {
     onProgress?.('download', 'Downloading vfkit...');
     const vfkitUrl = `https://github.com/crc-org/vfkit/releases/download/v${VFKIT_VERSION}/vfkit`;
-    await downloadFile(vfkitUrl, vfkitBin);
+    await downloadFile(vfkitUrl, vfkitBin, (pct) => {
+      onProgress?.('download-percent', String(90 + Math.round(pct * 0.1)));
+    });
     fs.chmodSync(vfkitBin, 0o755);
     if (!skipChecksum) verifyChecksum(vfkitBin, 'vfkit');
     log.debug(`[PodmanBinaries] vfkit downloaded${skipChecksum ? '' : ' and verified'}`);
   }
 
-  onProgress?.('download', 'Podman binaries ready');
+  onProgress?.('download-percent', '100');
   log.debug('[PodmanBinaries] All binaries downloaded');
 }
 
@@ -155,7 +166,7 @@ function verifyChecksum(filePath: string, name: string): void {
   log.debug(`[PodmanBinaries] Checksum verified for ${name}: ${actual}`);
 }
 
-function downloadFile(url: string, destPath: string): Promise<void> {
+function downloadFile(url: string, destPath: string, onProgress?: (percent: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destPath);
     const request = https.get(url, (response) => {
@@ -164,7 +175,7 @@ function downloadFile(url: string, destPath: string): Promise<void> {
         file.close();
         fs.unlinkSync(destPath);
         if (response.headers.location) {
-          downloadFile(response.headers.location, destPath).then(resolve).catch(reject);
+          downloadFile(response.headers.location, destPath, onProgress).then(resolve).catch(reject);
         } else {
           reject(new Error(`Redirect with no location header from ${url}`));
         }
@@ -176,6 +187,14 @@ function downloadFile(url: string, destPath: string): Promise<void> {
         reject(new Error(`Download failed: HTTP ${response.statusCode} from ${url}`));
         return;
       }
+      const totalBytes = parseInt(response.headers['content-length'] || '0', 10);
+      let receivedBytes = 0;
+      response.on('data', (chunk: Buffer) => {
+        receivedBytes += chunk.length;
+        if (totalBytes > 0 && onProgress) {
+          onProgress(Math.min(100, Math.round((receivedBytes / totalBytes) * 100)));
+        }
+      });
       response.pipe(file);
       file.on('finish', () => { file.close(); resolve(); });
     });

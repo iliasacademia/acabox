@@ -263,3 +263,43 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
+
+/* ─── Inline buttons ─── */
+
+.debugSection__bundledRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.debugSection__btnInline {
+  padding: 2px 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  background: #fff;
+  color: #555;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  white-space: nowrap;
+}
+
+.debugSection__btnInline:hover:not(:disabled) {
+  background: #f0f0f0;
+  border-color: #aaa;
+}
+
+.debugSection__btnInline:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.debugSection__btnInline--danger {
+  color: #cf222e;
+  border-color: #e5c0c0;
+}
+
+.debugSection__btnInline--danger:hover:not(:disabled) {
+  background: #fde8e8;
+  border-color: #cf222e;
+}

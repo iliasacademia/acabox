@@ -68,10 +68,16 @@ interface ContainerAPI {
   exec(command: string[]): Promise<{ stdout: string; stderr: string }>;
   getBinaryMode(): Promise<'system' | 'bundled'>;
   setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
+  getImageSource(): Promise<'registry' | 'local'>;
+  setImageSource(source: 'registry' | 'local'): Promise<void>;
   getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
   downloadBinaries(): Promise<void>;
+  deleteBinaries(): Promise<void>;
+  deleteImage(): Promise<void>;
   getName(): Promise<string>;
   isImageBuilt(): Promise<boolean>;
+  ensureSetup(): Promise<void>;
+  onSetupProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
   onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
 }
 

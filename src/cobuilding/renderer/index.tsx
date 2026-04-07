@@ -14,6 +14,7 @@ import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { attachmentAdapter } from './attachmentAdapter';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import WorkspaceSettings from './components/WorkspaceSettings';
+import { SetupBanner } from './components/SetupBanner';
 import type { Workspace } from '../shared/types';
 import './App.css';
 
@@ -37,7 +38,9 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <TooltipProvider>
-        <div className="appLayout">
+        <div className="appRoot">
+          <SetupBanner />
+          <div className="appLayout">
           <div className="activityBar">
             <button
               className={`activityBarBtn ${activeTab === 'files' ? 'activityBarBtn--active' : ''}`}
@@ -94,6 +97,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <Thread />
             )}
           </div>
+        </div>
         </div>
         {showSettings && (
           <WorkspaceSettings

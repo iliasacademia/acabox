@@ -47,10 +47,20 @@ contextBridge.exposeInMainWorld('containerAPI', {
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
   getBinaryMode: () => ipcRenderer.invoke('container:getBinaryMode'),
   setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
+  getImageSource: () => ipcRenderer.invoke('container:getImageSource'),
+  setImageSource: (source: string) => ipcRenderer.invoke('container:setImageSource', source),
   getBundledStatus: () => ipcRenderer.invoke('container:getBundledStatus'),
   downloadBinaries: () => ipcRenderer.invoke('container:downloadBinaries'),
+  deleteBinaries: () => ipcRenderer.invoke('container:deleteBinaries'),
+  deleteImage: () => ipcRenderer.invoke('container:deleteImage'),
   getName: () => ipcRenderer.invoke('container:getName'),
   isImageBuilt: () => ipcRenderer.invoke('container:isImageBuilt'),
+  ensureSetup: () => ipcRenderer.invoke('container:ensureSetup'),
+  onSetupProgress: (callback: (progress: { stage: string; message: string }) => void) => {
+    const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
+    ipcRenderer.on('setup:progress', handler);
+    return () => { ipcRenderer.removeListener('setup:progress', handler); };
+  },
   onProgress: (callback: (progress: { stage: string; message: string }) => void) => {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('container:progress', handler);

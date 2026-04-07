@@ -251,6 +251,14 @@ ipcMain.handle('container:setBinaryMode', (_event, mode: string) => {
   containerService.setBinaryMode(mode as 'system' | 'bundled');
 });
 
+ipcMain.handle('container:getImageSource', () => {
+  return containerService.getImageSource();
+});
+
+ipcMain.handle('container:setImageSource', (_event, source: string) => {
+  containerService.setImageSource(source as 'registry' | 'local');
+});
+
 ipcMain.handle('container:getBundledStatus', () => {
   return containerService.getBundledBinaryStatus();
 });
@@ -267,6 +275,20 @@ ipcMain.handle('container:getName', () => {
 
 ipcMain.handle('container:isImageBuilt', async () => {
   return containerService.isImageBuilt();
+});
+
+ipcMain.handle('container:deleteBinaries', () => {
+  containerService.deleteBundledBinaries();
+});
+
+ipcMain.handle('container:deleteImage', async () => {
+  await containerService.deleteImage();
+});
+
+ipcMain.handle('container:ensureSetup', async () => {
+  await containerService.ensureSetup((stage, message) => {
+    mainWindow?.webContents.send('setup:progress', { stage, message });
+  });
 });
 
 // Session IPC handlers
