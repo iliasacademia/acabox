@@ -29,7 +29,6 @@ export function buildWordPollResponseV2(
   const shouldShowButtonV2 = windowMonitorService.getDesiredWebviewVisibility('button-v2', wid);
   const shouldShowPopupV2 = windowMonitorService.getDesiredWebviewVisibility('popup-v2', wid);
   const shouldShowReviewButton = windowMonitorService.getDesiredWebviewVisibility('review-button', wid);
-  const shouldShowReviewStatusOverlay = windowMonitorService.getDesiredWebviewVisibility('review-status-overlay', wid);
 
   // 1. Resolve documentPath from window monitor state
   const documentPath = windowMonitorService.getDocumentPathForWindow(wid);
@@ -88,7 +87,6 @@ export function buildWordPollResponseV2(
       shouldShowButtonV2: true,
       shouldShowPopupV2,
       shouldShowReviewButton: false,
-      shouldShowReviewStatusOverlay: false,
       hasSelectedText,
     };
   }
@@ -109,7 +107,6 @@ export function buildWordPollResponseV2(
       shouldShowButtonV2: true,
       shouldShowPopupV2,
       shouldShowReviewButton: false,
-      shouldShowReviewStatusOverlay: false,
       hasSelectedText,
     };
   }
@@ -194,7 +191,7 @@ export function buildWordPollResponseV2(
   const reviewErrorMessage = windowMonitorService.getReviewErrorMessage(wid) ?? undefined;
 
   // Determine if overlay is in input mode (open but no active review yet)
-  const isOverlayOpen = windowMonitorService.isReviewOverlayOpen(wid);
+  const isOverlayOpen = windowMonitorService.isReviewInputOpen(wid);
   const isAwaitingReviewInput = isOverlayOpen && !reviewState;
 
   // Populate selected text from review state or from cached selection when in input mode
@@ -221,7 +218,6 @@ export function buildWordPollResponseV2(
     shouldShowButtonV2,
     shouldShowPopupV2,
     shouldShowReviewButton,
-    shouldShowReviewStatusOverlay,
     isAwaitingReviewInput,
     reviewErrorMessage,
     projectReviewState,

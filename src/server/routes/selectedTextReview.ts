@@ -217,8 +217,8 @@ export async function registerSelectedTextReviewRoutes(fastify: FastifyInstance)
           logger.info(`[SelectedTextReview] Uploading: selectedText=${selectedText.length} bytes, fullDocumentText=${fullDocumentText.length} bytes`);
         }
 
-        // Close the review input overlay and set reviewing state so UI transitions to progress mode
-        windowMonitorService.closeReviewOverlay(wid);
+        // Close the review input and set reviewing state so UI transitions to progress mode
+        windowMonitorService.closeReviewInput(wid);
         windowMonitorService.clearReviewErrorMessage(wid);
         windowMonitorService.setSelectedTextReviewState(wid, project_id, project_file_id, 'selected-text', selectedText);
         wordPollEventBus.emit('change', 'reviewing-state-changed');

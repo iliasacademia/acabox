@@ -12,6 +12,7 @@ import { ToolMessageAccordion } from './ToolMessageAccordion';
 import DiffModal from './DiffModal';
 import { FilePicker } from './FilePicker';
 
+
 interface AttachedFile {
   localId: string;
   name: string;
@@ -80,6 +81,9 @@ export function ConversationDetail({
   const [sendError, setSendError] = useState<string | null>(null);
   const [showDiffModal, setShowDiffModal] = useState(false);
   const [showFilePicker, setShowFilePicker] = useState(false);
+  const [showCustomInstructionsModal, setShowCustomInstructionsModal] = useState(false);
+  const [customInstructions, setCustomInstructions] = useState('');
+  const [customInstructionsSaving, setCustomInstructionsSaving] = useState(false);
   const [diffData, setDiffData] = useState<DiffResponse | null>(null);
   const [isDiffLoading, setIsDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState<string | null>(null);
@@ -507,6 +511,45 @@ export function ConversationDetail({
     setShowFilePicker(true);
   };
 
+  const handleOpenCustomInstructions = async () => {
+    try {
+      const response = await apiClient.invoke<{ content: unknown }>({
+        method: 'GET',
+        endpoint: '/v0/co_scientist/user_preference_memory',
+      });
+      const raw = response.content;
+      let instructions = '';
+      if (raw && typeof raw === 'object') {
+        instructions = ((raw as Record<string, unknown>).custom_instructions as string) ?? '';
+      } else if (typeof raw === 'string') {
+        try {
+          const parsed = JSON.parse(raw);
+          instructions = parsed?.custom_instructions ?? '';
+        } catch {
+          instructions = raw;
+        }
+      }
+      setCustomInstructions(instructions);
+    } catch {
+      setCustomInstructions('');
+    }
+    setShowCustomInstructionsModal(true);
+  };
+
+  const handleSaveCustomInstructions = async () => {
+    setCustomInstructionsSaving(true);
+    try {
+      await apiClient.invoke({
+        method: 'PATCH',
+        endpoint: '/v0/co_scientist/user_preference_memory',
+        data: { content: JSON.stringify({ custom_instructions: customInstructions }) },
+      });
+      setShowCustomInstructionsModal(false);
+    } finally {
+      setCustomInstructionsSaving(false);
+    }
+  };
+
   const handleDragEnter = (e: React.DragEvent) => {
     e.preventDefault();
     if (!e.dataTransfer.types.includes('Files')) return;
@@ -881,6 +924,34 @@ export function ConversationDetail({
           onCancel={() => setShowFilePicker(false)}
         />
       )}
+      {showCustomInstructionsModal && (
+        <div className="customInstructionsModalOverlay" onClick={() => setShowCustomInstructionsModal(false)}>
+          <div className="customInstructionsModal" onClick={(e) => e.stopPropagation()}>
+            <div className="customInstructionsModalHeader">
+              <h3 className="customInstructionsModalTitle">Custom instructions</h3>
+              <button className="customInstructionsModalClose" onClick={() => setShowCustomInstructionsModal(false)}>×</button>
+            </div>
+            <textarea
+              className="customInstructionsModalTextarea"
+              value={customInstructions}
+              onChange={(e) => setCustomInstructions(e.target.value)}
+              placeholder="Share anything you'd like the AI to consider in its responses."
+              maxLength={10000}
+              autoFocus
+            />
+            <div className="customInstructionsModalFooter">
+              <span className="customInstructionsModalCharCount">{customInstructions.length.toLocaleString()} / 10,000</span>
+              <button
+                className="customInstructionsModalSave"
+                onClick={handleSaveCustomInstructions}
+                disabled={customInstructionsSaving}
+              >
+                {customInstructionsSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Header */}
       <div className="conversationHeader">
         <div className="conversationHeaderContent">
@@ -1155,6 +1226,18 @@ export function ConversationDetail({
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                       <line x1="7" y1="1" x2="7" y2="13"/>
                       <line x1="1" y1="7" x2="13" y2="7"/>
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    className="customInstructionsButton"
+                    onClick={handleOpenCustomInstructions}
+                    title="Custom instructions"
+                    aria-label="Custom instructions"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="7.5" cy="5" r="2.5"/>
+                      <path d="M2 13c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/>
                     </svg>
                   </button>
                 </div>
