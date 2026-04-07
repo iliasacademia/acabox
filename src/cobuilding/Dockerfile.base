@@ -51,26 +51,32 @@ RUN R -e 'BiocManager::install(c( \
 ))'
 
 # Install CRAN packages + IRkernel
-ENV CRAN=https://packagemanager.posit.co/cran/__linux__/jammy/latest
-RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
-    "IRkernel", \
-    "argparse", \
-    "data.table", \
-    "dplyr", \
-    "tibble", \
-    "stringr", \
-    "ggplot2", \
-    "jsonlite", \
-    "tidyr", \
-    "patchwork", \
-    "readr", \
-    "purrr", \
-    "ggtext", \
-    "ggrepel", \
-    "igraph", \
-    "ggraph", \
-    "ggnewscale" \
-))'
+# Auto-detect Ubuntu codename for correct Posit binary packages
+RUN UBUNTU_CODENAME=$(grep UBUNTU_CODENAME /etc/os-release | cut -d= -f2) && \
+    echo "Detected Ubuntu: $UBUNTU_CODENAME" && \
+    CRAN_REPO="https://packagemanager.posit.co/cran/__linux__/${UBUNTU_CODENAME}/latest" && \
+    R -q -e "options(repos=c(CRAN='${CRAN_REPO}')); install.packages(c( \
+    'IRkernel', \
+    'argparse', \
+    'data.table', \
+    'dplyr', \
+    'tibble', \
+    'stringr', \
+    'ggplot2', \
+    'jsonlite', \
+    'tidyr', \
+    'patchwork', \
+    'readr', \
+    'purrr', \
+    'ggtext', \
+    'ggrepel', \
+    'igraph', \
+    'ggraph', \
+    'ggnewscale' \
+    ))"
+
+# Verify R packages load correctly at build time
+RUN R --no-save -e 'library(DESeq2); library(ggplot2); library(dplyr); library(jsonlite); cat("All R packages verified OK\n")'
 
 # Register R kernel for Jupyter (manual kernelspec to avoid installspec issues in CI)
 RUN mkdir -p /usr/local/share/jupyter/kernels/ir && \
