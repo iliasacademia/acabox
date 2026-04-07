@@ -1,5 +1,12 @@
+import * as path from 'path';
 import { getBrowserSessionsByTimeRange } from './browserMonitor/repository';
 import { getFileSessionsByTimeRange } from './fileMonitor/repository';
+
+let getWorkspacePath: () => string | null = () => null;
+
+export function initActivityQuery(workspacePathGetter: () => string | null): void {
+  getWorkspacePath = workspacePathGetter;
+}
 
 export interface ActivityQueryParams {
   since?: string;
@@ -58,7 +65,20 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
   }
 
   if (source === 'all' || source === 'file') {
-    result.file_sessions = getFileSessionsByTimeRange(since, until, search);
+    const fileSessions = getFileSessionsByTimeRange(since, until, search);
+    if (include_content) {
+      const workspacePath = getWorkspacePath();
+      result.file_sessions = fileSessions.map((session) => {
+        if (!session.snapshot_ulid || !workspacePath) {
+          return { ...session, snapshot_path: null };
+        }
+        const ext = path.extname(session.document_url);
+        const snapshotPath = path.join(workspacePath, 'file-snapshots', `${session.snapshot_ulid}${ext}`);
+        return { ...session, snapshot_path: snapshotPath };
+      });
+    } else {
+      result.file_sessions = fileSessions;
+    }
   }
 
   return result;

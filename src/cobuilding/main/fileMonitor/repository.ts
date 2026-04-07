@@ -32,13 +32,13 @@ function prepareStatements() {
     `),
     getAll: db.prepare('SELECT * FROM file_sessions ORDER BY last_seen DESC'),
     getByTimeRange: db.prepare(`
-      SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell
+      SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, snapshot_ulid
       FROM file_sessions
       WHERE last_seen >= ? AND last_seen <= ?
       ORDER BY last_seen DESC
     `),
     getByTimeRangeWithSearch: db.prepare(`
-      SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell
+      SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, snapshot_ulid
       FROM file_sessions
       WHERE last_seen >= ? AND last_seen <= ?
         AND (window_title LIKE '%' || ? || '%' OR document_url LIKE '%' || ? || '%')
@@ -91,6 +91,7 @@ export interface FileSessionSummary {
   last_seen: string;
   poll_count: number;
   total_dwell: number;
+  snapshot_ulid: string | null;
 }
 
 export function getFileSessionsByTimeRange(

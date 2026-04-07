@@ -30,7 +30,7 @@ function createActivityMcpServer() {
         source: z.enum(['browser', 'file', 'all']).optional()
           .describe('Which activity source to query. Defaults to "all".'),
         include_content: z.boolean().optional()
-          .describe('If true, include full page text for browser sessions. Defaults to false.'),
+          .describe('If true, include full page text for browser sessions and snapshot file paths for file sessions. Defaults to false.'),
       },
       handler: async (args) => {
         const result = queryActivity(args);

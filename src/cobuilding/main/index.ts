@@ -27,6 +27,7 @@ import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
 import { startReactions, stopReactions } from './browserMonitor';
 import { initFileMonitor, stopFileMonitor } from './fileMonitor';
+import { initActivityQuery } from './activityQuery';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -133,6 +134,7 @@ app.whenReady().then(() => {
 
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null);
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
+    initActivityQuery(() => activeWorkspace?.directory_path ?? null);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();

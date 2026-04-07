@@ -126,7 +126,7 @@ const QUERY_ACTIVITY_TOOL = {
       },
       include_content: {
         type: 'boolean',
-        description: 'If true, include full page text for browser sessions. Defaults to false.',
+        description: 'If true, include full page text for browser sessions and snapshot file paths for file sessions. Defaults to false.',
       },
     },
   },
