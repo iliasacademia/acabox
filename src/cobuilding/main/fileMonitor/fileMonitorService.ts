@@ -154,6 +154,11 @@ export function startFileMonitor(): void {
     return;
   }
 
+  if (process.platform !== 'darwin') {
+    log.info('[FileMonitor] File monitor not available on this platform');
+    return;
+  }
+
   const binPath = getBinaryPath();
   log.info('[FileMonitor] Starting:', binPath);
 

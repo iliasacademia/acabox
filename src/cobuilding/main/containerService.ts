@@ -23,6 +23,16 @@ type BinaryMode = 'system' | 'bundled';
 type ImageSource = 'registry' | 'local';
 type ProgressCallback = (stage: string, message: string) => void;
 
+/** Convert a Windows path (C:\Users\...) to a WSL mount path (/mnt/c/Users/...) for Podman volume mounts. */
+function toMountPath(hostPath: string): string {
+  if (process.platform !== 'win32') return hostPath;
+  const match = hostPath.match(/^([A-Za-z]):[/\\](.*)/);
+  if (!match) return hostPath;
+  const drive = match[1].toLowerCase();
+  const rest = match[2].replace(/\\/g, '/');
+  return `/mnt/${drive}/${rest}`;
+}
+
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
 }
@@ -98,8 +108,8 @@ class CobuildingContainerService {
       }
       const podmanBin = this.getPodmanBin();
 
-      // Ensure podman machine is ready (macOS requirement)
-      if (process.platform === 'darwin') {
+      // Ensure podman machine is ready (macOS uses AppleHV, Windows uses WSL2)
+      if (process.platform === 'darwin' || process.platform === 'win32') {
         await this.ensureMachineRunning(podmanBin, onProgress);
       }
 
@@ -212,11 +222,11 @@ class CobuildingContainerService {
 
   getBundledBinaryStatus(): { downloaded: boolean; binDir: string } {
     const binDir = getBundledPodmanBinDir();
-    const podmanBin = path.join(binDir, 'podman');
-    const gvproxyBin = path.join(binDir, 'gvproxy');
-    const vfkitBin = path.join(binDir, 'vfkit');
+    const binaries = process.platform === 'win32'
+      ? ['podman.exe', 'gvproxy-windows.exe', 'win-sshproxy.exe']
+      : ['podman', 'gvproxy', 'vfkit'];
     return {
-      downloaded: fs.existsSync(podmanBin) && fs.existsSync(gvproxyBin) && fs.existsSync(vfkitBin),
+      downloaded: binaries.every(name => fs.existsSync(path.join(binDir, name))),
       binDir,
     };
   }
@@ -271,10 +281,10 @@ class CobuildingContainerService {
       }
     }
 
-    // Step 2: Ensure podman machine is ready (macOS requirement for bundled)
+    // Step 2: Ensure podman machine is ready (macOS uses AppleHV, Windows uses WSL2)
     try {
       const podmanBin = this.getPodmanBin();
-      if (process.platform === 'darwin') {
+      if (process.platform === 'darwin' || process.platform === 'win32') {
         await this.ensureMachineRunning(podmanBin, onProgress);
       }
 
@@ -570,11 +580,12 @@ class CobuildingContainerService {
 
   private async runContainer(podmanBin: string, workspacePath: string): Promise<void> {
     const env = this.getExecEnv();
+    const mountPath = toMountPath(workspacePath);
     const args = [
       'run', '-d',
       '--replace',
       '--name', CONTAINER_NAME,
-      '-v', `${workspacePath}:/data`,
+      '-v', `${mountPath}:/data`,
       IMAGE_NAME,
       'sleep', 'infinity',
     ];
@@ -591,9 +602,6 @@ class CobuildingContainerService {
         'inspect', '--format', '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}', CONTAINER_NAME,
       ], env);
       log.debug(`[ContainerService] Container /data mount source: ${mountSource.trim()}`);
-      if (mountSource.trim() !== workspacePath) {
-        log.error(`[ContainerService] Mount mismatch! Expected "${workspacePath}", got "${mountSource.trim()}"`);
-      }
     } catch (err) {
       log.warn(`[ContainerService] Could not verify mount: ${(err as Error).message}`);
     }
