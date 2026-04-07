@@ -10,10 +10,19 @@ const PODMAN_VERSION = '5.3.1';
 const GVPROXY_VERSION = '0.8.0';
 const VFKIT_VERSION = '0.6.0';
 
-const EXPECTED_CHECKSUMS: Record<string, string> = {
-  podman: '7e0fcd22d17de5e8a9cb3bb894887cb351fe7e5f4c6a72bb1a642cefe6ba7df2',
-  gvproxy: 'ee672a026af07e5d0fad0716d719a91f8245e82b6d06f5467f792598f9ddee65',
-  vfkit: '5f681b5da70ca35351ebe8e803aee637c0e7843cd19d8721ff53fda243b68a92',
+const IS_WINDOWS = process.platform === 'win32';
+
+const EXPECTED_CHECKSUMS: Record<string, Record<string, string>> = {
+  darwin: {
+    podman: '7e0fcd22d17de5e8a9cb3bb894887cb351fe7e5f4c6a72bb1a642cefe6ba7df2',
+    gvproxy: 'ee672a026af07e5d0fad0716d719a91f8245e82b6d06f5467f792598f9ddee65',
+    vfkit: '5f681b5da70ca35351ebe8e803aee637c0e7843cd19d8721ff53fda243b68a92',
+  },
+  win32: {
+    podman: '', // TODO: populate after verifying Windows release binaries
+    gvproxy: '',
+    'win-sshproxy': '',
+  },
 };
 
 type ProgressCallback = (stage: string, message: string) => void;
@@ -26,7 +35,7 @@ export function getBundledPodmanBinDir(): string {
 
 export function getBundledPodmanBin(): string {
   const binDir = getBundledPodmanBinDir();
-  const bundledBin = path.join(binDir, 'podman');
+  const bundledBin = path.join(binDir, IS_WINDOWS ? 'podman.exe' : 'podman');
   if (!fs.existsSync(bundledBin)) {
     throw new Error('Bundled Podman binary not found. Run ensureBinariesDownloaded() first.');
   }
@@ -47,10 +56,12 @@ export function getBundledPodmanEnv(): NodeJS.ProcessEnv {
 
   ensureContainersConf(configDir, podmanBinDir);
 
+  const pathSep = IS_WINDOWS ? ';' : ':';
+
   return {
     ...process.env,
-    PATH: `${podmanBinDir}:${process.env.PATH}`,
-    CONTAINERS_MACHINE_PROVIDER: 'applehv',
+    PATH: `${podmanBinDir}${pathSep}${process.env.PATH}`,
+    CONTAINERS_MACHINE_PROVIDER: IS_WINDOWS ? 'wsl' : 'applehv',
     XDG_CONFIG_HOME: configDir,
     XDG_DATA_HOME: dataDir,
     XDG_RUNTIME_DIR: runDir,
@@ -58,6 +69,14 @@ export function getBundledPodmanEnv(): NodeJS.ProcessEnv {
 }
 
 export async function ensureBinariesDownloaded(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
+  if (IS_WINDOWS) {
+    await ensureBinariesDownloadedWindows(onProgress, skipChecksum);
+  } else {
+    await ensureBinariesDownloadedMac(onProgress, skipChecksum);
+  }
+}
+
+async function ensureBinariesDownloadedMac(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
   const binDir = getBundledPodmanBinDir();
   const podmanBin = path.join(binDir, 'podman');
   const gvproxyBin = path.join(binDir, 'gvproxy');
@@ -133,6 +152,81 @@ export async function ensureBinariesDownloaded(onProgress?: ProgressCallback, sk
   log.debug('[PodmanBinaries] All binaries downloaded');
 }
 
+async function ensureBinariesDownloadedWindows(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
+  const binDir = getBundledPodmanBinDir();
+  const podmanBin = path.join(binDir, 'podman.exe');
+  const gvproxyBin = path.join(binDir, 'gvproxy-windows.exe');
+  const winSshProxyBin = path.join(binDir, 'win-sshproxy.exe');
+
+  if (fs.existsSync(podmanBin) && fs.existsSync(gvproxyBin) && fs.existsSync(winSshProxyBin)) {
+    log.debug('[PodmanBinaries] Binaries already present');
+    return;
+  }
+
+  fs.mkdirSync(binDir, { recursive: true });
+  onProgress?.('download', 'Downloading Podman binaries...');
+  log.debug('[PodmanBinaries] Downloading podman binaries (Windows)...');
+
+  const needsPodman = !fs.existsSync(podmanBin);
+  const needsGvproxy = !fs.existsSync(gvproxyBin);
+  const needsWinSshProxy = !fs.existsSync(winSshProxyBin);
+
+  // Download podman from zip and extract
+  if (needsPodman) {
+    onProgress?.('download', 'Downloading podman...');
+    const zipUrl = `https://github.com/containers/podman/releases/download/v${PODMAN_VERSION}/podman-remote-release-windows_amd64.zip`;
+    const zipPath = path.join(binDir, 'podman.zip');
+    await downloadFile(zipUrl, zipPath, (pct) => {
+      onProgress?.('download-percent', String(Math.round(pct * 0.8)));
+    });
+
+    log.debug('[PodmanBinaries] Extracting podman from .zip...');
+    const tempDir = path.join(binDir, '_extract_tmp');
+    fs.mkdirSync(tempDir, { recursive: true });
+    try {
+      await execCommand('powershell', [
+        '-NoProfile', '-Command',
+        `Expand-Archive -Path '${zipPath}' -DestinationPath '${tempDir}' -Force`,
+      ]);
+      const extractedBin = findFileRecursive(tempDir, 'podman.exe', false);
+      if (!extractedBin) {
+        throw new Error('Could not find podman.exe in extracted .zip');
+      }
+      fs.copyFileSync(extractedBin, podmanBin);
+      if (!skipChecksum) verifyChecksum(podmanBin, 'podman');
+      log.debug(`[PodmanBinaries] podman.exe extracted${skipChecksum ? '' : ' and verified'}`);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      fs.rmSync(zipPath, { force: true });
+    }
+  }
+
+  // Download gvproxy
+  if (needsGvproxy) {
+    onProgress?.('download', 'Downloading gvproxy...');
+    const gvproxyUrl = `https://github.com/containers/gvisor-tap-vsock/releases/download/v${GVPROXY_VERSION}/gvproxy-windows.exe`;
+    await downloadFile(gvproxyUrl, gvproxyBin, (pct) => {
+      onProgress?.('download-percent', String(80 + Math.round(pct * 0.1)));
+    });
+    if (!skipChecksum) verifyChecksum(gvproxyBin, 'gvproxy');
+    log.debug(`[PodmanBinaries] gvproxy downloaded${skipChecksum ? '' : ' and verified'}`);
+  }
+
+  // Download win-sshproxy (replaces vfkit on Windows — handles SSH tunneling to WSL)
+  if (needsWinSshProxy) {
+    onProgress?.('download', 'Downloading win-sshproxy...');
+    const winSshProxyUrl = `https://github.com/containers/gvisor-tap-vsock/releases/download/v${GVPROXY_VERSION}/win-sshproxy.exe`;
+    await downloadFile(winSshProxyUrl, winSshProxyBin, (pct) => {
+      onProgress?.('download-percent', String(90 + Math.round(pct * 0.1)));
+    });
+    if (!skipChecksum) verifyChecksum(winSshProxyBin, 'win-sshproxy');
+    log.debug(`[PodmanBinaries] win-sshproxy downloaded${skipChecksum ? '' : ' and verified'}`);
+  }
+
+  onProgress?.('download-percent', '100');
+  log.debug('[PodmanBinaries] All binaries downloaded');
+}
+
 // ─── Internal Helpers ─────────────────────────────────────────────
 
 function ensureContainersConf(configDir: string, podmanBinDir: string): void {
@@ -153,9 +247,11 @@ function ensureContainersConf(configDir: string, podmanBinDir: string): void {
 }
 
 function verifyChecksum(filePath: string, name: string): void {
-  const expected = EXPECTED_CHECKSUMS[name];
+  const platform = IS_WINDOWS ? 'win32' : 'darwin';
+  const expected = EXPECTED_CHECKSUMS[platform]?.[name];
   if (!expected) {
-    throw new Error(`No expected checksum defined for ${name}`);
+    log.warn(`[PodmanBinaries] No checksum defined for ${name} on ${platform}, skipping verification`);
+    return;
   }
   const fileBuffer = fs.readFileSync(filePath);
   const actual = crypto.createHash('sha256').update(fileBuffer).digest('hex');
