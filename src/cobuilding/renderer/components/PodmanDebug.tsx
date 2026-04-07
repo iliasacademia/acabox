@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Trash2 } from 'lucide-react';
 import { ContainerTests } from './ContainerTests';
 
 type BinaryMode = 'system' | 'bundled';
@@ -15,7 +16,7 @@ export const PodmanDebug: React.FC = () => {
   const [initializing, setInitializing] = useState(true);
   const [containerName, setContainerName] = useState('');
   const [imageBuilt, setImageBuilt] = useState(false);
-  const [imageSource, setImageSource] = useState<ImageSource>('registry');
+  const [imageSource, setImageSource] = useState<ImageSource>('local');
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -190,7 +191,7 @@ export const PodmanDebug: React.FC = () => {
                 disabled={running}
                 title="Remove downloaded Podman binaries"
               >
-                🗑︎
+                <Trash2 size={14} />
               </button>
             </div>
           ) : (
@@ -246,7 +247,7 @@ export const PodmanDebug: React.FC = () => {
             disabled={running}
             title="Remove the container image"
           >
-            🗑︎
+            <Trash2 size={14} />
           </button>
         )}
       </div>

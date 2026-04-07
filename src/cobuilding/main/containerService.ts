@@ -51,9 +51,9 @@ function writeBinaryMode(mode: BinaryMode): void {
 function readImageSource(): ImageSource {
   try {
     const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.imageSource === 'local' ? 'local' : 'registry';
+    return data.imageSource === 'registry' ? 'registry' : 'local';
   } catch {
-    return 'registry';
+    return 'local';
   }
 }
 
