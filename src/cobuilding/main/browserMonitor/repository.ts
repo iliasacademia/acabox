@@ -25,6 +25,9 @@ function prepareStatements() {
         triage_state = excluded.triage_state,
         app_version = excluded.app_version
     `),
+    getIdByUrlAndDate: db.prepare(`
+      SELECT id FROM browser_sessions WHERE url = ? AND session_date = ?
+    `),
     getAll: db.prepare('SELECT * FROM browser_sessions'),
     deleteByUrl: db.prepare('DELETE FROM browser_sessions WHERE url = ?'),
     getByTimeRange: db.prepare(`
@@ -65,7 +68,7 @@ function getStmts() {
   return stmts;
 }
 
-export function upsertSession(session: ReadingSession): void {
+export function upsertSession(session: ReadingSession): number {
   getStmts().upsert.run(
     session.url,
     session.title,
@@ -83,6 +86,8 @@ export function upsertSession(session: ReadingSession): void {
     session.app_version,
     session.session_date,
   );
+  const row = getStmts().getIdByUrlAndDate.get(session.url, session.session_date) as { id: number };
+  return row.id;
 }
 
 export function getAllSessions(): ReadingSession[] {
