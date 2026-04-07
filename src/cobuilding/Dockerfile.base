@@ -72,7 +72,13 @@ RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
     "ggnewscale" \
 ))'
 
+# Verify jupyter is available
+RUN which jupyter && jupyter --version
+
 # Register R kernel for Jupyter
-RUN which jupyter && R -e 'IRkernel::installspec(user = FALSE)'
+RUN R -e 'cat("IRkernel version:", as.character(packageVersion("IRkernel")), "\n"); IRkernel::installspec(user = FALSE)'
+
+# Verify kernel was registered
+RUN jupyter kernelspec list
 
 WORKDIR /data
