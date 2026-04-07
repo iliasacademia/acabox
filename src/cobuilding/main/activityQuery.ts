@@ -1,6 +1,7 @@
 import * as path from 'path';
 import { getBrowserSessionsByTimeRange } from './browserMonitor/repository';
 import { getFileSessionsByTimeRange } from './fileMonitor/repository';
+import { getSessionFilesBySessionIds } from './db/sessionFilesRepository';
 
 let getWorkspacePath: () => string | null = () => null;
 
@@ -61,24 +62,40 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
   };
 
   if (source === 'all' || source === 'browser') {
-    result.browser_sessions = getBrowserSessionsByTimeRange(since, until, search, include_content);
+    result.browser_sessions = getBrowserSessionsByTimeRange(since, until, search);
   }
 
   if (source === 'all' || source === 'file') {
     const fileSessions = getFileSessionsByTimeRange(since, until, search);
     if (include_content) {
       const workspacePath = getWorkspacePath();
+      const fileSessionIds = fileSessions.map((s) => s.id);
+      const fileSessionFiles = getSessionFilesBySessionIds('file', fileSessionIds);
+
       result.file_sessions = fileSessions.map((session) => {
-        if (!session.snapshot_ulid || !workspacePath) {
-          return { ...session, snapshot_path: null };
-        }
-        const ext = path.extname(session.document_url);
-        const snapshotPath = path.join(workspacePath, 'file-snapshots', `${session.snapshot_ulid}${ext}`);
-        return { ...session, snapshot_path: snapshotPath };
+        const snapshotPath = session.snapshot_ulid && workspacePath
+          ? path.join(workspacePath, 'file-snapshots', `${session.snapshot_ulid}${path.extname(session.document_url)}`)
+          : null;
+
+        const sessionFiles = fileSessionFiles.get(session.id);
+        const fullTextFile = sessionFiles?.find((f) => f.file_type === 'full_text');
+
+        return { ...session, snapshot_path: snapshotPath, full_text_path: fullTextFile?.file_path ?? null };
       });
     } else {
       result.file_sessions = fileSessions;
     }
+  }
+
+  if (include_content && result.browser_sessions) {
+    const browserSessionIds = (result.browser_sessions as any[]).map((s) => s.id);
+    const browserSessionFiles = getSessionFilesBySessionIds('browser', browserSessionIds);
+
+    result.browser_sessions = (result.browser_sessions as any[]).map((session) => {
+      const sessionFiles = browserSessionFiles.get(session.id);
+      const fullTextFile = sessionFiles?.find((f: any) => f.file_type === 'full_text');
+      return { ...session, full_text_path: fullTextFile?.file_path ?? null };
+    });
   }
 
   return result;

@@ -16,7 +16,11 @@ export async function startServer(accumulator: SessionAccumulator): Promise<numb
 
   await fastify.register(cors, {
     origin: (origin, cb) => {
-      if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
+      if (
+        !origin ||
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+        /^chrome-extension:\/\//.test(origin)
+      ) {
         cb(null, true);
       } else {
         cb(new Error('Not allowed'), false);

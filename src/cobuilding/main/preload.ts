@@ -72,6 +72,12 @@ contextBridge.exposeInMainWorld('containerAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('observationsAPI', {
+  getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
+  getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),
+  getSessionFiles: () => ipcRenderer.invoke('observations:getSessionFiles'),
+});
+
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: () => ipcRenderer.invoke('sessions:list'),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),

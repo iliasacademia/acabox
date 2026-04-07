@@ -28,6 +28,10 @@ import { createTray, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
 import { initActivityQuery } from './activityQuery';
+import { getAllSessions as getAllBrowserSessions } from './browserMonitor/repository';
+import { getAllFileSessions } from './fileMonitor/repository';
+import { getAllSessionFiles } from './db/sessionFilesRepository';
+import { initSessionFiles } from './db/sessionFilesRepository';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -140,6 +144,7 @@ app.whenReady().then(() => {
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
+    initSessionFiles(() => activeWorkspace?.directory_path ?? null);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
@@ -316,6 +321,11 @@ ipcMain.handle('container:ensureSetup', async () => {
     mainWindow?.webContents.send('setup:progress', { stage, message });
   });
 });
+
+// Observations IPC handlers
+ipcMain.handle('observations:getBrowserSessions', () => getAllBrowserSessions());
+ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
+ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
 
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {

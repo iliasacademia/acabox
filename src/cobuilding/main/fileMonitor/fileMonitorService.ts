@@ -8,8 +8,10 @@ import { ulid } from 'ulid';
 const appVersion = app.getVersion();
 import { createFileSession, updateFileSession, findFileSession } from './repository';
 import { getLocalDate } from '../../shared/utils';
+import { extractText } from './textExtractor';
+import { createSessionFile } from '../db/sessionFilesRepository';
 
-interface FileMonitorEvent {
+export interface FileMonitorEvent {
   event: 'APP_FOCUSED' | 'APP_UNFOCUSED' | 'WINDOW_FOCUSED' | 'FILE_MONITOR_POLL';
   timestamp: string;
   platform: string;
@@ -52,7 +54,7 @@ function resolveFilePath(documentUrl: string): string {
   return documentUrl;
 }
 
-function snapshotFile(documentUrl: string): string | null {
+function snapshotFile(documentUrl: string): { snapshotId: string; destPath: string } | null {
   const workspacePath = getWorkspacePath();
   if (!workspacePath) return null;
 
@@ -66,7 +68,7 @@ function snapshotFile(documentUrl: string): string | null {
     fs.mkdirSync(snapshotDir, { recursive: true });
     fs.copyFileSync(srcPath, destPath, fs.constants.COPYFILE_FICLONE);
     log.info('[FileMonitor] Snapshot created:', destPath);
-    return snapshotId;
+    return { snapshotId, destPath };
   } catch (err) {
     log.warn('[FileMonitor] Failed to snapshot file:', srcPath, err);
     return null;
@@ -83,7 +85,7 @@ function calcDwellIncrement(newTimestamp: string): number {
   return Math.min(elapsed, MAX_DWELL_INCREMENT);
 }
 
-function handleEvent(event: FileMonitorEvent): void {
+export async function handleEvent(event: FileMonitorEvent): Promise<void> {
   const timestamp = event.timestamp;
 
   if (event.event === 'APP_UNFOCUSED') {
@@ -119,8 +121,8 @@ function handleEvent(event: FileMonitorEvent): void {
     const dwellIncrement = currentFocus ? calcDwellIncrement(timestamp) : 0;
     updateFileSession(existing.id!, timestamp, event.window.title, dwellIncrement);
   } else {
-    const snapshotUlid = snapshotFile(documentUrl);
-    createFileSession({
+    const snapshot = snapshotFile(documentUrl);
+    const sessionId = createFileSession({
       document_url: documentUrl,
       app_name: event.app.name,
       app_bundle_id: event.app.bundleId,
@@ -131,9 +133,16 @@ function handleEvent(event: FileMonitorEvent): void {
       poll_count: 1,
       total_dwell: 0,
       app_version: appVersion,
-      snapshot_ulid: snapshotUlid,
+      snapshot_ulid: snapshot?.snapshotId ?? null,
     });
     log.info('[FileMonitor] New file session:', documentUrl, sessionDate);
+
+    if (snapshot) {
+      const text = await extractText(snapshot.destPath);
+      if (text) {
+        createSessionFile('file', sessionId, 'full_text', text);
+      }
+    }
   }
 
   if (!currentFocus) {
@@ -158,13 +167,14 @@ export function startFileMonitor(): void {
   childProcess = spawn(binPath, [], { stdio: ['ignore', 'pipe', 'pipe'] });
 
   const rl = createInterface({ input: childProcess.stdout! });
+  let eventQueue = Promise.resolve();
   rl.on('line', (line) => {
-    try {
+    eventQueue = eventQueue.then(() => {
       const event = JSON.parse(line) as FileMonitorEvent;
-      handleEvent(event);
-    } catch (err) {
-      log.warn('[FileMonitor] Failed to parse event:', line);
-    }
+      return handleEvent(event);
+    }).catch((err) => {
+      log.warn('[FileMonitor] Failed to process event:', line, err);
+    });
   });
 
   childProcess.stderr?.on('data', (data: Buffer) => {
