@@ -71,7 +71,7 @@ export class SessionAccumulator {
     existing.max_scroll_depth = Math.max(existing.max_scroll_depth, payload.scroll.depth);
     existing.snapshot_count++;
 
-    if (payload.selection) {
+    if (payload.selection && !existing.selections.includes(payload.selection)) {
       existing.selections.push(payload.selection);
     }
 
