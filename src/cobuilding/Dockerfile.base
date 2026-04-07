@@ -35,6 +35,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     openpyxl \
     "markitdown[pptx]" \
     jupyter_kernel_gateway \
+    jupyter-client \
     ipykernel
 
 # Install Bioconductor packages
@@ -72,6 +73,6 @@ RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
 ))'
 
 # Register R kernel for Jupyter
-RUN R -e 'IRkernel::installspec(user = FALSE)'
+RUN which jupyter && R -e 'IRkernel::installspec(user = FALSE)'
 
 WORKDIR /data
