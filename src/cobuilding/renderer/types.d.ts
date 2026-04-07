@@ -115,6 +115,12 @@ interface SystemLogAPI {
   onEntry(callback: (entry: SystemLogEntry) => void): () => void;
 }
 
+interface JupyterAPI {
+  startGateway(): Promise<{ url: string } | { error: string }>;
+  stopGateway(): Promise<void>;
+  gatewayStatus(): Promise<{ running: boolean; url: string | null }>;
+}
+
 declare global {
   interface Window {
     chatAPI: ChatAPI;
@@ -124,5 +130,6 @@ declare global {
     containerAPI: ContainerAPI;
     commandLogAPI: CommandLogAPI;
     systemLogAPI: SystemLogAPI;
+    jupyterAPI: JupyterAPI;
   }
 }

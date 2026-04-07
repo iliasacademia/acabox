@@ -74,6 +74,12 @@ contextBridge.exposeInMainWorld('containerAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('jupyterAPI', {
+  startGateway: () => ipcRenderer.invoke('jupyter:startGateway'),
+  stopGateway: () => ipcRenderer.invoke('jupyter:stopGateway'),
+  gatewayStatus: () => ipcRenderer.invoke('jupyter:gatewayStatus'),
+});
+
 contextBridge.exposeInMainWorld('commandLogAPI', {
   getAll: () => ipcRenderer.invoke('commandLog:getAll'),
   getByApp: (appDirName: string) => ipcRenderer.invoke('commandLog:getByApp', appDirName),
