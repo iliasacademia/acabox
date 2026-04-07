@@ -13,5 +13,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", ".webpack"]
+  "exclude": ["node_modules", "dist", ".webpack", "src/cobuilding/skills/manage-mini-application/assets/templates"]
 }

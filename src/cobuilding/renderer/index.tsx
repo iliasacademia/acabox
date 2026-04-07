@@ -5,14 +5,17 @@ import {
   useRemoteThreadListRuntime,
   AssistantRuntimeProvider,
   useThreadList,
+  useAssistantToolUI,
 } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
 import { FilesTab } from './components/FilesTab';
 import { DebugSidebar, DebugContent, type DebugSection } from './components/DebugPanel';
 import { FileViewer } from './components/FileViewer';
+import { MiniAppViewer } from './components/MiniAppViewer';
+import { MiniAppsTab } from './components/MiniAppsTab';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
@@ -23,8 +26,8 @@ import { SetupBanner } from './components/SetupBanner';
 import type { Workspace } from '../shared/types';
 import './App.css';
 
-/** When the user picks a thread (or new thread), close the file viewer so the chat shows. */
-function CloseFileOnThreadSelect({ onCloseFile }: { onCloseFile: () => void }) {
+/** When the user picks a thread (or new thread), close the file viewer and mini-app so the chat shows. */
+function CloseFileOnThreadSelect({ onCloseFile, onCloseMiniApp }: { onCloseFile: () => void; onCloseMiniApp: () => void }) {
   const mainThreadId = useThreadList((s) => s.mainThreadId);
   const prevRef = useRef<string | undefined>(undefined);
 
@@ -33,9 +36,35 @@ function CloseFileOnThreadSelect({ onCloseFile }: { onCloseFile: () => void }) {
     const prev = prevRef.current;
     if (prev !== undefined && prev !== mainThreadId) {
       onCloseFile();
+      onCloseMiniApp();
     }
     prevRef.current = mainThreadId;
-  }, [mainThreadId, onCloseFile]);
+  }, [mainThreadId, onCloseFile, onCloseMiniApp]);
+
+  return null;
+}
+
+function OpenMiniAppToolUI({ args, onOpen }: { args: { dir_name?: string }; onOpen: (dirName: string) => void }) {
+  const openedRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const dirName = args?.dir_name;
+    if (dirName && dirName !== openedRef.current) {
+      openedRef.current = dirName;
+      onOpen(dirName);
+    }
+  }, [args?.dir_name, onOpen]);
+
+  return null;
+}
+
+function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string) => void }) {
+  useAssistantToolUI({
+    toolName: 'mcp__mini-apps__open_mini_application',
+    render: (props: { args: { dir_name?: string } }) => (
+      <OpenMiniAppToolUI args={props.args} onOpen={onOpen} />
+    ),
+  });
 
   return null;
 }
@@ -43,8 +72,9 @@ function CloseFileOnThreadSelect({ onCloseFile }: { onCloseFile: () => void }) {
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chats' | 'files' | 'debug'>('chats');
+  const [activeTab, setActiveTab] = useState<'chats' | 'files' | 'apps' | 'debug'>('chats');
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+  const [activeMiniAppDirName, setActiveMiniAppDirName] = useState<string | null>(null);
   const [debugSection, setDebugSection] = useState<DebugSection>('podman');
 
   const runtime = useRemoteThreadListRuntime({
@@ -59,10 +89,12 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   });
 
   const clearSelectedFile = useCallback(() => setSelectedFilePath(null), []);
+  const clearMiniApp = useCallback(() => setActiveMiniAppDirName(null), []);
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <CloseFileOnThreadSelect onCloseFile={clearSelectedFile} />
+      <CloseFileOnThreadSelect onCloseFile={clearSelectedFile} onCloseMiniApp={clearMiniApp} />
+      <OpenMiniAppHandler onOpen={(dirName) => { setActiveMiniAppDirName(dirName); setSelectedFilePath(null); }} />
       <TooltipProvider>
         <div className="appRoot">
           <SetupBanner />
@@ -81,6 +113,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               title="Chats"
             >
               <MessageSquareIcon style={{ width: 22, height: 22 }} />
+            </button>
+            <button
+              className={`activityBarBtn ${activeTab === 'apps' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setActiveTab('apps')}
+              title="Applications"
+            >
+              <LayoutGridIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
               className={`activityBarBtn activityBarBtn--bottom ${activeTab === 'debug' ? 'activityBarBtn--active' : ''}`}
@@ -106,6 +145,11 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   workspacePath={workspace.directory_path}
                   onSelectFile={(p) => setSelectedFilePath(p)}
                 />
+              ) : activeTab === 'apps' ? (
+                <MiniAppsTab
+                  workspacePath={workspace.directory_path}
+                  onSelectApp={(dirName) => { setActiveMiniAppDirName(dirName); setSelectedFilePath(null); }}
+                />
               ) : activeTab === 'debug' ? (
                 <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
               ) : null}
@@ -114,6 +158,12 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
           <div className="mainPanel">
             {activeTab === 'debug' ? (
               <DebugContent activeSection={debugSection} />
+            ) : activeMiniAppDirName ? (
+              <MiniAppViewer
+                dirName={activeMiniAppDirName}
+                workspacePath={workspace.directory_path}
+                onClose={() => setActiveMiniAppDirName(null)}
+              />
             ) : selectedFilePath ? (
               <FileViewer
                 filePath={selectedFilePath}
@@ -123,6 +173,11 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <Thread />
             )}
           </div>
+          {activeMiniAppDirName && (
+            <div className="chatSidePanel">
+              <Thread />
+            </div>
+          )}
         </div>
         </div>
         {showSettings && (

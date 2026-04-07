@@ -161,13 +161,25 @@ class CobuildingContainerService {
     }
   }
 
-  async exec(command: string[]): Promise<{ stdout: string; stderr: string }> {
+  async exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     if (!this.isRunning()) {
       throw new Error('Container is not running');
     }
     const podmanBin = this.getPodmanBin();
     const args = ['exec', CONTAINER_NAME, ...command];
-    return this.execAsync(podmanBin, args, this.getExecEnv());
+    const env = this.getExecEnv();
+    try {
+      const { stdout, stderr } = await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+        execFile(podmanBin, args, { env, timeout: 600_000, maxBuffer: 50 * 1024 * 1024 }, (error, stdout, stderr) => {
+          if (error) reject(Object.assign(error, { stdout, stderr }));
+          else resolve({ stdout, stderr });
+        });
+      });
+      return { stdout, stderr, exitCode: 0 };
+    } catch (err: any) {
+      const exitCode = typeof err.code === 'number' ? err.code : 1;
+      return { stdout: err.stdout ?? '', stderr: err.stderr ?? '', exitCode };
+    }
   }
 
   // ─── Binary Mode ──────────────────────────────────────────────

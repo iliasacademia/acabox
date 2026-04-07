@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession, type AgentSession } from './agentSession';
 import type { IPCAttachment } from '../shared/types';
-import { copyClaudeMdToWorkspace, copySkillsToWorkspace } from './skills';
+import { copyClaudeMdToWorkspace, copySkillsToWorkspace, syncMiniAppAssets } from './skills';
 import { containerService } from './containerService';
 import { initDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -137,7 +137,7 @@ app.whenReady().then(() => {
     });
     log.info('[APP] Main window created.');
 
-    registerFileHandlers(() => activeWorkspace?.directory_path ?? null);
+    registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
     setupUpdaterIpcHandlers();
@@ -201,6 +201,7 @@ ipcMain.handle(
 
     fs.mkdirSync(directoryPath, { recursive: true });
     copySkillsToWorkspace(directoryPath);
+    syncMiniAppAssets(directoryPath);
     copyClaudeMdToWorkspace(directoryPath);
 
     const id = randomUUID();
