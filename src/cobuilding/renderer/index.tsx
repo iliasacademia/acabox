@@ -149,6 +149,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 <MiniAppsTab
                   workspacePath={workspace.directory_path}
                   onSelectApp={(dirName) => { setActiveMiniAppDirName(dirName); setSelectedFilePath(null); }}
+                  onNewApplication={() => { setActiveMiniAppDirName(null); setActiveTab('chats'); }}
                 />
               ) : activeTab === 'debug' ? (
                 <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
