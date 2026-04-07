@@ -6,16 +6,20 @@ import {
 } from '@assistant-ui/react';
 import { PencilIcon, PlusIcon, TrashIcon } from 'lucide-react';
 import type { FC } from 'react';
+import {
+  dateFromSessionStoredAt,
+  getSessionCreatedAt,
+} from '../../sessionTimestamps';
 
 export const ThreadList: FC = () => {
   return (
     <ThreadListPrimitive.Root className="threadListRoot">
+      <ThreadListNew />
       <div className="threadListItems">
         <ThreadListPrimitive.Items>
           {() => <ThreadListItem />}
         </ThreadListPrimitive.Items>
       </div>
-      <ThreadListNew />
     </ThreadListPrimitive.Root>
   );
 };
@@ -48,6 +52,20 @@ const ThreadListItem: FC = () => {
     const title = runtime.getState().title ?? 'New Chat';
     setEditValue(title);
     setIsEditing(true);
+  };
+
+  const remoteId = runtime.getState().remoteId;
+  const createdAt = getSessionCreatedAt(remoteId);
+
+  const formatCreatedAt = (iso: string) => {
+    const date = dateFromSessionStoredAt(iso);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    });
   };
 
   const commitRename = () => {
@@ -84,7 +102,12 @@ const ThreadListItem: FC = () => {
     <ThreadListItemPrimitive.Root className="threadListItem">
       <ThreadListItemPrimitive.Trigger className="threadListItemTrigger">
         <span className="threadListItemTitle">
-          <ThreadListItemPrimitive.Title fallback="New Chat" />
+          <span className="threadListItemTitleText">
+            <ThreadListItemPrimitive.Title fallback="New Chat" />
+          </span>
+          {createdAt ? (
+            <span className="threadListItemDate">{formatCreatedAt(createdAt)}</span>
+          ) : null}
         </span>
       </ThreadListItemPrimitive.Trigger>
       <button className="threadListItemAction" onClick={startEditing}>

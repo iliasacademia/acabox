@@ -6,6 +6,10 @@
       "env": {
         "ACADEMIA_AUTH_TOKEN": "supersecuredevtoken123"
       }
+    },
+    "activity": {
+      "command": "node",
+      "args": ["mcp/activity-mcp-server.js"]
     }
   }
 }

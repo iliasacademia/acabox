@@ -9,6 +9,7 @@ import type { IPCAttachment } from '../shared/types';
 import { copySkillsToWorkspace } from './skills';
 import { containerService } from './containerService';
 import { initDatabase, closeDatabase } from './db/database';
+import { initObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
 import {
   listSessions,
   getSession,
@@ -24,6 +25,10 @@ import {
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
+import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
+import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
+import { initActivityQuery } from './activityQuery';
+import { startHourlySummary, stopHourlySummary } from './hourlySummary';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -76,7 +81,7 @@ function validateDirectoryPath(directoryPath: string): string {
 }
 
 app.setName('Academia Coscientist');
-app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron'));
+app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron', app.isPackaged ? 'production' : 'development'));
 
 let mainWindow: BrowserWindow | null = null;
 let activeWorkspace: Workspace | null = null;
@@ -98,6 +103,7 @@ app.whenReady().then(() => {
   });
 
   initDatabase(app.getPath('userData'));
+  initObservationsDatabase(app.getPath('userData'));
   activeWorkspace = getActiveWorkspace() ?? null;
   log.info('[APP] App ready. Version:', app.getVersion(), 'Packaged:', app.isPackaged);
   log.info('[APP] userData path:', app.getPath('userData'));
@@ -105,6 +111,7 @@ app.whenReady().then(() => {
   try {
     log.info('[APP] Initializing database...');
     initDatabase(app.getPath('userData'));
+    initObservationsDatabase(app.getPath('userData'));
     log.info('[APP] Database initialized.');
 
     log.info('[APP] Loading active workspace...');
@@ -126,10 +133,16 @@ app.whenReady().then(() => {
     log.info('[APP] Main window created.');
 
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null);
+    initFileMonitor(() => activeWorkspace?.directory_path ?? null);
+    initActivityQuery(() => activeWorkspace?.directory_path ?? null);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
     log.info('[APP] Updater and tray initialized.');
+
+    startFileMonitor();
+    startBrowserMonitor().then(() => rebuildTrayMenu());
+    startHourlySummary();
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
     log.info('[APP] Loading URL:', url);
@@ -346,6 +359,10 @@ app.on('window-all-closed', () => {
   }
   sessions.clear();
   containerService.stop();
+  stopHourlySummary();
+  stopFileMonitor();
+  stopBrowserMonitor();
+  closeObservationsDatabase();
   closeDatabase();
   app.quit();
 });

@@ -121,7 +121,7 @@ body,
 .threadListRoot {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   height: 100%;
 }
 
@@ -139,7 +139,7 @@ body,
   width: 100%;
   height: 36px;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 8px;
   border-radius: 8px;
   border: 1px solid #e0e0e0;
@@ -157,10 +157,12 @@ body,
 
 .threadListItem {
   display: flex;
-  height: 36px;
+  min-height: 36px;
+  height: auto;
   align-items: center;
   gap: 4px;
   border-radius: 8px;
+  padding: 2px 0;
   transition: background-color 0.15s;
 }
 
@@ -174,13 +176,13 @@ body,
 
 .threadListItemTrigger {
   display: flex;
-  height: 100%;
+  min-height: 0;
   min-width: 0;
   flex: 1;
-  align-items: center;
-  padding: 0 12px;
+  align-items: flex-start;
+  padding: 6px 12px;
   text-align: left;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem + 1px);
   background: none;
   border: none;
   cursor: pointer;
@@ -190,9 +192,25 @@ body,
 .threadListItemTitle {
   min-width: 0;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.threadListItemTitleText {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.threadListItemDate {
+  margin-top: 2px;
+  font-size: calc(0.6875rem + 1px);
+  font-weight: 400;
+  color: #8a8a8a;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
 }
 
 .threadListItemAction {
@@ -234,7 +252,7 @@ body,
   min-width: 0;
   padding: 0 12px;
   font-family: inherit;
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem + 1px);
   border: none;
   outline: none;
   background: transparent;
@@ -1446,6 +1464,71 @@ body,
   background: #f0f0f0;
 }
 
+/* Nested rows: full-width name by default; actions overlay on hover and main gets right inset so text ellipsizes */
+.fileTreeRow--node {
+  position: relative;
+}
+
+.fileTreeRow--node > .fileTreeRowMain {
+  padding-right: 2px;
+  transition: padding-right 0.15s ease;
+}
+
+.fileTreeRow--node:hover > .fileTreeRowMain {
+  padding-right: 50px;
+}
+
+.fileTreeRow--node > .fileTreeRowActions {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 1;
+  margin-left: 0;
+  transform: translateY(-50%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.fileTreeRow--node:hover > .fileTreeRowActions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Nested row actions: same size/weight as workspace header (fileTreeRefresh) */
+.fileTreeRowAction {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: #999;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.fileTreeRowAction:hover {
+  background: #e8e8e8;
+  color: #333;
+}
+
+.fileTreeRowAction--delete:hover {
+  background: rgba(204, 51, 51, 0.1);
+  color: #c33;
+}
+
+.fileTreeRowMain {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+}
+
 .fileTreeRow--dropTarget {
   background: rgba(6, 69, 177, 0.08);
   outline: 1px dashed rgba(6, 69, 177, 0.4);
@@ -1487,13 +1570,21 @@ body,
   font-weight: 500;
 }
 
+/* Tight icon groups (workspace toolbar + per-row rename/delete) */
+.fileTreeRowActions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .fileTreeRefresh {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
-  margin-left: auto;
   flex-shrink: 0;
   border: none;
   border-radius: 4px;

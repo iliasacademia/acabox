@@ -2,7 +2,7 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SKILL_NAMES = ['docx', 'pdf', 'pptx', 'xlsx', 'differential-expression'];
+const SKILL_NAMES = ['docx', 'pdf', 'pptx', 'xlsx', 'differential-expression', 'activity-summary'];
 
 function getSkillsSourceDir(): string {
   if (app.isPackaged) {
