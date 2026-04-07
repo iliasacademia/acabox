@@ -12,6 +12,7 @@ export interface SnapshotPayload {
 }
 
 export interface ReadingSession {
+  id?: number;
   url: string;
   title: string;
   referrer: string;
@@ -26,4 +27,5 @@ export interface ReadingSession {
   snapshot_count: number;
   triage_state: 'pending' | 'triaged' | 'reacting' | 'reacted' | 'skipped';
   app_version: string;
+  session_date: string;
 }

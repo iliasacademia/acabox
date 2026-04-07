@@ -3,6 +3,15 @@ import log from 'electron-log';
 import type { SnapshotPayload, ReadingSession } from './types';
 import { upsertSession, getAllSessions } from './repository';
 
+function toSessionDate(timestamp: string | number): string {
+  const d = new Date(typeof timestamp === 'number' ? timestamp * 1000 : timestamp);
+  return d.toISOString().slice(0, 10);
+}
+
+function sessionKey(url: string, sessionDate: string): string {
+  return `${url}|${sessionDate}`;
+}
+
 export class SessionAccumulator {
   private sessions = new Map<string, ReadingSession>();
 
@@ -10,7 +19,7 @@ export class SessionAccumulator {
     try {
       const persisted = getAllSessions();
       for (const session of persisted) {
-        this.sessions.set(session.url, session);
+        this.sessions.set(sessionKey(session.url, session.session_date), session);
       }
       log.info(`[Reactions] Restored ${persisted.length} sessions from DB`);
     } catch (err) {
@@ -19,7 +28,9 @@ export class SessionAccumulator {
   }
 
   ingestSnapshot(payload: SnapshotPayload): void {
-    const existing = this.sessions.get(payload.url);
+    const date = toSessionDate(payload.timestamp);
+    const key = sessionKey(payload.url, date);
+    const existing = this.sessions.get(key);
 
     if (!existing) {
       const session: ReadingSession = {
@@ -37,8 +48,9 @@ export class SessionAccumulator {
         snapshot_count: 1,
         triage_state: 'pending',
         app_version: app.getVersion(),
+        session_date: date,
       };
-      this.sessions.set(payload.url, session);
+      this.sessions.set(key, session);
       upsertSession(session);
       log.info('[Reactions] New session:', payload.url);
       return;
