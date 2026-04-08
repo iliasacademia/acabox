@@ -144,8 +144,8 @@ declare global {
   interface WorkspacesAPI {
     getActive(): Promise<Workspace | null>;
     getDefaultDirectory(name: string): Promise<string>;
-    create(data: { name: string; directoryPath: string; apiKey: string }): Promise<Workspace>;
-    update(data: { name: string; directoryPath: string; apiKey: string }): Promise<Workspace>;
+    create(data: { name: string; directoryPath: string }): Promise<Workspace>;
+    update(data: { name: string; directoryPath: string }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
   }
 
