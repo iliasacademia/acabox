@@ -2,7 +2,7 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SKILL_NAMES = ['docx', 'pdf', 'pptx', 'xlsx', 'differential-expression', 'activity-summary', 'manage-mini-application'];
+const SKILL_NAMES = ['docx', 'pdf', 'pptx', 'xlsx', 'differential-expression', 'activity-summary', 'manage-mini-application', 'reaction'];
 
 function getCobuildingSourceDir(): string {
   if (app.isPackaged) {
