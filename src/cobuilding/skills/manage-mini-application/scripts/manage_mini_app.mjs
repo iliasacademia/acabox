@@ -2,7 +2,7 @@
 
 import { parseArgs } from "util";
 import { join } from "path";
-import { mkdirSync, writeFileSync, existsSync, cpSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync, cpSync, readdirSync, statSync } from "fs";
 
 const { values } = parseArgs({
   options: {
@@ -81,7 +81,17 @@ writeFileSync(join(miniAppDir, "src", "index.tsx"), indexTsx);
 if (values.template) {
   const templatesDir = join(workspaceDir, ".applications", "_templates", values.template);
   if (existsSync(templatesDir)) {
-    cpSync(templatesDir, join(miniAppDir, "src"), { recursive: true });
+    // Copy .ipynb files to app root, everything else to src/
+    for (const entry of readdirSync(templatesDir)) {
+      const srcPath = join(templatesDir, entry);
+      if (entry.endsWith(".ipynb")) {
+        cpSync(srcPath, join(miniAppDir, entry));
+      } else if (statSync(srcPath).isDirectory()) {
+        cpSync(srcPath, join(miniAppDir, "src", entry), { recursive: true });
+      } else {
+        cpSync(srcPath, join(miniAppDir, "src", entry));
+      }
+    }
   } else {
     console.error(`Template directory not found: ${templatesDir}`);
     process.exit(1);

@@ -1785,6 +1785,11 @@ body,
   color: #333;
 }
 
+.miniAppHeaderClose--active {
+  background: #e0e7ff;
+  color: #4338ca;
+}
+
 .miniAppBody {
   flex: 1;
   min-height: 0;
@@ -1800,6 +1805,71 @@ body,
   width: 100%;
   height: 100%;
   border: none;
+}
+
+/* --- Source Viewer (inside mini-app) --- */
+
+.sourceViewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.sourceViewerTabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #e5e5e5;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.sourceViewerTab {
+  padding: 6px 14px;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #666;
+  cursor: pointer;
+}
+
+.sourceViewerTab:hover {
+  color: #333;
+  background: #f0f0f0;
+}
+
+.sourceViewerTab--active {
+  color: #4338ca;
+  border-bottom-color: #4338ca;
+}
+
+.sourceViewerContent {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  min-height: 0;
+}
+
+.sourceViewerPre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #333;
+  margin: 0;
+}
+
+.sourceViewerMessage {
+  font-size: 0.875rem;
+  color: #666;
+}
+
+.sourceViewerEmpty {
+  padding: 16px;
+  font-size: 0.875rem;
+  color: #999;
 }
 
 /* --- Chat Side Panel (shown when mini-app is active) --- */
