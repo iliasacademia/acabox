@@ -35,6 +35,9 @@ import { initActivityQuery } from './activityQuery';
 import { initSessionFiles } from './db/sessionFilesRepository';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
+import { checkLogin, logout } from '../../apiClient';
+import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
+import { updateApiKey } from './db/workspaceRepository';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -92,10 +95,49 @@ function validateDirectoryPath(directoryPath: string): string {
 app.setName('Academia Coscientist');
 app.setPath('userData', path.join(app.getPath('appData'), 'academia-electron', app.isPackaged ? 'production' : 'development'));
 
+// Register deep link protocol — must happen before app is ready
+app.setAsDefaultProtocolClient('cobuilding-agent');
+
+let pendingDeepLinkUrl: string | null = null;
+
+function handleDeepLinkUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+    const verificationCode = parsed.searchParams.get('verification_code');
+    const deviceId = parsed.searchParams.get('device_id');
+    if (!verificationCode || !/^\d{6}$/.test(verificationCode)) {
+      log.warn('[Deep Link] Received URL with missing or invalid verification_code:', url);
+      return;
+    }
+    if (!deviceId) {
+      log.warn('[Deep Link] Received URL with missing device_id:', url);
+      return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+      mainWindow.webContents.send('auth:deepLinkCallback', { verificationCode, deviceId });
+    } else {
+      pendingDeepLinkUrl = url;
+    }
+  } catch (err) {
+    log.error('[Deep Link] Failed to parse URL:', err);
+  }
+}
+
+// macOS: deep link when app is already running
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (url.startsWith('cobuilding-agent://')) {
+    handleDeepLinkUrl(url);
+  }
+});
+
 let mainWindow: BrowserWindow | null = null;
 let activeWorkspace: Workspace | null = null;
 
 const sessions = new Map<string, AgentSession>();
+let cachedApiKey: string | null = null;
 
 app.whenReady().then(() => {
   protocol.handle('local-file', (request) => {
@@ -169,6 +211,15 @@ app.whenReady().then(() => {
       mainWindow?.show();
     });
 
+    // Dispatch any deep link URL that arrived before the window was ready
+    if (pendingDeepLinkUrl && mainWindow && !mainWindow.isDestroyed()) {
+      const urlToDispatch = pendingDeepLinkUrl;
+      pendingDeepLinkUrl = null;
+      mainWindow.webContents.once('did-finish-load', () => {
+        handleDeepLinkUrl(urlToDispatch);
+      });
+    }
+
     mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
       log.error('[APP] Window failed to load:', errorCode, errorDescription);
     });
@@ -202,12 +253,24 @@ ipcMain.handle('workspaces:getDefaultDirectory', (_event, name: string) => {
 
 ipcMain.handle(
   'workspaces:create',
-  (_event, data: { name: string; directoryPath: string; apiKey: string }) => {
+  async (_event, data: { name: string; directoryPath: string }) => {
     const name = validateWorkspaceName(data.name);
     const directoryPath = validateDirectoryPath(data.directoryPath);
 
     if (fs.existsSync(directoryPath)) {
       throw new Error('Directory already exists. Please choose a path that does not exist yet.');
+    }
+
+    // Fetch API key automatically — use cached value if available, otherwise fetch now
+    let apiKey = cachedApiKey ?? '';
+    if (!apiKey) {
+      try {
+        const result = await fetchCobuildingApiKey();
+        cachedApiKey = result.apiKey;
+        apiKey = result.apiKey;
+      } catch (err) {
+        log.warn('[workspaces:create] Could not fetch API key:', err);
+      }
     }
 
     fs.mkdirSync(directoryPath, { recursive: true });
@@ -216,7 +279,7 @@ ipcMain.handle(
     copyClaudeMdToWorkspace(directoryPath);
 
     const id = randomUUID();
-    createWorkspace(id, name, directoryPath, data.apiKey);
+    createWorkspace(id, name, directoryPath, apiKey);
     activeWorkspace = getActiveWorkspace() ?? null;
     return activeWorkspace ?? null;
   },
@@ -233,7 +296,7 @@ ipcMain.handle('dialog:selectDirectory', async () => {
 
 ipcMain.handle(
   'workspaces:update',
-  (_event, data: { name: string; directoryPath: string; apiKey: string }) => {
+  (_event, data: { name: string; directoryPath: string }) => {
     if (!activeWorkspace) {
       throw new Error('No active workspace to update.');
     }
@@ -253,7 +316,7 @@ ipcMain.handle(
       copyClaudeMdToWorkspace(directoryPath);
     }
 
-    updateWorkspace(activeWorkspace.id, name, directoryPath, data.apiKey);
+    updateWorkspace(activeWorkspace.id, name, directoryPath, cachedApiKey ?? activeWorkspace.api_key);
     activeWorkspace = getActiveWorkspace() ?? null;
     return activeWorkspace ?? null;
   },
@@ -421,6 +484,80 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: str
   }
 
   sessions.get(threadId)!.sendMessage(text, attachments);
+});
+
+// Auth IPC handlers
+ipcMain.handle('auth:checkLogin', async () => {
+  try {
+    const loggedIn = await checkLogin();
+    if (loggedIn) {
+      fetchCobuildingApiKey().then(({ apiKey }) => {
+        cachedApiKey = apiKey;
+        if (activeWorkspace) {
+          updateApiKey(activeWorkspace.id, apiKey);
+          activeWorkspace = { ...activeWorkspace, api_key: apiKey };
+        }
+      }).catch((err) => log.warn('[Auth] fetchCobuildingApiKey error:', err));
+    }
+    return { loggedIn };
+  } catch (error) {
+    log.error('[Auth] checkLogin error:', error);
+    return { loggedIn: false };
+  }
+});
+
+ipcMain.handle('auth:startQRAuth', async () => {
+  try {
+    const session = await createCobuildingAuthSession();
+    return {
+      success: true,
+      deviceId: session.deviceId,
+      qrCodeDataURL: session.qrCodeDataURL,
+      authorizationURL: session.authorizationURL,
+    };
+  } catch (error: any) {
+    log.error('[Auth] startQRAuth error:', error);
+    return { success: false, error: error.message || 'Failed to create QR auth session' };
+  }
+});
+
+ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: string) => {
+  try {
+    if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
+      return { success: false, error: 'Invalid code format. Please enter a 6-digit code.' };
+    }
+    const result = await verifyCobuildingAuthCode(deviceId, code);
+    if (result.error) {
+      return { success: false, error: result.error };
+    }
+    if (result.authorized) {
+      fetchCobuildingApiKey().then(({ apiKey }) => {
+        cachedApiKey = apiKey;
+        if (activeWorkspace) {
+          updateApiKey(activeWorkspace.id, apiKey);
+          activeWorkspace = { ...activeWorkspace, api_key: apiKey };
+        }
+      }).catch((err) => log.warn('[Auth] fetchCobuildingApiKey after verify error:', err));
+    }
+    return { success: true, authorized: result.authorized, userId: result.user_id };
+  } catch (error: any) {
+    log.error('[Auth] verifyQRCode error:', error);
+    return { success: false, error: error.message || 'Verification failed' };
+  }
+});
+
+ipcMain.handle('auth:getApiKey', () => {
+  return { apiKey: cachedApiKey };
+});
+
+ipcMain.handle('auth:logout', async () => {
+  try {
+    const result = await logout();
+    return result;
+  } catch (error: any) {
+    log.error('[Auth] logout error:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 app.on('window-all-closed', () => {

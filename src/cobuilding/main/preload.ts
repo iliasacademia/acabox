@@ -10,13 +10,32 @@ contextBridge.exposeInMainWorld('electronAPI', {
   invoke: (channel: string, ...args: any[]) => ipcRenderer.invoke(channel, ...args),
 });
 
+contextBridge.exposeInMainWorld('authAPI', {
+  checkLogin: () => ipcRenderer.invoke('auth:checkLogin'),
+  startQRAuth: () => ipcRenderer.invoke('auth:startQRAuth'),
+  verifyQRCode: (deviceId: string, code: string) =>
+    ipcRenderer.invoke('auth:verifyQRCode', deviceId, code),
+  logout: () => ipcRenderer.invoke('auth:logout'),
+  getApiKey: () => ipcRenderer.invoke('auth:getApiKey'),
+  onDeepLinkCallback: (
+    callback: (data: { verificationCode: string; deviceId: string }) => void
+  ) => {
+    const handler = (
+      _event: unknown,
+      data: { verificationCode: string; deviceId: string }
+    ) => callback(data);
+    ipcRenderer.on('auth:deepLinkCallback', handler);
+    return () => ipcRenderer.removeListener('auth:deepLinkCallback', handler);
+  },
+});
+
 contextBridge.exposeInMainWorld('workspacesAPI', {
   getActive: () => ipcRenderer.invoke('workspaces:getActive'),
   getDefaultDirectory: (name: string) => ipcRenderer.invoke('workspaces:getDefaultDirectory', name),
-  create: (data: { name: string; directoryPath: string; apiKey: string }) =>
+  create: (data: { name: string; directoryPath: string }) =>
     ipcRenderer.invoke('workspaces:create', data),
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
-  update: (data: { name: string; directoryPath: string; apiKey: string }) =>
+  update: (data: { name: string; directoryPath: string }) =>
     ipcRenderer.invoke('workspaces:update', data),
 });
 
