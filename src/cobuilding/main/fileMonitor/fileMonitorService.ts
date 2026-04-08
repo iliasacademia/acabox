@@ -6,10 +6,11 @@ import { app } from 'electron';
 import log from 'electron-log';
 import { ulid } from 'ulid';
 const appVersion = app.getVersion();
-import { createFileSession, updateFileSession, findFileSession } from './repository';
+import { createFileSession, updateFileSession, updateFileSessionDiff, updateFileSessionLastModified, findFileSession } from './repository';
 import { getLocalDate } from '../../shared/utils';
 import { extractText } from './textExtractor';
-import { createSessionFile } from '../db/sessionFilesRepository';
+import { createSessionFile, getSessionFiles } from '../db/sessionFilesRepository';
+import { createPatch } from 'diff';
 
 export interface FileMonitorEvent {
   event: 'APP_FOCUSED' | 'APP_UNFOCUSED' | 'WINDOW_FOCUSED' | 'FILE_MONITOR_POLL';
@@ -61,7 +62,7 @@ function snapshotFile(documentUrl: string): { snapshotId: string; destPath: stri
   const srcPath = resolveFilePath(documentUrl);
   const ext = path.extname(srcPath);
   const snapshotId = ulid();
-  const snapshotDir = path.join(workspacePath, 'file-snapshots');
+  const snapshotDir = path.join(workspacePath, '.academia', 'temp_files');
   const destPath = path.join(snapshotDir, `${snapshotId}${ext}`);
 
   try {
@@ -72,6 +73,37 @@ function snapshotFile(documentUrl: string): { snapshotId: string; destPath: stri
   } catch (err) {
     log.warn('[FileMonitor] Failed to snapshot file:', srcPath, err);
     return null;
+  }
+}
+
+function getFileMtime(documentUrl: string): string | null {
+  try {
+    const filePath = resolveFilePath(documentUrl);
+    const stat = fs.statSync(filePath);
+    return stat.mtime.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+async function computeAndStoreDiff(sessionId: number, documentUrl: string, newMtime: string): Promise<void> {
+  try {
+    const sessionFiles = getSessionFiles('file', sessionId);
+    const fullTextFile = sessionFiles.find((f) => f.file_type === 'full_text');
+    if (!fullTextFile?.file_path) return;
+
+    const originalText = fs.readFileSync(fullTextFile.file_path, 'utf-8');
+    const currentText = await extractText(resolveFilePath(documentUrl));
+    if (currentText === null) return;
+
+    const diffText = createPatch(resolveFilePath(documentUrl), originalText, currentText);
+    const diffUlid = createSessionFile('file', sessionId, 'diff', diffText);
+    if (diffUlid) {
+      updateFileSessionDiff(sessionId, newMtime, diffUlid);
+      log.info('[FileMonitor] Diff stored for session:', sessionId);
+    }
+  } catch (err) {
+    log.warn('[FileMonitor] Failed to compute diff:', err);
   }
 }
 
@@ -120,8 +152,16 @@ export async function handleEvent(event: FileMonitorEvent): Promise<void> {
   if (existing) {
     const dwellIncrement = currentFocus ? calcDwellIncrement(timestamp) : 0;
     updateFileSession(existing.id!, timestamp, event.window.title, dwellIncrement);
+
+    const currentMtime = getFileMtime(documentUrl);
+    if (currentMtime && existing.last_modified && currentMtime !== existing.last_modified) {
+      await computeAndStoreDiff(existing.id!, documentUrl, currentMtime);
+    } else if (currentMtime && !existing.last_modified) {
+      updateFileSessionLastModified(existing.id!, currentMtime);
+    }
   } else {
     const snapshot = snapshotFile(documentUrl);
+    const mtime = getFileMtime(documentUrl);
     const sessionId = createFileSession({
       document_url: documentUrl,
       app_name: event.app.name,
@@ -134,6 +174,8 @@ export async function handleEvent(event: FileMonitorEvent): Promise<void> {
       total_dwell: 0,
       app_version: appVersion,
       snapshot_ulid: snapshot?.snapshotId ?? null,
+      last_modified: mtime,
+      diff_ulid: null,
     });
     log.info('[FileMonitor] New file session:', documentUrl, sessionDate);
 

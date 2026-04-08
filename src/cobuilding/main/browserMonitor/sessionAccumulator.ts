@@ -46,7 +46,6 @@ export class SessionAccumulator {
         last_snapshot: payload.timestamp,
         total_dwell: payload.dwell_seconds,
         max_scroll_depth: payload.scroll.depth,
-        selections: payload.selection ? [payload.selection] : [],
         snapshot_count: 1,
         triage_state: 'pending',
         app_version: app.getVersion(),
@@ -70,10 +69,6 @@ export class SessionAccumulator {
     existing.total_dwell = payload.dwell_seconds;
     existing.max_scroll_depth = Math.max(existing.max_scroll_depth, payload.scroll.depth);
     existing.snapshot_count++;
-
-    if (payload.selection) {
-      existing.selections.push(payload.selection);
-    }
 
     const sessionId = upsertSession(existing);
     if (payload.full_text !== null) {

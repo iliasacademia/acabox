@@ -96,6 +96,17 @@ const migrations = [
       CREATE INDEX idx_session_files_session ON session_files(session_type, session_id);
     `,
   },
+  {
+    version: 5,
+    sql: `
+      ALTER TABLE file_sessions ADD COLUMN last_modified TEXT;
+      ALTER TABLE file_sessions ADD COLUMN diff_ulid TEXT;
+    `,
+  },
+  {
+    version: 6,
+    sql: `ALTER TABLE browser_sessions DROP COLUMN selections;`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

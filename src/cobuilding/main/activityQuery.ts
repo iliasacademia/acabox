@@ -78,13 +78,17 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
 
       result.file_sessions = fileSessions.map((session) => {
         const snapshotPath = session.snapshot_ulid && workspacePath
-          ? path.join(workspacePath, 'file-snapshots', `${session.snapshot_ulid}${path.extname(session.document_url)}`)
+          ? path.join(workspacePath, '.academia', 'temp_files', `${session.snapshot_ulid}${path.extname(session.document_url)}`)
           : null;
 
         const sessionFiles = fileSessionFiles.get(session.id);
         const fullTextFile = sessionFiles?.find((f) => f.file_type === 'full_text');
 
-        return { ...session, snapshot_path: snapshotPath, full_text_path: fullTextFile?.file_path ?? null };
+        const diffPath = session.diff_ulid && workspacePath
+          ? path.join(workspacePath, '.academia', 'temp_files', `${session.diff_ulid}.txt`)
+          : null;
+
+        return { ...session, snapshot_path: snapshotPath, full_text_path: fullTextFile?.file_path ?? null, diff_path: diffPath };
       });
     } else {
       result.file_sessions = fileSessions;

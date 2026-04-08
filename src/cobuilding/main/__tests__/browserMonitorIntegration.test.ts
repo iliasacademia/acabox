@@ -53,7 +53,6 @@ function makeSnapshot(overrides: Partial<SnapshotPayload> = {}): SnapshotPayload
     text_hash: 'abc123',
     dwell_seconds: 45,
     scroll: { depth: 0.6 },
-    selection: null,
     timestamp: '2026-04-07T10:00:00.000Z',
     ...overrides,
   };
@@ -112,7 +111,7 @@ describe('Browser monitor integration', () => {
     expect(sessionFile.file_ext).toBe('.txt');
 
     // --- Verify text file on disk ---
-    const textFilePath = path.join(workspaceDir, 'session-files', `${sessionFile.ulid}.txt`);
+    const textFilePath = path.join(workspaceDir, '.academia', 'temp_files', `${sessionFile.ulid}.txt`);
     expect(fs.existsSync(textFilePath)).toBe(true);
 
     const storedText = fs.readFileSync(textFilePath, 'utf-8');
@@ -131,7 +130,6 @@ describe('Browser monitor integration', () => {
       text_hash: 'def456',
       dwell_seconds: 120,
       scroll: { depth: 0.9 },
-      selection: 'important quote',
       timestamp: '2026-04-07T10:05:00.000Z',
     }));
 
@@ -143,7 +141,6 @@ describe('Browser monitor integration', () => {
     expect(session.total_dwell).toBe(120);
     expect(session.max_scroll_depth).toBe(0.9);
     expect(session.snapshot_count).toBe(2);
-    expect(JSON.parse(session.selections)).toEqual(['important quote']);
     expect(session.full_text).toBeNull(); // still not in DB
 
     // --- Should now have 2 session files (one per snapshot with full_text) ---
@@ -154,7 +151,7 @@ describe('Browser monitor integration', () => {
 
     // Latest file should contain the updated text
     const latestFile = sessionFiles[1];
-    const textFilePath = path.join(workspaceDir, 'session-files', `${latestFile.ulid}.txt`);
+    const textFilePath = path.join(workspaceDir, '.academia', 'temp_files', `${latestFile.ulid}.txt`);
     const storedText = fs.readFileSync(textFilePath, 'utf-8');
     expect(storedText).toBe(updatedText);
   });
@@ -209,7 +206,7 @@ describe('Browser monitor integration', () => {
     ).all('browser', nextDaySession.id) as any[];
     expect(sessionFiles).toHaveLength(1);
 
-    const textFilePath = path.join(workspaceDir, 'session-files', `${sessionFiles[0].ulid}.txt`);
+    const textFilePath = path.join(workspaceDir, '.academia', 'temp_files', `${sessionFiles[0].ulid}.txt`);
     expect(fs.readFileSync(textFilePath, 'utf-8')).toBe('Next day content');
   });
 });

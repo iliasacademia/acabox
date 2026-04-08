@@ -153,7 +153,7 @@ describe('File monitor integration', () => {
     expect(session.app_version).toBe('1.0.0-test');
 
     // --- Verify snapshot file exists on disk ---
-    const snapshotDir = path.join(workspaceDir, 'file-snapshots');
+    const snapshotDir = path.join(workspaceDir, '.academia', 'temp_files');
     const snapshotPath = path.join(snapshotDir, `${session.snapshot_ulid}.docx`);
     expect(fs.existsSync(snapshotPath)).toBe(true);
 
@@ -173,7 +173,7 @@ describe('File monitor integration', () => {
     expect(sessionFile.file_ext).toBe('.txt');
     expect(sessionFile.ulid).toBeTruthy();
 
-    const textFilePath = path.join(workspaceDir, 'session-files', `${sessionFile.ulid}.txt`);
+    const textFilePath = path.join(workspaceDir, '.academia', 'temp_files', `${sessionFile.ulid}.txt`);
     expect(fs.existsSync(textFilePath)).toBe(true);
 
     const extractedText = fs.readFileSync(textFilePath, 'utf-8');
