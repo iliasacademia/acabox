@@ -23,12 +23,16 @@ import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { attachmentAdapter } from './attachmentAdapter';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import WorkspaceSettings from './components/WorkspaceSettings';
+import AcademiaLogin from './components/AcademiaLogin';
 import { SetupBanner } from './components/SetupBanner';
+import { TabBar } from './tabs/TabBar';
+import { useTabs } from './tabs/useTabs';
+import type { TabDescriptor } from './tabs/types';
 import type { Workspace } from '../shared/types';
 import './App.css';
 
-/** When the user picks a thread (or new thread), close the file viewer and mini-app so the chat shows. */
-function CloseFileOnThreadSelect({ onCloseFile, onCloseMiniApp }: { onCloseFile: () => void; onCloseMiniApp: () => void }) {
+/** When the user picks a different thread, deactivate tabs so chat is shown. */
+function ShowChatOnThreadSelect({ onShowChat }: { onShowChat: () => void }) {
   const mainThreadId = useThreadList((s) => s.mainThreadId);
   const prevRef = useRef<string | undefined>(undefined);
 
@@ -36,11 +40,10 @@ function CloseFileOnThreadSelect({ onCloseFile, onCloseMiniApp }: { onCloseFile:
     if (mainThreadId == null) return;
     const prev = prevRef.current;
     if (prev !== undefined && prev !== mainThreadId) {
-      onCloseFile();
-      onCloseMiniApp();
+      onShowChat();
     }
     prevRef.current = mainThreadId;
-  }, [mainThreadId, onCloseFile, onCloseMiniApp]);
+  }, [mainThreadId, onShowChat]);
 
   return null;
 }
@@ -73,10 +76,25 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string) => void }) {
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState<'chats' | 'files' | 'apps' | 'debug'>('chats');
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
-  const [activeMiniAppDirName, setActiveMiniAppDirName] = useState<string | null>(null);
+  const [sidebarTab, setSidebarTab] = useState<'chats' | 'files' | 'apps' | 'debug'>('chats');
   const [debugSection, setDebugSection] = useState<DebugSection>('apps');
+
+  const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs();
+  const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(new Set());
+
+  const handleDirtyChange = useCallback((tabId: string, dirty: boolean) => {
+    setDirtyTabIds((prev) => {
+      if (dirty && prev.has(tabId)) return prev;
+      if (!dirty && !prev.has(tabId)) return prev;
+      const next = new Set(prev);
+      if (dirty) {
+        next.add(tabId);
+      } else {
+        next.delete(tabId);
+      }
+      return next;
+    });
+  }, []);
 
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
@@ -89,42 +107,80 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     adapter: sessionListAdapter,
   });
 
-  const clearSelectedFile = useCallback(() => setSelectedFilePath(null), []);
-  const clearMiniApp = useCallback(() => setActiveMiniAppDirName(null), []);
+  const handleSelectFile = useCallback((filePath: string) => {
+    const isNotebook = filePath.endsWith('.ipynb');
+    const kind = isNotebook ? 'notebook' as const : 'file' as const;
+    const label = filePath.split('/').pop() ?? filePath;
+    const id = `${kind}::${filePath}`;
+    const descriptor: TabDescriptor = {
+      id,
+      kind,
+      label,
+      pinned: isNotebook, // notebooks are always pinned, regular files are preview
+      data: isNotebook ? { kind: 'notebook', filePath } : { kind: 'file', filePath },
+    };
+    openTab(descriptor);
+  }, [openTab]);
+
+  const handleSelectApp = useCallback((dirName: string) => {
+    const descriptor: TabDescriptor = {
+      id: `miniapp::${dirName}`,
+      kind: 'miniapp',
+      label: dirName,
+      pinned: true, // mini apps are always pinned
+      data: { kind: 'miniapp', dirName },
+    };
+    openTab(descriptor);
+  }, [openTab]);
+
+  const handleOpenDebug = useCallback(() => {
+    const descriptor: TabDescriptor = {
+      id: 'debug',
+      kind: 'debug',
+      label: 'Debug',
+      pinned: true,
+      data: { kind: 'debug' },
+    };
+    openTab(descriptor);
+  }, [openTab]);
+
+  // Determine if the active tab is a miniapp (for showing chat side panel)
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+  const showChatSidePanel = activeTab?.kind === 'miniapp';
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <CloseFileOnThreadSelect onCloseFile={clearSelectedFile} onCloseMiniApp={clearMiniApp} />
-      <OpenMiniAppHandler onOpen={(dirName) => { setActiveMiniAppDirName(dirName); setSelectedFilePath(null); }} />
+      <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} />
+      <OpenMiniAppHandler onOpen={handleSelectApp} />
       <TooltipProvider>
         <div className="appRoot">
           <SetupBanner />
           <div className="appLayout">
           <div className="activityBar">
             <button
-              className={`activityBarBtn ${activeTab === 'files' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setActiveTab('files')}
+              className={`activityBarBtn ${sidebarTab === 'files' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setSidebarTab('files')}
               title="Files"
             >
               <FolderIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
-              className={`activityBarBtn ${activeTab === 'chats' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setActiveTab('chats')}
+              className={`activityBarBtn ${sidebarTab === 'chats' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setSidebarTab('chats')}
               title="Chats"
             >
               <MessageSquareIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
-              className={`activityBarBtn ${activeTab === 'apps' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setActiveTab('apps')}
+              className={`activityBarBtn ${sidebarTab === 'apps' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setSidebarTab('apps')}
               title="Applications"
             >
               <LayoutGridIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
-              className={`activityBarBtn activityBarBtn--bottom ${activeTab === 'debug' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setActiveTab('debug')}
+              className={`activityBarBtn activityBarBtn--bottom ${sidebarTab === 'debug' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => { setSidebarTab('debug'); handleOpenDebug(); }}
               title="Debug"
             >
               <BracesIcon style={{ width: 22, height: 22 }} />
@@ -139,48 +195,69 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
           </div>
           <div className="sidebarPanel">
             <div className="sidebarContent">
-              {activeTab === 'chats' ? (
+              {sidebarTab === 'chats' ? (
                 <ThreadList />
-              ) : activeTab === 'files' ? (
+              ) : sidebarTab === 'files' ? (
                 <FilesTab
                   workspacePath={workspace.directory_path}
-                  onSelectFile={(p) => setSelectedFilePath(p)}
+                  onSelectFile={handleSelectFile}
                 />
-              ) : activeTab === 'apps' ? (
+              ) : sidebarTab === 'apps' ? (
                 <MiniAppsTab
                   workspacePath={workspace.directory_path}
-                  onSelectApp={(dirName) => { setActiveMiniAppDirName(dirName); setSelectedFilePath(null); }}
-                  onNewApplication={() => { setActiveMiniAppDirName(null); setActiveTab('chats'); }}
+                  onSelectApp={handleSelectApp}
+                  onNewApplication={() => { setSidebarTab('chats'); }}
                 />
-              ) : activeTab === 'debug' ? (
+              ) : sidebarTab === 'debug' ? (
                 <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
               ) : null}
             </div>
           </div>
           <div className="mainPanel">
-            {activeTab === 'debug' ? (
-              <DebugContent activeSection={debugSection} />
-            ) : activeMiniAppDirName ? (
-              <MiniAppViewer
-                dirName={activeMiniAppDirName}
-                workspacePath={workspace.directory_path}
-                onClose={() => setActiveMiniAppDirName(null)}
-              />
-            ) : selectedFilePath?.endsWith('.ipynb') ? (
-              <NotebookViewer
-                filePath={selectedFilePath}
-                onClose={() => setSelectedFilePath(null)}
-              />
-            ) : selectedFilePath ? (
-              <FileViewer
-                filePath={selectedFilePath}
-                onClose={() => setSelectedFilePath(null)}
-              />
-            ) : (
-              <Thread />
-            )}
+            <TabBar
+              tabs={tabs}
+              activeTabId={activeTabId}
+              dirtyTabIds={dirtyTabIds}
+              onActivate={activateTab}
+              onClose={closeTab}
+              onPin={pinTab}
+              onShowChat={deactivateAllTabs}
+            />
+            <div className="tabPanelsContainer">
+              {/* Chat is the default view when no tab is active */}
+              <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none' }}>
+                <Thread />
+              </div>
+              {/* Render all tab panels - hidden ones use display:none to preserve state */}
+              {tabs.map((tab) => (
+                <div
+                  key={tab.id}
+                  className="tabPanel"
+                  style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}
+                >
+                  {tab.data.kind === 'file' && (
+                    <FileViewer filePath={tab.data.filePath} />
+                  )}
+                  {tab.data.kind === 'notebook' && (
+                    <NotebookViewer
+                      filePath={tab.data.filePath}
+                      onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
+                    />
+                  )}
+                  {tab.data.kind === 'miniapp' && (
+                    <MiniAppViewer
+                      dirName={tab.data.dirName}
+                      workspacePath={workspace.directory_path}
+                    />
+                  )}
+                  {tab.data.kind === 'debug' && (
+                    <DebugContent activeSection={debugSection} />
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
-          {activeMiniAppDirName && (
+          {showChatSidePanel && (
             <div className="chatSidePanel">
               <Thread />
             </div>
@@ -203,11 +280,31 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 }
 
 function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
 
   useEffect(() => {
-    window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
+    window.authAPI.checkLogin().then(({ loggedIn }) => {
+      setIsLoggedIn(loggedIn);
+      if (loggedIn) {
+        window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
+      }
+    });
   }, []);
+
+  // Loading
+  if (isLoggedIn === null) return null;
+
+  if (!isLoggedIn) {
+    return (
+      <AcademiaLogin
+        onSuccess={() => {
+          setIsLoggedIn(true);
+          window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
+        }}
+      />
+    );
+  }
 
   if (workspace === undefined) return null;
 

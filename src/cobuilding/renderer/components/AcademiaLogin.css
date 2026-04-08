@@ -1,0 +1,360 @@
+.academiaLogin {
+  position: fixed;
+  inset: 0;
+  background: #f8f9fb;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  z-index: 100;
+  padding: 40px 20px 60px;
+  -webkit-app-region: no-drag;
+}
+
+.academiaLogin__inner {
+  width: 100%;
+  max-width: 560px;
+}
+
+.academiaLogin__header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 32px;
+  text-align: center;
+}
+
+.academiaLogin__logo {
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
+  margin-bottom: 4px;
+}
+
+.academiaLogin__title {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 24px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+}
+
+.academiaLogin__subtitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  color: #6b7280;
+  margin: 0;
+}
+
+.academiaLogin__card {
+  background: #ffffff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 28px 24px;
+}
+
+.academiaLogin__loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 48px;
+}
+
+.academiaLogin__spinner {
+  border: 3px solid #e5e7eb;
+  border-top: 3px solid #0645b1;
+  border-radius: 50%;
+  width: 32px;
+  height: 32px;
+  animation: alSpin 0.8s linear infinite;
+}
+
+@keyframes alSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.academiaLogin__qrLayout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.academiaLogin__qrLeft {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.academiaLogin__qrImageWrap {
+  background: #f8f9fb;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.academiaLogin__qrImage {
+  width: 160px;
+  height: 160px;
+  display: block;
+}
+
+.academiaLogin__instructions {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.6;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.academiaLogin__instructions li {
+  margin-bottom: 4px;
+}
+
+.academiaLogin__qrRight {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.academiaLogin__urlBox {
+  background: #f8f9fb;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.academiaLogin__urlLabel {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0 0 6px;
+}
+
+.academiaLogin__urlRow {
+  display: flex;
+  gap: 6px;
+}
+
+.academiaLogin__urlInput {
+  flex: 1;
+  font-family: monospace;
+  font-size: 11px;
+  color: #374151;
+  background: #ffffff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 5px 8px;
+  outline: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.academiaLogin__copyBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  background: #0645b1;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.academiaLogin__copyBtn:hover {
+  background: #0537a0;
+}
+
+.academiaLogin__codeSection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.academiaLogin__codeLabel {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  margin: 0;
+}
+
+.academiaLogin__codeInput {
+  width: 100%;
+  height: 56px;
+  font-size: 28px;
+  font-weight: 700;
+  text-align: center;
+  font-family: 'Courier New', monospace;
+  background: #ffffff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 8px;
+  color: #111827;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  box-sizing: border-box;
+  letter-spacing: 6px;
+}
+
+.academiaLogin__codeInput:focus {
+  border-color: #0645b1;
+  box-shadow: 0 0 0 3px rgba(6, 69, 177, 0.07);
+}
+
+.academiaLogin__codeInput:disabled {
+  background: #f9fafb;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.academiaLogin__codeInput::placeholder {
+  color: #d1d5db;
+  letter-spacing: 2px;
+}
+
+.academiaLogin__verifyBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 20px;
+  background: #0645b1;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  width: 100%;
+}
+
+.academiaLogin__verifyBtn:hover:not(:disabled) {
+  background: #0537a0;
+}
+
+.academiaLogin__verifyBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.academiaLogin__attemptsWarn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  color: #92400e;
+  margin: 0;
+}
+
+.academiaLogin__attemptsExhausted {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  color: #dc2626;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin: 0;
+}
+
+.academiaLogin__status {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #6b7280;
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.academiaLogin__status--success {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #15803d;
+}
+
+.academiaLogin__status--error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #dc2626;
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.academiaLogin__success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 32px;
+}
+
+.academiaLogin__checkmark {
+  font-size: 52px;
+  color: #16a34a;
+  animation: alScaleIn 0.3s ease-out;
+}
+
+@keyframes alScaleIn {
+  0% { transform: scale(0); }
+  60% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+.academiaLogin__successText {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.academiaLogin__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+  justify-content: flex-end;
+}
+
+.academiaLogin__retryBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 16px;
+  background: #0645b1;
+  color: #ffffff;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.academiaLogin__retryBtn:hover {
+  background: #0537a0;
+}
+
+.academiaLogin__errorState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.academiaLogin__errorText {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0;
+}

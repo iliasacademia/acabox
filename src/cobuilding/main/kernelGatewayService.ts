@@ -148,8 +148,41 @@ class KernelGatewayService {
     this.containerRunning = false;
   }
 
-  getStatus(): { running: boolean; url: string | null } {
-    return { running: this.containerRunning, url: this.cachedUrl };
+  async getStatus(): Promise<{ running: boolean; url: string | null }> {
+    const url = await this.getRunningUrl();
+    return { running: this.containerRunning, url };
+  }
+
+  async listKernels(): Promise<{ id: string; name: string; execution_state: string; last_activity: string; connections: number }[]> {
+    const url = await this.getRunningUrl();
+    if (!url) return [];
+    return new Promise((resolve) => {
+      const req = http.get(`${url}/api/kernels`, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); } catch { resolve([]); }
+        });
+      });
+      req.on('error', () => resolve([]));
+      req.setTimeout(5000, () => { req.destroy(); resolve([]); });
+      req.end();
+    });
+  }
+
+  async shutdownKernel(kernelId: string): Promise<boolean> {
+    const url = await this.getRunningUrl();
+    if (!url) return false;
+    return new Promise((resolve) => {
+      const parsed = new URL(`${url}/api/kernels/${kernelId}`);
+      const req = http.request({ hostname: parsed.hostname, port: parsed.port, path: parsed.pathname, method: 'DELETE' }, (res) => {
+        res.resume();
+        resolve(res.statusCode === 204 || res.statusCode === 200);
+      });
+      req.on('error', () => resolve(false));
+      req.setTimeout(5000, () => { req.destroy(); resolve(false); });
+      req.end();
+    });
   }
 
   private async getRunningUrl(): Promise<string | null> {

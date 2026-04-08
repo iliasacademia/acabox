@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { CodeIcon, XIcon } from 'lucide-react';
+import { CodeIcon } from 'lucide-react';
 import { useKernel } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
@@ -7,20 +7,17 @@ import type { CellOutput } from './notebook/types';
 interface MiniAppViewerProps {
   dirName: string;
   workspacePath: string;
-  onClose: () => void;
 }
 
-export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, onClose }) => {
+export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }) => {
   const [viewingSource, setViewingSource] = useState(false);
   const appDir = `${workspacePath}/.applications/${dirName}`;
 
   return (
     <div className="miniAppViewer">
       <MiniAppHeader
-        dirName={dirName}
         viewingSource={viewingSource}
         onToggleSource={() => setViewingSource((v) => !v)}
-        onClose={onClose}
       />
       <div className="miniAppBody">
         {viewingSource ? (
@@ -34,23 +31,17 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
 };
 
 const MiniAppHeader: FC<{
-  dirName: string;
   viewingSource: boolean;
   onToggleSource: () => void;
-  onClose: () => void;
-}> = ({ dirName, viewingSource, onToggleSource, onClose }) => {
+}> = ({ viewingSource, onToggleSource }) => {
   return (
     <div className="miniAppHeader">
-      <span className="miniAppHeaderTitle">{dirName}</span>
       <button
         className={`miniAppHeaderClose${viewingSource ? ' miniAppHeaderClose--active' : ''}`}
         onClick={onToggleSource}
         title="View source"
       >
         <CodeIcon style={{ width: 16, height: 16 }} />
-      </button>
-      <button className="miniAppHeaderClose" onClick={onClose} title="Close">
-        <XIcon style={{ width: 16, height: 16 }} />
       </button>
     </div>
   );
@@ -225,7 +216,6 @@ const SourceViewer: FC<{ appDir: string }> = ({ appDir }) => {
       {isNotebook && activeFile ? (
         <NotebookViewer
           filePath={activeFile.path}
-          onClose={() => setActiveIndex(0)}
         />
       ) : (
         <div className="sourceViewerContent">

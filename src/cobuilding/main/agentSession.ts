@@ -108,6 +108,11 @@ export function createAgentSession(
               signal: options.signal,
               silent: true,
             });
+            child.stderr?.on('data', (data: Buffer) => {
+              for (const line of data.toString().split('\n').filter(Boolean)) {
+                log.debug(`[AgentCLI] ${line}`);
+              }
+            });
             return child as typeof child & { stdin: NonNullable<typeof child.stdin>; stdout: NonNullable<typeof child.stdout> };
           },
           model: 'claude-sonnet-4-6',
