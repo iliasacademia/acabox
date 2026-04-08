@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/cobuilding/**/*", "src/global.d.ts", "src/shared/**/*", "src/images.d.ts", "src/svg.d.ts"]
+}
