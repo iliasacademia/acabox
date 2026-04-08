@@ -33,7 +33,7 @@ jobs:
         run: node scripts/check-native-deps.js
 
       - name: Run TypeScript type checking
-        run: npm run typecheck
+        run: ${{ (github.base_ref == 'cobuild' || github.ref == 'refs/heads/cobuild') && 'npx tsc --noEmit -p tsconfig.cobuilding.json' || 'npm run typecheck' }}
 
       - name: Run Jest tests
         if: github.base_ref != 'cobuild' && github.ref != 'refs/heads/cobuild'
