@@ -141,13 +141,18 @@ export const PodmanDebug: React.FC = () => {
     }
   };
 
+  const [deletingImage, setDeletingImage] = useState(false);
+
   const handleDeleteImage = async () => {
     setError(null);
+    setDeletingImage(true);
     try {
       await window.containerAPI.deleteImage();
       setImageBuilt(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingImage(false);
     }
   };
 
@@ -240,7 +245,9 @@ export const PodmanDebug: React.FC = () => {
 
       <div className="debugSection__infoRow">
         <span className="debugSection__infoLabel">Image:</span>
-        {imageInProgress ? (
+        {deletingImage ? (
+          <span className="debugSection__imageInProgress">Deleting...</span>
+        ) : imageInProgress ? (
           <span className="debugSection__imageInProgress">
             {imageSource === 'registry' ? 'Downloading...' : 'Building...'}
           </span>
@@ -260,7 +267,9 @@ export const PodmanDebug: React.FC = () => {
           </>
         ) : (
           <>
-            <span className="debugSection__imageNotBuilt">Not built</span>
+            <span className="debugSection__imageNotBuilt">
+              {imageSource === 'registry' ? 'Not downloaded' : 'Not built'}
+            </span>
             <button
               className="debugSection__btnInline"
               onClick={handleStart}
