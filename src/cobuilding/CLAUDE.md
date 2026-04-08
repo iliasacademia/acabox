@@ -6,6 +6,8 @@ You may ONLY access files within the current workspace directory. Do not read, w
 
 **Always use relative file paths** — never absolute paths like `/data/...`. This applies to all tool calls (Read, Write, Edit, Glob, Grep) and all command arguments passed to container scripts.
 
+**Never use `cd`** — the working directory is already set to the workspace root. Running `cd /absolute/path && command` will fail. Just run commands directly with relative paths.
+
 ### Why relative paths work everywhere
 
 The workspace directory is mounted at `/data` inside the Podman container, and the container's working directory is `/data`. This means a relative path like `./raw_counts.csv` resolves correctly both:
