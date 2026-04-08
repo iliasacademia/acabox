@@ -62,7 +62,7 @@ function snapshotFile(documentUrl: string): { snapshotId: string; destPath: stri
   const srcPath = resolveFilePath(documentUrl);
   const ext = path.extname(srcPath);
   const snapshotId = ulid();
-  const snapshotDir = path.join(workspacePath, 'file-snapshots');
+  const snapshotDir = path.join(workspacePath, '.academia', 'temp_files');
   const destPath = path.join(snapshotDir, `${snapshotId}${ext}`);
 
   try {

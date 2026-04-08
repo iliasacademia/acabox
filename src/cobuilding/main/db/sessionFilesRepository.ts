@@ -51,7 +51,7 @@ function getStmts() {
 function getSessionFilesDir(): string | null {
   const workspacePath = getWorkspacePath();
   if (!workspacePath) return null;
-  return path.join(workspacePath, 'session-files');
+  return path.join(workspacePath, '.academia', 'temp_files');
 }
 
 function resolveFilePath(fileUlid: string, fileExt: string): string | null {

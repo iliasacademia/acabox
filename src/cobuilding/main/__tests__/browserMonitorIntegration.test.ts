@@ -111,7 +111,7 @@ describe('Browser monitor integration', () => {
     expect(sessionFile.file_ext).toBe('.txt');
 
     // --- Verify text file on disk ---
-    const textFilePath = path.join(workspaceDir, 'session-files', `${sessionFile.ulid}.txt`);
+    const textFilePath = path.join(workspaceDir, '.academia', 'temp_files', `${sessionFile.ulid}.txt`);
     expect(fs.existsSync(textFilePath)).toBe(true);
 
     const storedText = fs.readFileSync(textFilePath, 'utf-8');
@@ -151,7 +151,7 @@ describe('Browser monitor integration', () => {
 
     // Latest file should contain the updated text
     const latestFile = sessionFiles[1];
-    const textFilePath = path.join(workspaceDir, 'session-files', `${latestFile.ulid}.txt`);
+    const textFilePath = path.join(workspaceDir, '.academia', 'temp_files', `${latestFile.ulid}.txt`);
     const storedText = fs.readFileSync(textFilePath, 'utf-8');
     expect(storedText).toBe(updatedText);
   });
@@ -206,7 +206,7 @@ describe('Browser monitor integration', () => {
     ).all('browser', nextDaySession.id) as any[];
     expect(sessionFiles).toHaveLength(1);
 
-    const textFilePath = path.join(workspaceDir, 'session-files', `${sessionFiles[0].ulid}.txt`);
+    const textFilePath = path.join(workspaceDir, '.academia', 'temp_files', `${sessionFiles[0].ulid}.txt`);
     expect(fs.readFileSync(textFilePath, 'utf-8')).toBe('Next day content');
   });
 });

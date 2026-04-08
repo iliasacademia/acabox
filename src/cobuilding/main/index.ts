@@ -34,6 +34,7 @@ import { getAllSessionFiles } from './db/sessionFilesRepository';
 import { initActivityQuery } from './activityQuery';
 import { initSessionFiles } from './db/sessionFilesRepository';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
+import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -127,6 +128,7 @@ app.whenReady().then(() => {
     log.info('[APP] Active workspace:', activeWorkspace ? activeWorkspace.name : 'none');
 
     if (activeWorkspace) {
+      migrateWorkspaceFiles(activeWorkspace.directory_path);
       copySkillsToWorkspace(activeWorkspace.directory_path);
       copyClaudeMdToWorkspace(activeWorkspace.directory_path);
     }
