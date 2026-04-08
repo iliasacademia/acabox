@@ -53,7 +53,6 @@ function makeSnapshot(overrides: Partial<SnapshotPayload> = {}): SnapshotPayload
     text_hash: 'abc123',
     dwell_seconds: 45,
     scroll: { depth: 0.6 },
-    selection: null,
     timestamp: '2026-04-07T10:00:00.000Z',
     ...overrides,
   };
@@ -131,7 +130,6 @@ describe('Browser monitor integration', () => {
       text_hash: 'def456',
       dwell_seconds: 120,
       scroll: { depth: 0.9 },
-      selection: 'important quote',
       timestamp: '2026-04-07T10:05:00.000Z',
     }));
 
@@ -143,7 +141,6 @@ describe('Browser monitor integration', () => {
     expect(session.total_dwell).toBe(120);
     expect(session.max_scroll_depth).toBe(0.9);
     expect(session.snapshot_count).toBe(2);
-    expect(JSON.parse(session.selections)).toEqual(['important quote']);
     expect(session.full_text).toBeNull(); // still not in DB
 
     // --- Should now have 2 session files (one per snapshot with full_text) ---
@@ -157,34 +154,6 @@ describe('Browser monitor integration', () => {
     const textFilePath = path.join(workspaceDir, 'session-files', `${latestFile.ulid}.txt`);
     const storedText = fs.readFileSync(textFilePath, 'utf-8');
     expect(storedText).toBe(updatedText);
-  });
-
-  it('deduplicates identical selections across snapshots', () => {
-    // Send the same selection three times
-    for (let i = 0; i < 3; i++) {
-      accumulator.ingestSnapshot(makeSnapshot({
-        dwell_seconds: 60 + i,
-        scroll: { depth: 0.5 },
-        selection: 'repeated text',
-        timestamp: `2026-04-07T10:0${5 + i}:00.000Z`,
-        full_text: null,
-        text_hash: '',
-      }));
-    }
-    // Send a different selection
-    accumulator.ingestSnapshot(makeSnapshot({
-      dwell_seconds: 63,
-      scroll: { depth: 0.5 },
-      selection: 'unique text',
-      timestamp: '2026-04-07T10:08:00.000Z',
-      full_text: null,
-      text_hash: '',
-    }));
-
-    const db = getObservationsDatabase();
-    const rows = db.prepare('SELECT * FROM browser_sessions').all() as any[];
-    const session = rows[0];
-    expect(JSON.parse(session.selections)).toEqual(['important quote', 'repeated text', 'unique text']);
   });
 
   it('does not create session file when full_text is null', () => {

@@ -9,8 +9,8 @@ function prepareStatements() {
     upsert: db.prepare(`
       INSERT INTO browser_sessions
         (url, title, referrer, meta_tags, full_text, text_hash, first_seen, last_snapshot,
-         total_dwell, max_scroll_depth, selections, snapshot_count, triage_state, app_version, session_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         total_dwell, max_scroll_depth, snapshot_count, triage_state, app_version, session_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(url, session_date) DO UPDATE SET
         title = excluded.title,
         referrer = excluded.referrer,
@@ -20,7 +20,6 @@ function prepareStatements() {
         last_snapshot = excluded.last_snapshot,
         total_dwell = excluded.total_dwell,
         max_scroll_depth = excluded.max_scroll_depth,
-        selections = excluded.selections,
         snapshot_count = excluded.snapshot_count,
         triage_state = excluded.triage_state,
         app_version = excluded.app_version
@@ -32,14 +31,14 @@ function prepareStatements() {
     deleteByUrl: db.prepare('DELETE FROM browser_sessions WHERE url = ?'),
     getByTimeRange: db.prepare(`
       SELECT id, url, title, session_date, first_seen, last_snapshot,
-             total_dwell, max_scroll_depth, selections, snapshot_count
+             total_dwell, max_scroll_depth, snapshot_count
       FROM browser_sessions
       WHERE last_snapshot >= ? AND last_snapshot <= ?
       ORDER BY last_snapshot DESC
     `),
     getByTimeRangeWithSearch: db.prepare(`
       SELECT id, url, title, session_date, first_seen, last_snapshot,
-             total_dwell, max_scroll_depth, selections, snapshot_count
+             total_dwell, max_scroll_depth, snapshot_count
       FROM browser_sessions
       WHERE last_snapshot >= ? AND last_snapshot <= ?
         AND (title LIKE '%' || ? || '%' ESCAPE '\' OR url LIKE '%' || ? || '%' ESCAPE '\')
@@ -65,7 +64,6 @@ export function upsertSession(session: ReadingSession): number {
     session.last_snapshot,
     session.total_dwell,
     session.max_scroll_depth,
-    JSON.stringify(session.selections),
     session.snapshot_count,
     session.triage_state,
     session.app_version,
@@ -89,7 +87,6 @@ export function getAllSessions(): ReadingSession[] {
     last_snapshot: row.last_snapshot,
     total_dwell: row.total_dwell,
     max_scroll_depth: row.max_scroll_depth,
-    selections: JSON.parse(row.selections),
     snapshot_count: row.snapshot_count,
     triage_state: row.triage_state,
     app_version: row.app_version,
@@ -110,7 +107,6 @@ export interface BrowserSessionSummary {
   last_snapshot: string;
   total_dwell: number;
   max_scroll_depth: number;
-  selections: string[];
   snapshot_count: number;
 }
 
@@ -135,7 +131,6 @@ export function getBrowserSessionsByTimeRange(
     last_snapshot: row.last_snapshot,
     total_dwell: row.total_dwell,
     max_scroll_depth: row.max_scroll_depth,
-    selections: JSON.parse(row.selections),
     snapshot_count: row.snapshot_count,
   }));
 }

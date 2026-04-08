@@ -103,6 +103,10 @@ const migrations = [
       ALTER TABLE file_sessions ADD COLUMN diff_ulid TEXT;
     `,
   },
+  {
+    version: 6,
+    sql: `ALTER TABLE browser_sessions DROP COLUMN selections;`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {
