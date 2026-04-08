@@ -11,6 +11,7 @@ import log from 'electron-log';
 import { z } from 'zod';
 import { fork } from 'child_process';
 import { containerService } from './containerService';
+import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 
 function createActivityMcpServer() {
   return createSdkMcpServer({
@@ -88,7 +89,7 @@ export function createAgentSession(
     }
   }
 
-  const state: MessageProcessingState = { currentToolCallId: null };
+  const state: MessageProcessingState = { currentToolCallId: null, pendingBashCalls: new Map() };
 
   const workspaceBoundaryHook = createWorkspaceBoundaryHook(workspace.directory_path);
 
@@ -383,6 +384,7 @@ function createWorkspaceBoundaryHook(workspaceDir: string) {
 
 interface MessageProcessingState {
   currentToolCallId: string | null;
+  pendingBashCalls: Map<string, { command: string }>;
 }
 
 function processQueryMessage(
@@ -438,6 +440,12 @@ function processQueryMessage(
           args: block.input as Record<string, unknown>,
           argsText: JSON.stringify(block.input, null, 2),
         });
+        if (block.name === 'Bash') {
+          const input = block.input as { command?: string };
+          if (input.command) {
+            state.pendingBashCalls.set(block.id, { command: input.command });
+          }
+        }
       }
     }
   }
@@ -453,10 +461,34 @@ function processQueryMessage(
             result: block.content,
             isError: block.is_error ?? false,
           });
+          const pending = state.pendingBashCalls.get(block.tool_use_id);
+          if (pending) {
+            state.pendingBashCalls.delete(block.tool_use_id);
+            const resultText = extractToolResultText(block.content);
+            commandLogger.log({
+              command: ['bash', '-c', pending.command],
+              stdout: resultText,
+              stderr: '',
+              exitCode: block.is_error ? 1 : 0,
+              appDirName: parseAppDirFromArgs(['bash', '-c', pending.command]),
+              source: 'agent',
+            });
+          }
         }
       }
     }
   }
+}
+
+function extractToolResultText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .filter((b: any) => b.type === 'text')
+      .map((b: any) => b.text)
+      .join('\n');
+  }
+  return '';
 }
 
 interface MessageQueue<T> {

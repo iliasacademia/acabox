@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutGridIcon, PlusIcon } from 'lucide-react';
+import { LayoutGridIcon, PlusIcon, TrashIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
 interface MiniAppEntry {
@@ -18,6 +18,7 @@ export function MiniAppsTab({
 }) {
   const [apps, setApps] = useState<MiniAppEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<MiniAppEntry | null>(null);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
 
@@ -44,6 +45,18 @@ export function MiniAppsTab({
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  const handleDeleteApp = useCallback(async (app: MiniAppEntry) => {
+    try {
+      const appDir = `${workspacePath}/.applications/${app.dirName}`;
+      await window.filesAPI.deleteFile(appDir);
+      setApps(prev => prev.filter(a => a.dirName !== app.dirName));
+    } catch (err) {
+      console.error('Failed to delete app:', err);
+    } finally {
+      setPendingDelete(null);
+    }
+  }, [workspacePath]);
 
   const handleNewApplication = useCallback(() => {
     assistantRuntime.switchToNewThread();
@@ -82,15 +95,43 @@ export function MiniAppsTab({
       ) : (
         <div className="miniAppsTabList">
           {apps.map((app) => (
-            <button
-              key={app.dirName}
-              className="miniAppsTabItem"
-              onClick={() => onSelectApp(app.dirName)}
-            >
-              <LayoutGridIcon style={{ width: 16, height: 16, flexShrink: 0 }} />
-              <span className="miniAppsTabItemName">{app.name}</span>
-            </button>
+            <div key={app.dirName} className="miniAppsTabItem">
+              <button
+                className="miniAppsTabItemTrigger"
+                onClick={() => onSelectApp(app.dirName)}
+              >
+                <LayoutGridIcon style={{ width: 16, height: 16, flexShrink: 0 }} />
+                <span className="miniAppsTabItemName">{app.name}</span>
+              </button>
+              <button
+                className="miniAppsTabItemAction miniAppsTabItemDelete"
+                onClick={(e) => { e.stopPropagation(); setPendingDelete(app); }}
+                title="Delete application"
+              >
+                <TrashIcon style={{ width: 14, height: 14 }} />
+              </button>
+            </div>
           ))}
+        </div>
+      )}
+      {pendingDelete && (
+        <div className="miniAppsModal__overlay" onClick={() => setPendingDelete(null)}>
+          <div className="miniAppsModal" onClick={e => e.stopPropagation()}>
+            <p className="miniAppsModal__message">
+              Are you sure you want to delete this application?
+            </p>
+            <div className="miniAppsModal__actions">
+              <button className="miniAppsModal__btn" onClick={() => setPendingDelete(null)}>
+                Cancel
+              </button>
+              <button
+                className="miniAppsModal__btn miniAppsModal__btn--danger"
+                onClick={() => handleDeleteApp(pendingDelete)}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

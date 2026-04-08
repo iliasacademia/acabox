@@ -76,7 +76,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const [activeTab, setActiveTab] = useState<'chats' | 'files' | 'apps' | 'debug'>('chats');
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [activeMiniAppDirName, setActiveMiniAppDirName] = useState<string | null>(null);
-  const [debugSection, setDebugSection] = useState<DebugSection>('podman');
+  const [debugSection, setDebugSection] = useState<DebugSection>('apps');
 
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {

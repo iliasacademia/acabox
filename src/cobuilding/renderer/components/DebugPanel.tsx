@@ -1,13 +1,13 @@
 import React from 'react';
 import { PodmanDebug } from './PodmanDebug';
-import { ObservationsDebug } from './ObservationsDebug';
+import { AppsDebug } from './AppsDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'podman' | 'observations';
+export type DebugSection = 'podman' | 'apps';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
+  { id: 'apps', label: 'Logs' },
   { id: 'podman', label: 'Podman' },
-  { id: 'observations', label: 'Observations' },
 ];
 
 export const DebugSidebar: React.FC<{
@@ -34,7 +34,7 @@ export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ active
   return (
     <div className="debugContent">
       {activeSection === 'podman' && <PodmanDebug />}
-      {activeSection === 'observations' && <ObservationsDebug />}
+      {activeSection === 'apps' && <AppsDebug />}
     </div>
   );
 };

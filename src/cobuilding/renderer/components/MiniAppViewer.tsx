@@ -70,7 +70,10 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             result = await window.filesAPI.readDirectory(args.path);
             break;
           case 'executeCommand':
-            result = await window.containerAPI.exec([args.command as string, ...(args.args as string[])]);
+            result = await window.containerAPI.execLogged(
+              [args.command as string, ...(args.args as string[])],
+              { source: 'iframe', appDirName: dirName },
+            );
             break;
           case 'connectKernel':
           case 'executeCode':
