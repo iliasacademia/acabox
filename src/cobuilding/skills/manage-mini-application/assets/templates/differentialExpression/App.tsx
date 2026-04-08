@@ -15,8 +15,9 @@ declare const window: Window & {
     selectFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
     readFile(path: string): Promise<{ type: string; content: string }>;
   };
-  containerAPI: {
-    exec(command: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+  kernel: {
+    connect(kernelName: string): Promise<unknown>;
+    executeCode(code: string): Promise<{ output_type: string; ename?: string; evalue?: string; traceback?: string[] }[]>;
   };
   getWorkspacePath(): string;
 };
@@ -113,8 +114,8 @@ export default function App() {
 
   const workspacePath = window.getWorkspacePath();
 
-  const toContainerPath = useCallback(
-    (hostPath: string) => "/data" + hostPath.slice(workspacePath.length),
+  const toRelativePath = useCallback(
+    (hostPath: string) => "./" + hostPath.slice(workspacePath.length + 1),
     [workspacePath]
   );
 
@@ -156,51 +157,90 @@ export default function App() {
       return;
     }
 
-    const outputDir = "/data/.applications/differentialExpression/output";
-    const args = [
-      "/skills/differential-expression/scripts/differential_expression_cli.R",
-      "--counts_file", toContainerPath(countsFile),
-      "--coldata_file", toContainerPath(coldataFile),
-      "--outdir", outputDir,
-      "--min_count", String(minCount),
-      "--min_samples", String(minSamples),
-      "--alpha", String(alpha),
-      "--lfc_threshold", String(lfcThreshold),
-      "--orgdb", orgdb,
-    ];
-
-    if (designMode === "variable") {
-      args.push("--design_variable", designVariable.trim());
-    } else {
-      args.push("--design_formula", designFormula.trim());
-    }
-
-    if (denominatorLevel.trim()) {
-      args.push("--denominator_level", denominatorLevel.trim());
-    }
-    if (numeratorLevel.trim()) {
-      args.push("--numerator_level", numeratorLevel.trim());
-    }
-    if (shrink) {
-      args.push("--shrink");
-    }
+    const appDir = `${wp}/.applications/differentialExpression`;
 
     try {
-      const result = await window.containerAPI.exec("Rscript", args);
+      // Connect to the R kernel
+      await window.kernel.connect("ir");
 
-      if (result.exitCode !== 0) {
+      // Build params and inject into the kernel
+      const params: Record<string, unknown> = {
+        counts_file: toRelativePath(countsFile),
+        coldata_file: toRelativePath(coldataFile),
+        outdir: ".applications/differentialExpression/output",
+        min_count: minCount,
+        min_samples: minSamples,
+        alpha: alpha,
+        lfc_threshold: lfcThreshold,
+        orgdb: orgdb,
+        shrink: shrink,
+      };
+
+      if (designMode === "variable") {
+        params.design_variable = designVariable.trim();
+      } else {
+        params.design_formula = designFormula.trim();
+      }
+      if (denominatorLevel.trim()) {
+        params.denominator_level = denominatorLevel.trim();
+      }
+      if (numeratorLevel.trim()) {
+        params.numerator_level = numeratorLevel.trim();
+      }
+
+      const paramsCode = `params_json <- '${JSON.stringify(params)}'`;
+      let outputs = await window.kernel.executeCode(paramsCode);
+
+      for (const o of outputs) {
+        if (o.output_type === "error") {
+          setRunState("error");
+          setErrorMessage(`${o.ename}: ${o.evalue}`);
+          setErrorDetails(o.traceback?.join("\n") || "");
+          return;
+        }
+      }
+
+      // Read the notebook and find the action cell
+      const nbResult = await window.filesAPI.readFile(`${appDir}/notebook.ipynb`);
+      if (nbResult.type !== "text") {
         setRunState("error");
-        const stderr = result.stderr || result.stdout || "Unknown error";
-        const errorLines = stderr.split("\n").filter((l: string) => l.includes("Error") || l.includes("error") || l.includes("stop("));
-        setErrorMessage(errorLines.length > 0 ? errorLines.join("\n") : "Analysis failed. See details below.");
-        setErrorDetails(stderr);
+        setErrorMessage("Failed to read notebook file.");
         return;
       }
 
-      const metadataPath = `${wp}/.applications/differentialExpression/output/run_metadata.json`;
+      const notebook = JSON.parse(nbResult.content);
+      const actionCell = notebook.cells.find((c: any) => c.id === "de-run");
+      if (!actionCell) {
+        setRunState("error");
+        setErrorMessage("Action cell 'de-run' not found in notebook.");
+        return;
+      }
+
+      const actionCode = Array.isArray(actionCell.source)
+        ? actionCell.source.join("")
+        : actionCell.source;
+
+      // Execute the action cell
+      outputs = await window.kernel.executeCode(actionCode);
+
+      for (const o of outputs) {
+        if (o.output_type === "error") {
+          setRunState("error");
+          setErrorMessage(`${o.ename}: ${o.evalue}`);
+          setErrorDetails(o.traceback?.join("\n") || "");
+          return;
+        }
+      }
+
+      // Read results metadata
+      const metadataPath = `${appDir}/output/run_metadata.json`;
       const fileContent = await window.filesAPI.readFile(metadataPath);
       if (fileContent.type === "text") {
         const meta: RunMetadata = JSON.parse(fileContent.content);
+        // R's jsonlite unboxes single-element arrays to scalars
+        if (!Array.isArray(meta.summary_stats.contrasts)) {
+          meta.summary_stats.contrasts = [meta.summary_stats.contrasts as unknown as string];
+        }
         setMetadata(meta);
         setRunTimestamp(Date.now());
         setSelectedVizIndex(0);
@@ -599,8 +639,9 @@ function VizImage({
   workspacePath: string;
   timestamp: number;
 }) {
-  const containerImagePath = viz.image_file_path;
-  const hostImagePath = workspacePath + containerImagePath.slice("/data".length);
+  const imagePath = viz.image_file_path;
+  // Resolve workspace-relative paths against the workspace root
+  const hostImagePath = `${workspacePath}/${imagePath.replace(/^\.\//, "")}`;
   const src = `local-file://${hostImagePath}?t=${timestamp}`;
 
   return (
