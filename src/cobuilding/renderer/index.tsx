@@ -40,6 +40,7 @@ function ShowChatOnThreadSelect({ onShowChat }: { onShowChat: () => void }) {
     if (mainThreadId == null) return;
     const prev = prevRef.current;
     if (prev !== undefined && prev !== mainThreadId) {
+      console.debug('[ShowChatOnThreadSelect] Thread changed:', prev, '->', mainThreadId, '— deactivating tabs');
       onShowChat();
     }
     prevRef.current = mainThreadId;
@@ -48,16 +49,28 @@ function ShowChatOnThreadSelect({ onShowChat }: { onShowChat: () => void }) {
   return null;
 }
 
-function OpenMiniAppToolUI({ args, onOpen }: { args: { dir_name?: string }; onOpen: (dirName: string) => void }) {
+function OpenMiniAppToolUI({
+  args,
+  status,
+  onOpen,
+}: {
+  args: { dir_name?: string };
+  status: { type: string };
+  onOpen: (dirName: string) => void;
+}) {
   const openedRef = useRef<string | null>(null);
 
   useEffect(() => {
     const dirName = args?.dir_name;
-    if (dirName && dirName !== openedRef.current) {
+    // Only open for tool calls that are actively running — not completed history
+    if (dirName && status.type === 'running' && dirName !== openedRef.current) {
       openedRef.current = dirName;
+      console.debug('[OpenMiniAppToolUI] Opening mini app (running tool call):', dirName);
       onOpen(dirName);
+    } else if (dirName && status.type !== 'running') {
+      console.debug('[OpenMiniAppToolUI] Skipping open for completed tool call:', dirName, 'status:', status.type);
     }
-  }, [args?.dir_name, onOpen]);
+  }, [args?.dir_name, status.type, onOpen]);
 
   return null;
 }
@@ -65,8 +78,8 @@ function OpenMiniAppToolUI({ args, onOpen }: { args: { dir_name?: string }; onOp
 function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string) => void }) {
   useAssistantToolUI({
     toolName: 'mcp__mini-apps__open_mini_application',
-    render: (props: { args: { dir_name?: string } }) => (
-      <OpenMiniAppToolUI args={props.args} onOpen={onOpen} />
+    render: (props: { args: { dir_name?: string }; status: { type: string } }) => (
+      <OpenMiniAppToolUI args={props.args} status={props.status} onOpen={onOpen} />
     ),
   });
 
@@ -123,6 +136,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   }, [openTab]);
 
   const handleSelectApp = useCallback((dirName: string) => {
+    console.debug('[handleSelectApp] Opening mini app tab:', dirName);
     const descriptor: TabDescriptor = {
       id: `miniapp::${dirName}`,
       kind: 'miniapp',
