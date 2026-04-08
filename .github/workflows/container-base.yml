@@ -57,6 +57,22 @@ jobs:
           echo "sha_short=$(echo ${{ github.sha }} | cut -c1-7)" >> $GITHUB_OUTPUT
           echo "branch_tag=$(echo '${{ github.ref_name }}' | sed 's/[^a-zA-Z0-9._-]/-/g')" >> $GITHUB_OUTPUT
 
+      - name: Resolve cache settings
+        id: cache
+        run: |
+          echo "=== Debug: raw input values ==="
+          echo "inputs.no_cache=${{ inputs.no_cache }}"
+          echo "github.event.inputs.no_cache=${{ github.event.inputs.no_cache }}"
+          if [ "${{ inputs.no_cache }}" = "true" ]; then
+            echo "no_cache=true" >> $GITHUB_OUTPUT
+            echo "cache_from=" >> $GITHUB_OUTPUT
+            echo ">>> Cache DISABLED: full rebuild forced"
+          else
+            echo "no_cache=false" >> $GITHUB_OUTPUT
+            echo "cache_from=type=gha" >> $GITHUB_OUTPUT
+            echo ">>> Cache ENABLED: using GHA cache"
+          fi
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
@@ -69,7 +85,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           labels: |
             org.opencontainers.image.description=Cobuild Base Image
-          cache-from: ${{ !inputs.no_cache && 'type=gha' || '' }}
+          cache-from: ${{ steps.cache.outputs.cache_from }}
           cache-to: type=gha,mode=max
           platforms: linux/amd64
-          no-cache: ${{ inputs.no_cache }}
+          no-cache: ${{ steps.cache.outputs.no_cache }}
