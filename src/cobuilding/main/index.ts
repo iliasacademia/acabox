@@ -414,6 +414,14 @@ ipcMain.handle('jupyter:gatewayStatus', () => {
   return kernelGatewayService.getStatus();
 });
 
+ipcMain.handle('jupyter:listKernels', () => {
+  return kernelGatewayService.listKernels();
+});
+
+ipcMain.handle('jupyter:shutdownKernel', (_event, kernelId: string) => {
+  return kernelGatewayService.shutdownKernel(kernelId);
+});
+
 // Command log IPC handlers
 import { commandLogger } from './commandLogger';
 

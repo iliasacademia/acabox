@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, type FC } from 'react';
 import {
-  XIcon,
   PlusIcon,
   SaveIcon,
   RotateCcwIcon,
@@ -16,10 +15,10 @@ import type { CellOutput } from './types';
 
 interface NotebookViewerProps {
   filePath: string;
-  onClose: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
-export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onClose }) => {
+export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onDirtyChange }) => {
   const {
     notebook,
     loading,
@@ -37,6 +36,10 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onClose }) =
     duplicateCell,
     save,
   } = useNotebook(filePath);
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const kernel = useKernel();
   const cellRefs = useRef<Map<number, NotebookCellHandle>>(new Map());
@@ -250,7 +253,6 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onClose }) =
     [notebook, editMode, selectedCellIndex, addCell, deleteCell, changeCellType, enterEditMode, save],
   );
 
-  const fileName = filePath.split('/').pop() ?? 'Notebook';
   const isBusy = kernel.status === 'busy';
 
   return (
@@ -261,10 +263,6 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onClose }) =
       onKeyDown={handleKeyDown}
     >
       <div className="notebookViewerHeader">
-        <span className="notebookViewerTitle">
-          {fileName}
-          {dirty && <span className="notebookViewerDirty">*</span>}
-        </span>
         <KernelStatusIndicator status={kernel.status} name={kernel.kernelName} />
         <div className="notebookViewerActions">
           <button className="btn btn--ghost btn--icon-xs" onClick={save} title="Save (Cmd+S)">
@@ -283,9 +281,6 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onClose }) =
           </button>
           <button className="btn btn--ghost btn--icon-xs" onClick={clearAllOutputs} title="Clear all outputs">
             <XCircleIcon style={{ width: 16, height: 16 }} />
-          </button>
-          <button className="btn btn--ghost btn--icon-xs" onClick={onClose}>
-            <XIcon style={{ width: 16, height: 16 }} />
           </button>
         </div>
       </div>

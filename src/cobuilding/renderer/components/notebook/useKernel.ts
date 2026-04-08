@@ -160,12 +160,17 @@ export function useKernel() {
 
   useEffect(() => {
     return () => {
-      if (kernelRef.current) {
-        kernelRef.current.shutdown().catch(() => {});
-        kernelRef.current.dispose();
-      }
-      if (managerRef.current) {
-        managerRef.current.dispose();
+      const kernel = kernelRef.current;
+      const manager = managerRef.current;
+      kernelRef.current = null;
+      managerRef.current = null;
+      if (kernel) {
+        kernel.shutdown().catch(() => {}).finally(() => {
+          if (!kernel.isDisposed) kernel.dispose();
+          if (manager && !manager.isDisposed) manager.dispose();
+        });
+      } else if (manager && !manager.isDisposed) {
+        manager.dispose();
       }
     };
   }, []);

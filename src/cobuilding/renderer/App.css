@@ -114,6 +114,109 @@ body,
 .mainPanel {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Tab Bar --- */
+
+.tabBar {
+  display: flex;
+  align-items: stretch;
+  height: 35px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #e0e0e0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.tabBarItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  font-size: 0.8125rem;
+  border-right: 1px solid #e0e0e0;
+  cursor: pointer;
+  white-space: nowrap;
+  max-width: 180px;
+  min-width: 0;
+  user-select: none;
+  color: #666;
+  background: #f5f5f5;
+  font-family: inherit;
+}
+
+.tabBarItem--home {
+  flex-shrink: 0;
+}
+
+.tabBarItem:hover {
+  background: #eee;
+}
+
+.tabBarItem--active {
+  background: #fff;
+  color: #333;
+  border-bottom: 2px solid #555;
+}
+
+.tabBarItem--preview .tabBarItemLabel {
+  font-style: italic;
+}
+
+.tabBarItemLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tabBarItemClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  opacity: 0;
+  flex-shrink: 0;
+  padding: 0;
+  font-family: inherit;
+}
+
+.tabBarItem:hover .tabBarItemClose,
+.tabBarItem--active .tabBarItemClose {
+  opacity: 1;
+}
+
+.tabBarItemClose--dirty {
+  opacity: 1;
+}
+
+.tabBarItemClose:hover {
+  background: #ddd;
+  color: #333;
+}
+
+/* --- Tab Panels --- */
+
+.tabPanelsContainer {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.tabPanel {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* --- Thread List --- */

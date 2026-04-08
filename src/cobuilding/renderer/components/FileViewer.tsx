@@ -1,14 +1,12 @@
 import React, { useEffect, useState, type FC } from 'react';
-import { XIcon } from 'lucide-react';
 
 type FileContent = Awaited<ReturnType<typeof window.filesAPI.readFile>>;
 
 interface FileViewerProps {
   filePath: string;
-  onClose: () => void;
 }
 
-export const FileViewer: FC<FileViewerProps> = ({ filePath, onClose }) => {
+export const FileViewer: FC<FileViewerProps> = ({ filePath }) => {
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -28,16 +26,8 @@ export const FileViewer: FC<FileViewerProps> = ({ filePath, onClose }) => {
     };
   }, [filePath]);
 
-  const fileName = filePath.split('/').pop() ?? filePath;
-
   return (
     <div className="fileViewer">
-      <div className="fileViewerHeader">
-        <span className="fileViewerTitle">{fileName}</span>
-        <button className="btn btn--ghost btn--icon-xs" onClick={onClose}>
-          <XIcon style={{ width: 16, height: 16 }} />
-        </button>
-      </div>
       <div className="fileViewerBody">
         {loading && <p className="fileViewerMessage">Loading...</p>}
         {fileContent && <FileContentView content={fileContent} />}

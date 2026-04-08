@@ -223,10 +223,20 @@ declare global {
     onEntry(callback: (entry: SystemLogEntry) => void): () => void;
   }
 
+  interface JupyterKernelInfo {
+    id: string;
+    name: string;
+    execution_state: string;
+    last_activity: string;
+    connections: number;
+  }
+
   interface JupyterAPI {
     startGateway(): Promise<{ url: string } | { error: string }>;
     stopGateway(): Promise<void>;
     gatewayStatus(): Promise<{ running: boolean; url: string | null }>;
+    listKernels(): Promise<JupyterKernelInfo[]>;
+    shutdownKernel(kernelId: string): Promise<boolean>;
   }
 
   interface Window {
