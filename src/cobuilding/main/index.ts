@@ -27,10 +27,14 @@ import {
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
+import { getAllSessions } from './browserMonitor/repository';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
+import { getAllFileSessions } from './fileMonitor/repository';
+import { getAllSessionFiles } from './db/sessionFilesRepository';
 import { initActivityQuery } from './activityQuery';
 import { initSessionFiles } from './db/sessionFilesRepository';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
+import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -124,6 +128,7 @@ app.whenReady().then(() => {
     log.info('[APP] Active workspace:', activeWorkspace ? activeWorkspace.name : 'none');
 
     if (activeWorkspace) {
+      migrateWorkspaceFiles(activeWorkspace.directory_path);
       copySkillsToWorkspace(activeWorkspace.directory_path);
       copyClaudeMdToWorkspace(activeWorkspace.directory_path);
     }
@@ -363,6 +368,11 @@ ipcMain.handle('systemLog:getAll', () => systemLogger.getAll());
 systemLogger.onEntry((entry) => {
   mainWindow?.webContents.send('systemLog:entry', entry);
 });
+
+// Observations IPC handlers
+ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
+ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
+ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
 
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {

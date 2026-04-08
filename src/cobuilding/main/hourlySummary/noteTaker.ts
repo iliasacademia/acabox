@@ -37,6 +37,6 @@ export function runSummaryAgent(workspace: Workspace): Promise<void> {
       workspace,
     );
 
-    session.sendMessage('Use the activity-summary skill to update the daily summary with recent activity.');
+    session.sendMessage('Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. After the summary is written, use the reaction skill to react to the latest update only with suggestions and relevant resources.');
   });
 }
