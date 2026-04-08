@@ -11,11 +11,10 @@ interface WorkspaceSettingsProps {
 const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved }) => {
   const [name, setName] = useState(workspace.name);
   const [directoryPath, setDirectoryPath] = useState(workspace.directory_path);
-  const [apiKey, setApiKey] = useState(workspace.api_key);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  const canSave = name.trim().length > 0 && directoryPath.length > 0 && apiKey.trim().length > 0 && !isSaving;
+  const canSave = name.trim().length > 0 && directoryPath.length > 0 && !isSaving;
 
   const handleChangeDirectory = async () => {
     const selected = await window.workspacesAPI.selectDirectory();
@@ -35,7 +34,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
       const updated = await window.workspacesAPI.update({
         name: name.trim(),
         directoryPath,
-        apiKey: apiKey.trim(),
       });
       onSaved(updated);
     } catch (err) {
@@ -77,18 +75,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
           </div>
         </div>
 
-        <div className="wsSettings__field">
-          <label className="wsSettings__label">Anthropic API Key</label>
-          <input
-            type="password"
-            className="gsStep__input"
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder="sk-ant-..."
-          />
-        </div>
-
-        {error && <p className="gsStep__error">{error}</p>}
+{error && <p className="gsStep__error">{error}</p>}
 
         <div className="wsSettings__actions">
           <button

@@ -23,6 +23,7 @@ import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { attachmentAdapter } from './attachmentAdapter';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import WorkspaceSettings from './components/WorkspaceSettings';
+import AcademiaLogin from './components/AcademiaLogin';
 import { SetupBanner } from './components/SetupBanner';
 import type { Workspace } from '../shared/types';
 import './App.css';
@@ -203,11 +204,31 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 }
 
 function App() {
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
 
   useEffect(() => {
-    window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
+    window.authAPI.checkLogin().then(({ loggedIn }) => {
+      setIsLoggedIn(loggedIn);
+      if (loggedIn) {
+        window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
+      }
+    });
   }, []);
+
+  // Loading
+  if (isLoggedIn === null) return null;
+
+  if (!isLoggedIn) {
+    return (
+      <AcademiaLogin
+        onSuccess={() => {
+          setIsLoggedIn(true);
+          window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
+        }}
+      />
+    );
+  }
 
   if (workspace === undefined) return null;
 

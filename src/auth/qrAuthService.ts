@@ -5,7 +5,7 @@ import os from 'os';
 import { APIclient, BASE_URL } from '../apiClient';
 import { defaultLogger as logger } from '../utils/logger';
 
-const WEB_URL = BASE_URL.replace('api.', ''); // Convert api.academia.edu to academia.edu
+const WEB_URL = BASE_URL.replace('api.', '').replace(/\/$/, ''); // Convert api.academia.edu to academia.edu
 
 export interface QRAuthResult {
   authorized: boolean;

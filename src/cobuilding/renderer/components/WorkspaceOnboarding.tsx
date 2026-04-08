@@ -10,14 +10,12 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete })
   const [name, setName] = useState('My Workspace');
   const [directoryPath, setDirectoryPath] = useState('');
   const [directoryOverridden, setDirectoryOverridden] = useState(false);
-  const [apiKey, setApiKey] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [focusedStep, setFocusedStep] = useState<number | null>(1);
 
   const hasName = name.trim().length > 0;
-  const hasApiKey = apiKey.trim().length > 0;
-  const canSubmit = hasName && directoryPath && hasApiKey && !isCreating;
+  const canSubmit = hasName && directoryPath && !isCreating;
 
   // Auto-compute default directory path from workspace name (unless user overrode it)
   useEffect(() => {
@@ -55,7 +53,6 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete })
       await window.workspacesAPI.create({
         name: name.trim(),
         directoryPath,
-        apiKey: apiKey.trim(),
       });
       onComplete();
     } catch (err) {
@@ -117,41 +114,10 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete })
 
           <div className="gettingStarted__connector" />
 
-          {/* Step 2: API Key */}
-          <div className={`gsStep ${stepState(2, hasApiKey, hasName)}`}>
-            <div className="gsStep__indicator">
-              {hasApiKey && focusedStep !== 2 ? (
-                <span className="gsStep__check">✓</span>
-              ) : (
-                <span className="gsStep__num">2</span>
-              )}
-            </div>
-            <div className="gsStep__body">
-              <h3 className="gsStep__title">Enter your Anthropic API key</h3>
-              <p className="gsStep__desc">
-                {hasApiKey && focusedStep !== 2
-                  ? 'API key provided.'
-                  : 'Your API key is stored locally and used to communicate with Claude.'}
-              </p>
-              <input
-                type="password"
-                className="gsStep__input"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                onFocus={() => setFocusedStep(2)}
-                onBlur={() => setFocusedStep(null)}
-                placeholder="sk-ant-..."
-                disabled={!hasName}
-              />
-            </div>
-          </div>
-
-          <div className="gettingStarted__connector" />
-
-          {/* Step 3: Create */}
+          {/* Step 2: Create */}
           <div className={`gsStep gsStep--cta ${canSubmit ? 'gsStep--active' : 'gsStep--disabled'}`}>
             <div className="gsStep__indicator">
-              <span className="gsStep__num">3</span>
+              <span className="gsStep__num">2</span>
             </div>
             <div className="gsStep__body">
               <h3 className="gsStep__title">Create your workspace</h3>
@@ -172,7 +138,7 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete })
                     {error ? 'Try Again' : 'Create Workspace'}
                   </button>
                   {!canSubmit && !isCreating && (
-                    <p className="gsStep__hint">Complete steps 1 and 2 to continue.</p>
+                    <p className="gsStep__hint">Complete step 1 to continue.</p>
                   )}
                 </>
               )}
