@@ -159,6 +159,34 @@ describe('Browser monitor integration', () => {
     expect(storedText).toBe(updatedText);
   });
 
+  it('deduplicates identical selections across snapshots', () => {
+    // Send the same selection three times
+    for (let i = 0; i < 3; i++) {
+      accumulator.ingestSnapshot(makeSnapshot({
+        dwell_seconds: 60 + i,
+        scroll: { depth: 0.5 },
+        selection: 'repeated text',
+        timestamp: `2026-04-07T10:0${5 + i}:00.000Z`,
+        full_text: null,
+        text_hash: '',
+      }));
+    }
+    // Send a different selection
+    accumulator.ingestSnapshot(makeSnapshot({
+      dwell_seconds: 63,
+      scroll: { depth: 0.5 },
+      selection: 'unique text',
+      timestamp: '2026-04-07T10:08:00.000Z',
+      full_text: null,
+      text_hash: '',
+    }));
+
+    const db = getObservationsDatabase();
+    const rows = db.prepare('SELECT * FROM browser_sessions').all() as any[];
+    const session = rows[0];
+    expect(JSON.parse(session.selections)).toEqual(['important quote', 'repeated text', 'unique text']);
+  });
+
   it('does not create session file when full_text is null', () => {
     accumulator.ingestSnapshot(makeSnapshot({
       url: 'https://example.com/no-text',
