@@ -1,35 +1,35 @@
 import log from 'electron-log';
-import fs from 'fs';
-import path from 'path';
 import { randomUUID } from 'crypto';
 import { createAgentSession } from '../agentSession';
 import { updateSessionTitle } from '../db/chatRepository';
+import { createTaskRun, completeTaskRun } from '../db/scheduledTaskRepository';
 import { getLocalDate, getLocalTime, getLocalTimezone } from '../../shared/utils';
+import type { ScheduledTask } from '../db/scheduledTaskRepository';
 import type { Workspace } from '../../shared/types';
 
-const SUMMARIES_DIR = path.join('.academia', 'summaries');
-
-export function runSummaryAgent(workspace: Workspace): Promise<void> {
+export function runScheduledTask(task: ScheduledTask, workspace: Workspace): Promise<void> {
   return new Promise((resolve, reject) => {
-    fs.mkdirSync(path.join(workspace.directory_path, SUMMARIES_DIR), { recursive: true });
-
     const now = new Date();
     const timeLabel = getLocalTime(now);
     const tz = getLocalTimezone();
 
     const sessionId = randomUUID();
+    const runId = createTaskRun(task.id, sessionId);
+
     const session = createAgentSession(
       sessionId,
       {
         onEvent: () => {},
         onDone: () => {
-          updateSessionTitle(sessionId, `Activity Summary — ${getLocalDate(now)}${tz ? ` (${tz})` : ''} ${timeLabel}`);
-          log.info(`[HourlySummary] Agent session completed: ${sessionId}`);
+          updateSessionTitle(sessionId, `[Task] ${task.name} — ${getLocalDate(now)}${tz ? ` (${tz})` : ''} ${timeLabel}`);
+          completeTaskRun(runId, 'completed');
+          log.info(`[ScheduledTasks] Task run completed: ${task.name} (session: ${sessionId})`);
           session.destroy();
           resolve();
         },
         onError: (error) => {
-          log.error(`[HourlySummary] Agent session failed: ${error}`);
+          completeTaskRun(runId, 'failed', error);
+          log.error(`[ScheduledTasks] Task run failed: ${task.name}: ${error}`);
           session.destroy();
           reject(new Error(error));
         },
@@ -37,6 +37,6 @@ export function runSummaryAgent(workspace: Workspace): Promise<void> {
       workspace,
     );
 
-    session.sendMessage('Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. After the summary is written, use the reaction skill to react to the latest update only with suggestions and relevant resources.');
+    session.sendMessage(task.prompt);
   });
 }
