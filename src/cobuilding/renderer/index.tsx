@@ -14,6 +14,7 @@ import { ThreadList } from './components/assistant-ui/thread-list';
 import { FilesTab } from './components/FilesTab';
 import { DebugSidebar, DebugContent, type DebugSection } from './components/DebugPanel';
 import { FileViewer } from './components/FileViewer';
+import { NotebookViewer } from './components/notebook';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -75,7 +76,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const [activeTab, setActiveTab] = useState<'chats' | 'files' | 'apps' | 'debug'>('chats');
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [activeMiniAppDirName, setActiveMiniAppDirName] = useState<string | null>(null);
-  const [debugSection, setDebugSection] = useState<DebugSection>('podman');
+  const [debugSection, setDebugSection] = useState<DebugSection>('apps');
 
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
@@ -149,6 +150,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 <MiniAppsTab
                   workspacePath={workspace.directory_path}
                   onSelectApp={(dirName) => { setActiveMiniAppDirName(dirName); setSelectedFilePath(null); }}
+                  onNewApplication={() => { setActiveMiniAppDirName(null); setActiveTab('chats'); }}
                 />
               ) : activeTab === 'debug' ? (
                 <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
@@ -163,6 +165,11 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 dirName={activeMiniAppDirName}
                 workspacePath={workspace.directory_path}
                 onClose={() => setActiveMiniAppDirName(null)}
+              />
+            ) : selectedFilePath?.endsWith('.ipynb') ? (
+              <NotebookViewer
+                filePath={selectedFilePath}
+                onClose={() => setSelectedFilePath(null)}
               />
             ) : selectedFilePath ? (
               <FileViewer

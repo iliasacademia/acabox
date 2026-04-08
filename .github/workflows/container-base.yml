@@ -66,6 +66,4 @@ jobs:
             org.opencontainers.image.description=Cobuild Base Image
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          # arm64 disabled: QEMU emulation causes R package load failures.
-          # Re-enable with a native arm64 runner when needed.
           platforms: linux/amd64

@@ -49,6 +49,8 @@ contextBridge.exposeInMainWorld('containerAPI', {
   stop: () => ipcRenderer.invoke('container:stop'),
   status: () => ipcRenderer.invoke('container:status'),
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
+  execLogged: (command: string[], meta?: { source?: string; appDirName?: string | null }) =>
+    ipcRenderer.invoke('container:execLogged', command, meta),
   getBinaryMode: () => ipcRenderer.invoke('container:getBinaryMode'),
   setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
   getImageSource: () => ipcRenderer.invoke('container:getImageSource'),
@@ -71,6 +73,33 @@ contextBridge.exposeInMainWorld('containerAPI', {
     return () => { ipcRenderer.removeListener('container:progress', handler); };
   },
 });
+
+contextBridge.exposeInMainWorld('jupyterAPI', {
+  startGateway: () => ipcRenderer.invoke('jupyter:startGateway'),
+  stopGateway: () => ipcRenderer.invoke('jupyter:stopGateway'),
+  gatewayStatus: () => ipcRenderer.invoke('jupyter:gatewayStatus'),
+});
+
+contextBridge.exposeInMainWorld('commandLogAPI', {
+  getAll: () => ipcRenderer.invoke('commandLog:getAll'),
+  getByApp: (appDirName: string) => ipcRenderer.invoke('commandLog:getByApp', appDirName),
+  getAppNames: () => ipcRenderer.invoke('commandLog:getAppNames'),
+  onEntry: (callback: (entry: any) => void) => {
+    const handler = (_event: unknown, entry: any) => callback(entry);
+    ipcRenderer.on('commandLog:entry', handler);
+    return () => { ipcRenderer.removeListener('commandLog:entry', handler); };
+  },
+});
+
+contextBridge.exposeInMainWorld('systemLogAPI', {
+  getAll: () => ipcRenderer.invoke('systemLog:getAll'),
+  onEntry: (callback: (entry: any) => void) => {
+    const handler = (_event: unknown, entry: any) => callback(entry);
+    ipcRenderer.on('systemLog:entry', handler);
+    return () => { ipcRenderer.removeListener('systemLog:entry', handler); };
+  },
+});
+
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: () => ipcRenderer.invoke('sessions:list'),

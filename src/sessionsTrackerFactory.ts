@@ -3,6 +3,7 @@ import { ulid } from 'ulid';
 import { wordIntegrationDataStoreV2 } from './wordIntegrationDataStoreV2';
 import { defaultLogger as logger } from './utils/logger';
 import { getDeviceId } from './utils/deviceId';
+import { getLocalDate } from './shared/utils';
 import { WindowMonitorEvent } from './windowMonitor/types';
 import type { SessionDb } from './sessionDbFactory';
 
@@ -81,7 +82,7 @@ export function createSessionsTracker(sessionDb: SessionDb): SessionsTracker {
   }
 
   function purgeExpiredSessions(): void {
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const today = getLocalDate();
     const row = sessionDb.getMetadata.get('last_cleanup_date') as { value: string } | undefined;
 
     if (row?.value === today) return;

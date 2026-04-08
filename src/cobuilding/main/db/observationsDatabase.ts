@@ -81,6 +81,21 @@ const migrations = [
     version: 3,
     sql: `ALTER TABLE file_sessions ADD COLUMN total_dwell REAL NOT NULL DEFAULT 0;`,
   },
+  {
+    version: 4,
+    sql: `
+      CREATE TABLE session_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ulid TEXT NOT NULL UNIQUE,
+        session_type TEXT NOT NULL,
+        session_id INTEGER NOT NULL,
+        file_type TEXT NOT NULL,
+        file_ext TEXT NOT NULL DEFAULT '.txt',
+        created_at TEXT NOT NULL
+      );
+      CREATE INDEX idx_session_files_session ON session_files(session_type, session_id);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

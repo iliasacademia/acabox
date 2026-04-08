@@ -8,6 +8,7 @@ import { createAgentSession, type AgentSession } from './agentSession';
 import type { IPCAttachment } from '../shared/types';
 import { copyClaudeMdToWorkspace, copySkillsToWorkspace, syncMiniAppAssets } from './skills';
 import { containerService } from './containerService';
+import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
 import {
@@ -28,6 +29,7 @@ import { createTray, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
 import { initActivityQuery } from './activityQuery';
+import { initSessionFiles } from './db/sessionFilesRepository';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -39,6 +41,9 @@ log.transports.file.level = 'debug';
 log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB
 log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v' + app.getVersion() + '] [{level}] {text}';
 log.transports.console.level = app.isPackaged ? false : 'debug';
+
+import { systemLogger } from './systemLogger';
+systemLogger.init();
 
 process.on('uncaughtException', (error) => {
   log.error('[FATAL] Uncaught exception:', error);
@@ -104,7 +109,7 @@ app.whenReady().then(() => {
 
   initDatabase(app.getPath('userData'));
   initObservationsDatabase(app.getPath('userData'));
-  activeWorkspace = getActiveWorkspace() ?? null;
+  commandLogger.init();
   log.info('[APP] App ready. Version:', app.getVersion(), 'Packaged:', app.isPackaged);
   log.info('[APP] userData path:', app.getPath('userData'));
 
@@ -140,6 +145,7 @@ app.whenReady().then(() => {
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
+    initSessionFiles(() => activeWorkspace?.directory_path ?? null);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
@@ -231,7 +237,8 @@ ipcMain.handle(
     const directoryPath = validateDirectoryPath(data.directoryPath);
 
     if (directoryPath !== activeWorkspace.directory_path) {
-      // Stop the container so it restarts with the new volume mount
+      // Stop containers so they restart with the new volume mount
+      kernelGatewayService.stop();
       containerService.stop();
 
       if (!fs.existsSync(directoryPath)) {
@@ -267,6 +274,10 @@ ipcMain.handle('container:status', () => {
 
 ipcMain.handle('container:exec', async (_event, command: string[]) => {
   return containerService.exec(command);
+});
+
+ipcMain.handle('container:execLogged', async (_event, command: string[], meta?: { source?: string; appDirName?: string | null }) => {
+  return containerService.execLogged(command, meta as any);
 });
 
 ipcMain.handle('container:getBinaryMode', () => {
@@ -315,6 +326,42 @@ ipcMain.handle('container:ensureSetup', async () => {
   await containerService.ensureSetup((stage, message) => {
     mainWindow?.webContents.send('setup:progress', { stage, message });
   });
+});
+
+// Jupyter kernel gateway IPC handlers
+ipcMain.handle('jupyter:startGateway', async () => {
+  try {
+    if (!activeWorkspace) return { error: 'No active workspace' };
+    return await kernelGatewayService.start(activeWorkspace.directory_path);
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+});
+
+ipcMain.handle('jupyter:stopGateway', () => {
+  kernelGatewayService.stop();
+});
+
+ipcMain.handle('jupyter:gatewayStatus', () => {
+  return kernelGatewayService.getStatus();
+});
+
+// Command log IPC handlers
+import { commandLogger } from './commandLogger';
+
+ipcMain.handle('commandLog:getAll', () => commandLogger.getAll());
+ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLogger.getByApp(appDirName));
+ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
+
+commandLogger.onEntry((entry) => {
+  mainWindow?.webContents.send('commandLog:entry', entry);
+});
+
+// System log IPC handlers
+ipcMain.handle('systemLog:getAll', () => systemLogger.getAll());
+
+systemLogger.onEntry((entry) => {
+  mainWindow?.webContents.send('systemLog:entry', entry);
 });
 
 // Session IPC handlers
@@ -371,6 +418,7 @@ app.on('window-all-closed', () => {
     session.destroy();
   }
   sessions.clear();
+  kernelGatewayService.stop();
   containerService.stop();
   stopHourlySummary();
   stopFileMonitor();

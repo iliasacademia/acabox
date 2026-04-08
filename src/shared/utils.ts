@@ -1,3 +1,27 @@
+import { DateTime } from 'luxon';
+
+export function getLocalDate(date?: Date): string {
+  const dt = date ? DateTime.fromJSDate(date) : DateTime.now();
+  return dt.toFormat('yyyy-MM-dd');
+}
+
+export function getLocalTime(date?: Date): string {
+  const dt = date ? DateTime.fromJSDate(date) : DateTime.now();
+  return dt.toFormat('HH:mm');
+}
+
+export function getLocalTimezone(): string {
+  return DateTime.now().offsetNameShort ?? '';
+}
+
+export function utcToLocal(timestamp: string | number): string {
+  const dt = typeof timestamp === 'number'
+    ? DateTime.fromSeconds(timestamp, { zone: 'utc' })
+    : DateTime.fromISO(timestamp, { zone: 'utc' });
+  if (!dt.isValid) return String(timestamp);
+  return dt.toLocal().toISO()!;
+}
+
 /**
  * Strip HTML tags from a string and decode HTML entities
  * @param html HTML string to strip
