@@ -8,6 +8,11 @@ on:
         required: false
         default: true
         type: boolean
+      no_cache:
+        description: 'Skip Docker cache (force full rebuild)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -67,3 +72,4 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+          no-cache: ${{ github.event.inputs.no_cache == true }}
