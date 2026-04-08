@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { registerFileHandlers } from './fileHandlers';
@@ -30,14 +30,61 @@ import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
 import { initActivityQuery } from './activityQuery';
 import { initSessionFiles } from './db/sessionFilesRepository';
-import { startHourlySummary, stopHourlySummary } from './hourlySummary';
+import { initSchedulingDatabase, closeSchedulingDatabase } from './db/schedulingDatabase';
+import {
+  listTasks,
+  getTask,
+  createTask,
+  updateTask,
+  deleteTask,
+  setTaskEnabled,
+  listTaskRuns,
+} from './db/scheduledTaskRepository';
+import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './scheduledTasks';
+import { runScheduledTask } from './scheduledTasks/runner';
+import type { CreateTaskData, UpdateTaskData } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { checkLogin, logout } from '../../apiClient';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
 import { updateApiKey } from './db/workspaceRepository';
+import { createQuickChatWindow, showQuickChat } from './quickChat';
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
+  'Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. After the summary is written, use the reaction skill to react to the latest update only with suggestions and relevant resources.';
+
+function getSettingsPath(): string {
+  return path.join(app.getPath('userData'), 'cobuilding-settings.json');
+}
+
+function isDefaultTasksSeeded(): boolean {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.defaultTasksSeeded === true;
+  } catch {
+    return false;
+  }
+}
+
+function markDefaultTasksSeeded(): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch {
+    // File doesn't exist yet
+  }
+  data.defaultTasksSeeded = true;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function seedDefaultTasks(workspaceId: string): void {
+  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every hour', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 * * * *');
+  markDefaultTasksSeeded();
+  log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
+}
 
 // Configure electron-log for cobuilding
 log.transports.file.fileName = app.isPackaged ? 'cobuilding-cobuild.log' : 'cobuilding-dev.log';
@@ -195,9 +242,23 @@ app.whenReady().then(() => {
     createTray();
     log.info('[APP] Updater and tray initialized.');
 
+    createQuickChatWindow(mainWindow);
+    const shortcutRegistered = globalShortcut.register('CommandOrControl+Shift+Space', () => {
+      showQuickChat();
+    });
+    if (!shortcutRegistered) {
+      log.warn('[APP] Failed to register global shortcut Cmd+Shift+Space — may be in use by another app');
+    } else {
+      log.info('[APP] Global shortcut Cmd+Shift+Space registered');
+    }
+
     startFileMonitor();
     startBrowserMonitor().then(() => rebuildTrayMenu());
-    startHourlySummary();
+    initSchedulingDatabase(app.getPath('userData'));
+    if (activeWorkspace && !isDefaultTasksSeeded()) {
+      seedDefaultTasks(activeWorkspace.id);
+    }
+    startScheduledTasks();
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
     log.info('[APP] Loading URL:', url);
@@ -278,6 +339,9 @@ ipcMain.handle(
     const id = randomUUID();
     createWorkspace(id, name, directoryPath, apiKey);
     activeWorkspace = getActiveWorkspace() ?? null;
+    if (activeWorkspace && !isDefaultTasksSeeded()) {
+      seedDefaultTasks(activeWorkspace.id);
+    }
     return activeWorkspace ?? null;
   },
 );
@@ -560,16 +624,72 @@ ipcMain.handle('auth:logout', async () => {
   }
 });
 
+// Scheduled Tasks IPC handlers
+ipcMain.handle('scheduledTasks:list', () => {
+  if (!activeWorkspace) return [];
+  return listTasks(activeWorkspace.id);
+});
+
+ipcMain.handle('scheduledTasks:get', (_event, id: string) => {
+  return getTask(id) ?? null;
+});
+
+ipcMain.handle('scheduledTasks:create', (_event, data: CreateTaskData) => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const task = createTask(activeWorkspace.id, data.name, data.description, data.prompt, data.cron_expression);
+  getTaskScheduler().scheduleTask(task.id);
+  return task;
+});
+
+ipcMain.handle('scheduledTasks:update', (_event, id: string, data: UpdateTaskData) => {
+  const task = updateTask(id, data);
+  if (task) {
+    if (task.enabled) {
+      getTaskScheduler().scheduleTask(id);
+    } else {
+      getTaskScheduler().unscheduleTask(id);
+    }
+  }
+  return task ?? null;
+});
+
+ipcMain.handle('scheduledTasks:delete', (_event, id: string) => {
+  getTaskScheduler().unscheduleTask(id);
+  deleteTask(id);
+});
+
+ipcMain.handle('scheduledTasks:setEnabled', (_event, id: string, enabled: boolean) => {
+  setTaskEnabled(id, enabled);
+  if (enabled) {
+    getTaskScheduler().scheduleTask(id);
+  } else {
+    getTaskScheduler().unscheduleTask(id);
+  }
+});
+
+ipcMain.handle('scheduledTasks:runNow', async (_event, id: string) => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const task = getTask(id);
+  if (!task) throw new Error('Task not found');
+  await runScheduledTask(task, activeWorkspace);
+});
+
+ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {
+  return listTaskRuns(taskId);
+});
+
 app.on('window-all-closed', () => {
+  globalShortcut.unregisterAll();
+  stopFileMonitor();
+  stopBrowserMonitor();
   for (const session of sessions.values()) {
     session.destroy();
   }
   sessions.clear();
   kernelGatewayService.stop();
   containerService.stop();
-  stopHourlySummary();
-  stopFileMonitor();
-  stopBrowserMonitor();
+  stopScheduledTasks();
+  closeSchedulingDatabase();
   closeObservationsDatabase();
   closeDatabase();
   app.quit();

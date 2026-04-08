@@ -225,6 +225,14 @@ module.exports = {
                 js: './src/cobuilding/main/preload.ts',
               },
             },
+            {
+              html: './src/cobuilding/renderer/quick-chat.html',
+              js: './src/cobuilding/renderer/quick-chat-entry.tsx',
+              name: 'quick_chat_window',
+              preload: {
+                js: './src/cobuilding/main/quickChatPreload.ts',
+              },
+            },
           ],
         },
       },

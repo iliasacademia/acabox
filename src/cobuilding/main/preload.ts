@@ -122,6 +122,25 @@ contextBridge.exposeInMainWorld('systemLogAPI', {
 });
 
 
+contextBridge.exposeInMainWorld('observationsAPI', {
+  getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
+  getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),
+  getSessionFiles: () => ipcRenderer.invoke('observations:getSessionFiles'),
+});
+
+contextBridge.exposeInMainWorld('scheduledTasksAPI', {
+  list: () => ipcRenderer.invoke('scheduledTasks:list'),
+  get: (id: string) => ipcRenderer.invoke('scheduledTasks:get', id),
+  create: (data: { name: string; description: string; prompt: string; cron_expression: string }) =>
+    ipcRenderer.invoke('scheduledTasks:create', data),
+  update: (id: string, data: { name?: string; description?: string; prompt?: string; cron_expression?: string; enabled?: number }) =>
+    ipcRenderer.invoke('scheduledTasks:update', id, data),
+  delete: (id: string) => ipcRenderer.invoke('scheduledTasks:delete', id),
+  setEnabled: (id: string, enabled: boolean) => ipcRenderer.invoke('scheduledTasks:setEnabled', id, enabled),
+  runNow: (id: string) => ipcRenderer.invoke('scheduledTasks:runNow', id),
+  listRuns: (taskId: string) => ipcRenderer.invoke('scheduledTasks:listRuns', taskId),
+});
+
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: () => ipcRenderer.invoke('sessions:list'),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
@@ -131,6 +150,11 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
 });
 
 contextBridge.exposeInMainWorld('chatAPI', {
+  onQuickChatInject: (callback: (data: { text: string; context: any }) => void) => {
+    const handler = (_event: unknown, data: { text: string; context: any }) => callback(data);
+    ipcRenderer.on('quick-chat:inject', handler);
+    return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
+  },
   sendMessage: (threadId: string, text: string, attachments?: any[]) => {
     ipcRenderer.send('chat:send', { threadId, text, attachments });
 

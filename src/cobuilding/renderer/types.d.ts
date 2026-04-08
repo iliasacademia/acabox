@@ -1,4 +1,4 @@
-import type { ChatAPI, Workspace } from '../shared/types';
+import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData } from '../shared/types';
 
 interface DirEntry {
   name: string;
@@ -239,6 +239,17 @@ declare global {
     shutdownKernel(kernelId: string): Promise<boolean>;
   }
 
+  interface ScheduledTasksAPI {
+    list(): Promise<ScheduledTask[]>;
+    get(id: string): Promise<ScheduledTask | null>;
+    create(data: CreateTaskData): Promise<ScheduledTask>;
+    update(id: string, data: UpdateTaskData): Promise<ScheduledTask | null>;
+    delete(id: string): Promise<void>;
+    setEnabled(id: string, enabled: boolean): Promise<void>;
+    runNow(id: string): Promise<void>;
+    listRuns(taskId: string): Promise<ScheduledTaskRun[]>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     filesAPI: FilesAPI;
@@ -250,5 +261,6 @@ declare global {
     jupyterAPI: JupyterAPI;
     authAPI: AuthAPI;
     electronAPI: ElectronAPI;
+    scheduledTasksAPI: ScheduledTasksAPI;
   }
 }

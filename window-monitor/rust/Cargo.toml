@@ -19,6 +19,10 @@ path = "src/bin/word_actions.rs"
 name = "word-check"
 path = "src/bin/word_check.rs"
 
+[[bin]]
+name = "context-capture"
+path = "src/bin/context_capture.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }

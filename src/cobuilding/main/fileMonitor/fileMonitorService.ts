@@ -48,6 +48,10 @@ function getBinaryPath(): string {
   return path.join(app.getAppPath(), 'src/cobuilding/rust/file-monitor-mac/target/debug/file-monitor-mac');
 }
 
+function isLocalFile(documentUrl: string): boolean {
+  return documentUrl.startsWith('file://') || documentUrl.startsWith('/');
+}
+
 function resolveFilePath(documentUrl: string): string {
   if (documentUrl.startsWith('file://')) {
     return decodeURIComponent(new URL(documentUrl).pathname);
@@ -56,6 +60,8 @@ function resolveFilePath(documentUrl: string): string {
 }
 
 function snapshotFile(documentUrl: string): { snapshotId: string; destPath: string } | null {
+  if (!isLocalFile(documentUrl)) return null;
+
   const workspacePath = getWorkspacePath();
   if (!workspacePath) return null;
 
@@ -77,6 +83,7 @@ function snapshotFile(documentUrl: string): { snapshotId: string; destPath: stri
 }
 
 function getFileMtime(documentUrl: string): string | null {
+  if (!isLocalFile(documentUrl)) return null;
   try {
     const filePath = resolveFilePath(documentUrl);
     const stat = fs.statSync(filePath);
@@ -220,7 +227,11 @@ export function startFileMonitor(): void {
   });
 
   childProcess.stderr?.on('data', (data: Buffer) => {
-    log.warn('[FileMonitor] stderr:', data.toString().trim());
+    try {
+      log.warn('[FileMonitor] stderr:', data.toString().trim());
+    } catch {
+      // electron-log may fail if the window has been destroyed during shutdown
+    }
   });
 
   childProcess.on('error', (err) => {
@@ -254,4 +265,8 @@ export function stopFileMonitor(): void {
 
 export function isFileMonitorRunning(): boolean {
   return childProcess !== null;
+}
+
+export function getCurrentDocumentUrl(): string | null {
+  return currentFocus?.documentUrl ?? null;
 }

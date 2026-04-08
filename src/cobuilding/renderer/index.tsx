@@ -6,8 +6,10 @@ import {
   AssistantRuntimeProvider,
   useThreadList,
   useAssistantToolUI,
+  useAssistantRuntime,
+  useComposerRuntime,
 } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
@@ -17,6 +19,9 @@ import { FileViewer } from './components/FileViewer';
 import { NotebookViewer } from './components/notebook';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
+import { ScheduledTasksSidebar } from './components/ScheduledTasksSidebar';
+import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
+import './components/ScheduledTasks.css';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
@@ -30,6 +35,49 @@ import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import type { Workspace } from '../shared/types';
 import './App.css';
+
+/** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
+function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
+  const assistantRuntime = useAssistantRuntime();
+  const composerRuntime = useComposerRuntime();
+
+  useEffect(() => {
+    const cleanup = window.chatAPI.onQuickChatInject((data: { text: string; context: any }) => {
+      onSwitchToChat();
+
+      // Format message with context
+      let message = '';
+      const ctx = data.context;
+      if (ctx) {
+        const contextParts: string[] = [];
+        if (ctx.frontmostApp) contextParts.push(`App: ${ctx.frontmostApp}`);
+        if (ctx.documentUrl) contextParts.push(`URL: ${ctx.documentUrl}`);
+        if (ctx.selectedText) contextParts.push(`Selected text:\n${ctx.selectedText}`);
+        if (ctx.focusedElementValue && ctx.focusedElementValue !== ctx.selectedText) {
+          contextParts.push(`Focused element value:\n${ctx.focusedElementValue}`);
+        }
+        if (ctx.focusedElementDescription) contextParts.push(`Focused element: ${ctx.focusedElementDescription}`);
+        if (contextParts.length > 0) {
+          message = `[Context]\n${contextParts.join('\n')}\n\n[User Request]\n${data.text}`;
+        } else {
+          message = data.text;
+        }
+      } else {
+        message = data.text;
+      }
+
+      assistantRuntime.switchToNewThread();
+      setTimeout(() => {
+        composerRuntime.setText(message);
+        composerRuntime.send();
+      }, 100);
+    });
+
+    return cleanup;
+  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
+
+  return null;
+}
 
 /** When the user picks a different thread, deactivate tabs so chat is shown. */
 function ShowChatOnThreadSelect({ onShowChat }: { onShowChat: () => void }) {
@@ -76,8 +124,11 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string) => void }) {
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<'chats' | 'files' | 'apps' | 'debug'>('chats');
+  const [sidebarTab, setSidebarTab] = useState<'chats' | 'files' | 'apps' | 'scheduled' | 'debug'>('chats');
   const [debugSection, setDebugSection] = useState<DebugSection>('apps');
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [isNewTask, setIsNewTask] = useState(false);
+  const [taskRefreshKey, setTaskRefreshKey] = useState(0);
 
   const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs();
   const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(new Set());
@@ -152,6 +203,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     <AssistantRuntimeProvider runtime={runtime}>
       <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
+      <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); deactivateAllTabs(); }} />
       <TooltipProvider>
         <div className="appRoot">
           <SetupBanner />
@@ -177,6 +229,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               title="Applications"
             >
               <LayoutGridIcon style={{ width: 22, height: 22 }} />
+            </button>
+            <button
+              className={`activityBarBtn ${sidebarTab === 'scheduled' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setSidebarTab('scheduled')}
+              title="Scheduled Tasks"
+            >
+              <ClockIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
               className={`activityBarBtn activityBarBtn--bottom ${sidebarTab === 'debug' ? 'activityBarBtn--active' : ''}`}
@@ -208,54 +267,77 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   onSelectApp={handleSelectApp}
                   onNewApplication={() => { setSidebarTab('chats'); }}
                 />
+              ) : sidebarTab === 'scheduled' ? (
+                <ScheduledTasksSidebar
+                  selectedTaskId={selectedTaskId}
+                  onSelectTask={(id) => { setSelectedTaskId(id); setIsNewTask(false); }}
+                  onNewTask={() => { setSelectedTaskId(null); setIsNewTask(true); }}
+                  refreshKey={taskRefreshKey}
+                />
               ) : sidebarTab === 'debug' ? (
                 <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
               ) : null}
             </div>
           </div>
           <div className="mainPanel">
-            <TabBar
-              tabs={tabs}
-              activeTabId={activeTabId}
-              dirtyTabIds={dirtyTabIds}
-              onActivate={activateTab}
-              onClose={closeTab}
-              onPin={pinTab}
-              onShowChat={deactivateAllTabs}
-            />
-            <div className="tabPanelsContainer">
-              {/* Chat is the default view when no tab is active */}
-              <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none' }}>
-                <Thread />
-              </div>
-              {/* Render all tab panels - hidden ones use display:none to preserve state */}
-              {tabs.map((tab) => (
-                <div
-                  key={tab.id}
-                  className="tabPanel"
-                  style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}
-                >
-                  {tab.data.kind === 'file' && (
-                    <FileViewer filePath={tab.data.filePath} />
-                  )}
-                  {tab.data.kind === 'notebook' && (
-                    <NotebookViewer
-                      filePath={tab.data.filePath}
-                      onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
-                    />
-                  )}
-                  {tab.data.kind === 'miniapp' && (
-                    <MiniAppViewer
-                      dirName={tab.data.dirName}
-                      workspacePath={workspace.directory_path}
-                    />
-                  )}
-                  {tab.data.kind === 'debug' && (
-                    <DebugContent activeSection={debugSection} />
-                  )}
+            {sidebarTab === 'scheduled' ? (
+              (selectedTaskId || isNewTask) ? (
+                <ScheduledTaskEditor
+                  taskId={selectedTaskId}
+                  onSaved={(savedId) => { setSelectedTaskId(savedId); setIsNewTask(false); setTaskRefreshKey((k) => k + 1); }}
+                  onDeleted={() => { setSelectedTaskId(null); setIsNewTask(false); setTaskRefreshKey((k) => k + 1); }}
+                />
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '0.875rem' }}>
+                  Select a task or create a new one
                 </div>
-              ))}
-            </div>
+              )
+            ) : (
+              <>
+                <TabBar
+                  tabs={tabs}
+                  activeTabId={activeTabId}
+                  dirtyTabIds={dirtyTabIds}
+                  onActivate={activateTab}
+                  onClose={closeTab}
+                  onPin={pinTab}
+                  onShowChat={deactivateAllTabs}
+                />
+                <div className="tabPanelsContainer">
+                  {/* Chat is the default view when no tab is active */}
+                  <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none' }}>
+                    <Thread />
+                  </div>
+                  {/* Render all tab panels - hidden ones use display:none to preserve state */}
+                  {tabs.map((tab) => (
+                    <div
+                      key={tab.id}
+                      className="tabPanel"
+                      style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}
+                    >
+                      {tab.data.kind === 'file' && (
+                        <FileViewer filePath={tab.data.filePath} />
+                      )}
+                      {tab.data.kind === 'notebook' && (
+                        <NotebookViewer
+                          filePath={tab.data.filePath}
+                          onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
+                        />
+                      )}
+                      {tab.data.kind === 'miniapp' && (
+                        <MiniAppViewer
+                          dirName={tab.data.dirName}
+                          workspacePath={workspace.directory_path}
+                        />
+                      )}
+                      {tab.data.kind === 'debug' && (
+                        <DebugContent activeSection={debugSection} />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           {showChatSidePanel && (
             <div className="chatSidePanel">
