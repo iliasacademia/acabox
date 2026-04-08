@@ -1152,6 +1152,14 @@ body,
   padding-top: 8px;
 }
 
+.toolFallbackDetailHeader {
+  padding: 0 16px;
+  font-size: 0.75rem;
+  color: #888;
+  font-weight: 500;
+  margin: 0;
+}
+
 .toolFallbackArgs {
   padding: 0 16px;
 }

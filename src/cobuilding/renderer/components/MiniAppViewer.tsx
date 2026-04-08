@@ -49,15 +49,34 @@ const MiniAppHeader: FC<{
 
 const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirName, workspacePath }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const [loadError, setLoadError] = useState(false);
   const appDir = `${workspacePath}/.applications/${dirName}`;
   const { connect, executeCode } = useKernel();
 
   const handleIframeLoad = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage(
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    try {
+      // If the iframe loaded an error page or about:blank, the contentDocument may be inaccessible
+      const doc = iframe.contentDocument;
+      if (doc && doc.title === '') {
+        // Check if the body is essentially empty (failed load)
+        const bodyText = doc.body?.innerText?.trim() ?? '';
+        if (bodyText === 'Not Found' || bodyText === 'Forbidden' || bodyText === '') {
+          console.warn('[MiniAppContent] Iframe loaded but content appears missing for:', dirName);
+          setLoadError(true);
+          return;
+        }
+      }
+    } catch {
+      // Cross-origin — content loaded from a real page, which is fine
+    }
+    setLoadError(false);
+    iframe.contentWindow?.postMessage(
       { type: 'init', workspacePath },
       '*',
     );
-  }, [workspacePath]);
+  }, [workspacePath, dirName]);
 
   const handleBridgeMessage = useCallback(
     async (event: MessageEvent) => {
@@ -124,7 +143,18 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
     return () => window.removeEventListener('message', handleBridgeMessage);
   }, [handleBridgeMessage]);
 
-  const iframeSrc = `local-file://${appDir}/src/index.html`;
+  const iframeSrc = `local-file://${encodeURI(appDir)}/src/index.html`;
+
+  if (loadError) {
+    return (
+      <div style={{ padding: 24, color: '#888' }}>
+        <p>Could not load application <strong>{dirName}</strong>.</p>
+        <p style={{ fontSize: 13, marginTop: 8 }}>
+          Expected: <code>{appDir}/src/index.html</code>
+        </p>
+      </div>
+    );
+  }
 
   return (
     <iframe
@@ -133,6 +163,10 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
       className="miniAppIframe"
       sandbox="allow-scripts allow-same-origin"
       onLoad={handleIframeLoad}
+      onError={() => {
+        console.error('[MiniAppContent] Iframe error for:', dirName);
+        setLoadError(true);
+      }}
     />
   );
 };

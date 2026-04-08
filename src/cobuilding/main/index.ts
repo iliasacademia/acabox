@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
+import { pathToFileURL } from 'url';
 import { registerFileHandlers } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
@@ -184,7 +185,7 @@ const sessions = new Map<string, AgentSession>();
 let cachedApiKey: string | null = null;
 
 app.whenReady().then(() => {
-  protocol.handle('local-file', (request) => {
+  protocol.handle('local-file', async (request) => {
     const filePath = decodeURIComponent(request.url.slice('local-file://'.length));
     const resolved = path.resolve(filePath);
     if (
@@ -192,9 +193,20 @@ app.whenReady().then(() => {
       (!resolved.startsWith(activeWorkspace.directory_path + path.sep) &&
         resolved !== activeWorkspace.directory_path)
     ) {
+      log.warn(`[local-file] Forbidden: "${resolved}" outside workspace`);
       return new Response('Forbidden', { status: 403 });
     }
-    return net.fetch(`file://${resolved}`);
+    const fileUrl = pathToFileURL(resolved).href;
+    try {
+      const response = await net.fetch(fileUrl);
+      if (!response.ok) {
+        log.warn(`[local-file] Fetch failed (${response.status}): ${fileUrl}`);
+      }
+      return response;
+    } catch (err) {
+      log.error(`[local-file] Error fetching "${fileUrl}":`, err);
+      return new Response('Not Found', { status: 404 });
+    }
   });
 
   initDatabase(app.getPath('userData'));
