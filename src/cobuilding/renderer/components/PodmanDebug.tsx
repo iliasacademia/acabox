@@ -18,6 +18,8 @@ export const PodmanDebug: React.FC = () => {
   const [imageBuilt, setImageBuilt] = useState(false);
   const [imageSource, setImageSource] = useState<ImageSource>('local');
   const [imageInProgress, setImageInProgress] = useState(false);
+  const [pullPercent, setPullPercent] = useState<number | null>(null);
+  const [pullMessage, setPullMessage] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -57,6 +59,15 @@ export const PodmanDebug: React.FC = () => {
         setImageInProgress(true);
       } else if (imageDoneStages.includes(progress.stage)) {
         setImageInProgress(false);
+        setPullPercent(null);
+        setPullMessage(null);
+      }
+      if (progress.stage === 'pull') {
+        setPullMessage(progress.message);
+        setPullPercent(progress.percent ?? null);
+      } else {
+        setPullPercent(null);
+        setPullMessage(null);
       }
     });
     return cleanup;
@@ -248,9 +259,22 @@ export const PodmanDebug: React.FC = () => {
         {deletingImage ? (
           <span className="debugSection__imageInProgress">Deleting...</span>
         ) : imageInProgress ? (
-          <span className="debugSection__imageInProgress">
-            {imageSource === 'registry' ? 'Downloading...' : 'Building...'}
-          </span>
+          <div className="debugSection__pullStatus">
+            <span className="debugSection__imageInProgress">
+              {pullMessage || (imageSource === 'registry' ? 'Downloading...' : 'Building...')}
+            </span>
+            {imageSource === 'registry' && (
+              <div className="debugSection__progressBar">
+                <div
+                  className="debugSection__progressBarFill"
+                  style={{ width: `${pullPercent ?? 0}%` }}
+                />
+              </div>
+            )}
+            {pullPercent != null && (
+              <span className="debugSection__pullPercent">{pullPercent}%</span>
+            )}
+          </div>
         ) : imageBuilt ? (
           <>
             <span className="debugSection__bundledOk">

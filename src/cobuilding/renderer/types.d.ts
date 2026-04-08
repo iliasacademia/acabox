@@ -82,8 +82,8 @@ declare global {
     getName(): Promise<string>;
     isImageBuilt(): Promise<boolean>;
     ensureSetup(): Promise<void>;
-    onSetupProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
-    onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
+    onSetupProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
+    onProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
   }
 
   interface CommandLogEntry {

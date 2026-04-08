@@ -264,8 +264,8 @@ ipcMain.handle('container:start', async () => {
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  await containerService.start(activeWorkspace.directory_path, (stage, message) => {
-    mainWindow?.webContents.send('container:progress', { stage, message });
+  await containerService.start(activeWorkspace.directory_path, (stage, message, percent) => {
+    mainWindow?.webContents.send('container:progress', { stage, message, percent });
   });
 });
 
@@ -306,8 +306,8 @@ ipcMain.handle('container:getBundledStatus', () => {
 });
 
 ipcMain.handle('container:downloadBinaries', async () => {
-  await containerService.downloadBundledBinaries((stage, message) => {
-    mainWindow?.webContents.send('container:progress', { stage, message });
+  await containerService.downloadBundledBinaries((stage, message, percent) => {
+    mainWindow?.webContents.send('container:progress', { stage, message, percent });
   });
 });
 
@@ -328,8 +328,8 @@ ipcMain.handle('container:deleteImage', async () => {
 });
 
 ipcMain.handle('container:ensureSetup', async () => {
-  await containerService.ensureSetup((stage, message) => {
-    mainWindow?.webContents.send('setup:progress', { stage, message });
+  await containerService.ensureSetup((stage, message, percent) => {
+    mainWindow?.webContents.send('setup:progress', { stage, message, percent });
   });
 });
 
