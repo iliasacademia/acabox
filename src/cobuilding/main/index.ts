@@ -27,7 +27,10 @@ import {
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
+import { getAllSessions } from './browserMonitor/repository';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
+import { getAllFileSessions } from './fileMonitor/repository';
+import { getAllSessionFiles } from './db/sessionFilesRepository';
 import { initActivityQuery } from './activityQuery';
 import { initSessionFiles } from './db/sessionFilesRepository';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
@@ -363,6 +366,11 @@ ipcMain.handle('systemLog:getAll', () => systemLogger.getAll());
 systemLogger.onEntry((entry) => {
   mainWindow?.webContents.send('systemLog:entry', entry);
 });
+
+// Observations IPC handlers
+ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
+ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
+ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
 
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {
