@@ -1,6 +1,10 @@
 name: Build & Push Cobuilding Base Image
 
 on:
+  push:
+    branches: [cobuild]
+    paths:
+      - 'src/cobuilding/Dockerfile.base'
   workflow_dispatch:
     inputs:
       push:
