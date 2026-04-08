@@ -84,6 +84,8 @@ class CobuildingContainerService {
   private containerStarted = false;
   private isStarting = false;
   private currentWorkspacePath: string | null = null;
+  private logTailInterval: ReturnType<typeof setInterval> | null = null;
+  private lastLogTime: string = new Date().toISOString();
 
   // ─── Public API ─────────────────────────────────────────────────
 
@@ -136,6 +138,7 @@ class CobuildingContainerService {
   }
 
   stop(): void {
+    this.stopLogTail();
     log.debug('[ContainerService] Stopping container...');
     const podmanBin = this.getPodmanBin();
     const env = this.getExecEnv();
@@ -625,6 +628,37 @@ class CobuildingContainerService {
 
     this.containerStarted = true;
     this.currentWorkspacePath = workspacePath;
+    this.startLogTail(podmanBin);
+  }
+
+  // ─── Container Log Tailing ───────────────────────────────────
+
+  private startLogTail(podmanBin: string): void {
+    this.stopLogTail();
+    this.lastLogTime = new Date().toISOString();
+    this.logTailInterval = setInterval(async () => {
+      try {
+        const { stdout, stderr } = await this.execAsync(podmanBin, [
+          'logs', '--since', this.lastLogTime, CONTAINER_NAME,
+        ], this.getExecEnv());
+        this.lastLogTime = new Date().toISOString();
+        const output = (stdout + stderr).trim();
+        if (output) {
+          for (const line of output.split('\n')) {
+            log.debug(`[Container] ${line}`);
+          }
+        }
+      } catch {
+        // Container may have stopped
+      }
+    }, 5000);
+  }
+
+  private stopLogTail(): void {
+    if (this.logTailInterval) {
+      clearInterval(this.logTailInterval);
+      this.logTailInterval = null;
+    }
   }
 
   // ─── Utilities ────────────────────────────────────────────────
