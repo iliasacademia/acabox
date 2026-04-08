@@ -269,11 +269,26 @@ class CobuildingContainerService {
     }
     try {
       const podmanBin = this.getPodmanBin();
+      // Remove the skills layer image
       await this.execAsync(podmanBin, ['rmi', '-f', IMAGE_NAME], this.getExecEnv());
-      log.debug('[ContainerService] Image deleted');
+      log.debug('[ContainerService] Skills layer image deleted');
     } catch (error) {
-      log.error('[ContainerService] Failed to delete image:', (error as Error).message);
-      throw error;
+      log.error('[ContainerService] Failed to delete skills image:', (error as Error).message);
+    }
+    try {
+      const podmanBin = this.getPodmanBin();
+      // Also remove the cached base image so the next setup pulls fresh from registry
+      await this.execAsync(podmanBin, ['rmi', '-f', GHCR_BASE_IMAGE], this.getExecEnv());
+      log.debug('[ContainerService] Base image deleted');
+    } catch (error) {
+      log.debug('[ContainerService] No base image to remove (or already removed)');
+    }
+    try {
+      const podmanBin = this.getPodmanBin();
+      await this.execAsync(podmanBin, ['rmi', '-f', LOCAL_BASE_IMAGE], this.getExecEnv());
+      log.debug('[ContainerService] Local base image deleted');
+    } catch (error) {
+      log.debug('[ContainerService] No local base image to remove (or already removed)');
     }
   }
 
@@ -450,7 +465,7 @@ class CobuildingContainerService {
     log.debug(`[ContainerService] Pulling base image: ${GHCR_BASE_IMAGE}`);
     onProgress?.('pull', `Pulling base image from registry...`);
 
-    await this.spawnAndWait(podmanBin, ['pull', GHCR_BASE_IMAGE], this.getExecEnv(), 'pull base image');
+    await this.spawnAndWait(podmanBin, ['pull', '--platform', 'linux/amd64', GHCR_BASE_IMAGE], this.getExecEnv(), 'pull base image');
     log.debug('[ContainerService] Base image pulled successfully');
   }
 
@@ -458,7 +473,7 @@ class CobuildingContainerService {
     const podmanBin = this.getPodmanBin();
     log.debug(`[ContainerService] Force-pulling latest base image: ${GHCR_BASE_IMAGE}`);
     onProgress?.('pull', 'Pulling latest base image from registry...');
-    await this.spawnAndWait(podmanBin, ['pull', GHCR_BASE_IMAGE], this.getExecEnv(), 'pull base image');
+    await this.spawnAndWait(podmanBin, ['pull', '--platform', 'linux/amd64', GHCR_BASE_IMAGE], this.getExecEnv(), 'pull base image');
     log.debug('[ContainerService] Base image updated');
   }
 
