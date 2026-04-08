@@ -25,8 +25,30 @@ function truncate(str: string): string {
 
 export function parseAppDirFromArgs(args: string[]): string | null {
   const joined = args.join(' ');
-  const match = joined.match(/\.applications\/([^/\s"']+)/);
-  return match ? match[1] : null;
+
+  // Match explicit .applications/<dir> path references
+  const pathMatch = joined.match(/\.applications\/([^/\s"']+)/);
+  if (pathMatch) return pathMatch[1];
+
+  // Match --name "App Name" in manage_mini_app commands and convert to camelCase dir name
+  const nameMatch = joined.match(/--name\s+["']([^"']+)["']/);
+  if (nameMatch) return toLowerCamelCase(nameMatch[1]);
+
+  return null;
+}
+
+function toLowerCamelCase(name: string): string {
+  return name
+    .trim()
+    .replace(/[^a-zA-Z0-9\s_-]/g, '')
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((word, i) =>
+      i === 0
+        ? word.toLowerCase()
+        : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    )
+    .join('');
 }
 
 class CommandLogger {

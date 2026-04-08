@@ -4,8 +4,22 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '.
 type LogTab = 'system' | 'commands';
 
 export const AppsDebug: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<LogTab>('system');
-  const [selectedApp, setSelectedApp] = useState('all');
+  const [activeTab, setActiveTab] = useState<LogTab>(
+    () => (localStorage.getItem('logViewer:tab') as LogTab) || 'system'
+  );
+  const [selectedApp, setSelectedApp] = useState(
+    () => localStorage.getItem('logViewer:appFilter') || 'all'
+  );
+
+  const handleTabChange = (tab: LogTab) => {
+    setActiveTab(tab);
+    localStorage.setItem('logViewer:tab', tab);
+  };
+
+  const handleAppChange = (app: string) => {
+    setSelectedApp(app);
+    localStorage.setItem('logViewer:appFilter', app);
+  };
   const [appNames, setAppNames] = useState<string[]>([]);
 
   useEffect(() => {
@@ -28,18 +42,18 @@ export const AppsDebug: React.FC = () => {
       <div className="logViewer__tabs">
         <button
           className={`logViewer__tab ${activeTab === 'system' ? 'logViewer__tab--active' : ''}`}
-          onClick={() => setActiveTab('system')}
+          onClick={() => handleTabChange('system')}
         >
           System Logs
         </button>
         <button
           className={`logViewer__tab ${activeTab === 'commands' ? 'logViewer__tab--active' : ''}`}
-          onClick={() => setActiveTab('commands')}
+          onClick={() => handleTabChange('commands')}
         >
           Command Logs
         </button>
         {activeTab === 'commands' && (
-          <Select value={selectedApp} onValueChange={setSelectedApp}>
+          <Select value={selectedApp} onValueChange={handleAppChange}>
             <SelectTrigger>
               <SelectValue />
             </SelectTrigger>
