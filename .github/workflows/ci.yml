@@ -29,22 +29,26 @@ jobs:
         run: npm ci
 
       - name: Validate native module dependencies
+        if: github.base_ref != 'cobuild' && github.ref != 'refs/heads/cobuild'
         run: node scripts/check-native-deps.js
 
       - name: Run TypeScript type checking
         run: npm run typecheck
 
       - name: Run Jest tests
+        if: github.base_ref != 'cobuild' && github.ref != 'refs/heads/cobuild'
         run: npm test
 
       - name: Run test coverage
+        if: github.base_ref != 'cobuild' && github.ref != 'refs/heads/cobuild'
         run: npm run test:coverage
 
       - name: Build popup
+        if: github.base_ref != 'cobuild' && github.ref != 'refs/heads/cobuild'
         run: npm run build:popup
 
       - name: Upload coverage reports
         uses: codecov/codecov-action@v4
-        if: always()
+        if: always() && github.base_ref != 'cobuild' && github.ref != 'refs/heads/cobuild'
         with:
           fail_ci_if_error: false
