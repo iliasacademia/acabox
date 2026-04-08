@@ -339,11 +339,19 @@ function extractPathsFromToolInput(toolName: string, toolInput: Record<string, u
 
     case 'Bash': {
       if (typeof toolInput.command === 'string') {
+        const cmd = toolInput.command;
         // Extract absolute paths from the command string
-        const absolutePathPattern = /(?:^|\s|=|"|')(\/([\w.\-]+\/)+[\w.\-]*)/g;
+        // 1. Quoted paths (double or single quotes)
+        const quotedPathPattern = /["'](\/[^"']+)["']/g;
         let match;
-        while ((match = absolutePathPattern.exec(toolInput.command)) !== null) {
+        while ((match = quotedPathPattern.exec(cmd)) !== null) {
           paths.push(match[1]);
+        }
+        // 2. Unquoted paths (may contain escaped spaces)
+        const unquotedPathPattern = /(?:^|\s|=)(\/([\w.\-]|\\ )+(?:\/([\w.\-]|\\ )+)*)/g;
+        while ((match = unquotedPathPattern.exec(cmd)) !== null) {
+          // Unescape backslash-spaces to get the real path
+          paths.push(match[1].replace(/\\ /g, ' '));
         }
       }
       break;
