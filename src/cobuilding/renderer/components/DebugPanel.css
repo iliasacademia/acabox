@@ -259,6 +259,35 @@
   font-weight: 500;
 }
 
+.debugSection__pullStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.debugSection__progressBar {
+  width: 100%;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.debugSection__progressBarFill {
+  height: 100%;
+  background: #2563eb;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.debugSection__pullPercent {
+  font-size: 11px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ─── Starting indicator ─── */
 
 .debugSection__indicator--starting {

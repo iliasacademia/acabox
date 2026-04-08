@@ -22,7 +22,7 @@ const CONTAINER_NAME = 'cobuilding-container';
 
 type BinaryMode = 'system' | 'bundled';
 type ImageSource = 'registry' | 'local';
-type ProgressCallback = (stage: string, message: string) => void;
+type ProgressCallback = (stage: string, message: string, percent?: number) => void;
 
 /** Convert a Windows path (C:\Users\...) to a WSL mount path (/mnt/c/Users/...) for Podman volume mounts. */
 function toMountPath(hostPath: string): string {
@@ -62,9 +62,9 @@ function writeBinaryMode(mode: BinaryMode): void {
 function readImageSource(): ImageSource {
   try {
     const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.imageSource === 'registry' ? 'registry' : 'local';
+    return data.imageSource === 'local' ? 'local' : 'registry';
   } catch {
-    return 'local';
+    return 'registry';
   }
 }
 
@@ -272,11 +272,26 @@ class CobuildingContainerService {
     }
     try {
       const podmanBin = this.getPodmanBin();
+      // Remove the skills layer image
       await this.execAsync(podmanBin, ['rmi', '-f', IMAGE_NAME], this.getExecEnv());
-      log.debug('[ContainerService] Image deleted');
+      log.debug('[ContainerService] Skills layer image deleted');
     } catch (error) {
-      log.error('[ContainerService] Failed to delete image:', (error as Error).message);
-      throw error;
+      log.error('[ContainerService] Failed to delete skills image:', (error as Error).message);
+    }
+    try {
+      const podmanBin = this.getPodmanBin();
+      // Also remove the cached base image so the next setup pulls fresh from registry
+      await this.execAsync(podmanBin, ['rmi', '-f', GHCR_BASE_IMAGE], this.getExecEnv());
+      log.debug('[ContainerService] Base image deleted');
+    } catch (error) {
+      log.debug('[ContainerService] No base image to remove (or already removed)');
+    }
+    try {
+      const podmanBin = this.getPodmanBin();
+      await this.execAsync(podmanBin, ['rmi', '-f', LOCAL_BASE_IMAGE], this.getExecEnv());
+      log.debug('[ContainerService] Local base image deleted');
+    } catch (error) {
+      log.debug('[ContainerService] No local base image to remove (or already removed)');
     }
   }
 
@@ -451,18 +466,120 @@ class CobuildingContainerService {
     }
 
     log.debug(`[ContainerService] Pulling base image: ${GHCR_BASE_IMAGE}`);
-    onProgress?.('pull', `Pulling base image from registry...`);
+    onProgress?.('pull', 'Pulling base image from registry...', 0);
 
-    await this.spawnAndWait(podmanBin, ['pull', GHCR_BASE_IMAGE], this.getExecEnv(), 'pull base image');
+    const totalLayers = await this.getRemoteLayerCount(podmanBin);
+    await this.spawnPullWithProgress(podmanBin, GHCR_BASE_IMAGE, totalLayers, onProgress);
     log.debug('[ContainerService] Base image pulled successfully');
   }
 
   async updateBaseImage(onProgress?: ProgressCallback): Promise<void> {
     const podmanBin = this.getPodmanBin();
     log.debug(`[ContainerService] Force-pulling latest base image: ${GHCR_BASE_IMAGE}`);
-    onProgress?.('pull', 'Pulling latest base image from registry...');
-    await this.spawnAndWait(podmanBin, ['pull', GHCR_BASE_IMAGE], this.getExecEnv(), 'pull base image');
+    onProgress?.('pull', 'Pulling latest base image from registry...', 0);
+
+    const totalLayers = await this.getRemoteLayerCount(podmanBin);
+    await this.spawnPullWithProgress(podmanBin, GHCR_BASE_IMAGE, totalLayers, onProgress);
     log.debug('[ContainerService] Base image updated');
+  }
+
+  private async getRemoteLayerCount(podmanBin: string): Promise<number> {
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'manifest', 'inspect', GHCR_BASE_IMAGE,
+      ], this.getExecEnv());
+      const parsed = JSON.parse(stdout);
+
+      // Direct image manifest — has layers array
+      if (parsed.layers) {
+        log.debug(`[ContainerService] Manifest has ${parsed.layers.length} layers`);
+        return parsed.layers.length;
+      }
+
+      // Manifest list — find the amd64 entry and fetch its manifest
+      if (parsed.manifests) {
+        const amd64 = parsed.manifests.find(
+          (m: { platform?: { architecture?: string; os?: string } }) =>
+            m.platform?.architecture === 'amd64' && m.platform?.os === 'linux'
+        );
+        if (amd64?.digest) {
+          const imageRef = GHCR_BASE_IMAGE.replace(/:([^@]+)$/, `@${amd64.digest}`);
+          const { stdout: imageManifest } = await this.execAsync(podmanBin, [
+            'manifest', 'inspect', imageRef,
+          ], this.getExecEnv());
+          const imageParsed = JSON.parse(imageManifest);
+          if (imageParsed.layers) {
+            log.debug(`[ContainerService] Image manifest has ${imageParsed.layers.length} layers`);
+            return imageParsed.layers.length;
+          }
+        }
+      }
+    } catch (error) {
+      log.debug(`[ContainerService] Could not determine layer count: ${(error as Error).message}`);
+    }
+    return -1;
+  }
+
+  private spawnPullWithProgress(
+    podmanBin: string,
+    image: string,
+    totalLayers: number,
+    onProgress?: ProgressCallback,
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const proc = spawn(podmanBin, ['pull', '--platform', 'linux/amd64', image], {
+        env: this.getExecEnv(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let completedSteps = 0;
+      // +1 for the config descriptor
+      const totalSteps = totalLayers > 0 ? totalLayers + 1 : -1;
+      let stderrBuffer = '';
+
+      proc.stderr?.on('data', (data: Buffer) => {
+        stderrBuffer += data.toString();
+        const lines = stderrBuffer.split(/\r?\n/);
+        // Keep the last (possibly incomplete) line in the buffer
+        stderrBuffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          log.debug(`[ContainerService] [pull] ${trimmed}`);
+
+          if (/Copying (blob|config).*done/i.test(trimmed)) {
+            completedSteps++;
+            if (totalSteps > 0) {
+              const percent = Math.min(Math.round((completedSteps / totalSteps) * 100), 99);
+              onProgress?.('pull', `Downloading: layer ${completedSteps} of ${totalSteps}`, percent);
+            } else {
+              onProgress?.('pull', `Downloading: ${completedSteps} layers completed`);
+            }
+          } else if (/Writing manifest/i.test(trimmed)) {
+            onProgress?.('pull', 'Writing manifest...', totalSteps > 0 ? 99 : undefined);
+          }
+        }
+      });
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        const line = data.toString().trim();
+        if (line) log.debug(`[ContainerService] [pull stdout] ${line}`);
+      });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          onProgress?.('pull', 'Base image downloaded', 100);
+          resolve();
+        } else {
+          reject(new Error(`podman pull exited with code ${code}`));
+        }
+      });
+
+      proc.on('error', (error) => {
+        reject(new Error(`Failed to pull base image: ${error.message}`));
+      });
+    });
   }
 
   private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {

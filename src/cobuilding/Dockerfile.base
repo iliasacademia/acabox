@@ -51,34 +51,49 @@ RUN R -e 'BiocManager::install(c( \
 ))'
 
 # Install CRAN packages + IRkernel
-ENV CRAN=https://packagemanager.posit.co/cran/__linux__/jammy/latest
-RUN R -q -e 'options(repos=c(CRAN=Sys.getenv("CRAN"))); install.packages(c( \
-    "IRkernel", \
-    "argparse", \
-    "data.table", \
-    "dplyr", \
-    "tibble", \
-    "stringr", \
-    "ggplot2", \
-    "jsonlite", \
-    "tidyr", \
-    "patchwork", \
-    "readr", \
-    "purrr", \
-    "ggtext", \
-    "ggrepel", \
-    "igraph", \
-    "ggraph", \
-    "ggnewscale" \
-))'
+# Auto-detect Ubuntu codename for correct Posit binary packages
+RUN UBUNTU_CODENAME=$(grep UBUNTU_CODENAME /etc/os-release | cut -d= -f2) && \
+    echo "Detected Ubuntu: $UBUNTU_CODENAME" && \
+    CRAN_REPO="https://packagemanager.posit.co/cran/__linux__/${UBUNTU_CODENAME}/latest" && \
+    R -q -e "options(repos=c(CRAN='${CRAN_REPO}')); install.packages(c( \
+    'IRkernel', \
+    'argparse', \
+    'data.table', \
+    'dplyr', \
+    'tibble', \
+    'stringr', \
+    'ggplot2', \
+    'jsonlite', \
+    'tidyr', \
+    'patchwork', \
+    'readr', \
+    'purrr', \
+    'ggtext', \
+    'ggrepel', \
+    'igraph', \
+    'ggraph', \
+    'ggnewscale' \
+    ))"
 
-# Verify jupyter is available
-RUN which jupyter && jupyter --version
+# Verify R packages load correctly at build time (verbose errors for CI debugging)
+RUN R --no-save -e ' \
+    pkgs <- c("DESeq2","SummarizedExperiment","apeglm","AnnotationDbi","fgsea", \
+              "ggplot2","dplyr","jsonlite","IRkernel","data.table","tidyr", \
+              "stringr","readr","purrr","ggtext","ggrepel","igraph","ggraph","ggnewscale"); \
+    failed <- character(0); \
+    for (p in pkgs) { \
+      tryCatch( \
+        { library(p, character.only=TRUE); cat(p, as.character(packageVersion(p)), "OK\n") }, \
+        error = function(e) { cat("FAIL", p, ":", conditionMessage(e), "\n"); failed <<- c(failed, p) } \
+      ) \
+    }; \
+    if (length(failed) > 0) { cat("\n** FAILED packages:", paste(failed, collapse=", "), "\n"); quit(status=1) }; \
+    cat("\nAll", length(pkgs), "R packages verified OK\n")'
 
-# Register R kernel for Jupyter
-RUN R -e 'cat("IRkernel version:", as.character(packageVersion("IRkernel")), "\n"); IRkernel::installspec(user = FALSE)'
-
-# Verify kernel was registered
-RUN jupyter kernelspec list
+# Register R kernel for Jupyter (manual kernelspec to avoid installspec issues in CI)
+RUN mkdir -p /usr/local/share/jupyter/kernels/ir && \
+    echo '{"argv": ["R", "--slave", "-e", "IRkernel::main()", "--args", "{connection_file}"], "display_name": "R", "language": "R"}' \
+    > /usr/local/share/jupyter/kernels/ir/kernel.json && \
+    jupyter kernelspec list
 
 WORKDIR /data

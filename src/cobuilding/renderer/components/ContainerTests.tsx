@@ -52,11 +52,11 @@ const TESTS: TestDefinition[] = [
     name: 'R: DESeq2 package',
     description: 'Verify DESeq2 can be loaded',
     run: async () => {
-      const { stdout } = await window.containerAPI.exec([
+      const { stdout, stderr } = await window.containerAPI.exec([
         'R', '--no-save', '-e', 'library(DESeq2); cat(paste0("DESeq2 ", packageVersion("DESeq2"), "\\n"))',
       ]);
       const match = stdout.match(/DESeq2 [\d.]+/);
-      return { pass: !!match, detail: match ? match[0] : 'Failed to load DESeq2' };
+      return { pass: !!match, detail: match ? match[0] : `Failed to load DESeq2\n${stderr || stdout}`.trim() };
     },
   },
   {
@@ -64,12 +64,12 @@ const TESTS: TestDefinition[] = [
     name: 'R: CRAN packages',
     description: 'Verify key CRAN packages load (ggplot2, dplyr, jsonlite)',
     run: async () => {
-      const { stdout } = await window.containerAPI.exec([
+      const { stdout, stderr } = await window.containerAPI.exec([
         'R', '--no-save', '-e',
         'for(p in c("ggplot2","dplyr","jsonlite")){library(p,character.only=TRUE);cat(paste0(p," ",packageVersion(p),"\\n"))}',
       ]);
       const lines = stdout.trim().split('\n').filter(l => /^\w+ [\d.]+$/.test(l));
-      return { pass: lines.length === 3, detail: lines.join(', ') || 'Some packages failed to load' };
+      return { pass: lines.length === 3, detail: lines.join(', ') || `Some packages failed to load\n${stderr || stdout}`.trim() };
     },
   },
   {

@@ -27,10 +27,7 @@ import {
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
-import { getAllSessions } from './browserMonitor/repository';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
-import { getAllFileSessions } from './fileMonitor/repository';
-import { getAllSessionFiles } from './db/sessionFilesRepository';
 import { initActivityQuery } from './activityQuery';
 import { initSessionFiles } from './db/sessionFilesRepository';
 import { startHourlySummary, stopHourlySummary } from './hourlySummary';
@@ -327,8 +324,8 @@ ipcMain.handle('container:start', async () => {
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  await containerService.start(activeWorkspace.directory_path, (stage, message) => {
-    mainWindow?.webContents.send('container:progress', { stage, message });
+  await containerService.start(activeWorkspace.directory_path, (stage, message, percent) => {
+    mainWindow?.webContents.send('container:progress', { stage, message, percent });
   });
 });
 
@@ -369,8 +366,8 @@ ipcMain.handle('container:getBundledStatus', () => {
 });
 
 ipcMain.handle('container:downloadBinaries', async () => {
-  await containerService.downloadBundledBinaries((stage, message) => {
-    mainWindow?.webContents.send('container:progress', { stage, message });
+  await containerService.downloadBundledBinaries((stage, message, percent) => {
+    mainWindow?.webContents.send('container:progress', { stage, message, percent });
   });
 });
 
@@ -391,8 +388,8 @@ ipcMain.handle('container:deleteImage', async () => {
 });
 
 ipcMain.handle('container:ensureSetup', async () => {
-  await containerService.ensureSetup((stage, message) => {
-    mainWindow?.webContents.send('setup:progress', { stage, message });
+  await containerService.ensureSetup((stage, message, percent) => {
+    mainWindow?.webContents.send('setup:progress', { stage, message, percent });
   });
 });
 
@@ -439,11 +436,6 @@ ipcMain.handle('systemLog:getAll', () => systemLogger.getAll());
 systemLogger.onEntry((entry) => {
   mainWindow?.webContents.send('systemLog:entry', entry);
 });
-
-// Observations IPC handlers
-ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
-ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
-ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
 
 // Session IPC handlers
 ipcMain.handle('sessions:list', () => {

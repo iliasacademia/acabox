@@ -81,12 +81,12 @@ contextBridge.exposeInMainWorld('containerAPI', {
   getName: () => ipcRenderer.invoke('container:getName'),
   isImageBuilt: () => ipcRenderer.invoke('container:isImageBuilt'),
   ensureSetup: () => ipcRenderer.invoke('container:ensureSetup'),
-  onSetupProgress: (callback: (progress: { stage: string; message: string }) => void) => {
+  onSetupProgress: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('setup:progress', handler);
     return () => { ipcRenderer.removeListener('setup:progress', handler); };
   },
-  onProgress: (callback: (progress: { stage: string; message: string }) => void) => {
+  onProgress: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('container:progress', handler);
     return () => { ipcRenderer.removeListener('container:progress', handler); };
@@ -121,12 +121,6 @@ contextBridge.exposeInMainWorld('systemLogAPI', {
   },
 });
 
-
-contextBridge.exposeInMainWorld('observationsAPI', {
-  getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
-  getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),
-  getSessionFiles: () => ipcRenderer.invoke('observations:getSessionFiles'),
-});
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: () => ipcRenderer.invoke('sessions:list'),

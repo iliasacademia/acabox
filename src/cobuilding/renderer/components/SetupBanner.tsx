@@ -42,46 +42,54 @@ export const SetupBanner: React.FC = () => {
     buildStartRef.current = null;
   };
 
-  useEffect(() => {
-    const cleanup = window.containerAPI.onSetupProgress((progress) => {
-      const { stage, message } = progress;
+  const handleProgress = (progress: { stage: string; message: string }) => {
+    const { stage, message } = progress;
 
-      if (stage === 'install-podman' || stage === 'download') {
-        didWorkRef.current = true;
-        setPhase('install-podman');
-      } else if (stage === 'download-percent') {
-        setPercent(Math.min(100, parseInt(message, 10) || 0));
-      } else if (stage === 'install-podman-done') {
-        setPercent(100);
-      } else if (stage === 'build-image' || stage === 'build') {
-        didWorkRef.current = true;
-        setPhase((prev) => {
-          if (prev !== 'build-image') {
-            startBuildTimer();
-          }
-          return 'build-image';
-        });
-      } else if (stage === 'build-image-done') {
-        stopBuildTimer();
-        setPercent(100);
-      } else if (stage === 'setup-done') {
-        stopBuildTimer();
-        if (didWorkRef.current) {
-          setPhase('done');
-          setPercent(100);
-          setTimeout(() => setVisible(false), 2000);
-        } else {
-          setVisible(false);
+    if (stage === 'install-podman' || stage === 'download') {
+      didWorkRef.current = true;
+      setVisible(true);
+      setPhase('install-podman');
+    } else if (stage === 'download-percent') {
+      setPercent(Math.min(100, parseInt(message, 10) || 0));
+    } else if (stage === 'install-podman-done') {
+      setPercent(100);
+    } else if (stage === 'build-image' || stage === 'build' || stage === 'pull') {
+      didWorkRef.current = true;
+      setVisible(true);
+      setPhase((prev) => {
+        if (prev !== 'build-image') {
+          startBuildTimer();
         }
-        return;
-      } else if (stage === 'init' || stage === 'start-machine') {
-        didWorkRef.current = true;
-        setPhase('install-podman');
+        return 'build-image';
+      });
+    } else if (stage === 'build-image-done') {
+      stopBuildTimer();
+      setPercent(100);
+    } else if (stage === 'setup-done' || stage === 'ready') {
+      stopBuildTimer();
+      if (didWorkRef.current) {
+        setPhase('done');
+        setPercent(100);
+        setTimeout(() => setVisible(false), 2000);
+      } else {
+        setVisible(false);
       }
-    });
+      didWorkRef.current = false;
+      return;
+    } else if (stage === 'init' || stage === 'start-machine') {
+      didWorkRef.current = true;
+      setVisible(true);
+      setPhase('install-podman');
+    }
+  };
+
+  useEffect(() => {
+    const cleanupSetup = window.containerAPI.onSetupProgress(handleProgress);
+    const cleanupProgress = window.containerAPI.onProgress(handleProgress);
 
     return () => {
-      cleanup();
+      cleanupSetup();
+      cleanupProgress();
       stopBuildTimer();
     };
   }, []);
