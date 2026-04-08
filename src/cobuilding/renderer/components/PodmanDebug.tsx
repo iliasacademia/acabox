@@ -7,19 +7,18 @@ type ImageSource = 'registry' | 'local';
 
 export const PodmanDebug: React.FC = () => {
   const [running, setRunning] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [downloading, setDownloading] = useState(false);
-  const [progressMessage, setProgressMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [binaryMode, setBinaryMode] = useState<BinaryMode>('bundled');
   const [bundledDownloaded, setBundledDownloaded] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [containerName, setContainerName] = useState('');
   const [imageBuilt, setImageBuilt] = useState(false);
-  const [imageSource, setImageSource] = useState<ImageSource>('local');
+  const [imageSource, setImageSource] = useState<ImageSource>('registry');
   const [imageInProgress, setImageInProgress] = useState(false);
-  const [pullPercent, setPullPercent] = useState<number | null>(null);
-  const [pullMessage, setPullMessage] = useState<string | null>(null);
+  const [deletingImage, setDeletingImage] = useState(false);
+  const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -37,37 +36,31 @@ export const PodmanDebug: React.FC = () => {
       setContainerName(name);
       setImageBuilt(imgBuilt);
       setImageSource(imgSource);
+      // Clear transient states when underlying state settles
+      if (isRunning) setStarting(false);
+      if (!isRunning && !starting) setStopping(false);
     } catch {
       setRunning(false);
     } finally {
       setInitializing(false);
     }
-  }, []);
+  }, [starting]);
 
   useEffect(() => {
     refreshStatus();
-    const interval = setInterval(refreshStatus, 5000);
+    const interval = setInterval(refreshStatus, 3000);
     return () => clearInterval(interval);
   }, [refreshStatus]);
 
+  // Track image build/download progress to show inline status
   useEffect(() => {
     const cleanup = window.containerAPI.onProgress((progress) => {
-      setProgressMessage(`[${progress.stage}] ${progress.message}`);
       const imageStages = ['pull', 'build', 'build-image'];
       const imageDoneStages = ['build-image-done', 'run', 'ready', 'setup-done'];
       if (imageStages.includes(progress.stage)) {
         setImageInProgress(true);
       } else if (imageDoneStages.includes(progress.stage)) {
         setImageInProgress(false);
-        setPullPercent(null);
-        setPullMessage(null);
-      }
-      if (progress.stage === 'pull') {
-        setPullMessage(progress.message);
-        setPullPercent(progress.percent ?? null);
-      } else {
-        setPullPercent(null);
-        setPullMessage(null);
       }
     });
     return cleanup;
@@ -100,11 +93,9 @@ export const PodmanDebug: React.FC = () => {
   const handleDownload = async () => {
     setDownloading(true);
     setError(null);
-    setProgressMessage(null);
     try {
       await window.containerAPI.downloadBinaries();
       setBundledDownloaded(true);
-      setProgressMessage(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -113,32 +104,29 @@ export const PodmanDebug: React.FC = () => {
   };
 
   const handleStart = async () => {
-    setLoading(true);
+    setStarting(true);
     setError(null);
-    setProgressMessage(null);
     try {
       await window.containerAPI.start();
       setRunning(true);
       setImageBuilt(true);
-      setProgressMessage(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      setStarting(false);
     }
   };
 
   const handleStop = async () => {
-    setLoading(true);
+    setStopping(true);
     setError(null);
-    setProgressMessage(null);
     try {
       await window.containerAPI.stop();
       setRunning(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      setStopping(false);
     }
   };
 
@@ -151,8 +139,6 @@ export const PodmanDebug: React.FC = () => {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
-
-  const [deletingImage, setDeletingImage] = useState(false);
 
   const handleDeleteImage = async () => {
     setError(null);
@@ -177,7 +163,7 @@ export const PodmanDebug: React.FC = () => {
   }
 
   const needsDownload = binaryMode === 'bundled' && !bundledDownloaded;
-  const canStart = !loading && !running && !needsDownload;
+  const canStart = !starting && !running && !needsDownload;
 
   return (
     <div className="debugSection">
@@ -259,22 +245,9 @@ export const PodmanDebug: React.FC = () => {
         {deletingImage ? (
           <span className="debugSection__imageInProgress">Deleting...</span>
         ) : imageInProgress ? (
-          <div className="debugSection__pullStatus">
-            <span className="debugSection__imageInProgress">
-              {pullMessage || (imageSource === 'registry' ? 'Downloading...' : 'Building...')}
-            </span>
-            {imageSource === 'registry' && (
-              <div className="debugSection__progressBar">
-                <div
-                  className="debugSection__progressBarFill"
-                  style={{ width: `${pullPercent ?? 0}%` }}
-                />
-              </div>
-            )}
-            {pullPercent != null && (
-              <span className="debugSection__pullPercent">{pullPercent}%</span>
-            )}
-          </div>
+          <span className="debugSection__imageInProgress">
+            {imageSource === 'registry' ? 'Downloading...' : 'Building...'}
+          </span>
         ) : imageBuilt ? (
           <>
             <span className="debugSection__bundledOk">
@@ -297,7 +270,7 @@ export const PodmanDebug: React.FC = () => {
             <button
               className="debugSection__btnInline"
               onClick={handleStart}
-              disabled={loading || running || needsDownload}
+              disabled={starting || running || needsDownload}
             >
               {imageSource === 'local' ? 'Build image' : 'Download image'}
             </button>
@@ -312,9 +285,9 @@ export const PodmanDebug: React.FC = () => {
 
       <div className="debugSection__status">
         <span
-          className={`debugSection__indicator ${running ? 'debugSection__indicator--running' : loading && !running ? 'debugSection__indicator--starting' : 'debugSection__indicator--stopped'}`}
+          className={`debugSection__indicator ${running ? 'debugSection__indicator--running' : starting ? 'debugSection__indicator--starting' : 'debugSection__indicator--stopped'}`}
         />
-        <span>{running ? 'Running' : loading && !running ? 'Starting...' : 'Stopped'}</span>
+        <span>{running ? 'Running' : starting ? 'Starting...' : stopping ? 'Stopping...' : 'Stopped'}</span>
       </div>
 
       <div className="debugSection__actions">
@@ -323,20 +296,16 @@ export const PodmanDebug: React.FC = () => {
           onClick={handleStart}
           disabled={!canStart}
         >
-          {loading && !running ? 'Starting...' : 'Start'}
+          {starting ? 'Starting...' : 'Start'}
         </button>
         <button
           className="debugSection__btn debugSection__btn--stop"
           onClick={handleStop}
-          disabled={loading || !running}
+          disabled={stopping || !running}
         >
-          {loading && running ? 'Stopping...' : 'Stop'}
+          {stopping ? 'Stopping...' : 'Stop'}
         </button>
       </div>
-
-      {progressMessage && (
-        <div className="debugSection__progress">{progressMessage}</div>
-      )}
 
       {error && (
         <div className="debugSection__error">{error}</div>
