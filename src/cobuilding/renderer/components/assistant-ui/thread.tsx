@@ -2,6 +2,8 @@ import React from 'react';
 import { MarkdownText } from './markdown-text';
 import { ToolFallback } from './tool-fallback';
 import { ToolGroup } from './tool-group';
+import { TodoWrite } from './todo-write';
+import { Reasoning } from './thinking-indicator';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { Button } from '../ui/button';
 import {
@@ -225,7 +227,8 @@ const AssistantMessage: FC = () => {
         <MessagePrimitive.Parts
           components={{
             Text: MarkdownText,
-            tools: { Fallback: ToolFallback },
+            Reasoning,
+            tools: { Fallback: ToolFallback, TodoWrite },
             ToolGroup,
           }}
         />

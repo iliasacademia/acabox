@@ -81,7 +81,7 @@ export function createAgentSession(
     }
   }
 
-  const state: MessageProcessingState = { currentToolCallId: null, pendingBashCalls: new Map() };
+  const state: MessageProcessingState = { currentToolCallId: null, currentBlockIsThinking: false, pendingBashCalls: new Map() };
 
   const workspaceBoundaryHook = createWorkspaceBoundaryHook(workspace.directory_path);
 
@@ -409,6 +409,7 @@ function createWorkspaceBoundaryHook(workspaceDir: string) {
 
 interface MessageProcessingState {
   currentToolCallId: string | null;
+  currentBlockIsThinking: boolean;
   pendingBashCalls: Map<string, { command: string }>;
 }
 
@@ -428,6 +429,8 @@ function processQueryMessage(
           toolCallId: event.content_block.id,
           toolName: event.content_block.name,
         });
+      } else if (event.content_block.type === 'thinking') {
+        state.currentBlockIsThinking = true;
       }
     } else if (event.type === 'content_block_delta') {
       if (event.delta.type === 'text_delta') {
@@ -441,15 +444,62 @@ function processQueryMessage(
           toolCallId: state.currentToolCallId ?? '',
           argsText: event.delta.partial_json,
         });
+      } else if (event.delta.type === 'thinking_delta') {
+        onEvent({
+          type: 'thinking-delta',
+          text: (event.delta as { type: 'thinking_delta'; thinking: string }).thinking,
+        });
       }
     } else if (event.type === 'content_block_stop') {
-      if (state.currentToolCallId) {
+      if (state.currentBlockIsThinking) {
+        onEvent({ type: 'thinking-end' });
+        state.currentBlockIsThinking = false;
+      } else if (state.currentToolCallId) {
         onEvent({
           type: 'tool-call-end',
           toolCallId: state.currentToolCallId,
         });
         state.currentToolCallId = null;
       }
+    }
+  }
+
+  if (message.type === 'tool_progress') {
+    onEvent({
+      type: 'tool-progress',
+      toolCallId: message.tool_use_id,
+      toolName: message.tool_name,
+      elapsedSeconds: message.elapsed_time_seconds,
+    });
+  }
+
+  if (message.type === 'system') {
+    const msg = message as any;
+    if (msg.subtype === 'task_started' && msg.tool_use_id) {
+      onEvent({
+        type: 'subagent-started',
+        taskId: msg.task_id,
+        parentToolCallId: msg.tool_use_id,
+        description: msg.description,
+      });
+    } else if (msg.subtype === 'task_progress' && msg.tool_use_id) {
+      onEvent({
+        type: 'subagent-progress',
+        taskId: msg.task_id,
+        parentToolCallId: msg.tool_use_id,
+        summary: msg.summary,
+        lastToolName: msg.last_tool_name,
+        toolUseCount: msg.usage?.tool_uses ?? 0,
+        durationMs: msg.usage?.duration_ms ?? 0,
+      });
+    } else if (msg.subtype === 'task_notification' && msg.tool_use_id) {
+      onEvent({
+        type: 'subagent-done',
+        taskId: msg.task_id,
+        parentToolCallId: msg.tool_use_id,
+        status: msg.status,
+        summary: msg.summary,
+      });
     }
   }
 

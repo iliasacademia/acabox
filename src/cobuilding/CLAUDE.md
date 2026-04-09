@@ -24,3 +24,7 @@ podman exec cobuilding-container <command> .claude/skills/<skill-name>/scripts/<
 ```
 
 Use relative paths for both the script path and all input/output file arguments.
+
+## Progress Tracking
+
+When working on multi-step tasks (3 or more steps), use the `TodoWrite` tool to create and maintain a task list so the user can follow along with your progress. Update task statuses as you work — mark items as `in_progress` when you start them and `completed` when you finish. This is especially important for longer-running tasks like data analysis, file processing, or building mini-applications.

@@ -18,7 +18,16 @@ export type ChatStreamMessage =
   | { type: 'text-delta'; text: string }
   | { type: 'tool-call-start'; toolCallId: string; toolName: string }
   | { type: 'tool-call-args-delta'; toolCallId: string; argsText: string }
-  | { type: 'tool-call-end'; toolCallId: string };
+  | { type: 'tool-call-end'; toolCallId: string }
+  // Thinking
+  | { type: 'thinking-delta'; text: string }
+  | { type: 'thinking-end' }
+  // Tool progress
+  | { type: 'tool-progress'; toolCallId: string; toolName: string; elapsedSeconds: number }
+  // Subagent progress
+  | { type: 'subagent-started'; taskId: string; parentToolCallId: string; description: string }
+  | { type: 'subagent-progress'; taskId: string; parentToolCallId: string; summary?: string; lastToolName?: string; toolUseCount: number; durationMs: number }
+  | { type: 'subagent-done'; taskId: string; parentToolCallId: string; status: 'completed' | 'failed' | 'stopped'; summary: string };
 
 export interface ChatMessageStream {
   next(): Promise<{ value: ChatStreamMessage | null; done: boolean }>;

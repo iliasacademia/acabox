@@ -17,6 +17,7 @@ import {
   CollapsibleTrigger,
 } from '../ui/collapsible';
 import { getToolLabel } from './tool-labels';
+import { useToolElapsed, useSubagentProgress } from '../../progressStore';
 
 const ANIMATION_DURATION = 200;
 
@@ -80,8 +81,16 @@ const statusIconMap: Record<ToolStatus, React.ElementType> = {
   'requires-action': AlertCircleIcon,
 };
 
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${mins}m ${secs}s`;
+}
+
 function ToolFallbackTrigger({
   toolName,
+  toolCallId,
   status,
   args,
   argsText,
@@ -89,6 +98,7 @@ function ToolFallbackTrigger({
   ...props
 }: React.ComponentProps<typeof CollapsibleTrigger> & {
   toolName: string;
+  toolCallId?: string;
   status?: ToolCallMessagePartStatus;
   args?: Record<string, unknown>;
   argsText?: string;
@@ -97,6 +107,7 @@ function ToolFallbackTrigger({
   const isRunning = statusType === 'running';
   const isCancelled =
     status?.type === 'incomplete' && status.reason === 'cancelled';
+  const elapsed = useToolElapsed(toolCallId ?? '');
 
   const Icon = statusIconMap[statusType];
   const humanLabel = isCancelled
@@ -119,6 +130,9 @@ function ToolFallbackTrigger({
       >
         <span>{humanLabel}</span>
       </span>
+      {isRunning && elapsed !== null && (
+        <span className="toolElapsedTime">{formatElapsed(elapsed)}</span>
+      )}
       <ChevronDownIcon
         data-slot="tool-fallback-trigger-chevron"
         className="toolFallbackChevron"
@@ -219,8 +233,56 @@ function ToolFallbackError({
   );
 }
 
+function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${mins}m ${secs}s`;
+}
+
+function SubagentStatusLine({ parentToolCallId }: { parentToolCallId: string }) {
+  const progress = useSubagentProgress(parentToolCallId);
+  if (!progress) return null;
+
+  const isRunning = progress.status === 'running';
+  const isDone = progress.status === 'completed';
+  const isFailed = progress.status === 'failed' || progress.status === 'stopped';
+
+  let statusText: string;
+  if (isRunning) {
+    const parts: string[] = [];
+    if (progress.lastToolName) {
+      parts.push(getToolLabel(progress.lastToolName, undefined));
+    }
+    if (progress.summary) {
+      parts.push(progress.summary);
+    }
+    statusText = parts.join(' \u2014 ') || 'Working...';
+  } else {
+    statusText = progress.summary || (isDone ? 'Completed' : 'Failed');
+  }
+
+  return (
+    <div className={`subagentStatusLine${isFailed ? ' subagentStatusLine--failed' : isDone ? ' subagentStatusLine--done' : ''}`}>
+      {isRunning && <LoaderIcon className="subagentStatusIcon subagentStatusIcon--running" />}
+      {isDone && <CheckIcon className="subagentStatusIcon subagentStatusIcon--done" />}
+      {isFailed && <XCircleIcon className="subagentStatusIcon subagentStatusIcon--failed" />}
+      <span className="subagentStatusText">{statusText}</span>
+      {(progress.durationMs > 0 || progress.toolUseCount > 0) && (
+        <span className="subagentStatusMeta">
+          {progress.toolUseCount > 0 && `${progress.toolUseCount} tool${progress.toolUseCount !== 1 ? 's' : ''}`}
+          {progress.toolUseCount > 0 && progress.durationMs > 0 && ' \u00b7 '}
+          {progress.durationMs > 0 && formatDuration(progress.durationMs)}
+        </span>
+      )}
+    </div>
+  );
+}
+
 const ToolFallbackImpl: ToolCallMessagePartComponent = ({
   toolName,
+  toolCallId,
   args,
   argsText,
   result,
@@ -228,12 +290,14 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = ({
 }: any) => {
   const isCancelled =
     status?.type === 'incomplete' && status.reason === 'cancelled';
+  const isAgent = toolName === 'Agent';
 
   return (
     <ToolFallbackRoot
       className={isCancelled ? 'toolFallbackRoot--cancelled' : ''}
     >
-      <ToolFallbackTrigger toolName={toolName} status={status} args={args} argsText={argsText} />
+      <ToolFallbackTrigger toolName={toolName} toolCallId={toolCallId} status={status} args={args} argsText={argsText} />
+      {isAgent && <SubagentStatusLine parentToolCallId={toolCallId} />}
       <ToolFallbackContent>
         <p className="toolFallbackDetailHeader">Used tool: {toolName}</p>
         <ToolFallbackError status={status} />
