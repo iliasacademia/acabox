@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { createAgentSession } from '../agentSession';
 import { updateSessionTitle } from '../db/chatRepository';
 import { createTaskRun, completeTaskRun } from '../db/scheduledTaskRepository';
+import { registerSession, unregisterSession } from '../sessionRegistry';
 import { getLocalDate, getLocalTime, getLocalTimezone } from '../../shared/utils';
 import type { ScheduledTask } from '../db/scheduledTaskRepository';
 import type { Workspace } from '../../shared/types';
@@ -24,19 +25,22 @@ export function runScheduledTask(task: ScheduledTask, workspace: Workspace): Pro
           updateSessionTitle(sessionId, `[Task] ${task.name} — ${getLocalDate(now)}${tz ? ` (${tz})` : ''} ${timeLabel}`);
           completeTaskRun(runId, 'completed');
           log.info(`[ScheduledTasks] Task run completed: ${task.name} (session: ${sessionId})`);
-          session.destroy();
+          unregisterSession(sessionId);
           resolve();
         },
         onError: (error) => {
           completeTaskRun(runId, 'failed', error);
           log.error(`[ScheduledTasks] Task run failed: ${task.name}: ${error}`);
-          session.destroy();
+          unregisterSession(sessionId);
           reject(new Error(error));
         },
       },
       workspace,
+      undefined,
+      task.session_source ?? undefined,
     );
 
+    registerSession(sessionId, session);
     session.sendMessage(task.prompt);
   });
 }

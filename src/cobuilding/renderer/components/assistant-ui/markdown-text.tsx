@@ -60,6 +60,20 @@ const useCopyToClipboard = ({
 };
 
 const defaultComponents = memoizeMarkdownComponents({
+  a: ({ href, children, ...props }) => (
+    <a
+      {...props}
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) {
+          (window as any).electronAPI.invoke('shell:openExternal', href);
+        }
+      }}
+    >
+      {children}
+    </a>
+  ),
   code: function Code({ className, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
     return (

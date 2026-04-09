@@ -28,8 +28,14 @@ export type IPCAttachment =
   | { type: 'image'; data: string; mediaType: string; name?: string }
   | { type: 'document'; data: string; mediaType: string; title?: string; name?: string };
 
+export interface ChatSubscription {
+  stream: ChatMessageStream;
+  unsubscribe: () => void;
+}
+
 export interface ChatAPI {
   sendMessage(threadId: string, text: string, attachments?: IPCAttachment[]): ChatMessageStream;
+  subscribe(threadId: string): ChatSubscription;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;
 }
 
@@ -50,6 +56,7 @@ export interface ScheduledTask {
   prompt: string;
   cron_expression: string;
   enabled: number;
+  session_source: string | null;
   last_run_at: string | null;
   next_run_at: string | null;
   created_at: string;
@@ -71,6 +78,7 @@ export interface CreateTaskData {
   description: string;
   prompt: string;
   cron_expression: string;
+  session_source?: string;
 }
 
 export interface UpdateTaskData {
@@ -79,4 +87,5 @@ export interface UpdateTaskData {
   prompt?: string;
   cron_expression?: string;
   enabled?: number;
+  session_source?: string;
 }

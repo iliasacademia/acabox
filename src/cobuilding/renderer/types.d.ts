@@ -41,6 +41,7 @@ interface WorkspacesAPI {
 interface SessionData {
   id: string;
   title: string;
+  source: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -54,7 +55,7 @@ interface MessageData {
 }
 
 interface SessionsAPI {
-  list(): Promise<SessionData[]>;
+  list(source?: string): Promise<SessionData[]>;
   get(id: string): Promise<SessionData | undefined>;
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
@@ -152,6 +153,7 @@ declare global {
   interface SessionData {
     id: string;
     title: string;
+    source: string | null;
     created_at: string;
     updated_at: string;
   }
@@ -165,7 +167,7 @@ declare global {
   }
 
   interface SessionsAPI {
-    list(): Promise<SessionData[]>;
+    list(source?: string): Promise<SessionData[]>;
     get(id: string): Promise<SessionData | undefined>;
     rename(id: string, title: string): Promise<void>;
     delete(id: string): Promise<void>;
