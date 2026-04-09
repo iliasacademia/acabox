@@ -53,6 +53,14 @@ const migrations = [
     version: 4,
     sql: `UPDATE scheduled_tasks SET session_source = 'reactions-system' WHERE session_source = 'reactions';`,
   },
+  {
+    version: 5,
+    sql: `UPDATE scheduled_tasks SET session_source = 'reactions-system' WHERE name = 'Activity Summary' AND (session_source IS NULL OR session_source != 'reactions-system');`,
+  },
+  {
+    version: 6,
+    sql: `UPDATE scheduled_tasks SET name = 'Reactions' WHERE name = 'Activity Summary' AND session_source = 'reactions-system';`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

@@ -119,7 +119,7 @@ function clearReactionUserInstructions(): void {
 }
 
 function seedDefaultTasks(workspaceId: string): void {
-  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions-system');
+  createTask(workspaceId, 'Reactions', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions-system');
   markDefaultTasksSeeded();
   log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
 }
@@ -747,6 +747,10 @@ ipcMain.handle('scheduledTasks:create', (_event, data: CreateTaskData) => {
 });
 
 ipcMain.handle('scheduledTasks:update', (_event, id: string, data: UpdateTaskData) => {
+  const existing = getTask(id);
+  if (existing?.session_source === 'reactions-system') {
+    data = { cron_expression: data.cron_expression, enabled: data.enabled };
+  }
   const task = updateTask(id, data);
   if (task) {
     if (task.enabled) {
@@ -759,6 +763,10 @@ ipcMain.handle('scheduledTasks:update', (_event, id: string, data: UpdateTaskDat
 });
 
 ipcMain.handle('scheduledTasks:delete', (_event, id: string) => {
+  const task = getTask(id);
+  if (task?.session_source === 'reactions-system') {
+    throw new Error('System tasks cannot be deleted');
+  }
   getTaskScheduler().unscheduleTask(id);
   deleteTask(id);
 });

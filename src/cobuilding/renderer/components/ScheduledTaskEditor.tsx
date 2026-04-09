@@ -38,6 +38,7 @@ export function ScheduledTaskEditor({
   const [pendingDelete, setPendingDelete] = useState(false);
 
   const isNew = taskId === null;
+  const isSystemTask = task?.session_source === 'reactions-system';
 
   useEffect(() => {
     if (taskId) {
@@ -62,7 +63,7 @@ export function ScheduledTaskEditor({
   }, [taskId]);
 
   const handleSave = useCallback(async () => {
-    if (!name.trim() || !prompt.trim()) return;
+    if (!isSystemTask && (!name.trim() || !prompt.trim())) return;
     setSaving(true);
     try {
       let savedId: string;
@@ -74,6 +75,11 @@ export function ScheduledTaskEditor({
           cron_expression: cronExpression.trim(),
         });
         savedId = created.id;
+      } else if (isSystemTask) {
+        await window.scheduledTasksAPI.update(taskId!, {
+          cron_expression: cronExpression.trim(),
+        });
+        savedId = taskId!;
       } else {
         await window.scheduledTasksAPI.update(taskId!, {
           name: name.trim(),
@@ -87,7 +93,7 @@ export function ScheduledTaskEditor({
     } finally {
       setSaving(false);
     }
-  }, [isNew, taskId, name, description, prompt, cronExpression, onSaved]);
+  }, [isNew, isSystemTask, taskId, name, description, prompt, cronExpression, onSaved]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId) return;
@@ -114,43 +120,47 @@ export function ScheduledTaskEditor({
     <div className="scheduledTaskEditor">
       <div className="scheduledTaskEditor__header">
         <h2 className="scheduledTaskEditor__title">
-          {isNew ? 'New Scheduled Task' : 'Edit Scheduled Task'}
+          {isNew ? 'New Scheduled Task' : isSystemTask ? task.name : 'Edit Scheduled Task'}
         </h2>
       </div>
 
       <div className="scheduledTaskEditor__form">
-        <label className="scheduledTaskEditor__label">
-          Name
-          <input
-            className="scheduledTaskEditor__input"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="e.g. Hourly Summary"
-          />
-        </label>
+        {!isSystemTask && (
+          <>
+            <label className="scheduledTaskEditor__label">
+              Name
+              <input
+                className="scheduledTaskEditor__input"
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="e.g. Hourly Summary"
+              />
+            </label>
 
-        <label className="scheduledTaskEditor__label">
-          Description
-          <input
-            className="scheduledTaskEditor__input"
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional description"
-          />
-        </label>
+            <label className="scheduledTaskEditor__label">
+              Description
+              <input
+                className="scheduledTaskEditor__input"
+                type="text"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Optional description"
+              />
+            </label>
 
-        <label className="scheduledTaskEditor__label">
-          Prompt
-          <textarea
-            className="scheduledTaskEditor__textarea"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder="The prompt that will be sent to the agent when this task runs"
-            rows={6}
-          />
-        </label>
+            <label className="scheduledTaskEditor__label">
+              Prompt
+              <textarea
+                className="scheduledTaskEditor__textarea"
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="The prompt that will be sent to the agent when this task runs"
+                rows={6}
+              />
+            </label>
+          </>
+        )}
 
         <label className="scheduledTaskEditor__label">
           Cron Expression
@@ -173,7 +183,7 @@ export function ScheduledTaskEditor({
           <button
             className="scheduledTaskEditor__btn scheduledTaskEditor__btn--primary"
             onClick={handleSave}
-            disabled={saving || !name.trim() || !prompt.trim()}
+            disabled={saving || (!isSystemTask && (!name.trim() || !prompt.trim()))}
           >
             <SaveIcon style={{ width: 14, height: 14 }} />
             {saving ? 'Saving...' : 'Save'}
@@ -188,13 +198,15 @@ export function ScheduledTaskEditor({
                 <PlayIcon style={{ width: 14, height: 14 }} />
                 {running ? 'Running...' : 'Run Now'}
               </button>
-              <button
-                className="scheduledTaskEditor__btn scheduledTaskEditor__btn--danger"
-                onClick={() => setPendingDelete(true)}
-              >
-                <TrashIcon style={{ width: 14, height: 14 }} />
-                Delete
-              </button>
+              {!isSystemTask && (
+                <button
+                  className="scheduledTaskEditor__btn scheduledTaskEditor__btn--danger"
+                  onClick={() => setPendingDelete(true)}
+                >
+                  <TrashIcon style={{ width: 14, height: 14 }} />
+                  Delete
+                </button>
+              )}
             </>
           )}
         </div>
