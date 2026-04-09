@@ -243,13 +243,13 @@ app.whenReady().then(() => {
     log.info('[APP] Updater and tray initialized.');
 
     createQuickChatWindow(mainWindow);
-    const shortcutRegistered = globalShortcut.register('CommandOrControl+Shift+Space', () => {
+    const shortcutRegistered = globalShortcut.register('Alt+Shift+Space', () => {
       showQuickChat();
     });
     if (!shortcutRegistered) {
-      log.warn('[APP] Failed to register global shortcut Cmd+Shift+Space — may be in use by another app');
+      log.warn('[APP] Failed to register global shortcut Option+Shift+Space — may be in use by another app');
     } else {
-      log.info('[APP] Global shortcut Cmd+Shift+Space registered');
+      log.info('[APP] Global shortcut Option+Shift+Space registered');
     }
 
     startFileMonitor();
