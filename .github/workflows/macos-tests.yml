@@ -2,9 +2,9 @@ name: macOS Native Tests
 
 on:
   push:
-    branches: [main]
+    branches: [main, cobuild]
   pull_request:
-    branches: [main]
+    branches: [main, cobuild]
 
 jobs:
   native-tests:
