@@ -4,7 +4,8 @@ import * as path from 'path';
 import { registerFileHandlers } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
-import { createAgentSession, type AgentSession } from './agentSession';
+import { createAgentSession } from './agentSession';
+import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { copyClaudeMdToWorkspace, copySkillsToWorkspace, syncMiniAppAssets } from './skills';
 import { containerService } from './containerService';
@@ -180,8 +181,35 @@ app.on('open-url', (event, url) => {
 let mainWindow: BrowserWindow | null = null;
 let activeWorkspace: Workspace | null = null;
 
-const sessions = new Map<string, AgentSession>();
 let cachedApiKey: string | null = null;
+
+// Tracks IPC forwarding listeners per (threadId, webContentsId) to avoid duplicates.
+// Both chat:subscribe and chat:send use this to ensure exactly one forwarding listener
+// per session per renderer.
+const forwardingListeners = new Map<string, () => void>();
+
+function ensureForwarding(threadId: string, sender: Electron.WebContents): void {
+  const key = `${threadId}:${sender.id}`;
+  if (forwardingListeners.has(key)) return;
+
+  const session = getRegisteredSession(threadId);
+  if (!session) return;
+
+  const unsubscribe = session.addListener({
+    onEvent: (msg) => sender.send('chat:event', threadId, msg),
+    onDone: () => { sender.send('chat:done', threadId); cleanup(); },
+    onError: (err) => { sender.send('chat:error', threadId, err); cleanup(); },
+  });
+
+  const cleanup = () => {
+    unsubscribe();
+    forwardingListeners.delete(key);
+    sender.removeListener('destroyed', cleanup);
+  };
+
+  forwardingListeners.set(key, cleanup);
+  sender.on('destroyed', cleanup);
+}
 
 app.whenReady().then(() => {
   protocol.handle('local-file', (request) => {
@@ -510,9 +538,10 @@ ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
 ipcMain.handle('sessions:rename', (_event, id: string, title: string) => updateSessionTitle(id, title));
 ipcMain.handle('sessions:delete', (_event, id: string) => {
   deleteSession(id);
-  if (sessions.has(id)) {
-    sessions.get(id)!.destroy();
-    sessions.delete(id);
+  const session = getRegisteredSession(id);
+  if (session) {
+    session.destroy();
+    unregisterSession(id);
   }
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
@@ -523,31 +552,47 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: str
     return;
   }
 
-  if (!sessions.has(threadId)) {
-    const existingSession = getSession(threadId);
+  const existingRunning = getRegisteredSession(threadId);
+  if (existingRunning?.isRunning) {
+    // Session is already running (e.g. scheduled task or previous user chat).
+    // Ensure IPC forwarding is set up (idempotent — won't duplicate).
+    ensureForwarding(threadId, event.sender);
+    existingRunning.sendMessage(text, attachments);
+    return;
+  }
+
+  if (!hasSession(threadId)) {
+    const existingDbSession = getSession(threadId);
     const session = createAgentSession(
       threadId,
       {
-        onEvent: (msg) => event.sender.send('chat:event', threadId, msg),
-        onDone: () => event.sender.send('chat:done', threadId),
-        onError: (err) => {
-          event.sender.send('chat:error', threadId, err);
-          sessions.delete(threadId);
-        },
+        onEvent: () => {},
+        onDone: () => {},
+        onError: () => { unregisterSession(threadId); },
       },
       activeWorkspace,
-      existingSession?.sdk_session_id ?? undefined,
+      existingDbSession?.sdk_session_id ?? undefined,
     );
 
-    sessions.set(threadId, session);
+    registerSession(threadId, session);
 
     event.sender.on('destroyed', () => {
       session.destroy();
-      sessions.delete(threadId);
+      unregisterSession(threadId);
     });
   }
 
-  sessions.get(threadId)!.sendMessage(text, attachments);
+  ensureForwarding(threadId, event.sender);
+  getRegisteredSession(threadId)!.sendMessage(text, attachments);
+});
+
+ipcMain.on('chat:subscribe', (event, threadId: string) => {
+  ensureForwarding(threadId, event.sender);
+});
+
+ipcMain.on('chat:unsubscribe', (event, threadId: string) => {
+  const key = `${threadId}:${event.sender.id}`;
+  forwardingListeners.get(key)?.();
 });
 
 // Auth IPC handlers
@@ -682,10 +727,7 @@ app.on('window-all-closed', () => {
   globalShortcut.unregisterAll();
   stopFileMonitor();
   stopBrowserMonitor();
-  for (const session of sessions.values()) {
-    session.destroy();
-  }
-  sessions.clear();
+  destroyAllSessions();
   kernelGatewayService.stop();
   containerService.stop();
   stopScheduledTasks();

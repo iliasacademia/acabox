@@ -28,8 +28,14 @@ export type IPCAttachment =
   | { type: 'image'; data: string; mediaType: string; name?: string }
   | { type: 'document'; data: string; mediaType: string; title?: string; name?: string };
 
+export interface ChatSubscription {
+  stream: ChatMessageStream;
+  unsubscribe: () => void;
+}
+
 export interface ChatAPI {
   sendMessage(threadId: string, text: string, attachments?: IPCAttachment[]): ChatMessageStream;
+  subscribe(threadId: string): ChatSubscription;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;
 }
 

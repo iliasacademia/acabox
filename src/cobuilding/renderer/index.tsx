@@ -27,6 +27,7 @@ import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { attachmentAdapter } from './attachmentAdapter';
+import { useSessionSubscription } from './useSessionSubscription';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
@@ -77,6 +78,12 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
     return cleanup;
   }, [assistantRuntime, composerRuntime, onSwitchToChat]);
 
+  return null;
+}
+
+/** Subscribes to running agent sessions when a thread is opened. */
+function SessionSubscriber() {
+  useSessionSubscription();
   return null;
 }
 
@@ -202,6 +209,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <SessionSubscriber />
       <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); deactivateAllTabs(); }} />

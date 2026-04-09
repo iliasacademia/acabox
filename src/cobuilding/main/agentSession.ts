@@ -68,6 +68,8 @@ export interface ChatCallbacks {
 export interface AgentSession {
   sendMessage(userMessage: string, attachments?: IPCAttachment[]): void;
   destroy(): void;
+  addListener(callbacks: Partial<ChatCallbacks>): () => void;
+  readonly isRunning: boolean;
 }
 
 export function createAgentSession(
@@ -78,6 +80,31 @@ export function createAgentSession(
   source?: string,
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
+  const listeners = new Set<Partial<ChatCallbacks>>();
+  let running = true;
+
+  // Register the initial callbacks as the first listener
+  listeners.add(callbacks);
+
+  function emitEvent(msg: ChatStreamMessage) {
+    for (const listener of listeners) {
+      listener.onEvent?.(msg);
+    }
+  }
+
+  function emitDone() {
+    running = false;
+    for (const listener of [...listeners]) {
+      listener.onDone?.();
+    }
+  }
+
+  function emitError(error: string) {
+    running = false;
+    for (const listener of [...listeners]) {
+      listener.onError?.(error);
+    }
+  }
 
   createSession(sessionId, workspace.id, source ?? null);
 
@@ -149,7 +176,7 @@ export function createAgentSession(
           },
         },
       })) {
-        processQueryMessage(message, state, callbacks.onEvent);
+        processQueryMessage(message, state, emitEvent);
 
         if (message.type === 'system') {
           setSdkSessionId(sessionId, message.session_id);
@@ -181,12 +208,12 @@ export function createAgentSession(
               is_error: message.is_error,
             }),
           );
-          callbacks.onDone();
+          emitDone();
         }
       }
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      callbacks.onError(errorMessage);
+      emitError(errorMessage);
     }
   })();
 
@@ -204,6 +231,15 @@ export function createAgentSession(
 
     destroy() {
       messageQueue.done();
+    },
+
+    addListener(cb: Partial<ChatCallbacks>): () => void {
+      listeners.add(cb);
+      return () => { listeners.delete(cb); };
+    },
+
+    get isRunning() {
+      return running;
     },
   };
 }
