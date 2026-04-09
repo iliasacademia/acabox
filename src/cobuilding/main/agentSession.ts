@@ -1,7 +1,7 @@
 
 import { query, createSdkMcpServer, tool, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput, type SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
-import type { ChatStreamMessage, IPCAttachment, Workspace } from '../shared/types';
+import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
 import { app } from 'electron';
 import * as fs from 'fs';
@@ -41,6 +41,7 @@ export function createAgentSession(
   workspace: Workspace,
   sdkSessionId?: string,
   source?: string,
+  onNotificationClick?: (action: NotificationNavigationAction | null) => void,
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
   const listeners = new Set<Partial<ChatCallbacks>>();
@@ -88,7 +89,7 @@ export function createAgentSession(
     try {
       const activityMcpServer = createActivityMcpServer();
       const miniAppServer = createMiniAppMcpServer(workspace.directory_path);
-      const notificationServer = createNotificationMcpServer();
+      const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
 
       for await (const message of query({

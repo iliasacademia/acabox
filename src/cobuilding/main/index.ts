@@ -44,7 +44,7 @@ import {
 } from './db/scheduledTaskRepository';
 import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './scheduledTasks';
 import { runScheduledTask } from './scheduledTasks/runner';
-import type { CreateTaskData, UpdateTaskData } from '../shared/types';
+import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { checkLogin, logout } from '../../apiClient';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
@@ -61,7 +61,7 @@ const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
   '2. Use the reaction skill to react to the latest update only with suggestions and relevant resources.\n' +
   '3. If the reaction skill produced a reaction (i.e., it did NOT stop due to no activity or "No new updates"), then you MUST complete BOTH of these remaining steps:\n' +
   '   a. Use the create_reaction_thread tool to save the reaction as a separate thread. Pass the full reaction text as the message and use a title like "Reaction — YYYY-MM-DD HH:MM".\n' +
-  '   b. Use the show_notification tool to notify the user. Use a short title like "Activity Reaction" and include a brief one-sentence summary of the reaction in the body.\n' +
+  '   b. Use the show_notification tool to notify the user. Use a short title like "Activity Reaction" and include a brief one-sentence summary of the reaction in the body. Pass navigation: { type: "thread", threadId: "<the reaction thread id from step 3a>" } so clicking the notification navigates to the reaction thread.\n' +
   '4. If there was no reaction, do NOT create a reaction thread or send a notification. Just stop.';
 
 function getSettingsPath(): string {
@@ -187,6 +187,16 @@ app.on('open-url', (event, url) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+
+function handleNotificationNavigation(action: NotificationNavigationAction | null): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    if (action) {
+      mainWindow.webContents.send('notification:navigate', action);
+    }
+  }
+}
 let activeWorkspace: Workspace | null = null;
 
 let cachedApiKey: string | null = null;
@@ -305,7 +315,7 @@ app.whenReady().then(() => {
     if (activeWorkspace && !isDefaultTasksSeeded()) {
       seedDefaultTasks(activeWorkspace.id);
     }
-    startScheduledTasks();
+    startScheduledTasks(handleNotificationNavigation);
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
     log.info('[APP] Loading URL:', url);
@@ -591,6 +601,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: str
       },
       activeWorkspace,
       existingDbSession?.sdk_session_id ?? undefined,
+      undefined,
+      handleNotificationNavigation,
     );
 
     registerSession(threadId, session);
@@ -735,7 +747,7 @@ ipcMain.handle('scheduledTasks:runNow', async (_event, id: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
   const task = getTask(id);
   if (!task) throw new Error('Task not found');
-  await runScheduledTask(task, activeWorkspace);
+  await runScheduledTask(task, activeWorkspace, handleNotificationNavigation);
 });
 
 ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {

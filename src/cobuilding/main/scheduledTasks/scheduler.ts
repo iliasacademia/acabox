@@ -3,6 +3,7 @@ import log from 'electron-log';
 import { getTask, getEnabledTasks, updateLastRun } from '../db/scheduledTaskRepository';
 import { getActiveWorkspace } from '../db/workspaceRepository';
 import { runScheduledTask } from './runner';
+import type { NotificationNavigationAction } from '../../shared/types';
 
 export interface TaskScheduler {
   start(): void;
@@ -11,7 +12,9 @@ export interface TaskScheduler {
   unscheduleTask(taskId: string): void;
 }
 
-export function createTaskScheduler(): TaskScheduler {
+export function createTaskScheduler(
+  onNotificationClick?: (action: NotificationNavigationAction | null) => void,
+): TaskScheduler {
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
   function scheduleNext(taskId: string): void {
@@ -53,7 +56,7 @@ export function createTaskScheduler(): TaskScheduler {
       log.info(`[ScheduledTasks] Running task "${currentTask.name}"`);
 
       try {
-        await runScheduledTask(currentTask, workspace);
+        await runScheduledTask(currentTask, workspace, onNotificationClick);
         log.info(`[ScheduledTasks] Task "${currentTask.name}" completed`);
       } catch (err) {
         log.error(`[ScheduledTasks] Task "${currentTask.name}" failed:`, err);

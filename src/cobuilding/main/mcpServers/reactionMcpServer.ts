@@ -23,7 +23,7 @@ export function createReactionMcpServer(workspaceId: string) {
             insertMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text: args.message }]));
             updateSessionTitle(sessionId, args.title);
             return {
-              content: [{ type: 'text' as const, text: `Reaction thread created: ${args.title}` }],
+              content: [{ type: 'text' as const, text: `Reaction thread created: ${args.title} (id: ${sessionId})` }],
             };
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);

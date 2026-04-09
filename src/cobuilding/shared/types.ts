@@ -89,3 +89,7 @@ export interface UpdateTaskData {
   enabled?: number;
   session_source?: string;
 }
+
+export type NotificationNavigationAction =
+  | { type: 'thread'; threadId: string }
+  | { type: 'sidebar'; tab: 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'debug' };

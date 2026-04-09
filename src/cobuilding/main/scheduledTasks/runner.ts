@@ -6,9 +6,13 @@ import { createTaskRun, completeTaskRun } from '../db/scheduledTaskRepository';
 import { registerSession, unregisterSession } from '../sessionRegistry';
 import { getLocalDate, getLocalTime, getLocalTimezone } from '../../shared/utils';
 import type { ScheduledTask } from '../db/scheduledTaskRepository';
-import type { Workspace } from '../../shared/types';
+import type { Workspace, NotificationNavigationAction } from '../../shared/types';
 
-export function runScheduledTask(task: ScheduledTask, workspace: Workspace): Promise<void> {
+export function runScheduledTask(
+  task: ScheduledTask,
+  workspace: Workspace,
+  onNotificationClick?: (action: NotificationNavigationAction | null) => void,
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const now = new Date();
     const timeLabel = getLocalTime(now);
@@ -38,6 +42,7 @@ export function runScheduledTask(task: ScheduledTask, workspace: Workspace): Pro
       workspace,
       undefined,
       task.session_source ?? undefined,
+      onNotificationClick,
     );
 
     registerSession(sessionId, session);
