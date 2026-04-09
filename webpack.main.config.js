@@ -20,6 +20,7 @@ module.exports = {
       'better-sqlite3': 'commonjs2 better-sqlite3',
       'ws': 'commonjs2 ws',
       '@anthropic-ai/claude-agent-sdk': 'commonjs2 @anthropic-ai/claude-agent-sdk',
+      'pdf-parse': 'commonjs2 pdf-parse',
     },
     // Mark all .node files as external (native modules)
     function ({ request }, callback) {
