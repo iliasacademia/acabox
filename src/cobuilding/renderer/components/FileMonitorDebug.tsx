@@ -76,6 +76,13 @@ export const FileMonitorDebug: React.FC = () => {
         </button>
       </div>
 
+      <div style={{ marginBottom: 16 }}>
+        <div className="debugSection__subtitle" style={{ marginBottom: 6 }}>Supported Apps</div>
+        <div style={{ fontSize: '0.8125rem', color: '#555', lineHeight: 1.6 }}>
+          Microsoft Word, Microsoft Excel, Microsoft PowerPoint, Apple Preview
+        </div>
+      </div>
+
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <div className="debugSection__subtitle">Today&apos;s Sessions</div>
         <button
