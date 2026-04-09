@@ -9,6 +9,7 @@ on:
 jobs:
   native-tests:
     name: AppleScript Lint
+    if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
     runs-on: macos-latest
 
     steps:
