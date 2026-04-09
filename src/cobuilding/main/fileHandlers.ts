@@ -40,6 +40,18 @@ function requireWorkspace(getWorkspacePath: () => string | null): string {
 }
 
 export function registerFileHandlers(getWorkspacePath: () => string | null, getMainWindow: () => BrowserWindow | null): void {
+  // Tracks the last directory the user navigated to in any file dialog.
+  // Falls back to the workspace directory on first use.
+  let lastDialogDir: string | null = null;
+
+  function getDialogDir(): string | undefined {
+    return lastDialogDir ?? getWorkspacePath() ?? undefined;
+  }
+
+  function updateDialogDir(filePath: string): void {
+    lastDialogDir = path.dirname(filePath);
+  }
+
   ipcMain.handle('files:readDirectory', async (_event, dirPath: string) => {
     const workspaceDir = requireWorkspace(getWorkspacePath);
     const resolved = assertWithinWorkspace(dirPath, workspaceDir);
@@ -163,14 +175,37 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     },
   );
 
+  ipcMain.handle(
+    'files:downloadFile',
+    async (_event, filename: string, content: string) => {
+      const mainWindow = getMainWindow();
+      if (!mainWindow) return { ok: false, error: 'No main window' };
+
+      const dir = getDialogDir();
+      const result = await dialog.showSaveDialog(mainWindow, {
+        defaultPath: dir ? path.join(dir, filename) : filename,
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { ok: false, canceled: true };
+      }
+
+      updateDialogDir(result.filePath);
+      await fsPromises.writeFile(result.filePath, content, 'utf-8');
+      return { ok: true, savedPath: result.filePath };
+    },
+  );
+
   ipcMain.handle('files:selectFile', async (_event, filters?: { name: string; extensions: string[] }[]) => {
     const mainWindow = getMainWindow();
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
+      defaultPath: getDialogDir(),
       properties: ['openFile'],
       filters: filters ?? undefined,
     });
     if (result.canceled || result.filePaths.length === 0) return null;
+    updateDialogDir(result.filePaths[0]);
     return result.filePaths[0];
   });
 
@@ -178,9 +213,11 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     const mainWindow = getMainWindow();
     if (!mainWindow) return null;
     const result = await dialog.showOpenDialog(mainWindow, {
+      defaultPath: getDialogDir(),
       properties: ['openDirectory', 'createDirectory'],
     });
     if (result.canceled || result.filePaths.length === 0) return null;
+    updateDialogDir(result.filePaths[0]);
     return result.filePaths[0];
   });
 }

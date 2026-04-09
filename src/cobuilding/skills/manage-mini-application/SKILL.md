@@ -46,6 +46,8 @@ Available packages (pre-installed in the container):
 
 **Prefer Plotly.js for all data visualizations** (charts, plots, graphs, heatmaps). Do not use custom SVG/Canvas rendering or other charting libraries when Plotly can handle the visualization.
 
+**App Style** This app is for use by scientists to analyze and viualize their data. Keep the style modern and professional with a white background. 
+
 ### Step 3: Write the backing notebook (optional)
 
 If the app needs R or Python computation, create a notebook at `<dir>/notebook.ipynb` using `NotebookEdit` with the **parameter cell + action cell** pattern:
@@ -86,6 +88,17 @@ const relativePath = "./" + hostPath.slice(window.getWorkspacePath().length + 1)
 ### Output files
 
 Each mini-app writes results to `.applications/<dir_name>/output/`. The app reads results from there after execution.
+
+### Downloading files
+
+Use the bridge download API to let users save/export data:
+
+```typescript
+const csvContent = [header, ...rows].map(r => r.join(",")).join("\n");
+await window.filesAPI.downloadFile("results.csv", csvContent);
+```
+
+Do NOT use `document.createElement('a')` with blob URLs — it does not work reliably in the sandboxed iframe.
 
 ### Bridge API
 

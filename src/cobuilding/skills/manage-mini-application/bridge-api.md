@@ -15,6 +15,7 @@ The scaffolded `index.tsx` imports a bridge that sets up `window.filesAPI`, `win
 
 - `window.filesAPI.readFile(path)` — Read a file from the host filesystem. Returns `{ type: string, content: string }`.
 - `window.filesAPI.writeFile(path, content)` — Write a file.
+- `window.filesAPI.downloadFile(filename, content)` — Download a file to the user's computer. Shows a native save dialog with the suggested filename. The `content` is a string (use `JSON.stringify()` for objects, or generate CSV/TSV text directly).
 - `window.filesAPI.selectFile(filters?)` — Open native file picker dialog. Returns the selected absolute path or `null`.
 - `window.filesAPI.selectDirectory()` — Open native directory picker. Returns the selected path.
 - `window.filesAPI.readDirectory(path)` — List directory contents. Returns `{ name, isDirectory }[]`.
