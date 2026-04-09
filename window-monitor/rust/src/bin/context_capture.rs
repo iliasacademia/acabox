@@ -86,6 +86,7 @@ fn main() {
     let mut selected_text: Option<String> = None;
     let mut focused_role: Option<String> = None;
     let mut focused_value: Option<String> = None;
+    let mut document_url: Option<String> = None;
 
     if let Some(pid) = pid {
         if let Some(app_el) = accessibility::create_app_element(pid) {
@@ -105,10 +106,13 @@ fn main() {
                 }
             }
 
-            // If still no selection, traverse the focused window's full subtree.
-            // This handles Word (multi-page AXTextArea) and browsers (AXWebArea).
-            if selected_text.is_none() {
-                if let Some(focused_window) = accessibility::get_focused_window(&app_el) {
+            // Get document URL and selection from the focused window
+            if let Some(focused_window) = accessibility::get_focused_window(&app_el) {
+                document_url = accessibility::get_document(&focused_window);
+
+                // If still no selection, traverse the focused window's full subtree.
+                // This handles Word (multi-page AXTextArea) and browsers (AXWebArea).
+                if selected_text.is_none() {
                     let selections = collect_all_selections_in_subtree(&focused_window, 12);
                     if !selections.is_empty() {
                         selected_text = Some(selections.join("\n"));
@@ -124,6 +128,7 @@ fn main() {
         "selectedText": selected_text,
         "focusedElementRole": focused_role,
         "focusedElementValue": focused_value,
+        "documentUrl": document_url,
     });
 
     println!("{}", serde_json::to_string(&output).unwrap());
