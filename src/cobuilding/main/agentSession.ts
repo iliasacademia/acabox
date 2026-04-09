@@ -345,6 +345,13 @@ function extractPathsFromToolInput(toolName: string, toolInput: Record<string, u
     case 'Bash': {
       if (typeof toolInput.command === 'string') {
         const cmd = toolInput.command;
+        // Skip path validation for podman exec commands — paths after the
+        // container name are container-internal (e.g. /data/...) and the
+        // container's volume mount already restricts access to the workspace.
+        const shellCmd = cmd.replace(/^.*?&&\s*/, '');
+        if (/^\s*podman\s+exec\b/.test(shellCmd)) {
+          break;
+        }
         // Extract absolute paths from the command string
         // 1. Quoted paths (double or single quotes)
         const quotedPathPattern = /["'](\/[^"']+)["']/g;
