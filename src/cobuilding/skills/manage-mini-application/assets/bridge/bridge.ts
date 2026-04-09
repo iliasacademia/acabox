@@ -4,6 +4,7 @@ interface BridgeFilesAPI {
   readFile(path: string): Promise<unknown>;
   writeFile(path: string, content: string): Promise<unknown>;
   downloadFile(filename: string, content: string): Promise<unknown>;
+  showInFinder(path: string): Promise<unknown>;
   selectFile(filters?: unknown[]): Promise<unknown>;
   selectDirectory(): Promise<unknown>;
   readDirectory(path: string): Promise<unknown>;
@@ -50,6 +51,7 @@ const filesAPI: BridgeFilesAPI = {
   readFile: (path: string) => request("readFile", { path }),
   writeFile: (path: string, content: string) => request("writeFile", { path, content }),
   downloadFile: (filename: string, content: string) => request("downloadFile", { filename, content }),
+  showInFinder: (path: string) => request("showInFinder", { path }),
   selectFile: (filters?: unknown[]) => request("selectFile", { filters }),
   selectDirectory: () => request("selectDirectory"),
   readDirectory: (path: string) => request("readDirectory", { path }),

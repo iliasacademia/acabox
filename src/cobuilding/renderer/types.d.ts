@@ -21,6 +21,7 @@ interface FilesAPI {
   readDirectory(dirPath: string): Promise<DirEntry[]>;
   readFile(filePath: string): Promise<FileContent>;
   downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
+  showInFinder(filePath: string): Promise<void>;
   copyToWorkspace(sourcePaths: string[], destinationDir: string): Promise<{ copied: number }>;
   moveFile(sourcePath: string, destinationDir: string): Promise<void>;
   deleteFile(filePath: string): Promise<void>;
@@ -133,6 +134,7 @@ declare global {
     readFile(filePath: string): Promise<FileContent>;
     writeFile(filePath: string, content: string): Promise<void>;
     downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
+    showInFinder(filePath: string): Promise<void>;
     selectFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
     selectDirectory(): Promise<string | null>;
     copyToWorkspace(sourcePaths: string[], destinationDir: string): Promise<{ copied: number }>;

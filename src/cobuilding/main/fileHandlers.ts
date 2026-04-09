@@ -1,4 +1,4 @@
-import { ipcMain, dialog, type BrowserWindow } from 'electron';
+import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 
@@ -7,7 +7,7 @@ const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'b
 const SENSITIVE_DIRS = new Set(['.ssh', '.gnupg', '.aws', '.config', '.password-store']);
 
 function assertWithinWorkspace(filePath: string, workspaceDir: string): string {
-  const resolved = path.resolve(filePath);
+  const resolved = path.resolve(workspaceDir, filePath);
   if (!resolved.startsWith(workspaceDir + path.sep) && resolved !== workspaceDir) {
     throw new Error('Access denied: path is outside the workspace directory.');
   }
@@ -92,14 +92,14 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     'files:copyToWorkspace',
     async (event, sourcePaths: string[], destinationDir: string) => {
       const workspaceDir = requireWorkspace(getWorkspacePath);
-      assertWithinWorkspace(destinationDir, workspaceDir);
+      const resolvedDir = assertWithinWorkspace(destinationDir, workspaceDir);
 
       const total = sourcePaths.length;
       let copied = 0;
       for (const src of sourcePaths) {
         const basename = path.basename(src);
         event.sender.send('files:copyProgress', { copied, total, currentName: basename });
-        const dest = path.join(destinationDir, basename);
+        const dest = path.join(resolvedDir, basename);
         assertWithinWorkspace(dest, workspaceDir);
         const stat = await fsPromises.stat(src);
         if (stat.isDirectory()) {
@@ -118,31 +118,31 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     'files:moveFile',
     async (_event, sourcePath: string, destinationDir: string) => {
       const workspaceDir = requireWorkspace(getWorkspacePath);
-      assertWithinWorkspace(sourcePath, workspaceDir);
-      assertWithinWorkspace(destinationDir, workspaceDir);
+      const resolvedSrc = assertWithinWorkspace(sourcePath, workspaceDir);
+      const resolvedDir = assertWithinWorkspace(destinationDir, workspaceDir);
 
-      const basename = path.basename(sourcePath);
-      const dest = path.join(destinationDir, basename);
+      const basename = path.basename(resolvedSrc);
+      const dest = path.join(resolvedDir, basename);
       assertWithinWorkspace(dest, workspaceDir);
-      await fsPromises.rename(sourcePath, dest);
+      await fsPromises.rename(resolvedSrc, dest);
     },
   );
 
   ipcMain.handle('files:deleteFile', async (_event, filePath: string) => {
     const workspaceDir = requireWorkspace(getWorkspacePath);
-    assertWithinWorkspace(filePath, workspaceDir);
-    await fsPromises.rm(filePath, { recursive: true });
+    const resolved = assertWithinWorkspace(filePath, workspaceDir);
+    await fsPromises.rm(resolved, { recursive: true });
   });
 
   ipcMain.handle(
     'files:renameFile',
     async (_event, filePath: string, newName: string) => {
       const workspaceDir = requireWorkspace(getWorkspacePath);
-      assertWithinWorkspace(filePath, workspaceDir);
+      const resolved = assertWithinWorkspace(filePath, workspaceDir);
       const validName = validateFileName(newName);
-      const newPath = path.join(path.dirname(filePath), validName);
+      const newPath = path.join(path.dirname(resolved), validName);
       assertWithinWorkspace(newPath, workspaceDir);
-      await fsPromises.rename(filePath, newPath);
+      await fsPromises.rename(resolved, newPath);
     },
   );
 
@@ -150,9 +150,9 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     'files:createFile',
     async (_event, filePath: string) => {
       const workspaceDir = requireWorkspace(getWorkspacePath);
-      assertWithinWorkspace(filePath, workspaceDir);
-      validateFileName(path.basename(filePath));
-      await fsPromises.writeFile(filePath, '', { flag: 'wx' });
+      const resolved = assertWithinWorkspace(filePath, workspaceDir);
+      validateFileName(path.basename(resolved));
+      await fsPromises.writeFile(resolved, '', { flag: 'wx' });
     },
   );
 
@@ -160,9 +160,9 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     'files:createDirectory',
     async (_event, dirPath: string) => {
       const workspaceDir = requireWorkspace(getWorkspacePath);
-      assertWithinWorkspace(dirPath, workspaceDir);
-      validateFileName(path.basename(dirPath));
-      await fsPromises.mkdir(dirPath);
+      const resolved = assertWithinWorkspace(dirPath, workspaceDir);
+      validateFileName(path.basename(resolved));
+      await fsPromises.mkdir(resolved);
     },
   );
 
@@ -170,8 +170,9 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     'files:writeFile',
     async (_event, filePath: string, content: string) => {
       const workspaceDir = requireWorkspace(getWorkspacePath);
-      assertWithinWorkspace(filePath, workspaceDir);
-      await fsPromises.writeFile(filePath, content, 'utf-8');
+      const resolved = assertWithinWorkspace(filePath, workspaceDir);
+      await fsPromises.mkdir(path.dirname(resolved), { recursive: true });
+      await fsPromises.writeFile(resolved, content, 'utf-8');
     },
   );
 
@@ -195,6 +196,12 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       return { ok: true, savedPath: result.filePath };
     },
   );
+
+  ipcMain.handle('files:showInFinder', async (_event, filePath: string) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const resolved = assertWithinWorkspace(filePath, workspaceDir);
+    await shell.openPath(resolved);
+  });
 
   ipcMain.handle('files:selectFile', async (_event, filters?: { name: string; extensions: string[] }[]) => {
     const mainWindow = getMainWindow();

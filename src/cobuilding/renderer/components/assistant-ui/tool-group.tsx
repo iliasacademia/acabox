@@ -135,15 +135,8 @@ type ToolGroupComponent = FC<
 
 const ToolGroupImpl: FC<
   PropsWithChildren<{ startIndex: number; endIndex: number }>
-> = ({ children, startIndex, endIndex }) => {
-  const toolCount = endIndex - startIndex + 1;
-
-  return (
-    <ToolGroupRoot variant="ghost" defaultOpen>
-      <ToolGroupTrigger count={toolCount} />
-      <ToolGroupContent>{children}</ToolGroupContent>
-    </ToolGroupRoot>
-  );
+> = ({ children }) => {
+  return <>{children}</>;
 };
 
 const ToolGroup = memo(ToolGroupImpl) as unknown as ToolGroupComponent;

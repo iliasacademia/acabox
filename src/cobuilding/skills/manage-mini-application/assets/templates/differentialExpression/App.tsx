@@ -12,6 +12,7 @@ import {
 import { VolcanoPlot, type VolcanoGene } from "@reusable/VolcanoPlot";
 import { MAPlot } from "@reusable/MAPlot";
 import { parseCsvLine } from "@reusable/csv-utils";
+import { OutputFileList, type OutputFile } from "@reusable/OutputFileList";
 
 declare const window: Window & {
   filesAPI: {
@@ -669,19 +670,16 @@ export default function App() {
               </div>
             )}
 
-            {/* Data Files */}
+            {/* Output Files */}
             {metadata.data_files.length > 0 && (
-              <div className="bg-white rounded-lg border border-gray-200 p-5">
-                <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide mb-4">Output Files</h2>
-                <div className="divide-y divide-gray-100">
-                  {metadata.data_files.map((df, i) => (
-                    <div key={i} className="py-2 flex items-baseline gap-3">
-                      <span className="text-sm font-mono text-gray-800">{df.name}</span>
-                      <span className="text-sm text-gray-500">{df.description}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <OutputFileList
+                outputDir=".applications/differentialExpression/output"
+                files={metadata.data_files.map((df): OutputFile => ({
+                  name: df.name,
+                  description: df.description,
+                  path: df.file_path,
+                }))}
+              />
             )}
           </div>
         )}

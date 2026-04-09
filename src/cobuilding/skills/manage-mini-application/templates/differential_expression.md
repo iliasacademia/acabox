@@ -123,7 +123,7 @@ podman exec cobuilding-container esbuild \
   --loader:.tsx=tsx \
   --loader:.ts=ts \
   --format=iife \
-  --alias:@reusable=.applications/_reusable
+  --alias:@reusable=/data/.applications/_reusable
 ```
 
 4. Call `open_mini_application` with the returned `dir_name`.

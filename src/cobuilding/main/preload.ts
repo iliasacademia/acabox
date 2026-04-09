@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('filesAPI', {
     ipcRenderer.invoke('files:renameFile', filePath, newName),
   writeFile: (filePath: string, content: string) => ipcRenderer.invoke('files:writeFile', filePath, content),
   downloadFile: (filename: string, content: string) => ipcRenderer.invoke('files:downloadFile', filename, content),
+  showInFinder: (filePath: string) => ipcRenderer.invoke('files:showInFinder', filePath),
   selectFile: (filters?: { name: string; extensions: string[] }[]) =>
     ipcRenderer.invoke('files:selectFile', filters),
   selectDirectory: () => ipcRenderer.invoke('files:selectDirectory'),
