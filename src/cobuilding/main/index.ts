@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { registerFileHandlers } from './fileHandlers';
@@ -721,6 +721,14 @@ ipcMain.handle('scheduledTasks:runNow', async (_event, id: string) => {
 
 ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {
   return listTaskRuns(taskId);
+});
+
+// Shell IPC handlers
+ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+  if (typeof url !== 'string' || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+    throw new Error('Invalid URL');
+  }
+  await shell.openExternal(url);
 });
 
 app.on('window-all-closed', () => {
