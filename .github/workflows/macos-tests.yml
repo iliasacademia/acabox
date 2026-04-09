@@ -51,3 +51,41 @@ jobs:
 
       - name: Smoke test packaged app
         run: bash scripts/smoke-test.sh
+
+  cobuild-smoke-test:
+    name: Cobuild Smoke Test
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22.x
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build native modules
+        run: npm run build:native
+
+      - name: Build cobuilding Rust binary
+        run: npm run build:cobuilding:rust
+
+      - name: Build popup
+        run: npm run build:popup
+
+      - name: Package cobuild application
+        run: npm run package
+        env:
+          ENTRY_POINT: cobuilding
+          CLOUDFRONT_DOMAIN: ${{ vars.CLOUDFRONT_DOMAIN }}
+
+      - name: Smoke test cobuild app
+        run: bash scripts/smoke-test-cobuild.sh
