@@ -2,7 +2,7 @@
 
 ## Overview
 
-The differential expression mini-app provides an interactive UI for running DESeq2 analysis. The user fills in parameters and clicks "Run" to execute the analysis via a backing Jupyter notebook (R kernel). Results are displayed as summary stats, visualization images, and downloadable data files.
+Interactive DESeq2 analysis UI with file pickers, design configuration, parameter tuning, interactive Plotly volcano/MA plots with adjustable thresholds, and static visualizations (PCA, heatmaps). Results are backed by a Jupyter notebook running R.
 
 ## Directory structure
 
@@ -10,45 +10,45 @@ The differential expression mini-app provides an interactive UI for running DESe
 <dir_name>/
   src/
     index.html        # Scaffolded by manage script
-    index.tsx         # Scaffolded by manage script
-    App.tsx           # Agent-written React component (copied from template)
+    index.tsx         # Scaffolded by manage script (includes error boundary)
+    App.tsx           # Copied from template
   dist/
     bundle.js         # Compiled by esbuild
-  output/             # Output directory for results
-  notebook.ipynb      # Backing R notebook (created by agent via NotebookEdit)
+  output/             # Results written here by the R script
+  notebook.ipynb      # Backing R notebook
 ```
 
-## Parameter descriptions
+## Parameters
 
-| Parameter | Type | Default | UI Input | Description |
-|-----------|------|---------|----------|-------------|
-| `counts_file` | string | `""` | File picker | Count matrix CSV (Ensembl IDs in first column). Must be in workspace. |
-| `coldata_file` | string | `""` | File picker | Sample metadata CSV with `sample_id` column. Must be in workspace. |
-| `outdir` | string | auto | hidden | Output directory (always `.applications/<dir_name>/output`) |
-| `design_variable` | string | `""` | text | Factor column in coldata (e.g., `"group"`). Used in single-variable mode. |
-| `design_formula` | string | `""` | text | Full design formula (e.g., `"~ condition + batch"`). Used in formula mode. |
-| `denominator_level` | string | `""` | text | Reference level for contrast (optional) |
-| `numerator_level` | string | `""` | text | Treatment level for contrast (optional) |
-| `min_count` | integer | `10` | number | Minimum count to consider a gene expressed |
-| `min_samples` | integer | `3` | number | Minimum samples meeting min_count |
-| `alpha` | number | `0.05` | number | Adjusted p-value significance cutoff |
-| `lfc_threshold` | number | `1.0` | number | Absolute log2 fold-change cutoff |
-| `shrink` | boolean | `false` | checkbox | Whether to apply LFC shrinkage (apeglm) |
-| `orgdb` | string | `"org.Hs.eg.db"` | select | Organism annotation database |
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `counts_file` | string | `""` | Count matrix CSV (Ensembl IDs in first column). Must be in workspace. |
+| `coldata_file` | string | `""` | Sample metadata CSV with `sample_id` column. Must be in workspace. |
+| `outdir` | string | auto | Always `.applications/<dir_name>/output` |
+| `design_variable` | string | `""` | Factor column in coldata (single-variable mode) |
+| `design_formula` | string | `""` | Full design formula, e.g. `~ condition + batch` (formula mode) |
+| `denominator_level` | string | `""` | Reference level for contrast (optional) |
+| `numerator_level` | string | `""` | Treatment level for contrast (optional) |
+| `min_count` | integer | `10` | Minimum count to consider a gene expressed |
+| `min_samples` | integer | `3` | Minimum samples meeting min_count |
+| `alpha` | number | `0.05` | Adjusted p-value significance cutoff |
+| `lfc_threshold` | number | `1.0` | Absolute log2 fold-change cutoff |
+| `shrink` | boolean | `false` | Apply LFC shrinkage (apeglm) |
+| `orgdb` | string | `"org.Hs.eg.db"` | Organism annotation database (Human or Mouse) |
 
-All file paths passed to the notebook must be **relative** to the workspace (e.g., `./data/counts.csv`). The React app converts absolute host paths from file pickers to relative paths before injecting them into the notebook parameters.
+All file paths passed to the notebook must be **relative** to the workspace.
 
 ## Notebook structure
 
-Create the notebook at `<dir>/notebook.ipynb` using the `NotebookEdit` tool with the `ir` kernel. Two cells:
+Create at `<dir>/notebook.ipynb` using `NotebookEdit` with the `ir` kernel. Two cells:
 
-1. **Parameters cell** (cell id: `de-params`, tag: `parameters`):
+1. **Parameters cell** (id: `de-params`, tag: `parameters`):
 
 ```r
 params_json <- '{"counts_file":"./data/counts.csv","coldata_file":"./data/coldata.csv", ...}'
 ```
 
-2. **Action cell** (cell id: `de-run`, tag: `action`):
+2. **Action cell** (id: `de-run`, tag: `action`):
 
 ```r
 source(".claude/skills/differential-expression/scripts/differential_expression.R")
@@ -70,62 +70,37 @@ results <- run_differential_expression(
   shrink = params$shrink,
   orgdb = params$orgdb
 )
+
+result_info <- list(
+  status = "success",
+  files = list(
+    volcano_plot = file.path(params$outdir, "volcano_plot.csv"),
+    ma_plot = file.path(params$outdir, "MA_plot.csv")
+  )
+)
+jsonlite::write_json(result_info, file.path(params$outdir, "results.json"), auto_unbox = TRUE)
 ```
 
-The `run_differential_expression()` function writes `run_metadata.json` to the output directory, along with visualization images and data CSVs.
+## R script outputs
 
-## Run metadata format
+The `run_differential_expression()` function writes to the output directory:
 
-The R script writes `run_metadata.json` to the output directory with this structure:
+- `run_metadata.json` — summary stats, visualization entries, data file entries
+- `volcano_plot.csv` / `MA_plot.csv` — gene-level data read by the interactive Plotly charts
+- `volcano_plot.png` / `MA_plot.png` — static plot images
+- `pca_plot.png`, `sample_distance_heatmap.png`, `dispersion_plot.png` — other visualizations
+- `DE_results.csv`, `normalized_counts_annotated.csv`, `size_factors.csv` — data files
 
-```json
-{
-  "summary_stats": {
-    "n_genes_prefilter": 20000,
-    "n_genes_postfilter": 15000,
-    "n_samples": 6,
-    "n_samples_numerator": 3,
-    "n_samples_denominator": 3,
-    "n_significant_genes": 500,
-    "n_up_regulated_genes": 250,
-    "n_down_regulated_genes": 250,
-    "contrasts": ["treatment_vs_control"],
-    "lfc_threshold": 1.0,
-    "significance_threshold": 0.05,
-    "date": "2026-04-08"
-  },
-  "visualizations": [
-    {
-      "name": "Volcano Plot",
-      "description": "...",
-      "visualization_type": "volcano",
-      "image_file_path": ".applications/differentialExpression/output/volcano_plot.png",
-      "data_file_path": ".applications/differentialExpression/output/volcano_plot.csv"
-    }
-  ],
-  "data_files": [
-    {
-      "name": "DE Results",
-      "description": "...",
-      "file_path": ".applications/differentialExpression/output/de_results.csv",
-      "artifact_type": "csv"
-    }
-  ]
-}
-```
+## Template App.tsx patterns
 
-File paths in `run_metadata.json` are relative to the workspace.
+The template `App.tsx` (copied from `.applications/_templates/differentialExpression/App.tsx`) uses:
 
-## Example App.tsx
-
-The template `App.tsx` is automatically copied from `.applications/_templates/differentialExpression/App.tsx` when using `--template differentialExpression`. The key patterns:
-
-- All parameter state lives in React `useState` with sensible defaults
-- File pickers use `window.filesAPI.selectFile()` and paths are converted to relative paths via `toRelativePath()`
-- On "Run", parameters are serialized to JSON and injected into the notebook's parameter cell via `window.kernel.executeCode()`
-- The notebook's action cell is read from `notebook.ipynb` by cell ID and executed via `window.kernel.executeCode()`
-- Results are read from `run_metadata.json` in the output directory
-- Visualizations are displayed as images using `local-file://` protocol
+- **Reusable components**: Imports `VolcanoPlot`, `MAPlot`, `parseCsvLine` from `@reusable`
+- **Interactive charts**: After run, reads `volcano_plot.csv` and `MA_plot.csv`, parses into `VolcanoGene[]` arrays, renders interactive Plotly scatter plots with hover tooltips and gene labels
+- **Post-run threshold controls**: Adjustable log2FC and alpha sliders re-color plot points and update summary badges (upregulated/downregulated/not significant counts) without re-running the analysis
+- **Static visualizations**: PCA, heatmaps, and other plots displayed as images from `run_metadata.json`
+- **File pickers**: `window.filesAPI.selectFile()` with paths converted to relative via `toRelativePath()`
+- **Kernel execution**: Parameters serialized to JSON, injected into notebook parameter cell, action cell read by ID and executed
 
 ## Setup steps
 
@@ -136,7 +111,7 @@ node .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
   --template "differentialExpression"
 ```
 
-2. The template `App.tsx` and `notebook.ipynb` are copied automatically. Adapt as needed for the specific analysis.
+2. The template `App.tsx` and `notebook.ipynb` are copied automatically. Adapt as needed.
 
 3. Build the bundle:
 ```bash
@@ -147,7 +122,8 @@ podman exec cobuilding-container esbuild \
   --jsx=automatic \
   --loader:.tsx=tsx \
   --loader:.ts=ts \
-  --format=iife
+  --format=iife \
+  --alias:@reusable=.applications/_reusable
 ```
 
 4. Call `open_mini_application` with the returned `dir_name`.

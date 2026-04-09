@@ -42,6 +42,12 @@ export function syncMiniAppAssets(workspaceDir: string): void {
     const templatesDest = path.join(appsDir, '_templates');
     fs.cpSync(templatesSrc, templatesDest, { recursive: true });
   }
+
+  const reusableSrc = path.join(assetsDir, 'reusable');
+  if (fs.existsSync(reusableSrc)) {
+    const reusableDest = path.join(appsDir, '_reusable');
+    fs.cpSync(reusableSrc, reusableDest, { recursive: true });
+  }
 }
 
 export function copyClaudeMdToWorkspace(workspaceDir: string): void {

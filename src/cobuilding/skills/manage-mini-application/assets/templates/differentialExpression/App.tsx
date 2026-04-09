@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from "react";
+import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   PlayIcon,
   UploadIcon,
@@ -9,6 +9,9 @@ import {
   LoaderIcon,
   XIcon,
 } from "lucide-react";
+import { VolcanoPlot, type VolcanoGene } from "@reusable/VolcanoPlot";
+import { MAPlot } from "@reusable/MAPlot";
+import { parseCsvLine } from "@reusable/csv-utils";
 
 declare const window: Window & {
   filesAPI: {
@@ -61,6 +64,38 @@ interface RunMetadata {
 type RunState = "idle" | "running" | "complete" | "error";
 type DesignMode = "variable" | "formula";
 
+function parseVolcanoCsv(csvText: string): VolcanoGene[] {
+  const lines = csvText.trim().split("\n");
+  if (lines.length < 2) return [];
+  const headers = parseCsvLine(lines[0]);
+  const idx = (name: string) => headers.indexOf(name);
+  const iSymbol = idx("SYMBOL"), iGeneName = idx("GENENAME");
+  const iLog2FC = idx("log2FoldChange"), iPadj = idx("padj");
+  const iNeglog10p = idx("neglog10p"), iBaseMean = idx("baseMean");
+  const iEnsemblId = idx("ensembl_id");
+
+  const genes: VolcanoGene[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCsvLine(lines[i]);
+    const padj = parseFloat(cols[iPadj]);
+    if (Number.isNaN(padj)) continue;
+    // Compute neglog10p from padj if the column is missing (MA_plot.csv) or
+    // the value is NA/Inf (R sets neglog10p = NA when padj produces Inf)
+    const rawNeglog10p = iNeglog10p >= 0 ? parseFloat(cols[iNeglog10p]) : NaN;
+    const neglog10p = Number.isFinite(rawNeglog10p) ? rawNeglog10p : (padj > 0 ? -Math.log10(padj) : 300);
+    genes.push({
+      ensembl_id: cols[iEnsemblId] ?? "",
+      symbol: cols[iSymbol] === "NA" ? "" : (cols[iSymbol] ?? ""),
+      geneName: cols[iGeneName] === "NA" ? "" : (cols[iGeneName] ?? ""),
+      log2FoldChange: parseFloat(cols[iLog2FC]),
+      padj,
+      neglog10p,
+      baseMean: parseFloat(cols[iBaseMean]),
+    });
+  }
+  return genes;
+}
+
 export default function App() {
   // Input files
   const [countsFile, setCountsFile] = useState<string | null>(null);
@@ -91,7 +126,13 @@ export default function App() {
   const [runTimestamp, setRunTimestamp] = useState(0);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
-  // Visualization
+  // Interactive plot data
+  const [volcanoData, setVolcanoData] = useState<VolcanoGene[] | null>(null);
+  const [maData, setMaData] = useState<VolcanoGene[] | null>(null);
+  const [vizLfc, setVizLfc] = useState(1.0);
+  const [vizAlpha, setVizAlpha] = useState(0.05);
+
+  // Other visualizations (static images)
   const [selectedVizIndex, setSelectedVizIndex] = useState(0);
 
   // Timer for elapsed time during run
@@ -135,6 +176,27 @@ export default function App() {
     (designMode === "variable" ? designVariable.trim() : designFormula.trim()) &&
     runState !== "running";
 
+  // Compute interactive summary stats from volcano data
+  const interactiveSummary = useMemo(() => {
+    if (!volcanoData) return null;
+    let up = 0, down = 0, ns = 0;
+    for (const g of volcanoData) {
+      if (g.padj >= vizAlpha || Number.isNaN(g.padj)) ns++;
+      else if (g.log2FoldChange >= vizLfc) up++;
+      else if (g.log2FoldChange <= -vizLfc) down++;
+      else ns++;
+    }
+    return { up, down, ns };
+  }, [volcanoData, vizLfc, vizAlpha]);
+
+  // Filter out volcano and MA plots from static visualizations
+  const staticVisualizations = useMemo(() => {
+    if (!metadata) return [];
+    return metadata.visualizations.filter(
+      (v) => v.name !== "volcano_plot" && v.name !== "MA_plot"
+    );
+  }, [metadata]);
+
   const runAnalysis = async () => {
     if (!canRun || !countsFile || !coldataFile) return;
 
@@ -142,6 +204,8 @@ export default function App() {
     setErrorMessage("");
     setErrorDetails("");
     setMetadata(null);
+    setVolcanoData(null);
+    setMaData(null);
 
     let wp = workspacePath;
     if (!wp) {
@@ -158,6 +222,7 @@ export default function App() {
     }
 
     const appDir = `${wp}/.applications/differentialExpression`;
+    const outputDir = `.applications/differentialExpression/output`;
 
     try {
       // Connect to the R kernel
@@ -167,7 +232,7 @@ export default function App() {
       const params: Record<string, unknown> = {
         counts_file: toRelativePath(countsFile),
         coldata_file: toRelativePath(coldataFile),
-        outdir: ".applications/differentialExpression/output",
+        outdir: outputDir,
         min_count: minCount,
         min_samples: minSamples,
         alpha: alpha,
@@ -237,23 +302,37 @@ export default function App() {
       const fileContent = await window.filesAPI.readFile(metadataPath);
       if (fileContent.type === "text") {
         const meta: RunMetadata = JSON.parse(fileContent.content);
-        // R's jsonlite unboxes single-element arrays to scalars
         if (!Array.isArray(meta.summary_stats.contrasts)) {
           meta.summary_stats.contrasts = [meta.summary_stats.contrasts as unknown as string];
         }
         setMetadata(meta);
         setRunTimestamp(Date.now());
         setSelectedVizIndex(0);
-        setRunState("complete");
-      } else {
-        setRunState("error");
-        setErrorMessage("Could not read results metadata file.");
       }
+
+      // Read volcano and MA plot CSVs for interactive charts
+      const [volcanoResult, maResult] = await Promise.all([
+        window.filesAPI.readFile(`${appDir}/output/volcano_plot.csv`),
+        window.filesAPI.readFile(`${appDir}/output/MA_plot.csv`),
+      ]);
+
+      if (volcanoResult.type === "text") {
+        setVolcanoData(parseVolcanoCsv(volcanoResult.content));
+      }
+      if (maResult.type === "text") {
+        setMaData(parseVolcanoCsv(maResult.content));
+      }
+
+      setVizLfc(lfcThreshold);
+      setVizAlpha(alpha);
+      setRunState("complete");
     } catch (err: any) {
       setRunState("error");
       setErrorMessage(err.message || "An unexpected error occurred.");
     }
   };
+
+  const hasInteractivePlots = volcanoData !== null || maData !== null;
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -495,12 +574,75 @@ export default function App() {
               )}
             </div>
 
-            {/* Visualizations */}
-            {metadata.visualizations.length > 0 && (
+            {/* Interactive Plots */}
+            {hasInteractivePlots && (
+              <div className="space-y-4">
+                {/* Threshold Controls */}
+                <div className="bg-white rounded-lg border border-gray-200 p-4">
+                  <div className="flex flex-wrap items-end gap-6">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">log2FC threshold</label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        className="w-24 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={vizLfc}
+                        onChange={(e) => setVizLfc(parseFloat(e.target.value))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Significance (alpha)</label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={1}
+                        step={0.01}
+                        className="w-24 px-3 py-1.5 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        value={vizAlpha}
+                        onChange={(e) => setVizAlpha(parseFloat(e.target.value))}
+                      />
+                    </div>
+                    {interactiveSummary && (
+                      <div className="flex flex-wrap gap-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">
+                          {interactiveSummary.up.toLocaleString()} upregulated
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">
+                          {interactiveSummary.down.toLocaleString()} downregulated
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 rounded-md bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500">
+                          {interactiveSummary.ns.toLocaleString()} not significant
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Plot Grid */}
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                  {volcanoData && (
+                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">Volcano Plot</h3>
+                      <VolcanoPlot data={volcanoData} lfcThreshold={vizLfc} alpha={vizAlpha} />
+                    </div>
+                  )}
+                  {maData && (
+                    <div className="bg-white rounded-lg border border-gray-200 p-4">
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2">MA Plot</h3>
+                      <MAPlot data={maData} lfcThreshold={vizLfc} alpha={vizAlpha} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Other Visualizations (static images) */}
+            {staticVisualizations.length > 0 && (
               <div className="bg-white rounded-lg border border-gray-200 p-5">
-                <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide mb-4">Visualizations</h2>
+                <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide mb-4">Other Visualizations</h2>
                 <div className="flex gap-2 flex-wrap mb-4">
-                  {metadata.visualizations.map((viz, i) => (
+                  {staticVisualizations.map((viz, i) => (
                     <button
                       key={i}
                       onClick={() => setSelectedVizIndex(i)}
@@ -516,13 +658,13 @@ export default function App() {
                 </div>
                 <div className="border border-gray-100 rounded-lg overflow-hidden bg-white">
                   <VizImage
-                    viz={metadata.visualizations[selectedVizIndex]}
+                    viz={staticVisualizations[selectedVizIndex]}
                     workspacePath={workspacePath}
                     timestamp={runTimestamp}
                   />
                 </div>
                 <p className="text-sm text-gray-500 mt-2">
-                  {metadata.visualizations[selectedVizIndex]?.description}
+                  {staticVisualizations[selectedVizIndex]?.description}
                 </p>
               </div>
             )}
@@ -640,7 +782,6 @@ function VizImage({
   timestamp: number;
 }) {
   const imagePath = viz.image_file_path;
-  // Resolve workspace-relative paths against the workspace root
   const hostImagePath = `${workspacePath}/${imagePath.replace(/^\.\//, "")}`;
   const src = `local-file://${hostImagePath}?t=${timestamp}`;
 

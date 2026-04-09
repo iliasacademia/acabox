@@ -305,6 +305,7 @@ app.whenReady().then(() => {
       migrateWorkspaceFiles(activeWorkspace.directory_path);
       copySkillsToWorkspace(activeWorkspace.directory_path);
       copyClaudeMdToWorkspace(activeWorkspace.directory_path);
+      syncMiniAppAssets(activeWorkspace.directory_path);
     }
 
     log.info('[APP] Creating main window...');
@@ -463,6 +464,7 @@ ipcMain.handle(
       }
       copySkillsToWorkspace(directoryPath);
       copyClaudeMdToWorkspace(directoryPath);
+      syncMiniAppAssets(directoryPath);
     }
 
     updateWorkspace(activeWorkspace.id, name, directoryPath, cachedApiKey ?? activeWorkspace.api_key);

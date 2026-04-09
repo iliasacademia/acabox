@@ -69,10 +69,68 @@ writeFileSync(join(miniAppDir, "src", "index.html"), indexHtml);
 
 // Scaffold index.tsx
 const indexTsx = `import "../../_bridge/bridge";
+import React from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 
-createRoot(document.getElementById("root")!).render(<App />);
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    const err = this.state.error;
+    return (
+      <div style={{
+        padding: "24px",
+        fontFamily: "system-ui, -apple-system, sans-serif",
+        maxWidth: "720px",
+        margin: "40px auto",
+      }}>
+        <div style={{
+          background: "#fef2f2",
+          border: "1px solid #fecaca",
+          borderRadius: "8px",
+          padding: "20px",
+        }}>
+          <h2 style={{ margin: "0 0 8px", fontSize: "16px", fontWeight: 600, color: "#991b1b" }}>
+            Something went wrong
+          </h2>
+          <pre style={{
+            margin: "0 0 16px",
+            padding: "12px",
+            background: "#fff1f2",
+            borderRadius: "6px",
+            fontSize: "13px",
+            color: "#b91c1c",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+            overflowX: "auto",
+            maxHeight: "300px",
+          }}>
+            {err.message}
+            {err.stack ? "\\n\\n" + err.stack : ""}
+          </pre>
+          <p style={{ margin: 0, fontSize: "13px", color: "#6b7280" }}>
+            Copy this error and ask the agent to fix it.
+          </p>
+        </div>
+      </div>
+    );
+  }
+}
+
+createRoot(document.getElementById("root")!).render(
+  <ErrorBoundary>
+    <App />
+  </ErrorBoundary>
+);
 `;
 
 writeFileSync(join(miniAppDir, "src", "index.tsx"), indexTsx);
