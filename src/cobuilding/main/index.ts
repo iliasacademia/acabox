@@ -55,7 +55,7 @@ declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
-  'Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. After the summary is written, use the reaction skill to react to the latest update only with suggestions and relevant resources.';
+  'Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. After the summary is written, use the reaction skill to react to the latest update only with suggestions and relevant resources. If the reaction skill produced a reaction (i.e., it did not stop due to no activity or "No new updates"), then use the show_notification tool to notify the user. Use a short title like "Activity Reaction" and include a brief one-sentence summary of the reaction in the body. If there was no reaction, do NOT send a notification.';
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
