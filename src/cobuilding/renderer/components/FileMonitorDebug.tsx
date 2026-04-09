@@ -119,7 +119,7 @@ export const FileMonitorDebug: React.FC = () => {
                       href="#"
                       title={s.document_url}
                       style={{ color: '#1a73e8', textDecoration: 'none', cursor: 'pointer' }}
-                      onClick={(e) => { e.preventDefault(); window.fileMonitorAPI.openFile(s.document_url); }}
+                      onClick={(e) => { e.preventDefault(); window.fileMonitorAPI.openFile(s.document_url, s.app_bundle_id); }}
                     >
                       {s.document_url}
                     </a>

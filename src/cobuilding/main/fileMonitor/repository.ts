@@ -1,4 +1,5 @@
 import { getObservationsDatabase } from '../db/observationsDatabase';
+import { getLocalDate } from '../../shared/utils';
 
 export interface FileSession {
   id?: number;
@@ -102,12 +103,7 @@ export function getAllFileSessions(): FileSession[] {
 }
 
 export function getTodayFileSessions(): FileSession[] {
-  const today = new Date();
-  const yyyy = today.getFullYear();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
-  const sessionDate = `${yyyy}-${mm}-${dd}`;
-  return getStmts().getByDate.all(sessionDate) as FileSession[];
+  return getStmts().getByDate.all(getLocalDate()) as FileSession[];
 }
 
 export interface FileSessionSummary {
