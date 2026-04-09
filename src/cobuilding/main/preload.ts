@@ -126,6 +126,7 @@ contextBridge.exposeInMainWorld('browserMonitorAPI', {
   status: () => ipcRenderer.invoke('browserMonitor:status'),
   start: () => ipcRenderer.invoke('browserMonitor:start'),
   stop: () => ipcRenderer.invoke('browserMonitor:stop'),
+  downloadExtension: () => ipcRenderer.invoke('browserMonitor:downloadExtension'),
 });
 
 contextBridge.exposeInMainWorld('observationsAPI', {

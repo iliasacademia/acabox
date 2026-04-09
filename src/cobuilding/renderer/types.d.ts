@@ -262,6 +262,7 @@ declare global {
     status(): Promise<{ serverRunning: boolean; extensionConnected: boolean }>;
     start(): Promise<void>;
     stop(): Promise<void>;
+    downloadExtension(): Promise<{ success: boolean; error?: string; path?: string }>;
   }
 
   interface Window {

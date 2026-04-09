@@ -98,6 +98,7 @@ const packagerConfig = {
     'src/cobuilding/CLAUDE.md',
     'src/cobuilding/Dockerfile',
     'src/cobuilding/Dockerfile.base',
+    ...(require('fs').existsSync('browser-extension/extension.zip') ? ['browser-extension/extension.zip'] : []),
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {

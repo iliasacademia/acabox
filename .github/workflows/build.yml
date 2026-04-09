@@ -206,6 +206,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Download browser extension
+        if: needs.calculate-version.outputs.channel == 'cobuild' || inputs.entry_point == 'cobuilding'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.BROWSER_EXTENSION_TOKEN }}
+        run: npm run download-browser-extension
+
       - name: Install Rust toolchain
         if: matrix.platform == 'darwin'
         uses: dtolnay/rust-toolchain@stable

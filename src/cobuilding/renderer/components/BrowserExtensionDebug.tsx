@@ -5,6 +5,7 @@ type Status = 'connected' | 'extension-inactive' | 'server-stopped';
 export const BrowserExtensionDebug: React.FC = () => {
   const [status, setStatus] = useState<Status>('server-stopped');
   const [loading, setLoading] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -90,10 +91,36 @@ export const BrowserExtensionDebug: React.FC = () => {
           cursor: loading ? 'not-allowed' : 'pointer',
           color: '#333',
           opacity: loading ? 0.6 : 1,
+          marginBottom: 8,
         }}
       >
         {loading ? '...' : serverRunning ? 'Stop Server' : 'Start Server'}
       </button>
+
+      <button
+        onClick={async () => {
+          setDownloadStatus(null);
+          const result = await window.browserMonitorAPI.downloadExtension();
+          setDownloadStatus(result.success ? 'Saved to Downloads' : result.error || 'Failed');
+        }}
+        style={{
+          width: '100%',
+          padding: '6px 12px',
+          fontSize: '0.8125rem',
+          border: '1px solid #ddd',
+          borderRadius: 4,
+          background: '#fff',
+          cursor: 'pointer',
+          color: '#333',
+        }}
+      >
+        Download Extension{process.env.BROWSER_EXTENSION_VERSION ? ` v${process.env.BROWSER_EXTENSION_VERSION}` : ''}
+      </button>
+      {downloadStatus && (
+        <div style={{ fontSize: '0.75rem', color: '#666', marginTop: 6 }}>
+          {downloadStatus}
+        </div>
+      )}
     </div>
   );
 };

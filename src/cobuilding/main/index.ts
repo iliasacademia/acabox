@@ -830,6 +830,22 @@ ipcMain.handle('browserMonitor:stop', async () => {
   rebuildTrayMenu();
 });
 
+ipcMain.handle('browserMonitor:downloadExtension', async () => {
+  const zipPath = app.isPackaged
+    ? path.join(process.resourcesPath, 'extension.zip')
+    : path.join(app.getAppPath(), 'browser-extension', 'extension.zip');
+
+  if (!fs.existsSync(zipPath)) {
+    return { success: false, error: 'Browser extension zip not found' };
+  }
+
+  const destDir = app.getPath('downloads');
+  const destPath = path.join(destDir, 'academia-browser-extension.zip');
+  fs.copyFileSync(zipPath, destPath);
+  shell.showItemInFolder(destPath);
+  return { success: true, path: destPath };
+});
+
 // Shell IPC handlers
 ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   if (typeof url !== 'string' || (!url.startsWith('http://') && !url.startsWith('https://'))) {
