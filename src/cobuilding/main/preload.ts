@@ -131,6 +131,14 @@ contextBridge.exposeInMainWorld('browserMonitorAPI', {
   downloadExtension: () => ipcRenderer.invoke('browserMonitor:downloadExtension'),
 });
 
+contextBridge.exposeInMainWorld('fileMonitorAPI', {
+  status: () => ipcRenderer.invoke('fileMonitor:status'),
+  start: () => ipcRenderer.invoke('fileMonitor:start'),
+  stop: () => ipcRenderer.invoke('fileMonitor:stop'),
+  getTodaySessions: () => ipcRenderer.invoke('fileMonitor:getTodaySessions'),
+  openFile: (fileUrl: string, bundleId?: string) => ipcRenderer.invoke('fileMonitor:openFile', fileUrl, bundleId),
+});
+
 contextBridge.exposeInMainWorld('observationsAPI', {
   getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
   getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),
@@ -154,6 +162,11 @@ contextBridge.exposeInMainWorld('reactionPromptAPI', {
   get: () => ipcRenderer.invoke('reactionPrompt:get'),
   set: (instructions: string) => ipcRenderer.invoke('reactionPrompt:set', instructions),
   reset: () => ipcRenderer.invoke('reactionPrompt:reset'),
+});
+
+contextBridge.exposeInMainWorld('soulPromptAPI', {
+  get: () => ipcRenderer.invoke('soulPrompt:get'),
+  set: (content: string) => ipcRenderer.invoke('soulPrompt:set', content),
 });
 
 contextBridge.exposeInMainWorld('sessionsAPI', {

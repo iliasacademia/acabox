@@ -22,6 +22,12 @@ export function utcToLocal(timestamp: string | number): string {
   return dt.toLocal().toISO()!;
 }
 
+export function toUtcIso(timestamp: string): string {
+  const dt = DateTime.fromISO(timestamp);
+  if (!dt.isValid) return timestamp;
+  return dt.toUTC().toISO()!;
+}
+
 /**
  * Strip HTML tags from a string and decode HTML entities
  * @param html HTML string to strip

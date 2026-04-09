@@ -17,7 +17,7 @@ const RUNLOOP_TIMEOUT_SECS: f64 = 0.1;
 const TARGET_BUNDLE_IDS: &[&str] = &[
     "com.microsoft.Word",
     "com.microsoft.Excel",
-    "com.microsoft.PowerPoint",
+    "com.microsoft.Powerpoint",
     "com.apple.Preview",
 ];
 
