@@ -153,6 +153,11 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
   rename: (id: string, title: string) => ipcRenderer.invoke('sessions:rename', id, title),
   delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
   listMessages: (sessionId: string) => ipcRenderer.invoke('messages:list', sessionId),
+  onTitleUpdated: (callback: (sessionId: string, title: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string, title: string) => callback(sessionId, title);
+    ipcRenderer.on('sessions:titleUpdated', handler);
+    return () => { ipcRenderer.removeListener('sessions:titleUpdated', handler); };
+  },
 });
 
 // Track active stream iterators per threadId to clean up stale ones

@@ -10,10 +10,12 @@ interface MiniAppEntry {
 export function MiniAppsTab({
   workspacePath,
   onSelectApp,
+  onDeleteApp,
   onNewApplication,
 }: {
   workspacePath: string;
   onSelectApp: (dirName: string) => void;
+  onDeleteApp?: (dirName: string) => void;
   onNewApplication?: () => void;
 }) {
   const [apps, setApps] = useState<MiniAppEntry[]>([]);
@@ -51,6 +53,7 @@ export function MiniAppsTab({
       const appDir = `${workspacePath}/.applications/${app.dirName}`;
       await window.filesAPI.deleteFile(appDir);
       setApps(prev => prev.filter(a => a.dirName !== app.dirName));
+      onDeleteApp?.(app.dirName);
     } catch (err) {
       console.error('Failed to delete app:', err);
     } finally {

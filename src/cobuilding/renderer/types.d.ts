@@ -60,6 +60,7 @@ interface SessionsAPI {
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<MessageData[]>;
+  onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
 }
 
 interface ContainerAPI {
@@ -172,6 +173,7 @@ declare global {
     rename(id: string, title: string): Promise<void>;
     delete(id: string): Promise<void>;
     listMessages(sessionId: string): Promise<MessageData[]>;
+    onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
   }
 
   interface ContainerAPI {

@@ -116,6 +116,24 @@ function SessionSubscriber() {
   return null;
 }
 
+/** Listen for auto-generated session titles from the main process and update the thread list. */
+function SessionTitleUpdater() {
+  const runtime = useAssistantRuntime();
+
+  useEffect(() => {
+    return window.sessionsAPI.onTitleUpdated((sessionId, title) => {
+      try {
+        const item = runtime.threads.getItemById(sessionId);
+        item.rename(title);
+      } catch {
+        // Thread not in list yet — title will appear on next list refresh
+      }
+    });
+  }, [runtime]);
+
+  return null;
+}
+
 /** When the user picks a different thread, deactivate tabs so chat is shown. */
 function ShowChatOnThreadSelect({ onShowChat }: { onShowChat: () => void }) {
   const mainThreadId = useThreadList((s) => s.mainThreadId);
@@ -252,6 +270,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
+      <SessionTitleUpdater />
       <SessionSubscriber />
       <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
@@ -325,6 +344,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 <MiniAppsTab
                   workspacePath={workspace.directory_path}
                   onSelectApp={handleSelectApp}
+                  onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
                   onNewApplication={() => { setSidebarTab('chats'); }}
                 />
               ) : sidebarTab === 'reactions' ? (

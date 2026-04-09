@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, she
 import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
+import Anthropic from '@anthropic-ai/sdk';
 import { registerFileHandlers } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
@@ -613,6 +614,29 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
+async function generateSessionTitle(sessionId: string, firstMessage: string, apiKey: string): Promise<void> {
+  try {
+    const client = new Anthropic({ apiKey });
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 30,
+      messages: [
+        {
+          role: 'user',
+          content: `Give a short title (5 words or less) that summarizes this message. Reply with ONLY the title, no quotes or punctuation.\n\nMessage: ${firstMessage}`,
+        },
+      ],
+    });
+    const title = (response.content[0].type === 'text' ? response.content[0].text : '').trim();
+    if (title) {
+      updateSessionTitle(sessionId, title);
+      mainWindow?.webContents.send('sessions:titleUpdated', sessionId, title);
+    }
+  } catch (err) {
+    log.warn('[TitleGen] Failed to generate session title:', err);
+  }
+}
+
 ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: string; text: string; attachments?: IPCAttachment[] }) => {
   if (!activeWorkspace) {
     event.sender.send('chat:error', threadId, 'No active workspace');
@@ -628,8 +652,12 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: str
     return;
   }
 
+  let isFirstMessage = false;
+
   if (!hasSession(threadId)) {
     const existingDbSession = getSession(threadId);
+    isFirstMessage = !existingDbSession;
+
     const session = createAgentSession(
       threadId,
       {
@@ -653,6 +681,10 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: str
 
   ensureForwarding(threadId, event.sender);
   getRegisteredSession(threadId)!.sendMessage(text, attachments);
+
+  if (isFirstMessage && activeWorkspace.api_key) {
+    generateSessionTitle(threadId, text, activeWorkspace.api_key);
+  }
 });
 
 ipcMain.on('chat:subscribe', (event, threadId: string) => {
