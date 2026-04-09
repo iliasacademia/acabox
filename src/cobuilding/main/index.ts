@@ -81,7 +81,7 @@ function markDefaultTasksSeeded(): void {
 }
 
 function seedDefaultTasks(workspaceId: string): void {
-  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every hour', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 * * * *', 'reactions');
+  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions');
   markDefaultTasksSeeded();
   log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
 }

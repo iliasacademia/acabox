@@ -14,7 +14,7 @@ const migrations = [
         name TEXT NOT NULL,
         description TEXT NOT NULL DEFAULT '',
         prompt TEXT NOT NULL,
-        cron_expression TEXT NOT NULL DEFAULT '0 * * * *',
+        cron_expression TEXT NOT NULL DEFAULT '0 */2 * * *',
         enabled INTEGER NOT NULL DEFAULT 1,
         last_run_at TEXT,
         next_run_at TEXT,
@@ -41,6 +41,12 @@ const migrations = [
     sql: `
       ALTER TABLE scheduled_tasks ADD COLUMN session_source TEXT DEFAULT NULL;
       UPDATE scheduled_tasks SET session_source = 'reactions' WHERE name = 'Activity Summary';
+    `,
+  },
+  {
+    version: 3,
+    sql: `
+      UPDATE scheduled_tasks SET cron_expression = '0 */2 * * *' WHERE name = 'Activity Summary' AND cron_expression = '0 * * * *';
     `,
   },
 ];
