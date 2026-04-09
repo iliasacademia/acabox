@@ -395,6 +395,20 @@ body,
   transform: rotate(90deg);
 }
 
+/* Reactions section fills available space, pushing System to bottom */
+.threadListRoot > [data-slot="collapsible"]:first-child {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* System section: stays at bottom when closed, shares space when open */
+.threadListRoot > [data-slot="collapsible"]:last-child[data-state="open"] {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 /* --- Screen-reader only --- */
 
 .srOnly {
