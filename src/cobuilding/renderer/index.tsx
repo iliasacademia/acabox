@@ -94,8 +94,9 @@ function NotificationNavigator({
   const runtime = useAssistantRuntime();
 
   useEffect(() => {
-    const handler = (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab }) => {
+    const handler = (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
       if (navigation.type === 'thread' && navigation.threadId) {
+        setSidebarTab(navigation.sidebarTab ?? 'chats');
         deactivateAllTabs();
         runtime.threads.switchToThread(navigation.threadId);
       } else if (navigation.type === 'sidebar' && navigation.tab) {

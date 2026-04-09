@@ -21,8 +21,8 @@ export function createNotificationMcpServer(
           navigation: z.object({
             type: z.enum(['thread', 'sidebar']).describe('The type of navigation action.'),
             threadId: z.string().optional().describe('The thread ID to navigate to (required when type is "thread").'),
-            tab: z.enum(['chats', 'files', 'apps', 'scheduled', 'reactions', 'debug']).optional()
-              .describe('The sidebar tab to switch to (required when type is "sidebar").'),
+            sidebarTab: z.enum(['chats', 'files', 'apps', 'scheduled', 'reactions', 'debug']).optional()
+              .describe('The sidebar tab to show when navigating (optional for "thread", required for "sidebar").'),
           }).optional().describe('Optional navigation action when the user clicks the notification.'),
         },
         async (args) => {
@@ -34,9 +34,9 @@ export function createNotificationMcpServer(
                 if (args.navigation) {
                   const nav = args.navigation;
                   if (nav.type === 'thread' && nav.threadId) {
-                    onNavigate({ type: 'thread', threadId: nav.threadId });
-                  } else if (nav.type === 'sidebar' && nav.tab) {
-                    onNavigate({ type: 'sidebar', tab: nav.tab });
+                    onNavigate({ type: 'thread', threadId: nav.threadId, sidebarTab: nav.sidebarTab });
+                  } else if (nav.type === 'sidebar' && nav.sidebarTab) {
+                    onNavigate({ type: 'sidebar', tab: nav.sidebarTab });
                   } else {
                     onNavigate(null);
                   }
