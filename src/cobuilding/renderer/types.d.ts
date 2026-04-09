@@ -262,6 +262,31 @@ declare global {
     listRuns(taskId: string): Promise<ScheduledTaskRun[]>;
   }
 
+  interface TodayFileSession {
+    id: number;
+    document_url: string;
+    app_name: string;
+    app_bundle_id: string;
+    window_title: string | null;
+    session_date: string;
+    first_seen: string;
+    last_seen: string;
+    poll_count: number;
+    total_dwell: number;
+    app_version: string;
+    snapshot_ulid: string | null;
+    last_modified: string | null;
+    diff_ulid: string | null;
+  }
+
+  interface FileMonitorAPI {
+    status(): Promise<{ running: boolean }>;
+    start(): Promise<void>;
+    stop(): Promise<void>;
+    getTodaySessions(): Promise<TodayFileSession[]>;
+    openFile(fileUrl: string): Promise<string>;
+  }
+
   interface BrowserMonitorAPI {
     status(): Promise<{ serverRunning: boolean; extensionConnected: boolean }>;
     start(): Promise<void>;
@@ -282,6 +307,7 @@ declare global {
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
+    fileMonitorAPI: FileMonitorAPI;
     browserMonitorAPI: BrowserMonitorAPI;
   }
 }

@@ -130,6 +130,14 @@ contextBridge.exposeInMainWorld('browserMonitorAPI', {
   downloadExtension: () => ipcRenderer.invoke('browserMonitor:downloadExtension'),
 });
 
+contextBridge.exposeInMainWorld('fileMonitorAPI', {
+  status: () => ipcRenderer.invoke('fileMonitor:status'),
+  start: () => ipcRenderer.invoke('fileMonitor:start'),
+  stop: () => ipcRenderer.invoke('fileMonitor:stop'),
+  getTodaySessions: () => ipcRenderer.invoke('fileMonitor:getTodaySessions'),
+  openFile: (fileUrl: string) => ipcRenderer.invoke('fileMonitor:openFile', fileUrl),
+});
+
 contextBridge.exposeInMainWorld('observationsAPI', {
   getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
   getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),

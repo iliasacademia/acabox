@@ -45,6 +45,9 @@ function prepareStatements() {
       WHERE last_seen >= ? AND last_seen <= ?
       ORDER BY last_seen DESC
     `),
+    getByDate: db.prepare(`
+      SELECT * FROM file_sessions WHERE session_date = ? ORDER BY last_seen DESC
+    `),
     getByTimeRangeWithSearch: db.prepare(`
       SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, snapshot_ulid, diff_ulid
       FROM file_sessions
@@ -96,6 +99,15 @@ export function updateFileSession(id: number, lastSeen: string, windowTitle: str
 
 export function getAllFileSessions(): FileSession[] {
   return getStmts().getAll.all() as FileSession[];
+}
+
+export function getTodayFileSessions(): FileSession[] {
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, '0');
+  const dd = String(today.getDate()).padStart(2, '0');
+  const sessionDate = `${yyyy}-${mm}-${dd}`;
+  return getStmts().getByDate.all(sessionDate) as FileSession[];
 }
 
 export interface FileSessionSummary {

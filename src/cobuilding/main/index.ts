@@ -32,8 +32,8 @@ import { createTray, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from './browserMonitor';
 import { browserExtensionServer } from '../../server/browserExtensionServer';
 import { getAllSessions } from './browserMonitor/repository';
-import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
-import { getAllFileSessions } from './fileMonitor/repository';
+import { initFileMonitor, startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
+import { getAllFileSessions, getTodayFileSessions } from './fileMonitor/repository';
 import { initActivityQuery } from './activityQuery';
 import { initSessionFiles, getAllSessionFiles } from './db/sessionFilesRepository';
 import { initSchedulingDatabase, closeSchedulingDatabase } from './db/schedulingDatabase';
@@ -593,6 +593,20 @@ ipcMain.handle('systemLog:getAll', () => systemLogger.getAll());
 
 systemLogger.onEntry((entry) => {
   mainWindow?.webContents.send('systemLog:entry', entry);
+});
+
+// File Monitor IPC handlers
+ipcMain.handle('fileMonitor:status', () => ({ running: isFileMonitorRunning() }));
+ipcMain.handle('fileMonitor:start', () => { startFileMonitor(); });
+ipcMain.handle('fileMonitor:stop', () => { stopFileMonitor(); });
+ipcMain.handle('fileMonitor:getTodaySessions', () => getTodayFileSessions());
+ipcMain.handle('fileMonitor:openFile', (_event, fileUrl: string) => {
+  try {
+    const filePath = new URL(fileUrl).pathname;
+    return shell.openPath(filePath);
+  } catch {
+    return shell.openPath(fileUrl);
+  }
 });
 
 // Observations IPC handlers
