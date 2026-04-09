@@ -124,10 +124,6 @@ const QUERY_ACTIVITY_TOOL = {
         enum: ['browser', 'file', 'all'],
         description: 'Which activity source to query. Defaults to "all".',
       },
-      include_content: {
-        type: 'boolean',
-        description: 'If true, include full page text for browser sessions and snapshot file paths for file sessions. Defaults to false.',
-      },
     },
   },
 };
@@ -177,14 +173,15 @@ async function handleRequest(msg) {
       if (args.until) queryParams.set('until', args.until);
       if (args.search) queryParams.set('search', args.search);
       if (args.source) queryParams.set('source', args.source);
-      if (args.include_content) queryParams.set('include_content', 'true');
 
       try {
         const result = await getFromServer(`/activity?${queryParams.toString()}`);
 
         if (result.status === 200) {
           const data = result.data;
-          const browserCount = data.browser_sessions?.length || 0;
+          const browserCount = data.browser_sessions
+            ? data.browser_sessions.reduce((sum, group) => sum + group.sessions.length, 0)
+            : 0;
           const fileCount = data.file_sessions?.length || 0;
           const header = `Activity from ${data.query.since} to ${data.query.until}\n` +
             `Browser sessions: ${browserCount} | File sessions: ${fileCount}\n`;

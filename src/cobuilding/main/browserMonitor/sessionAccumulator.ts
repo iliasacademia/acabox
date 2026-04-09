@@ -10,8 +10,13 @@ function toSessionDate(timestamp: string | number): string {
   return getLocalDate(d);
 }
 
+function stripHash(url: string): string {
+  const i = url.indexOf('#');
+  return i === -1 ? url : url.slice(0, i);
+}
+
 function sessionKey(url: string, sessionDate: string): string {
-  return `${url}|${sessionDate}`;
+  return `${stripHash(url)}|${sessionDate}`;
 }
 
 export class SessionAccumulator {
@@ -31,12 +36,13 @@ export class SessionAccumulator {
 
   ingestSnapshot(payload: SnapshotPayload): void {
     const date = toSessionDate(payload.timestamp);
-    const key = sessionKey(payload.url, date);
+    const url = stripHash(payload.url);
+    const key = sessionKey(url, date);
     const existing = this.sessions.get(key);
 
     if (!existing) {
       const session: ReadingSession = {
-        url: payload.url,
+        url,
         title: payload.title,
         referrer: payload.referrer,
         meta_tags: payload.meta_tags,
