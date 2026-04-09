@@ -33,6 +33,7 @@ import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
 import { SetupBanner } from './components/SetupBanner';
+import { TaskPanel } from './components/TaskPanel';
 import { TabBar } from './tabs/TabBar';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
@@ -388,8 +389,9 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 />
                 <div className="tabPanelsContainer">
                   {/* Chat is the default view when no tab is active */}
-                  <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none' }}>
+                  <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none', flexDirection: 'row' }}>
                     <Thread />
+                    <TaskPanel />
                   </div>
                   {/* Render all tab panels - hidden ones use display:none to preserve state */}
                   {tabs.map((tab) => (

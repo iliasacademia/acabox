@@ -228,6 +228,10 @@ jobs:
       - name: Build popup
         run: npm run build:popup
 
+      - name: Build cobuilding Rust binary
+        if: matrix.platform == 'darwin' && (needs.calculate-version.outputs.channel == 'cobuild' || inputs.entry_point == 'cobuilding')
+        run: npm run build:cobuilding:rust
+
       - name: Setup code signing certificate (macOS)
         if: matrix.platform == 'darwin'
         env:

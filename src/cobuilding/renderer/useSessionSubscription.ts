@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { useThreadRuntime, useAuiState } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream } from '../shared/types';
 import type { ThreadAssistantMessagePart, ToolCallMessagePart } from '@assistant-ui/react';
+import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone } from './progressStore';
+import { setTasks, tryUpdateTasksFromArgs, clearTasks } from './taskStore';
 
 const IDLE_TIMEOUT_MS = 60_000;
 
@@ -75,6 +77,8 @@ export function useSessionSubscription() {
       cancelled = true;
       if (idleTimer) clearTimeout(idleTimer);
       unsubscribe();
+      resetProgress();
+      clearTasks();
     };
   }, [remoteId, threadRuntime]);
 }
@@ -90,6 +94,7 @@ function toAsyncIterable(stream: ChatMessageStream): AsyncIterable<ChatStreamMes
 function responseBuilder() {
   const messages: ThreadAssistantMessagePart[] = [];
   let streamingText = '';
+  let streamingReasoning = '';
   let streamingToolCall: {
     toolCallId: string;
     toolName: string;
@@ -98,6 +103,9 @@ function responseBuilder() {
 
   const getContent = (): ThreadAssistantMessagePart[] => {
     const content: ThreadAssistantMessagePart[] = [...messages];
+    if (streamingReasoning) {
+      content.push({ type: 'reasoning', text: streamingReasoning });
+    }
     if (streamingText) {
       content.push({ type: 'text', text: streamingText });
     }
@@ -115,6 +123,32 @@ function responseBuilder() {
 
   const onMessage = (msg: ChatStreamMessage) => {
     switch (msg.type) {
+      case 'thinking-delta':
+        streamingReasoning += msg.text;
+        return;
+      case 'thinking-end':
+        if (streamingReasoning) {
+          messages.push({ type: 'reasoning', text: streamingReasoning });
+          streamingReasoning = '';
+        }
+        return;
+      case 'tool-progress':
+        setToolProgress(msg.toolCallId, msg.toolName, msg.elapsedSeconds);
+        return;
+      case 'subagent-started':
+        setSubagentStarted(msg.parentToolCallId, msg.taskId, msg.description);
+        return;
+      case 'subagent-progress':
+        updateSubagentProgress(msg.parentToolCallId, {
+          summary: msg.summary,
+          lastToolName: msg.lastToolName,
+          toolUseCount: msg.toolUseCount,
+          durationMs: msg.durationMs,
+        });
+        return;
+      case 'subagent-done':
+        setSubagentDone(msg.parentToolCallId, msg.status, msg.summary);
+        return;
       case 'text-delta':
         streamingText += msg.text;
         return;
@@ -128,9 +162,13 @@ function responseBuilder() {
       case 'tool-call-args-delta':
         if (streamingToolCall) {
           streamingToolCall.argsText += msg.argsText;
+          if (streamingToolCall.toolName === 'TodoWrite') {
+            tryUpdateTasksFromArgs(streamingToolCall.argsText);
+          }
         }
         return;
       case 'tool-call-end':
+        clearToolProgress(msg.toolCallId);
         streamingToolCall = null;
         return;
       case 'text':
@@ -146,8 +184,12 @@ function responseBuilder() {
           args: msg.args as any,
           argsText: msg.argsText,
         });
+        if (msg.toolName === 'TodoWrite' && Array.isArray(msg.args?.todos)) {
+          setTasks(msg.args.todos as any);
+        }
         return;
       case 'tool-result': {
+        clearToolProgress(msg.toolCallId);
         const existingIndex = messages.findIndex(
           (m) => m.type === 'tool-call' && m.toolCallId === msg.toolCallId,
         );
