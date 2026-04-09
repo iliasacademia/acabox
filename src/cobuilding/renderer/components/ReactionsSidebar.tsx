@@ -1,14 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAssistantRuntime } from '@assistant-ui/react';
-import { TrashIcon } from 'lucide-react';
+import { TrashIcon, ChevronRightIcon } from 'lucide-react';
+import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
 import { dateFromSessionStoredAt } from '../sessionTimestamps';
 
 export const ReactionsSidebar: React.FC = () => {
-  const [reactions, setReactions] = useState<SessionData[]>([]);
+  const [userReactions, setUserReactions] = useState<SessionData[]>([]);
+  const [systemReactions, setSystemReactions] = useState<SessionData[]>([]);
   const runtime = useAssistantRuntime();
 
   const load = useCallback(() => {
-    window.sessionsAPI.list('reactions').then(setReactions);
+    window.sessionsAPI.list('reactions').then(setUserReactions);
+    window.sessionsAPI.list('reactions-system').then(setSystemReactions);
   }, []);
 
   useEffect(() => {
@@ -33,29 +36,51 @@ export const ReactionsSidebar: React.FC = () => {
     });
   };
 
+  const renderThreadList = (items: SessionData[]) => (
+    <div className="threadListItems">
+      {items.map((r) => (
+        <div key={r.id} className="threadListItem">
+          <button
+            className="threadListItemTrigger"
+            onClick={() => runtime.threads.switchToThread(r.id)}
+          >
+            <span className="threadListItemTitle">
+              <span className="threadListItemTitleText">{r.title}</span>
+              <span className="threadListItemDate">{formatDate(r.created_at)}</span>
+            </span>
+          </button>
+          <button
+            className="threadListItemAction threadListItemDelete"
+            onClick={() => handleDelete(r.id)}
+          >
+            <TrashIcon style={{ width: 14, height: 14 }} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+
   return (
     <div className="threadListRoot">
-      <div className="threadListItems">
-        {reactions.map((r) => (
-          <div key={r.id} className="threadListItem">
-            <button
-              className="threadListItemTrigger"
-              onClick={() => runtime.threads.switchToThread(r.id)}
-            >
-              <span className="threadListItemTitle">
-                <span className="threadListItemTitleText">{r.title}</span>
-                <span className="threadListItemDate">{formatDate(r.created_at)}</span>
-              </span>
-            </button>
-            <button
-              className="threadListItemAction threadListItemDelete"
-              onClick={() => handleDelete(r.id)}
-            >
-              <TrashIcon style={{ width: 14, height: 14 }} />
-            </button>
-          </div>
-        ))}
-      </div>
+      <Collapsible defaultOpen>
+        <CollapsibleTrigger className="reactionsSectionHeader">
+          <ChevronRightIcon className="reactionsSectionChevron" />
+          Reactions
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          {renderThreadList(userReactions)}
+        </CollapsibleContent>
+      </Collapsible>
+
+      <Collapsible>
+        <CollapsibleTrigger className="reactionsSectionHeader">
+          <ChevronRightIcon className="reactionsSectionChevron" />
+          System
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          {renderThreadList(systemReactions)}
+        </CollapsibleContent>
+      </Collapsible>
     </div>
   );
 };

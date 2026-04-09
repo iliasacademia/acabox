@@ -49,6 +49,10 @@ const migrations = [
       UPDATE scheduled_tasks SET cron_expression = '0 */2 * * *' WHERE name = 'Activity Summary' AND cron_expression = '0 * * * *';
     `,
   },
+  {
+    version: 4,
+    sql: `UPDATE scheduled_tasks SET session_source = 'reactions-system' WHERE session_source = 'reactions';`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

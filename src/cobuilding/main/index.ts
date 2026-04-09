@@ -55,7 +55,7 @@ declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
-  'Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. After the summary is written, use the reaction skill to react to the latest update only with suggestions and relevant resources. If the reaction skill produced a reaction (i.e., it did not stop due to no activity or "No new updates"), then use the show_notification tool to notify the user. Use a short title like "Activity Reaction" and include a brief one-sentence summary of the reaction in the body. If there was no reaction, do NOT send a notification.';
+  'Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. After the summary is written, use the reaction skill to react to the latest update only with suggestions and relevant resources. If the reaction skill produced a reaction (i.e., it did not stop due to no activity or "No new updates"), then use the create_reaction_thread tool to save the reaction as a separate thread. Pass the full reaction text as the message and use a title like "Reaction — YYYY-MM-DD HH:MM". Then use the show_notification tool to notify the user. Use a short title like "Activity Reaction" and include a brief one-sentence summary of the reaction in the body. If there was no reaction, do NOT send a notification or create a reaction thread.';
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
@@ -83,7 +83,7 @@ function markDefaultTasksSeeded(): void {
 }
 
 function seedDefaultTasks(workspaceId: string): void {
-  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions');
+  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions-system');
   markDefaultTasksSeeded();
   log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
 }

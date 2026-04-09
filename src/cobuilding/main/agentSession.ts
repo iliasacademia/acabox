@@ -13,6 +13,7 @@ import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import { createActivityMcpServer } from './mcpServers/activityMcpServer';
 import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
+import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
 
 export function getClaudeCliPath(): string {
   if (app.isPackaged) {
@@ -88,6 +89,7 @@ export function createAgentSession(
       const activityMcpServer = createActivityMcpServer();
       const miniAppServer = createMiniAppMcpServer(workspace.directory_path);
       const notificationServer = createNotificationMcpServer();
+      const reactionServer = createReactionMcpServer(workspace.id);
 
       for await (const message of query({
         prompt: userMessageGenerator(),
@@ -116,7 +118,7 @@ export function createAgentSession(
             MINI_APP_WORKSPACE_DIR: workspace.directory_path,
           },
           settingSources: ['project'],
-          mcpServers: { activity: activityMcpServer, 'mini-apps': miniAppServer, notification: notificationServer },
+          mcpServers: { activity: activityMcpServer, 'mini-apps': miniAppServer, notification: notificationServer, reaction: reactionServer },
           allowedTools: [
             "Bash",
             "Read",
@@ -132,6 +134,7 @@ export function createAgentSession(
             "mcp__activity__query_activity",
             "mcp__mini-apps__open_mini_application",
             "mcp__notification__show_notification",
+            "mcp__reaction__create_reaction_thread",
           ],
           hooks: {
             PreToolUse: [{

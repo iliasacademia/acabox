@@ -362,6 +362,39 @@ body,
   color: #333;
 }
 
+/* --- Reactions section headers --- */
+
+.reactionsSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  font-family: inherit;
+}
+
+.reactionsSectionHeader:hover {
+  color: #333;
+}
+
+.reactionsSectionChevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s;
+}
+
+[data-state="open"] > .reactionsSectionChevron {
+  transform: rotate(90deg);
+}
+
 /* --- Screen-reader only --- */
 
 .srOnly {
