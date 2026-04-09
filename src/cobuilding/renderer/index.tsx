@@ -9,7 +9,7 @@ import {
   useAssistantRuntime,
   useComposerRuntime,
 } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
@@ -20,6 +20,7 @@ import { NotebookViewer } from './components/notebook';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ScheduledTasksSidebar } from './components/ScheduledTasksSidebar';
+import { ReactionsSidebar } from './components/ReactionsSidebar';
 import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
 import './components/ScheduledTasks.css';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -124,7 +125,7 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string) => void }) {
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<'chats' | 'files' | 'apps' | 'scheduled' | 'debug'>('chats');
+  const [sidebarTab, setSidebarTab] = useState<'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'debug'>('chats');
   const [debugSection, setDebugSection] = useState<DebugSection>('apps');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
@@ -224,6 +225,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <MessageSquareIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
+              className={`activityBarBtn ${sidebarTab === 'reactions' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setSidebarTab('reactions')}
+              title="Reactions"
+            >
+              <SparklesIcon style={{ width: 22, height: 22 }} />
+            </button>
+            <button
               className={`activityBarBtn ${sidebarTab === 'apps' ? 'activityBarBtn--active' : ''}`}
               onClick={() => setSidebarTab('apps')}
               title="Applications"
@@ -267,6 +275,8 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   onSelectApp={handleSelectApp}
                   onNewApplication={() => { setSidebarTab('chats'); }}
                 />
+              ) : sidebarTab === 'reactions' ? (
+                <ReactionsSidebar />
               ) : sidebarTab === 'scheduled' ? (
                 <ScheduledTasksSidebar
                   selectedTaskId={selectedTaskId}

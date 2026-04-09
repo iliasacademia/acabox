@@ -36,6 +36,13 @@ const migrations = [
       CREATE INDEX idx_task_runs_task ON scheduled_task_runs(task_id);
     `,
   },
+  {
+    version: 2,
+    sql: `
+      ALTER TABLE scheduled_tasks ADD COLUMN session_source TEXT DEFAULT NULL;
+      UPDATE scheduled_tasks SET session_source = 'reactions' WHERE name = 'Activity Summary';
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

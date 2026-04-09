@@ -35,6 +35,8 @@ export function runScheduledTask(task: ScheduledTask, workspace: Workspace): Pro
         },
       },
       workspace,
+      undefined,
+      task.session_source ?? undefined,
     );
 
     session.sendMessage(task.prompt);

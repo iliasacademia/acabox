@@ -37,6 +37,10 @@ const migrations = [
       CREATE INDEX idx_messages_session_id ON messages(session_id, id);
     `,
   },
+  {
+    version: 2,
+    sql: `ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT NULL;`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

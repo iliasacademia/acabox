@@ -4,6 +4,7 @@ export interface Session {
   id: string;
   sdk_session_id: string | null;
   title: string;
+  source: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -16,10 +17,10 @@ export interface Message {
   created_at: string;
 }
 
-export function createSession(id: string, workspaceId: string): void {
+export function createSession(id: string, workspaceId: string, source: string | null = null): void {
   getDatabase()
-    .prepare('INSERT OR IGNORE INTO sessions (id, workspace_id) VALUES (?, ?)')
-    .run(id, workspaceId);
+    .prepare('INSERT OR IGNORE INTO sessions (id, workspace_id, source) VALUES (?, ?, ?)')
+    .run(id, workspaceId, source);
 }
 
 export function getSession(id: string): Session | undefined {
@@ -28,9 +29,14 @@ export function getSession(id: string): Session | undefined {
     .get(id) as Session | undefined;
 }
 
-export function listSessions(workspaceId: string): Session[] {
+export function listSessions(workspaceId: string, source?: string): Session[] {
+  if (source !== undefined) {
+    return getDatabase()
+      .prepare('SELECT * FROM sessions WHERE workspace_id = ? AND source = ? ORDER BY updated_at DESC')
+      .all(workspaceId, source) as Session[];
+  }
   return getDatabase()
-    .prepare('SELECT * FROM sessions WHERE workspace_id = ? ORDER BY updated_at DESC')
+    .prepare('SELECT * FROM sessions WHERE workspace_id = ? AND source IS NULL ORDER BY updated_at DESC')
     .all(workspaceId) as Session[];
 }
 

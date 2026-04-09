@@ -142,7 +142,7 @@ contextBridge.exposeInMainWorld('scheduledTasksAPI', {
 });
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
-  list: () => ipcRenderer.invoke('sessions:list'),
+  list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
   rename: (id: string, title: string) => ipcRenderer.invoke('sessions:rename', id, title),
   delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),

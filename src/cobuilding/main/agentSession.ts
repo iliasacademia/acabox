@@ -75,10 +75,11 @@ export function createAgentSession(
   callbacks: ChatCallbacks,
   workspace: Workspace,
   sdkSessionId?: string,
+  source?: string,
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
 
-  createSession(sessionId, workspace.id);
+  createSession(sessionId, workspace.id, source ?? null);
 
   async function* userMessageGenerator(): AsyncGenerator<SDKUserMessage> {
     for await (const payload of messageQueue) {

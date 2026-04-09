@@ -9,6 +9,7 @@ export interface ScheduledTask {
   prompt: string;
   cron_expression: string;
   enabled: number;
+  session_source: string | null;
   last_run_at: string | null;
   next_run_at: string | null;
   created_at: string;
@@ -41,19 +42,20 @@ export function createTask(
   description: string,
   prompt: string,
   cronExpression: string,
+  sessionSource: string | null = null,
 ): ScheduledTask {
   const db = getSchedulingDatabase();
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO scheduled_tasks (id, workspace_id, name, description, prompt, cron_expression)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-  ).run(id, workspaceId, name, description, prompt, cronExpression);
+    `INSERT INTO scheduled_tasks (id, workspace_id, name, description, prompt, cron_expression, session_source)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(id, workspaceId, name, description, prompt, cronExpression, sessionSource);
   return getTask(id)!;
 }
 
 export function updateTask(
   id: string,
-  updates: Partial<Pick<ScheduledTask, 'name' | 'description' | 'prompt' | 'cron_expression' | 'enabled'>>,
+  updates: Partial<Pick<ScheduledTask, 'name' | 'description' | 'prompt' | 'cron_expression' | 'enabled' | 'session_source'>>,
 ): ScheduledTask | undefined {
   const db = getSchedulingDatabase();
   const fields: string[] = [];

@@ -50,6 +50,7 @@ export interface ScheduledTask {
   prompt: string;
   cron_expression: string;
   enabled: number;
+  session_source: string | null;
   last_run_at: string | null;
   next_run_at: string | null;
   created_at: string;
@@ -71,6 +72,7 @@ export interface CreateTaskData {
   description: string;
   prompt: string;
   cron_expression: string;
+  session_source?: string;
 }
 
 export interface UpdateTaskData {
@@ -79,4 +81,5 @@ export interface UpdateTaskData {
   prompt?: string;
   cron_expression?: string;
   enabled?: number;
+  session_source?: string;
 }

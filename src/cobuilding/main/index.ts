@@ -81,7 +81,7 @@ function markDefaultTasksSeeded(): void {
 }
 
 function seedDefaultTasks(workspaceId: string): void {
-  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every hour', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 * * * *');
+  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every hour', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 * * * *', 'reactions');
   markDefaultTasksSeeded();
   log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
 }
@@ -502,9 +502,9 @@ systemLogger.onEntry((entry) => {
 });
 
 // Session IPC handlers
-ipcMain.handle('sessions:list', () => {
+ipcMain.handle('sessions:list', (_event, source?: string) => {
   if (!activeWorkspace) return [];
-  return listSessions(activeWorkspace.id);
+  return listSessions(activeWorkspace.id, source);
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
 ipcMain.handle('sessions:rename', (_event, id: string, title: string) => updateSessionTitle(id, title));
@@ -636,7 +636,7 @@ ipcMain.handle('scheduledTasks:get', (_event, id: string) => {
 
 ipcMain.handle('scheduledTasks:create', (_event, data: CreateTaskData) => {
   if (!activeWorkspace) throw new Error('No active workspace');
-  const task = createTask(activeWorkspace.id, data.name, data.description, data.prompt, data.cron_expression);
+  const task = createTask(activeWorkspace.id, data.name, data.description, data.prompt, data.cron_expression, data.session_source ?? null);
   getTaskScheduler().scheduleTask(task.id);
   return task;
 });
