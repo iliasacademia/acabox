@@ -89,6 +89,35 @@ function markDefaultTasksSeeded(): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+function getReactionUserInstructions(): string | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.reactionUserInstructions ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function setReactionUserInstructions(instructions: string): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.reactionUserInstructions = instructions;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function clearReactionUserInstructions(): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  delete data.reactionUserInstructions;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
 function seedDefaultTasks(workspaceId: string): void {
   createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions-system');
   markDefaultTasksSeeded();
@@ -752,6 +781,19 @@ ipcMain.handle('scheduledTasks:runNow', async (_event, id: string) => {
 
 ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {
   return listTaskRuns(taskId);
+});
+
+// Reaction prompt IPC handlers
+ipcMain.handle('reactionPrompt:get', () => {
+  return { instructions: getReactionUserInstructions() };
+});
+
+ipcMain.handle('reactionPrompt:set', (_event, instructions: string) => {
+  setReactionUserInstructions(instructions);
+});
+
+ipcMain.handle('reactionPrompt:reset', () => {
+  clearReactionUserInstructions();
 });
 
 // Shell IPC handlers
