@@ -41,6 +41,10 @@ const migrations = [
     version: 2,
     sql: `ALTER TABLE sessions ADD COLUMN source TEXT DEFAULT NULL;`,
   },
+  {
+    version: 3,
+    sql: `UPDATE sessions SET source = 'reactions-system' WHERE source = 'reactions';`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

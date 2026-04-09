@@ -29,9 +29,11 @@ import {
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
+import { getAllSessions } from './browserMonitor/repository';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
+import { getAllFileSessions } from './fileMonitor/repository';
 import { initActivityQuery } from './activityQuery';
-import { initSessionFiles } from './db/sessionFilesRepository';
+import { initSessionFiles, getAllSessionFiles } from './db/sessionFilesRepository';
 import { initSchedulingDatabase, closeSchedulingDatabase } from './db/schedulingDatabase';
 import {
   listTasks,
@@ -44,7 +46,7 @@ import {
 } from './db/scheduledTaskRepository';
 import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './scheduledTasks';
 import { runScheduledTask } from './scheduledTasks/runner';
-import type { CreateTaskData, UpdateTaskData } from '../shared/types';
+import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { checkLogin, logout } from '../../apiClient';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
@@ -55,7 +57,14 @@ declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
-  'Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. After the summary is written, use the reaction skill to react to the latest update only with suggestions and relevant resources.';
+  'Complete ALL of the following steps in order:\n' +
+  '\n' +
+  '1. Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update.\n' +
+  '2. Use the reaction skill to react to the latest update only with suggestions and relevant resources.\n' +
+  '3. If the reaction skill produced a reaction (i.e., it did NOT stop due to no activity or "No new updates"), then you MUST complete BOTH of these remaining steps:\n' +
+  '   a. Use the create_reaction_thread tool to save the reaction as a separate thread. Pass the full reaction text as the message and use a title like "Reaction — YYYY-MM-DD HH:MM".\n' +
+  '   b. Use the show_notification tool to notify the user. Use a short title like "Activity Reaction" and include a brief one-sentence summary of the reaction in the body. Pass navigation: { type: "thread", threadId: "<the reaction thread id from step 3a>", sidebarTab: "reactions" } so clicking the notification navigates to the reaction thread.\n' +
+  '4. If there was no reaction, do NOT create a reaction thread or send a notification. Just stop.';
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
@@ -82,8 +91,37 @@ function markDefaultTasksSeeded(): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+function getReactionUserInstructions(): string | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.reactionUserInstructions ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function setReactionUserInstructions(instructions: string): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.reactionUserInstructions = instructions;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function clearReactionUserInstructions(): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  delete data.reactionUserInstructions;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
 function seedDefaultTasks(workspaceId: string): void {
-  createTask(workspaceId, 'Activity Summary', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions');
+  createTask(workspaceId, 'Reactions', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions-system');
   markDefaultTasksSeeded();
   log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
 }
@@ -180,6 +218,16 @@ app.on('open-url', (event, url) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+
+function handleNotificationNavigation(action: NotificationNavigationAction | null): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    if (action) {
+      mainWindow.webContents.send('notification:navigate', action);
+    }
+  }
+}
 let activeWorkspace: Workspace | null = null;
 
 let cachedApiKey: string | null = null;
@@ -298,7 +346,7 @@ app.whenReady().then(() => {
     if (activeWorkspace && !isDefaultTasksSeeded()) {
       seedDefaultTasks(activeWorkspace.id);
     }
-    startScheduledTasks();
+    startScheduledTasks(handleNotificationNavigation);
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
     log.info('[APP] Loading URL:', url);
@@ -541,6 +589,11 @@ systemLogger.onEntry((entry) => {
   mainWindow?.webContents.send('systemLog:entry', entry);
 });
 
+// Observations IPC handlers
+ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
+ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
+ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
+
 // Session IPC handlers
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   if (!activeWorkspace) return [];
@@ -584,6 +637,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: str
       },
       activeWorkspace,
       existingDbSession?.sdk_session_id ?? undefined,
+      undefined,
+      handleNotificationNavigation,
     );
 
     registerSession(threadId, session);
@@ -699,6 +754,10 @@ ipcMain.handle('scheduledTasks:create', (_event, data: CreateTaskData) => {
 });
 
 ipcMain.handle('scheduledTasks:update', (_event, id: string, data: UpdateTaskData) => {
+  const existing = getTask(id);
+  if (existing?.session_source === 'reactions-system') {
+    data = { cron_expression: data.cron_expression, enabled: data.enabled };
+  }
   const task = updateTask(id, data);
   if (task) {
     if (task.enabled) {
@@ -711,6 +770,10 @@ ipcMain.handle('scheduledTasks:update', (_event, id: string, data: UpdateTaskDat
 });
 
 ipcMain.handle('scheduledTasks:delete', (_event, id: string) => {
+  const task = getTask(id);
+  if (task?.session_source === 'reactions-system') {
+    throw new Error('System tasks cannot be deleted');
+  }
   getTaskScheduler().unscheduleTask(id);
   deleteTask(id);
 });
@@ -728,11 +791,24 @@ ipcMain.handle('scheduledTasks:runNow', async (_event, id: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
   const task = getTask(id);
   if (!task) throw new Error('Task not found');
-  await runScheduledTask(task, activeWorkspace);
+  await runScheduledTask(task, activeWorkspace, handleNotificationNavigation);
 });
 
 ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {
   return listTaskRuns(taskId);
+});
+
+// Reaction prompt IPC handlers
+ipcMain.handle('reactionPrompt:get', () => {
+  return { instructions: getReactionUserInstructions() };
+});
+
+ipcMain.handle('reactionPrompt:set', (_event, instructions: string) => {
+  setReactionUserInstructions(instructions);
+});
+
+ipcMain.handle('reactionPrompt:reset', () => {
+  clearReactionUserInstructions();
 });
 
 // Shell IPC handlers

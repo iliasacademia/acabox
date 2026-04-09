@@ -362,6 +362,126 @@ body,
   color: #333;
 }
 
+/* --- Reactions section headers --- */
+
+.reactionsSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #888;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: 100%;
+  font-family: inherit;
+}
+
+.reactionsSectionHeader:hover {
+  color: #333;
+}
+
+.reactionsSectionChevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 0.15s;
+}
+
+[data-state="open"] > .reactionsSectionChevron {
+  transform: rotate(90deg);
+}
+
+/* Reactions section fills available space, pushing System to bottom */
+.threadListRoot > [data-slot="collapsible"]:first-child {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* System section: stays at bottom when closed, shares space when open */
+.threadListRoot > [data-slot="collapsible"]:nth-child(2)[data-state="open"] {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scroll content inside collapsible sections, not the headers */
+.threadListRoot > [data-slot="collapsible"] > [data-slot="collapsible-content"] {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* --- Reaction Prompt Editor --- */
+
+.reactionPromptEditor {
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reactionPromptEditor__textarea {
+  padding: 8px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  color: #333;
+  background: #fff;
+  resize: vertical;
+  outline: none;
+  line-height: 1.5;
+}
+
+.reactionPromptEditor__textarea:focus {
+  border-color: #999;
+}
+
+.reactionPromptEditor__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reactionPromptEditor__save {
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+}
+
+.reactionPromptEditor__save:hover:not(:disabled) {
+  background: #f5f5f5;
+}
+
+.reactionPromptEditor__save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.reactionPromptEditor__reset {
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  border: none;
+  background: none;
+  color: #999;
+  cursor: pointer;
+}
+
+.reactionPromptEditor__reset:hover {
+  color: #333;
+}
+
 /* --- Screen-reader only --- */
 
 .srOnly {

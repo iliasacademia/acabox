@@ -81,6 +81,35 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
   return null;
 }
 
+/** Listens for notification:navigate IPC and navigates to the specified target. */
+type SidebarTab = 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'debug';
+
+function NotificationNavigator({
+  setSidebarTab,
+  deactivateAllTabs,
+}: {
+  setSidebarTab: (tab: SidebarTab) => void;
+  deactivateAllTabs: () => void;
+}) {
+  const runtime = useAssistantRuntime();
+
+  useEffect(() => {
+    const handler = (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
+      if (navigation.type === 'thread' && navigation.threadId) {
+        setSidebarTab(navigation.sidebarTab ?? 'chats');
+        deactivateAllTabs();
+        runtime.threads.switchToThread(navigation.threadId);
+      } else if (navigation.type === 'sidebar' && navigation.tab) {
+        setSidebarTab(navigation.tab);
+      }
+    };
+    window.electronAPI.on('notification:navigate', handler);
+    return () => window.electronAPI.removeListener('notification:navigate', handler);
+  }, [runtime, setSidebarTab, deactivateAllTabs]);
+
+  return null;
+}
+
 /** Subscribes to running agent sessions when a thread is opened. */
 function SessionSubscriber() {
   useSessionSubscription();
@@ -227,6 +256,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
       <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); deactivateAllTabs(); }} />
+      <NotificationNavigator setSidebarTab={setSidebarTab} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
         <div className="appRoot">
           <SetupBanner />

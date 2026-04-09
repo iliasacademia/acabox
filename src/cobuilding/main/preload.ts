@@ -141,6 +141,12 @@ contextBridge.exposeInMainWorld('scheduledTasksAPI', {
   listRuns: (taskId: string) => ipcRenderer.invoke('scheduledTasks:listRuns', taskId),
 });
 
+contextBridge.exposeInMainWorld('reactionPromptAPI', {
+  get: () => ipcRenderer.invoke('reactionPrompt:get'),
+  set: (instructions: string) => ipcRenderer.invoke('reactionPrompt:set', instructions),
+  reset: () => ipcRenderer.invoke('reactionPrompt:reset'),
+});
+
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),

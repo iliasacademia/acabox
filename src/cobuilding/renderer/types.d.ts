@@ -241,6 +241,12 @@ declare global {
     shutdownKernel(kernelId: string): Promise<boolean>;
   }
 
+  interface ReactionPromptAPI {
+    get(): Promise<{ instructions: string | null }>;
+    set(instructions: string): Promise<void>;
+    reset(): Promise<void>;
+  }
+
   interface ScheduledTasksAPI {
     list(): Promise<ScheduledTask[]>;
     get(id: string): Promise<ScheduledTask | null>;
@@ -263,6 +269,7 @@ declare global {
     jupyterAPI: JupyterAPI;
     authAPI: AuthAPI;
     electronAPI: ElectronAPI;
+    reactionPromptAPI: ReactionPromptAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
   }
 }

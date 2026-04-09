@@ -67,7 +67,7 @@ export async function captureContext(): Promise<QuickChatContext> {
         resolve({
           frontmostApp: result.frontmostApp ?? null,
           bundleId: result.bundleId ?? null,
-          documentUrl,
+          documentUrl: result.documentUrl ?? documentUrl,
           selectedText: result.selectedText ?? null,
           focusedElementDescription: null,
           focusedElementValue: result.focusedElementValue ?? null,
