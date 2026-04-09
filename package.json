@@ -2,6 +2,7 @@
   "name": "academia-electron",
   "productName": "Writing Agent",
   "version": "0.0.1",
+  "browserExtensionVersion": "0.3.3",
   "description": "Demo Academia Electron App",
   "main": ".webpack/main",
   "scripts": {
@@ -10,6 +11,7 @@
     "build:popup": "webpack --config webpack.popup.config.js",
     "build:popup:watch": "webpack --config webpack.popup.config.js --watch",
     "download-podman": "bash scripts/download-podman-binaries.sh",
+    "download-browser-extension": "bash scripts/download-browser-extension.sh",
     "prestart": "npm run build:native && npm run build:popup",
     "start": "dotenv -e .env.local -- cross-env NODE_ENV=development electron-forge start",
     "prestart:cobuilding": "cd src/cobuilding/rust/file-monitor-mac && cargo build",

@@ -34,7 +34,6 @@ export async function registerBrowserMonitorRoutes(
           period: { type: 'string', enum: ['today', 'last_2h', 'last_24h', 'this_week'] },
           search: { type: 'string' },
           source: { type: 'string', enum: ['browser', 'file', 'all'] },
-          include_content: { type: 'boolean' },
         },
       },
     },

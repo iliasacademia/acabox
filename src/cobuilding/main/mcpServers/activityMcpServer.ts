@@ -23,15 +23,15 @@ export function createActivityMcpServer() {
           .describe('Filter results by title or URL/path content.'),
         source: z.enum(['browser', 'file', 'all']).optional()
           .describe('Which activity source to query. Defaults to "all".'),
-        include_content: z.boolean().optional()
-          .describe('If true, include full_text and full_text_path for browser sessions, and snapshot_path + full_text_path + diff_path (cumulative diff since first seen, if file was modified) for file sessions. Defaults to false.'),
       },
       handler: async (args) => {
         const result = queryActivity(args);
         if ('error' in result) {
           return { content: [{ type: 'text' as const, text: result.error }], isError: true };
         }
-        const browserCount = result.browser_sessions?.length || 0;
+        const browserCount = result.browser_sessions
+          ? result.browser_sessions.reduce((sum, group) => sum + (group.sessions as unknown[]).length, 0)
+          : 0;
         const fileCount = result.file_sessions?.length || 0;
         const header = `Activity from ${result.query.since} to ${result.query.until}\n` +
           `Browser sessions: ${browserCount} | File sessions: ${fileCount}\n`;

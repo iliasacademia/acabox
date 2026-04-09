@@ -3,15 +3,17 @@ import { PodmanDebug } from './PodmanDebug';
 import { AppsDebug } from './AppsDebug';
 import { KernelsDebug } from './KernelsDebug';
 import { ObservationsDebug } from './ObservationsDebug';
+import { BrowserExtensionDebug } from './BrowserExtensionDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels';
+export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'apps', label: 'Logs' },
   { id: 'podman', label: 'Podman' },
   { id: 'kernels', label: 'Kernels' },
   { id: 'observations', label: 'Observations' },
+  { id: 'browser-extension', label: 'Browser Extension' },
 ];
 
 export const DebugSidebar: React.FC<{
@@ -41,6 +43,7 @@ export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ active
       {activeSection === 'apps' && <AppsDebug />}
       {activeSection === 'kernels' && <KernelsDebug />}
       {activeSection === 'observations' && <ObservationsDebug />}
+      {activeSection === 'browser-extension' && <BrowserExtensionDebug />}
     </div>
   );
 };

@@ -262,6 +262,13 @@ declare global {
     listRuns(taskId: string): Promise<ScheduledTaskRun[]>;
   }
 
+  interface BrowserMonitorAPI {
+    status(): Promise<{ serverRunning: boolean; extensionConnected: boolean }>;
+    start(): Promise<void>;
+    stop(): Promise<void>;
+    downloadExtension(): Promise<{ success: boolean; error?: string; path?: string }>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     filesAPI: FilesAPI;
@@ -275,5 +282,6 @@ declare global {
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
+    browserMonitorAPI: BrowserMonitorAPI;
   }
 }

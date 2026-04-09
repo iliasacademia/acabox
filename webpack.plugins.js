@@ -72,6 +72,7 @@ module.exports = [
     'process.env.ONBOARDING_V2_ENABLED': JSON.stringify(process.env.ONBOARDING_V2_ENABLED || 'false'),
     'process.env.FULLSTORY_FORCE_RECORDING': JSON.stringify(process.env.FULLSTORY_FORCE_RECORDING || 'false'),
     'process.env.ENTRY_POINT': JSON.stringify(process.env.ENTRY_POINT || ''),
+    'process.env.BROWSER_EXTENSION_VERSION': JSON.stringify(require('./package.json').browserExtensionVersion || ''),
   }),
   new CopyWebpackPlugin({
     patterns: [
