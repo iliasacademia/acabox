@@ -42,7 +42,7 @@ Available packages (pre-installed in the container):
 - `react`, `react-dom`
 - `react-plotly.js` — Plotly charts. See the **react-plotly** skill (`.claude/skills/react-plotly/SKILL.md`) for responsive container patterns, design system, trace types, and complete examples.
 - `lucide-react` — Icons
-- `@reusable` — Shared components (VolcanoPlot, MAPlot, csv-utils, types). Resolved via esbuild alias to `.applications/_reusable/`.
+- `@reusable` — Shared components (OutputFileList, VolcanoPlot, MAPlot, csv-utils, types). Resolved via esbuild alias to `.applications/_reusable/`.
 
 **Prefer Plotly.js for all data visualizations** (charts, plots, graphs, heatmaps). Do not use custom SVG/Canvas rendering or other charting libraries when Plotly can handle the visualization.
 
@@ -66,7 +66,7 @@ podman exec cobuilding-container esbuild \
   --loader:.tsx=tsx \
   --loader:.ts=ts \
   --format=iife \
-  --alias:@reusable=.applications/_reusable
+  --alias:@reusable=/data/.applications/_reusable
 ```
 
 If the build fails, read the error output, fix the issue in `App.tsx`, and rebuild.
@@ -87,7 +87,48 @@ const relativePath = "./" + hostPath.slice(window.getWorkspacePath().length + 1)
 
 ### Output files
 
-Each mini-app writes results to `.applications/<dir_name>/output/`. The app reads results from there after execution.
+All output files must be written to `.applications/<dir_name>/output/`, regardless of how they are generated. There are two ways output files are created:
+
+1. **From a backing notebook** — R or Python code writes results to the output directory during kernel execution (e.g. CSVs, images, JSON metadata).
+2. **From the React app** — The app generates data in-browser (e.g. a user transforms a dataset, shuffles rows, exports a selection) and writes it via `window.filesAPI.writeFile()`.
+
+Both cases must follow the same pattern: write to the output directory as soon as data is generated, then display all outputs using the `OutputFileList` reusable component at the bottom of the app UI. Every app that has output files should render this component.
+
+**Important rules:**
+
+- Write output files **immediately when data is generated** (e.g. when the user clicks a button like"Run"), not in a separate "Save" or "Download" step. The user should see the output list appear as soon as processing finishes.
+- Wrap `writeFile` in try/catch, but **always call `setOutputFiles` AFTER the try/catch** (not inside it) so the output list appears even if the file write fails. See the example below — note that `setOutputFiles` is outside the try/catch block.
+- The `OutputFileList` must always be rendered at the very bottom of the app layout, outside any conditional result sections.
+- The `OutputFileList` provides its own "Download" button (native save dialog) for each file — do not add separate download buttons elsewhere.
+
+```typescript
+import { OutputFileList, type OutputFile } from "@reusable/OutputFileList";
+```
+
+```tsx
+const [outputFiles, setOutputFiles] = useState<OutputFile[]>([]);
+
+// Write output as soon as data is generated (e.g. in the shuffle/run handler):
+const handleProcess = async () => {
+  const result = processData(input);
+  const outName = "results.csv";
+  try {
+    await window.filesAPI.writeFile(`.applications/${dirName}/output/${outName}`, result);
+  } catch (err) {
+    console.error("Failed to write output:", err);
+  }
+  setOutputFiles([{
+    name: outName,
+    description: "Processed results",
+    path: `.applications/${dirName}/output/${outName}`,
+  }]);
+};
+
+// Always render at the bottom of the app, outside conditional sections:
+<OutputFileList files={outputFiles} outputDir={`.applications/${dirName}/output`} />
+```
+
+Each `OutputFile` has `name` (display name), `description` (short summary), and `path` (relative workspace path). The component renders each file with inline "Show in Finder" and "Download" buttons.
 
 ### Downloading files
 

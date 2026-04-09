@@ -104,6 +104,9 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
           case 'downloadFile':
             result = await window.filesAPI.downloadFile(args.filename as string, args.content as string);
             break;
+          case 'showInFinder':
+            result = await window.filesAPI.showInFinder(args.path as string);
+            break;
           case 'selectDirectory':
             result = await window.filesAPI.selectDirectory();
             break;
