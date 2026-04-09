@@ -120,6 +120,11 @@ if (entryPoint === 'cobuilding') {
       schemes: ['academia-coscientist'],
     },
   ];
+  if (platform === 'darwin') {
+    packagerConfig.extraResource.push(
+      'src/cobuilding/rust/file-monitor-mac/target/release/file-monitor-mac',
+    );
+  }
 }
 
 // Only add code signing configuration if we have a valid identity
