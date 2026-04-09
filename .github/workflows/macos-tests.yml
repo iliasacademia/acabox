@@ -20,6 +20,7 @@ jobs:
 
   smoke-test:
     name: Package Smoke Test
+    if: github.base_ref == 'main' || github.ref == 'refs/heads/main'
     runs-on: macos-latest
 
     steps:
@@ -54,6 +55,7 @@ jobs:
 
   cobuild-smoke-test:
     name: Cobuild Smoke Test
+    if: github.base_ref == 'cobuild' || github.ref == 'refs/heads/cobuild'
     runs-on: macos-latest
 
     steps:
