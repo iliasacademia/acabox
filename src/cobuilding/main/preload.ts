@@ -122,6 +122,12 @@ contextBridge.exposeInMainWorld('systemLogAPI', {
 });
 
 
+contextBridge.exposeInMainWorld('browserMonitorAPI', {
+  status: () => ipcRenderer.invoke('browserMonitor:status'),
+  start: () => ipcRenderer.invoke('browserMonitor:start'),
+  stop: () => ipcRenderer.invoke('browserMonitor:stop'),
+});
+
 contextBridge.exposeInMainWorld('observationsAPI', {
   getBrowserSessions: () => ipcRenderer.invoke('observations:getBrowserSessions'),
   getFileSessions: () => ipcRenderer.invoke('observations:getFileSessions'),

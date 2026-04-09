@@ -28,7 +28,8 @@ import {
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, rebuildTrayMenu } from './tray';
-import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
+import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from './browserMonitor';
+import { browserExtensionServer } from '../../server/browserExtensionServer';
 import { getAllSessions } from './browserMonitor/repository';
 import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
 import { getAllFileSessions } from './fileMonitor/repository';
@@ -809,6 +810,24 @@ ipcMain.handle('reactionPrompt:set', (_event, instructions: string) => {
 
 ipcMain.handle('reactionPrompt:reset', () => {
   clearReactionUserInstructions();
+});
+
+// Browser Monitor IPC handlers
+ipcMain.handle('browserMonitor:status', () => {
+  return {
+    serverRunning: isBrowserMonitorRunning(),
+    extensionConnected: browserExtensionServer.isConnected(),
+  };
+});
+
+ipcMain.handle('browserMonitor:start', async () => {
+  await startBrowserMonitor();
+  rebuildTrayMenu();
+});
+
+ipcMain.handle('browserMonitor:stop', async () => {
+  await stopBrowserMonitor();
+  rebuildTrayMenu();
 });
 
 // Shell IPC handlers

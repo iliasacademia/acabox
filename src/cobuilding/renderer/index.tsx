@@ -21,6 +21,7 @@ import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ScheduledTasksSidebar } from './components/ScheduledTasksSidebar';
 import { ReactionsSidebar } from './components/ReactionsSidebar';
+
 import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
 import './components/ScheduledTasks.css';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -174,7 +175,7 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string) => void }) {
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
   const [showSettings, setShowSettings] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'debug'>('chats');
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('chats');
   const [debugSection, setDebugSection] = useState<DebugSection>('apps');
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
