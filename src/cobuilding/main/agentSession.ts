@@ -92,6 +92,18 @@ export function createAgentSession(
       const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
 
+      // Read SOUL.md for system prompt customization
+      let soulMdContent: string | undefined;
+      try {
+        const soulPath = path.join(workspace.directory_path, '.academia', 'SOUL.md');
+        const content = fs.readFileSync(soulPath, 'utf-8').trim();
+        if (content) {
+          soulMdContent = content;
+        }
+      } catch {
+        // File doesn't exist or can't be read — use default prompt
+      }
+
       for await (const message of query({
         prompt: userMessageGenerator(),
         options: {
@@ -110,6 +122,13 @@ export function createAgentSession(
             return child as typeof child & { stdin: NonNullable<typeof child.stdin>; stdout: NonNullable<typeof child.stdout> };
           },
           model: 'claude-sonnet-4-6',
+          ...(soulMdContent && {
+            systemPrompt: {
+              type: 'preset' as const,
+              preset: 'claude_code' as const,
+              append: soulMdContent,
+            },
+          }),
           ...(sdkSessionId && { resume: sdkSessionId }),
           includePartialMessages: true,
           cwd: workspace.directory_path,

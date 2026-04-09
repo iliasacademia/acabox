@@ -251,6 +251,11 @@ declare global {
     reset(): Promise<void>;
   }
 
+  interface SoulPromptAPI {
+    get(): Promise<{ content: string }>;
+    set(content: string): Promise<void>;
+  }
+
   interface ScheduledTasksAPI {
     list(): Promise<ScheduledTask[]>;
     get(id: string): Promise<ScheduledTask | null>;
@@ -284,7 +289,7 @@ declare global {
     start(): Promise<void>;
     stop(): Promise<void>;
     getTodaySessions(): Promise<TodayFileSession[]>;
-    openFile(fileUrl: string): Promise<string>;
+    openFile(fileUrl: string, bundleId?: string): Promise<string>;
   }
 
   interface BrowserMonitorAPI {
@@ -306,6 +311,7 @@ declare global {
     authAPI: AuthAPI;
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
+    soulPromptAPI: SoulPromptAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
     fileMonitorAPI: FileMonitorAPI;
     browserMonitorAPI: BrowserMonitorAPI;

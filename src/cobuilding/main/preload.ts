@@ -135,7 +135,7 @@ contextBridge.exposeInMainWorld('fileMonitorAPI', {
   start: () => ipcRenderer.invoke('fileMonitor:start'),
   stop: () => ipcRenderer.invoke('fileMonitor:stop'),
   getTodaySessions: () => ipcRenderer.invoke('fileMonitor:getTodaySessions'),
-  openFile: (fileUrl: string) => ipcRenderer.invoke('fileMonitor:openFile', fileUrl),
+  openFile: (fileUrl: string, bundleId?: string) => ipcRenderer.invoke('fileMonitor:openFile', fileUrl, bundleId),
 });
 
 contextBridge.exposeInMainWorld('observationsAPI', {
@@ -161,6 +161,11 @@ contextBridge.exposeInMainWorld('reactionPromptAPI', {
   get: () => ipcRenderer.invoke('reactionPrompt:get'),
   set: (instructions: string) => ipcRenderer.invoke('reactionPrompt:set', instructions),
   reset: () => ipcRenderer.invoke('reactionPrompt:reset'),
+});
+
+contextBridge.exposeInMainWorld('soulPromptAPI', {
+  get: () => ipcRenderer.invoke('soulPrompt:get'),
+  set: (content: string) => ipcRenderer.invoke('soulPrompt:set', content),
 });
 
 contextBridge.exposeInMainWorld('sessionsAPI', {

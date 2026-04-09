@@ -600,9 +600,12 @@ ipcMain.handle('fileMonitor:status', () => ({ running: isFileMonitorRunning() })
 ipcMain.handle('fileMonitor:start', () => { startFileMonitor(); });
 ipcMain.handle('fileMonitor:stop', () => { stopFileMonitor(); });
 ipcMain.handle('fileMonitor:getTodaySessions', () => getTodayFileSessions());
-ipcMain.handle('fileMonitor:openFile', (_event, fileUrl: string) => {
+ipcMain.handle('fileMonitor:openFile', (_event, fileUrl: string, bundleId?: string) => {
   try {
-    const filePath = new URL(fileUrl).pathname;
+    const filePath = decodeURIComponent(new URL(fileUrl).pathname);
+    if (bundleId) {
+      return require('child_process').execFileSync('open', ['-b', bundleId, filePath]).toString();
+    }
     return shell.openPath(filePath);
   } catch {
     return shell.openPath(fileUrl);
@@ -860,6 +863,24 @@ ipcMain.handle('reactionPrompt:set', (_event, instructions: string) => {
 
 ipcMain.handle('reactionPrompt:reset', () => {
   clearReactionUserInstructions();
+});
+
+// SOUL.md IPC handlers
+ipcMain.handle('soulPrompt:get', () => {
+  if (!activeWorkspace) return { content: '' };
+  const soulPath = path.join(activeWorkspace.directory_path, '.academia', 'SOUL.md');
+  try {
+    return { content: fs.readFileSync(soulPath, 'utf-8') };
+  } catch {
+    return { content: '' };
+  }
+});
+
+ipcMain.handle('soulPrompt:set', (_event, content: string) => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
+  fs.mkdirSync(academiaDir, { recursive: true });
+  fs.writeFileSync(path.join(academiaDir, 'SOUL.md'), content, 'utf-8');
 });
 
 // Browser Monitor IPC handlers
