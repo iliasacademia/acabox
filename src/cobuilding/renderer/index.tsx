@@ -233,13 +233,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <MessageSquareIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
-              className={`activityBarBtn ${sidebarTab === 'reactions' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setSidebarTab('reactions')}
-              title="Reactions"
-            >
-              <SparklesIcon style={{ width: 22, height: 22 }} />
-            </button>
-            <button
               className={`activityBarBtn ${sidebarTab === 'apps' ? 'activityBarBtn--active' : ''}`}
               onClick={() => setSidebarTab('apps')}
               title="Applications"
@@ -252,6 +245,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               title="Scheduled Tasks"
             >
               <ClockIcon style={{ width: 22, height: 22 }} />
+            </button>
+            <button
+              className={`activityBarBtn ${sidebarTab === 'reactions' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setSidebarTab('reactions')}
+              title="Reactions"
+            >
+              <SparklesIcon style={{ width: 22, height: 22 }} />
             </button>
             <button
               className={`activityBarBtn activityBarBtn--bottom ${sidebarTab === 'debug' ? 'activityBarBtn--active' : ''}`}
