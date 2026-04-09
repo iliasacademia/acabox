@@ -40,9 +40,11 @@ Write the React component to `<dir>/src/App.tsx`.
 
 Available packages (pre-installed in the container):
 - `react`, `react-dom`
-- `react-plotly.js` — Plotly charts
+- `react-plotly.js` — Plotly charts. See the **react-plotly** skill (`.claude/skills/react-plotly/SKILL.md`) for responsive container patterns, design system, trace types, and complete examples.
 - `lucide-react` — Icons
 - `@reusable` — Shared components (VolcanoPlot, MAPlot, csv-utils, types). Resolved via esbuild alias to `.applications/_reusable/`.
+
+**Prefer Plotly.js for all data visualizations** (charts, plots, graphs, heatmaps). Do not use custom SVG/Canvas rendering or other charting libraries when Plotly can handle the visualization.
 
 ### Step 3: Write the backing notebook (optional)
 
