@@ -101,6 +101,9 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
           case 'selectFile':
             result = await window.filesAPI.selectFile(args.filters);
             break;
+          case 'downloadFile':
+            result = await window.filesAPI.downloadFile(args.filename as string, args.content as string);
+            break;
           case 'selectDirectory':
             result = await window.filesAPI.selectDirectory();
             break;
@@ -161,7 +164,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
       ref={iframeRef}
       src={iframeSrc}
       className="miniAppIframe"
-      sandbox="allow-scripts allow-same-origin"
+      sandbox="allow-scripts allow-same-origin allow-downloads"
       onLoad={handleIframeLoad}
       onError={() => {
         console.error('[MiniAppContent] Iframe error for:', dirName);

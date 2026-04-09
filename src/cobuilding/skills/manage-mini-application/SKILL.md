@@ -89,6 +89,17 @@ const relativePath = "./" + hostPath.slice(window.getWorkspacePath().length + 1)
 
 Each mini-app writes results to `.applications/<dir_name>/output/`. The app reads results from there after execution.
 
+### Downloading files
+
+Use the bridge download API to let users save/export data:
+
+```typescript
+const csvContent = [header, ...rows].map(r => r.join(",")).join("\n");
+await window.filesAPI.downloadFile("results.csv", csvContent);
+```
+
+Do NOT use `document.createElement('a')` with blob URLs — it does not work reliably in the sandboxed iframe.
+
 ### Bridge API
 
 See [bridge-api.md](bridge-api.md) for the full API reference (`window.filesAPI`, `window.kernel`, `window.containerAPI`, `window.getWorkspacePath()`).

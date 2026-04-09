@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell, systemPreferences } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
@@ -262,6 +262,8 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
 }
 
 app.whenReady().then(() => {
+  systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
+
   protocol.handle('local-file', async (request) => {
     const filePath = decodeURIComponent(request.url.slice('local-file://'.length));
     const resolved = path.resolve(filePath);
