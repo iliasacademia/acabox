@@ -49,10 +49,15 @@ export function getBundledPodmanEnv(): NodeJS.ProcessEnv {
   const configDir = path.join(podmanDataDir, 'config');
   const dataDir = path.join(podmanDataDir, 'data');
   const runDir = path.join(podmanDataDir, 'run');
+  // Podman resolves known_hosts as $HOME/.ssh/known_hosts. By pointing HOME
+  // at a dedicated directory we ensure the user's real ~/.ssh/known_hosts
+  // never interferes with Podman's SSH connection to the VM.
+  const podmanHome = path.join(podmanDataDir, 'home');
 
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(runDir, { recursive: true });
+  fs.mkdirSync(path.join(podmanHome, '.ssh'), { recursive: true });
 
   ensureContainersConf(configDir, podmanBinDir);
 
@@ -65,6 +70,7 @@ export function getBundledPodmanEnv(): NodeJS.ProcessEnv {
     XDG_CONFIG_HOME: configDir,
     XDG_DATA_HOME: dataDir,
     XDG_RUNTIME_DIR: runDir,
+    HOME: podmanHome,
   };
 }
 
