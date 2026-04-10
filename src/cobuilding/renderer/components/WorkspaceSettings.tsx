@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Workspace } from '../../shared/types';
 import './WorkspaceSettings.css';
 
@@ -13,6 +13,15 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [directoryPath, setDirectoryPath] = useState(workspace.directory_path);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [soulContent, setSoulContent] = useState('');
+  const [soulLoaded, setSoulLoaded] = useState(false);
+
+  useEffect(() => {
+    window.soulPromptAPI.get().then(({ content }) => {
+      setSoulContent(content);
+      setSoulLoaded(true);
+    });
+  }, []);
 
   const canSave = name.trim().length > 0 && directoryPath.length > 0 && !isSaving;
 
@@ -31,6 +40,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     setIsSaving(true);
 
     try {
+      await window.soulPromptAPI.set(soulContent);
       const updated = await window.workspacesAPI.update({
         name: name.trim(),
         directoryPath,
@@ -73,6 +83,21 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
               Change
             </button>
           </div>
+        </div>
+
+        <div className="wsSettings__field">
+          <label className="wsSettings__label">System Prompt</label>
+          <p className="wsSettings__hint">
+            Custom instructions appended to the AI system prompt for this workspace. Saved to .academia/SOUL.md.
+          </p>
+          <textarea
+            className="wsSettings__textarea"
+            value={soulContent}
+            onChange={(e) => setSoulContent(e.target.value)}
+            placeholder="Enter custom instructions for the AI agent..."
+            rows={6}
+            disabled={!soulLoaded}
+          />
         </div>
 
 {error && <p className="gsStep__error">{error}</p>}

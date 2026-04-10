@@ -1,4 +1,5 @@
 import { getObservationsDatabase } from '../db/observationsDatabase';
+import { getLocalDate } from '../../shared/utils';
 
 export interface FileSession {
   id?: number;
@@ -44,6 +45,9 @@ function prepareStatements() {
       FROM file_sessions
       WHERE last_seen >= ? AND last_seen <= ?
       ORDER BY last_seen DESC
+    `),
+    getByDate: db.prepare(`
+      SELECT * FROM file_sessions WHERE session_date = ? ORDER BY last_seen DESC
     `),
     getByTimeRangeWithSearch: db.prepare(`
       SELECT id, document_url, app_name, window_title, session_date, first_seen, last_seen, poll_count, total_dwell, snapshot_ulid, diff_ulid
@@ -96,6 +100,10 @@ export function updateFileSession(id: number, lastSeen: string, windowTitle: str
 
 export function getAllFileSessions(): FileSession[] {
   return getStmts().getAll.all() as FileSession[];
+}
+
+export function getTodayFileSessions(): FileSession[] {
+  return getStmts().getByDate.all(getLocalDate()) as FileSession[];
 }
 
 export interface FileSessionSummary {

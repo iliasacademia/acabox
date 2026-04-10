@@ -1,4 +1,4 @@
-import { stripHtml, getLocalDate, getLocalTime, getLocalTimezone, utcToLocal } from '../utils';
+import { stripHtml, getLocalDate, getLocalTime, getLocalTimezone, utcToLocal, toUtcIso } from '../utils';
 
 describe('getLocalDate', () => {
   it('should return YYYY-MM-DD for a given date', () => {
@@ -54,6 +54,33 @@ describe('utcToLocal', () => {
 
   it('should pass through invalid timestamps', () => {
     expect(utcToLocal('not-a-date')).toBe('not-a-date');
+  });
+});
+
+describe('toUtcIso', () => {
+  it('should pass through UTC Z timestamps unchanged', () => {
+    const utc = '2026-04-09T21:18:00.000Z';
+    expect(toUtcIso(utc)).toBe(utc);
+  });
+
+  it('should convert local time with offset to UTC', () => {
+    const local = '2026-04-09T14:18:00.000-07:00';
+    expect(toUtcIso(local)).toBe('2026-04-09T21:18:00.000Z');
+  });
+
+  it('should convert positive offset to UTC', () => {
+    const input = '2026-04-10T03:30:00.000+05:30';
+    expect(toUtcIso(input)).toBe('2026-04-09T22:00:00.000Z');
+  });
+
+  it('should preserve the same instant when converting', () => {
+    const local = '2026-04-09T14:18:00.000-07:00';
+    const utcResult = toUtcIso(local);
+    expect(new Date(utcResult).getTime()).toBe(new Date(local).getTime());
+  });
+
+  it('should pass through invalid timestamps', () => {
+    expect(toUtcIso('not-a-date')).toBe('not-a-date');
   });
 });
 

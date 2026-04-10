@@ -28,12 +28,12 @@ import {
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
-import { createTray, rebuildTrayMenu } from './tray';
+import { createTray, createDockIcon, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from './browserMonitor';
 import { browserExtensionServer } from '../../server/browserExtensionServer';
 import { getAllSessions } from './browserMonitor/repository';
-import { initFileMonitor, startFileMonitor, stopFileMonitor } from './fileMonitor';
-import { getAllFileSessions } from './fileMonitor/repository';
+import { initFileMonitor, startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
+import { getAllFileSessions, getTodayFileSessions } from './fileMonitor/repository';
 import { initActivityQuery } from './activityQuery';
 import { initSessionFiles, getAllSessionFiles } from './db/sessionFilesRepository';
 import { initSchedulingDatabase, closeSchedulingDatabase } from './db/schedulingDatabase';
@@ -55,6 +55,8 @@ import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingA
 import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat } from './quickChat';
 
+const isSmokeTest = process.argv.includes('--smoke-test');
+
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
@@ -62,11 +64,8 @@ const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
   'Complete ALL of the following steps in order:\n' +
   '\n' +
   '1. Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update.\n' +
-  '2. Use the reaction skill to react to the latest update only with suggestions and relevant resources.\n' +
-  '3. If the reaction skill produced a reaction (i.e., it did NOT stop due to no activity or "No new updates"), then you MUST complete BOTH of these remaining steps:\n' +
-  '   a. Use the create_reaction_thread tool to save the reaction as a separate thread. Pass the full reaction text as the message and use a title like "Reaction — YYYY-MM-DD HH:MM".\n' +
-  '   b. Use the show_notification tool to notify the user. Use a short title like "Activity Reaction" and include a brief one-sentence summary of the reaction in the body. Pass navigation: { type: "thread", threadId: "<the reaction thread id from step 3a>", sidebarTab: "reactions" } so clicking the notification navigates to the reaction thread.\n' +
-  '4. If there was no reaction, do NOT create a reaction thread or send a notification. Just stop.';
+  '2. Use the reaction skill to react to the latest update only with suggestions and relevant resources. ' +
+  'The reaction skill will handle creating the user-visible reaction thread and sending the notification.';
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
@@ -333,6 +332,11 @@ app.whenReady().then(() => {
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
+    const dock = process.platform === 'darwin' ? app.dock : null;
+    if (dock) {
+      const dockIcon = createDockIcon();
+      if (dockIcon) dock.setIcon(dockIcon);
+    }
     log.info('[APP] Updater and tray initialized.');
 
     createQuickChatWindow(mainWindow);
@@ -352,6 +356,13 @@ app.whenReady().then(() => {
       seedDefaultTasks(activeWorkspace.id);
     }
     startScheduledTasks(handleNotificationNavigation);
+
+    if (isSmokeTest) {
+      log.info('[SMOKE TEST] All services started — shutting down');
+      console.log('[SMOKE TEST] All services started — shutting down');
+      app.quit();
+      return;
+    }
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
     log.info('[APP] Loading URL:', url);
@@ -593,6 +604,23 @@ ipcMain.handle('systemLog:getAll', () => systemLogger.getAll());
 
 systemLogger.onEntry((entry) => {
   mainWindow?.webContents.send('systemLog:entry', entry);
+});
+
+// File Monitor IPC handlers
+ipcMain.handle('fileMonitor:status', () => ({ running: isFileMonitorRunning() }));
+ipcMain.handle('fileMonitor:start', () => { startFileMonitor(); });
+ipcMain.handle('fileMonitor:stop', () => { stopFileMonitor(); });
+ipcMain.handle('fileMonitor:getTodaySessions', () => getTodayFileSessions());
+ipcMain.handle('fileMonitor:openFile', (_event, fileUrl: string, bundleId?: string) => {
+  try {
+    const filePath = decodeURIComponent(new URL(fileUrl).pathname);
+    if (bundleId) {
+      return require('child_process').execFileSync('open', ['-b', bundleId, filePath]).toString();
+    }
+    return shell.openPath(filePath);
+  } catch {
+    return shell.openPath(fileUrl);
+  }
 });
 
 // Observations IPC handlers
@@ -846,6 +874,24 @@ ipcMain.handle('reactionPrompt:set', (_event, instructions: string) => {
 
 ipcMain.handle('reactionPrompt:reset', () => {
   clearReactionUserInstructions();
+});
+
+// SOUL.md IPC handlers
+ipcMain.handle('soulPrompt:get', () => {
+  if (!activeWorkspace) return { content: '' };
+  const soulPath = path.join(activeWorkspace.directory_path, '.academia', 'SOUL.md');
+  try {
+    return { content: fs.readFileSync(soulPath, 'utf-8') };
+  } catch {
+    return { content: '' };
+  }
+});
+
+ipcMain.handle('soulPrompt:set', (_event, content: string) => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
+  fs.mkdirSync(academiaDir, { recursive: true });
+  fs.writeFileSync(path.join(academiaDir, 'SOUL.md'), content, 'utf-8');
 });
 
 // Browser Monitor IPC handlers

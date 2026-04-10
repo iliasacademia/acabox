@@ -3,7 +3,7 @@ import { DateTime } from 'luxon';
 import { getBrowserSessionsByTimeRange } from './browserMonitor/repository';
 import { getFileSessionsByTimeRange } from './fileMonitor/repository';
 import { getSessionFilesBySessionIds } from './db/sessionFilesRepository';
-import { utcToLocal, getLocalTimezone } from '../../shared/utils';
+import { utcToLocal, toUtcIso, getLocalTimezone } from '../../shared/utils';
 
 let getWorkspacePath: () => string | null = () => null;
 
@@ -57,12 +57,13 @@ export function periodToSince(period?: string): string | null {
 export function queryActivity(params: ActivityQueryParams): ActivityQueryResult | { error: string } {
   const { search, source = 'all' } = params;
 
-  const since = params.since ?? periodToSince(params.period) ?? undefined;
-  if (!since) {
+  const rawSince = params.since ?? periodToSince(params.period) ?? undefined;
+  if (!rawSince) {
     return { error: 'Either "since" or "period" is required' };
   }
 
-  const until = params.until || new Date().toISOString();
+  const since = toUtcIso(rawSince);
+  const until = toUtcIso(params.until || new Date().toISOString());
 
   const result: ActivityQueryResult = {
     query: { since: utcToLocal(since), until: utcToLocal(until), timezone: getLocalTimezone() },

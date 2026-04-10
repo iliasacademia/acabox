@@ -9,8 +9,9 @@ const appVersion = app.getVersion();
 import { createFileSession, updateFileSession, updateFileSessionDiff, updateFileSessionLastModified, findFileSession } from './repository';
 import { getLocalDate } from '../../shared/utils';
 import { extractText } from './textExtractor';
-import { createSessionFile, getSessionFiles } from '../db/sessionFilesRepository';
+import { createSessionFile, getSessionFiles, getSessionFilesBySessionIds } from '../db/sessionFilesRepository';
 import { createPatch } from 'diff';
+import { getObservationsDatabase } from '../db/observationsDatabase';
 
 export interface FileMonitorEvent {
   event: 'APP_FOCUSED' | 'APP_UNFOCUSED' | 'WINDOW_FOCUSED' | 'FILE_MONITOR_POLL';
@@ -199,6 +200,41 @@ export async function handleEvent(event: FileMonitorEvent): Promise<void> {
   }
 }
 
+async function backfillPdfFullText(): Promise<void> {
+  const workspacePath = getWorkspacePath();
+  if (!workspacePath) return;
+
+  const db = getObservationsDatabase();
+  const pdfSessions = db.prepare(`
+    SELECT id, snapshot_ulid, document_url FROM file_sessions
+    WHERE snapshot_ulid IS NOT NULL AND document_url LIKE '%.pdf'
+  `).all() as { id: number; snapshot_ulid: string; document_url: string }[];
+
+  if (pdfSessions.length === 0) return;
+
+  const sessionIds = pdfSessions.map((s) => s.id);
+  const existingFiles = getSessionFilesBySessionIds('file', sessionIds);
+
+  for (const session of pdfSessions) {
+    const files = existingFiles.get(session.id);
+    if (files?.some((f) => f.file_type === 'full_text')) continue;
+
+    const ext = path.extname(session.document_url);
+    const snapshotPath = path.join(workspacePath, '.academia', 'temp_files', `${session.snapshot_ulid}${ext}`);
+    if (!fs.existsSync(snapshotPath)) continue;
+
+    try {
+      const text = await extractText(snapshotPath);
+      if (text) {
+        createSessionFile('file', session.id, 'full_text', text);
+        log.info('[FileMonitor] Backfilled full text for PDF session:', session.id);
+      }
+    } catch (err) {
+      log.warn('[FileMonitor] Failed to backfill PDF session:', session.id, err);
+    }
+  }
+}
+
 export function startFileMonitor(): void {
   if (childProcess) {
     log.warn('[FileMonitor] Already running');
@@ -209,6 +245,8 @@ export function startFileMonitor(): void {
     log.info('[FileMonitor] File monitor not available on this platform');
     return;
   }
+
+  backfillPdfFullText().catch((err) => log.warn('[FileMonitor] Backfill failed:', err));
 
   const binPath = getBinaryPath();
   log.info('[FileMonitor] Starting:', binPath);
