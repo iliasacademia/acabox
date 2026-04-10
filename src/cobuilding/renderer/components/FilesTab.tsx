@@ -249,6 +249,17 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
     setRenamingPath(null);
   }, []);
 
+  const handleImportFile = useCallback(async (destDir: string) => {
+    const filePath = await window.filesAPI.selectFile();
+    if (!filePath) return;
+    try {
+      await window.filesAPI.copyToWorkspace([filePath], destDir);
+    } finally {
+      setCopyProgress(null);
+    }
+    await refreshTree();
+  }, [refreshTree]);
+
   const handleCreateNew = useCallback((dirPath: string, type: 'file' | 'folder') => {
     setContextMenu(null);
     if (dirPath === workspacePath) {
@@ -306,9 +317,9 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
               className="fileTreeRefresh"
               onClick={(e) => {
                 e.stopPropagation();
-                handleCreateNew(workspacePath, 'file');
+                handleImportFile(workspacePath);
               }}
-              title="New file"
+              title="Import file"
             >
               <FilePlusIcon style={{ width: 14, height: 14 }} />
             </button>
