@@ -305,6 +305,16 @@ declare global {
     downloadExtension(): Promise<{ success: boolean; error?: string; path?: string }>;
   }
 
+  interface DataPathInfo {
+    label: string;
+    path: string;
+  }
+
+  interface DebugAPI {
+    getDataPaths(): Promise<{ environment: string; userData: string; paths: DataPathInfo[] }>;
+    clearAllData(): Promise<{ path: string; removed: boolean; error?: string }[]>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     filesAPI: FilesAPI;
@@ -321,5 +331,6 @@ declare global {
     scheduledTasksAPI: ScheduledTasksAPI;
     fileMonitorAPI: FileMonitorAPI;
     browserMonitorAPI: BrowserMonitorAPI;
+    debugAPI: DebugAPI;
   }
 }

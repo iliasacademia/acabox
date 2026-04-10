@@ -53,8 +53,9 @@ export function getBundledPodmanEnv(): NodeJS.ProcessEnv {
   // Podman creates Unix domain sockets under HOME (~/.podman/) and
   // XDG_RUNTIME_DIR. macOS limits socket paths to 104 bytes, so these dirs
   // must be SHORT — the full userData path is too long.
-  const podmanHome = path.join(os.homedir(), '.cobuild-podman');
-  const runDir = path.join(os.tmpdir(), 'cobuild-podman-run');
+  // Dev gets a -dev suffix so dev and prod don't share VM/socket state.
+  const podmanHome = path.join(os.homedir(), app.isPackaged ? '.cobuild-podman' : '.cobuild-podman-dev');
+  const runDir = path.join(os.tmpdir(), app.isPackaged ? 'cobuild-podman-run' : 'cobuild-podman-run-dev');
 
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(dataDir, { recursive: true });
@@ -76,6 +77,19 @@ export function getBundledPodmanEnv(): NodeJS.ProcessEnv {
     XDG_RUNTIME_DIR: runDir,
     HOME: podmanHome,
   };
+}
+
+/** Returns all directories that the cobuilding podman subsystem writes to. */
+export function getAllPodmanDataPaths(): { label: string; path: string }[] {
+  const podmanDataDir = path.join(app.getPath('userData'), 'cobuilding-podman-data');
+  const suffix = app.isPackaged ? '' : '-dev';
+  return [
+    { label: 'Podman binaries', path: getBundledPodmanBinDir() },
+    { label: 'Podman config', path: path.join(podmanDataDir, 'config') },
+    { label: 'Podman data (VM images)', path: path.join(podmanDataDir, 'data') },
+    { label: 'Podman HOME (VM state)', path: path.join(os.homedir(), `.cobuild-podman${suffix}`) },
+    { label: 'Podman runtime (sockets)', path: path.join(os.tmpdir(), `cobuild-podman-run${suffix}`) },
+  ];
 }
 
 export async function ensureBinariesDownloaded(onProgress?: ProgressCallback, skipChecksum = false): Promise<void> {
