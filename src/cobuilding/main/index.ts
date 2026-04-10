@@ -28,7 +28,7 @@ import {
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
-import { createTray, rebuildTrayMenu } from './tray';
+import { createTray, createDockIcon, rebuildTrayMenu } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from './browserMonitor';
 import { browserExtensionServer } from '../../server/browserExtensionServer';
 import { getAllSessions } from './browserMonitor/repository';
@@ -330,6 +330,11 @@ app.whenReady().then(() => {
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
+    const dock = process.platform === 'darwin' ? app.dock : null;
+    if (dock) {
+      const dockIcon = createDockIcon();
+      if (dockIcon) dock.setIcon(dockIcon);
+    }
     log.info('[APP] Updater and tray initialized.');
 
     createQuickChatWindow(mainWindow);
