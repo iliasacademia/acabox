@@ -34,8 +34,10 @@ interface FilesAPI {
 
 interface WorkspacesAPI {
   getActive(): Promise<Workspace | null>;
+  list(): Promise<Workspace[]>;
   getDefaultDirectory(name: string): Promise<string>;
   create(data: { name: string; directoryPath: string }): Promise<Workspace>;
+  switch(id: string): Promise<Workspace>;
   update(data: { name: string; directoryPath: string }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
 }
@@ -149,8 +151,10 @@ declare global {
 
   interface WorkspacesAPI {
     getActive(): Promise<Workspace | null>;
+    list(): Promise<Workspace[]>;
     getDefaultDirectory(name: string): Promise<string>;
     create(data: { name: string; directoryPath: string }): Promise<Workspace>;
+    switch(id: string): Promise<Workspace>;
     update(data: { name: string; directoryPath: string }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
   }

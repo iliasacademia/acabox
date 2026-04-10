@@ -7,6 +7,7 @@ export interface Workspace {
   api_key: string;
   created_at: string;
   updated_at: string;
+  last_accessed_at: string | null;
 }
 
 export function createWorkspace(
@@ -57,6 +58,12 @@ export function updateApiKey(id: string, apiKey: string): void {
 
 export function getActiveWorkspace(): Workspace | undefined {
   return getDatabase()
-    .prepare('SELECT * FROM workspaces ORDER BY created_at LIMIT 1')
+    .prepare('SELECT * FROM workspaces ORDER BY last_accessed_at DESC, created_at ASC LIMIT 1')
     .get() as Workspace | undefined;
+}
+
+export function touchWorkspace(id: string): void {
+  getDatabase()
+    .prepare("UPDATE workspaces SET last_accessed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE id = ?")
+    .run(id);
 }

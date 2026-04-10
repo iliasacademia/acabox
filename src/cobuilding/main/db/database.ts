@@ -45,6 +45,10 @@ const migrations = [
     version: 3,
     sql: `UPDATE sessions SET source = 'reactions-system' WHERE source = 'reactions';`,
   },
+  {
+    version: 4,
+    sql: `ALTER TABLE workspaces ADD COLUMN last_accessed_at TEXT DEFAULT NULL;`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

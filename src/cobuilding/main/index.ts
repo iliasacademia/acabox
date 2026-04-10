@@ -25,6 +25,8 @@ import {
   createWorkspace,
   updateWorkspace,
   getActiveWorkspace,
+  listWorkspaces,
+  touchWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -483,6 +485,28 @@ ipcMain.handle(
     return activeWorkspace ?? null;
   },
 );
+
+ipcMain.handle('workspaces:list', () => {
+  return listWorkspaces();
+});
+
+ipcMain.handle('workspaces:switch', (_event, id: string) => {
+  const workspaces = listWorkspaces();
+  const target = workspaces.find((w) => w.id === id);
+  if (!target) throw new Error('Workspace not found.');
+
+  kernelGatewayService.stop();
+  containerService.stop();
+
+  touchWorkspace(id);
+  activeWorkspace = getActiveWorkspace() ?? null;
+
+  copySkillsToWorkspace(target.directory_path);
+  copyClaudeMdToWorkspace(target.directory_path);
+  syncMiniAppAssets(target.directory_path);
+
+  return activeWorkspace ?? null;
+});
 
 // Container IPC handlers
 ipcMain.handle('container:start', async () => {
