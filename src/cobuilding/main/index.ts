@@ -419,10 +419,6 @@ ipcMain.handle(
     const name = validateWorkspaceName(data.name);
     const directoryPath = validateDirectoryPath(data.directoryPath);
 
-    if (fs.existsSync(directoryPath)) {
-      throw new Error('Directory already exists. Please choose a path that does not exist yet.');
-    }
-
     // Fetch API key automatically — use cached value if available, otherwise fetch now
     let apiKey = cachedApiKey ?? '';
     if (!apiKey) {
