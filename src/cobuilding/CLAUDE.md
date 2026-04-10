@@ -15,6 +15,22 @@ The workspace directory is mounted at `/data` inside the Podman container, and t
 - On the host filesystem (where Claude Code runs)
 - Inside the container (where skill scripts execute via `podman exec`)
 
+## Installing packages
+
+**Never run `pip install`, `pip3 install`, `conda install`, or `R install.packages()` on the host.** All package installation must happen inside the Podman container.
+
+If a skill requires a package that isn't available, install it into the container:
+
+```bash
+# Python
+podman exec cobuilding-container pip3 install --break-system-packages <package>
+
+# R
+podman exec cobuilding-container Rscript -e 'install.packages("<package>", repos="https://cloud.r-project.org")'
+```
+
+This applies even if a skill's documentation shows a bare `pip install` command — always run it through `podman exec`.
+
 ## Running skill scripts
 
 Skill scripts are located in the workspace at `.claude/skills/<skill-name>/scripts/`. To run them inside the Podman container:

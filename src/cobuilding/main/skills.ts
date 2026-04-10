@@ -2,8 +2,6 @@ import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SKILL_NAMES = ['docx', 'pdf', 'pptx', 'xlsx', 'differential-expression', 'activity-summary', 'manage-mini-application', 'react-plotly', 'reaction', 'review-manuscript'];
-
 function getCobuildingSourceDir(): string {
   if (app.isPackaged) {
     return process.resourcesPath;
@@ -15,7 +13,11 @@ export function copySkillsToWorkspace(workspaceDir: string): void {
   const skillsSourceDir = path.join(getCobuildingSourceDir(), 'skills');
   const targetDir = path.join(workspaceDir, '.claude', 'skills');
 
-  for (const skill of SKILL_NAMES) {
+  const skillNames = fs.readdirSync(skillsSourceDir, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name);
+
+  for (const skill of skillNames) {
     const src = path.join(skillsSourceDir, skill);
     const dest = path.join(targetDir, skill);
     fs.cpSync(src, dest, { recursive: true });
