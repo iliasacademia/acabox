@@ -15,7 +15,8 @@ export function copySkillsToWorkspace(workspaceDir: string): void {
 
   const skillNames = fs.readdirSync(skillsSourceDir, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
-    .map(entry => entry.name);
+    .map(entry => entry.name)
+    .filter(name => /^[a-zA-Z0-9-_]+$/.test(name));
 
   for (const skill of skillNames) {
     const src = path.join(skillsSourceDir, skill);
