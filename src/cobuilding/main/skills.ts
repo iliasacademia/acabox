@@ -9,16 +9,45 @@ function getCobuildingSourceDir(): string {
   return path.join(app.getAppPath(), 'src', 'cobuilding');
 }
 
+const SKILLS = [
+  'activity-summary',
+  'alphafold-database-access',
+  'database-lookup',
+  'differential-expression',
+  'docx',
+  'ensembl-database',
+  'geo-database',
+  'gnomad-database',
+  'manage-mini-application',
+  'opentargets-database',
+  'pdb-database',
+  'pdf',
+  'pptx',
+  'react-plotly',
+  'reaction',
+  'reactome-database',
+  'review-manuscript',
+  'string-database-ppi',
+  'xlsx',
+];
+
 export function copySkillsToWorkspace(workspaceDir: string): void {
   const skillsSourceDir = path.join(getCobuildingSourceDir(), 'skills');
   const targetDir = path.join(workspaceDir, '.claude', 'skills');
 
-  const skillNames = fs.readdirSync(skillsSourceDir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => entry.name)
-    .filter(name => /^[a-zA-Z0-9-_]+$/.test(name));
+  // Remove skills in the workspace that are no longer in SKILLS
+  if (fs.existsSync(targetDir)) {
+    const existing = fs.readdirSync(targetDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name);
+    for (const name of existing) {
+      if (!SKILLS.includes(name)) {
+        fs.rmSync(path.join(targetDir, name), { recursive: true, force: true });
+      }
+    }
+  }
 
-  for (const skill of skillNames) {
+  for (const skill of SKILLS) {
     const src = path.join(skillsSourceDir, skill);
     const dest = path.join(targetDir, skill);
     fs.cpSync(src, dest, { recursive: true });

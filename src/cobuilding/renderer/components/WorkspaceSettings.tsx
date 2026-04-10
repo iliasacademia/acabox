@@ -16,12 +16,28 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [soulContent, setSoulContent] = useState('');
   const [soulLoaded, setSoulLoaded] = useState(false);
 
+  const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
+  const [isSwitching, setIsSwitching] = useState<string | null>(null);
+
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newDirectory, setNewDirectory] = useState('');
+  const [newDirectoryOverridden, setNewDirectoryOverridden] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
   useEffect(() => {
     window.soulPromptAPI.get().then(({ content }) => {
       setSoulContent(content);
       setSoulLoaded(true);
     });
+    window.workspacesAPI.list().then(setAllWorkspaces);
   }, []);
+
+  useEffect(() => {
+    if (newDirectoryOverridden || !newName.trim()) return;
+    window.workspacesAPI.getDefaultDirectory(newName.trim()).then(setNewDirectory);
+  }, [newName, newDirectoryOverridden]);
 
   const canSave = name.trim().length > 0 && directoryPath.length > 0 && !isSaving;
 
@@ -35,21 +51,47 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
 
   const handleSave = async () => {
     if (!canSave) return;
-
     setError(null);
     setIsSaving(true);
-
     try {
       await window.soulPromptAPI.set(soulContent);
-      const updated = await window.workspacesAPI.update({
-        name: name.trim(),
-        directoryPath,
-      });
+      const updated = await window.workspacesAPI.update({ name: name.trim(), directoryPath });
       onSaved(updated);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to update workspace.';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Failed to update workspace.');
       setIsSaving(false);
+    }
+  };
+
+  const handleSwitch = async (id: string) => {
+    setIsSwitching(id);
+    try {
+      await window.workspacesAPI.switch(id);
+      window.location.reload();
+    } catch (err) {
+      setIsSwitching(null);
+    }
+  };
+
+  const handleNewChangeDirectory = async () => {
+    const selected = await window.workspacesAPI.selectDirectory();
+    if (selected) {
+      setNewDirectory(selected);
+      setNewDirectoryOverridden(true);
+      setCreateError(null);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!newName.trim() || !newDirectory) return;
+    setCreateError(null);
+    setIsCreating(true);
+    try {
+      await window.workspacesAPI.create({ name: newName.trim(), directoryPath: newDirectory });
+      window.location.reload();
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Failed to create workspace.');
+      setIsCreating(false);
     }
   };
 
@@ -58,6 +100,68 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
       <div className="wsSettings__card" onClick={(e) => e.stopPropagation()}>
         <h2 className="wsSettings__title">Workspace Settings</h2>
 
+        {/* Workspace switcher */}
+        <div className="wsSettings__field">
+          <label className="wsSettings__label">Workspaces</label>
+          <div className="wsSettings__wsList">
+            {allWorkspaces.map((ws) => (
+              <div key={ws.id} className={`wsSettings__wsRow${ws.id === workspace.id ? ' wsSettings__wsRow--active' : ''}`}>
+                <div className="wsSettings__wsInfo">
+                  <span className="wsSettings__wsName">{ws.name}</span>
+                  <span className="wsSettings__wsDir">{ws.directory_path}</span>
+                </div>
+                {ws.id === workspace.id ? (
+                  <span className="wsSettings__wsBadge">Active</span>
+                ) : (
+                  <button
+                    type="button"
+                    className="gsStep__btn gsStep__btn--secondary wsSettings__wsBtn"
+                    disabled={isSwitching !== null}
+                    onClick={() => handleSwitch(ws.id)}
+                  >
+                    {isSwitching === ws.id ? 'Switching...' : 'Switch'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {showNewForm ? (
+            <div className="wsSettings__newForm">
+              <input
+                type="text"
+                className="gsStep__input"
+                value={newName}
+                onChange={(e) => { setNewName(e.target.value); setNewDirectoryOverridden(false); }}
+                placeholder="Workspace name"
+                autoFocus
+              />
+              {newDirectory && (
+                <div className="wsSettings__dirRow" style={{ marginTop: 8 }}>
+                  <span className="wsSettings__dirPath" title={newDirectory}>{newDirectory}</span>
+                  <button type="button" className="gsStep__btn gsStep__btn--ghost" onClick={handleNewChangeDirectory}>Change</button>
+                </div>
+              )}
+              {createError && <p className="gsStep__error">{createError}</p>}
+              <div className="wsSettings__newFormActions">
+                <button type="button" className="gsStep__btn gsStep__btn--secondary" onClick={() => { setShowNewForm(false); setNewName(''); setNewDirectory(''); setCreateError(null); }}>
+                  Cancel
+                </button>
+                <button type="button" className="gsStep__btn gsStep__btn--primary" disabled={!newName.trim() || !newDirectory || isCreating} onClick={handleCreate}>
+                  {isCreating ? 'Creating...' : 'Create'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button type="button" className="gsStep__btn gsStep__btn--ghost wsSettings__newBtn" onClick={() => setShowNewForm(true)}>
+              + New Workspace
+            </button>
+          )}
+        </div>
+
+        <div className="wsSettings__divider" />
+
+        {/* Current workspace settings */}
         <div className="wsSettings__field">
           <label className="wsSettings__label">Workspace Name</label>
           <input
@@ -100,22 +204,13 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
           />
         </div>
 
-{error && <p className="gsStep__error">{error}</p>}
+        {error && <p className="gsStep__error">{error}</p>}
 
         <div className="wsSettings__actions">
-          <button
-            type="button"
-            className="gsStep__btn gsStep__btn--secondary"
-            onClick={onClose}
-          >
+          <button type="button" className="gsStep__btn gsStep__btn--secondary" onClick={onClose}>
             Cancel
           </button>
-          <button
-            type="button"
-            className="gsStep__btn gsStep__btn--primary"
-            disabled={!canSave}
-            onClick={handleSave}
-          >
+          <button type="button" className="gsStep__btn gsStep__btn--primary" disabled={!canSave} onClick={handleSave}>
             {isSaving ? 'Saving...' : 'Save Changes'}
           </button>
         </div>

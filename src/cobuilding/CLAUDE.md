@@ -23,7 +23,7 @@ If a skill requires a package that isn't available, install it into the containe
 
 ```bash
 # Python
-podman exec cobuilding-container pip3 install --break-system-packages <package>
+podman exec cobuilding-container pip install <package>
 
 # R
 podman exec cobuilding-container Rscript -e 'install.packages("<package>", repos="https://cloud.r-project.org")'

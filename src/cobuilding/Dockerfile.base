@@ -2,6 +2,7 @@ FROM bioconductor/bioconductor_docker:3.21
 
 # System dependencies for office/PDF skills and LaTeX posters
 RUN apt-get update && apt-get install -y \
+    python3-venv \
     pandoc \
     poppler-utils \
     libreoffice \
@@ -24,8 +25,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 ENV NODE_PATH=/usr/lib/node_modules
 
+# Create a virtual environment so pip installs are isolated from system Python
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+
 # Install Python packages for office/PDF skills
-RUN pip3 install --no-cache-dir --break-system-packages \
+RUN pip install --no-cache-dir \
     defusedxml \
     lxml \
     pypdf \
