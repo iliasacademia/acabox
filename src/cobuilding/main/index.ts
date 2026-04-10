@@ -55,6 +55,8 @@ import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingA
 import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat } from './quickChat';
 
+const isSmokeTest = process.argv.includes('--smoke-test');
+
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
@@ -354,6 +356,13 @@ app.whenReady().then(() => {
       seedDefaultTasks(activeWorkspace.id);
     }
     startScheduledTasks(handleNotificationNavigation);
+
+    if (isSmokeTest) {
+      log.info('[SMOKE TEST] All services started — shutting down');
+      console.log('[SMOKE TEST] All services started — shutting down');
+      app.quit();
+      return;
+    }
 
     const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
     log.info('[APP] Loading URL:', url);
