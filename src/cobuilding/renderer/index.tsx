@@ -286,51 +286,51 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             <button
               className={`activityBarBtn ${sidebarTab === 'files' ? 'activityBarBtn--active' : ''}`}
               onClick={() => setSidebarTab('files')}
-              title="Files"
             >
-              <FolderIcon style={{ width: 22, height: 22 }} />
+              <FolderIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Files</span>
             </button>
             <button
               className={`activityBarBtn ${sidebarTab === 'chats' ? 'activityBarBtn--active' : ''}`}
               onClick={() => setSidebarTab('chats')}
-              title="Chats"
             >
-              <MessageSquareIcon style={{ width: 22, height: 22 }} />
+              <MessageSquareIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Chats</span>
             </button>
             <button
               className={`activityBarBtn ${sidebarTab === 'apps' ? 'activityBarBtn--active' : ''}`}
               onClick={() => setSidebarTab('apps')}
-              title="Applications"
             >
-              <LayoutGridIcon style={{ width: 22, height: 22 }} />
+              <LayoutGridIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Apps</span>
             </button>
             <button
               className={`activityBarBtn ${sidebarTab === 'scheduled' ? 'activityBarBtn--active' : ''}`}
               onClick={() => setSidebarTab('scheduled')}
-              title="Scheduled Tasks"
             >
-              <ClockIcon style={{ width: 22, height: 22 }} />
+              <ClockIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Schedule</span>
             </button>
             <button
               className={`activityBarBtn ${sidebarTab === 'reactions' ? 'activityBarBtn--active' : ''}`}
               onClick={() => setSidebarTab('reactions')}
-              title="Reactions"
             >
-              <SparklesIcon style={{ width: 22, height: 22 }} />
+              <SparklesIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Reactions</span>
             </button>
             <button
               className={`activityBarBtn activityBarBtn--bottom ${sidebarTab === 'debug' ? 'activityBarBtn--active' : ''}`}
               onClick={() => { setSidebarTab('debug'); handleOpenDebug(); }}
-              title="Debug"
             >
-              <BracesIcon style={{ width: 22, height: 22 }} />
+              <BracesIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Debug</span>
             </button>
             <button
               className="activityBarBtn"
               onClick={() => setShowSettings(true)}
-              title="Settings"
             >
-              <SettingsIcon style={{ width: 22, height: 22 }} />
+              <SettingsIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Settings</span>
             </button>
           </div>
           <div className="sidebarPanel">

@@ -43,23 +43,25 @@ body,
 /* --- Activity Bar --- */
 
 .activityBar {
-  width: 48px;
+  width: 68px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   padding: 6px 0;
-  gap: 2px;
+  gap: 6px;
   background: #333;
   border-right: 1px solid #222;
 }
 
 .activityBarBtn {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  gap: 6px;
+  width: 60px;
+  padding: 8px 0 6px;
   border: none;
   border-radius: 8px;
   background: none;
@@ -72,6 +74,12 @@ body,
 .activityBarBtn:hover {
   color: rgba(255, 255, 255, 0.85);
   background: rgba(255, 255, 255, 0.08);
+}
+
+.activityBarBtnLabel {
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .activityBarBtn--active {

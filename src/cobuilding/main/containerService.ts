@@ -384,6 +384,21 @@ class CobuildingContainerService {
   private async ensureMachineRunning(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
     const env = this.getExecEnv();
 
+    // Pre-flight check: verify the podman binary can execute (catches Gatekeeper/quarantine issues)
+    try {
+      await this.execAsync(podmanBin, ['--version'], env);
+    } catch (err: any) {
+      const code = err?.code;
+      const signal = err?.signal;
+      if (code === 'EACCES' || code === 'EPERM' || signal === 'SIGKILL') {
+        throw new Error(
+          'macOS blocked Podman from running. This usually means the binary was quarantined by Gatekeeper. ' +
+          'Try deleting the Podman binaries in Settings and re-downloading them, or check System Settings > Privacy & Security.'
+        );
+      }
+      throw new Error(`Podman binary check failed: ${err?.message || err}`);
+    }
+
     const initialized = await this.isMachineInitialized(podmanBin, env);
     if (!initialized) {
       onProgress?.('init', 'Initializing Podman VM (first-time setup)...');
