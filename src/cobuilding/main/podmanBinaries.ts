@@ -2,6 +2,7 @@ import { execFile } from 'child_process';
 import { app } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as https from 'https';
 import * as crypto from 'crypto';
 import log from 'electron-log';
@@ -48,15 +49,18 @@ export function getBundledPodmanEnv(): NodeJS.ProcessEnv {
 
   const configDir = path.join(podmanDataDir, 'config');
   const dataDir = path.join(podmanDataDir, 'data');
-  const runDir = path.join(podmanDataDir, 'run');
-  // Podman resolves known_hosts as $HOME/.ssh/known_hosts. By pointing HOME
-  // at a dedicated directory we ensure the user's real ~/.ssh/known_hosts
-  // never interferes with Podman's SSH connection to the VM.
-  const podmanHome = path.join(podmanDataDir, 'home');
+
+  // Podman creates Unix domain sockets under HOME (~/.podman/) and
+  // XDG_RUNTIME_DIR. macOS limits socket paths to 104 bytes, so these dirs
+  // must be SHORT — the full userData path is too long.
+  const podmanHome = path.join(os.homedir(), '.cobuild-podman');
+  const runDir = path.join(os.tmpdir(), 'cobuild-podman-run');
 
   fs.mkdirSync(configDir, { recursive: true });
   fs.mkdirSync(dataDir, { recursive: true });
   fs.mkdirSync(runDir, { recursive: true });
+  // Isolated .ssh so the user's real ~/.ssh/known_hosts doesn't interfere
+  // with Podman's SSH connection to the VM.
   fs.mkdirSync(path.join(podmanHome, '.ssh'), { recursive: true });
 
   ensureContainersConf(configDir, podmanBinDir);

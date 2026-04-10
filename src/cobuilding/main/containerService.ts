@@ -587,7 +587,8 @@ class CobuildingContainerService {
           onProgress?.('pull', 'Base image downloaded', 100);
           resolve();
         } else {
-          reject(new Error(`podman pull exited with code ${code}`));
+          const lastStderr = stderrBuffer.trim();
+          reject(new Error(`podman pull exited with code ${code}${lastStderr ? ': ' + lastStderr : ''}`));
         }
       });
 
@@ -811,6 +812,8 @@ class CobuildingContainerService {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
+      const stderrLines: string[] = [];
+
       proc.stdout?.on('data', (data: Buffer) => {
         const line = data.toString().trim();
         if (line) log.debug(`[ContainerService] [${label}] ${line}`);
@@ -818,15 +821,27 @@ class CobuildingContainerService {
 
       proc.stderr?.on('data', (data: Buffer) => {
         const line = data.toString().trim();
-        if (line) log.debug(`[ContainerService] [${label} stderr] ${line}`);
+        if (line) {
+          log.debug(`[ContainerService] [${label} stderr] ${line}`);
+          stderrLines.push(line);
+        }
       });
 
       proc.on('close', (code) => {
         if (code === 0) {
-          log.debug(`[ContainerService] ${label} completed successfully`);
-          resolve();
+          // Check for critical errors on stderr even when exit code is 0
+          // (e.g., socket bind failures during machine start)
+          const criticalError = stderrLines.find(l => l.includes('level=error'));
+          if (criticalError) {
+            log.error(`[ContainerService] ${label} exited 0 but had errors: ${criticalError}`);
+            reject(new Error(`podman ${label} reported an error: ${criticalError}`));
+          } else {
+            log.debug(`[ContainerService] ${label} completed successfully`);
+            resolve();
+          }
         } else {
-          reject(new Error(`podman ${label} exited with code ${code}`));
+          const stderrSummary = stderrLines.slice(-3).join('\n');
+          reject(new Error(`podman ${label} exited with code ${code}${stderrSummary ? ': ' + stderrSummary : ''}`));
         }
       });
 

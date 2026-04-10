@@ -16,7 +16,7 @@
 }
 
 .setupBanner--error {
-  background: #cf222e;
+  background: #e57373;
 }
 
 .setupBanner__title {
@@ -51,19 +51,21 @@
 }
 
 .setupBanner__retryBtn {
-  margin-top: 6px;
-  padding: 4px 12px;
+  display: inline;
+  padding: 2px 10px;
+  margin-left: 4px;
   font-size: 12px;
   font-weight: 600;
-  color: #cf222e;
-  background: #fff;
-  border: none;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.4);
   border-radius: 4px;
   cursor: pointer;
+  vertical-align: middle;
 }
 
 .setupBanner__retryBtn:hover {
-  background: #f0f0f0;
+  background: rgba(0, 0, 0, 0.35);
 }
 
 @keyframes setupBanner-fadeOut {

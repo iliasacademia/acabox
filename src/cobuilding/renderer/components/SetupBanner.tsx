@@ -139,14 +139,14 @@ export const SetupBanner: React.FC = () => {
 
     return (
       <div className="setupBanner setupBanner--error">
-        <span className="setupBanner__title">Setup failed</span>
-        {error && <span className="setupBanner__detail">{error}</span>}
-        {isPermissionError && (
-          <span className="setupBanner__detail">
-            You may also need to allow this in System Settings &gt; Privacy &amp; Security.
-          </span>
-        )}
-        <button className="setupBanner__retryBtn" onClick={handleRetry}>Retry</button>
+        <span className="setupBanner__title">Setup error</span>
+        <span className="setupBanner__detail">
+          {error}
+          {isPermissionError && (
+            <> You may also need to allow this in System Settings &gt; Privacy &amp; Security.</>
+          )}
+          {' '}<button className="setupBanner__retryBtn" onClick={handleRetry}>Retry</button>
+        </span>
       </div>
     );
   }
