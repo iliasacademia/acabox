@@ -147,6 +147,11 @@ contextBridge.exposeInMainWorld('observationsAPI', {
   getSessionFiles: () => ipcRenderer.invoke('observations:getSessionFiles'),
 });
 
+contextBridge.exposeInMainWorld('debugAPI', {
+  getDataPaths: () => ipcRenderer.invoke('debug:getDataPaths'),
+  clearAllData: () => ipcRenderer.invoke('debug:clearAllData'),
+});
+
 contextBridge.exposeInMainWorld('scheduledTasksAPI', {
   list: () => ipcRenderer.invoke('scheduledTasks:list'),
   get: (id: string) => ipcRenderer.invoke('scheduledTasks:get', id),

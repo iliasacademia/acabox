@@ -11,6 +11,7 @@ import { registerSession, unregisterSession, getRegisteredSession, hasSession, d
 import type { IPCAttachment } from '../shared/types';
 import { copyClaudeMdToWorkspace, copySkillsToWorkspace, syncMiniAppAssets } from './skills';
 import { containerService } from './containerService';
+import { getAllPodmanDataPaths } from './podmanBinaries';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -129,8 +130,9 @@ function seedDefaultTasks(workspaceId: string): void {
   log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
 }
 
-// Configure electron-log for cobuilding
-log.transports.file.fileName = app.isPackaged ? 'cobuilding-cobuild.log' : 'cobuilding-dev.log';
+// Configure electron-log for cobuilding — write to userData so dev/prod logs are separated
+log.transports.file.resolvePathFn = () =>
+  path.join(app.getPath('userData'), 'cobuilding.log');
 log.transports.file.level = 'debug';
 log.transports.file.maxSize = 5 * 1024 * 1024; // 5MB
 log.transports.file.format = '[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [v' + app.getVersion() + '] [{level}] {text}';
@@ -580,6 +582,59 @@ ipcMain.handle('container:ensureSetup', async () => {
   await containerService.ensureSetup((stage, message, percent) => {
     mainWindow?.webContents.send('setup:progress', { stage, message, percent });
   });
+});
+
+// ─── Debug: Data Management ─────────────────────────────────────
+
+ipcMain.handle('debug:getDataPaths', () => {
+  const userData = app.getPath('userData');
+  const podmanPaths = getAllPodmanDataPaths();
+  return {
+    environment: app.isPackaged ? 'production' : 'development',
+    userData,
+    paths: [
+      { label: 'User data', path: userData },
+      ...podmanPaths,
+    ],
+  };
+});
+
+ipcMain.handle('app:quit', () => {
+  app.quit();
+});
+
+ipcMain.handle('debug:clearAllData', async () => {
+  log.warn('[Debug] Clearing all app data...');
+
+  // 1. Stop container and services
+  try { containerService.stop(); } catch { /* ok */ }
+  try { kernelGatewayService.stop(); } catch { /* ok */ }
+
+  // 2. Collect all paths to remove
+  const userData = app.getPath('userData');
+  const podmanPaths = getAllPodmanDataPaths();
+  const pathsToRemove = [
+    ...podmanPaths.map(p => p.path),
+    userData,
+  ];
+
+  // 3. Remove each path
+  const results: { path: string; removed: boolean; error?: string }[] = [];
+  for (const p of pathsToRemove) {
+    try {
+      if (fs.existsSync(p)) {
+        fs.rmSync(p, { recursive: true, force: true });
+        results.push({ path: p, removed: true });
+      } else {
+        results.push({ path: p, removed: false, error: 'not found' });
+      }
+    } catch (err) {
+      results.push({ path: p, removed: false, error: (err as Error).message });
+    }
+  }
+
+  log.warn('[Debug] Data cleared:', results);
+  return results;
 });
 
 // Jupyter kernel gateway IPC handlers

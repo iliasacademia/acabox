@@ -5,9 +5,10 @@ import { KernelsDebug } from './KernelsDebug';
 import { ObservationsDebug } from './ObservationsDebug';
 import { BrowserExtensionDebug } from './BrowserExtensionDebug';
 import { FileMonitorDebug } from './FileMonitorDebug';
+import { StorageDebug } from './StorageDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor';
+export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'apps', label: 'Logs' },
@@ -16,6 +17,7 @@ const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'observations', label: 'Observations' },
   { id: 'browser-extension', label: 'Browser Extension' },
   { id: 'file-monitor', label: 'File Monitor' },
+  { id: 'storage', label: 'Storage' },
 ];
 
 export const DebugSidebar: React.FC<{
@@ -47,6 +49,7 @@ export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ active
       {activeSection === 'observations' && <ObservationsDebug />}
       {activeSection === 'browser-extension' && <BrowserExtensionDebug />}
       {activeSection === 'file-monitor' && <FileMonitorDebug />}
+      {activeSection === 'storage' && <StorageDebug />}
     </div>
   );
 };
