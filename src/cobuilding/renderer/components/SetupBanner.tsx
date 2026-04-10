@@ -120,9 +120,33 @@ export const SetupBanner: React.FC = () => {
     );
   }
   if (phase === 'error') {
+    const isPermissionError = error?.includes('blocked') || error?.includes('Gatekeeper') || error?.includes('quarantine');
+
+    const handleRetry = async () => {
+      setPhase('idle');
+      setError(null);
+      setPercent(0);
+      didWorkRef.current = false;
+      try {
+        await window.containerAPI.deleteBinaries();
+        await window.containerAPI.ensureSetup();
+      } catch (err) {
+        stopBuildTimer();
+        setPhase('error');
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    };
+
     return (
       <div className="setupBanner setupBanner--error">
         <span className="setupBanner__title">Setup failed</span>
+        {error && <span className="setupBanner__detail">{error}</span>}
+        {isPermissionError && (
+          <span className="setupBanner__detail">
+            You may also need to allow this in System Settings &gt; Privacy &amp; Security.
+          </span>
+        )}
+        <button className="setupBanner__retryBtn" onClick={handleRetry}>Retry</button>
       </div>
     );
   }

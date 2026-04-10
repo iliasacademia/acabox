@@ -124,7 +124,15 @@ if (entryPoint === 'cobuilding') {
   if (platform === 'darwin') {
     packagerConfig.extraResource.push(
       'src/cobuilding/rust/file-monitor-mac/target/release/file-monitor-mac',
+      'src/cobuilding/assets/vfkit-entitlements.plist',
     );
+    // TCC usage descriptions for workspace folder access dialogs
+    packagerConfig.extendInfo = {
+      ...packagerConfig.extendInfo,
+      NSDesktopFolderUsageDescription: 'Academia Coscientist needs access to your Desktop to manage workspace files.',
+      NSDocumentsFolderUsageDescription: 'Academia Coscientist needs access to your Documents to manage workspace files.',
+      NSDownloadsFolderUsageDescription: 'Academia Coscientist needs access to your Downloads to manage workspace files.',
+    };
   }
 }
 

@@ -123,6 +123,8 @@ async function ensureBinariesDownloadedMac(onProgress?: ProgressCallback, skipCh
       fs.copyFileSync(extractedBin, podmanBin);
       fs.chmodSync(podmanBin, 0o755);
       if (!skipChecksum) verifyChecksum(podmanBin, 'podman');
+      await stripQuarantine(podmanBin);
+      await signBinary(podmanBin);
       log.debug(`[PodmanBinaries] podman binary extracted${skipChecksum ? '' : ' and verified'}`);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -139,6 +141,8 @@ async function ensureBinariesDownloadedMac(onProgress?: ProgressCallback, skipCh
     });
     fs.chmodSync(gvproxyBin, 0o755);
     if (!skipChecksum) verifyChecksum(gvproxyBin, 'gvproxy');
+    await stripQuarantine(gvproxyBin);
+    await signBinary(gvproxyBin);
     log.debug(`[PodmanBinaries] gvproxy downloaded${skipChecksum ? '' : ' and verified'}`);
   }
 
@@ -151,6 +155,8 @@ async function ensureBinariesDownloadedMac(onProgress?: ProgressCallback, skipCh
     });
     fs.chmodSync(vfkitBin, 0o755);
     if (!skipChecksum) verifyChecksum(vfkitBin, 'vfkit');
+    await stripQuarantine(vfkitBin);
+    await signBinary(vfkitBin, getVfkitEntitlementsPath());
     log.debug(`[PodmanBinaries] vfkit downloaded${skipChecksum ? '' : ' and verified'}`);
   }
 
@@ -231,6 +237,47 @@ async function ensureBinariesDownloadedWindows(onProgress?: ProgressCallback, sk
 
   onProgress?.('download-percent', '100');
   log.debug('[PodmanBinaries] All binaries downloaded');
+}
+
+// ─── macOS Binary Permissions ────────────────────────────────────
+
+function getVfkitEntitlementsPath(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, 'vfkit-entitlements.plist');
+  }
+  return path.join(app.getAppPath(), 'src', 'cobuilding', 'assets', 'vfkit-entitlements.plist');
+}
+
+/** Strip the com.apple.quarantine xattr so Gatekeeper won't block execution. */
+function stripQuarantine(filePath: string): Promise<void> {
+  return new Promise((resolve) => {
+    execFile('/usr/bin/xattr', ['-dr', 'com.apple.quarantine', filePath], (error) => {
+      if (error) {
+        log.warn(`[PodmanBinaries] Could not strip quarantine from ${path.basename(filePath)}: ${error.message}`);
+      }
+      resolve();
+    });
+  });
+}
+
+/** Ad-hoc sign a binary, optionally with entitlements (needed for vfkit's Virtualization.framework access). */
+function signBinary(filePath: string, entitlementsPath?: string): Promise<void> {
+  const args = ['--force', '--sign', '-'];
+  if (entitlementsPath) {
+    args.push('--entitlements', entitlementsPath);
+  }
+  args.push(filePath);
+
+  return new Promise((resolve) => {
+    execFile('/usr/bin/codesign', args, (error) => {
+      if (error) {
+        log.warn(`[PodmanBinaries] Could not sign ${path.basename(filePath)}: ${error.message}`);
+      } else {
+        log.debug(`[PodmanBinaries] Signed ${path.basename(filePath)}${entitlementsPath ? ' with entitlements' : ''}`);
+      }
+      resolve();
+    });
+  });
 }
 
 // ─── Internal Helpers ─────────────────────────────────────────────
