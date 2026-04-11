@@ -9,6 +9,10 @@ let quickChatWindow: BrowserWindow | null = null;
 let lastContext: QuickChatContext | null = null;
 let mainWindowRef: BrowserWindow | null = null;
 
+export function updateMainWindowRef(newWindow: BrowserWindow) {
+  mainWindowRef = newWindow;
+}
+
 export function createQuickChatWindow(mainWindow: BrowserWindow) {
   mainWindowRef = mainWindow;
 
@@ -40,7 +44,7 @@ export function createQuickChatWindow(mainWindow: BrowserWindow) {
   ipcMain.on('quick-chat:submit', (_event, text: string) => {
     hideQuickChat();
 
-    if (mainWindowRef) {
+    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
       mainWindowRef.show();
       mainWindowRef.focus();
       mainWindowRef.webContents.send('quick-chat:inject', {

@@ -8,11 +8,24 @@ const DEV_LOGO_TINT = { b: 212, g: 188, r: 0 };
 
 let tray: Tray | null = null;
 let currentTrayMenu: Electron.Menu | null = null;
+let showWindowCallback: (() => void) | null = null;
+
+export function setShowWindowCallback(callback: () => void) {
+  showWindowCallback = callback;
+}
 
 export function rebuildTrayMenu(statusLabel?: string) {
   if (!tray) return;
 
   const menuItems: Electron.MenuItemConstructorOptions[] = [];
+
+  if (showWindowCallback) {
+    menuItems.push({
+      label: 'Show Window',
+      click: () => showWindowCallback?.(),
+    });
+    menuItems.push({ type: 'separator' });
+  }
 
   menuItems.push({
     label: statusLabel || 'Check for Updates...',

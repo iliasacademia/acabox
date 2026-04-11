@@ -31,7 +31,7 @@ import {
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
-import { createTray, createDockIcon, rebuildTrayMenu } from './tray';
+import { createTray, createDockIcon, rebuildTrayMenu, setShowWindowCallback } from './tray';
 import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from './browserMonitor';
 import { browserExtensionServer } from '../../server/browserExtensionServer';
 import { getAllSessions } from './browserMonitor/repository';
@@ -56,7 +56,7 @@ import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { checkLogin, logout } from '../../apiClient';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
 import { updateApiKey } from './db/workspaceRepository';
-import { createQuickChatWindow, showQuickChat } from './quickChat';
+import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 
@@ -226,18 +226,17 @@ let mainWindow: BrowserWindow | null = null;
 
 function handleNotificationNavigation(action: NotificationNavigationAction | null): void {
   log.info('[NotificationNav] handleNotificationNavigation called with action:', JSON.stringify(action));
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    log.info('[NotificationNav] mainWindow is null or destroyed — recreating window');
+    createMainWindow();
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
-    log.info('[NotificationNav] mainWindow exists and is not destroyed — showing and focusing');
     mainWindow.show();
     mainWindow.focus();
     if (action) {
       log.info('[NotificationNav] Sending notification:navigate IPC to renderer:', JSON.stringify(action));
       mainWindow.webContents.send('notification:navigate', action);
-    } else {
-      log.info('[NotificationNav] Action is null — window activated but no navigation IPC sent');
     }
-  } else {
-    log.warn('[NotificationNav] mainWindow is null or destroyed — cannot navigate. mainWindow:', mainWindow ? 'exists but destroyed' : 'null');
   }
 }
 let activeWorkspace: Workspace | null = null;
@@ -257,9 +256,9 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
   if (!session) return;
 
   const unsubscribe = session.addListener({
-    onEvent: (msg) => sender.send('chat:event', threadId, msg),
-    onDone: () => { sender.send('chat:done', threadId); cleanup(); },
-    onError: (err) => { sender.send('chat:error', threadId, err); cleanup(); },
+    onEvent: (msg) => { if (!sender.isDestroyed()) sender.send('chat:event', threadId, msg); },
+    onDone: () => { if (!sender.isDestroyed()) sender.send('chat:done', threadId); cleanup(); },
+    onError: (err) => { if (!sender.isDestroyed()) sender.send('chat:error', threadId, err); cleanup(); },
   });
 
   const cleanup = () => {
@@ -270,6 +269,54 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
 
   forwardingListeners.set(key, cleanup);
   sender.on('destroyed', cleanup);
+}
+
+function createMainWindow(): void {
+  log.info('[APP] Creating main window...');
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    title: 'Academia Coscientist',
+    show: false,
+    webPreferences: {
+      preload: COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY,
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+  log.info('[APP] Main window created.');
+
+  updateMainWindowRef(mainWindow);
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+
+  const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
+  log.info('[APP] Loading URL:', url);
+  mainWindow.loadURL(url);
+
+  mainWindow.once('ready-to-show', () => {
+    log.info('[APP] Window ready-to-show, calling show().');
+    mainWindow?.show();
+  });
+
+  // Dispatch any deep link URL that arrived before the window was ready
+  if (pendingDeepLinkUrl && mainWindow && !mainWindow.isDestroyed()) {
+    const urlToDispatch = pendingDeepLinkUrl;
+    pendingDeepLinkUrl = null;
+    mainWindow.webContents.once('did-finish-load', () => {
+      handleDeepLinkUrl(urlToDispatch);
+    });
+  }
+
+  mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
+    log.error('[APP] Window failed to load:', errorCode, errorDescription);
+  });
+
+  mainWindow.webContents.on('did-finish-load', () => {
+    log.info('[APP] Window did-finish-load.');
+  });
 }
 
 app.whenReady().then(() => {
@@ -322,19 +369,7 @@ app.whenReady().then(() => {
       syncMiniAppAssets(activeWorkspace.directory_path);
     }
 
-    log.info('[APP] Creating main window...');
-    mainWindow = new BrowserWindow({
-      width: 1440,
-      height: 900,
-      title: 'Academia Coscientist',
-      show: false,
-      webPreferences: {
-        preload: COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY,
-        nodeIntegration: false,
-        contextIsolation: true,
-      },
-    });
-    log.info('[APP] Main window created.');
+    createMainWindow();
 
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
@@ -343,6 +378,14 @@ app.whenReady().then(() => {
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
+    setShowWindowCallback(() => {
+      if (!mainWindow) {
+        createMainWindow();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    });
     const dock = process.platform === 'darwin' ? app.dock : null;
     if (dock) {
       const dockIcon = createDockIcon();
@@ -350,7 +393,7 @@ app.whenReady().then(() => {
     }
     log.info('[APP] Updater and tray initialized.');
 
-    createQuickChatWindow(mainWindow);
+    createQuickChatWindow(mainWindow!);
     const shortcutRegistered = globalShortcut.register('Alt+Shift+Space', () => {
       showQuickChat();
     });
@@ -374,32 +417,6 @@ app.whenReady().then(() => {
       app.quit();
       return;
     }
-
-    const url = COBUILDING_WINDOW_WEBPACK_ENTRY;
-    log.info('[APP] Loading URL:', url);
-    mainWindow.loadURL(url);
-
-    mainWindow.once('ready-to-show', () => {
-      log.info('[APP] Window ready-to-show, calling show().');
-      mainWindow?.show();
-    });
-
-    // Dispatch any deep link URL that arrived before the window was ready
-    if (pendingDeepLinkUrl && mainWindow && !mainWindow.isDestroyed()) {
-      const urlToDispatch = pendingDeepLinkUrl;
-      pendingDeepLinkUrl = null;
-      mainWindow.webContents.once('did-finish-load', () => {
-        handleDeepLinkUrl(urlToDispatch);
-      });
-    }
-
-    mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription) => {
-      log.error('[APP] Window failed to load:', errorCode, errorDescription);
-    });
-
-    mainWindow.webContents.on('did-finish-load', () => {
-      log.info('[APP] Window did-finish-load.');
-    });
   } catch (error) {
     log.error('[APP] Fatal error during startup:', error);
     dialog.showErrorBox(
@@ -409,6 +426,12 @@ app.whenReady().then(() => {
   }
 }).catch((error) => {
   log.error('[APP] app.whenReady() rejected:', error);
+});
+
+app.on('activate', () => {
+  if (!mainWindow) {
+    createMainWindow();
+  }
 });
 
 // Workspace IPC handlers
@@ -523,7 +546,7 @@ ipcMain.handle('container:start', async () => {
     throw new Error('No active workspace');
   }
   await containerService.start(activeWorkspace.directory_path, (stage, message, percent) => {
-    mainWindow?.webContents.send('container:progress', { stage, message, percent });
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('container:progress', { stage, message, percent });
   });
 });
 
@@ -565,7 +588,7 @@ ipcMain.handle('container:getBundledStatus', () => {
 
 ipcMain.handle('container:downloadBinaries', async () => {
   await containerService.downloadBundledBinaries((stage, message, percent) => {
-    mainWindow?.webContents.send('container:progress', { stage, message, percent });
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('container:progress', { stage, message, percent });
   });
 });
 
@@ -587,7 +610,7 @@ ipcMain.handle('container:deleteImage', async () => {
 
 ipcMain.handle('container:ensureSetup', async () => {
   await containerService.ensureSetup((stage, message, percent) => {
-    mainWindow?.webContents.send('setup:progress', { stage, message, percent });
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
   });
 });
 
@@ -678,14 +701,18 @@ ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLog
 ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
 
 commandLogger.onEntry((entry) => {
-  mainWindow?.webContents.send('commandLog:entry', entry);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('commandLog:entry', entry);
+  }
 });
 
 // System log IPC handlers
 ipcMain.handle('systemLog:getAll', () => systemLogger.getAll());
 
 systemLogger.onEntry((entry) => {
-  mainWindow?.webContents.send('systemLog:entry', entry);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('systemLog:entry', entry);
+  }
 });
 
 // File Monitor IPC handlers
@@ -743,7 +770,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
     const title = (response.content[0].type === 'text' ? response.content[0].text : '').trim();
     if (title) {
       updateSessionTitle(sessionId, title);
-      mainWindow?.webContents.send('sessions:titleUpdated', sessionId, title);
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
     }
   } catch (err) {
     log.warn('[TitleGen] Failed to generate session title:', err);
@@ -1037,15 +1064,29 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
 });
 
 app.on('window-all-closed', () => {
-  globalShortcut.unregisterAll();
-  stopFileMonitor();
-  stopBrowserMonitor();
-  destroyAllSessions();
-  kernelGatewayService.stop();
-  containerService.stop();
-  stopScheduledTasks();
-  closeSchedulingDatabase();
-  closeObservationsDatabase();
-  closeDatabase();
-  app.quit();
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  const steps: [string, () => void][] = [
+    ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
+    ['stopFileMonitor', stopFileMonitor],
+    ['stopBrowserMonitor', stopBrowserMonitor],
+    ['stopScheduledTasks', stopScheduledTasks],
+    ['destroyAllSessions', destroyAllSessions],
+    ['kernelGatewayService.stop', () => kernelGatewayService.stop()],
+    ['containerService.stop', () => containerService.stop()],
+    ['closeSchedulingDatabase', closeSchedulingDatabase],
+    ['closeObservationsDatabase', closeObservationsDatabase],
+    ['closeDatabase', closeDatabase],
+  ];
+  for (const [name, fn] of steps) {
+    try {
+      fn();
+    } catch (err) {
+      log.error(`[APP] Cleanup step "${name}" failed:`, err);
+    }
+  }
 });
