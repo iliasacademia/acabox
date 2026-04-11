@@ -3,6 +3,10 @@ import { Notification } from 'electron';
 import { z } from 'zod';
 import type { NotificationNavigationAction } from '../../shared/types';
 
+// Hold references to active notifications so they aren't garbage-collected
+// before the user clicks them (which would silently drop the click handler).
+const activeNotifications = new Set<Notification>();
+
 export function createNotificationMcpServer(
   onNavigate?: (action: NotificationNavigationAction | null) => void,
 ) {
@@ -33,10 +37,17 @@ export function createNotificationMcpServer(
               navigation: args.navigation ?? null,
             });
             const notification = new Notification({ title: args.title, body: args.body });
+            activeNotifications.add(notification);
+
+            const releaseNotification = () => {
+              activeNotifications.delete(notification);
+              console.log('[NotificationNav] Notification released from activeNotifications set. Remaining:', activeNotifications.size);
+            };
 
             if (onNavigate) {
               notification.on('click', () => {
                 console.log('[NotificationNav] Notification clicked. navigation args:', args.navigation ?? 'none');
+                releaseNotification();
                 if (args.navigation) {
                   const nav = args.navigation;
                   if (nav.type === 'thread' && nav.threadId) {
@@ -54,8 +65,12 @@ export function createNotificationMcpServer(
                   onNavigate(null);
                 }
               });
+              notification.on('close', () => {
+                releaseNotification();
+              });
             } else {
               console.warn('[NotificationNav] onNavigate callback is not set — click handler will not be registered');
+              releaseNotification();
             }
 
             notification.show();
