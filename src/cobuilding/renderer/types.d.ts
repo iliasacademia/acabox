@@ -311,8 +311,12 @@ declare global {
   }
 
   interface DebugAPI {
-    getDataPaths(): Promise<{ environment: string; userData: string; paths: DataPathInfo[] }>;
-    clearAllData(): Promise<{ path: string; removed: boolean; error?: string }[]>;
+    getStorageInfo(): Promise<{
+      environment: string;
+      userData: string;
+      podmanPaths: DataPathInfo[];
+    }>;
+    clearSelected(ids: string[]): Promise<{ cleared: string[]; errors: string[] }>;
   }
 
   interface Window {

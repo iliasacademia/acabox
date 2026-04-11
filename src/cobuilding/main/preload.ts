@@ -148,8 +148,8 @@ contextBridge.exposeInMainWorld('observationsAPI', {
 });
 
 contextBridge.exposeInMainWorld('debugAPI', {
-  getDataPaths: () => ipcRenderer.invoke('debug:getDataPaths'),
-  clearAllData: () => ipcRenderer.invoke('debug:clearAllData'),
+  getStorageInfo: () => ipcRenderer.invoke('debug:getStorageInfo'),
+  clearSelected: (ids: string[]) => ipcRenderer.invoke('debug:clearSelected', ids),
 });
 
 contextBridge.exposeInMainWorld('scheduledTasksAPI', {

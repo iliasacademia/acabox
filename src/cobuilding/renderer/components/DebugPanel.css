@@ -389,3 +389,90 @@
   font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
   font-size: 10px;
 }
+
+/* ─── Storage tree ─── */
+
+.storageTree {
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  background: #fafafa;
+  padding: 4px 0;
+  margin-bottom: 8px;
+}
+
+.storageTree__actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.storageTree__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 3px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  flex-wrap: wrap;
+}
+
+.storageTree__row:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.storageTree__checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid #999;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  line-height: 1;
+  position: relative;
+  top: 1px;
+}
+
+.storageTree__checkbox--checked {
+  background: #1a73e8;
+  border-color: #1a73e8;
+}
+
+.storageTree__checkbox--indeterminate {
+  background: #1a73e8;
+  border-color: #1a73e8;
+}
+
+.storageTree__checkbox--disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.storageTree__label {
+  color: #333;
+}
+
+.storageTree__label--group {
+  font-weight: 600;
+  color: #222;
+}
+
+.storageTree__desc {
+  color: #888;
+  font-size: 11px;
+}
+
+.storageTree__warning {
+  display: block;
+  width: 100%;
+  color: #b45309;
+  font-size: 11px;
+  padding-left: 22px;
+}
