@@ -3,6 +3,10 @@ import { Notification } from 'electron';
 import { z } from 'zod';
 import type { NotificationNavigationAction } from '../../shared/types';
 
+// Hold references to active notifications so they aren't garbage-collected
+// before the user clicks them (which would silently drop the click handler).
+const activeNotifications = new Set<Notification>();
+
 export function createNotificationMcpServer(
   onNavigate?: (action: NotificationNavigationAction | null) => void,
 ) {
@@ -27,23 +31,46 @@ export function createNotificationMcpServer(
         },
         async (args) => {
           try {
+            console.log('[NotificationNav] show_notification called:', {
+              title: args.title,
+              body: args.body,
+              navigation: args.navigation ?? null,
+            });
             const notification = new Notification({ title: args.title, body: args.body });
+            activeNotifications.add(notification);
+
+            const releaseNotification = () => {
+              activeNotifications.delete(notification);
+              console.log('[NotificationNav] Notification released from activeNotifications set. Remaining:', activeNotifications.size);
+            };
 
             if (onNavigate) {
               notification.on('click', () => {
+                console.log('[NotificationNav] Notification clicked. navigation args:', args.navigation ?? 'none');
+                releaseNotification();
                 if (args.navigation) {
                   const nav = args.navigation;
                   if (nav.type === 'thread' && nav.threadId) {
+                    console.log('[NotificationNav] Dispatching thread navigation:', { threadId: nav.threadId, sidebarTab: nav.sidebarTab });
                     onNavigate({ type: 'thread', threadId: nav.threadId, sidebarTab: nav.sidebarTab });
                   } else if (nav.type === 'sidebar' && nav.sidebarTab) {
+                    console.log('[NotificationNav] Dispatching sidebar navigation:', { tab: nav.sidebarTab });
                     onNavigate({ type: 'sidebar', tab: nav.sidebarTab });
                   } else {
+                    console.log('[NotificationNav] Navigation args present but no matching branch — dispatching null. type:', nav.type, 'threadId:', nav.threadId, 'sidebarTab:', nav.sidebarTab);
                     onNavigate(null);
                   }
                 } else {
+                  console.log('[NotificationNav] No navigation args — dispatching null (activate only)');
                   onNavigate(null);
                 }
               });
+              notification.on('close', () => {
+                releaseNotification();
+              });
+            } else {
+              console.warn('[NotificationNav] onNavigate callback is not set — click handler will not be registered');
+              releaseNotification();
             }
 
             notification.show();

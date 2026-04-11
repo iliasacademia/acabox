@@ -262,6 +262,11 @@ declare global {
     set(content: string): Promise<void>;
   }
 
+  interface FocusPromptAPI {
+    get(): Promise<{ content: string }>;
+    set(content: string): Promise<void>;
+  }
+
   interface ScheduledTasksAPI {
     list(): Promise<ScheduledTask[]>;
     get(id: string): Promise<ScheduledTask | null>;
@@ -328,6 +333,7 @@ declare global {
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
     soulPromptAPI: SoulPromptAPI;
+    focusPromptAPI: FocusPromptAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
     fileMonitorAPI: FileMonitorAPI;
     browserMonitorAPI: BrowserMonitorAPI;

@@ -21,6 +21,7 @@ import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ScheduledTasksSidebar } from './components/ScheduledTasksSidebar';
 import { ReactionsSidebar } from './components/ReactionsSidebar';
+import { FocusEditor } from './components/FocusEditor';
 
 import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
 import './components/ScheduledTasks.css';
@@ -97,12 +98,23 @@ function NotificationNavigator({
 
   useEffect(() => {
     const handler = (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
+      console.log('[NotificationNav] Renderer received notification:navigate IPC:', JSON.stringify(navigation));
       if (navigation.type === 'thread' && navigation.threadId) {
+        console.log('[NotificationNav] Thread navigation — threadId:', navigation.threadId, 'sidebarTab:', navigation.sidebarTab ?? 'chats (default)');
         setSidebarTab(navigation.sidebarTab ?? 'chats');
         deactivateAllTabs();
-        runtime.threads.switchToThread(navigation.threadId);
+        try {
+          console.log('[NotificationNav] Calling runtime.threads.switchToThread("' + navigation.threadId + '")');
+          runtime.threads.switchToThread(navigation.threadId);
+          console.log('[NotificationNav] switchToThread returned successfully');
+        } catch (err) {
+          console.error('[NotificationNav] switchToThread threw an error:', err);
+        }
       } else if (navigation.type === 'sidebar' && navigation.tab) {
+        console.log('[NotificationNav] Sidebar navigation — tab:', navigation.tab);
         setSidebarTab(navigation.tab);
+      } else {
+        console.warn('[NotificationNav] Unhandled navigation type or missing fields:', JSON.stringify(navigation));
       }
     };
     window.electronAPI.on('notification:navigate', handler);
@@ -266,6 +278,17 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     openTab(descriptor);
   }, [openTab]);
 
+  const handleOpenFocus = useCallback(() => {
+    const descriptor: TabDescriptor = {
+      id: 'focus',
+      kind: 'focus',
+      label: 'Focus',
+      pinned: true,
+      data: { kind: 'focus' },
+    };
+    openTab(descriptor);
+  }, [openTab]);
+
   // Determine if the active tab is a miniapp (for showing chat side panel)
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const showChatSidePanel = activeTab?.kind === 'miniapp';
@@ -350,7 +373,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   onNewApplication={() => { setSidebarTab('chats'); }}
                 />
               ) : sidebarTab === 'reactions' ? (
-                <ReactionsSidebar />
+                <ReactionsSidebar onOpenFocus={handleOpenFocus} />
               ) : sidebarTab === 'scheduled' ? (
                 <ScheduledTasksSidebar
                   selectedTaskId={selectedTaskId}
@@ -417,6 +440,9 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                       )}
                       {tab.data.kind === 'debug' && (
                         <DebugContent activeSection={debugSection} />
+                      )}
+                      {tab.data.kind === 'focus' && (
+                        <FocusEditor />
                       )}
                     </div>
                   ))}

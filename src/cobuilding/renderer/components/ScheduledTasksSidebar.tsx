@@ -8,12 +8,33 @@ function cronToHuman(expr: string): string {
 
   const [min, hour, dom, mon, dow] = parts;
 
+  // Step patterns (*/N)
+  const minStep = min.match(/^\*\/(\d+)$/);
+  if (minStep && hour === '*') {
+    const n = parseInt(minStep[1], 10);
+    return n === 1 ? 'Every minute' : `Every ${n} minutes`;
+  }
+
+  const hourStep = hour.match(/^\*\/(\d+)$/);
+  if (min === '0' && hourStep && dom === '*') {
+    const n = parseInt(hourStep[1], 10);
+    return n === 1 ? 'Every hour' : `Every ${n} hours`;
+  }
+
+  const domStep = dom.match(/^\*\/(\d+)$/);
+  if (min === '0' && hour === '0' && domStep) {
+    const n = parseInt(domStep[1], 10);
+    return n === 1 ? 'Daily' : `Every ${n} days`;
+  }
+
+  // Legacy patterns
   if (min === '*' && hour === '*') return 'Every minute';
+  if (min === '0' && hour === '*') return 'Every hour';
+  if (min === '0' && hour === '0' && dom === '*') return 'Daily';
   if (hour === '*' && min !== '*') return `Every hour at :${min.padStart(2, '0')}`;
   if (dom === '*' && mon === '*' && dow === '*' && hour !== '*' && min !== '*') {
     return `Daily at ${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
   }
-  if (min === '0' && hour === '*') return 'Every hour';
 
   return expr;
 }

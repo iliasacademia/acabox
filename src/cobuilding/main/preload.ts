@@ -176,6 +176,11 @@ contextBridge.exposeInMainWorld('soulPromptAPI', {
   set: (content: string) => ipcRenderer.invoke('soulPrompt:set', content),
 });
 
+contextBridge.exposeInMainWorld('focusPromptAPI', {
+  get: () => ipcRenderer.invoke('focusPrompt:get'),
+  set: (content: string) => ipcRenderer.invoke('focusPrompt:set', content),
+});
+
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),

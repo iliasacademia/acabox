@@ -1,21 +1,63 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PlayIcon, TrashIcon, SaveIcon } from 'lucide-react';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
 import type { ScheduledTask, ScheduledTaskRun } from '../../shared/types';
 
-function cronToHuman(expr: string): string {
-  const parts = expr.trim().split(/\s+/);
-  if (parts.length !== 5) return '';
+type ScheduleUnit = 'minutes' | 'hours' | 'days';
 
-  const [min, hour, dom, mon, dow] = parts;
-
-  if (min === '*' && hour === '*') return 'Runs every minute';
-  if (hour === '*' && min !== '*') return `Runs every hour at :${min.padStart(2, '0')}`;
-  if (dom === '*' && mon === '*' && dow === '*' && hour !== '*' && min !== '*') {
-    return `Runs daily at ${hour.padStart(2, '0')}:${min.padStart(2, '0')}`;
+function intervalToCron(interval: number, unit: ScheduleUnit): string {
+  switch (unit) {
+    case 'minutes': return `*/${interval} * * * *`;
+    case 'hours':   return `0 */${interval} * * *`;
+    case 'days':    return `0 0 */${interval} * *`;
   }
-  if (min === '0' && hour === '*') return 'Runs every hour';
+}
 
-  return '';
+function cronToInterval(expr: string): { interval: number; unit: ScheduleUnit } {
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return { interval: 1, unit: 'hours' };
+
+  const [min, hour, dom] = parts;
+
+  const minStep = min.match(/^\*\/(\d+)$/);
+  if (minStep && hour === '*' && dom === '*') {
+    return { interval: parseInt(minStep[1], 10), unit: 'minutes' };
+  }
+
+  const hourStep = hour.match(/^\*\/(\d+)$/);
+  if (min === '0' && hourStep && dom === '*') {
+    return { interval: parseInt(hourStep[1], 10), unit: 'hours' };
+  }
+  if (min === '0' && hour === '*' && dom === '*') {
+    return { interval: 1, unit: 'hours' };
+  }
+
+  const domStep = dom.match(/^\*\/(\d+)$/);
+  if (min === '0' && hour === '0' && domStep) {
+    return { interval: parseInt(domStep[1], 10), unit: 'days' };
+  }
+  if (min === '0' && hour === '0' && dom === '*') {
+    return { interval: 1, unit: 'days' };
+  }
+
+  return { interval: 1, unit: 'hours' };
+}
+
+function validateInterval(interval: number, unit: ScheduleUnit): string | null {
+  if (!Number.isInteger(interval) || interval <= 0) return 'Must be a positive whole number';
+  switch (unit) {
+    case 'minutes':
+      if (interval % 5 !== 0) return 'Must be a multiple of 5';
+      if (interval < 5 || interval > 55) return 'Must be between 5 and 55';
+      break;
+    case 'hours':
+      if (interval > 24) return 'Must be between 1 and 24';
+      break;
+    case 'days':
+      if (interval > 31) return 'Must be between 1 and 31';
+      break;
+  }
+  return null;
 }
 
 export function ScheduledTaskEditor({
@@ -32,7 +74,8 @@ export function ScheduledTaskEditor({
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [cronExpression, setCronExpression] = useState('0 * * * *');
+  const [scheduleInterval, setScheduleInterval] = useState(1);
+  const [scheduleUnit, setScheduleUnit] = useState<ScheduleUnit>('hours');
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
@@ -48,7 +91,9 @@ export function ScheduledTaskEditor({
           setName(t.name);
           setDescription(t.description);
           setPrompt(t.prompt);
-          setCronExpression(t.cron_expression);
+          const { interval, unit } = cronToInterval(t.cron_expression);
+          setScheduleInterval(interval);
+          setScheduleUnit(unit);
         }
       });
       window.scheduledTasksAPI.listRuns(taskId).then(setRuns);
@@ -57,12 +102,17 @@ export function ScheduledTaskEditor({
       setName('');
       setDescription('');
       setPrompt('');
-      setCronExpression('0 * * * *');
+      setScheduleInterval(1);
+      setScheduleUnit('hours');
       setRuns([]);
     }
   }, [taskId]);
 
+  const cronExpression = intervalToCron(scheduleInterval, scheduleUnit);
+  const validationError = validateInterval(scheduleInterval, scheduleUnit);
+
   const handleSave = useCallback(async () => {
+    if (validationError) return;
     if (!isSystemTask && (!name.trim() || !prompt.trim())) return;
     setSaving(true);
     try {
@@ -72,12 +122,12 @@ export function ScheduledTaskEditor({
           name: name.trim(),
           description: description.trim(),
           prompt: prompt.trim(),
-          cron_expression: cronExpression.trim(),
+          cron_expression: cronExpression,
         });
         savedId = created.id;
       } else if (isSystemTask) {
         await window.scheduledTasksAPI.update(taskId!, {
-          cron_expression: cronExpression.trim(),
+          cron_expression: cronExpression,
         });
         savedId = taskId!;
       } else {
@@ -85,7 +135,7 @@ export function ScheduledTaskEditor({
           name: name.trim(),
           description: description.trim(),
           prompt: prompt.trim(),
-          cron_expression: cronExpression.trim(),
+          cron_expression: cronExpression,
         });
         savedId = taskId!;
       }
@@ -93,7 +143,7 @@ export function ScheduledTaskEditor({
     } finally {
       setSaving(false);
     }
-  }, [isNew, isSystemTask, taskId, name, description, prompt, cronExpression, onSaved]);
+  }, [isNew, isSystemTask, taskId, name, description, prompt, cronExpression, validationError, onSaved]);
 
   const handleDelete = useCallback(async () => {
     if (!taskId) return;
@@ -114,7 +164,17 @@ export function ScheduledTaskEditor({
     }
   }, [taskId]);
 
-  const cronHint = cronToHuman(cronExpression);
+  const handleUnitChange = (newUnit: ScheduleUnit) => {
+    setScheduleUnit(newUnit);
+    if (newUnit === 'minutes') {
+      const snapped = Math.max(5, Math.min(55, Math.round(scheduleInterval / 5) * 5));
+      setScheduleInterval(snapped);
+    } else if (newUnit === 'hours') {
+      setScheduleInterval(Math.max(1, Math.min(24, scheduleInterval)));
+    } else {
+      setScheduleInterval(Math.max(1, Math.min(31, scheduleInterval)));
+    }
+  };
 
   return (
     <div className="scheduledTaskEditor">
@@ -162,28 +222,45 @@ export function ScheduledTaskEditor({
           </>
         )}
 
-        <label className="scheduledTaskEditor__label">
-          Cron Expression
-          <input
-            className="scheduledTaskEditor__input"
-            type="text"
-            value={cronExpression}
-            onChange={(e) => setCronExpression(e.target.value)}
-            placeholder="0 * * * *"
-          />
-          {cronHint && (
-            <span className="scheduledTaskEditor__hint">{cronHint}</span>
+        <div className="scheduledTaskEditor__label">
+          Schedule
+          <div className="scheduledTaskEditor__scheduleRow">
+            <span className="scheduledTaskEditor__scheduleLabel">Every</span>
+            <input
+              className="scheduledTaskEditor__input scheduledTaskEditor__scheduleInput"
+              type="number"
+              value={scheduleInterval}
+              min={scheduleUnit === 'minutes' ? 5 : 1}
+              max={scheduleUnit === 'minutes' ? 55 : scheduleUnit === 'hours' ? 24 : 31}
+              step={scheduleUnit === 'minutes' ? 5 : 1}
+              onChange={(e) => {
+                const val = parseInt(e.target.value, 10);
+                if (!isNaN(val)) setScheduleInterval(val);
+              }}
+            />
+            <Select value={scheduleUnit} onValueChange={(v) => handleUnitChange(v as ScheduleUnit)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="minutes">minutes</SelectItem>
+                <SelectItem value="hours">hours</SelectItem>
+                <SelectItem value="days">days</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          {validationError && (
+            <span className="scheduledTaskEditor__hint scheduledTaskEditor__hint--error">
+              {validationError}
+            </span>
           )}
-          <span className="scheduledTaskEditor__hint scheduledTaskEditor__hint--muted">
-            Format: minute hour day-of-month month day-of-week
-          </span>
-        </label>
+        </div>
 
         <div className="scheduledTaskEditor__actions">
           <button
             className="scheduledTaskEditor__btn scheduledTaskEditor__btn--primary"
             onClick={handleSave}
-            disabled={saving || (!isSystemTask && (!name.trim() || !prompt.trim()))}
+            disabled={saving || !!validationError || (!isSystemTask && (!name.trim() || !prompt.trim()))}
           >
             <SaveIcon style={{ width: 14, height: 14 }} />
             {saving ? 'Saving...' : 'Save'}
