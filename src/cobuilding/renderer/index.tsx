@@ -98,12 +98,23 @@ function NotificationNavigator({
 
   useEffect(() => {
     const handler = (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
+      console.log('[NotificationNav] Renderer received notification:navigate IPC:', JSON.stringify(navigation));
       if (navigation.type === 'thread' && navigation.threadId) {
+        console.log('[NotificationNav] Thread navigation — threadId:', navigation.threadId, 'sidebarTab:', navigation.sidebarTab ?? 'chats (default)');
         setSidebarTab(navigation.sidebarTab ?? 'chats');
         deactivateAllTabs();
-        runtime.threads.switchToThread(navigation.threadId);
+        try {
+          console.log('[NotificationNav] Calling runtime.threads.switchToThread("' + navigation.threadId + '")');
+          runtime.threads.switchToThread(navigation.threadId);
+          console.log('[NotificationNav] switchToThread returned successfully');
+        } catch (err) {
+          console.error('[NotificationNav] switchToThread threw an error:', err);
+        }
       } else if (navigation.type === 'sidebar' && navigation.tab) {
+        console.log('[NotificationNav] Sidebar navigation — tab:', navigation.tab);
         setSidebarTab(navigation.tab);
+      } else {
+        console.warn('[NotificationNav] Unhandled navigation type or missing fields:', JSON.stringify(navigation));
       }
     };
     window.electronAPI.on('notification:navigate', handler);

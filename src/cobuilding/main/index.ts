@@ -225,12 +225,19 @@ app.on('open-url', (event, url) => {
 let mainWindow: BrowserWindow | null = null;
 
 function handleNotificationNavigation(action: NotificationNavigationAction | null): void {
+  log.info('[NotificationNav] handleNotificationNavigation called with action:', JSON.stringify(action));
   if (mainWindow && !mainWindow.isDestroyed()) {
+    log.info('[NotificationNav] mainWindow exists and is not destroyed — showing and focusing');
     mainWindow.show();
     mainWindow.focus();
     if (action) {
+      log.info('[NotificationNav] Sending notification:navigate IPC to renderer:', JSON.stringify(action));
       mainWindow.webContents.send('notification:navigate', action);
+    } else {
+      log.info('[NotificationNav] Action is null — window activated but no navigation IPC sent');
     }
+  } else {
+    log.warn('[NotificationNav] mainWindow is null or destroyed — cannot navigate. mainWindow:', mainWindow ? 'exists but destroyed' : 'null');
   }
 }
 let activeWorkspace: Workspace | null = null;
