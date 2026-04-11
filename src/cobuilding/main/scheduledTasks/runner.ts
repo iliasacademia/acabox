@@ -1,7 +1,5 @@
 import log from 'electron-log';
 import { randomUUID } from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
 import { createAgentSession } from '../agentSession';
 import { updateSessionTitle } from '../db/chatRepository';
 import { createTaskRun, completeTaskRun } from '../db/scheduledTaskRepository';
@@ -9,16 +7,6 @@ import { registerSession, unregisterSession } from '../sessionRegistry';
 import { getLocalDate, getLocalTime, getLocalTimezone } from '../../shared/utils';
 import type { ScheduledTask } from '../db/scheduledTaskRepository';
 import type { Workspace, NotificationNavigationAction } from '../../shared/types';
-
-function getFocusContent(workspace: Workspace): string | null {
-  try {
-    const focusPath = path.join(workspace.directory_path, '.academia', 'FOCUS.md');
-    const content = fs.readFileSync(focusPath, 'utf-8').trim();
-    return content || null;
-  } catch {
-    return null;
-  }
-}
 
 export function runScheduledTask(
   task: ScheduledTask,
@@ -59,13 +47,6 @@ export function runScheduledTask(
 
     registerSession(sessionId, session);
 
-    let prompt = task.prompt;
-    if (task.session_source === 'reactions-system') {
-      const focusContent = getFocusContent(workspace);
-      if (focusContent) {
-        prompt += '\n\nUser\'s research focus (from FOCUS.md):\n' + focusContent;
-      }
-    }
-    session.sendMessage(prompt);
+    session.sendMessage(task.prompt);
   });
 }
