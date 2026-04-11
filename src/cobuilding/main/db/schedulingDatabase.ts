@@ -61,6 +61,10 @@ const migrations = [
     version: 6,
     sql: `UPDATE scheduled_tasks SET name = 'Reactions' WHERE name = 'Activity Summary' AND session_source = 'reactions-system';`,
   },
+  {
+    version: 7,
+    sql: `UPDATE scheduled_tasks SET cron_expression = '*/15 * * * *', description = 'Summarizes your recent activity every 15 minutes' WHERE session_source = 'reactions-system' AND cron_expression = '0 */2 * * *';`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

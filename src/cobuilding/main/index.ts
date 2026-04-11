@@ -125,7 +125,7 @@ function clearReactionUserInstructions(): void {
 }
 
 function seedDefaultTasks(workspaceId: string): void {
-  createTask(workspaceId, 'Reactions', 'Summarizes your recent activity every 2 hours', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '0 */2 * * *', 'reactions-system');
+  createTask(workspaceId, 'Reactions', 'Summarizes your recent activity every 15 minutes', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '*/15 * * * *', 'reactions-system');
   markDefaultTasksSeeded();
   log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
 }
