@@ -1,10 +1,11 @@
-export type TabKind = 'file' | 'notebook' | 'miniapp' | 'debug';
+export type TabKind = 'file' | 'notebook' | 'miniapp' | 'debug' | 'focus';
 
 export type TabData =
   | { kind: 'file'; filePath: string }
   | { kind: 'notebook'; filePath: string }
   | { kind: 'miniapp'; dirName: string }
-  | { kind: 'debug' };
+  | { kind: 'debug' }
+  | { kind: 'focus' };
 
 export interface TabDescriptor {
   /** Stable unique ID, e.g. "file::/path/to/file.txt" */

@@ -1,6 +1,5 @@
 import log from 'electron-log';
 import { randomUUID } from 'crypto';
-import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { createAgentSession } from '../agentSession';
@@ -11,11 +10,11 @@ import { getLocalDate, getLocalTime, getLocalTimezone } from '../../shared/utils
 import type { ScheduledTask } from '../db/scheduledTaskRepository';
 import type { Workspace, NotificationNavigationAction } from '../../shared/types';
 
-function getReactionUserInstructions(): string | null {
+function getFocusContent(workspace: Workspace): string | null {
   try {
-    const settingsPath = path.join(app.getPath('userData'), 'cobuilding-settings.json');
-    const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-    return data.reactionUserInstructions ?? null;
+    const focusPath = path.join(workspace.directory_path, '.academia', 'FOCUS.md');
+    const content = fs.readFileSync(focusPath, 'utf-8').trim();
+    return content || null;
   } catch {
     return null;
   }
@@ -62,9 +61,9 @@ export function runScheduledTask(
 
     let prompt = task.prompt;
     if (task.session_source === 'reactions-system') {
-      const userInstructions = getReactionUserInstructions();
-      if (userInstructions) {
-        prompt += '\n\nAdditional user instructions for the reaction skill:\n' + userInstructions;
+      const focusContent = getFocusContent(workspace);
+      if (focusContent) {
+        prompt += '\n\nUser\'s research focus (from FOCUS.md):\n' + focusContent;
       }
     }
     session.sendMessage(prompt);

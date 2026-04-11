@@ -951,6 +951,24 @@ ipcMain.handle('reactionPrompt:reset', () => {
   clearReactionUserInstructions();
 });
 
+// FOCUS.md IPC handlers
+ipcMain.handle('focusPrompt:get', () => {
+  if (!activeWorkspace) return { content: '' };
+  const focusPath = path.join(activeWorkspace.directory_path, '.academia', 'FOCUS.md');
+  try {
+    return { content: fs.readFileSync(focusPath, 'utf-8') };
+  } catch {
+    return { content: '' };
+  }
+});
+
+ipcMain.handle('focusPrompt:set', (_event, content: string) => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
+  fs.mkdirSync(academiaDir, { recursive: true });
+  fs.writeFileSync(path.join(academiaDir, 'FOCUS.md'), content, 'utf-8');
+});
+
 // SOUL.md IPC handlers
 ipcMain.handle('soulPrompt:get', () => {
   if (!activeWorkspace) return { content: '' };

@@ -78,9 +78,9 @@ No new updates.
 ```
 
 ## Relevance filtering
-- Before summarizing, check if a SOUL.md persona file exists at `.academia/SOUL.md`. If it exists, use it to determine what is relevant to the user's persona and research interests.
-- **Only summarize activities that are relevant to the user's research or persona.** Skip activities that are clearly unrelated (e.g., social media browsing, entertainment, general web surfing unrelated to their work).
-- If no SOUL.md exists, filter based on whether the activity appears to be research-related or work-related. When in doubt, include the activity.
+- Before summarizing, check if a FOCUS.md file exists at `.academia/FOCUS.md`. If it exists, use it to determine what is relevant to the user's research focus.
+- **Only summarize activities that are relevant to the user's research focus.** Skip activities that are clearly unrelated (e.g., social media browsing, entertainment, general web surfing unrelated to their work).
+- If no FOCUS.md exists, filter based on whether the activity appears to be research-related or work-related. When in doubt, include the activity.
 - It is perfectly fine for an update to contain fewer items or even "No new updates." if none of the activities are relevant.
 
 ## Guidelines
