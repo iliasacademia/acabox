@@ -1070,18 +1070,23 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  try {
-    globalShortcut.unregisterAll();
-    stopFileMonitor();
-    stopBrowserMonitor();
-    stopScheduledTasks();
-    destroyAllSessions();
-    kernelGatewayService.stop();
-    containerService.stop();
-    closeSchedulingDatabase();
-    closeObservationsDatabase();
-    closeDatabase();
-  } catch (err) {
-    log.error('[APP] Error during cleanup:', err);
+  const steps: [string, () => void][] = [
+    ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
+    ['stopFileMonitor', stopFileMonitor],
+    ['stopBrowserMonitor', stopBrowserMonitor],
+    ['stopScheduledTasks', stopScheduledTasks],
+    ['destroyAllSessions', destroyAllSessions],
+    ['kernelGatewayService.stop', () => kernelGatewayService.stop()],
+    ['containerService.stop', () => containerService.stop()],
+    ['closeSchedulingDatabase', closeSchedulingDatabase],
+    ['closeObservationsDatabase', closeObservationsDatabase],
+    ['closeDatabase', closeDatabase],
+  ];
+  for (const [name, fn] of steps) {
+    try {
+      fn();
+    } catch (err) {
+      log.error(`[APP] Cleanup step "${name}" failed:`, err);
+    }
   }
 });
