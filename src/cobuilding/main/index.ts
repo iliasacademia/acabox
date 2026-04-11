@@ -1070,14 +1070,18 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  globalShortcut.unregisterAll();
-  stopFileMonitor();
-  stopBrowserMonitor();
-  stopScheduledTasks();
-  destroyAllSessions();
-  kernelGatewayService.stop();
-  containerService.stop();
-  closeSchedulingDatabase();
-  closeObservationsDatabase();
-  closeDatabase();
+  try {
+    globalShortcut.unregisterAll();
+    stopFileMonitor();
+    stopBrowserMonitor();
+    stopScheduledTasks();
+    destroyAllSessions();
+    kernelGatewayService.stop();
+    containerService.stop();
+    closeSchedulingDatabase();
+    closeObservationsDatabase();
+    closeDatabase();
+  } catch (err) {
+    log.error('[APP] Error during cleanup:', err);
+  }
 });
