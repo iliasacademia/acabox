@@ -182,6 +182,29 @@
   color: #999;
 }
 
+.scheduledTaskEditor__hint--error {
+  color: #c33;
+}
+
+/* Schedule row: "Every [X] [dropdown]" inline layout */
+.scheduledTaskEditor__scheduleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scheduledTaskEditor__scheduleLabel {
+  font-size: 0.875rem;
+  color: #333;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.scheduledTaskEditor__scheduleInput {
+  width: 64px;
+  text-align: center;
+}
+
 .scheduledTaskEditor__actions {
   display: flex;
   gap: 8px;
