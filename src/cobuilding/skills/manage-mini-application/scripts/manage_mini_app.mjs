@@ -63,68 +63,56 @@ const indexHtml = `<!DOCTYPE html>
 writeFileSync(join(miniAppDir, "src", "index.html"), indexHtml);
 
 // Scaffold index.tsx
+//
+// Runtime errors (sync exceptions, unhandled rejections, console.error, failed
+// fetches, resource load failures) are captured globally by _bridge/bridge.ts
+// and displayed in a floating red overlay by <ErrorDisplay /> from @reusable.
+// The slim ErrorBoundary below catches React render errors and forwards them
+// into the same display so all errors flow through one UI.
 const indexTsx = `import "../../_bridge/bridge";
 import React from "react";
 import { createRoot } from "react-dom/client";
+import { ErrorDisplay } from "@reusable/ErrorDisplay";
 import App from "./App";
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { error: Error | null }
+  { hasError: boolean }
 > {
-  state: { error: Error | null } = { error: null };
+  state: { hasError: boolean } = { hasError: false };
 
-  static getDerivedStateFromError(error: Error) {
-    return { error };
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    const stack =
+      (error.stack ?? "") +
+      (info.componentStack ? "\\n\\nComponent stack:" + info.componentStack : "");
+    window.dispatchEvent(
+      new CustomEvent("cobuild-error", {
+        detail: {
+          kind: "exception",
+          message: error.message,
+          stack,
+          timestamp: Date.now(),
+        },
+      })
+    );
   }
 
   render() {
-    if (!this.state.error) return this.props.children;
-    const err = this.state.error;
-    return (
-      <div style={{
-        padding: "24px",
-        fontFamily: "system-ui, -apple-system, sans-serif",
-        maxWidth: "720px",
-        margin: "40px auto",
-      }}>
-        <div style={{
-          background: "#fef2f2",
-          border: "1px solid #fecaca",
-          borderRadius: "8px",
-          padding: "20px",
-        }}>
-          <h2 style={{ margin: "0 0 8px", fontSize: "16px", fontWeight: 600, color: "#991b1b" }}>
-            Something went wrong
-          </h2>
-          <pre style={{
-            margin: "0 0 16px",
-            padding: "12px",
-            background: "#fff1f2",
-            borderRadius: "6px",
-            fontSize: "13px",
-            color: "#b91c1c",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
-            overflowX: "auto",
-            maxHeight: "300px",
-          }}>
-            {err.message}
-            {err.stack ? "\\n\\n" + err.stack : ""}
-          </pre>
-          <p style={{ margin: 0, fontSize: "13px", color: "#6b7280" }}>
-            Copy this error and ask the agent to fix it.
-          </p>
-        </div>
-      </div>
-    );
+    return this.state.hasError ? null : this.props.children;
   }
 }
 
 createRoot(document.getElementById("root")!).render(
-  <ErrorBoundary>
-    <App />
-  </ErrorBoundary>
+  <>
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
+    <ErrorDisplay />
+  </>
 );
 `;
 

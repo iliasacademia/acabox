@@ -1,3 +1,9 @@
+// Install global error capture (uncaught exceptions, unhandled rejections,
+// console.error, failed fetches, resource load failures). Imported for side
+// effects — keep this first so handlers are in place before any bridge or
+// app code runs.
+import "./error-capture";
+
 export {};
 
 interface BridgeFilesAPI {
