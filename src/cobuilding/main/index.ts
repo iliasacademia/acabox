@@ -367,6 +367,7 @@ app.whenReady().then(() => {
       copySkillsToWorkspace(activeWorkspace.directory_path);
       copyClaudeMdToWorkspace(activeWorkspace.directory_path);
       syncMiniAppAssets(activeWorkspace.directory_path);
+      containerService.writeStartContainerScript(activeWorkspace.directory_path);
     }
 
     createMainWindow();
@@ -469,6 +470,7 @@ ipcMain.handle(
     copySkillsToWorkspace(directoryPath);
     syncMiniAppAssets(directoryPath);
     copyClaudeMdToWorkspace(directoryPath);
+    containerService.writeStartContainerScript(directoryPath);
 
     const id = randomUUID();
     createWorkspace(id, name, directoryPath, apiKey);
@@ -510,6 +512,7 @@ ipcMain.handle(
       copySkillsToWorkspace(directoryPath);
       copyClaudeMdToWorkspace(directoryPath);
       syncMiniAppAssets(directoryPath);
+      containerService.writeStartContainerScript(directoryPath);
     }
 
     updateWorkspace(activeWorkspace.id, name, directoryPath, cachedApiKey ?? activeWorkspace.api_key);
@@ -536,6 +539,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   copySkillsToWorkspace(target.directory_path);
   copyClaudeMdToWorkspace(target.directory_path);
   syncMiniAppAssets(target.directory_path);
+  containerService.writeStartContainerScript(target.directory_path);
 
   return activeWorkspace ?? null;
 });
@@ -609,9 +613,13 @@ ipcMain.handle('container:deleteImage', async () => {
 });
 
 ipcMain.handle('container:ensureSetup', async () => {
-  await containerService.ensureSetup((stage, message, percent) => {
+  const progressCallback = (stage: string, message: string, percent?: number) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
-  });
+  };
+  await containerService.ensureSetup(progressCallback);
+  if (activeWorkspace) {
+    await containerService.start(activeWorkspace.directory_path, progressCallback);
+  }
 });
 
 // ─── Debug: Data Management ─────────────────────────────────────
