@@ -961,6 +961,19 @@ ipcMain.on('chat:unsubscribe', (event, threadId: string) => {
   forwardingListeners.get(key)?.();
 });
 
+ipcMain.on('chat:stop', (event, threadId: string) => {
+  // Clean up the forwarding listener synchronously before destroying the session,
+  // so that a subsequent chat:send can set up fresh forwarding for a new session.
+  const key = `${threadId}:${event.sender.id}`;
+  forwardingListeners.get(key)?.();
+
+  const session = getRegisteredSession(threadId);
+  if (session) {
+    session.destroy();
+    unregisterSession(threadId);
+  }
+});
+
 // Auth IPC handlers
 ipcMain.handle('auth:checkLogin', async () => {
   try {

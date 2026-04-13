@@ -53,15 +53,22 @@ export function useSessionSubscription() {
             threadRuntime.resumeRun({
               parentId: lastMessageId,
               stream: async function* ({ abortSignal }) {
-                // Yield the first event we already processed
-                yield { content: response.getContent() };
+                const onAbort = () => window.chatAPI.stopResponding(remoteId!);
+                abortSignal.addEventListener('abort', onAbort, { once: true });
 
-                // Continue yielding subsequent events
-                for await (const nextMsg of iterable) {
-                  if (abortSignal.aborted || cancelled) break;
-                  resetIdleTimer();
-                  response.onMessage(nextMsg);
+                try {
+                  // Yield the first event we already processed
                   yield { content: response.getContent() };
+
+                  // Continue yielding subsequent events
+                  for await (const nextMsg of iterable) {
+                    if (abortSignal.aborted || cancelled) break;
+                    resetIdleTimer();
+                    response.onMessage(nextMsg);
+                    yield { content: response.getContent() };
+                  }
+                } finally {
+                  abortSignal.removeEventListener('abort', onAbort);
                 }
               },
             });

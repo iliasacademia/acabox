@@ -1,5 +1,5 @@
 
-import { query, createSdkMcpServer, tool, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput, type SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, tool, type Query, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput, type SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
@@ -46,6 +46,8 @@ export function createAgentSession(
   const messageQueue = createMessageQueue<UserMessagePayload>();
   const listeners = new Set<Partial<ChatCallbacks>>();
   let running = true;
+  let queryInstance: Query | null = null;
+  let stopped = false;
 
   // Register the initial callbacks as the first listener
   listeners.add(callbacks);
@@ -104,7 +106,7 @@ export function createAgentSession(
         // File doesn't exist or can't be read — use default prompt
       }
 
-      for await (const message of query({
+      queryInstance = query({
         prompt: userMessageGenerator(),
         options: {
           pathToClaudeCodeExecutable: getClaudeCliPath(), spawnClaudeCodeProcess: (options: SpawnOptions) => {
@@ -162,7 +164,9 @@ export function createAgentSession(
             }],
           },
         },
-      })) {
+      });
+
+      for await (const message of queryInstance) {
         processQueryMessage(message, state, emitEvent);
 
         if (message.type === 'system') {
@@ -199,8 +203,17 @@ export function createAgentSession(
         }
       }
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      emitError(errorMessage);
+      if (stopped) {
+        emitDone();
+      } else {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        emitError(errorMessage);
+      }
+    } finally {
+      queryInstance = null;
+      if (running) {
+        emitDone();
+      }
     }
   })();
 
@@ -217,6 +230,11 @@ export function createAgentSession(
     },
 
     destroy() {
+      stopped = true;
+      if (queryInstance) {
+        queryInstance.close();
+        queryInstance = null;
+      }
       messageQueue.done();
     },
 

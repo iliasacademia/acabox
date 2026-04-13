@@ -302,4 +302,8 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.send('chat:subscribe', threadId);
     return { stream, unsubscribe: () => { markDone(); ipcRenderer.send('chat:unsubscribe', threadId); } };
   },
+  stopResponding: (threadId: string) => {
+    activeStreams.get(threadId)?.();
+    ipcRenderer.send('chat:stop', threadId);
+  },
 });

@@ -26,7 +26,7 @@ export function useElectronChatAdapter(): ChatModelAdapter {
 
 function createElectronChatAdapter(aui: any): ChatModelAdapter {
   return {
-    async *run({ messages }) {
+    async *run({ messages, abortSignal }) {
       const lastUserMessage = messages.filter((m) => m.role === 'user').pop();
       if (!lastUserMessage) return;
 
@@ -47,12 +47,19 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
       const response = responseBuilder();
       resetProgress();
 
-      for await (const msg of responseStream) {
-        response.onMessage(msg);
-        yield { content: response.getContent() };
-      }
+      const onAbort = () => window.chatAPI.stopResponding(threadId);
+      abortSignal.addEventListener('abort', onAbort, { once: true });
 
-      resetProgress();
+      try {
+        for await (const msg of responseStream) {
+          if (abortSignal.aborted) break;
+          response.onMessage(msg);
+          yield { content: response.getContent() };
+        }
+      } finally {
+        abortSignal.removeEventListener('abort', onAbort);
+        resetProgress();
+      }
     },
   };
 }
