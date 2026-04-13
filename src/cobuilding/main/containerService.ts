@@ -86,6 +86,7 @@ class CobuildingContainerService {
   private currentWorkspacePath: string | null = null;
   private logTailInterval: ReturnType<typeof setInterval> | null = null;
   private lastLogTime: string = new Date().toISOString();
+  private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
   // ─── Public API ─────────────────────────────────────────────────
 
@@ -139,6 +140,7 @@ class CobuildingContainerService {
 
   stop(): void {
     this.stopLogTail();
+    this.stopHealthWatch();
     log.debug('[ContainerService] Stopping container...');
     const podmanBin = this.getPodmanBin();
     const env = this.getExecEnv();
@@ -301,6 +303,78 @@ class CobuildingContainerService {
 
   getPodmanEnv(): NodeJS.ProcessEnv {
     return this.getExecEnv();
+  }
+
+  writeStartContainerScript(workspaceDir: string): void {
+    const academiaDir = path.join(workspaceDir, '.academia');
+    fs.mkdirSync(academiaDir, { recursive: true });
+    const scriptPath = path.join(academiaDir, 'start-container');
+
+    // Compute the podman binary path without requiring it to exist yet
+    // (binaries may not be downloaded until the user starts the container).
+    const podmanBin = this.useBundled()
+      ? path.join(getBundledPodmanBinDir(), process.platform === 'win32' ? 'podman.exe' : 'podman')
+      : 'podman';
+
+    const mountPath = toMountPath(path.resolve(workspaceDir));
+
+    let envExports = '';
+    if (this.useBundled()) {
+      // getBundledPodmanEnv() computes stable paths; safe to call before binaries exist.
+      const env = getBundledPodmanEnv();
+      const keys = [
+        'PATH',
+        'CONTAINERS_MACHINE_PROVIDER',
+        'XDG_CONFIG_HOME',
+        'XDG_DATA_HOME',
+        'XDG_RUNTIME_DIR',
+        'HOME',
+      ] as const;
+      envExports = keys
+        .filter((k) => env[k] != null)
+        .map((k) => `export ${k}="${env[k]}"`)
+        .join('\n') + '\n\n';
+    }
+
+    const script = [
+      '#!/bin/bash',
+      'set -euo pipefail',
+      '',
+      `PODMAN_BIN="${podmanBin}"`,
+      `WORKSPACE_PATH="${mountPath}"`,
+      `CONTAINER_NAME="${CONTAINER_NAME}"`,
+      `IMAGE_NAME="${IMAGE_NAME}"`,
+      '',
+      envExports +
+        '# If the container is already running, there is nothing to do.',
+      'if "$PODMAN_BIN" inspect --format \'{{.State.Running}}\' "$CONTAINER_NAME" 2>/dev/null | grep -q \'^true$\'; then',
+      '  echo "Container is already running."',
+      '  exit 0',
+      'fi',
+      '',
+      'echo "Starting $CONTAINER_NAME..."',
+      '"$PODMAN_BIN" run -d \\',
+      '  --replace \\',
+      '  --name "$CONTAINER_NAME" \\',
+      '  -v "$WORKSPACE_PATH:/data" \\',
+      '  "$IMAGE_NAME" \\',
+      '  sleep infinity',
+      '',
+      '# Wait up to 30 seconds for the container to become running.',
+      'for i in $(seq 1 30); do',
+      '  if "$PODMAN_BIN" inspect --format \'{{.State.Running}}\' "$CONTAINER_NAME" 2>/dev/null | grep -q \'^true$\'; then',
+      '    echo "Container started."',
+      '    exit 0',
+      '  fi',
+      '  sleep 1',
+      'done',
+      '',
+      'echo "Container did not start within 30 seconds." >&2',
+      'exit 1',
+      '',
+    ].join('\n');
+
+    fs.writeFileSync(scriptPath, script, { mode: 0o755 });
   }
 
   async ensureSetup(onProgress?: ProgressCallback): Promise<void> {
@@ -762,6 +836,7 @@ class CobuildingContainerService {
     this.containerStarted = true;
     this.currentWorkspacePath = workspacePath;
     this.startLogTail(podmanBin);
+    this.startHealthWatch(podmanBin);
   }
 
   // ─── Container Log Tailing ───────────────────────────────────
@@ -791,6 +866,45 @@ class CobuildingContainerService {
     if (this.logTailInterval) {
       clearInterval(this.logTailInterval);
       this.logTailInterval = null;
+    }
+  }
+
+  // ─── Container Health Watch ──────────────────────────────────
+
+  private startHealthWatch(podmanBin: string): void {
+    this.stopHealthWatch();
+    this.healthCheckInterval = setInterval(async () => {
+      if (!this.containerStarted || this.isStarting || !this.currentWorkspacePath) return;
+
+      let running = false;
+      try {
+        const { stdout } = await this.execAsync(podmanBin, [
+          'inspect', '--format', '{{.State.Running}}', CONTAINER_NAME,
+        ], this.getExecEnv());
+        running = stdout.trim() === 'true';
+      } catch {
+        running = false;
+      }
+
+      if (!running) {
+        log.warn('[ContainerService] Container stopped unexpectedly, restarting...');
+        this.isStarting = true;
+        try {
+          await this.runContainer(podmanBin, this.currentWorkspacePath);
+          log.info('[ContainerService] Container restarted successfully');
+        } catch (err) {
+          log.error('[ContainerService] Auto-restart failed:', (err as Error).message);
+        } finally {
+          this.isStarting = false;
+        }
+      }
+    }, 10_000);
+  }
+
+  private stopHealthWatch(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
     }
   }
 

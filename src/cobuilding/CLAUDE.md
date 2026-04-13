@@ -31,6 +31,16 @@ podman exec cobuilding-container Rscript -e 'install.packages("<package>", repos
 
 This applies even if a skill's documentation shows a bare `pip install` command — always run it through `podman exec`.
 
+## Container recovery
+
+If a `podman exec cobuilding-container` command fails because the container is not running, restart it by running:
+
+```bash
+.academia/start-container
+```
+
+Then retry your command. Do not attempt to start the container any other way.
+
 ## Running skill scripts
 
 Skill scripts are located in the workspace at `.claude/skills/<skill-name>/scripts/`. To run them inside the Podman container:
