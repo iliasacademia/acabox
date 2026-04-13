@@ -6,13 +6,15 @@ import { ObservationsDebug } from './ObservationsDebug';
 import { BrowserExtensionDebug } from './BrowserExtensionDebug';
 import { FileMonitorDebug } from './FileMonitorDebug';
 import { StorageDebug } from './StorageDebug';
+import { TerminalDebug } from './TerminalDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage';
+export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'apps', label: 'Logs' },
   { id: 'podman', label: 'Podman' },
+  { id: 'terminal', label: 'Container Terminal' },
   { id: 'kernels', label: 'Kernels' },
   { id: 'observations', label: 'Observations' },
   { id: 'browser-extension', label: 'Browser Extension' },
@@ -45,6 +47,7 @@ export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ active
     <div className="debugContent">
       {activeSection === 'podman' && <PodmanDebug />}
       {activeSection === 'apps' && <AppsDebug />}
+      {activeSection === 'terminal' && <TerminalDebug />}
       {activeSection === 'kernels' && <KernelsDebug />}
       {activeSection === 'observations' && <ObservationsDebug />}
       {activeSection === 'browser-extension' && <BrowserExtensionDebug />}
