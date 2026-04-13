@@ -969,6 +969,70 @@ body,
   height: 18px;
 }
 
+.modelSelectorTrigger {
+  flex-shrink: 0;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  padding: 4px 6px;
+  font-size: 12px;
+  color: #666;
+  gap: 3px;
+  cursor: pointer;
+  line-height: 1.3;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
+.modelSelectorTrigger:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: #333;
+}
+
+.modelSelectorTrigger:focus-visible {
+  background: rgba(0, 0, 0, 0.05);
+  box-shadow: none;
+  outline: none;
+  color: #333;
+}
+
+.modelSelectorContent {
+  min-width: 240px;
+}
+
+.modelSelectorItem {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+}
+
+.modelSelectorItem[data-highlighted] {
+  background: #f0f0f0;
+}
+
+.modelSelectorItem[data-state="checked"] .modelSelectorItemLabel {
+  font-weight: 600;
+}
+
+.modelSelectorItemInner {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.modelSelectorItemLabel {
+  font-size: 13px;
+  color: #333;
+}
+
+.modelSelectorItemDescription {
+  font-size: 11px;
+  color: #888;
+}
+
 .composerAttachmentItem {
   display: inline-flex;
   align-items: center;

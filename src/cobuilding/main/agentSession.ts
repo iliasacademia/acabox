@@ -42,6 +42,7 @@ export function createAgentSession(
   sdkSessionId?: string,
   source?: string,
   onNotificationClick?: (action: NotificationNavigationAction | null) => void,
+  model?: string,
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
   const listeners = new Set<Partial<ChatCallbacks>>();
@@ -123,7 +124,7 @@ export function createAgentSession(
             });
             return child as typeof child & { stdin: NonNullable<typeof child.stdin>; stdout: NonNullable<typeof child.stdout> };
           },
-          model: 'claude-sonnet-4-6',
+          model: model || 'claude-opus-4-6',
           ...(soulMdContent && {
             systemPrompt: {
               type: 'preset' as const,

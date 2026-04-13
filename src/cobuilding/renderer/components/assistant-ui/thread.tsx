@@ -4,6 +4,7 @@ import { ToolFallback } from './tool-fallback';
 import { ToolGroup } from './tool-group';
 import { TodoWrite } from './todo-write';
 import { Reasoning } from './thinking-indicator';
+import { ModelSelector } from '../ModelSelector';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { Button } from '../ui/button';
 import {
@@ -166,6 +167,7 @@ const Composer: FC = () => {
           autoFocus
           aria-label="Message input"
         />
+        <ModelSelector />
         <ComposerAction />
       </div>
     </ComposerPrimitive.Root>
