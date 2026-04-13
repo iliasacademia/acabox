@@ -2488,6 +2488,7 @@ ipcMain.handle(IPC_CHANNELS.PODMAN_OPEN_FOLDER, async () => {
   return { success: true };
 });
 
+
 ipcMain.handle(IPC_CHANNELS.PODMAN_STOP, async () => {
   try {
     podmanService.stop();

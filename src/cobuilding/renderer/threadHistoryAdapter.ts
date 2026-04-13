@@ -76,17 +76,29 @@ function convertToThreadMessages(
   toolResults: ToolResultsMap,
 ): ThreadMessageLike[] {
   const messages: ThreadMessageLike[] = [];
+  let pendingAssistantContent: ReturnType<typeof convertAssistantContent> | null = null;
+
+  const flushAssistant = () => {
+    if (pendingAssistantContent && pendingAssistantContent.length > 0) {
+      messages.push({ role: 'assistant', content: pendingAssistantContent });
+    }
+    pendingAssistantContent = null;
+  };
 
   for (const msg of dbMessages) {
     if (msg.type === 'user') {
+      flushAssistant();
       messages.push(convertUserMessage(msg.content));
     } else if (msg.type === 'assistant') {
-      messages.push({
-        role: 'assistant',
-        content: convertAssistantContent(msg.content, toolResults),
-      });
+      const newContent = convertAssistantContent(msg.content, toolResults);
+      if (pendingAssistantContent) {
+        pendingAssistantContent.push(...newContent);
+      } else {
+        pendingAssistantContent = [...newContent];
+      }
     }
   }
+  flushAssistant();
 
   return messages;
 }
