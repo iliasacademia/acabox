@@ -26,6 +26,7 @@ export const SetupBanner: React.FC = () => {
   const [statusText, setStatusText] = useState<string | null>(null);
   const startedRef = useRef(false);
   const didWorkRef = useRef(false);
+  const completedRef = useRef(false);
   const buildStartRef = useRef<number | null>(null);
   const buildTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const postDownloadStartRef = useRef<number | null>(null);
@@ -88,13 +89,15 @@ export const SetupBanner: React.FC = () => {
       setStatusText('Setting up Podman...');
       startPostDownloadTimer();
     } else if (stage === 'init') {
-      didWorkRef.current = true;
-      setVisible(true);
+      // VM init alone shouldn't bring the banner up — only update text if a real
+      // download/build already opened the banner.
+      if (!didWorkRef.current) return;
       setPhase('install-podman');
       setStatusText('Initializing Podman VM...');
     } else if (stage === 'start-machine') {
-      didWorkRef.current = true;
-      setVisible(true);
+      // VM start alone shouldn't bring the banner up — only update text if a real
+      // download/build already opened the banner.
+      if (!didWorkRef.current) return;
       setPhase('install-podman');
       setStatusText('Starting Podman VM...');
     } else if (stage === 'build-image' || stage === 'build' || stage === 'pull') {
@@ -112,6 +115,11 @@ export const SetupBanner: React.FC = () => {
       stopBuildTimer();
       setPercent(100);
     } else if (stage === 'setup-done' || stage === 'ready') {
+      // setup-done (from ensureSetup) and ready (from start) both arrive in one
+      // launch — only the first one should drive the UI to its final state, or
+      // the second event would tear down the "Setup complete" display early.
+      if (completedRef.current) return;
+      completedRef.current = true;
       stopPostDownloadTimer();
       stopBuildTimer();
       if (didWorkRef.current) {
@@ -172,6 +180,7 @@ export const SetupBanner: React.FC = () => {
       setError(null);
       setPercent(0);
       didWorkRef.current = false;
+      completedRef.current = false;
       try {
         await window.containerAPI.deleteBinaries();
         await window.containerAPI.ensureSetup();

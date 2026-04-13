@@ -25,6 +25,18 @@ interface BridgeContainerAPI {
   exec(command: string, args: string[]): Promise<unknown>;
 }
 
+interface BridgeErrorAPI {
+  // Ask the host to post a fix request for this error into the active chat
+  // thread. The host owns the prompt template (it knows the app's dir name).
+  requestFix(error: {
+    kind: string;
+    message: string;
+    stack?: string;
+    source?: string;
+    timestamp: number;
+  }): Promise<unknown>;
+}
+
 let requestId = 0;
 const pendingRequests = new Map<
   string,
@@ -72,6 +84,10 @@ const containerAPI: BridgeContainerAPI = {
   exec: (command: string, args: string[]) => request("executeCommand", { command, args }),
 };
 
+const errorAPI: BridgeErrorAPI = {
+  requestFix: (error) => request("requestFix", { error }),
+};
+
 let _workspacePath = "";
 window.addEventListener("message", (event) => {
   if (event.data?.type === "init" && event.data.workspacePath) {
@@ -79,4 +95,4 @@ window.addEventListener("message", (event) => {
   }
 });
 
-Object.assign(window, { filesAPI, kernel, containerAPI, getWorkspacePath: () => _workspacePath });
+Object.assign(window, { filesAPI, kernel, containerAPI, errorAPI, getWorkspacePath: () => _workspacePath });

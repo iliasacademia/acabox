@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { XIcon, ChevronDownIcon, ChevronRightIcon } from "lucide-react";
+import { XIcon, ChevronDownIcon, ChevronRightIcon, CheckIcon } from "lucide-react";
 
-// Mirrors the CobuildError shape produced by _bridge/bridge.ts.
+// Mirrors the CobuildError shape produced by _bridge/error-capture.ts.
 interface CobuildError {
   kind: "exception" | "unhandledrejection" | "console" | "fetch" | "resource";
   message: string;
@@ -15,6 +15,15 @@ interface StoredError extends CobuildError {
   expanded: boolean;
 }
 
+type FixState = "idle" | "sending" | "sent";
+
+// errorAPI is installed on window by _bridge/bridge.ts.
+declare const window: Window & {
+  errorAPI?: {
+    requestFix(error: CobuildError): Promise<unknown>;
+  };
+};
+
 const KIND_LABELS: Record<CobuildError["kind"], string> = {
   exception: "Exception",
   unhandledrejection: "Unhandled rejection",
@@ -25,7 +34,32 @@ const KIND_LABELS: Record<CobuildError["kind"], string> = {
 
 export function ErrorDisplay() {
   const [errors, setErrors] = useState<StoredError[]>([]);
+  const [fixState, setFixState] = useState<Record<number, FixState>>({});
   const idRef = useRef(0);
+
+  const requestFix = async (err: StoredError) => {
+    if (!window.errorAPI) {
+      console.warn("[ErrorDisplay] errorAPI not available on window");
+      return;
+    }
+    setFixState((prev) => ({ ...prev, [err.id]: "sending" }));
+    try {
+      await window.errorAPI.requestFix({
+        kind: err.kind,
+        message: err.message,
+        stack: err.stack,
+        source: err.source,
+        timestamp: err.timestamp,
+      });
+      setFixState((prev) => ({ ...prev, [err.id]: "sent" }));
+    } catch {
+      setFixState((prev) => {
+        const next = { ...prev };
+        delete next[err.id];
+        return next;
+      });
+    }
+  };
 
   useEffect(() => {
     // Replay any errors that fired before this component mounted.
@@ -184,6 +218,9 @@ export function ErrorDisplay() {
                   {err.stack ?? "(no stack)"}
                 </pre>
               )}
+              <div style={{ marginTop: 8, display: "flex", gap: 6 }}>
+                <FixButton state={fixState[err.id] ?? "idle"} onClick={() => requestFix(err)} />
+              </div>
             </div>
             <button
               onClick={() => dismiss(err.id)}
@@ -203,5 +240,33 @@ export function ErrorDisplay() {
         </div>
       ))}
     </div>
+  );
+}
+
+function FixButton({ state, onClick }: { state: FixState; onClick: () => void }) {
+  const disabled = state !== "idle";
+  const label = state === "sent" ? "Sent to chat" : state === "sending" ? "Sending..." : "Fix";
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        background: state === "sent" ? "#dcfce7" : "white",
+        border: `1px solid ${state === "sent" ? "#86efac" : "#fecaca"}`,
+        color: state === "sent" ? "#166534" : "#991b1b",
+        cursor: disabled ? "default" : "pointer",
+        fontSize: 11,
+        padding: "3px 8px",
+        borderRadius: 4,
+        fontWeight: 500,
+        opacity: state === "sending" ? 0.7 : 1,
+      }}
+    >
+      {state === "sent" && <CheckIcon size={12} />}
+      {label}
+    </button>
   );
 }

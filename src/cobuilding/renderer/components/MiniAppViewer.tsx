@@ -1,8 +1,37 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
 import { CodeIcon } from 'lucide-react';
+import { useComposerRuntime } from '@assistant-ui/react';
 import { useKernel } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
+
+interface RequestFixError {
+  kind: string;
+  message: string;
+  stack?: string;
+  source?: string;
+  timestamp: number;
+}
+
+function buildFixPrompt(appName: string, err: RequestFixError): string {
+  const lines: string[] = [
+    `An error occurred in mini-app \`${appName}\`. Please fix or explain it.`,
+    '',
+    `**Error type:** ${err.kind}`,
+    `**Message:** ${err.message}`,
+  ];
+  if (err.source) lines.push(`**Source:** ${err.source}`);
+  if (err.stack) {
+    lines.push('', '**Stack trace:**', '```', err.stack, '```');
+  }
+  lines.push(
+    '',
+    'Before changing any code, first determine whether this error was caused by:',
+    '1. **Bad input or user action** — in which case explain the problem to me clearly without changing the app code, OR',
+    '2. **A bug in the app code** — in which case fix it.',
+  );
+  return lines.join('\n');
+}
 
 interface MiniAppViewerProps {
   dirName: string;
@@ -11,7 +40,13 @@ interface MiniAppViewerProps {
 
 export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }) => {
   const [viewingSource, setViewingSource] = useState(false);
+  const [rebuildKey, setRebuildKey] = useState(0);
   const appDir = `${workspacePath}/.applications/${dirName}`;
+
+  const handleRebuildSuccess = useCallback(() => {
+    setRebuildKey((k) => k + 1);
+    setViewingSource(false);
+  }, []);
 
   return (
     <div className="miniAppViewer">
@@ -21,9 +56,17 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }
       />
       <div className="miniAppBody">
         {viewingSource ? (
-          <SourceViewer appDir={appDir} />
+          <SourceViewer
+            appDir={appDir}
+            dirName={dirName}
+            onRebuildSuccess={handleRebuildSuccess}
+          />
         ) : (
-          <MiniAppContent dirName={dirName} workspacePath={workspacePath} />
+          <MiniAppContent
+            key={rebuildKey}
+            dirName={dirName}
+            workspacePath={workspacePath}
+          />
         )}
       </div>
     </div>
@@ -52,6 +95,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
   const [loadError, setLoadError] = useState(false);
   const appDir = `${workspacePath}/.applications/${dirName}`;
   const { connect, executeCode } = useKernel();
+  const composerRuntime = useComposerRuntime();
 
   const handleIframeLoad = useCallback(() => {
     const iframe = iframeRef.current;
@@ -129,6 +173,13 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             result = outputs;
             break;
           }
+          case 'requestFix': {
+            const prompt = buildFixPrompt(dirName, args.error as RequestFixError);
+            composerRuntime.setText(prompt);
+            composerRuntime.send();
+            result = { ok: true };
+            break;
+          }
           default:
             error = `Unknown bridge message type: ${type}`;
         }
@@ -141,7 +192,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
         '*',
       );
     },
-    [connect, executeCode],
+    [connect, executeCode, composerRuntime, dirName],
   );
 
   useEffect(() => {
@@ -182,11 +233,52 @@ interface SourceFile {
   path: string;
 }
 
-const SourceViewer: FC<{ appDir: string }> = ({ appDir }) => {
+type RebuildState =
+  | { kind: 'idle' }
+  | { kind: 'building' }
+  | { kind: 'error'; message: string };
+
+const SourceViewer: FC<{
+  appDir: string;
+  dirName: string;
+  onRebuildSuccess: () => void;
+}> = ({ appDir, dirName, onRebuildSuccess }) => {
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
+
+  const handleRebuild = useCallback(async () => {
+    setRebuildState({ kind: 'building' });
+    try {
+      const result = await window.containerAPI.exec([
+        'esbuild',
+        `.applications/${dirName}/src/index.tsx`,
+        '--bundle',
+        `--outfile=.applications/${dirName}/dist/bundle.js`,
+        '--jsx=automatic',
+        '--loader:.tsx=tsx',
+        '--loader:.ts=ts',
+        '--format=iife',
+        '--alias:@reusable=/data/.applications/_reusable',
+      ]);
+      if (result.exitCode !== 0) {
+        setRebuildState({
+          kind: 'error',
+          message: result.stderr.trim() || result.stdout.trim() || `esbuild exited with code ${result.exitCode}`,
+        });
+        return;
+      }
+      setRebuildState({ kind: 'idle' });
+      onRebuildSuccess();
+    } catch (err) {
+      setRebuildState({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [dirName, onRebuildSuccess]);
 
   // Discover which source files exist
   useEffect(() => {
@@ -240,6 +332,8 @@ const SourceViewer: FC<{ appDir: string }> = ({ appDir }) => {
     return <div className="sourceViewerEmpty">No source files found.</div>;
   }
 
+  const isBuilding = rebuildState.kind === 'building';
+
   return (
     <div className="sourceViewer">
       <div className="sourceViewerTabs">
@@ -252,7 +346,21 @@ const SourceViewer: FC<{ appDir: string }> = ({ appDir }) => {
             {f.label}
           </button>
         ))}
+        <button
+          className="sourceViewerRebuild"
+          onClick={handleRebuild}
+          disabled={isBuilding}
+          title="Rebuild and reload the app"
+        >
+          {isBuilding ? 'Rebuilding…' : 'Rebuild'}
+        </button>
       </div>
+      {rebuildState.kind === 'error' && (
+        <div className="sourceViewerRebuildError">
+          <div className="sourceViewerRebuildErrorTitle">Build failed</div>
+          <pre className="sourceViewerRebuildErrorMessage">{rebuildState.message}</pre>
+        </div>
+      )}
       {isNotebook && activeFile ? (
         <NotebookViewer
           filePath={activeFile.path}
