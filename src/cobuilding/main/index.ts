@@ -1043,6 +1043,22 @@ ipcMain.handle('auth:getApiKey', () => {
   return { apiKey: cachedApiKey };
 });
 
+ipcMain.handle('auth:refetchApiKey', async () => {
+  try {
+    const result = await fetchCobuildingApiKey();
+    cachedApiKey = result.apiKey;
+    if (activeWorkspace) {
+      updateApiKey(activeWorkspace.id, result.apiKey);
+      activeWorkspace = getActiveWorkspace() ?? null;
+    }
+    log.debug('[Auth] Refetched API key successfully');
+    return { success: true, keyIdentifier: result.keyIdentifier };
+  } catch (error: any) {
+    log.error('[Auth] refetchApiKey error:', error);
+    return { success: false, error: error.message || 'Failed to refetch API key' };
+  }
+});
+
 ipcMain.handle('auth:logout', async () => {
   try {
     const result = await logout();
