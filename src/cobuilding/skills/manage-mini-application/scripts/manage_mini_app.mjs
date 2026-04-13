@@ -11,12 +11,7 @@ const { values } = parseArgs({
   },
 });
 
-const workspaceDir = process.env.MINI_APP_WORKSPACE_DIR;
-
-if (!workspaceDir) {
-  console.error("MINI_APP_WORKSPACE_DIR environment variable is not set");
-  process.exit(1);
-}
+const workspaceDir = process.env.MINI_APP_WORKSPACE_DIR || process.cwd();
 if (!values.name) {
   console.error("--name is required");
   process.exit(1);

@@ -106,7 +106,8 @@ The template `App.tsx` (copied from `.applications/_templates/differentialExpres
 
 1. Run the manage script with the template:
 ```bash
-node .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
+podman exec cobuilding-container node \
+  .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
   --name "DE: Treatment vs Control" \
   --template "differentialExpression"
 ```

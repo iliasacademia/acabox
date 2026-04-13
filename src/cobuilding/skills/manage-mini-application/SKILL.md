@@ -17,10 +17,9 @@ Each mini-app lives under `.applications/<lowerCamelCaseName>`. The agent writes
 
 ### Step 1: Scaffold the directory
 
-Run directly with Node.js (NOT Podman):
-
 ```bash
-node .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
+podman exec cobuilding-container node \
+  .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
   --name "<display name>" \
   [--template "<template name>"]
 ```
