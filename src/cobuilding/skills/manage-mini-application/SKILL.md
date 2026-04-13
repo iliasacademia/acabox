@@ -166,6 +166,10 @@ const src = `local-file://${workspacePath}/.applications/${dirName}/output/${ima
 - Container paths (`/data/.applications/...`) — the Electron host cannot access container-internal paths
 - Blob URLs or data URIs for files that already exist on disk
 
+### Error display
+
+Runtime errors are captured automatically by the bridge and shown in a floating red overlay (bottom-right of the iframe). This covers uncaught exceptions, unhandled promise rejections, `console.error` calls, failed fetches (non-2xx), resource load failures, and React render errors. **Do not add your own error UI** — the overlay is already mounted by the scaffolded `index.tsx`.
+
 ### Bridge API
 
 See [bridge-api.md](bridge-api.md) for the full API reference (`window.filesAPI`, `window.kernel`, `window.containerAPI`, `window.getWorkspacePath()`).

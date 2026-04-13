@@ -120,12 +120,13 @@ class CobuildingContainerService {
       // Remove any stale container from a previous crash
       await this.removeStaleContainer(podmanBin);
 
-      // Pull base image and build skills layer if needed
-      onProgress?.('build', 'Preparing container image...');
+      // Pull base image and build skills layer if needed.
+      // ensureImageBuilt only emits a 'build' event when it actually rebuilds —
+      // don't emit one speculatively here, or the SetupBanner flashes when the
+      // image is already up to date.
       await this.ensureImageBuilt(podmanBin, onProgress);
 
       // Start the container in detached mode
-      onProgress?.('run', 'Starting container...');
       await this.runContainer(podmanBin, workspacePath);
 
       log.debug('[ContainerService] Container started successfully');
