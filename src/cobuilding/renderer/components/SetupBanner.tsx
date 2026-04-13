@@ -11,6 +11,11 @@ const PHASE_TITLES: Record<SetupPhase, string> = {
   'error': 'Setup failed',
 };
 
+// Download is 0-75%, post-download setup (machine init/start) is 75-100%
+const DOWNLOAD_WEIGHT = 0.75;
+// Estimated time for post-download setup (machine init ~30s + start ~10s)
+const POST_DOWNLOAD_ESTIMATED_MS = 60_000;
+
 const BUILD_ESTIMATED_MS = 15 * 60 * 1000; // 15 minutes
 
 export const SetupBanner: React.FC = () => {
@@ -18,10 +23,33 @@ export const SetupBanner: React.FC = () => {
   const [percent, setPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
+  const [statusText, setStatusText] = useState<string | null>(null);
   const startedRef = useRef(false);
   const didWorkRef = useRef(false);
   const buildStartRef = useRef<number | null>(null);
   const buildTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const postDownloadStartRef = useRef<number | null>(null);
+  const postDownloadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startPostDownloadTimer = () => {
+    postDownloadStartRef.current = Date.now();
+    postDownloadTimerRef.current = setInterval(() => {
+      if (!postDownloadStartRef.current) return;
+      const elapsed = Date.now() - postDownloadStartRef.current;
+      // Asymptotic progress from 75% to 99% — always moving, never stuck
+      const remaining = 1 - DOWNLOAD_WEIGHT; // 0.25
+      const progress = remaining * (1 - Math.exp(-elapsed / POST_DOWNLOAD_ESTIMATED_MS));
+      setPercent(Math.min(99, Math.round((DOWNLOAD_WEIGHT + progress) * 100)));
+    }, 500);
+  };
+
+  const stopPostDownloadTimer = () => {
+    if (postDownloadTimerRef.current) {
+      clearInterval(postDownloadTimerRef.current);
+      postDownloadTimerRef.current = null;
+    }
+    postDownloadStartRef.current = null;
+  };
 
   const startBuildTimer = () => {
     buildStartRef.current = Date.now();
@@ -49,13 +77,31 @@ export const SetupBanner: React.FC = () => {
       didWorkRef.current = true;
       setVisible(true);
       setPhase('install-podman');
+      setStatusText('Downloading Podman...');
     } else if (stage === 'download-percent') {
-      setPercent(Math.min(100, parseInt(message, 10) || 0));
+      // Download maps to 0-75% of the install-podman phase
+      const raw = Math.min(100, parseInt(message, 10) || 0);
+      setPercent(Math.round(raw * DOWNLOAD_WEIGHT));
     } else if (stage === 'install-podman-done') {
-      setPercent(100);
-    } else if (stage === 'build-image' || stage === 'build' || stage === 'pull') {
+      // Download done — start the post-download timer for the remaining 25%
+      setPercent(Math.round(DOWNLOAD_WEIGHT * 100));
+      setStatusText('Setting up Podman...');
+      startPostDownloadTimer();
+    } else if (stage === 'init') {
       didWorkRef.current = true;
       setVisible(true);
+      setPhase('install-podman');
+      setStatusText('Initializing Podman VM...');
+    } else if (stage === 'start-machine') {
+      didWorkRef.current = true;
+      setVisible(true);
+      setPhase('install-podman');
+      setStatusText('Starting Podman VM...');
+    } else if (stage === 'build-image' || stage === 'build' || stage === 'pull') {
+      stopPostDownloadTimer();
+      didWorkRef.current = true;
+      setVisible(true);
+      setStatusText(null);
       setPhase((prev) => {
         if (prev !== 'build-image') {
           startBuildTimer();
@@ -66,6 +112,7 @@ export const SetupBanner: React.FC = () => {
       stopBuildTimer();
       setPercent(100);
     } else if (stage === 'setup-done' || stage === 'ready') {
+      stopPostDownloadTimer();
       stopBuildTimer();
       if (didWorkRef.current) {
         setPhase('done');
@@ -75,11 +122,8 @@ export const SetupBanner: React.FC = () => {
         setVisible(false);
       }
       didWorkRef.current = false;
+      setStatusText(null);
       return;
-    } else if (stage === 'init' || stage === 'start-machine') {
-      didWorkRef.current = true;
-      setVisible(true);
-      setPhase('install-podman');
     }
   };
 
@@ -91,6 +135,7 @@ export const SetupBanner: React.FC = () => {
       cleanupSetup();
       cleanupProgress();
       stopBuildTimer();
+      stopPostDownloadTimer();
     };
   }, []);
 
@@ -151,7 +196,7 @@ export const SetupBanner: React.FC = () => {
     );
   }
 
-  const title = PHASE_TITLES[phase];
+  const title = statusText || PHASE_TITLES[phase];
 
   return (
     <div className="setupBanner">

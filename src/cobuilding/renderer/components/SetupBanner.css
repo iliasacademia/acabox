@@ -1,7 +1,7 @@
 .setupBanner {
   position: relative;
-  padding: 16px 16px;
-  background: #444;
+  padding: 16px 16px 22px;
+  background: #555;
   color: #fff;
   font-size: 13px;
   z-index: 100;
