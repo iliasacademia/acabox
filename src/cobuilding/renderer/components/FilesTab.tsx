@@ -223,6 +223,13 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
     setContextMenu(null);
   }, [contextMenu]);
 
+  const handleShowInFinder = useCallback(async () => {
+    if (!contextMenu) return;
+    const targetPath = contextMenu.node.path;
+    setContextMenu(null);
+    await window.filesAPI.revealInFinder(targetPath);
+  }, [contextMenu]);
+
   const handleRenameNodePath = useCallback((path: string) => {
     setRenamingPath(path);
   }, []);
@@ -419,6 +426,9 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
           )}
           <button className="fileTreeContextMenuItem" onClick={handleRenameStart}>
             Rename
+          </button>
+          <button className="fileTreeContextMenuItem" onClick={handleShowInFinder}>
+            Show in Finder
           </button>
           <button className="fileTreeContextMenuItem fileTreeContextMenuItem--destructive" onClick={handleDelete}>
             Delete
