@@ -58,7 +58,6 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
 
     const entries = await fsPromises.readdir(resolved, { withFileTypes: true });
     return entries
-      .filter((e) => !e.name.startsWith('.'))
       .sort((a, b) => {
         if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
         return a.name.localeCompare(b.name);
