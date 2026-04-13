@@ -910,7 +910,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
   }
 }
 
-ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: string; text: string; attachments?: IPCAttachment[] }) => {
+ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string }) => {
   if (!activeWorkspace) {
     event.sender.send('chat:error', threadId, 'No active workspace');
     return;
@@ -942,6 +942,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments }: { threadId: str
       existingDbSession?.sdk_session_id ?? undefined,
       undefined,
       handleNotificationNavigation,
+      model,
     );
 
     registerSession(threadId, session);

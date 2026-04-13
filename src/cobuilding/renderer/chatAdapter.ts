@@ -26,7 +26,7 @@ export function useElectronChatAdapter(): ChatModelAdapter {
 
 function createElectronChatAdapter(aui: any): ChatModelAdapter {
   return {
-    async *run({ messages, abortSignal }) {
+    async *run({ messages, abortSignal, context }) {
       const lastUserMessage = messages.filter((m) => m.role === 'user').pop();
       if (!lastUserMessage) return;
 
@@ -40,8 +40,10 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
         .map((part) => part.text)
         .join('');
 
+      const model = context?.config?.modelName;
+
       const responseStream = toAsyncIterable(
-        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage)),
+        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model),
       );
 
       const response = responseBuilder();

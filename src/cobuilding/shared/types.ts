@@ -43,7 +43,7 @@ export interface ChatSubscription {
 }
 
 export interface ChatAPI {
-  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[]): ChatMessageStream;
+  sendMessage(threadId: string, text: string, attachments?: IPCAttachment[], model?: string): ChatMessageStream;
   subscribe(threadId: string): ChatSubscription;
   stopResponding(threadId: string): void;
   onQuickChatInject(callback: (data: { text: string; context: any }) => void): () => void;
