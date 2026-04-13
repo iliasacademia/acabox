@@ -8,7 +8,7 @@ export function initFullStory(): void {
   try {
     init({
       orgId: '17I9',
-      devMode: false,
+      devMode: process.env.NODE_ENV !== 'production',
     });
 
     isInitialized = true;
