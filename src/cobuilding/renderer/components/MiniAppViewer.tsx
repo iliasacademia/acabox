@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { CodeIcon } from 'lucide-react';
+import { CodeIcon, FolderIcon, RefreshCwIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
 import { useKernel } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
@@ -280,6 +280,10 @@ const SourceViewer: FC<{
     }
   }, [dirName, onRebuildSuccess]);
 
+  const handleShowInFinder = useCallback(async () => {
+    await window.filesAPI.showInFinder(appDir);
+  }, [appDir]);
+
   // Discover which source files exist
   useEffect(() => {
     let stale = false;
@@ -346,14 +350,25 @@ const SourceViewer: FC<{
             {f.label}
           </button>
         ))}
-        <button
-          className="sourceViewerRebuild"
-          onClick={handleRebuild}
-          disabled={isBuilding}
-          title="Rebuild and reload the app"
-        >
-          {isBuilding ? 'Rebuilding…' : 'Rebuild'}
-        </button>
+        <div className="sourceViewerActions">
+          <button
+            className="sourceViewerAction"
+            onClick={handleRebuild}
+            disabled={isBuilding}
+            title="Rebuild and reload the app"
+          >
+            <RefreshCwIcon className="sourceViewerActionIcon" />
+            {isBuilding ? 'Rebuilding…' : 'Rebuild'}
+          </button>
+          <button
+            className="sourceViewerAction"
+            onClick={handleShowInFinder}
+            title="Show app folder in Finder"
+          >
+            <FolderIcon className="sourceViewerActionIcon" />
+            Show in Finder
+          </button>
+        </div>
       </div>
       {rebuildState.kind === 'error' && (
         <div className="sourceViewerRebuildError">

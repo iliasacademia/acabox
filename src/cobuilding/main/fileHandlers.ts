@@ -202,6 +202,12 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     await shell.openPath(resolved);
   });
 
+  ipcMain.handle('files:revealInFinder', async (_event, filePath: string) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const resolved = assertWithinWorkspace(filePath, workspaceDir);
+    shell.showItemInFolder(resolved);
+  });
+
   ipcMain.handle('files:selectFile', async (_event, filters?: { name: string; extensions: string[] }[]) => {
     const mainWindow = getMainWindow();
     if (!mainWindow) return null;
