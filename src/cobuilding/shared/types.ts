@@ -39,6 +39,9 @@ export type IPCAttachment =
 
 export interface ChatSubscription {
   stream: ChatMessageStream;
+  /** Closes the local stream and stops consuming events. The main-process forwarding
+   *  listener is left alive and cleaned up by the session's own lifecycle (onDone/onError),
+   *  so chatAdapter's stream is never starved by an early unsubscribe. */
   unsubscribe: () => void;
 }
 

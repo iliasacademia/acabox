@@ -300,7 +300,7 @@ contextBridge.exposeInMainWorld('chatAPI', {
   subscribe: (threadId: string) => {
     const { stream, markDone } = createStreamIterator(threadId);
     ipcRenderer.send('chat:subscribe', threadId);
-    return { stream, unsubscribe: () => { markDone(); ipcRenderer.send('chat:unsubscribe', threadId); } };
+    return { stream, unsubscribe: () => { markDone(); } };
   },
   stopResponding: (threadId: string) => {
     activeStreams.get(threadId)?.();
