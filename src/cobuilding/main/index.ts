@@ -965,10 +965,6 @@ ipcMain.on('chat:subscribe', (event, threadId: string) => {
   ensureForwarding(threadId, event.sender);
 });
 
-ipcMain.on('chat:unsubscribe', (event, threadId: string) => {
-  const key = `${threadId}:${event.sender.id}`;
-  forwardingListeners.get(key)?.();
-});
 
 ipcMain.on('chat:stop', (event, threadId: string) => {
   // Clean up the forwarding listener synchronously before destroying the session,
