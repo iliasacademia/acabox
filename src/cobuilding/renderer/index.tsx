@@ -39,7 +39,10 @@ import { TabBar } from './tabs/TabBar';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import type { Workspace } from '../shared/types';
+import { initFullStory, trackEvent } from './utils/fullstory';
 import './App.css';
+
+initFullStory();
 
 /** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
 function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
@@ -205,6 +208,10 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string) => void }) {
 
 
 function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
+  useEffect(() => {
+    trackEvent('Cobuilding Session');
+  }, []);
+
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('chats');
   const [debugSection, setDebugSection] = useState<DebugSection>('apps');

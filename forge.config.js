@@ -210,7 +210,7 @@ module.exports = {
       config: {
         port: devServerPort,
         loggerPort: loggerPort,
-        devContentSecurityPolicy: "default-src 'self' data:; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: local-file:; frame-src local-file:; connect-src 'self' ws: http://localhost:*",
+        devContentSecurityPolicy: "default-src 'self' data:; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://edge.fullstory.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: local-file:; frame-src local-file:; connect-src 'self' ws: http://localhost:* https://*.fullstory.com;",
         mainConfig: './webpack.main.config.js',
         renderer: {
           config: './webpack.renderer.config.js',

@@ -1,5 +1,4 @@
 import { FullStory, init } from '@fullstory/browser';
-import { IPC_CHANNELS } from '../../shared/types';
 
 let isInitialized = false;
 
@@ -14,27 +13,17 @@ export async function initFullStory(): Promise<void> {
   if (isInitialized) return;
 
   try {
-    // Get app info to determine if we're in development mode
-    const appInfo = await window.electronAPI.invoke(IPC_CHANNELS.GET_APP_INFO);
-    const isDevMode = !appInfo.isPackaged;
-    const forceRecording = process.env.FULLSTORY_FORCE_RECORDING === 'true';
-
     init({
       orgId: '17I9',
-      // Disable recording in development (unpackaged) builds unless forced
-      devMode: forceRecording ? false : isDevMode,
+      devMode: process.env.NODE_ENV !== 'production',
     });
 
     isInitialized = true;
-    if (forceRecording && isDevMode) {
-      console.log('[FullStory] Initialized (FORCED recording enabled)');
-    } else {
-      console.log('[FullStory] Initialized', isDevMode ? '(dev mode - recording disabled)' : '');
-    }
+    console.log('[FullStory] Initialized');
 
     // Log diagnostic info for debugging session visibility
     console.log('[FullStory] Page URL:', window.location.href);
-    console.log('[FullStory] devMode passed to init:', forceRecording ? false : isDevMode);
+    console.log('[FullStory] devMode passed to init: false');
     try {
       const sessionUrl = FullStory('getSession');
       console.log('[FullStory] Session URL:', sessionUrl || '(not available yet)');
