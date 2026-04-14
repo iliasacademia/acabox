@@ -6,6 +6,20 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
+# Reinstall base-image Python packages (venv is recreated above)
+RUN pip install --no-cache-dir \
+    defusedxml \
+    lxml \
+    pypdf \
+    pdfplumber \
+    pdf2image \
+    Pillow \
+    openpyxl \
+    "markitdown[pptx]" \
+    jupyter_kernel_gateway \
+    jupyter-client \
+    ipykernel
+
 # Python packages for database skills
 RUN pip install --no-cache-dir \
     requests \
