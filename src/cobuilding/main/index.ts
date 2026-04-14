@@ -113,6 +113,27 @@ function clearReactionUserInstructions(): void {
 }
 
 
+const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 30;
+
+function getMaxAttachmentSizeMB(): number {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return typeof data.maxAttachmentSizeMB === 'number' ? data.maxAttachmentSizeMB : DEFAULT_MAX_ATTACHMENT_SIZE_MB;
+  } catch {
+    return DEFAULT_MAX_ATTACHMENT_SIZE_MB;
+  }
+}
+
+function setMaxAttachmentSizeMB(sizeMB: number): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.maxAttachmentSizeMB = sizeMB;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
 // Configure electron-log for cobuilding — write to userData so dev/prod logs are separated
 log.transports.file.resolvePathFn = () =>
   path.join(app.getPath('userData'), 'cobuilding.log');
@@ -576,6 +597,14 @@ ipcMain.handle('container:getImageSource', () => {
 
 ipcMain.handle('container:setImageSource', (_event, source: string) => {
   containerService.setImageSource(source as 'registry' | 'local');
+});
+
+ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
+  return getMaxAttachmentSizeMB();
+});
+
+ipcMain.handle('settings:setMaxAttachmentSizeMB', (_event, sizeMB: number) => {
+  setMaxAttachmentSizeMB(sizeMB);
 });
 
 ipcMain.handle('container:getBundledStatus', () => {

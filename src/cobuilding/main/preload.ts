@@ -61,12 +61,18 @@ contextBridge.exposeInMainWorld('filesAPI', {
   selectFile: (filters?: { name: string; extensions: string[] }[]) =>
     ipcRenderer.invoke('files:selectFile', filters),
   selectDirectory: () => ipcRenderer.invoke('files:selectDirectory'),
+  convertImageToPng: (base64Data: string) => ipcRenderer.invoke('image:convertToPng', base64Data),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   onCopyProgress: (callback: (progress: { copied: number; total: number; currentName: string | null }) => void) => {
     const handler = (_event: unknown, progress: { copied: number; total: number; currentName: string | null }) => callback(progress);
     ipcRenderer.on('files:copyProgress', handler);
     return () => { ipcRenderer.removeListener('files:copyProgress', handler); };
   },
+});
+
+contextBridge.exposeInMainWorld('settingsAPI', {
+  getMaxAttachmentSizeMB: () => ipcRenderer.invoke('settings:getMaxAttachmentSizeMB'),
+  setMaxAttachmentSizeMB: (sizeMB: number) => ipcRenderer.invoke('settings:setMaxAttachmentSizeMB', sizeMB),
 });
 
 contextBridge.exposeInMainWorld('containerAPI', {
