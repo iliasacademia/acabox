@@ -25,6 +25,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
+  LoaderIcon,
   PaperclipIcon,
   PencilIcon,
   RefreshCwIcon,
@@ -219,6 +220,25 @@ const MessageError: FC = () => {
   );
 };
 
+/** Shows "Processing" only in the gap when the agent is working but nothing else
+ *  is visually in progress (no active thinking block, no running tool call). */
+const ProcessingIndicator: FC = () => {
+  const show = useAuiState((s: any) => {
+    if (!s.message.isLast || s.message.status?.type !== 'running') return false;
+    const parts = s.message.parts;
+    if (!parts || parts.length === 0) return true;
+    // If the last part is still actively streaming/executing, another indicator is visible
+    return parts[parts.length - 1].status?.type !== 'running';
+  });
+  if (!show) return null;
+  return (
+    <div className="processingIndicator">
+      <LoaderIcon className="processingIndicatorIcon" />
+      <span className="processingIndicatorLabel">Processing</span>
+    </div>
+  );
+};
+
 const AssistantMessage: FC = () => {
   return (
     <MessagePrimitive.Root
@@ -234,6 +254,7 @@ const AssistantMessage: FC = () => {
             ToolGroup,
           }}
         />
+        <ProcessingIndicator />
         <MessageError />
       </div>
 

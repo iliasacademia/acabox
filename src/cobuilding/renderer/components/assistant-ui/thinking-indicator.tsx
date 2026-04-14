@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useRef, useState } from 'react';
-import { ChevronDownIcon, BrainIcon, LoaderIcon } from 'lucide-react';
+import { ChevronDownIcon, LoaderIcon } from 'lucide-react';
 import { useMessagePartReasoning, useScrollLock } from '@assistant-ui/react';
 import type { ReasoningMessagePartComponent } from '@assistant-ui/react';
 import {
@@ -33,10 +33,8 @@ const ReasoningImpl: ReasoningMessagePartComponent = () => {
       className="reasoningRoot"
     >
       <CollapsibleTrigger className="reasoningTrigger">
-        {isRunning ? (
+        {isRunning && (
           <LoaderIcon className="reasoningIcon reasoningIcon--running" />
-        ) : (
-          <BrainIcon className="reasoningIcon" />
         )}
         <span className="reasoningLabel">
           {isRunning ? 'Thinking' : 'Thought'}

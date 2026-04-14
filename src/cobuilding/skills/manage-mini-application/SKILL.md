@@ -1,12 +1,19 @@
 ---
 name: manage-mini-application
 description: >
-  Creates or edits interactive mini-applications when the user needs a UI for
-  tweaking parameters, exploring data visually, or iterating on thresholds.
-  Triggers when the user asks to build an interactive app, create a data
-  exploration tool, or make a parameter-tuning interface. Each mini-app is a
-  standalone React app compiled with esbuild and loaded in an iframe, backed
-  by an optional Jupyter notebook for computation.
+  PRIORITY SKILL: Invoke this skill BEFORE any analysis or data-processing 
+  skills whenever the user's PRIMARY intent is to build, create, make, develop, 
+  or update an application, tool, dashboard, or UI — even if the request 
+  mentions scientific methods like differential expression, PCA, or clustering. 
+  Those methods describe what the app should do internally, not what you should 
+  execute now. DO NOT run analysis skills as a prerequisite step.
+
+  Use this skill when the user says things like: "make an app", "build a tool", 
+  "create an interface", "I want a UI for X", "develop a dashboard", or 
+  "update/edit/change the app".
+
+  Do NOT use this skill when the user wants to directly run an analysis on 
+  their data with no mention of building a UI or application.
 ---
 
 # Manage Mini-Application

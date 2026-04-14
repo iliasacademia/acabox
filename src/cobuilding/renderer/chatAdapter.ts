@@ -54,10 +54,14 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
 
       try {
         for await (const msg of responseStream) {
-          if (abortSignal.aborted) break;
+          if (abortSignal.aborted) {
+            console.debug(`[ChatAdapter] Stream loop aborted for ${threadId}`);
+            break;
+          }
           response.onMessage(msg);
           yield { content: response.getContent() };
         }
+        console.debug(`[ChatAdapter] Stream loop completed normally for ${threadId}`);
       } finally {
         abortSignal.removeEventListener('abort', onAbort);
         resetProgress();
