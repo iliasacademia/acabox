@@ -85,7 +85,7 @@ jsonlite::write_json(result_info, file.path(params$outdir, "results.json"), auto
 
 The `run_differential_expression()` function writes to the output directory:
 
-- `run_metadata.json` — summary stats, visualization entries, data file entries
+- `run_metadata.json` — summary stats, visualization entries, data file entries. Used by the React template as a one-shot data handoff after the kernel run; its contents are then split into the hook's `setOutputs` / `setRunResult` and never read from disk again.
 - `volcano_plot.csv` / `MA_plot.csv` — gene-level data read by the interactive Plotly charts
 - `volcano_plot.png` / `MA_plot.png` — static plot images
 - `pca_plot.png`, `sample_distance_heatmap.png`, `dispersion_plot.png` — other visualizations
@@ -95,12 +95,17 @@ The `run_differential_expression()` function writes to the output directory:
 
 The template `App.tsx` (copied from `.applications/_templates/differentialExpression/App.tsx`) uses:
 
-- **Reusable components**: Imports `VolcanoPlot`, `MAPlot`, `parseCsvLine` from `@reusable`
-- **Interactive charts**: After run, reads `volcano_plot.csv` and `MA_plot.csv`, parses into `VolcanoGene[]` arrays, renders interactive Plotly scatter plots with hover tooltips and gene labels
-- **Post-run threshold controls**: Adjustable log2FC and alpha sliders re-color plot points and update summary badges (upregulated/downregulated/not significant counts) without re-running the analysis
-- **Static visualizations**: PCA, heatmaps, and other plots displayed as images from `run_metadata.json`
-- **File pickers**: `window.filesAPI.selectFile()` with paths converted to relative via `toRelativePath()`
-- **Kernel execution**: Parameters serialized to JSON, injected into notebook parameter cell, action cell read by ID and executed
+- **Persistent state**: `useAppState<DEParams, OutputFile, DERunResult>` — all form params, file paths, output list, and the structured run summary live in `notebook.ipynb`. **This is the same pattern every mini-app uses; DE is not a special case.**
+- **File pickers**: `<FileSlotPicker state={state} slot="counts_file" label="..." filters={CSV_FILTER} />` for both CSV inputs. No hand-rolled picker UI.
+- **Kernel execution**: `useKernelAction({ dirName, kernel: "ir", buildKernelParams: () => ({...}) })` handles connect / inject / execute / error dispatch. `runAnalysis` is a short post-run handler that reads `run_metadata.json` and feeds the hook.
+- **Run button**: `<RunButton action={action} onRun={handleRun} disabled={!canRun}>Run Analysis</RunButton>` — gets spinner, elapsed timer, and disabled state from the action object. No custom button JSX.
+- **Errors**: Kernel errors flow through the global `<ErrorDisplay>` panel auto-mounted by `index.tsx` (with a "Fix" button that drops the error into the chat). The template has no app-local error display.
+- **Staleness**: `<RunStateBadge freshness={freshness} />` shows the amber "out of date" pill when params change after a run.
+- **Output files**: `<OutputFileList files={outputs} outputDir={OUTPUT_DIR} />` reads directly from the hook's persisted `outputs`.
+- **Structured run result**: `runResult` (hydrated by the hook) holds summary stats + visualization descriptors. Used to render the summary cards, the static-viz carousel, and the contrasts list.
+- **Interactive charts**: Per-row CSV data (`volcano_plot.csv` / `MA_plot.csv`) is too large for notebook metadata, so it's re-read from `output/` on mount + after each run via `readPlotCsv` (a small in-template helper around `readFile`).
+- **Post-run threshold controls**: log2FC and alpha sliders re-color plot points and update upregulated/downregulated/not-significant badges without re-running the analysis. Session-local — not persisted.
+- **`run_metadata.json`**: One of the R script's standard output files. The template uses `readJsonOutput<RunMetadataFile>(...)` to read it **once** right after the kernel run, then translates it into the standard hook slots: `data_files` → `setOutputs(...)`, `summary_stats` + `visualizations` → `setRunResult(...)`. **Never read again** — persisted hook state restores the UI on remount.
 
 ## Setup steps
 

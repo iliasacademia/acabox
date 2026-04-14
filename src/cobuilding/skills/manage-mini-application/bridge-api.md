@@ -13,8 +13,14 @@ The scaffolded `index.tsx` imports a bridge that sets up `window.filesAPI`, `win
 
 ## Files API
 
-- `window.filesAPI.readFile(path)` — Read a file from the host filesystem. Returns `{ type: string, content: string }`.
+- `window.filesAPI.readFile(path)` — Read a file from the host filesystem. Returns a discriminated union — you must check the shape before using:
+  - `{ type: "text", content: string }` — text file (most things you'll touch)
+  - `{ type: "image", fileUrl: string }` — image; use `fileUrl` as an `<img src>`
+  - `{ error: "too-large", size: number }` — file exceeded the 10 MB limit; nothing was read
+  Common bug: `parseCsv(await window.filesAPI.readFile(path))` passes the whole object instead of `.content`. For input slots managed by `useAppState`, prefer `readInput(slot)` which extracts the text for you.
 - `window.filesAPI.writeFile(path, content)` — Write a file.
+- `window.filesAPI.copyFile(sourcePath, destinationDir)` — Copy a file (typically a host-absolute path returned by `selectFile`) into a workspace directory. Creates the destination directory if missing. The copy lands at `destinationDir/<basename>`. This is the right primitive for "snapshot the user's input file into the app folder so it stays available later" — `useAppState`'s `selectInput` is built on top of it.
+- `window.filesAPI.deleteFile(path)` — Recursively delete a file or directory inside the workspace. Used by `useAppState`'s `selectInput` / `clearInput` to wipe the previous file in an input slot before copying the new one.
 - `window.filesAPI.downloadFile(filename, content)` — Download a file to the user's computer. Shows a native save dialog with the suggested filename. The `content` is a string (use `JSON.stringify()` for objects, or generate CSV/TSV text directly).
 - `window.filesAPI.showInFinder(path)` — Open the containing folder in the OS file manager and highlight the item. The `path` must be a relative workspace path.
 - `window.filesAPI.selectFile(filters?)` — Open native file picker dialog. Returns the selected absolute path or `null`.

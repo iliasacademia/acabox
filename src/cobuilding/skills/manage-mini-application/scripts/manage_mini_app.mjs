@@ -8,6 +8,7 @@ const { values } = parseArgs({
   options: {
     name: { type: "string" },
     template: { type: "string" },
+    kernel: { type: "string" },
   },
 });
 
@@ -41,6 +42,7 @@ const miniAppDir = join(workspaceDir, ".applications", dirName);
 mkdirSync(join(miniAppDir, "src"), { recursive: true });
 mkdirSync(join(miniAppDir, "dist"), { recursive: true });
 mkdirSync(join(miniAppDir, "output"), { recursive: true });
+mkdirSync(join(miniAppDir, "input"), { recursive: true });
 
 // Scaffold index.html
 const indexHtml = `<!DOCTYPE html>
@@ -117,6 +119,55 @@ createRoot(document.getElementById("root")!).render(
 `;
 
 writeFileSync(join(miniAppDir, "src", "index.tsx"), indexTsx);
+
+// Scaffold a canonical notebook.ipynb. Every app gets one, even non-kernel
+// apps — the parameters cell is the durable, inspectable record of what the
+// user configured. Templates may overwrite this with their own notebook.
+const kernel = values.kernel || "python3";
+const isR = kernel === "ir";
+const assignmentOp = isR ? "<-" : "=";
+const kernelDisplayName = isR ? "R" : "Python 3";
+const kernelLanguage = isR ? "R" : "python";
+const docMarkdown = [
+  `# ${values.name}\n`,
+  "\n",
+  `This notebook backs the mini-app \`${dirName}\`.\n`,
+  "\n",
+  "Edit params via the app UI, or directly in the parameters cell below.\n",
+  `Input files live under \`./input/<slot>/\` (i.e. inside this directory).\n`,
+  "Paths in `params_json` are workspace-relative (`.applications/<dir>/...`),\n",
+  "which is what the cobuild kernel and React app expect.\n",
+];
+const paramsSource = `params_json ${assignmentOp} '{}'`;
+const notebook = {
+  nbformat: 4,
+  nbformat_minor: 5,
+  metadata: {
+    kernelspec: { name: kernel, display_name: kernelDisplayName, language: kernelLanguage },
+    language_info: { name: kernelLanguage },
+    cobuild: { version: 1, lastRun: null },
+  },
+  cells: [
+    {
+      id: "cobuild-doc",
+      cell_type: "markdown",
+      metadata: {},
+      source: docMarkdown,
+    },
+    {
+      id: "parameters",
+      cell_type: "code",
+      metadata: { tags: ["parameters"] },
+      source: [paramsSource],
+      execution_count: null,
+      outputs: [],
+    },
+  ],
+};
+writeFileSync(
+  join(miniAppDir, "notebook.ipynb"),
+  JSON.stringify(notebook, null, 1) + "\n",
+);
 
 // Copy template files if --template is specified
 if (values.template) {
