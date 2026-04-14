@@ -125,6 +125,8 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
   const handleBridgeMessage = useCallback(
     async (event: MessageEvent) => {
       const iframe = iframeRef.current;
+      // event.source check is the correct origin-validation mechanism for local-file:// pages.
+      // event.origin is unreliable on local-file:// in Electron (reported as "null" or "file://").
       if (!iframe || event.source !== iframe.contentWindow) return;
 
       const { type, id, ...args } = event.data;
@@ -198,8 +200,11 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             break;
           }
           case 'anthropic:stream': {
-            // Generate a renderer-owned UUID as the IPC key so no iframe-controlled
-            // string reaches the main process as a channel identifier.
+            // streamKey is generated here (in the trusted renderer) rather than
+            // using the iframe's request id. This ensures no iframe-controlled
+            // string is used as an IPC routing key or channel name in the main
+            // process. The iframe's original `id` is used only to route the
+            // postMessage responses back to the correct pending promise.
             const streamKey = crypto.randomUUID();
             (window as any).anthropicAPI.stream(
               streamKey,
@@ -211,8 +216,9 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
               (err: string) =>
                 iframe.contentWindow?.postMessage({ type: 'anthropic:error', requestId: id, error: err }, '*'),
             );
-            // Set only after setup succeeds — if setup throws, the outer catch
-            // sends the error back to the iframe instead of hanging the promise.
+            // skipResponse is set AFTER setup so that if anthropicAPI.stream()
+            // throws synchronously, the outer catch can send the error back to
+            // the iframe rather than leaving its promise hanging forever.
             skipResponse = true;
             break;
           }

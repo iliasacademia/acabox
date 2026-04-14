@@ -316,7 +316,12 @@ contextBridge.exposeInMainWorld('chatAPI', {
   },
 });
 
-// Single multiplexed channel for all Anthropic stream events, routed by streamKey.
+// All streaming Anthropic responses share a single IPC channel
+// ('anthropic:stream:event') and are demultiplexed by streamKey here rather
+// than using per-request dynamic channel names (e.g. 'chunk:req-123'). One
+// persistent listener is cheaper than registering and cleaning up three
+// listeners per request, and eliminates the risk of stale listener accumulation
+// if a stream's cleanup path is missed.
 const anthropicStreamHandlers = new Map<string, (ev: { type: string; payload: unknown }) => void>();
 ipcRenderer.on('anthropic:stream:event', (_event, msg: { streamKey: string; type: string; payload: unknown }) => {
   anthropicStreamHandlers.get(msg.streamKey)?.(msg);
@@ -332,6 +337,9 @@ contextBridge.exposeInMainWorld('anthropicAPI', {
     onDone: (message: unknown) => void,
     onError: (err: string) => void,
   ) => {
+    // cleanup removes the handler from the map once the stream reaches a
+    // terminal state (done or error). It is also returned so the caller can
+    // abort early if needed (e.g. component unmount before the stream finishes).
     const cleanup = () => anthropicStreamHandlers.delete(streamKey);
     anthropicStreamHandlers.set(streamKey, ({ type, payload }) => {
       if (type === 'chunk') onChunk(payload as string);

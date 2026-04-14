@@ -113,10 +113,17 @@ const errorAPI: BridgeErrorAPI = {
 };
 
 const anthropicAPI: BridgeAnthropicAPI = {
+  // Delegates to the standard request/response bridge. The main process
+  // validates all params and returns the full message once generation finishes.
   complete(params) {
     return request('anthropic:complete', params as Record<string, unknown>) as Promise<AnthropicMessage>;
   },
 
+  // Streaming uses a separate postMessage protocol from the standard
+  // request/response pattern because multiple events (chunk, done, error) need
+  // to arrive for a single request. The bridge registers its own window message
+  // listener keyed by the request id and removes it on terminal events (done or
+  // error) to avoid accumulating listeners over the page lifetime.
   stream(params, onChunk) {
     const id = `req-${++requestId}`;
     return new Promise<AnthropicMessage>((resolve, reject) => {
