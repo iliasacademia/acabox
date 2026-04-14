@@ -1001,51 +1001,95 @@ ipcMain.on('chat:stop', (event, threadId: string) => {
 });
 
 // Anthropic API proxy — lets mini-app iframes call Claude without seeing the key
-ipcMain.handle('anthropic:complete', async (_event, params: {
+const ANTHROPIC_ALLOWED_MODELS = new Set([
+  'claude-haiku-4-5-20251001',
+  'claude-sonnet-4-6',
+  'claude-opus-4-6',
+]);
+const ANTHROPIC_MAX_TOKENS_LIMIT = 4096;
+
+function validateAnthropicParams(params: unknown): {
   messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-  model?: string;
-  max_tokens?: number;
+  model: string;
+  max_tokens: number;
   system?: string;
-}) => {
+} {
+  if (!params || typeof params !== 'object') throw new Error('Invalid params');
+  const p = params as Record<string, unknown>;
+
+  if (!Array.isArray(p.messages) || p.messages.length === 0) throw new Error('messages must be a non-empty array');
+  for (const m of p.messages) {
+    if (!m || typeof m !== 'object') throw new Error('Each message must be an object');
+    const msg = m as Record<string, unknown>;
+    if (msg.role !== 'user' && msg.role !== 'assistant') throw new Error('message role must be user or assistant');
+    if (typeof msg.content !== 'string') throw new Error('message content must be a string');
+  }
+
+  const model = typeof p.model === 'string' && ANTHROPIC_ALLOWED_MODELS.has(p.model)
+    ? p.model
+    : 'claude-haiku-4-5-20251001';
+
+  const max_tokens = typeof p.max_tokens === 'number' && p.max_tokens > 0
+    ? Math.min(Math.floor(p.max_tokens), ANTHROPIC_MAX_TOKENS_LIMIT)
+    : 1024;
+
+  const system = typeof p.system === 'string' ? p.system : undefined;
+
+  return { messages: p.messages as Array<{ role: 'user' | 'assistant'; content: string }>, model, max_tokens, system };
+}
+
+ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
   if (!activeWorkspace?.api_key) throw new Error('No active workspace API key');
+  const validated = validateAnthropicParams(params);
   const client = new Anthropic({ apiKey: activeWorkspace.api_key });
   return client.messages.create({
-    model: params.model ?? 'claude-haiku-4-5-20251001',
-    max_tokens: params.max_tokens ?? 1024,
-    messages: params.messages,
-    ...(params.system ? { system: params.system } : {}),
+    model: validated.model,
+    max_tokens: validated.max_tokens,
+    messages: validated.messages,
+    ...(validated.system ? { system: validated.system } : {}),
   });
 });
 
-ipcMain.on('anthropic:stream', async (event, { requestId, params }: {
-  requestId: string;
-  params: {
-    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
-    model?: string;
-    max_tokens?: number;
-    system?: string;
-  };
-}) => {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey: string; params: unknown }) => {
+  if (typeof streamKey !== 'string' || !UUID_RE.test(streamKey)) {
+    log.warn('[anthropic:stream] Invalid streamKey');
+    return;
+  }
   if (!activeWorkspace?.api_key) {
-    event.sender.send(`anthropic:error:${requestId}`, 'No active workspace API key');
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace API key' });
+    return;
+  }
+  let validated: ReturnType<typeof validateAnthropicParams>;
+  try {
+    validated = validateAnthropicParams(params);
+  } catch (err) {
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: err instanceof Error ? err.message : String(err) });
     return;
   }
   const client = new Anthropic({ apiKey: activeWorkspace.api_key });
+  const stream = client.messages.stream({
+    model: validated.model,
+    max_tokens: validated.max_tokens,
+    messages: validated.messages,
+    ...(validated.system ? { system: validated.system } : {}),
+  });
+
+  const abort = () => stream.abort();
+  event.sender.once('destroyed', abort);
+
   try {
-    const stream = client.messages.stream({
-      model: params.model ?? 'claude-haiku-4-5-20251001',
-      max_tokens: params.max_tokens ?? 1024,
-      messages: params.messages,
-      ...(params.system ? { system: params.system } : {}),
-    });
     stream.on('text', (text) => {
-      if (!event.sender.isDestroyed()) event.sender.send(`anthropic:chunk:${requestId}`, text);
+      if (!event.sender.isDestroyed()) event.sender.send('anthropic:stream:event', { streamKey, type: 'chunk', payload: text });
     });
     const finalMsg = await stream.finalMessage();
-    if (!event.sender.isDestroyed()) event.sender.send(`anthropic:done:${requestId}`, finalMsg);
+    if (!event.sender.isDestroyed()) event.sender.send('anthropic:stream:event', { streamKey, type: 'done', payload: finalMsg });
   } catch (err) {
     if (!event.sender.isDestroyed())
-      event.sender.send(`anthropic:error:${requestId}`, err instanceof Error ? err.message : String(err));
+      event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: err instanceof Error ? err.message : String(err) });
+  } finally {
+    event.sender.removeListener('destroyed', abort);
   }
 });
 

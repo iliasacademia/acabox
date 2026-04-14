@@ -198,9 +198,11 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             break;
           }
           case 'anthropic:stream': {
-            skipResponse = true;
+            // Generate a renderer-owned UUID as the IPC key so no iframe-controlled
+            // string reaches the main process as a channel identifier.
+            const streamKey = crypto.randomUUID();
             (window as any).anthropicAPI.stream(
-              id,
+              streamKey,
               args,
               (text: string) =>
                 iframe.contentWindow?.postMessage({ type: 'anthropic:chunk', requestId: id, text }, '*'),
@@ -209,6 +211,9 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
               (err: string) =>
                 iframe.contentWindow?.postMessage({ type: 'anthropic:error', requestId: id, error: err }, '*'),
             );
+            // Set only after setup succeeds — if setup throws, the outer catch
+            // sends the error back to the iframe instead of hanging the promise.
+            skipResponse = true;
             break;
           }
           default:

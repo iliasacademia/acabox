@@ -316,28 +316,29 @@ contextBridge.exposeInMainWorld('chatAPI', {
   },
 });
 
+// Single multiplexed channel for all Anthropic stream events, routed by streamKey.
+const anthropicStreamHandlers = new Map<string, (ev: { type: string; payload: unknown }) => void>();
+ipcRenderer.on('anthropic:stream:event', (_event, msg: { streamKey: string; type: string; payload: unknown }) => {
+  anthropicStreamHandlers.get(msg.streamKey)?.(msg);
+});
+
 contextBridge.exposeInMainWorld('anthropicAPI', {
   complete: (params: unknown) => ipcRenderer.invoke('anthropic:complete', params),
 
   stream: (
-    requestId: string,
+    streamKey: string,
     params: unknown,
     onChunk: (text: string) => void,
     onDone: (message: unknown) => void,
     onError: (err: string) => void,
   ) => {
-    const chunkH = (_: unknown, text: string) => onChunk(text);
-    const doneH  = (_: unknown, msg: unknown) => { cleanup(); onDone(msg); };
-    const errorH = (_: unknown, err: string)  => { cleanup(); onError(err); };
-    const cleanup = () => {
-      ipcRenderer.removeListener(`anthropic:chunk:${requestId}`, chunkH);
-      ipcRenderer.removeListener(`anthropic:done:${requestId}`,  doneH);
-      ipcRenderer.removeListener(`anthropic:error:${requestId}`, errorH);
-    };
-    ipcRenderer.on(`anthropic:chunk:${requestId}`, chunkH);
-    ipcRenderer.on(`anthropic:done:${requestId}`,  doneH);
-    ipcRenderer.on(`anthropic:error:${requestId}`, errorH);
-    ipcRenderer.send('anthropic:stream', { requestId, params });
+    const cleanup = () => anthropicStreamHandlers.delete(streamKey);
+    anthropicStreamHandlers.set(streamKey, ({ type, payload }) => {
+      if (type === 'chunk') onChunk(payload as string);
+      else if (type === 'done') { cleanup(); onDone(payload); }
+      else if (type === 'error') { cleanup(); onError(payload as string); }
+    });
+    ipcRenderer.send('anthropic:stream', { streamKey, params });
     return cleanup;
   },
 });
