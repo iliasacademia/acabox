@@ -31,6 +31,35 @@ The scaffolded `index.tsx` imports a bridge that sets up `window.filesAPI`, `win
 
 - `window.containerAPI.exec(command, args)` — Execute a command in the Podman container and return `{ stdout, stderr, exitCode }`. Use this for simple one-shot script execution that doesn't need kernel state. Example: `window.containerAPI.exec("Rscript", [".claude/skills/.../script.R", "--arg", "value"])`. Timeout is 10 minutes.
 
+## Anthropic API
+
+Call Claude from within a mini-app. The API key is managed by the host — it is never exposed to the iframe.
+
+- `window.anthropicAPI.complete(params)` — Single request/response. Returns a full `AnthropicMessage` once the model finishes.
+- `window.anthropicAPI.stream(params, onChunk)` — Streaming. Calls `onChunk(text)` for each text delta as it arrives, then resolves with the final `AnthropicMessage`.
+
+**`params` fields:**
+- `messages` *(required)* — `Array<{ role: "user" | "assistant"; content: string }>`
+- `model` *(optional)* — defaults to `"claude-haiku-4-5-20251001"`
+- `max_tokens` *(optional)* — defaults to `1024`
+- `system` *(optional)* — system prompt string
+
+**Examples:**
+```typescript
+// Non-streaming
+const msg = await window.anthropicAPI.complete({
+  messages: [{ role: 'user', content: 'Summarize this in one sentence: ...' }],
+});
+console.log(msg.content[0].text);
+
+// Streaming
+let output = '';
+await window.anthropicAPI.stream(
+  { messages: [{ role: 'user', content: 'Explain CRISPR step by step.' }] },
+  (chunk) => { output += chunk; setDisplayText(output); },
+);
+```
+
 ## Utilities
 
 - `window.getWorkspacePath()` — Returns the host filesystem path of the workspace. Use this to convert absolute host paths (from file pickers) to relative workspace paths: `"./" + hostPath.slice(workspacePath.length + 1)`. Relative paths resolve correctly both on the host and inside the container.

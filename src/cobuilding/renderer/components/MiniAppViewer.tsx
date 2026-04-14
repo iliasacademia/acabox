@@ -125,6 +125,8 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
   const handleBridgeMessage = useCallback(
     async (event: MessageEvent) => {
       const iframe = iframeRef.current;
+      // event.source check is the correct origin-validation mechanism for local-file:// pages.
+      // event.origin is unreliable on local-file:// in Electron (reported as "null" or "file://").
       if (!iframe || event.source !== iframe.contentWindow) return;
 
       const { type, id, ...args } = event.data;
@@ -132,6 +134,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
 
       let result: unknown;
       let error: string | undefined;
+      let skipResponse = false;
 
       try {
         switch (type) {
@@ -192,6 +195,33 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             result = { ok: true };
             break;
           }
+          case 'anthropic:complete': {
+            result = await (window as any).anthropicAPI.complete(args);
+            break;
+          }
+          case 'anthropic:stream': {
+            // streamKey is generated here (in the trusted renderer) rather than
+            // using the iframe's request id. This ensures no iframe-controlled
+            // string is used as an IPC routing key or channel name in the main
+            // process. The iframe's original `id` is used only to route the
+            // postMessage responses back to the correct pending promise.
+            const streamKey = crypto.randomUUID();
+            (window as any).anthropicAPI.stream(
+              streamKey,
+              args,
+              (text: string) =>
+                iframe.contentWindow?.postMessage({ type: 'anthropic:chunk', requestId: id, text }, '*'),
+              (message: unknown) =>
+                iframe.contentWindow?.postMessage({ type: 'anthropic:done', requestId: id, message }, '*'),
+              (err: string) =>
+                iframe.contentWindow?.postMessage({ type: 'anthropic:error', requestId: id, error: err }, '*'),
+            );
+            // skipResponse is set AFTER setup so that if anthropicAPI.stream()
+            // throws synchronously, the outer catch can send the error back to
+            // the iframe rather than leaving its promise hanging forever.
+            skipResponse = true;
+            break;
+          }
           default:
             error = `Unknown bridge message type: ${type}`;
         }
@@ -199,10 +229,12 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
         error = err instanceof Error ? err.message : String(err);
       }
 
-      iframe.contentWindow?.postMessage(
-        { type: 'response', id, result, error },
-        '*',
-      );
+      if (!skipResponse) {
+        iframe.contentWindow?.postMessage(
+          { type: 'response', id, result, error },
+          '*',
+        );
+      }
     },
     [connect, executeCode, composerRuntime, dirName],
   );
