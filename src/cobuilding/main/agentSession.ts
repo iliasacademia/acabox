@@ -113,7 +113,6 @@ export function createAgentSession(
       const miniAppServer = createMiniAppMcpServer(workspace.directory_path);
       const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
-
       // Read SOUL.md for system prompt customization
       let soulMdContent: string | undefined;
       try {
@@ -144,13 +143,11 @@ export function createAgentSession(
             return child as typeof child & { stdin: NonNullable<typeof child.stdin>; stdout: NonNullable<typeof child.stdout> };
           },
           model: model || 'claude-opus-4-6',
-          ...(soulMdContent && {
-            systemPrompt: {
-              type: 'preset' as const,
-              preset: 'claude_code' as const,
-              append: soulMdContent,
-            },
-          }),
+          systemPrompt: (() => {
+            const docxEditingGuidance = `When the user wants to make edits or suggestions to a .docx file, ALWAYS use EnterPlanMode first to present your proposed changes for approval before making any edits. Do not edit any .docx files directly — plan first, wait for approval, then execute. When executing edits to a .docx file, always use tracked changes (w:ins / w:del XML elements with author "Claude") so the user can review and accept/reject each change in Word.`;
+            const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
+            return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };
+          })(),
           ...(sdkSessionId && { resume: sdkSessionId }),
           includePartialMessages: true,
           cwd: workspace.directory_path,
@@ -160,7 +157,12 @@ export function createAgentSession(
             MINI_APP_WORKSPACE_DIR: workspace.directory_path,
           },
           settingSources: ['project'],
-          mcpServers: { activity: activityMcpServer, 'mini-apps': miniAppServer, notification: notificationServer, reaction: reactionServer },
+          mcpServers: {
+            activity: activityMcpServer,
+            'mini-apps': miniAppServer,
+            notification: notificationServer,
+            reaction: reactionServer,
+          },
           allowedTools: [
             "Bash",
             "Read",
@@ -173,6 +175,8 @@ export function createAgentSession(
             "WebSearch",
             "Skill",
             "TodoWrite",
+            "EnterPlanMode",
+            "ExitPlanMode",
             "mcp__activity__query_activity",
             "mcp__mini-apps__open_mini_application",
             "mcp__notification__show_notification",

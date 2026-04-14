@@ -1682,6 +1682,58 @@ body,
   color: #999;
 }
 
+.planList {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid #d0e4ff;
+  background: #f5f9ff;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.planListHeader {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #1a56a0;
+  padding-bottom: 4px;
+}
+
+.planItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.planItemNumber {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #1a73e8;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.planItemContent {
+  flex: 1;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: #1a2a4a;
+}
+
+.planEmpty {
+  font-size: 0.8rem;
+  color: #7aa3cc;
+}
+
 /* ============================================================
    Task Panel (right side)
    ============================================================ */

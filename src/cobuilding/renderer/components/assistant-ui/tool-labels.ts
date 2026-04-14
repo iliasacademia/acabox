@@ -72,6 +72,10 @@ export function getToolLabel(
     }
     case 'TodoWrite':
       return 'Updating tasks';
+    case 'EnterPlanMode':
+      return 'Creating plan';
+    case 'ExitPlanMode':
+      return 'Exiting plan mode';
     case 'mcp__activity__query_activity':
       return 'Querying activity';
     case 'mcp__mini-apps__open_mini_application': {
