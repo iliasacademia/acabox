@@ -1,9 +1,10 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
+import { execFile } from 'child_process';
 
 const MAX_FILE_SIZE = 10_000_000; // 10 MB
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']);
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif']);
 const SENSITIVE_DIRS = new Set(['.ssh', '.gnupg', '.aws', '.config', '.password-store']);
 
 function assertWithinWorkspace(filePath: string, workspaceDir: string): string {
@@ -232,5 +233,24 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     if (result.canceled || result.filePaths.length === 0) return null;
     updateDialogDir(result.filePaths[0]);
     return result.filePaths[0];
+  });
+
+  ipcMain.handle('image:convertToPng', async (_event, base64Data: string) => {
+    const tmpInput = path.join(require('os').tmpdir(), `convert-${Date.now()}.tiff`);
+    const tmpOutput = path.join(require('os').tmpdir(), `convert-${Date.now()}.png`);
+    try {
+      await fsPromises.writeFile(tmpInput, Buffer.from(base64Data, 'base64'));
+      await new Promise<void>((resolve, reject) => {
+        execFile('sips', ['-s', 'format', 'png', tmpInput, '--out', tmpOutput], (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+      const pngBuffer = await fsPromises.readFile(tmpOutput);
+      return pngBuffer.toString('base64');
+    } finally {
+      fsPromises.rm(tmpInput, { force: true }).catch(() => {});
+      fsPromises.rm(tmpOutput, { force: true }).catch(() => {});
+    }
   });
 }

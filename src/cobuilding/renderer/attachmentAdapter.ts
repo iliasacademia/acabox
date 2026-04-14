@@ -17,16 +17,33 @@ function readFileAsBase64(file: File): Promise<string> {
   return readFileAsDataURL(file).then((dataUrl) => dataUrl.split(',')[1]!);
 }
 
+function isTiff(file: File): boolean {
+  if (file.type === 'image/tiff' || file.type === 'image/x-tiff') return true;
+  const ext = file.name.split('.').pop()?.toLowerCase();
+  return ext === 'tiff' || ext === 'tif';
+}
+
 class ImageAttachmentAdapter implements AttachmentAdapter {
   accept = 'image/*';
 
   async add(state: { file: File }): Promise<PendingAttachment> {
-    const dataUrl = await readFileAsDataURL(state.file);
+    let dataUrl: string;
+    let contentType = state.file.type;
+
+    if (isTiff(state.file)) {
+      const base64 = await readFileAsBase64(state.file);
+      const pngBase64: string = await window.electronAPI.invoke('image:convertToPng', base64);
+      dataUrl = `data:image/png;base64,${pngBase64}`;
+      contentType = 'image/png';
+    } else {
+      dataUrl = await readFileAsDataURL(state.file);
+    }
+
     return {
       id: state.file.name,
       type: 'image',
       name: state.file.name,
-      contentType: state.file.type,
+      contentType,
       file: state.file,
       status: { type: 'requires-action', reason: 'composer-send' },
       content: [{ type: 'image', image: dataUrl }],
