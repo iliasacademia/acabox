@@ -92,6 +92,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     async (event, sourcePaths: string[], destinationDir: string) => {
       const workspaceDir = requireWorkspace(getWorkspacePath);
       const resolvedDir = assertWithinWorkspace(destinationDir, workspaceDir);
+      await fsPromises.mkdir(resolvedDir, { recursive: true });
 
       const total = sourcePaths.length;
       let copied = 0;

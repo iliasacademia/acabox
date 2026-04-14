@@ -142,6 +142,18 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             await window.filesAPI.writeFile(args.path, args.content);
             result = { ok: true };
             break;
+          case 'copyFile': {
+            const copyResult = await window.filesAPI.copyToWorkspace(
+              [args.sourcePath as string],
+              args.destinationDir as string,
+            );
+            result = copyResult;
+            break;
+          }
+          case 'deleteFile':
+            await window.filesAPI.deleteFile(args.path as string);
+            result = { ok: true };
+            break;
           case 'selectFile':
             result = await window.filesAPI.selectFile(args.filters);
             break;

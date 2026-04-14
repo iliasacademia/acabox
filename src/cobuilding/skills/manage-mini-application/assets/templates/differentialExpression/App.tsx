@@ -1,29 +1,62 @@
-import React, { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
-  PlayIcon,
-  UploadIcon,
   ChevronDownIcon,
   ChevronRightIcon,
-  AlertCircleIcon,
   CheckCircleIcon,
   LoaderIcon,
-  XIcon,
 } from "lucide-react";
 import { VolcanoPlot, type VolcanoGene } from "@reusable/VolcanoPlot";
 import { MAPlot } from "@reusable/MAPlot";
 import { parseCsvLine } from "@reusable/csv-utils";
 import { OutputFileList, type OutputFile } from "@reusable/OutputFileList";
+import { useAppState } from "@reusable/useAppState";
+import { useKernelAction } from "@reusable/useKernelAction";
+import { readJsonOutput } from "@reusable/readJsonOutput";
+import { FileSlotPicker } from "@reusable/FileSlotPicker";
+import { RunButton } from "@reusable/RunButton";
+import { RunStateBadge } from "@reusable/RunStateBadge";
 
 declare const window: Window & {
   filesAPI: {
-    selectFile(filters?: { name: string; extensions: string[] }[]): Promise<string | null>;
-    readFile(path: string): Promise<{ type: string; content: string }>;
-  };
-  kernel: {
-    connect(kernelName: string): Promise<unknown>;
-    executeCode(code: string): Promise<{ output_type: string; ename?: string; evalue?: string; traceback?: string[] }[]>;
+    readFile(path: string): Promise<{ type: string; content: string } | { error: string }>;
   };
   getWorkspacePath(): string;
+};
+
+const DIR_NAME = "differentialExpression";
+const OUTPUT_DIR = `.applications/${DIR_NAME}/output`;
+const CSV_FILTER = [{ name: "CSV", extensions: ["csv"] }];
+
+interface DEParams {
+  counts_file: string;
+  coldata_file: string;
+  design_mode: "variable" | "formula";
+  design_variable: string;
+  design_formula: string;
+  denominator_level: string;
+  numerator_level: string;
+  min_count: number;
+  min_samples: number;
+  alpha: number;
+  lfc_threshold: number;
+  shrink: boolean;
+  orgdb: string;
+}
+
+const DEFAULTS: DEParams = {
+  counts_file: "",
+  coldata_file: "",
+  design_mode: "variable",
+  design_variable: "",
+  design_formula: "",
+  denominator_level: "",
+  numerator_level: "",
+  min_count: 10,
+  min_samples: 3,
+  alpha: 0.05,
+  lfc_threshold: 1.0,
+  shrink: false,
+  orgdb: "org.Hs.eg.db",
 };
 
 interface SummaryStats {
@@ -56,14 +89,21 @@ interface DataFile {
   artifact_type: string;
 }
 
-interface RunMetadata {
+// Shape of the file the R script writes to output/run_metadata.json — only
+// describes the on-disk handoff. After a run we read this once, split into
+// the hook's `outputs` and `runResult`, and never read it again.
+interface RunMetadataFile {
   summary_stats: SummaryStats;
   data_files: DataFile[];
   visualizations: Visualization[];
 }
 
-type RunState = "idle" | "running" | "complete" | "error";
-type DesignMode = "variable" | "formula";
+// What we persist via the hook's `runResult` slot. Excludes `data_files`
+// because those are persisted separately as `outputs`.
+interface DERunResult {
+  summary_stats: SummaryStats;
+  visualizations: Visualization[];
+}
 
 function parseVolcanoCsv(csvText: string): VolcanoGene[] {
   const lines = csvText.trim().split("\n");
@@ -80,8 +120,6 @@ function parseVolcanoCsv(csvText: string): VolcanoGene[] {
     const cols = parseCsvLine(lines[i]);
     const padj = parseFloat(cols[iPadj]);
     if (Number.isNaN(padj)) continue;
-    // Compute neglog10p from padj if the column is missing (MA_plot.csv) or
-    // the value is NA/Inf (R sets neglog10p = NA when padj produces Inf)
     const rawNeglog10p = iNeglog10p >= 0 ? parseFloat(cols[iNeglog10p]) : NaN;
     const neglog10p = Number.isFinite(rawNeglog10p) ? rawNeglog10p : (padj > 0 ? -Math.log10(padj) : 300);
     genes.push({
@@ -97,87 +135,99 @@ function parseVolcanoCsv(csvText: string): VolcanoGene[] {
   return genes;
 }
 
+async function readPlotCsv(name: string): Promise<VolcanoGene[] | null> {
+  const result = await window.filesAPI.readFile(`${OUTPUT_DIR}/${name}`);
+  if (!("type" in result) || result.type !== "text") return null;
+  return parseVolcanoCsv(result.content);
+}
+
 export default function App() {
-  // Input files
-  const [countsFile, setCountsFile] = useState<string | null>(null);
-  const [coldataFile, setColdataFile] = useState<string | null>(null);
+  // Persistent state — survives remounts via the notebook.
+  const state = useAppState<DEParams, OutputFile, DERunResult>({
+    dirName: DIR_NAME,
+    defaults: DEFAULTS,
+    inputSlots: ["counts_file", "coldata_file"],
+  });
+  const {
+    loading,
+    params,
+    setParams,
+    outputs,
+    setOutputs,
+    runResult,
+    setRunResult,
+    freshness,
+    markRunComplete,
+  } = state;
 
-  // Design
-  const [designMode, setDesignMode] = useState<DesignMode>("variable");
-  const [designVariable, setDesignVariable] = useState("");
-  const [designFormula, setDesignFormula] = useState("");
-  const [denominatorLevel, setDenominatorLevel] = useState("");
-  const [numeratorLevel, setNumeratorLevel] = useState("");
+  // Kernel runner — handles connect, params injection, action-cell lookup,
+  // execution, error dispatch (errors land in the global ErrorDisplay).
+  const action = useKernelAction({
+    dirName: DIR_NAME,
+    kernel: "ir",
+    buildKernelParams: () => {
+      const kp: Record<string, unknown> = {
+        counts_file: params.counts_file,
+        coldata_file: params.coldata_file,
+        outdir: OUTPUT_DIR,
+        min_count: params.min_count,
+        min_samples: params.min_samples,
+        alpha: params.alpha,
+        lfc_threshold: params.lfc_threshold,
+        orgdb: params.orgdb,
+        shrink: params.shrink,
+      };
+      if (params.design_mode === "variable") {
+        kp.design_variable = params.design_variable.trim();
+      } else {
+        kp.design_formula = params.design_formula.trim();
+      }
+      if (params.denominator_level.trim()) kp.denominator_level = params.denominator_level.trim();
+      if (params.numerator_level.trim()) kp.numerator_level = params.numerator_level.trim();
+      return kp;
+    },
+  });
 
-  // Advanced params
+  // Transient UI state (not persisted — these don't need to survive remounts).
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [minCount, setMinCount] = useState(10);
-  const [minSamples, setMinSamples] = useState(3);
-  const [alpha, setAlpha] = useState(0.05);
-  const [lfcThreshold, setLfcThreshold] = useState(1.0);
-  const [shrink, setShrink] = useState(false);
-  const [orgdb, setOrgdb] = useState("org.Hs.eg.db");
-
-  // Run state
-  const [runState, setRunState] = useState<RunState>("idle");
-  const [errorMessage, setErrorMessage] = useState("");
-  const [errorDetails, setErrorDetails] = useState("");
-  const [showErrorDetails, setShowErrorDetails] = useState(false);
-  const [metadata, setMetadata] = useState<RunMetadata | null>(null);
-
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
-  // Interactive plot data
+  // Per-row plot data — too large for notebook metadata. Re-read from
+  // output/*.csv on mount when a previous run exists.
   const [volcanoData, setVolcanoData] = useState<VolcanoGene[] | null>(null);
   const [maData, setMaData] = useState<VolcanoGene[] | null>(null);
-  const [vizLfc, setVizLfc] = useState(1.0);
-  const [vizAlpha, setVizAlpha] = useState(0.05);
-
-  // Other visualizations (static images)
+  const [vizLfc, setVizLfc] = useState(DEFAULTS.lfc_threshold);
+  const [vizAlpha, setVizAlpha] = useState(DEFAULTS.alpha);
   const [selectedVizIndex, setSelectedVizIndex] = useState(0);
 
-  // Timer for elapsed time during run
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const initialPlotLoadAttempted = useRef(false);
 
+  // On mount, if a previous run exists, re-load the per-row plot data so
+  // the interactive plots render. Summary stats / viz / file list are
+  // already hydrated by `useAppState` from notebook metadata.
   useEffect(() => {
-    if (runState === "running") {
-      setElapsedSeconds(0);
-      timerRef.current = setInterval(() => {
-        setElapsedSeconds((s) => s + 1);
-      }, 1000);
-    } else if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [runState]);
+    if (loading) return;
+    if (initialPlotLoadAttempted.current) return;
+    initialPlotLoadAttempted.current = true;
+    if (freshness === "never" || !runResult) return;
 
-  const workspacePath = window.getWorkspacePath();
+    setVizLfc(params.lfc_threshold);
+    setVizAlpha(params.alpha);
 
-  const toRelativePath = useCallback(
-    (hostPath: string) => "./" + hostPath.slice(workspacePath.length + 1),
-    [workspacePath]
-  );
-
-  const selectCountsFile = async () => {
-    const path = await window.filesAPI.selectFile([{ name: "CSV", extensions: ["csv"] }]);
-    if (path) setCountsFile(path);
-  };
-
-  const selectColdataFile = async () => {
-    const path = await window.filesAPI.selectFile([{ name: "CSV", extensions: ["csv"] }]);
-    if (path) setColdataFile(path);
-  };
+    (async () => {
+      const [v, m] = await Promise.all([
+        readPlotCsv("volcano_plot.csv"),
+        readPlotCsv("MA_plot.csv"),
+      ]);
+      if (v) setVolcanoData(v);
+      if (m) setMaData(m);
+    })();
+  }, [loading, freshness, runResult, params.alpha, params.lfc_threshold]);
 
   const canRun =
-    countsFile &&
-    coldataFile &&
-    (designMode === "variable" ? designVariable.trim() : designFormula.trim()) &&
-    runState !== "running";
+    !loading &&
+    !!params.counts_file &&
+    !!params.coldata_file &&
+    !!(params.design_mode === "variable" ? params.design_variable.trim() : params.design_formula.trim());
 
-  // Compute interactive summary stats from volcano data
   const interactiveSummary = useMemo(() => {
     if (!volcanoData) return null;
     let up = 0, down = 0, ns = 0;
@@ -190,150 +240,68 @@ export default function App() {
     return { up, down, ns };
   }, [volcanoData, vizLfc, vizAlpha]);
 
-  // Filter out volcano and MA plots from static visualizations
   const staticVisualizations = useMemo(() => {
-    if (!metadata) return [];
-    return metadata.visualizations.filter(
+    if (!runResult) return [];
+    return runResult.visualizations.filter(
       (v) => v.name !== "volcano_plot" && v.name !== "MA_plot"
     );
-  }, [metadata]);
+  }, [runResult]);
 
-  const runAnalysis = async () => {
-    if (!canRun || !countsFile || !coldataFile) return;
-
-    setRunState("running");
-    setErrorMessage("");
-    setErrorDetails("");
-    setMetadata(null);
+  const handleRun = async () => {
+    if (!canRun) return;
+    setRunResult(null);
+    setOutputs([]);
     setVolcanoData(null);
     setMaData(null);
 
-    let wp = workspacePath;
-    if (!wp) {
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 100));
-        wp = window.getWorkspacePath();
-        if (wp) break;
+    const result = await action.run();
+    if (!result.ok) return; // error already surfaced via ErrorDisplay
+
+    // Read run_metadata.json ONCE as the data handoff from R, then split
+    // its contents into the hook's standard slots. The persisted hook
+    // state is the source of truth from this point on.
+    const meta = await readJsonOutput<RunMetadataFile>(`${OUTPUT_DIR}/run_metadata.json`);
+    if (meta) {
+      if (!Array.isArray(meta.summary_stats.contrasts)) {
+        meta.summary_stats.contrasts = [meta.summary_stats.contrasts as unknown as string];
       }
+      setRunResult({
+        summary_stats: meta.summary_stats,
+        visualizations: meta.visualizations,
+      });
+      setOutputs(
+        meta.data_files.map((df): OutputFile => ({
+          name: df.name,
+          description: df.description,
+          path: df.file_path,
+        })),
+      );
+      setSelectedVizIndex(0);
     }
-    if (!wp) {
-      setRunState("error");
-      setErrorMessage("Could not determine workspace path. Please try again.");
-      return;
-    }
 
-    const appDir = `${wp}/.applications/differentialExpression`;
-    const outputDir = `.applications/differentialExpression/output`;
+    const [v, m] = await Promise.all([
+      readPlotCsv("volcano_plot.csv"),
+      readPlotCsv("MA_plot.csv"),
+    ]);
+    if (v) setVolcanoData(v);
+    if (m) setMaData(m);
 
-    try {
-      // Connect to the R kernel
-      await window.kernel.connect("ir");
+    setVizLfc(params.lfc_threshold);
+    setVizAlpha(params.alpha);
 
-      // Build params and inject into the kernel
-      const params: Record<string, unknown> = {
-        counts_file: toRelativePath(countsFile),
-        coldata_file: toRelativePath(coldataFile),
-        outdir: outputDir,
-        min_count: minCount,
-        min_samples: minSamples,
-        alpha: alpha,
-        lfc_threshold: lfcThreshold,
-        orgdb: orgdb,
-        shrink: shrink,
-      };
-
-      if (designMode === "variable") {
-        params.design_variable = designVariable.trim();
-      } else {
-        params.design_formula = designFormula.trim();
-      }
-      if (denominatorLevel.trim()) {
-        params.denominator_level = denominatorLevel.trim();
-      }
-      if (numeratorLevel.trim()) {
-        params.numerator_level = numeratorLevel.trim();
-      }
-
-      const paramsCode = `params_json <- '${JSON.stringify(params)}'`;
-      let outputs = await window.kernel.executeCode(paramsCode);
-
-      for (const o of outputs) {
-        if (o.output_type === "error") {
-          setRunState("error");
-          setErrorMessage(`${o.ename}: ${o.evalue}`);
-          setErrorDetails(o.traceback?.join("\n") || "");
-          return;
-        }
-      }
-
-      // Read the notebook and find the action cell
-      const nbResult = await window.filesAPI.readFile(`${appDir}/notebook.ipynb`);
-      if (nbResult.type !== "text") {
-        setRunState("error");
-        setErrorMessage("Failed to read notebook file.");
-        return;
-      }
-
-      const notebook = JSON.parse(nbResult.content);
-      const actionCell = notebook.cells.find((c: any) => c.id === "de-run");
-      if (!actionCell) {
-        setRunState("error");
-        setErrorMessage("Action cell 'de-run' not found in notebook.");
-        return;
-      }
-
-      const actionCode = Array.isArray(actionCell.source)
-        ? actionCell.source.join("")
-        : actionCell.source;
-
-      // Execute the action cell
-      outputs = await window.kernel.executeCode(actionCode);
-
-      for (const o of outputs) {
-        if (o.output_type === "error") {
-          setRunState("error");
-          setErrorMessage(`${o.ename}: ${o.evalue}`);
-          setErrorDetails(o.traceback?.join("\n") || "");
-          return;
-        }
-      }
-
-      // Read results metadata
-      const metadataPath = `${appDir}/output/run_metadata.json`;
-      const fileContent = await window.filesAPI.readFile(metadataPath);
-      if (fileContent.type === "text") {
-        const meta: RunMetadata = JSON.parse(fileContent.content);
-        if (!Array.isArray(meta.summary_stats.contrasts)) {
-          meta.summary_stats.contrasts = [meta.summary_stats.contrasts as unknown as string];
-        }
-        setMetadata(meta);
-
-        setSelectedVizIndex(0);
-      }
-
-      // Read volcano and MA plot CSVs for interactive charts
-      const [volcanoResult, maResult] = await Promise.all([
-        window.filesAPI.readFile(`${appDir}/output/volcano_plot.csv`),
-        window.filesAPI.readFile(`${appDir}/output/MA_plot.csv`),
-      ]);
-
-      if (volcanoResult.type === "text") {
-        setVolcanoData(parseVolcanoCsv(volcanoResult.content));
-      }
-      if (maResult.type === "text") {
-        setMaData(parseVolcanoCsv(maResult.content));
-      }
-
-      setVizLfc(lfcThreshold);
-      setVizAlpha(alpha);
-      setRunState("complete");
-    } catch (err: any) {
-      setRunState("error");
-      setErrorMessage(err.message || "An unexpected error occurred.");
-    }
+    await markRunComplete();
   };
 
   const hasInteractivePlots = volcanoData !== null || maData !== null;
+  const workspacePath = window.getWorkspacePath();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <LoaderIcon className="w-6 h-6 animate-spin text-gray-400" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-6">
@@ -348,18 +316,8 @@ export default function App() {
         <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
           <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide">Input Files</h2>
           <div className="grid grid-cols-1 gap-3">
-            <FilePickerRow
-              label="Raw Counts CSV"
-              value={countsFile}
-              onPick={selectCountsFile}
-              onClear={() => setCountsFile(null)}
-            />
-            <FilePickerRow
-              label="Sample Annotation CSV"
-              value={coldataFile}
-              onPick={selectColdataFile}
-              onClear={() => setColdataFile(null)}
-            />
+            <FileSlotPicker state={state} slot="counts_file" label="Raw Counts CSV" filters={CSV_FILTER} />
+            <FileSlotPicker state={state} slot="coldata_file" label="Sample Annotation CSV" filters={CSV_FILTER} />
           </div>
         </div>
 
@@ -371,8 +329,8 @@ export default function App() {
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
-                checked={designMode === "variable"}
-                onChange={() => setDesignMode("variable")}
+                checked={params.design_mode === "variable"}
+                onChange={() => setParams({ design_mode: "variable" })}
                 className="accent-blue-600"
               />
               <span className="text-sm text-gray-700">Single variable</span>
@@ -380,21 +338,21 @@ export default function App() {
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
-                checked={designMode === "formula"}
-                onChange={() => setDesignMode("formula")}
+                checked={params.design_mode === "formula"}
+                onChange={() => setParams({ design_mode: "formula" })}
                 className="accent-blue-600"
               />
               <span className="text-sm text-gray-700">Formula</span>
             </label>
           </div>
 
-          {designMode === "variable" ? (
+          {params.design_mode === "variable" ? (
             <div>
               <label className="block text-sm text-gray-600 mb-1">Design variable (column in sample annotation)</label>
               <input
                 type="text"
-                value={designVariable}
-                onChange={(e) => setDesignVariable(e.target.value)}
+                value={params.design_variable}
+                onChange={(e) => setParams({ design_variable: e.target.value })}
                 placeholder="e.g. condition, group, treatment"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -404,8 +362,8 @@ export default function App() {
               <label className="block text-sm text-gray-600 mb-1">Design formula</label>
               <input
                 type="text"
-                value={designFormula}
-                onChange={(e) => setDesignFormula(e.target.value)}
+                value={params.design_formula}
+                onChange={(e) => setParams({ design_formula: e.target.value })}
                 placeholder="e.g. ~ condition + batch"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -417,8 +375,8 @@ export default function App() {
               <label className="block text-sm text-gray-600 mb-1">Reference level (optional)</label>
               <input
                 type="text"
-                value={denominatorLevel}
-                onChange={(e) => setDenominatorLevel(e.target.value)}
+                value={params.denominator_level}
+                onChange={(e) => setParams({ denominator_level: e.target.value })}
                 placeholder="e.g. control"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -427,8 +385,8 @@ export default function App() {
               <label className="block text-sm text-gray-600 mb-1">Numerator level (optional)</label>
               <input
                 type="text"
-                value={numeratorLevel}
-                onChange={(e) => setNumeratorLevel(e.target.value)}
+                value={params.numerator_level}
+                onChange={(e) => setParams({ numerator_level: e.target.value })}
                 placeholder="e.g. treated"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -451,15 +409,15 @@ export default function App() {
           </button>
           {showAdvanced && (
             <div className="px-5 pb-5 pt-0 grid grid-cols-2 md:grid-cols-3 gap-4">
-              <NumberInput label="Min count" value={minCount} onChange={setMinCount} />
-              <NumberInput label="Min samples" value={minSamples} onChange={setMinSamples} />
-              <NumberInput label="Significance (alpha)" value={alpha} onChange={setAlpha} step={0.01} />
-              <NumberInput label="LFC threshold" value={lfcThreshold} onChange={setLfcThreshold} step={0.1} />
+              <NumberInput label="Min count" value={params.min_count} onChange={(v) => setParams({ min_count: v })} />
+              <NumberInput label="Min samples" value={params.min_samples} onChange={(v) => setParams({ min_samples: v })} />
+              <NumberInput label="Significance (alpha)" value={params.alpha} onChange={(v) => setParams({ alpha: v })} step={0.01} />
+              <NumberInput label="LFC threshold" value={params.lfc_threshold} onChange={(v) => setParams({ lfc_threshold: v })} step={0.1} />
               <div>
                 <label className="block text-sm text-gray-600 mb-1">Organism</label>
                 <select
-                  value={orgdb}
-                  onChange={(e) => setOrgdb(e.target.value)}
+                  value={params.orgdb}
+                  onChange={(e) => setParams({ orgdb: e.target.value })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="org.Hs.eg.db">Human (org.Hs.eg.db)</option>
@@ -470,8 +428,8 @@ export default function App() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={shrink}
-                    onChange={(e) => setShrink(e.target.checked)}
+                    checked={params.shrink}
+                    onChange={(e) => setParams({ shrink: e.target.checked })}
                     className="accent-blue-600"
                   />
                   <span className="text-sm text-gray-700">LFC shrinkage (apeglm)</span>
@@ -481,64 +439,20 @@ export default function App() {
           )}
         </div>
 
-        {/* Run Button */}
-        <div className="flex items-center gap-4">
-          <button
-            onClick={runAnalysis}
-            disabled={!canRun}
-            className={`flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-              canRun
-                ? "bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800"
-                : "bg-gray-200 text-gray-400 cursor-not-allowed"
-            }`}
-          >
-            {runState === "running" ? (
-              <>
-                <LoaderIcon className="w-4 h-4 animate-spin" />
-                Running... ({elapsedSeconds}s)
-              </>
-            ) : (
-              <>
-                <PlayIcon className="w-4 h-4" />
-                Run Analysis
-              </>
-            )}
-          </button>
-          {runState === "running" && (
+        {/* Run Button + freshness badge */}
+        <div className="flex items-center gap-4 flex-wrap">
+          <RunButton action={action} onRun={handleRun} disabled={!canRun}>
+            Run Analysis
+          </RunButton>
+          {action.phase === "running" && (
             <span className="text-sm text-gray-500">This may take a few minutes for large datasets</span>
           )}
+          {runResult && <RunStateBadge freshness={freshness} />}
         </div>
 
-        {/* Error Display */}
-        {runState === "error" && (
-          <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-            <div className="flex items-start gap-3">
-              <AlertCircleIcon className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-red-800">Analysis failed</p>
-                <pre className="text-sm text-red-700 mt-1 whitespace-pre-wrap break-words">{errorMessage}</pre>
-                {errorDetails && (
-                  <>
-                    <button
-                      onClick={() => setShowErrorDetails(!showErrorDetails)}
-                      className="text-sm text-red-600 underline mt-2"
-                    >
-                      {showErrorDetails ? "Hide details" : "Show full output"}
-                    </button>
-                    {showErrorDetails && (
-                      <pre className="mt-2 text-xs text-red-600 bg-red-100 p-3 rounded overflow-auto max-h-64 whitespace-pre-wrap break-words">
-                        {errorDetails}
-                      </pre>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Results */}
-        {runState === "complete" && metadata && (
+        {/* Results — show whenever a run has been completed (live this
+            session OR hydrated from a previous session via the hook). */}
+        {runResult && (
           <div className="space-y-6">
             {/* Summary Stats */}
             <div className="bg-white rounded-lg border border-gray-200 p-5">
@@ -547,30 +461,30 @@ export default function App() {
                 <h2 className="text-sm font-medium text-gray-700 uppercase tracking-wide">Summary</h2>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <StatCard label="Genes (pre-filter)" value={metadata.summary_stats.n_genes_prefilter.toLocaleString()} />
-                <StatCard label="Genes (post-filter)" value={metadata.summary_stats.n_genes_postfilter.toLocaleString()} />
-                <StatCard label="Samples" value={metadata.summary_stats.n_samples.toLocaleString()} />
+                <StatCard label="Genes (pre-filter)" value={runResult.summary_stats.n_genes_prefilter.toLocaleString()} />
+                <StatCard label="Genes (post-filter)" value={runResult.summary_stats.n_genes_postfilter.toLocaleString()} />
+                <StatCard label="Samples" value={runResult.summary_stats.n_samples.toLocaleString()} />
                 <StatCard
                   label="Significant genes"
-                  value={metadata.summary_stats.n_significant_genes.toLocaleString()}
+                  value={runResult.summary_stats.n_significant_genes.toLocaleString()}
                   highlight
                 />
                 <StatCard
                   label="Up-regulated"
-                  value={metadata.summary_stats.n_up_regulated_genes.toLocaleString()}
+                  value={runResult.summary_stats.n_up_regulated_genes.toLocaleString()}
                   color="text-red-600"
                 />
                 <StatCard
                   label="Down-regulated"
-                  value={metadata.summary_stats.n_down_regulated_genes.toLocaleString()}
+                  value={runResult.summary_stats.n_down_regulated_genes.toLocaleString()}
                   color="text-blue-600"
                 />
-                <StatCard label="LFC threshold" value={`|log2FC| > ${metadata.summary_stats.lfc_threshold}`} />
-                <StatCard label="Significance" value={`padj < ${metadata.summary_stats.significance_threshold}`} />
+                <StatCard label="LFC threshold" value={`|log2FC| > ${runResult.summary_stats.lfc_threshold}`} />
+                <StatCard label="Significance" value={`padj < ${runResult.summary_stats.significance_threshold}`} />
               </div>
-              {metadata.summary_stats.contrasts.length > 0 && (
+              {runResult.summary_stats.contrasts.length > 0 && (
                 <div className="mt-3 text-sm text-gray-500">
-                  Contrasts: {metadata.summary_stats.contrasts.join(", ")}
+                  Contrasts: {runResult.summary_stats.contrasts.join(", ")}
                 </div>
               )}
             </div>
@@ -669,56 +583,13 @@ export default function App() {
               </div>
             )}
 
-            {/* Output Files */}
-            {metadata.data_files.length > 0 && (
-              <OutputFileList
-                outputDir=".applications/differentialExpression/output"
-                files={metadata.data_files.map((df): OutputFile => ({
-                  name: df.name,
-                  description: df.description,
-                  path: df.file_path,
-                }))}
-              />
+            {/* Output Files — driven by the hook's persisted `outputs`. */}
+            {outputs.length > 0 && (
+              <OutputFileList outputDir={OUTPUT_DIR} files={outputs} />
             )}
           </div>
         )}
       </div>
-    </div>
-  );
-}
-
-function FilePickerRow({
-  label,
-  value,
-  onPick,
-  onClear,
-}: {
-  label: string;
-  value: string | null;
-  onPick: () => void;
-  onClear: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="text-sm text-gray-600 w-44 flex-shrink-0">{label}</span>
-      {value ? (
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-sm text-gray-800 truncate" title={value}>
-            {value.split("/").pop()}
-          </span>
-          <button onClick={onClear} className="text-gray-400 hover:text-gray-600">
-            <XIcon className="w-4 h-4" />
-          </button>
-        </div>
-      ) : (
-        <button
-          onClick={onPick}
-          className="flex items-center gap-2 px-3 py-1.5 text-sm text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50 transition-colors"
-        >
-          <UploadIcon className="w-4 h-4" />
-          Choose file
-        </button>
-      )}
     </div>
   );
 }
@@ -776,11 +647,8 @@ function VizImage({
   viz: Visualization;
   workspacePath: string;
 }) {
-  // Images are generated by the backing notebook into the app's output dir.
-  // Since the React app runs in an iframe on the Electron host, img src must
-  // use the local-file:// protocol with an absolute host path.
   const imageFileName = viz.image_file_path.split("/").pop() || viz.image_file_path;
-  const src = `local-file://${workspacePath}/.applications/differentialExpression/output/${imageFileName}`;
+  const src = `local-file://${workspacePath}/${OUTPUT_DIR}/${imageFileName}`;
 
   return (
     <img

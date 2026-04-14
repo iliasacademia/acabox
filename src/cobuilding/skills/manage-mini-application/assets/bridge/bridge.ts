@@ -9,6 +9,8 @@ export {};
 interface BridgeFilesAPI {
   readFile(path: string): Promise<unknown>;
   writeFile(path: string, content: string): Promise<unknown>;
+  copyFile(sourcePath: string, destinationDir: string): Promise<unknown>;
+  deleteFile(path: string): Promise<unknown>;
   downloadFile(filename: string, content: string): Promise<unknown>;
   showInFinder(path: string): Promise<unknown>;
   selectFile(filters?: unknown[]): Promise<unknown>;
@@ -68,6 +70,9 @@ function request(type: string, args: Record<string, unknown> = {}): Promise<unkn
 const filesAPI: BridgeFilesAPI = {
   readFile: (path: string) => request("readFile", { path }),
   writeFile: (path: string, content: string) => request("writeFile", { path, content }),
+  copyFile: (sourcePath: string, destinationDir: string) =>
+    request("copyFile", { sourcePath, destinationDir }),
+  deleteFile: (path: string) => request("deleteFile", { path }),
   downloadFile: (filename: string, content: string) => request("downloadFile", { filename, content }),
   showInFinder: (path: string) => request("showInFinder", { path }),
   selectFile: (filters?: unknown[]) => request("selectFile", { filters }),
