@@ -523,6 +523,11 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
     ensureReactionsTask(activeWorkspace.id);
   }
 
+  // Restart scheduler so it picks up the new workspace's tasks
+  const scheduler = getTaskScheduler();
+  scheduler.stop();
+  scheduler.start();
+
   copySkillsToWorkspace(target.directory_path);
   copyClaudeMdToWorkspace(target.directory_path);
   syncMiniAppAssets(target.directory_path);
