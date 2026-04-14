@@ -478,7 +478,7 @@ class CobuildingContainerService {
     if (!initialized) {
       onProgress?.('init', 'Initializing Podman VM (first-time setup)...');
       log.debug('[ContainerService] Machine not initialized, running podman machine init...');
-      await this.spawnAndWait(podmanBin, ['machine', 'init'], env, 'machine init');
+      await this.spawnAndWait(podmanBin, ['machine', 'init', '--user-mode-networking'], env, 'machine init');
     }
 
     const running = await this.isMachineRunning(podmanBin, env);

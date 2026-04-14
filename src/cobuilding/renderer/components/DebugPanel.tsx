@@ -7,9 +7,10 @@ import { BrowserExtensionDebug } from './BrowserExtensionDebug';
 import { FileMonitorDebug } from './FileMonitorDebug';
 import { StorageDebug } from './StorageDebug';
 import { TerminalDebug } from './TerminalDebug';
+import { AuthDebug } from './AuthDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal';
+export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal' | 'auth';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'apps', label: 'Logs' },
@@ -20,6 +21,7 @@ const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'browser-extension', label: 'Browser Extension' },
   { id: 'file-monitor', label: 'File Monitor' },
   { id: 'storage', label: 'Storage' },
+  { id: 'auth', label: 'API Key' },
 ];
 
 export const DebugSidebar: React.FC<{
@@ -53,6 +55,7 @@ export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ active
       {activeSection === 'browser-extension' && <BrowserExtensionDebug />}
       {activeSection === 'file-monitor' && <FileMonitorDebug />}
       {activeSection === 'storage' && <StorageDebug />}
+      {activeSection === 'auth' && <AuthDebug />}
     </div>
   );
 };

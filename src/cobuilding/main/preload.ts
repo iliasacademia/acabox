@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('authAPI', {
     ipcRenderer.invoke('auth:verifyQRCode', deviceId, code),
   logout: () => ipcRenderer.invoke('auth:logout'),
   getApiKey: () => ipcRenderer.invoke('auth:getApiKey'),
+  refetchApiKey: () => ipcRenderer.invoke('auth:refetchApiKey'),
   onDeepLinkCallback: (
     callback: (data: { verificationCode: string; deviceId: string }) => void
   ) => {
