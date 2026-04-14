@@ -207,6 +207,9 @@ const activeStreams = new Map<string, () => void>();
 
 function createStreamIterator(threadId: string) {
   // Clean up any existing stream iterator for this threadId
+  if (activeStreams.has(threadId)) {
+    console.debug(`[StreamIterator] Replacing existing stream for ${threadId}`);
+  }
   activeStreams.get(threadId)?.();
 
   const pending: any[] = [];
@@ -229,12 +232,14 @@ function createStreamIterator(threadId: string) {
 
   const doneHandler = (_event: any, eventThreadId: string) => {
     if (eventThreadId !== threadId) return;
+    console.debug(`[StreamIterator] Stream done for ${threadId}`);
     done = true;
     notify();
   };
 
   const errorHandler = (_event: any, eventThreadId: string, err: string) => {
     if (eventThreadId !== threadId) return;
+    console.debug(`[StreamIterator] Stream error for ${threadId}: ${err}`);
     pending.push({ value: null, done: true, error: err });
     done = true;
     notify();
@@ -306,8 +311,22 @@ contextBridge.exposeInMainWorld('chatAPI', {
     return createStreamIterator(threadId).stream;
   },
   subscribe: (threadId: string) => {
-    const { stream, markDone } = createStreamIterator(threadId);
+    // Always ensure main-process forwarding is set up
     ipcRenderer.send('chat:subscribe', threadId);
+
+    if (activeStreams.has(threadId)) {
+      // sendMessage already owns a primary stream for this thread.
+      // Return an immediately-done stream so the subscription defers to chatAdapter
+      // instead of creating a competing consumer.
+      console.debug(`[StreamIterator] subscribe: deferring to existing primary stream for ${threadId}`);
+      const noop = () => {};
+      return {
+        stream: { next: () => Promise.resolve({ value: null, done: true as const }) } as any,
+        unsubscribe: noop,
+      };
+    }
+
+    const { stream, markDone } = createStreamIterator(threadId);
     return { stream, unsubscribe: () => { markDone(); } };
   },
   stopResponding: (threadId: string) => {

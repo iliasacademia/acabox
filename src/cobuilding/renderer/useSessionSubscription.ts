@@ -11,7 +11,8 @@ const IDLE_TIMEOUT_MS = 60_000;
  * Subscribes to agent session events whenever a thread is opened.
  * Assumes any thread might have a running session. If events arrive,
  * feeds them into the assistant-ui thread runtime via resumeRun().
- * Auto-unsubscribes after 60s of no new events.
+ * Auto-unsubscribes after 60s of no new events (heartbeat events from
+ * the agent session prevent this from firing during active processing).
  */
 export function useSessionSubscription() {
   const threadRuntime = useThreadRuntime();

@@ -27,7 +27,9 @@ export type ChatStreamMessage =
   // Subagent progress
   | { type: 'subagent-started'; taskId: string; parentToolCallId: string; description: string }
   | { type: 'subagent-progress'; taskId: string; parentToolCallId: string; summary?: string; lastToolName?: string; toolUseCount: number; durationMs: number }
-  | { type: 'subagent-done'; taskId: string; parentToolCallId: string; status: 'completed' | 'failed' | 'stopped'; summary: string };
+  | { type: 'subagent-done'; taskId: string; parentToolCallId: string; status: 'completed' | 'failed' | 'stopped'; summary: string }
+  // Heartbeat — signals the agent is still alive during long operations
+  | { type: 'heartbeat' };
 
 export interface ChatMessageStream {
   next(): Promise<{ value: ChatStreamMessage | null; done: boolean }>;

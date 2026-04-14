@@ -258,15 +258,42 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
   if (forwardingListeners.has(key)) return;
 
   const session = getRegisteredSession(threadId);
-  if (!session) return;
+  if (!session) {
+    log.debug(`[Forwarding] No session found for ${threadId}, skipping`);
+    return;
+  }
+
+  log.debug(`[Forwarding] Setting up IPC forwarding for ${threadId}`);
 
   const unsubscribe = session.addListener({
-    onEvent: (msg) => { if (!sender.isDestroyed()) sender.send('chat:event', threadId, msg); },
-    onDone: () => { if (!sender.isDestroyed()) sender.send('chat:done', threadId); cleanup(); },
-    onError: (err) => { if (!sender.isDestroyed()) sender.send('chat:error', threadId, err); cleanup(); },
+    onEvent: (msg) => {
+      if (sender.isDestroyed()) {
+        log.debug(`[Forwarding] Dropping event for ${threadId}: sender destroyed`);
+        cleanup();
+        return;
+      }
+      sender.send('chat:event', threadId, msg);
+    },
+    onDone: () => {
+      log.debug(`[Forwarding] Turn done for ${threadId}`);
+      // Send chat:done but do NOT cleanup — forwarding persists across conversation
+      // turns so it doesn't need to be re-established on each message. Cleanup only
+      // happens on error or sender destruction.
+      if (!sender.isDestroyed()) {
+        sender.send('chat:done', threadId);
+      } else {
+        cleanup();
+      }
+    },
+    onError: (err) => {
+      log.debug(`[Forwarding] Session error for ${threadId}: ${err}`);
+      if (!sender.isDestroyed()) sender.send('chat:error', threadId, err);
+      cleanup();
+    },
   });
 
   const cleanup = () => {
+    log.debug(`[Forwarding] Cleaning up forwarding for ${threadId}`);
     unsubscribe();
     forwardingListeners.delete(key);
     sender.removeListener('destroyed', cleanup);

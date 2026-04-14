@@ -1559,6 +1559,27 @@ body,
   line-height: 1;
 }
 
+.processingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  margin-top: -12px;
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.processingIndicatorIcon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  animation: spin 1s linear infinite;
+}
+
+.processingIndicatorLabel {
+  line-height: 1;
+}
+
 .reasoningChevron {
   width: 14px;
   height: 14px;

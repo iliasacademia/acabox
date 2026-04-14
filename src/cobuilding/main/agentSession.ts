@@ -54,13 +54,31 @@ export function createAgentSession(
   listeners.add(callbacks);
 
   function emitEvent(msg: ChatStreamMessage) {
+    // Mark as running when real (non-heartbeat) events arrive — this re-enables
+    // the heartbeat after a turn boundary (emitDone sets running = false).
+    if (msg.type !== 'heartbeat') {
+      running = true;
+    }
     for (const listener of listeners) {
       listener.onEvent?.(msg);
     }
   }
 
+  // Heartbeat: emit periodic signals so the renderer knows the agent is alive.
+  // This prevents the renderer's idle timeout from disconnecting during long operations.
+  const HEARTBEAT_INTERVAL_MS = 15_000;
+  const heartbeatTimer = setInterval(() => {
+    if (running) {
+      emitEvent({ type: 'heartbeat' });
+    }
+  }, HEARTBEAT_INTERVAL_MS);
+
   function emitDone() {
     running = false;
+    // Note: heartbeat timer is NOT cleared here because emitDone fires after each
+    // conversation turn, not at session end. The timer is self-guarded (checks `running`),
+    // and `running` is set back to true when the next turn starts processing events.
+    // Timer is only cleared in destroy() (session teardown) and emitError() (terminal).
     for (const listener of [...listeners]) {
       listener.onDone?.();
     }
@@ -68,6 +86,7 @@ export function createAgentSession(
 
   function emitError(error: string) {
     running = false;
+    clearInterval(heartbeatTimer);
     for (const listener of [...listeners]) {
       listener.onError?.(error);
     }
@@ -237,6 +256,7 @@ export function createAgentSession(
 
     destroy() {
       stopped = true;
+      clearInterval(heartbeatTimer);
       if (queryInstance) {
         queryInstance.close();
         queryInstance = null;
