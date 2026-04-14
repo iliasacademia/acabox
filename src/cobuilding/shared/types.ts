@@ -35,7 +35,8 @@ export interface ChatMessageStream {
 
 export type IPCAttachment =
   | { type: 'image'; data: string; mediaType: string; name?: string }
-  | { type: 'document'; data: string; mediaType: string; title?: string; name?: string };
+  | { type: 'document'; data: string; mediaType: string; title?: string; name?: string }
+  | { type: 'file_reference'; filePath: string; name: string };
 
 export interface ChatSubscription {
   stream: ChatMessageStream;

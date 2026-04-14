@@ -220,12 +220,17 @@ export function createAgentSession(
 
   return {
     sendMessage(userMessage: string, attachments?: IPCAttachment[]) {
-      const storedAttachments = attachments?.map((att) => ({
-        type: att.type,
-        mediaType: att.mediaType,
-        name: att.name,
-        title: att.type === 'document' ? att.title : undefined,
-      }));
+      const storedAttachments = attachments?.map((att) => {
+        if (att.type === 'file_reference') {
+          return { type: att.type, filePath: att.filePath, name: att.name };
+        }
+        return {
+          type: att.type,
+          mediaType: att.mediaType,
+          name: att.name,
+          title: att.type === 'document' ? att.title : undefined,
+        };
+      });
       insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }));
       messageQueue.push({ text: userMessage, attachments });
     },
@@ -298,6 +303,11 @@ function buildContentBlocks(payload: UserMessagePayload): string | ContentBlockP
           title: attachment.title ?? null,
         });
       }
+    } else if (attachment.type === 'file_reference') {
+      blocks.push({
+        type: 'text',
+        text: `[Attached file: ${attachment.filePath}]\nThis file has been placed in the workspace. You may need to preprocess it before use (e.g., use podman to convert an Excel file to CSV).`,
+      });
     }
   }
 

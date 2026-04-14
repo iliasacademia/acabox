@@ -198,6 +198,17 @@ function extractAttachments(message: { attachments?: readonly any[] }): IPCAttac
 
   const attachments: IPCAttachment[] = [];
   for (const attachment of message.attachments) {
+    if (attachment.type === 'file_reference') {
+      const textPart = (attachment.content ?? []).find((p: any) => p.type === 'text');
+      if (textPart) {
+        attachments.push({
+          type: 'file_reference',
+          filePath: (textPart as any).text as string,
+          name: attachment.name,
+        });
+      }
+      continue;
+    }
     for (const part of attachment.content ?? []) {
       if (part.type === 'image') {
         const match = (part.image as string).match(/^data:(image\/[^;]+);base64,(.+)$/s);

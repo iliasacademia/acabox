@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   useLocalRuntime,
@@ -28,7 +28,7 @@ import './components/ScheduledTasks.css';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
-import { attachmentAdapter } from './attachmentAdapter';
+import { createAttachmentAdapter } from './attachmentAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import WorkspaceSettings from './components/WorkspaceSettings';
@@ -240,8 +240,12 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     runtimeHook: () => {
       const chatAdapter = useElectronChatAdapter();
       const history = useThreadHistoryAdapter();
+      const attachments = useMemo(
+        () => createAttachmentAdapter(workspace.directory_path),
+        [workspace.directory_path]
+      );
       return useLocalRuntime(chatAdapter, {
-        adapters: { history, attachments: attachmentAdapter },
+        adapters: { history, attachments },
       });
     },
     adapter: sessionListAdapter,
