@@ -342,6 +342,28 @@ const src = `local-file://${workspacePath}/.applications/${dirName}/output/${ima
 
 Runtime errors are captured automatically by the bridge and shown in a floating red overlay (bottom-right of the iframe). This covers uncaught exceptions, unhandled promise rejections, `console.error` calls, failed fetches (non-2xx), resource load failures, and React render errors. **Do not add your own error UI** — the overlay is already mounted by the scaffolded `index.tsx`.
 
+### Calling Claude from a mini-app
+
+Use `window.anthropicAPI` — **do NOT pass `ANTHROPIC_API_KEY` into the container, read it from env, or make direct API calls from notebook cells.** The key is managed by the host; the bridge handles auth transparently.
+
+```tsx
+// Non-streaming — await the full response
+const msg = await window.anthropicAPI.complete({
+  messages: [{ role: 'user', content: userText }],
+  system: 'You are a helpful assistant.',   // optional
+  model: 'claude-haiku-4-5-20251001',       // optional, this is the default
+  max_tokens: 1024,                         // optional, this is the default
+});
+const reply = msg.content[0].text;
+
+// Streaming — onChunk fires for each text delta
+let output = '';
+await window.anthropicAPI.stream(
+  { messages: [{ role: 'user', content: userText }] },
+  (chunk) => { output += chunk; setDisplayText(output); },
+);
+```
+
 ### Bridge API
 
-See [bridge-api.md](bridge-api.md) for the full API reference (`window.filesAPI`, `window.kernel`, `window.containerAPI`, `window.getWorkspacePath()`).
+See [bridge-api.md](bridge-api.md) for the full API reference (`window.filesAPI`, `window.kernel`, `window.containerAPI`, `window.anthropicAPI`, `window.getWorkspacePath()`).
