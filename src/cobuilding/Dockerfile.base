@@ -1,3 +1,14 @@
+# This is the base image, built on GitHub Actions and pushed to GHCR as
+# ghcr.io/academia-edu/cobuilding-base:latest. It is NOT built on the user's
+# machine — users pull it pre-built from the registry.
+#
+# ALL software belongs here: system packages, R/Bioconductor, the Python venv,
+# and every pip package. Dockerfile (the child) intentionally stays empty —
+# it just mounts the user's workspace on top of this image.
+#
+# To add a Python package: add it to the pip install block below, then
+# rebuild and push via the "Build & Push Cobuilding Base Image" GitHub Action.
+
 FROM bioconductor/bioconductor_docker:3.21
 
 # System dependencies for office/PDF skills and LaTeX posters
@@ -30,7 +41,7 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Install Python packages for office/PDF skills
+# Install Python packages
 RUN pip install --no-cache-dir \
     defusedxml \
     lxml \
@@ -42,7 +53,15 @@ RUN pip install --no-cache-dir \
     "markitdown[pptx]" \
     jupyter_kernel_gateway \
     jupyter-client \
-    ipykernel
+    ipykernel \
+    requests \
+    pandas \
+    matplotlib \
+    chembl_webresource_client \
+    pubchempy \
+    GEOparse \
+    rcsb-api \
+    biopython
 
 # Install Bioconductor packages
 RUN R -e 'BiocManager::install(c( \

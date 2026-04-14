@@ -1,34 +1,13 @@
+# This Dockerfile should stay exactly this simple — two lines.
+#
+# Dockerfile.base (built on GitHub Actions and pushed to GHCR) contains ALL
+# software: system packages, R/Bioconductor, Python venv, and every pip package.
+# This file just takes that prebuilt image and sets the workspace mount point.
+#
+# DO NOT add RUN, pip install, or any other build steps here.
+# Any new Python packages belong in Dockerfile.base.
+
 ARG BASE_IMAGE=ghcr.io/academia-edu/cobuilding-base:latest
 FROM ${BASE_IMAGE}
-
-# Create a virtual environment so pip installs are isolated from system Python
-ENV VIRTUAL_ENV=/opt/venv
-RUN python3 -m venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-
-# Reinstall base-image Python packages (venv is recreated above)
-RUN pip install --no-cache-dir \
-    defusedxml \
-    lxml \
-    pypdf \
-    pdfplumber \
-    pdf2image \
-    Pillow \
-    openpyxl \
-    "markitdown[pptx]" \
-    jupyter_kernel_gateway \
-    jupyter-client \
-    ipykernel
-
-# Python packages for database skills
-RUN pip install --no-cache-dir \
-    requests \
-    pandas \
-    matplotlib \
-    chembl_webresource_client \
-    pubchempy \
-    GEOparse \
-    rcsb-api \
-    biopython
 
 WORKDIR /data
