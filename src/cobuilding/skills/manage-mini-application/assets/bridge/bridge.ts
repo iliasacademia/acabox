@@ -39,6 +39,25 @@ interface BridgeErrorAPI {
   }): Promise<unknown>;
 }
 
+export interface AnthropicMessage {
+  id: string;
+  content: Array<{ type: 'text'; text: string }>;
+  model: string;
+  usage: { input_tokens: number; output_tokens: number };
+}
+
+export interface AnthropicParams {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  model?: string;
+  max_tokens?: number;
+  system?: string;
+}
+
+interface BridgeAnthropicAPI {
+  complete(params: AnthropicParams): Promise<AnthropicMessage>;
+  stream(params: AnthropicParams, onChunk: (text: string) => void): Promise<AnthropicMessage>;
+}
+
 let requestId = 0;
 const pendingRequests = new Map<
   string,
@@ -93,6 +112,33 @@ const errorAPI: BridgeErrorAPI = {
   requestFix: (error) => request("requestFix", { error }),
 };
 
+const anthropicAPI: BridgeAnthropicAPI = {
+  complete(params) {
+    return request('anthropic:complete', params as Record<string, unknown>) as Promise<AnthropicMessage>;
+  },
+
+  stream(params, onChunk) {
+    const id = `req-${++requestId}`;
+    return new Promise<AnthropicMessage>((resolve, reject) => {
+      const handler = (event: MessageEvent) => {
+        const { type: t, requestId: rid } = event.data ?? {};
+        if (rid !== id) return;
+        if (t === 'anthropic:chunk') {
+          onChunk(event.data.text);
+        } else if (t === 'anthropic:done') {
+          window.removeEventListener('message', handler);
+          resolve(event.data.message);
+        } else if (t === 'anthropic:error') {
+          window.removeEventListener('message', handler);
+          reject(new Error(event.data.error));
+        }
+      };
+      window.addEventListener('message', handler);
+      window.parent.postMessage({ type: 'anthropic:stream', id, ...params }, '*');
+    });
+  },
+};
+
 let _workspacePath = "";
 window.addEventListener("message", (event) => {
   if (event.data?.type === "init" && event.data.workspacePath) {
@@ -100,4 +146,4 @@ window.addEventListener("message", (event) => {
   }
 });
 
-Object.assign(window, { filesAPI, kernel, containerAPI, errorAPI, getWorkspacePath: () => _workspacePath });
+Object.assign(window, { filesAPI, kernel, containerAPI, errorAPI, anthropicAPI, getWorkspacePath: () => _workspacePath });

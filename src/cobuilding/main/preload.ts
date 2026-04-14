@@ -315,3 +315,29 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.send('chat:stop', threadId);
   },
 });
+
+contextBridge.exposeInMainWorld('anthropicAPI', {
+  complete: (params: unknown) => ipcRenderer.invoke('anthropic:complete', params),
+
+  stream: (
+    requestId: string,
+    params: unknown,
+    onChunk: (text: string) => void,
+    onDone: (message: unknown) => void,
+    onError: (err: string) => void,
+  ) => {
+    const chunkH = (_: unknown, text: string) => onChunk(text);
+    const doneH  = (_: unknown, msg: unknown) => { cleanup(); onDone(msg); };
+    const errorH = (_: unknown, err: string)  => { cleanup(); onError(err); };
+    const cleanup = () => {
+      ipcRenderer.removeListener(`anthropic:chunk:${requestId}`, chunkH);
+      ipcRenderer.removeListener(`anthropic:done:${requestId}`,  doneH);
+      ipcRenderer.removeListener(`anthropic:error:${requestId}`, errorH);
+    };
+    ipcRenderer.on(`anthropic:chunk:${requestId}`, chunkH);
+    ipcRenderer.on(`anthropic:done:${requestId}`,  doneH);
+    ipcRenderer.on(`anthropic:error:${requestId}`, errorH);
+    ipcRenderer.send('anthropic:stream', { requestId, params });
+    return cleanup;
+  },
+});

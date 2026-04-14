@@ -132,6 +132,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
 
       let result: unknown;
       let error: string | undefined;
+      let skipResponse = false;
 
       try {
         switch (type) {
@@ -192,6 +193,24 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             result = { ok: true };
             break;
           }
+          case 'anthropic:complete': {
+            result = await (window as any).anthropicAPI.complete(args);
+            break;
+          }
+          case 'anthropic:stream': {
+            skipResponse = true;
+            (window as any).anthropicAPI.stream(
+              id,
+              args,
+              (text: string) =>
+                iframe.contentWindow?.postMessage({ type: 'anthropic:chunk', requestId: id, text }, '*'),
+              (message: unknown) =>
+                iframe.contentWindow?.postMessage({ type: 'anthropic:done', requestId: id, message }, '*'),
+              (err: string) =>
+                iframe.contentWindow?.postMessage({ type: 'anthropic:error', requestId: id, error: err }, '*'),
+            );
+            break;
+          }
           default:
             error = `Unknown bridge message type: ${type}`;
         }
@@ -199,10 +218,12 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
         error = err instanceof Error ? err.message : String(err);
       }
 
-      iframe.contentWindow?.postMessage(
-        { type: 'response', id, result, error },
-        '*',
-      );
+      if (!skipResponse) {
+        iframe.contentWindow?.postMessage(
+          { type: 'response', id, result, error },
+          '*',
+        );
+      }
     },
     [connect, executeCode, composerRuntime, dirName],
   );

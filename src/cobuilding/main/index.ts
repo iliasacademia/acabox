@@ -1000,6 +1000,55 @@ ipcMain.on('chat:stop', (event, threadId: string) => {
   }
 });
 
+// Anthropic API proxy — lets mini-app iframes call Claude without seeing the key
+ipcMain.handle('anthropic:complete', async (_event, params: {
+  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  model?: string;
+  max_tokens?: number;
+  system?: string;
+}) => {
+  if (!activeWorkspace?.api_key) throw new Error('No active workspace API key');
+  const client = new Anthropic({ apiKey: activeWorkspace.api_key });
+  return client.messages.create({
+    model: params.model ?? 'claude-haiku-4-5-20251001',
+    max_tokens: params.max_tokens ?? 1024,
+    messages: params.messages,
+    ...(params.system ? { system: params.system } : {}),
+  });
+});
+
+ipcMain.on('anthropic:stream', async (event, { requestId, params }: {
+  requestId: string;
+  params: {
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    model?: string;
+    max_tokens?: number;
+    system?: string;
+  };
+}) => {
+  if (!activeWorkspace?.api_key) {
+    event.sender.send(`anthropic:error:${requestId}`, 'No active workspace API key');
+    return;
+  }
+  const client = new Anthropic({ apiKey: activeWorkspace.api_key });
+  try {
+    const stream = client.messages.stream({
+      model: params.model ?? 'claude-haiku-4-5-20251001',
+      max_tokens: params.max_tokens ?? 1024,
+      messages: params.messages,
+      ...(params.system ? { system: params.system } : {}),
+    });
+    stream.on('text', (text) => {
+      if (!event.sender.isDestroyed()) event.sender.send(`anthropic:chunk:${requestId}`, text);
+    });
+    const finalMsg = await stream.finalMessage();
+    if (!event.sender.isDestroyed()) event.sender.send(`anthropic:done:${requestId}`, finalMsg);
+  } catch (err) {
+    if (!event.sender.isDestroyed())
+      event.sender.send(`anthropic:error:${requestId}`, err instanceof Error ? err.message : String(err));
+  }
+});
+
 // Auth IPC handlers
 ipcMain.handle('auth:checkLogin', async () => {
   try {
