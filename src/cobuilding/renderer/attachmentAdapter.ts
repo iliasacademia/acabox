@@ -32,7 +32,7 @@ class ImageAttachmentAdapter implements AttachmentAdapter {
 
     if (isTiff(state.file)) {
       const base64 = await readFileAsBase64(state.file);
-      const pngBase64: string = await window.electronAPI.invoke('image:convertToPng', base64);
+      const pngBase64: string = await (window.electronAPI as any).invoke('image:convertToPng', base64);
       dataUrl = `data:image/png;base64,${pngBase64}`;
       contentType = 'image/png';
     } else {
@@ -96,7 +96,56 @@ class DocumentAttachmentAdapter implements AttachmentAdapter {
   }
 }
 
-export const attachmentAdapter = new CompositeAttachmentAdapter([
-  new ImageAttachmentAdapter(),
-  new DocumentAttachmentAdapter(),
-]);
+class FileReferenceAttachmentAdapter implements AttachmentAdapter {
+  accept = '*';
+  private workspacePath: string;
+
+  constructor(workspacePath: string) {
+    this.workspacePath = workspacePath;
+  }
+
+  async add(state: { file: File }): Promise<PendingAttachment> {
+    const maxSizeMB = await window.settingsAPI.getMaxAttachmentSizeMB();
+    const maxSizeBytes = maxSizeMB * 1024 * 1024;
+    if (state.file.size > maxSizeBytes) {
+      throw new Error(`File is too large (${(state.file.size / 1024 / 1024).toFixed(1)} MB). Maximum allowed size is ${maxSizeMB} MB.`);
+    }
+
+    return {
+      id: state.file.name,
+      type: 'file_reference',
+      name: state.file.name,
+      contentType: state.file.type || 'application/octet-stream',
+      file: state.file,
+      status: { type: 'requires-action', reason: 'composer-send' },
+    };
+  }
+
+  async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
+    const nativePath = window.filesAPI.getPathForFile(attachment.file);
+    let relativePath: string;
+
+    if (nativePath.startsWith(this.workspacePath + '/')) {
+      relativePath = nativePath.slice(this.workspacePath.length + 1);
+    } else {
+      await window.filesAPI.copyToWorkspace([nativePath], this.workspacePath);
+      relativePath = attachment.name;
+    }
+
+    return {
+      ...attachment,
+      status: { type: 'complete' },
+      content: [{ type: 'text', text: relativePath }],
+    };
+  }
+
+  async remove(): Promise<void> {}
+}
+
+export function createAttachmentAdapter(workspacePath: string) {
+  return new CompositeAttachmentAdapter([
+    new ImageAttachmentAdapter(),
+    new DocumentAttachmentAdapter(),
+    new FileReferenceAttachmentAdapter(workspacePath),
+  ]);
+}
