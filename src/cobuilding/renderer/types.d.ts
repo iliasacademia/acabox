@@ -29,6 +29,7 @@ interface FilesAPI {
   createFile(filePath: string): Promise<void>;
   createDirectory(dirPath: string): Promise<void>;
   renameFile(filePath: string, newName: string): Promise<void>;
+  convertImageToPng(base64Data: string): Promise<string>;
   getPathForFile(file: File): string;
   onCopyProgress(callback: (progress: CopyProgress) => void): () => void;
 }
@@ -148,6 +149,7 @@ declare global {
     createFile(filePath: string): Promise<void>;
     createDirectory(dirPath: string): Promise<void>;
     renameFile(filePath: string, newName: string): Promise<void>;
+    convertImageToPng(base64Data: string): Promise<string>;
     getPathForFile(file: File): string;
     onCopyProgress(callback: (progress: CopyProgress) => void): () => void;
   }
@@ -327,12 +329,18 @@ declare global {
     clearSelected(ids: string[]): Promise<{ cleared: string[]; errors: string[] }>;
   }
 
+  interface SettingsAPI {
+    getMaxAttachmentSizeMB(): Promise<number>;
+    setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     filesAPI: FilesAPI;
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
     containerAPI: ContainerAPI;
+    settingsAPI: SettingsAPI;
     commandLogAPI: CommandLogAPI;
     systemLogAPI: SystemLogAPI;
     jupyterAPI: JupyterAPI;

@@ -32,7 +32,7 @@ class ImageAttachmentAdapter implements AttachmentAdapter {
 
     if (isTiff(state.file)) {
       const base64 = await readFileAsBase64(state.file);
-      const pngBase64: string = await (window.electronAPI as any).invoke('image:convertToPng', base64);
+      const pngBase64 = await window.filesAPI.convertImageToPng(base64);
       dataUrl = `data:image/png;base64,${pngBase64}`;
       contentType = 'image/png';
     } else {
