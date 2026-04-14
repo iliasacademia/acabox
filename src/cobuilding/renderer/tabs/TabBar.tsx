@@ -1,6 +1,6 @@
 import React, { type FC } from 'react';
-import { XIcon, MessageSquareIcon, CircleIcon } from 'lucide-react';
-import type { TabDescriptor } from './types';
+import { XIcon, MessageSquareIcon, CircleIcon, FileTextIcon, BookOpenIcon, LayoutGridIcon, BracesIcon, CrosshairIcon } from 'lucide-react';
+import type { TabDescriptor, TabKind } from './types';
 
 interface TabBarProps {
   tabs: TabDescriptor[];
@@ -11,6 +11,21 @@ interface TabBarProps {
   onPin: (id: string) => void;
   onShowChat: () => void;
 }
+
+const iconStyle = { width: 14, height: 14, flexShrink: 0 };
+
+const TAB_ICONS: Record<TabKind, FC<{ style: React.CSSProperties }>> = {
+  file: FileTextIcon,
+  notebook: BookOpenIcon,
+  miniapp: LayoutGridIcon,
+  debug: BracesIcon,
+  focus: CrosshairIcon,
+};
+
+const TabIcon: FC<{ kind: TabKind }> = ({ kind }) => {
+  const Icon = TAB_ICONS[kind];
+  return <Icon style={iconStyle} />;
+};
 
 export const TabBar: FC<TabBarProps> = ({
   tabs,
@@ -44,6 +59,7 @@ export const TabBar: FC<TabBarProps> = ({
             onDoubleClick={() => onPin(tab.id)}
             title={tab.label}
           >
+            <TabIcon kind={tab.kind} />
             <span className="tabBarItemLabel">{tab.label}</span>
             <button
               className={`tabBarItemClose${isDirty ? ' tabBarItemClose--dirty' : ''}`}

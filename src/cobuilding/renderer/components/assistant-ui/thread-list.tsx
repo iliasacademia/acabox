@@ -25,11 +25,18 @@ export const ThreadList: FC = () => {
 };
 
 const ThreadListNew: FC = () => {
+  const handleClick = () => {
+    setTimeout(() => {
+      const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
+      input?.focus();
+    }, 50);
+  };
+
   return (
     <ThreadListPrimitive.New asChild>
-      <button className="threadListNewBtn">
+      <button className="threadListNewBtn" onClick={handleClick}>
         <PlusIcon style={{ width: 16, height: 16 }} />
-        New Thread
+        New Chat
       </button>
     </ThreadListPrimitive.New>
   );

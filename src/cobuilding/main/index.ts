@@ -21,6 +21,9 @@ import {
   updateSessionTitle,
   deleteSession,
   getMessages,
+  findSessionForApp,
+  createSession,
+  insertMessage,
 } from './db/chatRepository';
 import {
   createWorkspace,
@@ -935,6 +938,27 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
   }
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
+
+// Find or create a session associated with a mini app
+ipcMain.handle('sessions:findForApp', (_event, dirName: string) => {
+  if (!activeWorkspace) return null;
+
+  // Search for an existing session that created or is bound to this app
+  const existingId = findSessionForApp(activeWorkspace.id, dirName);
+  if (existingId) return existingId;
+
+  // No session found — create a new one with a synthetic context message
+  const sessionId = randomUUID();
+  const displayName = dirName.replace(/[-_]/g, ' ');
+  createSession(sessionId, activeWorkspace.id);
+  insertMessage(
+    sessionId,
+    'user',
+    JSON.stringify({ text: `This chat is connected to the application "${dirName}".` }),
+  );
+  updateSessionTitle(sessionId, displayName);
+  return sessionId;
+});
 
 async function generateSessionTitle(sessionId: string, firstMessage: string, apiKey: string): Promise<void> {
   try {

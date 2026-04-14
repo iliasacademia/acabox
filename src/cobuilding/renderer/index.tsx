@@ -149,8 +149,9 @@ function SessionTitleUpdater() {
   return null;
 }
 
-/** When the user picks a different thread, deactivate tabs so chat is shown. */
-function ShowChatOnThreadSelect({ onShowChat }: { onShowChat: () => void }) {
+/** When the user picks a different thread, deactivate tabs so chat is shown.
+ *  Suppressed when the switch is app-initiated (e.g. opening a miniapp tab). */
+function ShowChatOnThreadSelect({ onShowChat, suppressRef }: { onShowChat: () => void; suppressRef: React.RefObject<boolean> }) {
   const mainThreadId = useThreadList((s) => s.mainThreadId);
   const prevRef = useRef<string | undefined>(undefined);
 
@@ -158,11 +159,62 @@ function ShowChatOnThreadSelect({ onShowChat }: { onShowChat: () => void }) {
     if (mainThreadId == null) return;
     const prev = prevRef.current;
     if (prev !== undefined && prev !== mainThreadId) {
-      console.debug('[ShowChatOnThreadSelect] Thread changed:', prev, '->', mainThreadId, '— deactivating tabs');
-      onShowChat();
+      if (suppressRef.current) {
+        console.debug('[ShowChatOnThreadSelect] Thread changed (suppressed):', prev, '->', mainThreadId);
+        suppressRef.current = false;
+      } else {
+        console.debug('[ShowChatOnThreadSelect] Thread changed:', prev, '->', mainThreadId, '— deactivating tabs');
+        onShowChat();
+      }
     }
     prevRef.current = mainThreadId;
-  }, [mainThreadId, onShowChat]);
+  }, [mainThreadId, onShowChat, suppressRef]);
+
+  return null;
+}
+
+/** When a miniapp tab becomes active, switch to its associated chat session. */
+function AppSessionSwitcher({
+  activeDirName,
+  cacheRef,
+  suppressRef,
+}: {
+  activeDirName: string | null;
+  cacheRef: React.RefObject<Map<string, string>>;
+  suppressRef: React.MutableRefObject<boolean>;
+}) {
+  const runtime = useAssistantRuntime();
+
+  useEffect(() => {
+    if (!activeDirName) return;
+
+    const cached = cacheRef.current.get(activeDirName);
+    if (cached) {
+      suppressRef.current = true;
+      try {
+        runtime.threads.switchToThread(cached);
+      } catch {
+        // Session may have been deleted — clear cache and retry via IPC
+        cacheRef.current.delete(activeDirName);
+      }
+      return;
+    }
+
+    // Look up (or create) the session via main process
+    let cancelled = false;
+    window.sessionsAPI.findForApp(activeDirName).then((sessionId) => {
+      if (cancelled || !sessionId) return;
+      cacheRef.current.set(activeDirName, sessionId);
+      suppressRef.current = true;
+      try {
+        runtime.threads.switchToThread(sessionId);
+      } catch (err) {
+        console.error('[AppSessionSwitcher] Failed to switch thread:', err);
+      }
+    });
+
+    return () => { cancelled = true; };
+  }, [activeDirName, runtime, cacheRef, suppressRef]);
 
   return null;
 }
@@ -219,6 +271,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 
   const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs();
   const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(new Set());
+  const [autoSelectFirstApp, setAutoSelectFirstApp] = useState(false);
 
   const handleDirtyChange = useCallback((tabId: string, dirty: boolean) => {
     setDirtyTabIds((prev) => {
@@ -298,15 +351,44 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     openTab(descriptor);
   }, [openTab]);
 
+  const handleFilesClick = useCallback(() => {
+    setSidebarTab('files');
+    // If there's an open file/notebook tab, activate it
+    const fileTab = [...tabs].reverse().find((t) => t.kind === 'file' || t.kind === 'notebook');
+    if (fileTab) {
+      activateTab(fileTab.id);
+    }
+    // Otherwise, leave the main panel as-is
+  }, [tabs, activateTab]);
+
+  const handleAppsClick = useCallback(() => {
+    setSidebarTab('apps');
+    // Activate the most recently opened miniapp tab, or auto-open the first app
+    const miniappTab = [...tabs].reverse().find((t) => t.kind === 'miniapp');
+    if (miniappTab) {
+      activateTab(miniappTab.id);
+    } else {
+      setAutoSelectFirstApp(true);
+    }
+  }, [tabs, activateTab]);
+
+  // Suppress ShowChatOnThreadSelect when switching threads for a miniapp
+  const suppressThreadDeactivateRef = useRef(false);
+
+  // In-memory cache: dirName → sessionId
+  const appSessionCacheRef = useRef<Map<string, string>>(new Map());
+
   // Determine if the active tab is a miniapp (for showing chat side panel)
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const showChatSidePanel = activeTab?.kind === 'miniapp';
+  const activeMiniAppDirName = activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : null;
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionTitleUpdater />
       <SessionSubscriber />
-      <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} />
+      <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} suppressRef={suppressThreadDeactivateRef} />
+      <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); deactivateAllTabs(); }} />
       <NotificationNavigator setSidebarTab={setSidebarTab} deactivateAllTabs={deactivateAllTabs} />
@@ -317,21 +399,21 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
           <div className="activityBar">
             <button
               className={`activityBarBtn ${sidebarTab === 'files' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setSidebarTab('files')}
+              onClick={handleFilesClick}
             >
               <FolderIcon style={{ width: 20, height: 20 }} />
               <span className="activityBarBtnLabel">Files</span>
             </button>
             <button
               className={`activityBarBtn ${sidebarTab === 'chats' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setSidebarTab('chats')}
+              onClick={() => { setSidebarTab('chats'); deactivateAllTabs(); }}
             >
               <MessageSquareIcon style={{ width: 20, height: 20 }} />
               <span className="activityBarBtnLabel">Chats</span>
             </button>
             <button
               className={`activityBarBtn ${sidebarTab === 'apps' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setSidebarTab('apps')}
+              onClick={handleAppsClick}
             >
               <LayoutGridIcon style={{ width: 20, height: 20 }} />
               <span className="activityBarBtnLabel">Apps</span>
@@ -380,6 +462,9 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                   onSelectApp={handleSelectApp}
                   onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
                   onNewApplication={() => { setSidebarTab('chats'); }}
+                  activeAppDirName={activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : undefined}
+                  autoSelectFirst={autoSelectFirstApp}
+                  onAutoSelectDone={() => setAutoSelectFirstApp(false)}
                 />
               ) : sidebarTab === 'reactions' ? (
                 <ReactionsSidebar onOpenFocus={handleOpenFocus} />
