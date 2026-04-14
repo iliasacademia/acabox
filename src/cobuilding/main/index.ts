@@ -477,7 +477,7 @@ ipcMain.handle('workspaces:getDefaultDirectory', (_event, name: string) => {
     .replace(/[^a-zA-Z0-9_-]/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '') || 'my-workspace';
-  return path.join(app.getPath('home'), 'Academia Coscientist', safeName);
+  return path.join(app.getPath('desktop'), safeName);
 });
 
 ipcMain.handle(
