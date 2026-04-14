@@ -16,6 +16,7 @@ html,
 body,
 #root {
   height: 100vh;
+  overflow: hidden;
   margin: 0;
   font-family: 'DM Sans', system-ui, sans-serif;
   font-size: 14px;
@@ -877,14 +878,20 @@ body,
 
 .composerShell {
   display: flex;
-  flex-direction: row;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 4px;
   border-radius: 24px;
   border: 1px solid #e0e0e0;
   background: #fff;
   padding: 10px;
   transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.composerToolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
 }
 
 .composerShell:focus-within {
@@ -902,10 +909,10 @@ body,
 }
 
 .composerInput {
-  max-height: 128px;
+  max-height: 336px;
   min-height: 40px;
-  flex: 1;
-  min-width: 0;
+  field-sizing: content;
+  width: 100%;
   resize: none;
   background: transparent;
   padding: 4px 7px;
@@ -914,6 +921,7 @@ body,
   border: none;
   font-family: inherit;
   line-height: 1.5;
+  overflow-y: auto;
 }
 
 .composerInput::placeholder {
@@ -971,6 +979,7 @@ body,
 
 .modelSelectorTrigger {
   flex-shrink: 0;
+  margin-left: auto;
   border: none;
   background: transparent;
   border-radius: 8px;
@@ -2648,6 +2657,10 @@ body,
 
 .miniAppsTabItem:hover {
   background: #f0f0f0;
+}
+
+.miniAppsTabItem--active {
+  background: #e8e8e8;
 }
 
 .miniAppsTabItemTrigger {

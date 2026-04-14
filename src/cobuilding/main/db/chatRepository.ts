@@ -84,3 +84,29 @@ export function getMessages(sessionId: string): Message[] {
     .prepare('SELECT * FROM messages WHERE session_id = ? ORDER BY id')
     .all(sessionId) as Message[];
 }
+
+/**
+ * Find the most recent session associated with a mini app by searching for:
+ * 1. Assistant messages with open_mini_application tool calls containing the dir_name
+ * 2. User messages with the synthetic context message for the app
+ * Returns the session ID or undefined if not found.
+ */
+export function findSessionForApp(workspaceId: string, dirName: string): string | undefined {
+  const db = getDatabase();
+
+  const marker = `connected to the application "${dirName}"`;
+  const row = db.prepare(`
+    SELECT m.session_id, m.id as message_id
+    FROM messages m
+    JOIN sessions s ON s.id = m.session_id
+    WHERE s.workspace_id = ?
+      AND (
+        (m.type = 'assistant' AND m.content LIKE '%open_mini_application%' AND m.content LIKE ?)
+        OR (m.type = 'user' AND m.content LIKE ?)
+      )
+    ORDER BY m.id DESC
+    LIMIT 1
+  `).get(workspaceId, `%${dirName}%`, `%${marker}%`) as { session_id: string; message_id: number } | undefined;
+
+  return row?.session_id;
+}

@@ -66,6 +66,7 @@ interface SessionsAPI {
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<MessageData[]>;
+  findForApp(dirName: string): Promise<string | null>;
   onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
 }
 
@@ -186,6 +187,7 @@ declare global {
     rename(id: string, title: string): Promise<void>;
     delete(id: string): Promise<void>;
     listMessages(sessionId: string): Promise<MessageData[]>;
+    findForApp(dirName: string): Promise<string | null>;
     onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
   }
 

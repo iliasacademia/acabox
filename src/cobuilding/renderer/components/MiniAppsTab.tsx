@@ -12,14 +12,20 @@ export function MiniAppsTab({
   onSelectApp,
   onDeleteApp,
   onNewApplication,
+  activeAppDirName,
+  autoSelectFirst,
+  onAutoSelectDone,
 }: {
   workspacePath: string;
   onSelectApp: (dirName: string) => void;
   onDeleteApp?: (dirName: string) => void;
   onNewApplication?: () => void;
+  activeAppDirName?: string;
+  autoSelectFirst?: boolean;
+  onAutoSelectDone?: () => void;
 }) {
   const [apps, setApps] = useState<MiniAppEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<MiniAppEntry | null>(null);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
@@ -47,6 +53,17 @@ export function MiniAppsTab({
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Auto-select first app when requested (e.g. clicking Apps nav with no miniapp tabs open)
+  useEffect(() => {
+    if (autoSelectFirst && apps.length > 0) {
+      onSelectApp(apps[0].dirName);
+      onAutoSelectDone?.();
+    } else if (autoSelectFirst && !loading && apps.length === 0) {
+      // No apps available — clear the flag
+      onAutoSelectDone?.();
+    }
+  }, [autoSelectFirst, apps, loading, onSelectApp, onAutoSelectDone]);
 
   const handleDeleteApp = useCallback(async (app: MiniAppEntry) => {
     try {
@@ -98,7 +115,7 @@ export function MiniAppsTab({
       ) : (
         <div className="miniAppsTabList">
           {apps.map((app) => (
-            <div key={app.dirName} className="miniAppsTabItem">
+            <div key={app.dirName} className={`miniAppsTabItem${activeAppDirName === app.dirName ? ' miniAppsTabItem--active' : ''}`}>
               <button
                 className="miniAppsTabItemTrigger"
                 onClick={() => onSelectApp(app.dirName)}

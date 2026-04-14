@@ -195,6 +195,7 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
   rename: (id: string, title: string) => ipcRenderer.invoke('sessions:rename', id, title),
   delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
   listMessages: (sessionId: string) => ipcRenderer.invoke('messages:list', sessionId),
+  findForApp: (dirName: string) => ipcRenderer.invoke('sessions:findForApp', dirName) as Promise<string | null>,
   onTitleUpdated: (callback: (sessionId: string, title: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessionId: string, title: string) => callback(sessionId, title);
     ipcRenderer.on('sessions:titleUpdated', handler);
