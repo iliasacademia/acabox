@@ -39,10 +39,8 @@ import { TabBar } from './tabs/TabBar';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import type { Workspace } from '../shared/types';
-import { initFullStory, trackEvent } from './utils/fullstory';
+import { initFullStory, identifyUser, trackEvent } from './utils/fullstory';
 import './App.css';
-
-initFullStory();
 
 /** Listens for quick-chat:inject IPC and creates a new thread with the message + context. */
 function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
@@ -484,9 +482,14 @@ function App() {
   const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
 
   useEffect(() => {
-    window.authAPI.checkLogin().then(({ loggedIn }) => {
+    window.authAPI.checkLogin().then((result: any) => {
+      const { loggedIn, user, appInfo } = result;
+      initFullStory(appInfo?.isPackaged);
       setIsLoggedIn(loggedIn);
       if (loggedIn) {
+        if (user?.id) {
+          identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
+        }
         window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
       }
     });
@@ -500,6 +503,12 @@ function App() {
       <AcademiaLogin
         onSuccess={() => {
           setIsLoggedIn(true);
+          window.authAPI.checkLogin().then((result: any) => {
+            const { user, appInfo } = result;
+            if (user?.id) {
+              identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
+            }
+          });
           window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
         }}
       />

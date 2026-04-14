@@ -53,7 +53,8 @@ import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './sch
 import { runScheduledTask } from './scheduledTasks/runner';
 import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
-import { checkLogin, logout } from '../../apiClient';
+import { checkLogin, getCurrentUser, logout } from '../../apiClient';
+import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
 import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
@@ -992,7 +993,14 @@ ipcMain.handle('auth:checkLogin', async () => {
         }
       }).catch((err) => log.warn('[Auth] fetchCobuildingApiKey error:', err));
     }
-    return { loggedIn };
+    const appInfo = {
+      deviceId: getDeviceId(),
+      appVersion: app.getVersion(),
+      isPackaged: app.isPackaged,
+    };
+    if (!loggedIn) return { loggedIn: false, appInfo };
+    const user = await getCurrentUser().catch(() => null);
+    return { loggedIn: true, user, appInfo };
   } catch (error) {
     log.error('[Auth] checkLogin error:', error);
     return { loggedIn: false };
