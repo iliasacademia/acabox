@@ -48,6 +48,7 @@ import {
   deleteTask,
   setTaskEnabled,
   listTaskRuns,
+  getTaskBySessionSource,
 } from './db/scheduledTaskRepository';
 import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './scheduledTasks';
 import { runScheduledTask } from './scheduledTasks/runner';
@@ -74,25 +75,12 @@ function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
 }
 
-function isDefaultTasksSeeded(): boolean {
-  try {
-    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.defaultTasksSeeded === true;
-  } catch {
-    return false;
-  }
-}
-
-function markDefaultTasksSeeded(): void {
-  const settingsPath = getSettingsPath();
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch {
-    // File doesn't exist yet
-  }
-  data.defaultTasksSeeded = true;
-  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+function ensureReactionsTask(workspaceId: string): void {
+  const existing = getTaskBySessionSource(workspaceId, 'reactions-system');
+  if (existing) return;
+  createTask(workspaceId, 'Reactions', 'Summarizes your recent activity every 15 minutes',
+    DEFAULT_ACTIVITY_SUMMARY_PROMPT, '*/15 * * * *', 'reactions-system');
+  log.info('[ScheduledTasks] Reactions task created for workspace:', workspaceId);
 }
 
 function getReactionUserInstructions(): string | null {
@@ -124,11 +112,6 @@ function clearReactionUserInstructions(): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
-function seedDefaultTasks(workspaceId: string): void {
-  createTask(workspaceId, 'Reactions', 'Summarizes your recent activity every 15 minutes', DEFAULT_ACTIVITY_SUMMARY_PROMPT, '*/15 * * * *', 'reactions-system');
-  markDefaultTasksSeeded();
-  log.info('[ScheduledTasks] Default tasks seeded for workspace:', workspaceId);
-}
 
 // Configure electron-log for cobuilding — write to userData so dev/prod logs are separated
 log.transports.file.resolvePathFn = () =>
@@ -407,8 +390,8 @@ app.whenReady().then(() => {
     startFileMonitor();
     startBrowserMonitor().then(() => rebuildTrayMenu());
     initSchedulingDatabase(app.getPath('userData'));
-    if (activeWorkspace && !isDefaultTasksSeeded()) {
-      seedDefaultTasks(activeWorkspace.id);
+    if (activeWorkspace) {
+      ensureReactionsTask(activeWorkspace.id);
     }
     startScheduledTasks(handleNotificationNavigation);
 
@@ -475,8 +458,8 @@ ipcMain.handle(
     const id = randomUUID();
     createWorkspace(id, name, directoryPath, apiKey);
     activeWorkspace = getActiveWorkspace() ?? null;
-    if (activeWorkspace && !isDefaultTasksSeeded()) {
-      seedDefaultTasks(activeWorkspace.id);
+    if (activeWorkspace) {
+      ensureReactionsTask(activeWorkspace.id);
     }
     return activeWorkspace ?? null;
   },
@@ -535,6 +518,15 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
 
   touchWorkspace(id);
   activeWorkspace = getActiveWorkspace() ?? null;
+
+  if (activeWorkspace) {
+    ensureReactionsTask(activeWorkspace.id);
+  }
+
+  // Restart scheduler so it picks up the new workspace's tasks
+  const scheduler = getTaskScheduler();
+  scheduler.stop();
+  scheduler.start();
 
   copySkillsToWorkspace(target.directory_path);
   copyClaudeMdToWorkspace(target.directory_path);

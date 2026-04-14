@@ -92,6 +92,12 @@ export function updateLastRun(id: string, lastRunAt: string, nextRunAt: string):
   db.prepare("UPDATE scheduled_tasks SET last_run_at = ?, next_run_at = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE id = ?").run(lastRunAt, nextRunAt, id);
 }
 
+export function getTaskBySessionSource(workspaceId: string, sessionSource: string): ScheduledTask | undefined {
+  const db = getSchedulingDatabase();
+  return db.prepare('SELECT * FROM scheduled_tasks WHERE workspace_id = ? AND session_source = ?')
+    .get(workspaceId, sessionSource) as ScheduledTask | undefined;
+}
+
 export function getEnabledTasks(workspaceId: string): ScheduledTask[] {
   const db = getSchedulingDatabase();
   return db.prepare('SELECT * FROM scheduled_tasks WHERE workspace_id = ? AND enabled = 1').all(workspaceId) as ScheduledTask[];
