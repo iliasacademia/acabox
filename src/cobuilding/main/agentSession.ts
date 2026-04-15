@@ -14,6 +14,7 @@ import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import { createActivityMcpServer } from './mcpServers/activityMcpServer';
 import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
 import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
+import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
 
 export function getClaudeCliPath(): string {
   if (app.isPackaged) {
@@ -113,6 +114,7 @@ export function createAgentSession(
       const miniAppServer = createMiniAppMcpServer(workspace.directory_path);
       const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
+      const msWordServer = createMsWordMcpServer();
       // Read SOUL.md for system prompt customization
       let soulMdContent: string | undefined;
       try {
@@ -144,7 +146,20 @@ export function createAgentSession(
           },
           model: model || 'claude-opus-4-6',
           systemPrompt: (() => {
-            const docxEditingGuidance = `When the user wants to make edits or suggestions to a .docx file, ALWAYS use EnterPlanMode first to present your proposed changes for approval before making any edits. Do not edit any .docx files directly — plan first, wait for approval, then execute. When executing edits to a .docx file, always use tracked changes (w:ins / w:del XML elements with author "Claude") so the user can review and accept/reject each change in Word.`;
+            const docxEditingGuidance = `When the user wants to make edits or suggestions to a .docx file, ALWAYS use EnterPlanMode first to present your proposed changes for approval before making any edits. Do not edit any .docx files directly — plan first, wait for approval, then execute.
+
+When executing edits, first call mcp__ms-word__get_file_path to check whether a Word document is currently open.
+
+If a Word document is open: use ONLY the ms-word MCP tools for all edits. Do NOT use the docx skill or modify the .docx file on disk directly — that would conflict with the open document in Word.
+- Use mcp__ms-word__get_text to read the document content
+- Use mcp__ms-word__position_cursor to place the cursor at the target location
+- Use mcp__ms-word__select_text to select text you want to replace or delete
+- Use mcp__ms-word__delete_selection to delete the selected text
+- Use mcp__ms-word__insert_paragraph to insert new content
+- Use mcp__ms-word__save_document to save after editing
+The user will see edits appear live in the open Word document as you make them.
+
+If no Word document is open (mcp__ms-word__get_file_path returns an error): use the docx skill to edit the .docx file on disk.`;
             const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
             return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };
           })(),
@@ -162,6 +177,7 @@ export function createAgentSession(
             'mini-apps': miniAppServer,
             notification: notificationServer,
             reaction: reactionServer,
+            'ms-word': msWordServer,
           },
           allowedTools: [
             "Bash",
@@ -181,6 +197,17 @@ export function createAgentSession(
             "mcp__mini-apps__open_mini_application",
             "mcp__notification__show_notification",
             "mcp__reaction__create_reaction_thread",
+            "mcp__ms-word__get_file_path",
+            "mcp__ms-word__get_text",
+            "mcp__ms-word__get_selection",
+            "mcp__ms-word__save_document",
+            "mcp__ms-word__open_document",
+            "mcp__ms-word__position_cursor",
+            "mcp__ms-word__insert_paragraph",
+            "mcp__ms-word__select_text",
+            "mcp__ms-word__apply_style",
+            "mcp__ms-word__apply_formatting",
+            "mcp__ms-word__delete_selection",
           ],
           hooks: {
             PreToolUse: [{
