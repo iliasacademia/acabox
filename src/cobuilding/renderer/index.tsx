@@ -24,6 +24,8 @@ import { ReactionsSidebar } from './components/ReactionsSidebar';
 import { FocusEditor } from './components/FocusEditor';
 
 import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
+import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
+import { useTasks } from './taskStore';
 import './components/ScheduledTasks.css';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
@@ -389,6 +391,17 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const showChatSidePanel = activeTab?.kind === 'miniapp';
   const activeMiniAppDirName = activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : null;
 
+  // Toggle a body class while dragging any panel divider so iframes/webviews
+  // don't swallow the mousemove/mouseup events. CSS pairs this with
+  // `pointer-events: none` on iframes during drag.
+  const handleDragging = useCallback((isDragging: boolean) => {
+    document.body.classList.toggle('cobuild-resizing', isDragging);
+  }, []);
+
+  // Whether the inner Thread/TaskPanel split should show the task panel.
+  const tasks = useTasks();
+  const showTaskPanel = !!tasks && tasks.length > 0;
+
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionTitleUpdater />
@@ -453,109 +466,132 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <span className="activityBarBtnLabel">Settings</span>
             </button>
           </div>
-          <div className="sidebarPanel">
-            <div className="sidebarContent">
-              {sidebarTab === 'chats' ? (
-                <ThreadList />
-              ) : sidebarTab === 'files' ? (
-                <FilesTab
-                  workspacePath={workspace.directory_path}
-                  onSelectFile={handleSelectFile}
-                />
-              ) : sidebarTab === 'apps' ? (
-                <MiniAppsTab
-                  workspacePath={workspace.directory_path}
-                  onSelectApp={handleSelectApp}
-                  onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
-                  onNewApplication={() => { setSidebarTab('chats'); }}
-                  activeAppDirName={activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : undefined}
-                  autoSelectFirst={autoSelectFirstApp}
-                  onAutoSelectDone={() => setAutoSelectFirstApp(false)}
-                />
-              ) : sidebarTab === 'reactions' ? (
-                <ReactionsSidebar onOpenFocus={handleOpenFocus} />
-              ) : sidebarTab === 'scheduled' ? (
-                <ScheduledTasksSidebar
-                  selectedTaskId={selectedTaskId}
-                  onSelectTask={(id) => { setSelectedTaskId(id); setIsNewTask(false); }}
-                  onNewTask={() => { setSelectedTaskId(null); setIsNewTask(true); }}
-                  refreshKey={taskRefreshKey}
-                />
-              ) : sidebarTab === 'debug' ? (
-                <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
-              ) : null}
-            </div>
-          </div>
-          <div className="mainPanel">
-            {sidebarTab === 'scheduled' ? (
-              (selectedTaskId || isNewTask) ? (
-                <ScheduledTaskEditor
-                  taskId={selectedTaskId}
-                  onSaved={(savedId) => { setSelectedTaskId(savedId); setIsNewTask(false); setTaskRefreshKey((k) => k + 1); }}
-                  onDeleted={() => { setSelectedTaskId(null); setIsNewTask(false); setTaskRefreshKey((k) => k + 1); }}
-                />
-              ) : (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '0.875rem' }}>
-                  Select a task or create a new one
+          <PanelGroup direction="horizontal" autoSaveId="cobuild.layout" className="appPanelGroup">
+            <Panel id="sidebar" order={1} defaultSize={20} minSize={12} maxSize={40}>
+              <div className="sidebarPanel">
+                <div className="sidebarContent">
+                  {sidebarTab === 'chats' ? (
+                    <ThreadList />
+                  ) : sidebarTab === 'files' ? (
+                    <FilesTab
+                      workspacePath={workspace.directory_path}
+                      onSelectFile={handleSelectFile}
+                    />
+                  ) : sidebarTab === 'apps' ? (
+                    <MiniAppsTab
+                      workspacePath={workspace.directory_path}
+                      onSelectApp={handleSelectApp}
+                      onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
+                      onNewApplication={() => { setSidebarTab('chats'); }}
+                      activeAppDirName={activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : undefined}
+                      autoSelectFirst={autoSelectFirstApp}
+                      onAutoSelectDone={() => setAutoSelectFirstApp(false)}
+                    />
+                  ) : sidebarTab === 'reactions' ? (
+                    <ReactionsSidebar onOpenFocus={handleOpenFocus} />
+                  ) : sidebarTab === 'scheduled' ? (
+                    <ScheduledTasksSidebar
+                      selectedTaskId={selectedTaskId}
+                      onSelectTask={(id) => { setSelectedTaskId(id); setIsNewTask(false); }}
+                      onNewTask={() => { setSelectedTaskId(null); setIsNewTask(true); }}
+                      refreshKey={taskRefreshKey}
+                    />
+                  ) : sidebarTab === 'debug' ? (
+                    <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
+                  ) : null}
                 </div>
-              )
-            ) : (
-              <>
-                <TabBar
-                  tabs={tabs}
-                  activeTabId={activeTabId}
-                  dirtyTabIds={dirtyTabIds}
-                  onActivate={activateTab}
-                  onClose={closeTab}
-                  onPin={pinTab}
-                  onShowChat={deactivateAllTabs}
-                />
-                <div className="tabPanelsContainer">
-                  {/* Chat is the default view when no tab is active */}
-                  <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none', flexDirection: 'row' }}>
-                    <Thread />
-                    <TaskPanel />
-                  </div>
-                  {/* Render all tab panels - hidden ones use display:none to preserve state */}
-                  {tabs.map((tab) => (
-                    <div
-                      key={tab.id}
-                      className="tabPanel"
-                      style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}
-                    >
-                      {tab.data.kind === 'file' && (
-                        <FileViewer filePath={tab.data.filePath} />
-                      )}
-                      {tab.data.kind === 'notebook' && (
-                        <NotebookViewer
-                          filePath={tab.data.filePath}
-                          onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
-                        />
-                      )}
-                      {tab.data.kind === 'miniapp' && (
-                        <MiniAppViewer
-                          key={miniAppReloadNonces[tab.data.dirName] ?? 0}
-                          dirName={tab.data.dirName}
-                          workspacePath={workspace.directory_path}
-                        />
-                      )}
-                      {tab.data.kind === 'debug' && (
-                        <DebugContent activeSection={debugSection} />
-                      )}
-                      {tab.data.kind === 'focus' && (
-                        <FocusEditor />
-                      )}
+              </div>
+            </Panel>
+            <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+            <Panel id="main" order={2} minSize={30}>
+              <div className="mainPanel">
+                {sidebarTab === 'scheduled' ? (
+                  (selectedTaskId || isNewTask) ? (
+                    <ScheduledTaskEditor
+                      taskId={selectedTaskId}
+                      onSaved={(savedId) => { setSelectedTaskId(savedId); setIsNewTask(false); setTaskRefreshKey((k) => k + 1); }}
+                      onDeleted={() => { setSelectedTaskId(null); setIsNewTask(false); setTaskRefreshKey((k) => k + 1); }}
+                    />
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '0.875rem' }}>
+                      Select a task or create a new one
                     </div>
-                  ))}
-                </div>
+                  )
+                ) : (
+                  <>
+                    <TabBar
+                      tabs={tabs}
+                      activeTabId={activeTabId}
+                      dirtyTabIds={dirtyTabIds}
+                      onActivate={activateTab}
+                      onClose={closeTab}
+                      onPin={pinTab}
+                      onShowChat={deactivateAllTabs}
+                    />
+                    <div className="tabPanelsContainer">
+                      {/* Chat is the default view when no tab is active */}
+                      <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none' }}>
+                        <PanelGroup direction="horizontal" autoSaveId="cobuild.chatTasks" className="appPanelGroup">
+                          <Panel id="thread" order={1} minSize={40}>
+                            <Thread />
+                          </Panel>
+                          {showTaskPanel && (
+                            <>
+                              <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                              <Panel id="tasks" order={2} defaultSize={22} minSize={15} maxSize={45}>
+                                <TaskPanel />
+                              </Panel>
+                            </>
+                          )}
+                        </PanelGroup>
+                      </div>
+                      {/* Render all tab panels - hidden ones use display:none to preserve state */}
+                      {tabs.map((tab) => (
+                        <div
+                          key={tab.id}
+                          className="tabPanel"
+                          style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}
+                        >
+                          {tab.data.kind === 'file' && (
+                            <FileViewer filePath={tab.data.filePath} />
+                          )}
+                          {tab.data.kind === 'notebook' && (
+                            <NotebookViewer
+                              filePath={tab.data.filePath}
+                              onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
+                            />
+                          )}
+                          {tab.data.kind === 'miniapp' && (
+                            <MiniAppViewer
+                              key={miniAppReloadNonces[tab.data.dirName] ?? 0}
+                              dirName={tab.data.dirName}
+                              workspacePath={workspace.directory_path}
+                            />
+                          )}
+                          {tab.data.kind === 'debug' && (
+                            <DebugContent activeSection={debugSection} />
+                          )}
+                          {tab.data.kind === 'focus' && (
+                            <FocusEditor />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </Panel>
+            {showChatSidePanel && (
+              <>
+                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                <Panel id="chatSide" order={3} defaultSize={28} minSize={18} maxSize={50}>
+                  <div className="chatSidePanel">
+                    <Thread />
+                  </div>
+                </Panel>
               </>
             )}
-          </div>
-          {showChatSidePanel && (
-            <div className="chatSidePanel">
-              <Thread />
-            </div>
-          )}
+          </PanelGroup>
         </div>
         </div>
         {showSettings && (
@@ -624,6 +660,25 @@ function App() {
   }
 
   return <ChatView workspace={workspace} onWorkspaceUpdated={setWorkspace} />;
+}
+
+// Wrap ResizeObserver callbacks in requestAnimationFrame so they never fire
+// synchronously inside the browser's delivery loop. This is the canonical fix
+// for "ResizeObserver loop completed with undelivered notifications" — the
+// loop guard only trips when callbacks mutate layout during the same delivery
+// cycle they were dispatched in, so deferring by one frame eliminates it.
+const NativeResizeObserver = window.ResizeObserver;
+if (NativeResizeObserver) {
+  window.ResizeObserver = class extends NativeResizeObserver {
+    constructor(callback: ResizeObserverCallback) {
+      super((entries, observer) => {
+        window.requestAnimationFrame(() => {
+          if (!Array.isArray(entries) || !entries.length) return;
+          callback(entries, observer);
+        });
+      });
+    }
+  };
 }
 
 const container = document.getElementById('root');
