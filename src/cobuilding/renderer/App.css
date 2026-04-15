@@ -2681,6 +2681,51 @@ body.cobuild-resizing webview {
   text-overflow: ellipsis;
 }
 
+/* --- XLSX View (sheet tabs) --- */
+
+.xlsxView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.xlsxViewTabs {
+  display: flex;
+  flex-shrink: 0;
+  overflow-x: auto;
+  border-top: 1px solid #d4d4d4;
+  background: #f3f3f3;
+}
+
+.xlsxViewTab {
+  font-size: 0.75rem;
+  padding: 6px 14px;
+  border: none;
+  border-right: 1px solid #d4d4d4;
+  background: transparent;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.xlsxViewTab:hover {
+  background: #e9e9e9;
+}
+
+.xlsxViewTab--active {
+  background: #fff;
+  color: #222;
+  font-weight: 500;
+  box-shadow: inset 0 2px 0 #2563eb;
+}
+
+.xlsxViewHyperlink {
+  color: #0066cc;
+  text-decoration: underline;
+}
+
 /* --- Mini-App Viewer --- */
 
 .miniAppViewer {

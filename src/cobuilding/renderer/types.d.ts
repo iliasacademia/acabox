@@ -134,6 +134,7 @@ declare global {
     | { type: 'markdown'; content: string }
     | { type: 'csv'; content: string; delimiter: string }
     | { type: 'latex'; content: string }
+    | { type: 'spreadsheet'; base64: string; ext: string }
     | { error: 'too-large'; size: number };
 
   interface CopyProgress {
