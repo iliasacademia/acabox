@@ -244,6 +244,16 @@ If the build fails, read the error output, fix the issue in `App.tsx`, and rebui
 
 Call `open_mini_application` with the `dir_name` from Step 1.
 
+
+## Editing a min-app
+
+To edit an existing min-app, follow these steps:
+
+1. Locate the min-app directory at `.applications/<dir_name>/` within the workspace.
+2. Edit the `App.tsx` or `notebook.ipynb` file in the min-app directory to make changes to the UI of backing analysis and params.
+3. Rebuild the bundle with same command as in Step 4 of "Creating a min-app". If the build fails, read the error output, fix the issue in `App.tsx`, and rebuild.
+4. After a successful build, alsways call `open_mini_application` with the `dir_name` from Step 1 to make the changes visible to the user.
+
 ## Guidelines
 
 ### File paths

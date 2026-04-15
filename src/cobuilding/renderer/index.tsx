@@ -272,6 +272,11 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs();
   const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(new Set());
   const [autoSelectFirstApp, setAutoSelectFirstApp] = useState(false);
+  // Per-mini-app reload nonce — bumped each time the app is (re-)opened so the
+  // iframe remounts and picks up a freshly built bundle. Without this, calling
+  // open_mini_application on an already-open tab just activates it without
+  // reloading the iframe contents.
+  const [miniAppReloadNonces, setMiniAppReloadNonces] = useState<Record<string, number>>({});
 
   const handleDirtyChange = useCallback((tabId: string, dirty: boolean) => {
     setDirtyTabIds((prev) => {
@@ -319,6 +324,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 
   const handleSelectApp = useCallback((dirName: string) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName);
+    setMiniAppReloadNonces((prev) => ({ ...prev, [dirName]: (prev[dirName] ?? 0) + 1 }));
     const descriptor: TabDescriptor = {
       id: `miniapp::${dirName}`,
       kind: 'miniapp',
@@ -528,6 +534,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                       )}
                       {tab.data.kind === 'miniapp' && (
                         <MiniAppViewer
+                          key={miniAppReloadNonces[tab.data.dirName] ?? 0}
                           dirName={tab.data.dirName}
                           workspacePath={workspace.directory_path}
                         />
