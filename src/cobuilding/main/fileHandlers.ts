@@ -14,6 +14,7 @@ const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'b
 const PDF_EXTENSIONS = new Set(['pdf']);
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkdn', 'mkd']);
 const CSV_EXTENSIONS = new Set(['csv', 'tsv']);
+const LATEX_EXTENSIONS = new Set(['tex', 'latex']);
 const SENSITIVE_DIRS = new Set(['.ssh', '.gnupg', '.aws', '.config', '.password-store']);
 
 export function assertWithinWorkspace(filePath: string, workspaceDir: string): string {
@@ -105,6 +106,9 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       // Empty delimiter triggers Papa Parse auto-detection (handles ',', ';', '|', etc.).
       // For .tsv we force tab since the extension is unambiguous.
       return { type: 'csv' as const, content, delimiter: ext === 'tsv' ? '\t' : '' };
+    }
+    if (LATEX_EXTENSIONS.has(ext)) {
+      return { type: 'latex' as const, content };
     }
     return { type: 'text' as const, content };
   });

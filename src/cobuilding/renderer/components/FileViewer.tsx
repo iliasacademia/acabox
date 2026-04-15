@@ -2,6 +2,7 @@ import React, { useEffect, useState, type FC } from 'react';
 import { MarkdownView } from './fileViewers/MarkdownView';
 import { CsvView } from './fileViewers/CsvView';
 import { PdfView } from './fileViewers/PdfView';
+import { LatexView } from './fileViewers/LatexView';
 
 type FileContent = Awaited<ReturnType<typeof window.filesAPI.readFile>>;
 
@@ -66,6 +67,10 @@ const FileContentView: FC<{ content: FileContent }> = ({ content }) => {
 
   if (content.type === 'csv') {
     return <CsvView content={content.content} delimiter={content.delimiter} />;
+  }
+
+  if (content.type === 'latex') {
+    return <LatexView content={content.content} />;
   }
 
   return <pre className="fileViewerPre">{content.content}</pre>;

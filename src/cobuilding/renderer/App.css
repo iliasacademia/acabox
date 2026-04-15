@@ -2549,6 +2549,65 @@ body.cobuild-resizing webview {
   max-width: 100%;
 }
 
+/* --- LaTeX View --- */
+
+.latexView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.latexViewToolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.latexViewToggle {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #555;
+}
+
+.latexViewToggle:hover {
+  background: #f5f5f5;
+}
+
+.latexViewToggleActive {
+  background: #333;
+  border-color: #333;
+  color: #fff;
+}
+
+.latexViewToggleActive:hover {
+  background: #333;
+}
+
+.latexViewRendered {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #222;
+  overflow: auto;
+}
+
+/* latex.js renders into a <body> element which we mount inside .latexViewRendered.
+   Strip the body's default block styles so it integrates with our container. */
+.latexViewRendered > body {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.latexViewError {
+  color: #b00;
+  font-size: 0.875rem;
+}
+
 /* --- PDF View --- */
 
 .pdfViewIframe {
