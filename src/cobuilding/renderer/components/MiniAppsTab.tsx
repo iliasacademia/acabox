@@ -83,7 +83,7 @@ export function MiniAppsTab({
     setImporting(true);
     try {
       const result = await window.miniAppsAPI.importApp();
-      if (result.ok) {
+      if (result.ok && result.dirName) {
         await refresh();
         onSelectApp(result.dirName);
       } else if (!result.canceled) {
