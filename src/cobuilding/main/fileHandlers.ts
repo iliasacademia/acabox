@@ -7,7 +7,7 @@ const MAX_FILE_SIZE = 10_000_000; // 10 MB
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif']);
 const SENSITIVE_DIRS = new Set(['.ssh', '.gnupg', '.aws', '.config', '.password-store']);
 
-function assertWithinWorkspace(filePath: string, workspaceDir: string): string {
+export function assertWithinWorkspace(filePath: string, workspaceDir: string): string {
   const resolved = path.resolve(workspaceDir, filePath);
   if (!resolved.startsWith(workspaceDir + path.sep) && resolved !== workspaceDir) {
     throw new Error('Access denied: path is outside the workspace directory.');

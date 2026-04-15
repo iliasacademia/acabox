@@ -362,6 +362,28 @@ await window.anthropicAPI.stream(
   { messages: [{ role: 'user', content: userText }] },
   (chunk) => { output += chunk; setDisplayText(output); },
 );
+
+// Send an image for analysis — use file paths, not base64
+const msg = await window.anthropicAPI.complete({
+  messages: [{
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'file', path: imagePath } },
+      { type: 'text', text: 'Analyze this image.' },
+    ],
+  }],
+});
+
+// Send a PDF for analysis
+const msg = await window.anthropicAPI.complete({
+  messages: [{
+    role: 'user',
+    content: [
+      { type: 'document', source: { type: 'file', path: './data/paper.pdf' } },
+      { type: 'text', text: 'Summarize the key findings.' },
+    ],
+  }],
+});
 ```
 
 ### Bridge API
