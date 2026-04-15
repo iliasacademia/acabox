@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutGridIcon, PlusIcon, TrashIcon } from 'lucide-react';
+import { LayoutGridIcon, PlusIcon, TrashIcon, UploadIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
 interface MiniAppEntry {
@@ -27,6 +27,7 @@ export function MiniAppsTab({
   const [apps, setApps] = useState<MiniAppEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<MiniAppEntry | null>(null);
+  const [importing, setImporting] = useState(false);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
 
@@ -78,6 +79,21 @@ export function MiniAppsTab({
     }
   }, [workspacePath]);
 
+  const handleImportApp = useCallback(async () => {
+    setImporting(true);
+    try {
+      const result = await window.miniAppsAPI.importApp();
+      if (result.ok) {
+        await refresh();
+        onSelectApp(result.dirName);
+      } else if (!result.canceled) {
+        console.error('Import failed:', result.error);
+      }
+    } finally {
+      setImporting(false);
+    }
+  }, [refresh, onSelectApp]);
+
   const handleNewApplication = useCallback(() => {
     assistantRuntime.switchToNewThread();
     // Set composer text after the thread switch settles
@@ -107,6 +123,10 @@ export function MiniAppsTab({
       <button className="threadListNewBtn" onClick={handleNewApplication}>
         <PlusIcon style={{ width: 16, height: 16 }} />
         New Application
+      </button>
+      <button className="threadListNewBtn miniAppsImportBtn" onClick={handleImportApp} disabled={importing}>
+        <UploadIcon style={{ width: 16, height: 16 }} />
+        {importing ? 'Importing…' : 'Import App'}
       </button>
       {loading && apps.length === 0 ? (
         <div className="miniAppsTabEmpty">Loading…</div>

@@ -70,6 +70,11 @@ contextBridge.exposeInMainWorld('filesAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('miniAppsAPI', {
+  exportApp: (dirName: string) => ipcRenderer.invoke('miniApps:export', dirName),
+  importApp: () => ipcRenderer.invoke('miniApps:import'),
+});
+
 contextBridge.exposeInMainWorld('settingsAPI', {
   getMaxAttachmentSizeMB: () => ipcRenderer.invoke('settings:getMaxAttachmentSizeMB'),
   setMaxAttachmentSizeMB: (sizeMB: number) => ipcRenderer.invoke('settings:setMaxAttachmentSizeMB', sizeMB),

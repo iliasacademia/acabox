@@ -1,6 +1,11 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
+import * as os from 'os';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const crossZip = require('cross-zip');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const extractZip = require('extract-zip');
 import { execFile } from 'child_process';
 
 const MAX_FILE_SIZE = 10_000_000; // 10 MB
@@ -233,6 +238,108 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     if (result.canceled || result.filePaths.length === 0) return null;
     updateDialogDir(result.filePaths[0]);
     return result.filePaths[0];
+  });
+
+  ipcMain.handle('miniApps:export', async (_event, dirName: string) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return { ok: false, error: 'No main window' };
+
+    if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
+      return { ok: false, error: 'Invalid app name' };
+    }
+
+    const appDir = path.join(workspaceDir, '.applications', dirName);
+    try {
+      await fsPromises.stat(appDir);
+    } catch {
+      return { ok: false, error: 'App not found' };
+    }
+
+    const saveResult = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: path.join(os.homedir(), `${dirName}.zip`),
+      filters: [{ name: 'Mini App', extensions: ['zip'] }],
+    });
+    if (saveResult.canceled || !saveResult.filePath) return { ok: false, canceled: true };
+
+    const outZip = saveResult.filePath.endsWith('.zip') ? saveResult.filePath : `${saveResult.filePath}.zip`;
+    const tmpDir = path.join(os.tmpdir(), `academia-export-${Date.now()}`);
+    const tmpAppDir = path.join(tmpDir, dirName);
+
+    try {
+      await fsPromises.mkdir(tmpAppDir, { recursive: true });
+
+      // Copy app contents, excluding input/ and output/ (workspace-specific data)
+      const skip = new Set(['input', 'output']);
+      const entries = await fsPromises.readdir(appDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (skip.has(entry.name)) continue;
+        const src = path.join(appDir, entry.name);
+        const dest = path.join(tmpAppDir, entry.name);
+        if (entry.isDirectory()) {
+          await fsPromises.cp(src, dest, { recursive: true });
+        } else {
+          await fsPromises.copyFile(src, dest);
+        }
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        crossZip.zip(tmpAppDir, outZip, (err: Error | null) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+
+      return { ok: true, savedPath: outZip };
+    } finally {
+      await fsPromises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
+  });
+
+  ipcMain.handle('miniApps:import', async (_event) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const mainWindow = getMainWindow();
+    if (!mainWindow) return { ok: false, error: 'No main window' };
+
+    const openResult = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile'],
+      filters: [{ name: 'Mini App', extensions: ['zip'] }],
+    });
+    if (openResult.canceled || openResult.filePaths.length === 0) return { ok: false, canceled: true };
+
+    const zipPath = openResult.filePaths[0];
+    const tmpDir = path.join(os.tmpdir(), `academia-import-${Date.now()}`);
+
+    try {
+      await fsPromises.mkdir(tmpDir, { recursive: true });
+      await extractZip(zipPath, { dir: tmpDir });
+
+      const extracted = await fsPromises.readdir(tmpDir, { withFileTypes: true });
+      const appDirs = extracted.filter((e) => e.isDirectory());
+      if (appDirs.length === 0) return { ok: false, error: 'No app directory found in zip' };
+
+      const baseName = appDirs[0].name;
+      const sourceDir = path.join(tmpDir, baseName);
+      const appsDir = path.join(workspaceDir, '.applications');
+      await fsPromises.mkdir(appsDir, { recursive: true });
+
+      // Find a non-colliding name
+      let finalDirName = baseName;
+      let suffix = 1;
+      for (;;) {
+        try {
+          await fsPromises.stat(path.join(appsDir, finalDirName));
+          finalDirName = `${baseName}_${suffix++}`;
+        } catch {
+          break;
+        }
+      }
+
+      await fsPromises.cp(sourceDir, path.join(appsDir, finalDirName), { recursive: true });
+      return { ok: true, dirName: finalDirName };
+    } finally {
+      await fsPromises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+    }
   });
 
   ipcMain.handle('image:convertToPng', async (_event, base64Data: string) => {
