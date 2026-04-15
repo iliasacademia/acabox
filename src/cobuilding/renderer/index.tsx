@@ -467,7 +467,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             </button>
           </div>
           <PanelGroup direction="horizontal" autoSaveId="cobuild.layout" className="appPanelGroup">
-            <Panel id="sidebar" order={1} defaultSize={20} minSize={12} maxSize={40}>
+            <Panel id="sidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
               <div className="sidebarPanel">
                 <div className="sidebarContent">
                   {sidebarTab === 'chats' ? (
@@ -503,7 +503,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               </div>
             </Panel>
             <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-            <Panel id="main" order={2} minSize={30}>
+            <Panel id="main" order={2} defaultSize={54} minSize={30}>
               <div className="mainPanel">
                 {sidebarTab === 'scheduled' ? (
                   (selectedTaskId || isNewTask) ? (
@@ -532,7 +532,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                       {/* Chat is the default view when no tab is active */}
                       <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none' }}>
                         <PanelGroup direction="horizontal" autoSaveId="cobuild.chatTasks" className="appPanelGroup">
-                          <Panel id="thread" order={1} minSize={40}>
+                          <Panel id="thread" order={1} defaultSize={78} minSize={40}>
                             <Thread />
                           </Panel>
                           {showTaskPanel && (
