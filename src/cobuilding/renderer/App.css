@@ -2779,9 +2779,14 @@ body,
 }
 
 .miniAppsTab > .threadListNewBtn {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   flex-shrink: 0;
 }
+
+.miniAppsImportBtn {
+  margin-bottom: 8px;
+}
+
 
 /* ============================================================
    Log Viewer (Debug → Logs)

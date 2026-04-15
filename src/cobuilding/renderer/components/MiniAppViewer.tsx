@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { CodeIcon, FolderIcon, RefreshCwIcon } from 'lucide-react';
+import { CodeIcon, DownloadIcon, FolderIcon, RefreshCwIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
 import { useKernel } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
@@ -51,6 +51,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }
   return (
     <div className="miniAppViewer">
       <MiniAppHeader
+        dirName={dirName}
         viewingSource={viewingSource}
         onToggleSource={() => setViewingSource((v) => !v)}
       />
@@ -74,11 +75,23 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }
 };
 
 const MiniAppHeader: FC<{
+  dirName: string;
   viewingSource: boolean;
   onToggleSource: () => void;
-}> = ({ viewingSource, onToggleSource }) => {
+}> = ({ dirName, viewingSource, onToggleSource }) => {
+  const handleExport = useCallback(async () => {
+    await window.miniAppsAPI.exportApp(dirName);
+  }, [dirName]);
+
   return (
     <div className="miniAppHeader">
+      <button
+        className="miniAppHeaderClose"
+        onClick={handleExport}
+        title="Export application"
+      >
+        <DownloadIcon style={{ width: 16, height: 16 }} />
+      </button>
       <button
         className={`miniAppHeaderClose${viewingSource ? ' miniAppHeaderClose--active' : ''}`}
         onClick={onToggleSource}
