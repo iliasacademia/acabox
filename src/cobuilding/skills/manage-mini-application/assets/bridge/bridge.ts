@@ -46,8 +46,13 @@ export interface AnthropicMessage {
   usage: { input_tokens: number; output_tokens: number };
 }
 
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'file'; path: string } | { type: 'base64'; media_type: string; data: string } }
+  | { type: 'document'; source: { type: 'file'; path: string } | { type: 'base64'; media_type: 'application/pdf'; data: string }; title?: string };
+
 export interface AnthropicParams {
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+  messages: Array<{ role: 'user' | 'assistant'; content: string | ContentBlock[] }>;
   model?: string;
   max_tokens?: number;
   system?: string;

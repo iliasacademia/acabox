@@ -39,14 +39,23 @@ Call Claude from within a mini-app. The API key is managed by the host — it is
 - `window.anthropicAPI.stream(params, onChunk)` — Streaming. Calls `onChunk(text)` for each text delta as it arrives, then resolves with the final `AnthropicMessage`.
 
 **`params` fields:**
-- `messages` *(required)* — `Array<{ role: "user" | "assistant"; content: string }>`
+- `messages` *(required)* — `Array<{ role: "user" | "assistant"; content: string | ContentBlock[] }>`
 - `model` *(optional)* — defaults to `"claude-haiku-4-5-20251001"`
 - `max_tokens` *(optional)* — defaults to `1024`
 - `system` *(optional)* — system prompt string
 
+**Content blocks** (when `content` is an array):
+- `{ type: "text", text: "..." }` — text content
+- `{ type: "image", source: { type: "file", path: "./data/photo.png" } }` — image from workspace file (png, jpg, gif, webp)
+- `{ type: "image", source: { type: "base64", media_type: "image/png", data: "..." } }` — inline base64 image (e.g. from canvas export)
+- `{ type: "document", source: { type: "file", path: "./data/report.pdf" }, title?: "..." }` — PDF from workspace file
+- `{ type: "document", source: { type: "base64", media_type: "application/pdf", data: "..." }, title?: "..." }` — inline base64 PDF
+
+Only `file` and `base64` source types are supported. URL sources are not allowed. File paths are resolved relative to the workspace directory.
+
 **Examples:**
 ```typescript
-// Non-streaming
+// Non-streaming (text only)
 const msg = await window.anthropicAPI.complete({
   messages: [{ role: 'user', content: 'Summarize this in one sentence: ...' }],
 });
@@ -58,6 +67,28 @@ await window.anthropicAPI.stream(
   { messages: [{ role: 'user', content: 'Explain CRISPR step by step.' }] },
   (chunk) => { output += chunk; setDisplayText(output); },
 );
+
+// Send an image for analysis
+const msg = await window.anthropicAPI.complete({
+  messages: [{
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'file', path: './data/chart.png' } },
+      { type: 'text', text: 'Describe what this chart shows.' },
+    ],
+  }],
+});
+
+// Send a PDF for analysis
+const msg = await window.anthropicAPI.complete({
+  messages: [{
+    role: 'user',
+    content: [
+      { type: 'document', source: { type: 'file', path: './data/paper.pdf' }, title: 'Research Paper' },
+      { type: 'text', text: 'Summarize the key findings.' },
+    ],
+  }],
+});
 ```
 
 ## Utilities
