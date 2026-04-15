@@ -342,6 +342,11 @@ declare global {
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
   }
 
+  interface MiniAppsAPI {
+    exportApp(dirName: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
+    importApp(): Promise<{ ok: boolean; dirName?: string; canceled?: boolean; error?: string }>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     filesAPI: FilesAPI;
@@ -361,5 +366,6 @@ declare global {
     fileMonitorAPI: FileMonitorAPI;
     browserMonitorAPI: BrowserMonitorAPI;
     debugAPI: DebugAPI;
+    miniAppsAPI: MiniAppsAPI;
   }
 }
