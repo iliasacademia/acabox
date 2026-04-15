@@ -1,4 +1,7 @@
 import React, { useEffect, useState, type FC } from 'react';
+import { MarkdownView } from './fileViewers/MarkdownView';
+import { CsvView } from './fileViewers/CsvView';
+import { PdfView } from './fileViewers/PdfView';
 
 type FileContent = Awaited<ReturnType<typeof window.filesAPI.readFile>>;
 
@@ -26,9 +29,16 @@ export const FileViewer: FC<FileViewerProps> = ({ filePath }) => {
     };
   }, [filePath]);
 
+  // PDF and CSV viewers manage their own scrolling/padding; the default body
+  // adds padding and overflow which would conflict.
+  const flush =
+    fileContent != null &&
+    !('error' in fileContent) &&
+    (fileContent.type === 'pdf' || fileContent.type === 'csv');
+
   return (
     <div className="fileViewer">
-      <div className="fileViewerBody">
+      <div className={flush ? 'fileViewerBody fileViewerBodyFlush' : 'fileViewerBody'}>
         {loading && <p className="fileViewerMessage">Loading...</p>}
         {fileContent && <FileContentView content={fileContent} />}
       </div>
@@ -44,6 +54,18 @@ const FileContentView: FC<{ content: FileContent }> = ({ content }) => {
 
   if (content.type === 'image') {
     return <img src={content.fileUrl} alt="File preview" className="fileViewerImage" />;
+  }
+
+  if (content.type === 'pdf') {
+    return <PdfView fileUrl={content.fileUrl} />;
+  }
+
+  if (content.type === 'markdown') {
+    return <MarkdownView content={content.content} />;
+  }
+
+  if (content.type === 'csv') {
+    return <CsvView content={content.content} delimiter={content.delimiter} />;
   }
 
   return <pre className="fileViewerPre">{content.content}</pre>;

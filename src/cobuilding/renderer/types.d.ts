@@ -9,6 +9,9 @@ interface DirEntry {
 type FileContent =
   | { type: 'text'; content: string }
   | { type: 'image'; fileUrl: string }
+  | { type: 'pdf'; fileUrl: string }
+  | { type: 'markdown'; content: string }
+  | { type: 'csv'; content: string; delimiter: string }
   | { error: 'too-large'; size: number };
 
 interface CopyProgress {
@@ -127,6 +130,9 @@ declare global {
   type FileContent =
     | { type: 'text'; content: string }
     | { type: 'image'; fileUrl: string }
+    | { type: 'pdf'; fileUrl: string }
+    | { type: 'markdown'; content: string }
+    | { type: 'csv'; content: string; delimiter: string }
     | { error: 'too-large'; size: number };
 
   interface CopyProgress {

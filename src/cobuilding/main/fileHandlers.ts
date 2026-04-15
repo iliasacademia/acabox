@@ -10,6 +10,10 @@ import { execFile } from 'child_process';
 
 const MAX_FILE_SIZE = 10_000_000; // 10 MB
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico', 'tiff', 'tif']);
+// PDFs are streamed via the local-file protocol, so the 10 MB read limit doesn't apply.
+const PDF_EXTENSIONS = new Set(['pdf']);
+const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkdn', 'mkd']);
+const CSV_EXTENSIONS = new Set(['csv', 'tsv']);
 const SENSITIVE_DIRS = new Set(['.ssh', '.gnupg', '.aws', '.config', '.password-store']);
 
 export function assertWithinWorkspace(filePath: string, workspaceDir: string): string {
@@ -83,6 +87,10 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     if (IMAGE_EXTENSIONS.has(ext)) {
       return { type: 'image' as const, fileUrl: `local-file://${resolved}` };
     }
+    if (PDF_EXTENSIONS.has(ext)) {
+      // PDFs render in an iframe via the local-file protocol — no in-process read needed.
+      return { type: 'pdf' as const, fileUrl: `local-file://${resolved}` };
+    }
 
     const stats = await fsPromises.stat(resolved);
     if (stats.size > MAX_FILE_SIZE) {
@@ -90,6 +98,14 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     }
 
     const content = await fsPromises.readFile(resolved, 'utf-8');
+    if (MARKDOWN_EXTENSIONS.has(ext)) {
+      return { type: 'markdown' as const, content };
+    }
+    if (CSV_EXTENSIONS.has(ext)) {
+      // Empty delimiter triggers Papa Parse auto-detection (handles ',', ';', '|', etc.).
+      // For .tsv we force tab since the extension is unambiguous.
+      return { type: 'csv' as const, content, delimiter: ext === 'tsv' ? '\t' : '' };
+    }
     return { type: 'text' as const, content };
   });
 
