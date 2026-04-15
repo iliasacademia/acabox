@@ -1,9 +1,10 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell, systemPreferences } from 'electron';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
-import { registerFileHandlers } from './fileHandlers';
+import { registerFileHandlers, assertWithinWorkspace } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession } from './agentSession';
@@ -1080,27 +1081,157 @@ const ANTHROPIC_ALLOWED_MODELS = new Set([
 // The character limits prevent IPC message bloat and are well above anything
 // a legitimate mini-app would need.
 const ANTHROPIC_MAX_TOKENS_LIMIT = 4096;
-const ANTHROPIC_MAX_MESSAGE_CHARS = 100_000; // ~25k tokens
+const ANTHROPIC_MAX_TEXT_CHARS = 100_000; // ~25k tokens
 const ANTHROPIC_MAX_MESSAGES = 50;
 const ANTHROPIC_MAX_SYSTEM_CHARS = 10_000;
+const ANTHROPIC_MAX_CONTENT_BLOCKS = 20;
+const ANTHROPIC_MAX_FILE_SIZE = 10_000_000; // 10 MB per file
+const ANTHROPIC_MAX_BASE64_CHARS = 20_000_000; // ~15 MB decoded
+const ANTHROPIC_ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+]);
 
-function validateAnthropicParams(params: unknown): {
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+// Media type lookup for file-path based content blocks. The main process
+// determines the type from the extension — the iframe cannot spoof it.
+const EXT_TO_MEDIA_TYPE: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  pdf: 'application/pdf',
+};
+
+type ValidatedContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string }; title?: string };
+
+// Resolves a single content block. For file-path sources, reads the file from
+// the workspace and base64-encodes it. For base64 sources, validates the data
+// in place. Returns a clean, reconstructed block safe to pass to the SDK.
+async function resolveContentBlock(
+  raw: unknown,
+  workspaceDir: string,
+): Promise<ValidatedContentBlock> {
+  if (!raw || typeof raw !== 'object') throw new Error('Content block must be an object');
+  const block = raw as Record<string, unknown>;
+  if (typeof block.type !== 'string') throw new Error('Content block must have a type');
+
+  if (block.type === 'text') {
+    if (typeof block.text !== 'string') throw new Error('Text block must have a text field');
+    if (block.text.length > ANTHROPIC_MAX_TEXT_CHARS) throw new Error(`Text block exceeds ${ANTHROPIC_MAX_TEXT_CHARS} characters`);
+    return { type: 'text', text: block.text };
+  }
+
+  if (block.type === 'image') {
+    const source = block.source as Record<string, unknown> | undefined;
+    if (!source || typeof source !== 'object') throw new Error('Image block must have a source');
+
+    if (source.type === 'file') {
+      if (typeof source.path !== 'string') throw new Error('Image file source must have a path');
+      const resolved = assertWithinWorkspace(source.path, workspaceDir);
+      const ext = path.extname(resolved).slice(1).toLowerCase();
+      const mediaType = EXT_TO_MEDIA_TYPE[ext];
+      if (!mediaType || !ANTHROPIC_ALLOWED_IMAGE_TYPES.has(mediaType)) {
+        throw new Error(`Unsupported image type: .${ext}`);
+      }
+      const stats = await fsPromises.stat(resolved);
+      if (stats.size > ANTHROPIC_MAX_FILE_SIZE) throw new Error(`Image file exceeds ${ANTHROPIC_MAX_FILE_SIZE} bytes`);
+      const buffer = await fsPromises.readFile(resolved);
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: buffer.toString('base64') },
+      };
+    }
+
+    if (source.type === 'base64') {
+      if (typeof source.media_type !== 'string' || !ANTHROPIC_ALLOWED_IMAGE_TYPES.has(source.media_type)) {
+        throw new Error('Image base64 source must have a valid media_type (image/jpeg, image/png, image/gif, image/webp)');
+      }
+      if (typeof source.data !== 'string') throw new Error('Image base64 source must have a data field');
+      if (source.data.length > ANTHROPIC_MAX_BASE64_CHARS) throw new Error(`Image base64 data exceeds ${ANTHROPIC_MAX_BASE64_CHARS} characters`);
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: source.media_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: source.data },
+      };
+    }
+
+    throw new Error('Image source type must be "file" or "base64"');
+  }
+
+  if (block.type === 'document') {
+    const source = block.source as Record<string, unknown> | undefined;
+    if (!source || typeof source !== 'object') throw new Error('Document block must have a source');
+
+    const title = typeof block.title === 'string' ? block.title.slice(0, 1000) : undefined;
+
+    if (source.type === 'file') {
+      if (typeof source.path !== 'string') throw new Error('Document file source must have a path');
+      const resolved = assertWithinWorkspace(source.path, workspaceDir);
+      const ext = path.extname(resolved).slice(1).toLowerCase();
+      if (ext !== 'pdf') throw new Error('Only PDF documents are supported');
+      const stats = await fsPromises.stat(resolved);
+      if (stats.size > ANTHROPIC_MAX_FILE_SIZE) throw new Error(`Document file exceeds ${ANTHROPIC_MAX_FILE_SIZE} bytes`);
+      const buffer = await fsPromises.readFile(resolved);
+      return {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
+        ...(title ? { title } : {}),
+      };
+    }
+
+    if (source.type === 'base64') {
+      if (source.media_type !== 'application/pdf') throw new Error('Document base64 source must have media_type "application/pdf"');
+      if (typeof source.data !== 'string') throw new Error('Document base64 source must have a data field');
+      if (source.data.length > ANTHROPIC_MAX_BASE64_CHARS) throw new Error(`Document base64 data exceeds ${ANTHROPIC_MAX_BASE64_CHARS} characters`);
+      return {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: source.data },
+        ...(title ? { title } : {}),
+      };
+    }
+
+    throw new Error('Document source type must be "file" or "base64"');
+  }
+
+  throw new Error(`Unsupported content block type: ${block.type}`);
+}
+
+type ValidatedMessage = { role: 'user' | 'assistant'; content: string | ValidatedContentBlock[] };
+
+async function validateAnthropicParams(params: unknown, workspaceDir: string): Promise<{
+  messages: ValidatedMessage[];
   model: string;
   max_tokens: number;
   system?: string;
-} {
+}> {
   if (!params || typeof params !== 'object') throw new Error('Invalid params');
   const p = params as Record<string, unknown>;
 
   if (!Array.isArray(p.messages) || p.messages.length === 0) throw new Error('messages must be a non-empty array');
   if (p.messages.length > ANTHROPIC_MAX_MESSAGES) throw new Error(`messages exceeds maximum of ${ANTHROPIC_MAX_MESSAGES}`);
+
+  const messages: ValidatedMessage[] = [];
   for (const m of p.messages) {
     if (!m || typeof m !== 'object') throw new Error('Each message must be an object');
     const msg = m as Record<string, unknown>;
     if (msg.role !== 'user' && msg.role !== 'assistant') throw new Error('message role must be user or assistant');
-    if (typeof msg.content !== 'string') throw new Error('message content must be a string');
-    if (msg.content.length > ANTHROPIC_MAX_MESSAGE_CHARS) throw new Error(`message content exceeds ${ANTHROPIC_MAX_MESSAGE_CHARS} characters`);
+
+    if (typeof msg.content === 'string') {
+      if (msg.content.length > ANTHROPIC_MAX_TEXT_CHARS) throw new Error(`message content exceeds ${ANTHROPIC_MAX_TEXT_CHARS} characters`);
+      messages.push({ role: msg.role, content: msg.content });
+    } else if (Array.isArray(msg.content)) {
+      if (msg.content.length === 0) throw new Error('content array must not be empty');
+      if (msg.content.length > ANTHROPIC_MAX_CONTENT_BLOCKS) throw new Error(`content array exceeds ${ANTHROPIC_MAX_CONTENT_BLOCKS} blocks`);
+      const blocks = await Promise.all(msg.content.map((b: unknown) => resolveContentBlock(b, workspaceDir)));
+      messages.push({ role: msg.role, content: blocks });
+    } else {
+      throw new Error('message content must be a string or array of content blocks');
+    }
   }
 
   // Silently clamp model to the allowlist so agent code that specifies a model
@@ -1118,14 +1249,15 @@ function validateAnthropicParams(params: unknown): {
   if (typeof p.system === 'string' && p.system.length > ANTHROPIC_MAX_SYSTEM_CHARS) throw new Error(`system prompt exceeds ${ANTHROPIC_MAX_SYSTEM_CHARS} characters`);
   const system = typeof p.system === 'string' ? p.system : undefined;
 
-  return { messages: p.messages as Array<{ role: 'user' | 'assistant'; content: string }>, model, max_tokens, system };
+  return { messages, model, max_tokens, system };
 }
 
 // Non-streaming completion. Uses ipcMain.handle so the result is automatically
 // returned as a promise reply — no manual event sending required.
 ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
   if (!activeWorkspace?.api_key) throw new Error('No active workspace API key');
-  const validated = validateAnthropicParams(params);
+  if (!activeWorkspace.directory_path) throw new Error('No active workspace directory');
+  const validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
   // Log call metadata for audit purposes. Message content is intentionally
   // omitted to avoid writing user data to the log file.
   log.info('[anthropic:complete] workspace=%s model=%s max_tokens=%d messages=%d',
@@ -1157,9 +1289,13 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace API key' });
     return;
   }
-  let validated: ReturnType<typeof validateAnthropicParams>;
+  if (!activeWorkspace.directory_path) {
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace directory' });
+    return;
+  }
+  let validated: Awaited<ReturnType<typeof validateAnthropicParams>>;
   try {
-    validated = validateAnthropicParams(params);
+    validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
   } catch (err) {
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: err instanceof Error ? err.message : String(err) });
     return;
