@@ -14,6 +14,10 @@ const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'b
 const PDF_EXTENSIONS = new Set(['pdf']);
 const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkdn', 'mkd']);
 const CSV_EXTENSIONS = new Set(['csv', 'tsv']);
+const LATEX_EXTENSIONS = new Set(['tex', 'latex']);
+// Modern Excel formats parsed by ExcelJS in the renderer. Legacy .xls (binary)
+// and .ods are not supported by ExcelJS and would fail at parse time.
+const SPREADSHEET_EXTENSIONS = new Set(['xlsx', 'xlsm']);
 const SENSITIVE_DIRS = new Set(['.ssh', '.gnupg', '.aws', '.config', '.password-store']);
 
 export function assertWithinWorkspace(filePath: string, workspaceDir: string): string {
@@ -97,6 +101,13 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       return { error: 'too-large' as const, size: stats.size };
     }
 
+    if (SPREADSHEET_EXTENSIONS.has(ext)) {
+      // Excel/ODS files are binary. Read as a buffer and send base64 over IPC;
+      // SheetJS in the renderer parses base64 directly.
+      const buffer = await fsPromises.readFile(resolved);
+      return { type: 'spreadsheet' as const, base64: buffer.toString('base64'), ext };
+    }
+
     const content = await fsPromises.readFile(resolved, 'utf-8');
     if (MARKDOWN_EXTENSIONS.has(ext)) {
       return { type: 'markdown' as const, content };
@@ -105,6 +116,9 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       // Empty delimiter triggers Papa Parse auto-detection (handles ',', ';', '|', etc.).
       // For .tsv we force tab since the extension is unambiguous.
       return { type: 'csv' as const, content, delimiter: ext === 'tsv' ? '\t' : '' };
+    }
+    if (LATEX_EXTENSIONS.has(ext)) {
+      return { type: 'latex' as const, content };
     }
     return { type: 'text' as const, content };
   });
