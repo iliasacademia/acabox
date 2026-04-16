@@ -119,7 +119,7 @@ function clearReactionUserInstructions(): void {
 }
 
 type ReactionSource = 'browser' | 'file' | 'notes';
-const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['browser', 'file'];
+const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['browser', 'file', 'notes'];
 
 function getReactionSources(): ReactionSource[] {
   try {
