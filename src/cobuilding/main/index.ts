@@ -118,6 +118,43 @@ function clearReactionUserInstructions(): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+type ReactionSource = 'browser' | 'file' | 'notes';
+const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['browser', 'file', 'notes'];
+
+function getReactionSources(): ReactionSource[] {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.reactionSources ?? DEFAULT_REACTION_SOURCES;
+  } catch {
+    return DEFAULT_REACTION_SOURCES;
+  }
+}
+
+function setReactionSources(sources: ReactionSource[]): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.reactionSources = sources;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function buildReactionsPrompt(sources: ReactionSource[]): string {
+  const sourceFilter = sources.length === 3 ? 'all' : sources.join(',');
+  return 'Complete ALL of the following steps in order:\n' +
+    '\n' +
+    '1. Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. ' +
+    `When querying activity, set source to "${sourceFilter}".\n` +
+    '2. Use the reaction skill to react to the latest update only with suggestions and relevant resources. ' +
+    'The reaction skill will handle creating the user-visible reaction thread and sending the notification.';
+}
+
+function updateReactionsTaskPrompt(workspaceId: string, sources: ReactionSource[]): void {
+  const task = getTaskBySessionSource(workspaceId, 'reactions-system');
+  if (!task) return;
+  updateTask(task.id, { prompt: buildReactionsPrompt(sources) });
+}
 
 const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 30;
 
@@ -1603,6 +1640,23 @@ ipcMain.handle('reactionPrompt:set', (_event, instructions: string) => {
 
 ipcMain.handle('reactionPrompt:reset', () => {
   clearReactionUserInstructions();
+});
+
+// Reaction sources IPC handlers
+ipcMain.handle('reactionSources:get', () => {
+  return getReactionSources();
+});
+
+ipcMain.handle('reactionSources:set', (_event, sources: ReactionSource[]) => {
+  setReactionSources(sources);
+  if (activeWorkspace) {
+    updateReactionsTaskPrompt(activeWorkspace.id, sources);
+    // Reschedule the task so the next run uses the updated prompt
+    const task = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
+    if (task) {
+      getTaskScheduler().scheduleTask(task.id);
+    }
+  }
 });
 
 // FOCUS.md IPC handlers

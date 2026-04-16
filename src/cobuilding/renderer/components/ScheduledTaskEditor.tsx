@@ -79,6 +79,7 @@ export function ScheduledTaskEditor({
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(false);
+  const [sources, setSources] = useState<string[]>([]);
 
   const isNew = taskId === null;
   const isSystemTask = task?.session_source === 'reactions-system';
@@ -94,6 +95,9 @@ export function ScheduledTaskEditor({
           const { interval, unit } = cronToInterval(t.cron_expression);
           setScheduleInterval(interval);
           setScheduleUnit(unit);
+          if (t.session_source === 'reactions-system') {
+            window.reactionSourcesAPI.get().then(setSources);
+          }
         }
       });
       window.scheduledTasksAPI.listRuns(taskId).then(setRuns);
@@ -105,6 +109,7 @@ export function ScheduledTaskEditor({
       setScheduleInterval(1);
       setScheduleUnit('hours');
       setRuns([]);
+      setSources([]);
     }
   }, [taskId]);
 
@@ -164,6 +169,16 @@ export function ScheduledTaskEditor({
     }
   }, [taskId]);
 
+  const handleSourceToggle = useCallback((source: string, checked: boolean) => {
+    const next = checked
+      ? [...sources, source]
+      : sources.filter(s => s !== source);
+    // Prevent unchecking the last source
+    if (next.length === 0) return;
+    setSources(next);
+    window.reactionSourcesAPI.set(next);
+  }, [sources]);
+
   const handleUnitChange = (newUnit: ScheduleUnit) => {
     setScheduleUnit(newUnit);
     if (newUnit === 'minutes') {
@@ -185,6 +200,29 @@ export function ScheduledTaskEditor({
       </div>
 
       <div className="scheduledTaskEditor__form">
+        {isSystemTask && sources.length > 0 && (
+          <div className="scheduledTaskEditor__label">
+            Sources
+            <div className="scheduledTaskEditor__sources">
+              {[
+                { key: 'browser', label: 'Browser activity' },
+                { key: 'file', label: 'File activity' },
+                { key: 'notes', label: 'Notes' },
+              ].map(({ key, label }) => (
+                <label key={key} className="scheduledTaskEditor__sourceLabel">
+                  <input
+                    type="checkbox"
+                    checked={sources.includes(key)}
+                    disabled={sources.length === 1 && sources.includes(key)}
+                    onChange={(e) => handleSourceToggle(key, e.target.checked)}
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+
         {!isSystemTask && (
           <>
             <label className="scheduledTaskEditor__label">
