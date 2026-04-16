@@ -576,6 +576,9 @@ ipcMain.handle(
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
+      const scheduler = getTaskScheduler();
+      scheduler.stop();
+      scheduler.start();
     }
     return activeWorkspace ?? null;
   },
