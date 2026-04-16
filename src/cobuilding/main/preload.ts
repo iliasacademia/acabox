@@ -186,6 +186,11 @@ contextBridge.exposeInMainWorld('reactionPromptAPI', {
   reset: () => ipcRenderer.invoke('reactionPrompt:reset'),
 });
 
+contextBridge.exposeInMainWorld('reactionSourcesAPI', {
+  get: () => ipcRenderer.invoke('reactionSources:get'),
+  set: (sources: string[]) => ipcRenderer.invoke('reactionSources:set', sources),
+});
+
 contextBridge.exposeInMainWorld('soulPromptAPI', {
   get: () => ipcRenderer.invoke('soulPrompt:get'),
   set: (content: string) => ipcRenderer.invoke('soulPrompt:set', content),

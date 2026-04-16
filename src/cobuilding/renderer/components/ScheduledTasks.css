@@ -186,6 +186,27 @@
   color: #c33;
 }
 
+.scheduledTaskEditor__sources {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.scheduledTaskEditor__sourceLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: #333;
+  cursor: pointer;
+}
+
+.scheduledTaskEditor__sourceLabel input[type="checkbox"] {
+  accent-color: #333;
+}
+
 /* Schedule row: "Every [X] [dropdown]" inline layout */
 .scheduledTaskEditor__scheduleRow {
   display: flex;

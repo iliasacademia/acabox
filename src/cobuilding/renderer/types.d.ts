@@ -272,6 +272,11 @@ declare global {
     reset(): Promise<void>;
   }
 
+  interface ReactionSourcesAPI {
+    get(): Promise<string[]>;
+    set(sources: string[]): Promise<void>;
+  }
+
   interface SoulPromptAPI {
     get(): Promise<{ content: string }>;
     set(content: string): Promise<void>;
@@ -382,6 +387,7 @@ declare global {
     authAPI: AuthAPI;
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
+    reactionSourcesAPI: ReactionSourcesAPI;
     soulPromptAPI: SoulPromptAPI;
     focusPromptAPI: FocusPromptAPI;
     scheduledTasksAPI: ScheduledTasksAPI;

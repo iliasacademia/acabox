@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as fs from 'fs';
 import { DateTime } from 'luxon';
 import { getBrowserSessionsByTimeRange } from './browserMonitor/repository';
 import { getFileSessionsByTimeRange } from './fileMonitor/repository';
@@ -16,13 +17,25 @@ export interface ActivityQueryParams {
   until?: string;
   period?: 'today' | 'last_2h' | 'last_24h' | 'this_week';
   search?: string;
-  source?: 'browser' | 'file' | 'all';
+  source?: string; // Comma-separated: 'browser', 'file', 'notes', 'all', or combos like 'browser,notes'
+}
+
+export interface NotesSession {
+  file_path: string;
+  date: string;
+  time_blocks: string[];
 }
 
 export interface ActivityQueryResult {
   query: { since: string; until: string; timezone: string };
   browser_sessions?: { domain: string; sessions: unknown[] }[];
   file_sessions?: unknown[];
+  notes_sessions?: NotesSession[];
+}
+
+function parseSources(source?: string): Set<string> {
+  if (!source || source === 'all') return new Set(['browser', 'file', 'notes']);
+  return new Set(source.split(',').map(s => s.trim()));
 }
 
 const AUTH_PATH_PATTERN = /\/(auth|login|signin|sign-in|logout|signup|sign-up|oauth|sso|callback|saml|cas)\b/i;
@@ -55,7 +68,8 @@ export function periodToSince(period?: string): string | null {
 }
 
 export function queryActivity(params: ActivityQueryParams): ActivityQueryResult | { error: string } {
-  const { search, source = 'all' } = params;
+  const { search } = params;
+  const sources = parseSources(params.source);
 
   const rawSince = params.since ?? periodToSince(params.period) ?? undefined;
   if (!rawSince) {
@@ -69,7 +83,7 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
     query: { since: utcToLocal(since), until: utcToLocal(until), timezone: getLocalTimezone() },
   };
 
-  if (source === 'all' || source === 'browser') {
+  if (sources.has('browser')) {
     const rawSessions = getBrowserSessionsByTimeRange(since, until, search)
       .filter((s) => !isFilteredUrl(s.url) && s.snapshot_count > 1);
 
@@ -107,7 +121,7 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
     result.browser_sessions = Object.entries(grouped).map(([domain, sessions]) => ({ domain, sessions }));
   }
 
-  if (source === 'all' || source === 'file') {
+  if (sources.has('file')) {
     const workspacePath = getWorkspacePath();
     const fileSessions = getFileSessionsByTimeRange(since, until, search).map((s) => ({
       ...s,
@@ -134,5 +148,67 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
     });
   }
 
+  if (sources.has('notes')) {
+    const workspacePath = getWorkspacePath();
+    if (workspacePath) {
+      result.notes_sessions = queryNotesSessions(workspacePath, since, until);
+    } else {
+      result.notes_sessions = [];
+    }
+  }
+
   return result;
+}
+
+function queryNotesSessions(workspacePath: string, sinceUtc: string, untilUtc: string): NotesSession[] {
+  const notesDir = path.join(workspacePath, '.notes');
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(notesDir).filter(e => e.endsWith('.md'));
+  } catch {
+    return [];
+  }
+
+  const sinceLocal = DateTime.fromISO(sinceUtc, { zone: 'utc' }).toLocal();
+  const untilLocal = DateTime.fromISO(untilUtc, { zone: 'utc' }).toLocal();
+  const sinceDate = sinceLocal.toFormat('yyyy-MM-dd');
+  const untilDate = untilLocal.toFormat('yyyy-MM-dd');
+
+  const sessions: NotesSession[] = [];
+
+  for (const entry of entries) {
+    const date = entry.replace(/\.md$/, '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    if (date < sinceDate || date > untilDate) continue;
+
+    const filePath = path.join(notesDir, entry);
+    let content: string;
+    try {
+      content = fs.readFileSync(filePath, 'utf-8');
+    } catch {
+      continue;
+    }
+
+    // Parse ## HH:MM headings
+    const headingPattern = /^## (\d{2}:\d{2})$/gm;
+    const timeBlocks: string[] = [];
+    let match: RegExpExecArray | null;
+    while ((match = headingPattern.exec(content)) !== null) {
+      const blockTime = match[1];
+      const blockDt = DateTime.fromISO(`${date}T${blockTime}`, { zone: 'local' });
+      if (blockDt >= sinceLocal && blockDt <= untilLocal) {
+        timeBlocks.push(blockTime);
+      }
+    }
+
+    if (timeBlocks.length > 0) {
+      sessions.push({
+        file_path: `.notes/${entry}`,
+        date,
+        time_blocks: timeBlocks,
+      });
+    }
+  }
+
+  return sessions;
 }
