@@ -99,6 +99,7 @@ export function registerNotesHandlers(
         contentType: 'audio/webm',
       });
       form.append('model', 'gpt-4o-transcribe');
+      form.append('language', 'en');
       form.append('response_format', 'text');
 
       const response = await net.fetch('https://api.openai.com/v1/audio/transcriptions', {
