@@ -190,10 +190,9 @@ function queryNotesSessions(workspacePath: string, sinceUtc: string, untilUtc: s
     }
 
     // Parse ## HH:MM headings
-    const headingPattern = /^## (\d{2}:\d{2})$/gm;
+    const matches = [...content.matchAll(/^## (\d{2}:\d{2})$/gm)];
     const timeBlocks: string[] = [];
-    let match: RegExpExecArray | null;
-    while ((match = headingPattern.exec(content)) !== null) {
+    for (const match of matches) {
       const blockTime = match[1];
       const blockDt = DateTime.fromISO(`${date}T${blockTime}`, { zone: 'local' });
       if (blockDt >= sinceLocal && blockDt <= untilLocal) {
