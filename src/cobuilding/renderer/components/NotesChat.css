@@ -1,0 +1,30 @@
+.notesChat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  border-left: 1px solid #e5e5e5;
+}
+
+.notesChat__analyzing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: #999;
+  padding: 8px 16px;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.notesChat__analyzingDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4caf50;
+  animation: notesChatPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes notesChatPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}

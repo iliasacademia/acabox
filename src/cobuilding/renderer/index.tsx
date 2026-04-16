@@ -24,7 +24,7 @@ import { ReactionsSidebar } from './components/ReactionsSidebar';
 import { FocusEditor } from './components/FocusEditor';
 import { NotesSidebar } from './components/NotesSidebar';
 import { NotesPanel } from './components/NotesPanel';
-import { NotesAssistantThread } from './components/NotesAssistantThread';
+import { NotesChat } from './components/NotesChat';
 
 import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -536,7 +536,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                     </Panel>
                     <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
                     <Panel id="notesAssistant" order={2} defaultSize={35} minSize={20} maxSize={50}>
-                      <NotesAssistantThread dayFile={selectedNoteDay ?? new Date().toISOString().split('T')[0]} />
+                      <NotesChat dayFile={selectedNoteDay ?? new Date().toISOString().split('T')[0]} />
                     </Panel>
                   </PanelGroup>
                 ) : sidebarTab === 'scheduled' ? (

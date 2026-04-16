@@ -995,6 +995,50 @@ ipcMain.handle('sessions:findForApp', (_event, dirName: string) => {
   return sessionId;
 });
 
+function buildNotesConversationHistory(sessionId: string): string {
+  const messages = getMessages(sessionId);
+  if (messages.length === 0) return '';
+
+  const lines: string[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    if (messages[i].type !== 'user') { i++; continue; }
+    const userMsg = messages[i];
+    i++;
+
+    // Collect all consecutive assistant/tool_result rows until the next user row
+    const assistantTexts: string[] = [];
+    while (i < messages.length && messages[i].type !== 'user') {
+      if (messages[i].type === 'assistant') {
+        try {
+          const parsed = JSON.parse(messages[i].content);
+          if (Array.isArray(parsed)) {
+            for (const block of parsed) {
+              if (block.type === 'text') assistantTexts.push(block.text);
+            }
+          } else if (parsed.text) {
+            assistantTexts.push(parsed.text);
+          }
+        } catch {
+          // Skip malformed
+        }
+      }
+      i++;
+    }
+
+    if (assistantTexts.length > 0) {
+      try {
+        const request = JSON.parse(userMsg.content).text;
+        lines.push(`- User: "${request}"`);
+        lines.push(`  Assistant: "${assistantTexts.join('\n')}"`);
+      } catch {
+        // Skip malformed
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
 async function generateSessionTitle(sessionId: string, firstMessage: string, apiKey: string): Promise<void> {
   try {
     const client = new Anthropic({ apiKey });
@@ -1033,11 +1077,33 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
     return;
   }
 
+  const isNotesSession = threadId.startsWith('notes-assistant-');
   let isFirstMessage = false;
 
   if (!hasSession(threadId)) {
     const existingDbSession = getSession(threadId);
     isFirstMessage = !existingDbSession;
+
+    let messagePreprocessor: ((text: string) => string) | undefined;
+    if (isNotesSession && !existingDbSession?.sdk_session_id) {
+      // Only inject history on the first SDK turn for this session.
+      // Subsequent turns resume the SDK session which already has context.
+      const dayFile = threadId.replace('notes-assistant-', '');
+      const notesFilePath = `.notes/${dayFile}.md`;
+      let injected = false;
+      messagePreprocessor = (userText: string) => {
+        if (injected) return userText;
+        injected = true;
+        const history = buildNotesConversationHistory(threadId);
+        let enriched = '';
+        if (history) {
+          enriched += `## Background Context\n\nHere is the conversation history from this notes session (the user is dictating notes via speech-to-text, and some of these are automated request/response pairs detected by an assistant):\n\n${history}\n\n`;
+        }
+        enriched += `## Important\n\nThe user's dictation notes for today are stored in the file at: ${notesFilePath}\nPlease make sure to read this file to understand the full context of their notes before responding.\n\n`;
+        enriched += `## User's Request\n\n${userText}`;
+        return enriched;
+      };
+    }
 
     const session = createAgentSession(
       threadId,
@@ -1048,9 +1114,10 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
       },
       activeWorkspace,
       existingDbSession?.sdk_session_id ?? undefined,
-      undefined,
+      isNotesSession ? 'notes-assistant' : undefined,
       handleNotificationNavigation,
       model,
+      messagePreprocessor,
     );
 
     registerSession(threadId, session);
@@ -1064,7 +1131,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
   ensureForwarding(threadId, event.sender);
   getRegisteredSession(threadId)!.sendMessage(text, attachments);
 
-  if (isFirstMessage && activeWorkspace.api_key) {
+  if (isFirstMessage && !isNotesSession && activeWorkspace.api_key) {
     generateSessionTitle(threadId, text, activeWorkspace.api_key);
   }
 });

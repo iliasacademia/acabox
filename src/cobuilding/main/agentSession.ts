@@ -43,6 +43,7 @@ export function createAgentSession(
   source?: string,
   onNotificationClick?: (action: NotificationNavigationAction | null) => void,
   model?: string,
+  messagePreprocessor?: (text: string) => string,
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
   const listeners = new Set<Partial<ChatCallbacks>>();
@@ -251,7 +252,8 @@ export function createAgentSession(
         };
       });
       insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }));
-      messageQueue.push({ text: userMessage, attachments });
+      const processedText = messagePreprocessor ? messagePreprocessor(userMessage) : userMessage;
+      messageQueue.push({ text: processedText, attachments });
     },
 
     destroy() {

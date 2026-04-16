@@ -9,7 +9,7 @@ import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../sha
 import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone } from './progressStore';
 import { setTasks, tryUpdateTasksFromArgs } from './taskStore';
 
-function toAsyncIterable(
+export function toAsyncIterable(
   stream: ChatMessageStream,
 ): AsyncIterable<ChatStreamMessage> {
   return {
@@ -70,7 +70,7 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
   };
 }
 
-function responseBuilder() {
+export function responseBuilder() {
   const messages: ThreadAssistantMessagePart[] = [];
 
   let streamingText = '';
