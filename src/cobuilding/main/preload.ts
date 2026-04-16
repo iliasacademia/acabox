@@ -78,6 +78,8 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
 contextBridge.exposeInMainWorld('settingsAPI', {
   getMaxAttachmentSizeMB: () => ipcRenderer.invoke('settings:getMaxAttachmentSizeMB'),
   setMaxAttachmentSizeMB: (sizeMB: number) => ipcRenderer.invoke('settings:setMaxAttachmentSizeMB', sizeMB),
+  getOpenAIKey: () => ipcRenderer.invoke('settings:getOpenAIKey'),
+  setOpenAIKey: (key: string) => ipcRenderer.invoke('settings:setOpenAIKey', key),
 });
 
 contextBridge.exposeInMainWorld('containerAPI', {
@@ -192,6 +194,24 @@ contextBridge.exposeInMainWorld('soulPromptAPI', {
 contextBridge.exposeInMainWorld('focusPromptAPI', {
   get: () => ipcRenderer.invoke('focusPrompt:get'),
   set: (content: string) => ipcRenderer.invoke('focusPrompt:set', content),
+});
+
+contextBridge.exposeInMainWorld('notesAPI', {
+  listDays: () => ipcRenderer.invoke('notes:listDays'),
+  readDay: (day: string) => ipcRenderer.invoke('notes:readDay', day),
+  transcribeChunk: (audioBase64: string, dayFile: string) => {
+    ipcRenderer.send('notes:transcribe', { audioBase64, dayFile });
+  },
+  onTranscription: (callback: (data: { text: string; dayFile: string }) => void) => {
+    const handler = (_event: unknown, data: { text: string; dayFile: string }) => callback(data);
+    ipcRenderer.on('notes:transcription', handler);
+    return () => { ipcRenderer.removeListener('notes:transcription', handler); };
+  },
+  onTranscriptionError: (callback: (error: string) => void) => {
+    const handler = (_event: unknown, error: string) => callback(error);
+    ipcRenderer.on('notes:transcriptionError', handler);
+    return () => { ipcRenderer.removeListener('notes:transcriptionError', handler); };
+  },
 });
 
 contextBridge.exposeInMainWorld('sessionsAPI', {

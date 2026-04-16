@@ -63,6 +63,7 @@ import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
 import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
+import { registerNotesHandlers } from './notesHandlers';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 
@@ -136,6 +137,25 @@ function setMaxAttachmentSizeMB(sizeMB: number): void {
     data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
   } catch { }
   data.maxAttachmentSizeMB = sizeMB;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function getOpenAIKey(): string | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.openaiApiKey ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function setOpenAIKey(key: string): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.openaiApiKey = key;
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -409,6 +429,7 @@ app.whenReady().then(() => {
     createMainWindow();
 
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
+    registerNotesHandlers(() => activeWorkspace?.directory_path ?? null, getOpenAIKey);
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
     initSessionFiles(() => activeWorkspace?.directory_path ?? null);
@@ -637,6 +658,14 @@ ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
 
 ipcMain.handle('settings:setMaxAttachmentSizeMB', (_event, sizeMB: number) => {
   setMaxAttachmentSizeMB(sizeMB);
+});
+
+ipcMain.handle('settings:getOpenAIKey', () => {
+  return getOpenAIKey();
+});
+
+ipcMain.handle('settings:setOpenAIKey', (_event, key: string) => {
+  setOpenAIKey(key);
 });
 
 ipcMain.handle('container:getBundledStatus', () => {

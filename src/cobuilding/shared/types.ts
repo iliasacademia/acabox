@@ -108,5 +108,5 @@ export interface UpdateTaskData {
 }
 
 export type NotificationNavigationAction =
-  | { type: 'thread'; threadId: string; sidebarTab?: 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'debug' }
-  | { type: 'sidebar'; tab: 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'debug' };
+  | { type: 'thread'; threadId: string; sidebarTab?: 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'notes' | 'debug' }
+  | { type: 'sidebar'; tab: 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'notes' | 'debug' };

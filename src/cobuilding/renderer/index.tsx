@@ -9,7 +9,7 @@ import {
   useAssistantRuntime,
   useComposerRuntime,
 } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon, MicIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
@@ -22,6 +22,8 @@ import { MiniAppsTab } from './components/MiniAppsTab';
 import { ScheduledTasksSidebar } from './components/ScheduledTasksSidebar';
 import { ReactionsSidebar } from './components/ReactionsSidebar';
 import { FocusEditor } from './components/FocusEditor';
+import { NotesSidebar } from './components/NotesSidebar';
+import { NotesPanel } from './components/NotesPanel';
 
 import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -88,7 +90,7 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
 }
 
 /** Listens for notification:navigate IPC and navigates to the specified target. */
-type SidebarTab = 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'debug';
+type SidebarTab = 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'notes' | 'debug';
 
 function NotificationNavigator({
   setSidebarTab,
@@ -270,6 +272,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
   const [taskRefreshKey, setTaskRefreshKey] = useState(0);
+  const [selectedNoteDay, setSelectedNoteDay] = useState<string | null>(null);
 
   const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs();
   const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(new Set());
@@ -380,6 +383,14 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     }
   }, [tabs, activateTab]);
 
+  const handleNotesClick = useCallback(() => {
+    setSidebarTab('notes');
+    deactivateAllTabs();
+    if (!selectedNoteDay) {
+      setSelectedNoteDay(new Date().toISOString().split('T')[0]);
+    }
+  }, [deactivateAllTabs, selectedNoteDay]);
+
   // Suppress ShowChatOnThreadSelect when switching threads for a miniapp
   const suppressThreadDeactivateRef = useRef(false);
 
@@ -452,6 +463,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <span className="activityBarBtnLabel">Reactions</span>
             </button>
             <button
+              className={`activityBarBtn ${sidebarTab === 'notes' ? 'activityBarBtn--active' : ''}`}
+              onClick={handleNotesClick}
+            >
+              <MicIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Notes</span>
+            </button>
+            <button
               className={`activityBarBtn activityBarBtn--bottom ${sidebarTab === 'debug' ? 'activityBarBtn--active' : ''}`}
               onClick={() => { setSidebarTab('debug'); handleOpenDebug(); }}
             >
@@ -496,6 +514,11 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                       onNewTask={() => { setSelectedTaskId(null); setIsNewTask(true); }}
                       refreshKey={taskRefreshKey}
                     />
+                  ) : sidebarTab === 'notes' ? (
+                    <NotesSidebar
+                      selectedDay={selectedNoteDay}
+                      onSelectDay={setSelectedNoteDay}
+                    />
                   ) : sidebarTab === 'debug' ? (
                     <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
                   ) : null}
@@ -505,7 +528,9 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
             <Panel id="main" order={2} defaultSize={54} minSize={30}>
               <div className="mainPanel">
-                {sidebarTab === 'scheduled' ? (
+                {sidebarTab === 'notes' ? (
+                  <NotesPanel selectedDay={selectedNoteDay} />
+                ) : sidebarTab === 'scheduled' ? (
                   (selectedTaskId || isNewTask) ? (
                     <ScheduledTaskEditor
                       taskId={selectedTaskId}

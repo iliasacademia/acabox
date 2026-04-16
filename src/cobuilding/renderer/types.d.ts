@@ -342,6 +342,16 @@ declare global {
   interface SettingsAPI {
     getMaxAttachmentSizeMB(): Promise<number>;
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
+    getOpenAIKey(): Promise<string | null>;
+    setOpenAIKey(key: string): Promise<void>;
+  }
+
+  interface NotesAPI {
+    listDays(): Promise<string[]>;
+    readDay(day: string): Promise<string>;
+    transcribeChunk(audioBase64: string, dayFile: string): void;
+    onTranscription(callback: (data: { text: string; dayFile: string }) => void): () => void;
+    onTranscriptionError(callback: (error: string) => void): () => void;
   }
 
   interface MiniAppsAPI {
@@ -369,5 +379,6 @@ declare global {
     browserMonitorAPI: BrowserMonitorAPI;
     debugAPI: DebugAPI;
     miniAppsAPI: MiniAppsAPI;
+    notesAPI: NotesAPI;
   }
 }
