@@ -2,11 +2,16 @@ import { ipcMain, net } from 'electron';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
+import log from 'electron-log';
 import FormData from 'form-data';
+import { getMessages } from './db/chatRepository';
+import { analyzeTranscription } from './notesAssistant';
 
 export function registerNotesHandlers(
   getWorkspacePath: () => string | null,
   getOpenAIKey: () => string | null,
+  getAnthropicApiKey: () => string | null,
+  getWorkspaceId: () => string | null,
 ): void {
   ipcMain.handle('notes:listDays', async () => {
     const wp = requireWorkspace(getWorkspacePath);
@@ -132,7 +137,7 @@ export function registerNotesHandlers(
       }
 
       // Write to markdown file
-      await enqueueWrite(dayFile, async () => {
+      const writePromise = enqueueWrite(dayFile, async () => {
         const dir = ensureNotesDir(wp);
         const filePath = path.join(dir, `${dayFile}.md`);
         const timeBlock = currentTimeBlock();
@@ -159,10 +164,20 @@ export function registerNotesHandlers(
 
         await fsPromises.writeFile(filePath, content, 'utf-8');
       });
+      await writePromise;
 
       // Send transcription back to renderer
       if (!event.sender.isDestroyed()) {
         event.sender.send('notes:transcription', { text, dayFile });
+      }
+
+      // Fire-and-forget: analyze transcription for user requests.
+      // Pass writePromise so the analysis reads the file after the write settles.
+      const anthropicKey = getAnthropicApiKey();
+      const workspaceId = getWorkspaceId();
+      if (anthropicKey && workspaceId && wp) {
+        analyzeTranscription(dayFile, text, wp, anthropicKey, workspaceId, event.sender, writePromise)
+          .catch(err => log.warn('[NotesAssistant] Analysis failed:', err));
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Transcription failed';
@@ -170,6 +185,12 @@ export function registerNotesHandlers(
         event.sender.send('notes:transcriptionError', message);
       }
     }
+  });
+
+  ipcMain.handle('notes:assistantMessages', (_event, dayFile: string) => {
+    validateDayFile(dayFile);
+    const sessionId = `notes-assistant-${dayFile}`;
+    return getMessages(sessionId);
   });
 }
 

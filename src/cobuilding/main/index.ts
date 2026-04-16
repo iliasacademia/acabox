@@ -429,7 +429,12 @@ app.whenReady().then(() => {
     createMainWindow();
 
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
-    registerNotesHandlers(() => activeWorkspace?.directory_path ?? null, getOpenAIKey);
+    registerNotesHandlers(
+      () => activeWorkspace?.directory_path ?? null,
+      getOpenAIKey,
+      () => activeWorkspace?.api_key ?? null,
+      () => activeWorkspace?.id ?? null,
+    );
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
     initSessionFiles(() => activeWorkspace?.directory_path ?? null);

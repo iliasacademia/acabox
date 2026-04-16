@@ -212,6 +212,22 @@ contextBridge.exposeInMainWorld('notesAPI', {
     ipcRenderer.on('notes:transcriptionError', handler);
     return () => { ipcRenderer.removeListener('notes:transcriptionError', handler); };
   },
+  getAssistantMessages: (dayFile: string) => ipcRenderer.invoke('notes:assistantMessages', dayFile),
+  onAssistantMessage: (callback: (data: { dayFile: string; request: string; response: string }) => void) => {
+    const handler = (_event: unknown, data: { dayFile: string; request: string; response: string }) => callback(data);
+    ipcRenderer.on('notes:assistantMessage', handler);
+    return () => { ipcRenderer.removeListener('notes:assistantMessage', handler); };
+  },
+  onAssistantAnalyzing: (callback: (data: { dayFile: string; analyzing: boolean }) => void) => {
+    const handler = (_event: unknown, data: { dayFile: string; analyzing: boolean }) => callback(data);
+    ipcRenderer.on('notes:assistantAnalyzing', handler);
+    return () => { ipcRenderer.removeListener('notes:assistantAnalyzing', handler); };
+  },
+  onAssistantError: (callback: (data: { dayFile: string; error: string }) => void) => {
+    const handler = (_event: unknown, data: { dayFile: string; error: string }) => callback(data);
+    ipcRenderer.on('notes:assistantError', handler);
+    return () => { ipcRenderer.removeListener('notes:assistantError', handler); };
+  },
 });
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
