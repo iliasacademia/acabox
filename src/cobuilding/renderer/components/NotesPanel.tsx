@@ -4,6 +4,10 @@ import remarkGfm from 'remark-gfm';
 import { MicIcon, SquareIcon } from 'lucide-react';
 import './NotesPanel.css';
 
+const CHUNK_SAMPLES = 512;
+const SAMPLE_RATE = 16000;
+const SCRIPT_BUFFER_SIZE = 4096;
+
 function todayDateString(): string {
   return new Date().toISOString().split('T')[0];
 }
@@ -14,21 +18,12 @@ function formatDuration(seconds: number): string {
   return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
 }
 
-const SPEECH_RMS_THRESHOLD = 0.02;
-
-/** Check if the current audio level exceeds the speech threshold. */
-function hasSpeech(analyser: AnalyserNode): boolean {
-  const data = new Uint8Array(analyser.fftSize);
-  analyser.getByteTimeDomainData(data);
-  let sumSquares = 0;
-  for (let i = 0; i < data.length; i++) {
-    const normalized = (data[i] - 128) / 128; // center at 0, range -1 to 1
-    sumSquares += normalized * normalized;
-  }
-  const rms = Math.sqrt(sumSquares / data.length);
-  return rms > SPEECH_RMS_THRESHOLD;
+function encodePcmBase64(samples: Float32Array): string {
+  const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
-
 
 export function NotesPanel({ selectedDay }: { selectedDay: string | null }) {
   const day = selectedDay ?? todayDateString();
@@ -38,37 +33,46 @@ export function NotesPanel({ selectedDay }: { selectedDay: string | null }) {
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [transcribingCount, setTranscribingCount] = useState(0);
+  const [speechActive, setSpeechActive] = useState(false);
 
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const processorRef = useRef<ScriptProcessorNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const sampleBufRef = useRef<number[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordingRef = useRef(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
   const contentEndRef = useRef<HTMLDivElement | null>(null);
+  const dayRef = useRef(day);
+  useEffect(() => { dayRef.current = day; }, [day]);
 
   // Load note content when day changes
   useEffect(() => {
     window.notesAPI.readDay(day).then(setNoteContent);
   }, [day]);
 
-  // Subscribe to transcription events
+  // Subscribe to transcription and transcribing-state events
   useEffect(() => {
     const cleanupTranscription = window.notesAPI.onTranscription((data) => {
+      setError(null);
       if (data.dayFile === day) {
-        // Reload the full file content to stay in sync with what's on disk
         window.notesAPI.readDay(day).then(setNoteContent);
       }
-      setTranscribingCount((c) => Math.max(0, c - 1));
     });
 
     const cleanupError = window.notesAPI.onTranscriptionError((errMsg) => {
       setError(errMsg);
-      setTranscribingCount((c) => Math.max(0, c - 1));
     });
+
+    const cleanupTranscribing = window.notesAPI.onTranscribingChange((active) => {
+      setTranscribingCount((c) => Math.max(0, active ? c + 1 : c - 1));
+    });
+
+    const cleanupSpeech = window.notesAPI.onSpeechDetected(setSpeechActive);
 
     return () => {
       cleanupTranscription();
       cleanupError();
+      cleanupTranscribing();
+      cleanupSpeech();
     };
   }, [day]);
 
@@ -77,136 +81,76 @@ export function NotesPanel({ selectedDay }: { selectedDay: string | null }) {
     contentEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [noteContent]);
 
-  // Records a single chunk: creates a fresh MediaRecorder on the stream,
-  // records for the given duration, then resolves with the complete audio blob.
-  // Each recording is a standalone file with proper WebM headers.
-  // If an analyser is provided, polls for speech during recording and reports
-  // whether any speech was detected.
-  const recordChunk = useCallback((
-    stream: MediaStream,
-    durationMs: number,
-    analyser: AnalyserNode | null,
-  ): Promise<{ blob: Blob | null; speechDetected: boolean }> => {
-    return new Promise((resolve) => {
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
-      });
-      const chunks: Blob[] = [];
-      let speechDetected = false;
-
-      const speechPoll = analyser
-        ? setInterval(() => {
-            if (hasSpeech(analyser)) speechDetected = true;
-          }, 250)
-        : null;
-
-      recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) chunks.push(event.data);
-      };
-
-      recorder.onstop = () => {
-        if (speechPoll) clearInterval(speechPoll);
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        resolve({
-          blob: blob.size < 1000 ? null : blob,
-          speechDetected: analyser ? speechDetected : true,
-        });
-      };
-
-      recorder.start();
-      setTimeout(() => {
-        if (recorder.state !== 'inactive') recorder.stop();
-      }, durationMs);
-    });
-  }, []);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      recordingRef.current = false;
       if (timerRef.current) clearInterval(timerRef.current);
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-      }
+      stopAudio();
     };
   }, []);
 
+  function stopAudio() {
+    processorRef.current?.disconnect();
+    processorRef.current = null;
+    sampleBufRef.current = [];
+    audioCtxRef.current?.close();
+    audioCtxRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+  }
+
   const startRecording = useCallback(async () => {
     setError(null);
+    setDuration(0);
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
       streamRef.current = stream;
-      recordingRef.current = true;
-      setIsRecording(true);
-      setDuration(0);
 
-      // Set up Web Audio analyser for silence detection
-      const audioCtx = new AudioContext();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      audioContextRef.current = audioCtx;
-      analyserRef.current = analyser;
+      const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
+      audioCtxRef.current = ctx;
 
-      timerRef.current = setInterval(() => {
-        setDuration((d) => d + 1);
-      }, 1000);
+      const source = ctx.createMediaStreamSource(stream);
 
-      // Record chunks in a loop using stop-and-restart so each chunk
-      // is a standalone audio file with proper container headers.
-      // Speech detection runs in parallel — if no speech is detected
-      // during the chunk, we skip sending it to save API calls.
-      const runChunkLoop = async () => {
-        try {
-          while (recordingRef.current && streamRef.current) {
-            const { blob, speechDetected } = await recordChunk(
-              streamRef.current, 5000, analyserRef.current,
-            );
-            if (!recordingRef.current) break;
-            if (blob && speechDetected) {
-              const arrayBuffer = await blob.arrayBuffer();
-              const base64 = btoa(
-                new Uint8Array(arrayBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''),
-              );
-              setTranscribingCount((c) => c + 1);
-              window.notesAPI.transcribeChunk(base64, day);
-            }
-          }
-        } catch (loopErr: unknown) {
-          setError(loopErr instanceof Error ? loopErr.message : 'Recording failed unexpectedly');
-          stopRecording();
+      // ScriptProcessorNode is deprecated for browsers but stable in Electron —
+      // AudioWorkletNode requires blob: URLs which are blocked by our CSP.
+      const processor = ctx.createScriptProcessor(SCRIPT_BUFFER_SIZE, 1, 1); // eslint-disable-line deprecation/deprecation
+      processorRef.current = processor;
+      sampleBufRef.current = [];
+
+      processor.onaudioprocess = (e) => {
+        const input = e.inputBuffer.getChannelData(0);
+        const buf = sampleBufRef.current;
+        for (let i = 0; i < input.length; i++) buf.push(input[i]);
+        while (buf.length >= CHUNK_SAMPLES) {
+          const chunk = new Float32Array(buf.splice(0, CHUNK_SAMPLES));
+          window.notesAPI.sendAudioChunk(encodePcmBase64(chunk), dayRef.current);
         }
       };
-      runChunkLoop();
+
+      // Must route through destination for onaudioprocess to fire; use gain=0 to silence playback
+      const silence = ctx.createGain();
+      silence.gain.value = 0;
+      source.connect(processor);
+      processor.connect(silence);
+      silence.connect(ctx.destination);
+
+      setIsRecording(true);
+      timerRef.current = setInterval(() => setDuration((d) => d + 1), 1000);
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        setError('Microphone access denied. Please allow microphone access in System Settings > Privacy & Security > Microphone.');
-      } else {
-        setError(err instanceof Error ? err.message : 'Failed to start recording');
-      }
+      const msg = err instanceof Error ? err.message : 'Could not start recording';
+      setError(
+        msg.toLowerCase().includes('notallowed') || msg.toLowerCase().includes('permission')
+          ? 'Microphone access denied. Please allow microphone access in System Settings > Privacy & Security > Microphone.'
+          : msg,
+      );
     }
-  }, [day, recordChunk]);
+  }, []);
 
   const stopRecording = useCallback(() => {
-    recordingRef.current = false;
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (audioContextRef.current) {
-      audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-    analyserRef.current = null;
+    window.notesAPI.stopRecording();
+    stopAudio();
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
     setIsRecording(false);
   }, []);
 
@@ -225,9 +169,14 @@ export function NotesPanel({ selectedDay }: { selectedDay: string | null }) {
         )}
       </div>
 
-      {/* Floating action button */}
       <div className="notesPanel__fab">
         {error && <div className="notesPanel__error">{error}</div>}
+        {speechActive && (
+          <span className="notesPanel__status">
+            <span className="notesPanel__statusDot notesPanel__statusDot--voice" />
+            Voice detected
+          </span>
+        )}
         {transcribingCount > 0 && (
           <span className="notesPanel__status">
             <span className="notesPanel__statusDot" />

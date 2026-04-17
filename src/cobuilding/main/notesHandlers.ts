@@ -1,18 +1,133 @@
-import { ipcMain, net } from 'electron';
+import { ipcMain, WebContents } from 'electron';
 import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import log from 'electron-log';
-import FormData from 'form-data';
 import { getMessages } from './db/chatRepository';
 import { analyzeTranscription } from './notesAssistant';
+import { SpeechSegmenter, SILERO_CHUNK_SAMPLES } from './sileroVad';
 
 export function registerNotesHandlers(
   getWorkspacePath: () => string | null,
-  getOpenAIKey: () => string | null,
   getAnthropicApiKey: () => string | null,
   getWorkspaceId: () => string | null,
+  getOpenAIKey: () => string | null,
 ): void {
+  // One segmenter per renderer session; keyed by WebContents id
+  const segmenters = new Map<number, { segmenter: SpeechSegmenter; dayFileRef: { current: string } }>();
+
+  function getOrCreateSegmenter(sender: WebContents, dayFileRef: { current: string }): SpeechSegmenter {
+    const existing = segmenters.get(sender.id);
+    if (existing) {
+      existing.dayFileRef.current = dayFileRef.current;
+      return existing.segmenter;
+    }
+
+    const ref = { current: dayFileRef.current };
+    const segmenter = new SpeechSegmenter(
+      (audio) => {
+        handleSpeechEnd(audio, ref.current, sender);
+        if (!sender.isDestroyed()) sender.send('notes:speechDetected', false);
+      },
+      () => {
+        if (!sender.isDestroyed()) sender.send('notes:speechDetected', true);
+      },
+    );
+
+    segmenter.init().catch(err => {
+      log.error('[SileroVAD] Init failed:', err);
+      if (!sender.isDestroyed()) sender.send('notes:transcriptionError', 'VAD model failed to load.');
+    });
+
+    segmenters.set(sender.id, { segmenter, dayFileRef: ref });
+    sender.once('destroyed', () => segmenters.delete(sender.id));
+    return segmenter;
+  }
+
+  async function handleSpeechEnd(audio: Float32Array, dayFile: string, sender: WebContents): Promise<void> {
+    if (!DAY_FORMAT.test(dayFile)) return;
+
+    const wp = getWorkspacePath();
+    if (!wp) return;
+
+    const apiKey = getOpenAIKey();
+    if (!apiKey) {
+      if (!sender.isDestroyed()) sender.send('notes:transcriptionError', 'No OpenAI API key configured.');
+      return;
+    }
+
+    // Minimum ~0.5s of audio to avoid sending silence-only segments
+    if (audio.length < 8000) return;
+
+    if (!sender.isDestroyed()) sender.send('notes:transcribingStart');
+
+    try {
+      const rawText = await transcribeWithOpenAI(audio, apiKey);
+
+      const text = rawText
+        .replace(/\[.*?\]/g, '')
+        .replace(/(?<!\w)_(?!\w)/g, '')
+        .split('\n')
+        .map((l: string) => l.trim())
+        .filter((l: string) => l.length > 0)
+        .filter((l: string, i: number, arr: string[]) => i === 0 || l.toLowerCase() !== arr[i - 1].toLowerCase())
+        .join(' ')
+        .replace(/^[.,\s]+/, '')
+        .trim();
+
+      if (!text) {
+        if (!sender.isDestroyed()) sender.send('notes:transcribingEnd');
+        return;
+      }
+
+      const writePromise = enqueueWrite(dayFile, async () => {
+        const dir = ensureNotesDir(wp);
+        const filePath = path.join(dir, `${dayFile}.md`);
+        const timeBlock = currentTimeBlock();
+
+        let existing = '';
+        try {
+          existing = await fsPromises.readFile(filePath, 'utf-8');
+        } catch { }
+
+        const headingLine = `## ${timeBlock}`;
+        const allHeadings = existing.match(/^## \d{2}:\d{2}$/gm);
+        const lastHeading = allHeadings ? allHeadings[allHeadings.length - 1] : null;
+
+        let content: string;
+        if (!existing) {
+          content = `# Notes - ${formatDateHeader(dayFile)}\n\n${headingLine}\n${text}\n`;
+        } else if (lastHeading === headingLine) {
+          content = `${existing}\n${text}\n`;
+        } else {
+          content = `${existing}\n${headingLine}\n${text}\n`;
+        }
+
+        await fsPromises.writeFile(filePath, content, 'utf-8');
+      });
+      await writePromise;
+
+      if (!sender.isDestroyed()) {
+        sender.send('notes:transcription', { text, dayFile });
+      }
+
+      const anthropicKey = getAnthropicApiKey();
+      const workspaceId = getWorkspaceId();
+      if (anthropicKey && workspaceId && wp) {
+        analyzeTranscription(dayFile, text, wp, anthropicKey, workspaceId, sender, writePromise)
+          .catch(err => log.warn('[NotesAssistant] Analysis failed:', err));
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Transcription failed';
+      log.error('[Notes] Transcription error:', message);
+      if (!sender.isDestroyed()) {
+        sender.send('notes:transcriptionError', message);
+      }
+    } finally {
+      if (!sender.isDestroyed()) sender.send('notes:transcribingEnd');
+    }
+  }
+
   ipcMain.handle('notes:listDays', async () => {
     const wp = requireWorkspace(getWorkspacePath);
     const dir = notesDir(wp);
@@ -39,152 +154,32 @@ export function registerNotesHandlers(
     }
   });
 
-  ipcMain.on('notes:transcribe', async (event, data: { audioBase64: string; dayFile: string }) => {
-    const { audioBase64, dayFile } = data;
+  // Renderer streams 512-sample Float32 PCM chunks (16kHz mono) as base64
+  ipcMain.on('notes:audioChunk', (event, data: { chunkBase64: string; dayFile: string }) => {
+    const { chunkBase64, dayFile } = data;
+    if (!DAY_FORMAT.test(dayFile)) return;
 
-    if (!DAY_FORMAT.test(dayFile)) {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('notes:transcriptionError', 'Invalid day format.');
-      }
-      return;
-    }
+    const buf = Buffer.from(chunkBase64, 'base64');
+    if (buf.length !== SILERO_CHUNK_SAMPLES * 4) return; // must be exactly 512 float32 samples
 
-    const wp = getWorkspacePath();
-    if (!wp) {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('notes:transcriptionError', 'No active workspace.');
-      }
-      return;
-    }
+    const samples = new Float32Array(buf.buffer, buf.byteOffset, SILERO_CHUNK_SAMPLES);
+    const dayFileRef = { current: dayFile };
+    const segmenter = getOrCreateSegmenter(event.sender, dayFileRef);
 
-    const apiKey = getOpenAIKey();
-    if (!apiKey) {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('notes:transcriptionError', 'No OpenAI API key configured. Please add it in Settings.');
-      }
-      return;
-    }
+    // Update the day ref in case it changed
+    const entry = segmenters.get(event.sender.id);
+    if (entry) entry.dayFileRef.current = dayFile;
 
-    // Decode and validate audio
-    const audioBuffer = Buffer.from(audioBase64, 'base64');
+    segmenter.processChunk(samples).catch(err => {
+      log.error('[SileroVAD] processChunk error:', err);
+    });
+  });
 
-    // Skip very small chunks (likely silence)
-    if (audioBuffer.length < 1000) {
-      return;
-    }
-
-    // Verify WebM magic bytes
-    if (audioBuffer.length < 4 || !audioBuffer.subarray(0, 4).equals(WEBM_MAGIC)) {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('notes:transcriptionError', 'Invalid audio format: expected WebM.');
-      }
-      return;
-    }
-
-    // Reject oversized chunks
-    if (audioBuffer.length > MAX_CHUNK_SIZE) {
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('notes:transcriptionError', 'Audio chunk too large.');
-      }
-      return;
-    }
-
-    try {
-      // Build multipart form data.
-      // Note: getBuffer() below requires all appended values to be Buffers or
-      // strings — it will return incomplete data if streams are used instead.
-      const form = new FormData();
-      form.append('file', audioBuffer, {
-        filename: 'audio.webm',
-        contentType: 'audio/webm',
-      });
-      form.append('model', 'gpt-4o-transcribe');
-      form.append('language', 'en');
-      form.append('response_format', 'text');
-
-      const response = await net.fetch('https://api.openai.com/v1/audio/transcriptions', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          ...form.getHeaders(),
-        },
-        body: new Uint8Array(form.getBuffer()),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let message = `OpenAI API error (${response.status})`;
-        if (response.status === 401) {
-          message = 'Invalid OpenAI API key. Please update it in Settings.';
-        } else if (response.status === 429) {
-          message = 'OpenAI rate limit exceeded. Please wait a moment.';
-        } else {
-          try {
-            const errorJson = JSON.parse(errorText);
-            message = errorJson.error?.message ?? message;
-          } catch { }
-        }
-        if (!event.sender.isDestroyed()) {
-          event.sender.send('notes:transcriptionError', message);
-        }
-        return;
-      }
-
-      const text = (await response.text()).trim();
-
-      // Skip empty transcriptions (silence)
-      if (!text) {
-        return;
-      }
-
-      // Write to markdown file
-      const writePromise = enqueueWrite(dayFile, async () => {
-        const dir = ensureNotesDir(wp);
-        const filePath = path.join(dir, `${dayFile}.md`);
-        const timeBlock = currentTimeBlock();
-
-        let existing = '';
-        try {
-          existing = await fsPromises.readFile(filePath, 'utf-8');
-        } catch { }
-
-        // Check if the last heading matches the current 10-minute block
-        const headingLine = `## ${timeBlock}`;
-        const allHeadings = existing.match(/^## \d{2}:\d{2}$/gm);
-        const lastHeading = allHeadings ? allHeadings[allHeadings.length - 1] : null;
-
-        let content: string;
-        if (!existing) {
-          content = `# Notes - ${formatDateHeader(dayFile)}\n\n${headingLine}\n${text}\n`;
-        } else if (lastHeading === headingLine) {
-          // Same 10-minute block — append directly
-          content = `${existing}${text}\n`;
-        } else {
-          content = `${existing}\n${headingLine}\n${text}\n`;
-        }
-
-        await fsPromises.writeFile(filePath, content, 'utf-8');
-      });
-      await writePromise;
-
-      // Send transcription back to renderer
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('notes:transcription', { text, dayFile });
-      }
-
-      // Fire-and-forget: analyze transcription for user requests.
-      // Pass writePromise so the analysis reads the file after the write settles.
-      const anthropicKey = getAnthropicApiKey();
-      const workspaceId = getWorkspaceId();
-      if (anthropicKey && workspaceId && wp) {
-        analyzeTranscription(dayFile, text, wp, anthropicKey, workspaceId, event.sender, writePromise)
-          .catch(err => log.warn('[NotesAssistant] Analysis failed:', err));
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Transcription failed';
-      if (!event.sender.isDestroyed()) {
-        event.sender.send('notes:transcriptionError', message);
-      }
+  ipcMain.on('notes:stopRecording', (event) => {
+    const entry = segmenters.get(event.sender.id);
+    if (entry) {
+      entry.segmenter.flush(); // emit any buffered speech
+      entry.segmenter.reset();
     }
   });
 
@@ -199,15 +194,62 @@ export function registerNotesHandlers(
 
 const NOTES_DIR = '.notes';
 const DAY_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
-// WebM files start with EBML header: 0x1A 0x45 0xDF 0xA3
-const WEBM_MAGIC = Buffer.from([0x1a, 0x45, 0xdf, 0xa3]);
-// 5 seconds of WebM/opus at high bitrate should never exceed 500KB
-const MAX_CHUNK_SIZE = 500_000;
+
+async function transcribeWithOpenAI(audio: Float32Array, apiKey: string): Promise<string> {
+  const wavBuffer = encodeWav(audio);
+  const blob = new Blob([new Uint8Array(wavBuffer)], { type: 'audio/wav' });
+  const formData = new FormData();
+  formData.append('file', blob, 'audio.wav');
+  formData.append('model', 'gpt-4o-transcribe');
+  formData.append('language', 'en');
+
+  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI transcription failed (${response.status}): ${errText}`);
+  }
+
+  const result = await response.json() as { text: string };
+  return result.text ?? '';
+}
+
+function encodeWav(pcmFloat32: Float32Array, sampleRate = 16000): Buffer {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * bitsPerSample / 8;
+  const blockAlign = numChannels * bitsPerSample / 8;
+  const dataSize = pcmFloat32.length * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write('RIFF', 0, 'ascii');
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8, 'ascii');
+  buffer.write('fmt ', 12, 'ascii');
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt16LE(numChannels, 22);
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(byteRate, 28);
+  buffer.writeUInt16LE(blockAlign, 32);
+  buffer.writeUInt16LE(bitsPerSample, 34);
+  buffer.write('data', 36, 'ascii');
+  buffer.writeUInt32LE(dataSize, 40);
+
+  for (let i = 0; i < pcmFloat32.length; i++) {
+    const s = Math.max(-1, Math.min(1, pcmFloat32[i]));
+    buffer.writeInt16LE(Math.round(s * 32767), 44 + i * 2);
+  }
+
+  return buffer;
+}
 
 function validateDayFile(day: string): void {
-  if (!DAY_FORMAT.test(day)) {
-    throw new Error('Invalid day format. Expected YYYY-MM-DD.');
-  }
+  if (!DAY_FORMAT.test(day)) throw new Error('Invalid day format. Expected YYYY-MM-DD.');
 }
 
 function requireWorkspace(getWorkspacePath: () => string | null): string {
@@ -217,7 +259,7 @@ function requireWorkspace(getWorkspacePath: () => string | null): string {
 }
 
 function notesDir(workspacePath: string): string {
-  return path.join(workspacePath, NOTES_DIR);
+  return path.join(workspacePath, '.notes');
 }
 
 function ensureNotesDir(workspacePath: string): string {
@@ -226,7 +268,6 @@ function ensureNotesDir(workspacePath: string): string {
   return dir;
 }
 
-// Serialize writes per day file to avoid race conditions from concurrent transcriptions
 const writeQueues = new Map<string, Promise<void>>();
 
 function enqueueWrite(dayFile: string, fn: () => Promise<void>): Promise<void> {
@@ -241,7 +282,6 @@ function formatDateHeader(dateStr: string): string {
   return d.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 }
 
-/** Returns a time string rounded down to the nearest 10-minute block, e.g. "14:30". */
 function currentTimeBlock(): string {
   const now = new Date();
   const h = now.getHours().toString().padStart(2, '0');
