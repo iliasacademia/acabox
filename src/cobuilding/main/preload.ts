@@ -100,6 +100,10 @@ contextBridge.exposeInMainWorld('containerAPI', {
   getName: () => ipcRenderer.invoke('container:getName'),
   isImageBuilt: () => ipcRenderer.invoke('container:isImageBuilt'),
   ensureSetup: () => ipcRenderer.invoke('container:ensureSetup'),
+  getEnvironmentInfo: () => ipcRenderer.invoke('container:getEnvironmentInfo'),
+  appDepsReady: (dirName: string) => ipcRenderer.invoke('container:appDepsReady', dirName),
+  ensureAppDeps: (dirName: string) => ipcRenderer.invoke('container:ensureAppDeps', dirName),
+  rebuildEnvironment: () => ipcRenderer.invoke('container:rebuildEnvironment'),
   onSetupProgress: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('setup:progress', handler);
@@ -109,6 +113,16 @@ contextBridge.exposeInMainWorld('containerAPI', {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('container:progress', handler);
     return () => { ipcRenderer.removeListener('container:progress', handler); };
+  },
+  onInstallProgress: (callback: (progress: { dirName: string; type: string; registry?: string; packages?: string[]; line?: string }) => void) => {
+    const handler = (_event: unknown, progress: { dirName: string; type: string; registry?: string; packages?: string[]; line?: string }) => callback(progress);
+    ipcRenderer.on('container:installProgress', handler);
+    return () => { ipcRenderer.removeListener('container:installProgress', handler); };
+  },
+  onBackgroundBuild: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
+    const handler = (_event: unknown, progress: { stage: string; message: string; percent?: number }) => callback(progress);
+    ipcRenderer.on('container:backgroundBuild', handler);
+    return () => { ipcRenderer.removeListener('container:backgroundBuild', handler); };
   },
 });
 

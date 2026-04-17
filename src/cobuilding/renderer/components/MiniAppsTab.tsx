@@ -84,8 +84,12 @@ export function MiniAppsTab({
     try {
       const result = await window.miniAppsAPI.importApp();
       if (result.ok && result.dirName) {
+        // Show the app in the sidebar and open it immediately
         await refresh();
         onSelectApp(result.dirName);
+        // Install deps in the background — the ContainerGate will show
+        // "Installing software..." via the ensureAppDeps IPC
+        window.containerAPI.ensureAppDeps(result.dirName).catch(() => {});
       } else if (!result.canceled) {
         console.error('Import failed:', result.error);
       }

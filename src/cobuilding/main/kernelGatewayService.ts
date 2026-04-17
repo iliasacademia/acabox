@@ -153,6 +153,21 @@ class KernelGatewayService {
     return { running: this.containerRunning, url };
   }
 
+  /** Run a command inside the Jupyter container. Best-effort — returns false if not running. */
+  async exec(command: string[]): Promise<boolean> {
+    const url = await this.getRunningUrl();
+    if (!url) return false;
+    try {
+      await execFileAsync(this.getPodmanBin(), ['exec', CONTAINER_NAME, ...command], {
+        env: this.getExecEnv(),
+        timeout: 600_000,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async listKernels(): Promise<{ id: string; name: string; execution_state: string; last_activity: string; connections: number }[]> {
     const url = await this.getRunningUrl();
     if (!url) return [];
