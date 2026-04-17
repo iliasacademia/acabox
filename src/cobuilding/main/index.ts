@@ -10,7 +10,7 @@ import log from 'electron-log';
 import { createAgentSession } from './agentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
-import { copyClaudeMdToWorkspace, copySkillsToWorkspace, syncMiniAppAssets } from './skills';
+import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { kernelGatewayService } from './kernelGatewayService';
@@ -58,6 +58,8 @@ import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './sch
 import { runScheduledTask } from './scheduledTasks/runner';
 import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
+import { BackgroundBuilder } from './backgroundBuilder';
+import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer, installDepsStreaming } from './environmentGenerator';
 import { checkLogin, getCurrentUser, logout } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
@@ -457,9 +459,7 @@ app.whenReady().then(() => {
 
     if (activeWorkspace) {
       migrateWorkspaceFiles(activeWorkspace.directory_path);
-      copySkillsToWorkspace(activeWorkspace.directory_path);
-      copyClaudeMdToWorkspace(activeWorkspace.directory_path);
-      syncMiniAppAssets(activeWorkspace.directory_path);
+      provisionWorkspace(activeWorkspace.directory_path);
       containerService.writeStartContainerScript(activeWorkspace.directory_path);
     }
 
@@ -566,9 +566,7 @@ ipcMain.handle(
     }
 
     fs.mkdirSync(directoryPath, { recursive: true });
-    copySkillsToWorkspace(directoryPath);
-    syncMiniAppAssets(directoryPath);
-    copyClaudeMdToWorkspace(directoryPath);
+    provisionWorkspace(directoryPath);
     containerService.writeStartContainerScript(directoryPath);
 
     const id = randomUUID();
@@ -608,9 +606,7 @@ ipcMain.handle(
       if (!fs.existsSync(directoryPath)) {
         fs.mkdirSync(directoryPath, { recursive: true });
       }
-      copySkillsToWorkspace(directoryPath);
-      copyClaudeMdToWorkspace(directoryPath);
-      syncMiniAppAssets(directoryPath);
+      provisionWorkspace(directoryPath);
       containerService.writeStartContainerScript(directoryPath);
     }
 
@@ -629,6 +625,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   const target = workspaces.find((w) => w.id === id);
   if (!target) throw new Error('Workspace not found.');
 
+  backgroundBuilder.dispose();
   kernelGatewayService.stop();
   containerService.stop();
 
@@ -644,9 +641,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   scheduler.stop();
   scheduler.start();
 
-  copySkillsToWorkspace(target.directory_path);
-  copyClaudeMdToWorkspace(target.directory_path);
-  syncMiniAppAssets(target.directory_path);
+  provisionWorkspace(target.directory_path);
   containerService.writeStartContainerScript(target.directory_path);
 
   return activeWorkspace ?? null;
@@ -660,9 +655,18 @@ ipcMain.handle('container:start', async () => {
   await containerService.start(activeWorkspace.directory_path, (stage, message, percent) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('container:progress', { stage, message, percent });
   });
+  // Mark all existing apps as having their deps ready (baked into the image at startup)
+  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
+  for (const app of discoverApps(appsDir)) {
+    ensuredApps.add(app);
+  }
+  // Start watching for new app folders / dep file changes
+  backgroundBuilder.startWatching(activeWorkspace.directory_path);
 });
 
 ipcMain.handle('container:stop', () => {
+  backgroundBuilder.stopWatching();
+  ensuredApps.clear();
   containerService.stop();
 });
 
@@ -740,10 +744,105 @@ ipcMain.handle('container:ensureSetup', async () => {
   const progressCallback = (stage: string, message: string, percent?: number) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
   };
-  await containerService.ensureSetup(progressCallback);
+  await containerService.ensureSetup(progressCallback, activeWorkspace?.directory_path);
   if (activeWorkspace) {
     await containerService.start(activeWorkspace.directory_path, progressCallback);
+      for (const app of discoverApps(path.join(activeWorkspace.directory_path, '.applications'))) {
+      ensuredApps.add(app);
+    }
+    backgroundBuilder.startWatching(activeWorkspace.directory_path);
   }
+});
+
+// ─── Environment IPC ──────────────────────────────────────────────
+
+ipcMain.handle('container:getEnvironmentInfo', async () => {
+  if (!activeWorkspace) return null;
+  const info = getEnvironmentInfo(activeWorkspace.directory_path);
+  const imageHash = await containerService.getImageEnvironmentHash();
+
+  return {
+    imageType: info.hasAnyDeps ? 'user' : 'base',
+    imageHash,
+    environmentHash: info.environmentHash,
+    inSync: info.environmentHash != null && imageHash === info.environmentHash,
+    backgroundBuildState: backgroundBuilder.getState(),
+    totalPip: info.merged.pipRequirements,
+    totalNpm: info.merged.npmPackages,
+    totalR: info.merged.rPackages,
+    totalApt: info.merged.aptPackages,
+    totalSetup: info.merged.setupScripts.map((s) => s.destName),
+    apps: info.apps.map((a) => ({
+      name: a.appName,
+      pip: a.pipPackages,
+      npm: a.npmDependencies,
+      r: a.rPackages,
+      apt: a.aptPackages,
+      setup: a.setupScripts,
+    })),
+  };
+});
+
+// Track which apps have had their deps ensured this session.
+// Cleared on container stop/restart so deps are re-checked against the new image.
+const ensuredApps = new Set<string>();
+
+ipcMain.handle('container:appDepsReady', (_event, dirName: string) => {
+  return ensuredApps.has(dirName);
+});
+
+ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  if (!containerService.isRunning()) throw new Error('Container is not running');
+  if (ensuredApps.has(dirName)) {
+    return { installed: [] };
+  }
+
+  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
+
+  const sendProgress = (payload: Record<string, unknown>) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('container:installProgress', { dirName, ...payload });
+    }
+  };
+
+  const results = await installDepsStreaming(
+    appsDir,
+    dirName,
+    (cmd, onLine) => containerService.execStreaming(cmd, onLine),
+    (registry, packages) => sendProgress({ type: 'step', registry, packages }),
+    (line) => sendProgress({ type: 'line', line }),
+  );
+
+  // Mirror installs to Jupyter container if it's running
+  const steps = getInstallSteps(appsDir, dirName);
+  if (steps.length > 0) {
+    const jupyterStatus = await kernelGatewayService.getStatus();
+    if (jupyterStatus.running) {
+      sendProgress({ type: 'step', registry: 'jupyter', packages: ['syncing to kernel...'] });
+      for (const step of steps) {
+        await kernelGatewayService.exec(step.command);
+      }
+    }
+  }
+
+  sendProgress({ type: 'done' });
+  ensuredApps.add(dirName);
+  return { installed: results };
+});
+
+ipcMain.handle('container:rebuildEnvironment', async () => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
+  fs.rmSync(envDir, { recursive: true, force: true });
+
+  const progressCallback = (stage: string, message: string, percent?: number) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('container:backgroundBuild', { stage, message, percent });
+    }
+  };
+  await containerService.rebuildImage(activeWorkspace.directory_path, progressCallback);
+
 });
 
 // ─── Debug: Data Management ─────────────────────────────────────
@@ -957,10 +1056,20 @@ ipcMain.handle('commandLog:getAll', () => commandLogger.getAll());
 ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLogger.getByApp(appDirName));
 ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
 
+const backgroundBuilder = new BackgroundBuilder(
+  () => activeWorkspace?.directory_path ?? null,
+  () => mainWindow,
+);
+
 commandLogger.onEntry((entry) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('commandLog:entry', entry);
   }
+  // When the install wrapper succeeds, mark the app's deps as ensured
+  if (entry.exitCode === 0 && entry.command.join(' ').includes('.applications/install') && entry.appDirName) {
+    ensuredApps.add(entry.appDirName);
+  }
+  backgroundBuilder.onCommandEntry(entry);
 });
 
 // System log IPC handlers
@@ -1749,6 +1858,7 @@ app.on('before-quit', () => {
     ['stopFileMonitor', stopFileMonitor],
     ['stopBrowserMonitor', stopBrowserMonitor],
     ['stopScheduledTasks', stopScheduledTasks],
+    ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
     ['destroyAllSessions', destroyAllSessions],
     ['kernelGatewayService.stop', () => kernelGatewayService.stop()],
     ['containerService.stop', () => containerService.stop()],

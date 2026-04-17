@@ -80,6 +80,51 @@ export function syncMiniAppAssets(workspaceDir: string): void {
     const reusableDest = path.join(appsDir, '_reusable');
     fs.cpSync(reusableSrc, reusableDest, { recursive: true });
   }
+
+  // Install wrapper: the only sanctioned way for the agent to install software.
+  // We always overwrite from source and verify the copy landed + is executable.
+  const installSrc = path.join(assetsDir, 'install');
+  const installDest = path.join(appsDir, 'install');
+  fs.mkdirSync(appsDir, { recursive: true });
+  fs.cpSync(installSrc, installDest);
+  fs.chmodSync(installDest, 0o755);
+}
+
+/**
+ * Copy Claude Code settings.json into the workspace. This wires up the
+ * PreToolUse hook that blocks host-side pip/npm/apt-get/Rscript invocations
+ * and points the agent at the install wrapper instead.
+ */
+export function copyClaudeSettingsToWorkspace(workspaceDir: string): void {
+  const sourceDir = getCobuildingSourceDir();
+  const src = path.join(sourceDir, 'settings.json');
+  const claudeDir = path.join(workspaceDir, '.claude');
+  const dest = path.join(claudeDir, 'settings.json');
+
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.cpSync(src, dest);
+}
+
+/**
+ * Copy hook scripts into .claude/hooks/ in the workspace. These are referenced
+ * by settings.json. We overwrite on every startup so the scripts stay in sync
+ * with the shipped version and can't be tampered with.
+ */
+export function copyHooksToWorkspace(workspaceDir: string): void {
+  const sourceDir = getCobuildingSourceDir();
+  const hooksSrc = path.join(sourceDir, 'hooks');
+  if (!fs.existsSync(hooksSrc)) return;
+
+  const hooksDest = path.join(workspaceDir, '.claude', 'hooks');
+  fs.mkdirSync(hooksDest, { recursive: true });
+  fs.cpSync(hooksSrc, hooksDest, { recursive: true });
+
+  // Ensure every .sh in the hooks directory is executable.
+  for (const entry of fs.readdirSync(hooksDest)) {
+    if (entry.endsWith('.sh')) {
+      fs.chmodSync(path.join(hooksDest, entry), 0o755);
+    }
+  }
 }
 
 export function copyClaudeMdToWorkspace(workspaceDir: string): void {
@@ -89,4 +134,13 @@ export function copyClaudeMdToWorkspace(workspaceDir: string): void {
 
   fs.mkdirSync(path.join(workspaceDir, '.claude'), { recursive: true });
   fs.cpSync(src, dest);
+}
+
+/** Provision all workspace files in one call. */
+export function provisionWorkspace(workspaceDir: string): void {
+  copySkillsToWorkspace(workspaceDir);
+  copyClaudeMdToWorkspace(workspaceDir);
+  copyClaudeSettingsToWorkspace(workspaceDir);
+  copyHooksToWorkspace(workspaceDir);
+  syncMiniAppAssets(workspaceDir);
 }

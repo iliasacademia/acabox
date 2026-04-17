@@ -269,7 +269,10 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 
   const [showSettings, setShowSettings] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('chats');
-  const [debugSection, setDebugSection] = useState<DebugSection>('apps');
+  const [debugSection, setDebugSection] = useState<DebugSection>(() => {
+    const saved = localStorage.getItem('debug-section');
+    return (saved as DebugSection) || 'apps';
+  });
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
   const [taskRefreshKey, setTaskRefreshKey] = useState(0);
@@ -521,7 +524,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                       onSelectDay={setSelectedNoteDay}
                     />
                   ) : sidebarTab === 'debug' ? (
-                    <DebugSidebar activeSection={debugSection} onSelect={setDebugSection} />
+                    <DebugSidebar activeSection={debugSection} onSelect={(s) => { setDebugSection(s); localStorage.setItem('debug-section', s); }} />
                   ) : null}
                 </div>
               </div>

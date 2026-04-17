@@ -220,7 +220,13 @@ export function formatParamsAssignment(
   kernelName: string | undefined,
 ): string {
   const op = kernelName === "ir" ? "<-" : "=";
-  const escaped = escapeForSingleQuote(canonicalize(params));
+  // R allows newlines in single-quoted strings; Python does not.
+  // Use compact JSON for Python to keep the assignment on one line.
+  const json =
+    kernelName === "ir"
+      ? canonicalize(params)
+      : JSON.stringify(sortKeys(params));
+  const escaped = escapeForSingleQuote(json);
   return `params_json ${op} '${escaped}'`;
 }
 

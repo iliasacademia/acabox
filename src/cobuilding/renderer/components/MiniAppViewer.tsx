@@ -96,19 +96,21 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }
         rebuildState={rebuildState}
       />
       <div className="miniAppBody">
-        {viewingSource ? (
-          <SourceViewer
-            appDir={appDir}
-            dirName={dirName}
-            rebuildState={rebuildState}
-          />
-        ) : (
-          <MiniAppContent
-            key={rebuildKey}
-            dirName={dirName}
-            workspacePath={workspacePath}
-          />
-        )}
+        <ContainerGate dirName={dirName}>
+          {viewingSource ? (
+            <SourceViewer
+              appDir={appDir}
+              dirName={dirName}
+              rebuildState={rebuildState}
+            />
+          ) : (
+            <MiniAppContent
+              key={rebuildKey}
+              dirName={dirName}
+              workspacePath={workspacePath}
+            />
+          )}
+        </ContainerGate>
       </div>
     </div>
   );
@@ -175,6 +177,131 @@ const MiniAppHeader: FC<{
       </div>
     </div>
   );
+};
+
+interface InstallStatus {
+  registry: string;
+  packages: string[];
+  lastLine: string;
+}
+
+const InstallingView: FC<{ message: string; installStatus?: InstallStatus | null }> = ({ message, installStatus }) => (
+  <div style={{
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    height: '100%', gap: 12, color: '#666', fontSize: 14,
+  }}>
+    <div style={{
+      width: 24, height: 24, border: '3px solid #e0e0e0', borderTopColor: '#666',
+      borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+    }} />
+    <span>{message}</span>
+    {installStatus && (
+      <div style={{ fontSize: 12, color: '#888', textAlign: 'center', maxWidth: 400 }}>
+        <div style={{ marginBottom: 4 }}>
+          <strong>{installStatus.registry}</strong>: {installStatus.packages.join(', ')}
+        </div>
+        {installStatus.lastLine && (
+          <div style={{
+            fontFamily: 'SF Mono, Menlo, Monaco, monospace', fontSize: 10,
+            color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {installStatus.lastLine}
+          </div>
+        )}
+      </div>
+    )}
+    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+  </div>
+);
+
+const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dirName, children }) => {
+  const [containerReady, setContainerReady] = useState<boolean | null>(null);
+  const [depsReady, setDepsReady] = useState<boolean | null>(null);
+  const [statusMessage, setStatusMessage] = useState('Waiting for container...');
+  const [installStatus, setInstallStatus] = useState<InstallStatus | null>(null);
+
+  // Check container status
+  useEffect(() => {
+    let cancelled = false;
+    window.containerAPI.status().then(({ running }) => {
+      if (!cancelled) setContainerReady(running);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Wait for container to start
+  useEffect(() => {
+    if (containerReady) return;
+
+    const cleanups = [
+      window.containerAPI.onProgress((progress) => {
+        if (progress.stage === 'ready') {
+          setContainerReady(true);
+        } else if (progress.stage === 'build' || progress.stage === 'pull' || progress.stage === 'build-image') {
+          setStatusMessage('Installing software...');
+        } else if (progress.stage === 'init' || progress.stage === 'start-machine') {
+          setStatusMessage('Starting container runtime...');
+        }
+      }),
+      window.containerAPI.onSetupProgress((progress) => {
+        if (progress.stage === 'setup-done' || progress.stage === 'ready') {
+          setContainerReady(true);
+        } else if (progress.stage === 'build-image' || progress.stage === 'build' || progress.stage === 'pull') {
+          setStatusMessage('Installing software...');
+        }
+      }),
+    ];
+
+    const interval = setInterval(async () => {
+      const { running } = await window.containerAPI.status();
+      if (running) setContainerReady(true);
+    }, 3000);
+
+    return () => {
+      cleanups.forEach((fn) => fn());
+      clearInterval(interval);
+    };
+  }, [containerReady]);
+
+  // Listen for streaming install progress for this app
+  useEffect(() => {
+    const cleanup = window.containerAPI.onInstallProgress((progress) => {
+      if (progress.dirName !== dirName) return;
+      if (progress.type === 'step' && progress.registry && progress.packages) {
+        setInstallStatus({ registry: progress.registry, packages: progress.packages, lastLine: '' });
+      } else if (progress.type === 'line' && progress.line) {
+        setInstallStatus((prev) => prev ? { ...prev, lastLine: progress.line! } : prev);
+      } else if (progress.type === 'done') {
+        setInstallStatus(null);
+      }
+    });
+    return cleanup;
+  }, [dirName]);
+
+  // Once container is ready, ensure app deps are installed
+  useEffect(() => {
+    if (!containerReady) return;
+    let cancelled = false;
+
+    window.containerAPI.appDepsReady(dirName).then((ready) => {
+      if (cancelled) return;
+      if (ready) {
+        setDepsReady(true);
+        return;
+      }
+      window.containerAPI.ensureAppDeps(dirName)
+        .then(() => { if (!cancelled) setDepsReady(true); })
+        .catch(() => { if (!cancelled) setDepsReady(true); });
+    });
+
+    return () => { cancelled = true; };
+  }, [containerReady, dirName]);
+
+  if (containerReady === null) return null;
+  if (!containerReady) return <InstallingView message={statusMessage} />;
+  if (!depsReady) return <InstallingView message="Installing software..." installStatus={installStatus} />;
+
+  return <>{children}</>;
 };
 
 const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirName, workspacePath }) => {

@@ -12,6 +12,7 @@ import {
   ensureBinariesDownloaded,
 } from './podmanBinaries';
 import { commandLogger, parseAppDirFromArgs, type CommandSource } from './commandLogger';
+import { generateEnvironment } from './environmentGenerator';
 
 const execFileAsync = promisify(execFile);
 
@@ -120,11 +121,11 @@ class CobuildingContainerService {
       // Remove any stale container from a previous crash
       await this.removeStaleContainer(podmanBin);
 
-      // Pull base image and build skills layer if needed.
+      // Generate environment from workspace deps and build if needed.
       // ensureImageBuilt only emits a 'build' event when it actually rebuilds —
       // don't emit one speculatively here, or the SetupBanner flashes when the
       // image is already up to date.
-      await this.ensureImageBuilt(podmanBin, onProgress);
+      await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
 
       // Start the container in detached mode
       await this.runContainer(podmanBin, workspacePath);
@@ -199,6 +200,42 @@ class CobuildingContainerService {
     }
   }
 
+  /** Like exec() but streams stdout/stderr lines to a callback as they arrive. */
+  execStreaming(
+    command: string[],
+    onLine: (line: string) => void,
+  ): Promise<{ exitCode: number }> {
+    if (!this.isRunning()) {
+      throw new Error('Container is not running');
+    }
+    const podmanBin = this.getPodmanBin();
+    const args = ['exec', CONTAINER_NAME, ...command];
+    return new Promise((resolve, reject) => {
+      const proc = spawn(podmanBin, args, {
+        env: this.getExecEnv(),
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      const handleData = (data: Buffer) => {
+        for (const line of data.toString().split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed) onLine(trimmed);
+        }
+      };
+
+      proc.stdout?.on('data', handleData);
+      proc.stderr?.on('data', handleData);
+
+      proc.on('close', (code) => {
+        resolve({ exitCode: code ?? 0 });
+      });
+
+      proc.on('error', (error) => {
+        reject(new Error(`exec failed: ${error.message}`));
+      });
+    });
+  }
+
   async execLogged(
     command: string[],
     meta?: { source?: CommandSource; appDirName?: string | null },
@@ -267,6 +304,25 @@ class CobuildingContainerService {
       fs.rmSync(binDir, { recursive: true, force: true });
       log.debug('[ContainerService] Bundled binaries deleted');
     }
+  }
+
+  /** Return the environment hash label stored on the current image, or null. */
+  async getImageEnvironmentHash(): Promise<string | null> {
+    const podmanBin = this.getPodmanBin();
+    return this.getImageHash(podmanBin);
+  }
+
+  /**
+   * Rebuild the container image from current workspace dependencies.
+   * Intended for background rebuilds — does NOT restart the container.
+   */
+  async rebuildImage(workspacePath: string, onProgress?: ProgressCallback): Promise<void> {
+    if (this.isStarting) {
+      log.debug('[ContainerService] Foreground start in progress, skipping background rebuild');
+      return;
+    }
+    const podmanBin = this.getPodmanBin();
+    await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
   }
 
   async deleteImage(): Promise<void> {
@@ -378,7 +434,7 @@ class CobuildingContainerService {
     fs.writeFileSync(scriptPath, script, { mode: 0o755 });
   }
 
-  async ensureSetup(onProgress?: ProgressCallback): Promise<void> {
+  async ensureSetup(onProgress?: ProgressCallback, workspacePath?: string): Promise<void> {
     const mode = readBinaryMode();
 
     // Step 1: If bundled mode, ensure binaries are downloaded
@@ -398,22 +454,8 @@ class CobuildingContainerService {
         await this.ensureMachineRunning(podmanBin, onProgress);
       }
 
-      // Step 3: Pull base image and build skills layer if not already built (or outdated)
-      const imageBuilt = await this.isImageBuilt();
-      if (!imageBuilt) {
-        onProgress?.('build-image', 'Preparing container image...');
-        await this.ensureImageBuilt(podmanBin, onProgress);
-        onProgress?.('build-image-done', 'Image ready');
-      } else {
-        // Check if it needs a rebuild (hash mismatch)
-        const currentHash = this.getDockerfileHash();
-        const imageHash = await this.getImageHash(podmanBin);
-        if (imageHash !== currentHash) {
-          onProgress?.('build-image', 'Skills changed, rebuilding...');
-          await this.ensureImageBuilt(podmanBin, onProgress);
-          onProgress?.('build-image-done', 'Image rebuilt');
-        }
-      }
+      // Step 3: Generate environment and build image if needed (hash comparison is internal)
+      await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
     } catch (error) {
       log.error('[ContainerService] ensureSetup error:', (error as Error).message);
       throw error;
@@ -673,8 +715,28 @@ class CobuildingContainerService {
     });
   }
 
-  private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
-    const currentHash = this.getDockerfileHash();
+  private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback, workspacePath?: string): Promise<void> {
+    const imageSource = readImageSource();
+    const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+
+    let currentHash: string;
+    let buildContext: string;
+    let dockerfilePath: string;
+
+    if (workspacePath) {
+      // Generate environment from workspace dependency files
+      const result = generateEnvironment(workspacePath, baseImage);
+      currentHash = result.hash;
+      buildContext = result.environmentDir;
+      dockerfilePath = result.dockerfilePath;
+    } else {
+      // Fallback: no workspace available, use static Dockerfile
+      const contextDir = this.getDockerfileDir();
+      dockerfilePath = path.join(contextDir, 'Dockerfile');
+      currentHash = this.getDockerfileHash();
+      buildContext = contextDir;
+    }
+
     const imageHash = await this.getImageHash(podmanBin);
 
     if (imageHash === currentHash) {
@@ -682,29 +744,19 @@ class CobuildingContainerService {
       return;
     }
 
-    const imageSource = readImageSource();
-
     if (imageSource === 'registry') {
-      // Pull the prebuilt base image from GHCR if not already present
       await this.ensureBaseImagePulled(podmanBin, onProgress);
     } else {
-      // Build the base image locally from Dockerfile.base
       await this.buildBaseImageLocally(podmanBin, onProgress);
     }
 
     if (imageHash) {
-      log.debug(`[ContainerService] Skills changed (${imageHash} -> ${currentHash}), rebuilding...`);
-      onProgress?.('build', 'Skills changed, rebuilding image...');
+      log.debug(`[ContainerService] Environment changed (${imageHash} -> ${currentHash}), rebuilding...`);
+      onProgress?.('build', 'Environment changed, rebuilding image...');
     } else {
-      log.debug('[ContainerService] Building container image (skills layer)...');
+      log.debug('[ContainerService] Building container image...');
       onProgress?.('build', 'Building container image...');
     }
-
-    const contextDir = this.getDockerfileDir();
-    const dockerfilePath = path.join(contextDir, 'Dockerfile');
-    const baseImage = imageSource === 'registry'
-      ? GHCR_BASE_IMAGE
-      : LOCAL_BASE_IMAGE;
 
     return this.spawnBuild(podmanBin, [
       'build',
@@ -712,7 +764,7 @@ class CobuildingContainerService {
       '--build-arg', `BASE_IMAGE=${baseImage}`,
       '-t', IMAGE_NAME,
       '-f', dockerfilePath,
-      contextDir,
+      buildContext,
     ], onProgress);
   }
 

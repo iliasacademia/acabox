@@ -17,19 +17,23 @@ The workspace directory is mounted at `/data` inside the Podman container, and t
 
 ## Installing packages
 
-**Never run `pip install`, `pip3 install`, `conda install`, or `R install.packages()` on the host.** All package installation must happen inside the Podman container.
-
-If a skill requires a package that isn't available, install it into the container:
+**All software installation must go through the install wrapper at `.applications/install`.** This applies to `pip`, `npm`, `R`, `apt`, and any manual/bespoke install script.
 
 ```bash
-# Python
-podman exec cobuilding-container pip install <package>
-
-# R
-podman exec cobuilding-container Rscript -e 'install.packages("<package>", repos="https://cloud.r-project.org")'
+.applications/install pip <package> --app <app_dir_name>
+.applications/install npm <package> --app <app_dir_name>
+.applications/install R   <package> --app <app_dir_name>
+.applications/install apt <package> --app <app_dir_name>
+.applications/install manual .applications/<app_dir_name>/setup/<script>.sh --app <app_dir_name>
 ```
 
-This applies even if a skill's documentation shows a bare `pip install` command — always run it through `podman exec`.
+The wrapper does two things atomically: (1) installs the package live in the running container, and (2) records the dependency in the app's per-registry file (`requirements.txt`, `package.json`, `r-packages.txt`, `apt-packages.txt`, or `setup/*.sh`) so the install persists across container rebuilds and travels with the app folder when shared.
+
+**Never run `pip install`, `npm install`, `apt-get install`, `Rscript -e 'install.packages(...)'`, or `conda install` — not on the host, and not through `podman exec`.** All of these invocations are blocked by a PreToolUse hook. Running an install directly does the live install but silently fails to update the dependency file, so the package is lost on the next container rebuild or when the app is shared.
+
+**Downloading data files into the app folder does NOT require the wrapper.** Use `curl` or `wget` to write directly into `.applications/<app_dir_name>/` — those are app-local files (model weights, datasets, fixtures), not global installs.
+
+See the **manage-mini-application** skill (`.claude/skills/manage-mini-application/SKILL.md`) for the full per-registry reference.
 
 ## Container recovery
 
