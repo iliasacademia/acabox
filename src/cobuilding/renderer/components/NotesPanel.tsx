@@ -52,6 +52,7 @@ export function NotesPanel({ selectedDay }: { selectedDay: string | null }) {
   // Subscribe to transcription and transcribing-state events
   useEffect(() => {
     const cleanupTranscription = window.notesAPI.onTranscription((data) => {
+      setError(null);
       if (data.dayFile === day) {
         window.notesAPI.readDay(day).then(setNoteContent);
       }
