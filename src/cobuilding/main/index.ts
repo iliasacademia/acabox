@@ -468,9 +468,9 @@ app.whenReady().then(() => {
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
     registerNotesHandlers(
       () => activeWorkspace?.directory_path ?? null,
-      getOpenAIKey,
       () => activeWorkspace?.api_key ?? null,
       () => activeWorkspace?.id ?? null,
+      getOpenAIKey,
     );
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
@@ -574,6 +574,9 @@ ipcMain.handle(
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
+      const scheduler = getTaskScheduler();
+      scheduler.stop();
+      scheduler.start();
     }
     return activeWorkspace ?? null;
   },

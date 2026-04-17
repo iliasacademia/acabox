@@ -218,8 +218,11 @@ contextBridge.exposeInMainWorld('focusPromptAPI', {
 contextBridge.exposeInMainWorld('notesAPI', {
   listDays: () => ipcRenderer.invoke('notes:listDays'),
   readDay: (day: string) => ipcRenderer.invoke('notes:readDay', day),
-  transcribeChunk: (audioBase64: string, dayFile: string) => {
-    ipcRenderer.send('notes:transcribe', { audioBase64, dayFile });
+  sendAudioChunk: (chunkBase64: string, dayFile: string) => {
+    ipcRenderer.send('notes:audioChunk', { chunkBase64, dayFile });
+  },
+  stopRecording: () => {
+    ipcRenderer.send('notes:stopRecording');
   },
   onTranscription: (callback: (data: { text: string; dayFile: string }) => void) => {
     const handler = (_event: unknown, data: { text: string; dayFile: string }) => callback(data);
@@ -230,6 +233,21 @@ contextBridge.exposeInMainWorld('notesAPI', {
     const handler = (_event: unknown, error: string) => callback(error);
     ipcRenderer.on('notes:transcriptionError', handler);
     return () => { ipcRenderer.removeListener('notes:transcriptionError', handler); };
+  },
+  onSpeechDetected: (callback: (active: boolean) => void) => {
+    const handler = (_event: unknown, active: boolean) => callback(active);
+    ipcRenderer.on('notes:speechDetected', handler);
+    return () => { ipcRenderer.removeListener('notes:speechDetected', handler); };
+  },
+  onTranscribingChange: (callback: (active: boolean) => void) => {
+    const startHandler = () => callback(true);
+    const endHandler = () => callback(false);
+    ipcRenderer.on('notes:transcribingStart', startHandler);
+    ipcRenderer.on('notes:transcribingEnd', endHandler);
+    return () => {
+      ipcRenderer.removeListener('notes:transcribingStart', startHandler);
+      ipcRenderer.removeListener('notes:transcribingEnd', endHandler);
+    };
   },
   getAssistantMessages: (dayFile: string) => ipcRenderer.invoke('notes:assistantMessages', dayFile),
   onAssistantMessage: (callback: (data: { dayFile: string; request: string; response: string }) => void) => {

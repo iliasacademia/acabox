@@ -111,10 +111,15 @@
   animation: statusPulse 1s ease-in-out infinite;
 }
 
+.notesPanel__statusDot--voice {
+  background: #facc15;
+}
+
 @keyframes statusPulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
+
 
 .notesPanel__error {
   font-size: 0.75rem;
