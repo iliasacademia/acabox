@@ -104,7 +104,9 @@ export function getInstallSteps(appsDir: string, dirName: string): InstallStep[]
   }
 
   if (deps.rPackages.length > 0) {
-    const vec = 'c(' + deps.rPackages.map((p) => `"${p}"`).join(',') + ')';
+    // Sanitize R package names to prevent injection into the Rscript -e string
+    const safeRPkgs = deps.rPackages.map((p) => p.replace(/[^a-zA-Z0-9._]/g, ''));
+    const vec = 'c(' + safeRPkgs.map((p) => `"${p}"`).join(',') + ')';
     steps.push({
       registry: 'R',
       packages: deps.rPackages,
@@ -113,10 +115,12 @@ export function getInstallSteps(appsDir: string, dirName: string): InstallStep[]
   }
 
   if (deps.aptPackages.length > 0) {
+    // Sanitize apt package names to prevent shell injection
+    const safeAptPkgs = deps.aptPackages.map((p) => p.replace(/[^a-zA-Z0-9._+\-:]/g, ''));
     steps.push({
       registry: 'apt',
       packages: deps.aptPackages,
-      command: ['bash', '-lc', `apt-get update && apt-get install -y ${deps.aptPackages.join(' ')}`],
+      command: ['bash', '-lc', `apt-get update && apt-get install -y ${safeAptPkgs.join(' ')}`],
     });
   }
 
