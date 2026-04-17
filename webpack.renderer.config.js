@@ -20,6 +20,7 @@ rules.push({
   type: 'asset/resource',
 });
 
+
 module.exports = {
   module: {
     rules,

@@ -27,7 +27,7 @@ const loggerPort = findAvailablePort(devServerPort + 1000);
 
 // Root native modules that need to be copied outside the asar archive.
 // Transitive runtime dependencies are resolved automatically.
-const nativeModuleRoots = ['canvas', 'better-sqlite3', '@anthropic-ai/claude-agent-sdk'];
+const nativeModuleRoots = ['canvas', 'better-sqlite3', '@anthropic-ai/claude-agent-sdk', 'onnxruntime-node'];
 
 // Packages only needed at install/build time — never needed at runtime.
 const installTimeOnly = new Set([
@@ -81,9 +81,10 @@ const packagerConfig = {
     },
   ],
   asar: {
-    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*}',
+    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/onnxruntime-node/**/*}',
   },
   extraResource: [
+    'src/cobuilding/assets/silero_vad.onnx',
     ...(platform === 'darwin' ? [
       'src/applescripts',
       'src/native/build/Release/word_accessibility.node',
