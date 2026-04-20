@@ -97,6 +97,8 @@ const packagerConfig = {
     'app-update.yml',
     'src/cobuilding/skills',
     'src/cobuilding/CLAUDE.md',
+    'src/cobuilding/settings.json',
+    'src/cobuilding/hooks',
     'src/cobuilding/Dockerfile',
     'src/cobuilding/Dockerfile.base',
     ...(require('fs').existsSync('browser-extension/extension.zip') ? ['browser-extension/extension.zip'] : []),
