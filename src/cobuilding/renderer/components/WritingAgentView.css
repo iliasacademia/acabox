@@ -171,41 +171,48 @@
   color: #666666;
 }
 
-/* HTML content from writing agent reviews */
-.writingAgentView .htmlContent p {
-  margin: 0 0 16px 0;
+/* HTML content from writing agent reviews — used in chat thread messages */
+.writingAgentHtml {
+  font-size: 15px;
+  line-height: 24px;
 }
 
-.writingAgentView .htmlContent p:last-child {
+.writingAgentHtml p {
+  margin: 0 0 12px 0;
+}
+
+.writingAgentHtml p:last-child {
   margin-bottom: 0;
 }
 
-.writingAgentView .htmlContent .critique,
-.writingAgentView .htmlContent .framework_to_address {
+.writingAgentHtml .critique,
+.writingAgentHtml .framework_to_address {
   margin-bottom: 24px;
 }
 
-.writingAgentView .htmlContent .critique:last-child,
-.writingAgentView .htmlContent .framework_to_address:last-child {
+.writingAgentHtml .critique:last-child,
+.writingAgentHtml .framework_to_address:last-child {
   margin-bottom: 0;
 }
 
-.writingAgentView .htmlContent h2 {
+.writingAgentHtml h2 {
   font-size: 17px;
   font-weight: 600;
   margin: 20px 0 8px 0;
-  color: #141413;
 }
 
-.writingAgentView .htmlContent h3 {
+.writingAgentHtml h2:first-child {
+  margin-top: 0;
+}
+
+.writingAgentHtml h3 {
   font-size: 15px;
   font-weight: 600;
   margin: 16px 0 8px 0;
-  color: #141413;
 }
 
-.writingAgentView .htmlContent blockquote,
-.writingAgentView .htmlContent q {
+.writingAgentHtml blockquote,
+.writingAgentHtml q {
   display: block;
   margin: 12px 0;
   padding: 12px 16px;
@@ -217,17 +224,28 @@
   line-height: 1.6;
 }
 
-.writingAgentView .htmlContent .summary {
+.writingAgentHtml .summary {
   margin-bottom: 20px;
 }
 
-.writingAgentView .htmlContent section {
+.writingAgentHtml section {
   margin-bottom: 16px;
 }
 
-.writingAgentView .htmlContent article {
+.writingAgentHtml article {
   display: block;
 }
+
+.writingAgentHtml ul,
+.writingAgentHtml ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.writingAgentHtml li {
+  margin: 4px 0;
+}
+
 
 /* Loading dots */
 .writingAgentView .messageLoading {

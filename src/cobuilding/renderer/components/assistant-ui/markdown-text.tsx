@@ -1,5 +1,6 @@
 import React from 'react';
 import '@assistant-ui/react-markdown/styles/dot.css';
+import '../WritingAgentView.css';
 
 import {
   type CodeHeaderProps,
@@ -7,13 +8,39 @@ import {
   unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
   useIsMarkdownCodeBlock,
 } from '@assistant-ui/react-markdown';
+import { useAuiState } from '@assistant-ui/react';
 import remarkGfm from 'remark-gfm';
+import DOMPurify from 'dompurify';
 import { type FC, memo, useState } from 'react';
 import { CheckIcon, CopyIcon } from 'lucide-react';
 
 import { TooltipIconButton } from './tooltip-icon-button';
 
+/** Detect if content is HTML (starts with a tag like <article>, <div>, <p>, etc.) */
+function looksLikeHtml(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.startsWith('<') && /<\/?[a-z][\s\S]*>/i.test(trimmed);
+}
+
 const MarkdownTextImpl = () => {
+  const text = useAuiState((s: any) => {
+    const parts = s.message?.parts;
+    if (!parts) return null;
+    // Find the current text part's content
+    const textParts = parts.filter((p: any) => p.type === 'text');
+    return textParts.length > 0 ? textParts[textParts.length - 1]?.text : null;
+  });
+
+  // If the text content is HTML from Writing Agent, render it as sanitized HTML
+  if (text && looksLikeHtml(text)) {
+    return (
+      <div
+        className="writingAgentHtml"
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(text) }}
+      />
+    );
+  }
+
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}

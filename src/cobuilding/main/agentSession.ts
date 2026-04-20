@@ -89,6 +89,30 @@ function buildWritingProjectContext(workspaceId: string): string | null {
   }
 }
 
+/** Convert HTML content from Writing Agent responses to readable plain text */
+function htmlToText(html: string): string {
+  let text = html;
+  // Convert block elements to newlines
+  text = text.replace(/<\/(?:p|div|section|article|blockquote|h[1-6]|li)>/gi, '\n');
+  text = text.replace(/<(?:br|hr)\s*\/?>/gi, '\n');
+  // Convert headings to markdown-style
+  text = text.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, level, content) => {
+    return '#'.repeat(Number(level)) + ' ' + content.replace(/<[^>]+>/g, '').trim();
+  });
+  // Convert blockquotes
+  text = text.replace(/<(?:blockquote|q)[^>]*>([\s\S]*?)<\/(?:blockquote|q)>/gi, (_m, content) => {
+    return '> ' + content.replace(/<[^>]+>/g, '').trim();
+  });
+  // Strip all remaining HTML tags
+  text = text.replace(/<[^>]+>/g, '');
+  // Decode common HTML entities
+  text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
+  // Collapse excessive whitespace
+  text = text.replace(/\n{3,}/g, '\n\n').trim();
+  return text;
+}
+
+
 function buildWritingConversationContext(conversationId: number, projectId: number): string | null {
   try {
     const conversation = getWritingConversation(conversationId);
@@ -124,10 +148,14 @@ function buildWritingConversationContext(conversationId: number, projectId: numb
     lines.push('');
     for (const msg of messagesToShow) {
       const role = msg.role === 'user' ? 'User' : `Assistant (${conversation.agent_name})`;
-      // Truncate very long individual messages to keep system prompt manageable
-      const content = msg.content && msg.content.length > 3000
-        ? msg.content.slice(0, 3000) + '\n\n[... message truncated — use get_conversation_messages for full text]'
-        : (msg.content || '');
+      // Convert HTML to plain text and truncate long messages
+      let content = msg.content || '';
+      if (/<[a-z][\s\S]*>/i.test(content)) {
+        content = htmlToText(content);
+      }
+      if (content.length > 3000) {
+        content = content.slice(0, 3000) + '\n\n[... message truncated — use get_conversation_messages for full text]';
+      }
       lines.push(`**${role}:**`);
       lines.push(content);
       lines.push('');
