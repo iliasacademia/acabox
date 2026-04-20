@@ -9,6 +9,9 @@ interface DirEntry {
 type FileContent =
   | { type: 'text'; content: string }
   | { type: 'image'; fileUrl: string }
+  | { type: 'pdf'; fileUrl: string }
+  | { type: 'markdown'; content: string }
+  | { type: 'csv'; content: string; delimiter: string }
   | { error: 'too-large'; size: number };
 
 interface CopyProgress {
@@ -66,6 +69,7 @@ interface SessionsAPI {
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<MessageData[]>;
+  findForApp(dirName: string): Promise<string | null>;
   onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
 }
 
@@ -85,8 +89,14 @@ interface ContainerAPI {
   getName(): Promise<string>;
   isImageBuilt(): Promise<boolean>;
   ensureSetup(): Promise<void>;
+  getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
+  appDepsReady(dirName: string): Promise<boolean>;
+  ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
+  rebuildEnvironment(): Promise<void>;
   onSetupProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
   onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
+  onInstallProgress(callback: (progress: InstallProgress) => void): () => void;
+  onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
 }
 
 interface AuthAPI {
@@ -117,6 +127,35 @@ interface ElectronAPI {
 }
 
 declare global {
+  interface InstallProgress {
+    dirName: string;
+    type: 'step' | 'line' | 'done';
+    registry?: string;
+    packages?: string[];
+    line?: string;
+  }
+
+  interface EnvironmentInfoPayload {
+    imageType: 'base' | 'user';
+    imageHash: string | null;
+    environmentHash: string | null;
+    inSync: boolean;
+    backgroundBuildState: 'idle' | 'building' | 'building-pending';
+    totalPip: string[];
+    totalNpm: string[];
+    totalR: string[];
+    totalApt: string[];
+    totalSetup: string[];
+    apps: Array<{
+      name: string;
+      pip: string[];
+      npm: Record<string, string>;
+      r: string[];
+      apt: string[];
+      setup: string[];
+    }>;
+  }
+
   interface DirEntry {
     name: string;
     path: string;
@@ -126,6 +165,11 @@ declare global {
   type FileContent =
     | { type: 'text'; content: string }
     | { type: 'image'; fileUrl: string }
+    | { type: 'pdf'; fileUrl: string }
+    | { type: 'markdown'; content: string }
+    | { type: 'csv'; content: string; delimiter: string }
+    | { type: 'latex'; content: string }
+    | { type: 'spreadsheet'; base64: string; ext: string }
     | { error: 'too-large'; size: number };
 
   interface CopyProgress {
@@ -186,6 +230,7 @@ declare global {
     rename(id: string, title: string): Promise<void>;
     delete(id: string): Promise<void>;
     listMessages(sessionId: string): Promise<MessageData[]>;
+    findForApp(dirName: string): Promise<string | null>;
     onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
   }
 
@@ -206,8 +251,14 @@ declare global {
     getName(): Promise<string>;
     isImageBuilt(): Promise<boolean>;
     ensureSetup(): Promise<void>;
+    getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
+    appDepsReady(dirName: string): Promise<boolean>;
+    ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
+    rebuildEnvironment(): Promise<void>;
     onSetupProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
     onProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
+    onInstallProgress(callback: (progress: InstallProgress) => void): () => void;
+  onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
   }
 
   interface CommandLogEntry {
@@ -260,6 +311,11 @@ declare global {
     get(): Promise<{ instructions: string | null }>;
     set(instructions: string): Promise<void>;
     reset(): Promise<void>;
+  }
+
+  interface ReactionSourcesAPI {
+    get(): Promise<string[]>;
+    set(sources: string[]): Promise<void>;
   }
 
   interface SoulPromptAPI {
@@ -332,6 +388,34 @@ declare global {
   interface SettingsAPI {
     getMaxAttachmentSizeMB(): Promise<number>;
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
+    getOpenAIKey(): Promise<string | null>;
+    setOpenAIKey(key: string): Promise<void>;
+  }
+
+  interface NotesAssistantMessage {
+    dayFile: string;
+    request: string;
+    response: string;
+  }
+
+  interface NotesAPI {
+    listDays(): Promise<string[]>;
+    readDay(day: string): Promise<string>;
+    sendAudioChunk(chunkBase64: string, dayFile: string): void;
+    stopRecording(): void;
+    onTranscription(callback: (data: { text: string; dayFile: string }) => void): () => void;
+    onTranscriptionError(callback: (error: string) => void): () => void;
+    onSpeechDetected(callback: (active: boolean) => void): () => void;
+    onTranscribingChange(callback: (active: boolean) => void): () => void;
+    getAssistantMessages(dayFile: string): Promise<Array<{ id: number; session_id: string; type: string; content: string; created_at: string }>>;
+    onAssistantMessage(callback: (data: NotesAssistantMessage) => void): () => void;
+    onAssistantAnalyzing(callback: (data: { dayFile: string; analyzing: boolean }) => void): () => void;
+    onAssistantError(callback: (data: { dayFile: string; error: string }) => void): () => void;
+  }
+
+  interface MiniAppsAPI {
+    exportApp(dirName: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
+    importApp(): Promise<{ ok: boolean; dirName?: string; canceled?: boolean; error?: string }>;
   }
 
   interface WritingAgentProject {
@@ -408,6 +492,7 @@ declare global {
     authAPI: AuthAPI;
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
+    reactionSourcesAPI: ReactionSourcesAPI;
     soulPromptAPI: SoulPromptAPI;
     focusPromptAPI: FocusPromptAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
@@ -415,5 +500,7 @@ declare global {
     browserMonitorAPI: BrowserMonitorAPI;
     debugAPI: DebugAPI;
     writingAgentAPI: WritingAgentAPI;
+    miniAppsAPI: MiniAppsAPI;
+    notesAPI: NotesAPI;
   }
 }

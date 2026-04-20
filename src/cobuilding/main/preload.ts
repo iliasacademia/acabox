@@ -70,9 +70,16 @@ contextBridge.exposeInMainWorld('filesAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('miniAppsAPI', {
+  exportApp: (dirName: string) => ipcRenderer.invoke('miniApps:export', dirName),
+  importApp: () => ipcRenderer.invoke('miniApps:import'),
+});
+
 contextBridge.exposeInMainWorld('settingsAPI', {
   getMaxAttachmentSizeMB: () => ipcRenderer.invoke('settings:getMaxAttachmentSizeMB'),
   setMaxAttachmentSizeMB: (sizeMB: number) => ipcRenderer.invoke('settings:setMaxAttachmentSizeMB', sizeMB),
+  getOpenAIKey: () => ipcRenderer.invoke('settings:getOpenAIKey'),
+  setOpenAIKey: (key: string) => ipcRenderer.invoke('settings:setOpenAIKey', key),
 });
 
 contextBridge.exposeInMainWorld('containerAPI', {
@@ -93,6 +100,10 @@ contextBridge.exposeInMainWorld('containerAPI', {
   getName: () => ipcRenderer.invoke('container:getName'),
   isImageBuilt: () => ipcRenderer.invoke('container:isImageBuilt'),
   ensureSetup: () => ipcRenderer.invoke('container:ensureSetup'),
+  getEnvironmentInfo: () => ipcRenderer.invoke('container:getEnvironmentInfo'),
+  appDepsReady: (dirName: string) => ipcRenderer.invoke('container:appDepsReady', dirName),
+  ensureAppDeps: (dirName: string) => ipcRenderer.invoke('container:ensureAppDeps', dirName),
+  rebuildEnvironment: () => ipcRenderer.invoke('container:rebuildEnvironment'),
   onSetupProgress: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('setup:progress', handler);
@@ -102,6 +113,16 @@ contextBridge.exposeInMainWorld('containerAPI', {
     const handler = (_event: unknown, progress: { stage: string; message: string }) => callback(progress);
     ipcRenderer.on('container:progress', handler);
     return () => { ipcRenderer.removeListener('container:progress', handler); };
+  },
+  onInstallProgress: (callback: (progress: { dirName: string; type: string; registry?: string; packages?: string[]; line?: string }) => void) => {
+    const handler = (_event: unknown, progress: { dirName: string; type: string; registry?: string; packages?: string[]; line?: string }) => callback(progress);
+    ipcRenderer.on('container:installProgress', handler);
+    return () => { ipcRenderer.removeListener('container:installProgress', handler); };
+  },
+  onBackgroundBuild: (callback: (progress: { stage: string; message: string; percent?: number }) => void) => {
+    const handler = (_event: unknown, progress: { stage: string; message: string; percent?: number }) => callback(progress);
+    ipcRenderer.on('container:backgroundBuild', handler);
+    return () => { ipcRenderer.removeListener('container:backgroundBuild', handler); };
   },
 });
 
@@ -179,6 +200,11 @@ contextBridge.exposeInMainWorld('reactionPromptAPI', {
   reset: () => ipcRenderer.invoke('reactionPrompt:reset'),
 });
 
+contextBridge.exposeInMainWorld('reactionSourcesAPI', {
+  get: () => ipcRenderer.invoke('reactionSources:get'),
+  set: (sources: string[]) => ipcRenderer.invoke('reactionSources:set', sources),
+});
+
 contextBridge.exposeInMainWorld('soulPromptAPI', {
   get: () => ipcRenderer.invoke('soulPrompt:get'),
   set: (content: string) => ipcRenderer.invoke('soulPrompt:set', content),
@@ -189,12 +215,65 @@ contextBridge.exposeInMainWorld('focusPromptAPI', {
   set: (content: string) => ipcRenderer.invoke('focusPrompt:set', content),
 });
 
+contextBridge.exposeInMainWorld('notesAPI', {
+  listDays: () => ipcRenderer.invoke('notes:listDays'),
+  readDay: (day: string) => ipcRenderer.invoke('notes:readDay', day),
+  sendAudioChunk: (chunkBase64: string, dayFile: string) => {
+    ipcRenderer.send('notes:audioChunk', { chunkBase64, dayFile });
+  },
+  stopRecording: () => {
+    ipcRenderer.send('notes:stopRecording');
+  },
+  onTranscription: (callback: (data: { text: string; dayFile: string }) => void) => {
+    const handler = (_event: unknown, data: { text: string; dayFile: string }) => callback(data);
+    ipcRenderer.on('notes:transcription', handler);
+    return () => { ipcRenderer.removeListener('notes:transcription', handler); };
+  },
+  onTranscriptionError: (callback: (error: string) => void) => {
+    const handler = (_event: unknown, error: string) => callback(error);
+    ipcRenderer.on('notes:transcriptionError', handler);
+    return () => { ipcRenderer.removeListener('notes:transcriptionError', handler); };
+  },
+  onSpeechDetected: (callback: (active: boolean) => void) => {
+    const handler = (_event: unknown, active: boolean) => callback(active);
+    ipcRenderer.on('notes:speechDetected', handler);
+    return () => { ipcRenderer.removeListener('notes:speechDetected', handler); };
+  },
+  onTranscribingChange: (callback: (active: boolean) => void) => {
+    const startHandler = () => callback(true);
+    const endHandler = () => callback(false);
+    ipcRenderer.on('notes:transcribingStart', startHandler);
+    ipcRenderer.on('notes:transcribingEnd', endHandler);
+    return () => {
+      ipcRenderer.removeListener('notes:transcribingStart', startHandler);
+      ipcRenderer.removeListener('notes:transcribingEnd', endHandler);
+    };
+  },
+  getAssistantMessages: (dayFile: string) => ipcRenderer.invoke('notes:assistantMessages', dayFile),
+  onAssistantMessage: (callback: (data: { dayFile: string; request: string; response: string }) => void) => {
+    const handler = (_event: unknown, data: { dayFile: string; request: string; response: string }) => callback(data);
+    ipcRenderer.on('notes:assistantMessage', handler);
+    return () => { ipcRenderer.removeListener('notes:assistantMessage', handler); };
+  },
+  onAssistantAnalyzing: (callback: (data: { dayFile: string; analyzing: boolean }) => void) => {
+    const handler = (_event: unknown, data: { dayFile: string; analyzing: boolean }) => callback(data);
+    ipcRenderer.on('notes:assistantAnalyzing', handler);
+    return () => { ipcRenderer.removeListener('notes:assistantAnalyzing', handler); };
+  },
+  onAssistantError: (callback: (data: { dayFile: string; error: string }) => void) => {
+    const handler = (_event: unknown, data: { dayFile: string; error: string }) => callback(data);
+    ipcRenderer.on('notes:assistantError', handler);
+    return () => { ipcRenderer.removeListener('notes:assistantError', handler); };
+  },
+});
+
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
   rename: (id: string, title: string) => ipcRenderer.invoke('sessions:rename', id, title),
   delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
   listMessages: (sessionId: string) => ipcRenderer.invoke('messages:list', sessionId),
+  findForApp: (dirName: string) => ipcRenderer.invoke('sessions:findForApp', dirName) as Promise<string | null>,
   onTitleUpdated: (callback: (sessionId: string, title: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, sessionId: string, title: string) => callback(sessionId, title);
     ipcRenderer.on('sessions:titleUpdated', handler);

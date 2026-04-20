@@ -19,6 +19,9 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [writingAgentLinking, setWritingAgentLinking] = useState(false);
   const [writingAgentRefreshing, setWritingAgentRefreshing] = useState(false);
   const [writingAgentError, setWritingAgentError] = useState<string | null>(null);
+  const [openaiKey, setOpenaiKey] = useState('');
+  const [openaiKeyLoaded, setOpenaiKeyLoaded] = useState(false);
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
 
   const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
   const [isSwitching, setIsSwitching] = useState<string | null>(null);
@@ -34,6 +37,10 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     window.soulPromptAPI.get().then(({ content }) => {
       setSoulContent(content);
       setSoulLoaded(true);
+    });
+    window.settingsAPI.getOpenAIKey().then((key) => {
+      setOpenaiKey(key ?? '');
+      setOpenaiKeyLoaded(true);
     });
     window.workspacesAPI.list().then(setAllWorkspaces);
     window.writingAgentAPI.isLinked().then(setWritingAgentLinked);
@@ -60,6 +67,9 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     setIsSaving(true);
     try {
       await window.soulPromptAPI.set(soulContent);
+      if (openaiKeyLoaded) {
+        await window.settingsAPI.setOpenAIKey(openaiKey);
+      }
       const updated = await window.workspacesAPI.update({ name: name.trim(), directoryPath });
       onSaved(updated);
     } catch (err) {
@@ -272,6 +282,31 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
             </button>
           )}
           {writingAgentError && <p className="gsStep__error" style={{ marginTop: 8 }}>{writingAgentError}</p>}
+        </div>
+
+        <div className="wsSettings__field">
+          <label className="wsSettings__label">OpenAI API Key</label>
+          <p className="wsSettings__hint">
+            Required for speech-to-text notes. Get a key from platform.openai.com.
+          </p>
+          <div className="wsSettings__dirRow">
+            <input
+              type={showOpenaiKey ? 'text' : 'password'}
+              className="gsStep__input"
+              value={openaiKey}
+              onChange={(e) => setOpenaiKey(e.target.value)}
+              placeholder="sk-..."
+              disabled={!openaiKeyLoaded}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              className="gsStep__btn gsStep__btn--ghost"
+              onClick={() => setShowOpenaiKey((v) => !v)}
+            >
+              {showOpenaiKey ? 'Hide' : 'Show'}
+            </button>
+          </div>
         </div>
 
         {error && <p className="gsStep__error">{error}</p>}

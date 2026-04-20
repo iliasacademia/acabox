@@ -244,6 +244,111 @@ If the build fails, read the error output, fix the issue in `App.tsx`, and rebui
 
 Call `open_mini_application` with the `dir_name` from Step 1.
 
+
+## Editing a min-app
+
+To edit an existing min-app, follow these steps:
+
+1. Locate the min-app directory at `.applications/<dir_name>/` within the workspace.
+2. Edit the `App.tsx` or `notebook.ipynb` file in the min-app directory to make changes to the UI of backing analysis and params.
+3. Rebuild the bundle with same command as in Step 4 of "Creating a min-app". If the build fails, read the error output, fix the issue in `App.tsx`, and rebuild.
+4. After a successful build, alsways call `open_mini_application` with the `dir_name` from Step 1 to make the changes visible to the user.
+
+## Installing software
+
+Two cases. Pick the right one:
+
+- **Modifies the container environment** (a binary, library, or package other processes look up by name) → use the install wrapper.
+- **Produces a file in the app folder that the app code reads** (model weights, datasets, fixtures) → direct download with `curl`/`wget`, no wrapper.
+
+### Case 1: Install wrapper (pip / npm / R / apt / manual)
+
+All container-environment installs go through `.applications/install`:
+
+```bash
+.applications/install pip seaborn --app <dir_name>
+.applications/install pip 'pandas>=2.0' scipy --app <dir_name>
+.applications/install npm d3 --app <dir_name>
+.applications/install npm 'd3@^7.0' --app <dir_name>
+.applications/install R ggplot2 --app <dir_name>
+.applications/install apt ffmpeg --app <dir_name>
+.applications/install manual .applications/<dir_name>/setup/install-miniconda.sh --app <dir_name>
+```
+
+The wrapper atomically (1) runs the live install in the running container so the package is usable immediately, and (2) records it in the app's per-registry file so it persists across rebuilds and travels when the app is shared.
+
+Per-registry files — the single source of truth for each registry. Do not write to them directly; always use the wrapper.
+
+| Registry | File | Format |
+|---|---|---|
+| pip    | `.applications/<dir_name>/requirements.txt` | Standard pip format, version specs supported (`pandas>=2.0`) |
+| npm    | `.applications/<dir_name>/package.json`     | Standard `package.json` `dependencies` field |
+| R      | `.applications/<dir_name>/r-packages.txt`   | One package per line |
+| apt    | `.applications/<dir_name>/apt-packages.txt` | One package per line |
+| manual | `.applications/<dir_name>/setup/*.sh`       | Check-then-install scripts (see below) |
+
+**Never call `pip install` / `npm install` / `apt-get install` / `Rscript -e 'install.packages(...)'` yourself — not on the host, not via `podman exec`.** All of these are blocked by a PreToolUse hook. A direct install does the live install but doesn't update the dependency file, so the package is silently lost on rebuild or share.
+
+**`--app <dir_name>` is required** so installs are associated with the app that needs them.
+
+**npm in cobuild is always global.** Even with a per-app `package.json`, there is no local `node_modules` — packages go into the container's global `node_modules` (alongside `react`, `react-plotly.js`, etc.) and esbuild resolves them via `NODE_PATH`. Treat `package.json` here as a declarative manifest, not a real npm project.
+
+**apt and manual are elevated-risk** — apt requires root, manual runs arbitrary shell. Verify with the user before running either.
+
+### Writing a manual install script
+
+Use `manual` when no standard package manager can install what you need (binary releases, conda, building from source).
+
+Scripts must live under `.applications/<dir_name>/setup/` — the wrapper refuses scripts elsewhere so the image build can find them. Pick a descriptive name like `install-miniconda.sh`.
+
+The same script runs **live in the current container** when you invoke the wrapper, and **at image build time** when the image is rebuilt. In both cases it must succeed whether or not the tool is already installed — a script that errors on "already present" breaks iteration during development and rebuilds in production.
+
+**Pattern: check first, then install.** Detect if the tool is already present; if so, exit 0 immediately.
+
+```bash
+#!/usr/bin/env bash
+# Install Miniconda into /opt/miniconda and put conda on the PATH.
+set -euo pipefail
+
+INSTALL_DIR=/opt/miniconda
+
+# Check first: if conda is already available, we're done.
+if command -v conda >/dev/null 2>&1; then
+  echo "conda already installed at $(command -v conda) — skipping"
+  exit 0
+fi
+
+# Install.
+INSTALLER=$(mktemp /tmp/miniconda-XXXXXX.sh)
+trap 'rm -f "$INSTALLER"' EXIT
+
+curl -fsSL -o "$INSTALLER" \
+  https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+bash "$INSTALLER" -b -p "$INSTALL_DIR"
+ln -sf "$INSTALL_DIR/bin/conda" /usr/local/bin/conda
+
+echo "installed conda at $INSTALL_DIR"
+```
+
+Key techniques: `set -euo pipefail` for fail-fast; `command -v` as the cheapest presence check (alternatives: `[ -d /some/path ]`, `pkg-config --exists`, `<tool> --version`); `mktemp` + `trap` for installer cleanup; a final step that makes the tool reachable (the symlink) so `conda` is on the PATH. Run it with:
+
+```bash
+.applications/install manual .applications/myApp/setup/install-miniconda.sh --app myApp
+```
+
+The script's presence in `setup/` is the record — nothing else needs updating.
+
+### Case 2: Downloading data into the app folder
+
+App data (model weights, datasets, fixtures) is not a container install. Write directly into the app folder — no wrapper needed.
+
+```bash
+mkdir -p .applications/<dir_name>/data
+curl -L -o .applications/<dir_name>/data/model.pt https://example.com/model.pt
+```
+
+These files persist because the app folder persists, and travel with the app when shared.
+
 ## Guidelines
 
 ### File paths
@@ -362,6 +467,28 @@ await window.anthropicAPI.stream(
   { messages: [{ role: 'user', content: userText }] },
   (chunk) => { output += chunk; setDisplayText(output); },
 );
+
+// Send an image for analysis — use file paths, not base64
+const msg = await window.anthropicAPI.complete({
+  messages: [{
+    role: 'user',
+    content: [
+      { type: 'image', source: { type: 'file', path: imagePath } },
+      { type: 'text', text: 'Analyze this image.' },
+    ],
+  }],
+});
+
+// Send a PDF for analysis
+const msg = await window.anthropicAPI.complete({
+  messages: [{
+    role: 'user',
+    content: [
+      { type: 'document', source: { type: 'file', path: './data/paper.pdf' } },
+      { type: 'text', text: 'Summarize the key findings.' },
+    ],
+  }],
+});
 ```
 
 ### Bridge API

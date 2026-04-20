@@ -20,7 +20,6 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: container-base-${{ github.ref }}
@@ -53,7 +52,7 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ secrets.GHCR_PUSH_TOKEN }}
 
       - name: Generate tag variables
         id: vars
@@ -79,6 +78,13 @@ jobs:
 
       - name: Build and push
         uses: docker/build-push-action@v5
+        env:
+          # Prevent buildx from auto-injecting org.opencontainers.image.source
+          # (and .revision/.url) from the git context. That label is what makes
+          # GHCR render this repo's README on the public package page.
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: ""
+          BUILDX_GIT_LABELS: "false"
+          BUILDX_GIT_INFO: "false"
         with:
           context: src/cobuilding
           file: src/cobuilding/Dockerfile.base
@@ -89,8 +95,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           labels: |
             org.opencontainers.image.description=Cobuilding Base Image
-            org.opencontainers.image.source=
-            org.opencontainers.image.url=
+            org.opencontainers.image.source=https://ghcr.io/academia-edu/cobuilding-base
           provenance: false
           cache-from: ${{ steps.cache.outputs.cache_from }}
           cache-to: type=gha,mode=max

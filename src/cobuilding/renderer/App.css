@@ -16,6 +16,7 @@ html,
 body,
 #root {
   height: 100vh;
+  overflow: hidden;
   margin: 0;
   font-family: 'DM Sans', system-ui, sans-serif;
   font-size: 14px;
@@ -93,13 +94,56 @@ body,
 }
 
 .sidebarPanel {
-  width: 260px;
-  flex-shrink: 0;
-  border-right: 1px solid #e0e0e0;
+  height: 100%;
   padding: 12px;
   background: #fafafa;
   display: flex;
   flex-direction: column;
+}
+
+/* --- Resizable panel group (react-resizable-panels) --- */
+
+.appPanelGroup {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+}
+
+.panelHandle {
+  flex-shrink: 0;
+  width: 1px;
+  background: #e0e0e0;
+  position: relative;
+  outline: none;
+  /* Expand the hit target without changing layout width via a pseudo-element. */
+}
+
+.panelHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  right: -3px;
+  cursor: col-resize;
+  z-index: 2;
+}
+
+.panelHandle[data-resize-handle-state="hover"],
+.panelHandle[data-resize-handle-state="drag"] {
+  background: #4a9eff;
+}
+
+/* While dragging, neutralize iframes/webviews so they don't capture
+   mousemove/mouseup and strand the drag in a half-finished state. */
+body.cobuild-resizing {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.cobuild-resizing iframe,
+body.cobuild-resizing webview {
+  pointer-events: none;
 }
 
 .sidebarContent {
@@ -110,7 +154,7 @@ body,
 
 
 .mainPanel {
-  flex: 1;
+  height: 100%;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -877,14 +921,20 @@ body,
 
 .composerShell {
   display: flex;
-  flex-direction: row;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 4px;
   border-radius: 24px;
   border: 1px solid #e0e0e0;
   background: #fff;
   padding: 10px;
   transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+.composerToolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
 }
 
 .composerShell:focus-within {
@@ -902,10 +952,10 @@ body,
 }
 
 .composerInput {
-  max-height: 128px;
+  max-height: 336px;
   min-height: 40px;
-  flex: 1;
-  min-width: 0;
+  field-sizing: content;
+  width: 100%;
   resize: none;
   background: transparent;
   padding: 4px 7px;
@@ -914,6 +964,7 @@ body,
   border: none;
   font-family: inherit;
   line-height: 1.5;
+  overflow-y: auto;
 }
 
 .composerInput::placeholder {
@@ -971,6 +1022,7 @@ body,
 
 .modelSelectorTrigger {
   flex-shrink: 0;
+  margin-left: auto;
   border: none;
   background: transparent;
   border-radius: 8px;
@@ -1739,9 +1791,7 @@ body,
    ============================================================ */
 
 .taskPanel {
-  width: 280px;
-  flex-shrink: 0;
-  border-left: 1px solid #e5e5e5;
+  height: 100%;
   background: #fafafa;
   display: flex;
   flex-direction: column;
@@ -2418,6 +2468,316 @@ body,
   color: #333;
 }
 
+/* PDF and CSV viewers manage their own scrolling and padding. */
+.fileViewerBodyFlush {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Markdown View --- */
+
+.markdownView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.markdownViewToolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.markdownViewToggle {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #555;
+}
+
+.markdownViewToggle:hover {
+  background: #f5f5f5;
+}
+
+.markdownViewToggleActive {
+  background: #333;
+  border-color: #333;
+  color: #fff;
+}
+
+.markdownViewToggleActive:hover {
+  background: #333;
+}
+
+.markdownViewRendered {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: #222;
+}
+
+.markdownViewRendered h1,
+.markdownViewRendered h2,
+.markdownViewRendered h3,
+.markdownViewRendered h4 {
+  margin: 1.2em 0 0.5em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.markdownViewRendered h1 { font-size: 1.5rem; }
+.markdownViewRendered h2 { font-size: 1.25rem; }
+.markdownViewRendered h3 { font-size: 1.05rem; }
+.markdownViewRendered h4 { font-size: 0.95rem; }
+
+.markdownViewRendered p {
+  margin: 0.6em 0;
+}
+
+.markdownViewRendered ul,
+.markdownViewRendered ol {
+  padding-left: 1.5em;
+  margin: 0.6em 0;
+}
+
+.markdownViewRendered code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  background: #f3f3f3;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.markdownViewRendered pre {
+  background: #f6f6f6;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.markdownViewRendered pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.markdownViewRendered blockquote {
+  border-left: 3px solid #d4d4d4;
+  padding-left: 12px;
+  margin: 0.8em 0;
+  color: #555;
+}
+
+.markdownViewRendered table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+}
+
+.markdownViewRendered th,
+.markdownViewRendered td {
+  border: 1px solid #e5e5e5;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.markdownViewRendered th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+.markdownViewRendered a {
+  color: #0066cc;
+  text-decoration: underline;
+}
+
+.markdownViewRendered img {
+  max-width: 100%;
+}
+
+/* --- LaTeX View --- */
+
+.latexView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.latexViewToolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.latexViewToggle {
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  border: 1px solid #d4d4d4;
+  background: #fff;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #555;
+}
+
+.latexViewToggle:hover {
+  background: #f5f5f5;
+}
+
+.latexViewToggleActive {
+  background: #333;
+  border-color: #333;
+  color: #fff;
+}
+
+.latexViewToggleActive:hover {
+  background: #333;
+}
+
+.latexViewRendered {
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: #222;
+  overflow: auto;
+}
+
+/* latex.js renders into a <body> element which we mount inside .latexViewRendered.
+   Strip the body's default block styles so it integrates with our container. */
+.latexViewRendered > body {
+  display: block;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.latexViewError {
+  color: #b00;
+  font-size: 0.875rem;
+}
+
+/* --- PDF View --- */
+
+.pdfViewIframe {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #525659;
+}
+
+/* --- CSV View --- */
+
+.csvView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.csvViewMeta {
+  font-size: 0.75rem;
+  color: #666;
+  padding: 8px 12px;
+  border-bottom: 1px solid #e5e5e5;
+  background: #fafafa;
+  flex-shrink: 0;
+}
+
+.csvViewScroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.csvViewTable {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 0.8125rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  width: max-content;
+  min-width: 100%;
+}
+
+.csvViewHeader {
+  position: sticky;
+  top: 0;
+  background: #f3f3f3;
+  border-bottom: 1px solid #d4d4d4;
+  border-right: 1px solid #e5e5e5;
+  padding: 6px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  z-index: 1;
+}
+
+.csvViewHeader:hover {
+  background: #ebebeb;
+}
+
+.csvViewCell {
+  border-bottom: 1px solid #f0f0f0;
+  border-right: 1px solid #f0f0f0;
+  padding: 4px 10px;
+  white-space: nowrap;
+  color: #333;
+  max-width: 400px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- XLSX View (sheet tabs) --- */
+
+.xlsxView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.xlsxViewTabs {
+  display: flex;
+  flex-shrink: 0;
+  overflow-x: auto;
+  border-top: 1px solid #d4d4d4;
+  background: #f3f3f3;
+}
+
+.xlsxViewTab {
+  font-size: 0.75rem;
+  padding: 6px 14px;
+  border: none;
+  border-right: 1px solid #d4d4d4;
+  background: transparent;
+  color: #555;
+  cursor: pointer;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.xlsxViewTab:hover {
+  background: #e9e9e9;
+}
+
+.xlsxViewTab--active {
+  background: #fff;
+  color: #222;
+  font-weight: 500;
+  box-shadow: inset 0 2px 0 #2563eb;
+}
+
+.xlsxViewHyperlink {
+  color: #0066cc;
+  text-decoration: underline;
+}
+
 /* --- Mini-App Viewer --- */
 
 .miniAppViewer {
@@ -2433,6 +2793,30 @@ body,
   padding: 8px 12px;
   border-bottom: 1px solid #e5e5e5;
   background: #fafafa;
+}
+
+.miniAppHeaderKernelStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 8px;
+  font-size: 12px;
+  color: #555;
+}
+
+.miniAppHeaderKernelStatusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.miniAppHeaderKernelStatusDot--pulse {
+  animation: miniAppKernelPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes miniAppKernelPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 .miniAppHeaderTitle {
@@ -2461,26 +2845,78 @@ body,
 }
 
 .miniAppHeaderClose {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
+  gap: 5px;
+  padding: 4px 8px;
   height: 28px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
-  color: #666;
+  color: #555;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
   cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
 }
 
-.miniAppHeaderClose:hover {
+.miniAppHeaderClose:hover:not(:disabled) {
   background: #e5e5e5;
-  color: #333;
+  color: #222;
+}
+
+.miniAppHeaderClose:disabled {
+  color: #aaa;
+  cursor: default;
 }
 
 .miniAppHeaderClose--active {
   background: #e0e7ff;
   color: #4338ca;
+}
+
+.miniAppHeaderClose--active:hover:not(:disabled) {
+  background: #c7d2fe;
+  color: #3730a3;
+}
+
+.miniAppHeaderViewToggle {
+  display: inline-flex;
+  align-items: center;
+  background: #e8e8e8;
+  border-radius: 7px;
+  padding: 2px;
+  gap: 1px;
+  margin-left: auto;
+}
+
+.miniAppHeaderViewBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  height: 24px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #666;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+.miniAppHeaderViewBtn:hover {
+  color: #333;
+}
+
+.miniAppHeaderViewBtn--active {
+  background: #fff;
+  color: #222;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+  cursor: default;
 }
 
 .miniAppBody {
@@ -2632,9 +3068,7 @@ body,
 /* --- Chat Side Panel (shown when mini-app is active) --- */
 
 .chatSidePanel {
-  width: 400px;
-  flex-shrink: 0;
-  border-left: 1px solid #e5e5e5;
+  height: 100%;
   overflow-y: auto;
 }
 
@@ -2700,6 +3134,10 @@ body,
 
 .miniAppsTabItem:hover {
   background: #f0f0f0;
+}
+
+.miniAppsTabItem--active {
+  background: #e8e8e8;
 }
 
 .miniAppsTabItemTrigger {
@@ -2818,9 +3256,14 @@ body,
 }
 
 .miniAppsTab > .threadListNewBtn {
-  margin-bottom: 8px;
+  margin-bottom: 4px;
   flex-shrink: 0;
 }
+
+.miniAppsImportBtn {
+  margin-bottom: 8px;
+}
+
 
 /* ============================================================
    Log Viewer (Debug → Logs)

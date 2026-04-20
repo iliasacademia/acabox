@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import type { TabDescriptor } from './types';
 
 interface TabsState {
@@ -6,8 +6,21 @@ interface TabsState {
   activeTabId: string | null;
 }
 
-export function useTabs() {
+interface UseTabsOptions {
+  onBeforeClose?: (id: string) => void;
+}
+
+export function useTabs(options: UseTabsOptions = {}) {
   const [state, setState] = useState<TabsState>({ tabs: [], activeTabId: null });
+
+  // Latest-value ref so closeTab's useCallback identity stays stable and
+  // onBeforeClose is never called from inside a setState updater (which React
+  // 18 may invoke twice under StrictMode).
+  const onBeforeCloseRef = useRef(options.onBeforeClose);
+  onBeforeCloseRef.current = options.onBeforeClose;
+
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   const openTab = useCallback((descriptor: TabDescriptor) => {
     setState((prev) => {
@@ -37,24 +50,27 @@ export function useTabs() {
   }, []);
 
   const closeTab = useCallback((id: string) => {
+    // Read outside setState so this stays a pure updater.
+    const current = stateRef.current;
+    const index = current.tabs.findIndex((t) => t.id === id);
+    if (index === -1) return;
+
+    onBeforeCloseRef.current?.(id);
+
     setState((prev) => {
-      const index = prev.tabs.findIndex((t) => t.id === id);
-      if (index === -1) return prev;
-
+      const idx = prev.tabs.findIndex((t) => t.id === id);
+      if (idx === -1) return prev;
       const newTabs = prev.tabs.filter((t) => t.id !== id);
-
-      // If we closed the active tab, pick an adjacent one
       let newActiveId = prev.activeTabId;
       if (prev.activeTabId === id) {
         if (newTabs.length === 0) {
           newActiveId = null;
-        } else if (index < newTabs.length) {
-          newActiveId = newTabs[index].id; // tab to the right
+        } else if (idx < newTabs.length) {
+          newActiveId = newTabs[idx].id; // tab to the right
         } else {
           newActiveId = newTabs[newTabs.length - 1].id; // tab to the left
         }
       }
-
       return { tabs: newTabs, activeTabId: newActiveId };
     });
   }, []);

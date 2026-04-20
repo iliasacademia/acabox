@@ -63,6 +63,13 @@ RUN pip install --no-cache-dir \
     rcsb-api \
     biopython
 
+# Fix Python kernel spec to use absolute venv path.
+# During build, PATH includes the venv so ipykernel registers bare "python".
+# But podman exec and kernel gateway subprocesses don't inherit ENV PATH,
+# so the kernel would resolve to system Python and crash.
+RUN sed -i 's|"python"|"/opt/venv/bin/python"|g' \
+    /opt/venv/share/jupyter/kernels/python3/kernel.json
+
 # Install Bioconductor packages
 RUN R -e 'BiocManager::install(c( \
     "DESeq2", \

@@ -1,21 +1,38 @@
 import React, { type FC } from 'react';
-import { XIcon, MessageSquareIcon, CircleIcon } from 'lucide-react';
-import type { TabDescriptor } from './types';
+import { XIcon, MessageSquareIcon, CircleIcon, FileTextIcon, BookOpenIcon, LayoutGridIcon, BracesIcon, CrosshairIcon } from 'lucide-react';
+import type { TabDescriptor, TabKind } from './types';
 
 interface TabBarProps {
   tabs: TabDescriptor[];
   activeTabId: string | null;
   dirtyTabIds: Set<string>;
+  hasLiveKernel?: (id: string) => boolean;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
   onPin: (id: string) => void;
   onShowChat: () => void;
 }
 
+const iconStyle = { width: 14, height: 14, flexShrink: 0 };
+
+const TAB_ICONS: Record<TabKind, FC<{ style: React.CSSProperties }>> = {
+  file: FileTextIcon,
+  notebook: BookOpenIcon,
+  miniapp: LayoutGridIcon,
+  debug: BracesIcon,
+  focus: CrosshairIcon,
+};
+
+const TabIcon: FC<{ kind: TabKind }> = ({ kind }) => {
+  const Icon = TAB_ICONS[kind];
+  return <Icon style={iconStyle} />;
+};
+
 export const TabBar: FC<TabBarProps> = ({
   tabs,
   activeTabId,
   dirtyTabIds,
+  hasLiveKernel,
   onActivate,
   onClose,
   onPin,
@@ -44,6 +61,7 @@ export const TabBar: FC<TabBarProps> = ({
             onDoubleClick={() => onPin(tab.id)}
             title={tab.label}
           >
+            <TabIcon kind={tab.kind} />
             <span className="tabBarItemLabel">{tab.label}</span>
             <button
               className={`tabBarItemClose${isDirty ? ' tabBarItemClose--dirty' : ''}`}
@@ -51,6 +69,8 @@ export const TabBar: FC<TabBarProps> = ({
                 e.stopPropagation();
                 if (isDirty) {
                   if (!window.confirm('You have unsaved changes. Close anyway?')) return;
+                } else if (hasLiveKernel?.(tab.id)) {
+                  if (!window.confirm('This will shut down the running kernel and lose any in-memory state. Close anyway?')) return;
                 }
                 onClose(tab.id);
               }}

@@ -20,6 +20,7 @@ rules.push({
   type: 'asset/resource',
 });
 
+
 module.exports = {
   module: {
     rules,
@@ -28,4 +29,14 @@ module.exports = {
   resolve: {
     extensions: ['.js', '.ts', '.jsx', '.tsx', '.css'],
   },
+  // latex.js uses a dynamic require() to load packages/document classes at
+  // runtime. Webpack flags this as "Critical dependency: the request of a
+  // dependency is an expression". The library still functions; suppress the
+  // noise.
+  ignoreWarnings: [
+    {
+      module: /node_modules\/latex\.js\//,
+      message: /Critical dependency: the request of a dependency is an expression/,
+    },
+  ],
 };

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { CodeIcon, FolderIcon, RefreshCwIcon } from 'lucide-react';
+import { CodeIcon, DownloadIcon, FolderIcon, MonitorIcon, RefreshCwIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
-import { useKernel } from './notebook/useKernel';
+import { useKernel, type KernelStatus } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
 
@@ -33,6 +33,11 @@ function buildFixPrompt(appName: string, err: RequestFixError): string {
   return lines.join('\n');
 }
 
+type RebuildState =
+  | { kind: 'idle' }
+  | { kind: 'building' }
+  | { kind: 'error'; message: string };
+
 interface MiniAppViewerProps {
   dirName: string;
   workspacePath: string;
@@ -41,60 +46,302 @@ interface MiniAppViewerProps {
 export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }) => {
   const [viewingSource, setViewingSource] = useState(false);
   const [rebuildKey, setRebuildKey] = useState(0);
+  const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
   const appDir = `${workspacePath}/.applications/${dirName}`;
 
-  const handleRebuildSuccess = useCallback(() => {
-    setRebuildKey((k) => k + 1);
-    setViewingSource(false);
-  }, []);
+  const handleRebuild = useCallback(async () => {
+    setRebuildState({ kind: 'building' });
+    try {
+      const result = await window.containerAPI.exec([
+        'esbuild',
+        `.applications/${dirName}/src/index.tsx`,
+        '--bundle',
+        `--outfile=.applications/${dirName}/dist/bundle.js`,
+        '--jsx=automatic',
+        '--loader:.tsx=tsx',
+        '--loader:.ts=ts',
+        '--format=iife',
+        '--alias:@reusable=/data/.applications/_reusable',
+      ]);
+      if (result.exitCode !== 0) {
+        setRebuildState({
+          kind: 'error',
+          message: result.stderr.trim() || result.stdout.trim() || `esbuild exited with code ${result.exitCode}`,
+        });
+        return;
+      }
+      setRebuildState({ kind: 'idle' });
+      setRebuildKey((k) => k + 1);
+      setViewingSource(false);
+    } catch (err) {
+      setRebuildState({
+        kind: 'error',
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }, [dirName]);
+
+  const handleShowInFinder = useCallback(async () => {
+    await window.filesAPI.showInFinder(appDir);
+  }, [appDir]);
 
   return (
     <div className="miniAppViewer">
       <MiniAppHeader
+        dirName={dirName}
         viewingSource={viewingSource}
         onToggleSource={() => setViewingSource((v) => !v)}
+        onRebuild={handleRebuild}
+        onShowInFinder={handleShowInFinder}
+        rebuildState={rebuildState}
       />
       <div className="miniAppBody">
-        {viewingSource ? (
-          <SourceViewer
-            appDir={appDir}
-            dirName={dirName}
-            onRebuildSuccess={handleRebuildSuccess}
-          />
-        ) : (
-          <MiniAppContent
-            key={rebuildKey}
-            dirName={dirName}
-            workspacePath={workspacePath}
-          />
-        )}
+        <ContainerGate dirName={dirName}>
+          {viewingSource ? (
+            <SourceViewer
+              appDir={appDir}
+              dirName={dirName}
+              rebuildState={rebuildState}
+            />
+          ) : (
+            <MiniAppContent
+              key={rebuildKey}
+              dirName={dirName}
+              workspacePath={workspacePath}
+            />
+          )}
+        </ContainerGate>
       </div>
     </div>
   );
 };
 
 const MiniAppHeader: FC<{
+  dirName: string;
   viewingSource: boolean;
   onToggleSource: () => void;
-}> = ({ viewingSource, onToggleSource }) => {
+  onRebuild: () => void;
+  onShowInFinder: () => void;
+  rebuildState: RebuildState;
+}> = ({ dirName, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState }) => {
+  const handleExport = useCallback(async () => {
+    await window.miniAppsAPI.exportApp(dirName);
+  }, [dirName]);
+
+  const isBuilding = rebuildState.kind === 'building';
+
   return (
     <div className="miniAppHeader">
       <button
-        className={`miniAppHeaderClose${viewingSource ? ' miniAppHeaderClose--active' : ''}`}
-        onClick={onToggleSource}
-        title="View source"
+        className="miniAppHeaderClose"
+        onClick={handleExport}
+        title="Export application"
       >
-        <CodeIcon style={{ width: 16, height: 16 }} />
+        <DownloadIcon style={{ width: 16, height: 16 }} />
+        Download
       </button>
+      <button
+        className="miniAppHeaderClose"
+        onClick={onRebuild}
+        disabled={isBuilding}
+        title="Rebuild and reload the app"
+      >
+        <RefreshCwIcon style={{ width: 16, height: 16 }} />
+        {isBuilding ? 'Rebuilding…' : 'Rebuild'}
+      </button>
+      <button
+        className="miniAppHeaderClose"
+        onClick={onShowInFinder}
+        title="Show app folder in Finder"
+      >
+        <FolderIcon style={{ width: 16, height: 16 }} />
+        Show in Finder
+      </button>
+      <KernelStatusIndicator dirName={dirName} />
+      <div className="miniAppHeaderViewToggle">
+        <button
+          className={`miniAppHeaderViewBtn${!viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
+          onClick={() => viewingSource && onToggleSource()}
+          title="View app"
+        >
+          <MonitorIcon style={{ width: 14, height: 14 }} />
+          App
+        </button>
+        <button
+          className={`miniAppHeaderViewBtn${viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
+          onClick={() => !viewingSource && onToggleSource()}
+          title="View source"
+        >
+          <CodeIcon style={{ width: 14, height: 14 }} />
+          Code
+        </button>
+      </div>
     </div>
   );
+};
+
+const KERNEL_STATUS_LABEL: Record<KernelStatus, string> = {
+  disconnected: 'Kernel off',
+  starting: 'Starting kernel…',
+  idle: 'Kernel idle',
+  busy: 'Kernel running',
+  dead: 'Kernel stopped',
+};
+
+const KERNEL_STATUS_COLOR: Record<KernelStatus, string> = {
+  disconnected: '#bbb',
+  starting: '#d98c00',
+  idle: '#2e9e5e',
+  busy: '#2b7fd6',
+  dead: '#c0392b',
+};
+
+const KernelStatusIndicator: FC<{ dirName: string }> = ({ dirName }) => {
+  const { status } = useKernel(`miniapp::${dirName}`);
+  if (status === 'disconnected') return null;
+  const label = KERNEL_STATUS_LABEL[status];
+  const pulse = status === 'starting' || status === 'busy';
+  return (
+    <div className="miniAppHeaderKernelStatus" title={label}>
+      <span
+        className={`miniAppHeaderKernelStatusDot${pulse ? ' miniAppHeaderKernelStatusDot--pulse' : ''}`}
+        style={{ background: KERNEL_STATUS_COLOR[status] }}
+      />
+      <span>{label}</span>
+    </div>
+  );
+};
+
+interface InstallStatus {
+  registry: string;
+  packages: string[];
+  lastLine: string;
+}
+
+const InstallingView: FC<{ message: string; installStatus?: InstallStatus | null }> = ({ message, installStatus }) => (
+  <div style={{
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    height: '100%', gap: 12, color: '#666', fontSize: 14,
+  }}>
+    <div style={{
+      width: 24, height: 24, border: '3px solid #e0e0e0', borderTopColor: '#666',
+      borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+    }} />
+    <span>{message}</span>
+    {installStatus && (
+      <div style={{ fontSize: 12, color: '#888', textAlign: 'center', maxWidth: 400 }}>
+        <div style={{ marginBottom: 4 }}>
+          <strong>{installStatus.registry}</strong>: {installStatus.packages.join(', ')}
+        </div>
+        {installStatus.lastLine && (
+          <div style={{
+            fontFamily: 'SF Mono, Menlo, Monaco, monospace', fontSize: 10,
+            color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {installStatus.lastLine}
+          </div>
+        )}
+      </div>
+    )}
+    <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+  </div>
+);
+
+const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dirName, children }) => {
+  const [containerReady, setContainerReady] = useState<boolean | null>(null);
+  const [depsReady, setDepsReady] = useState<boolean | null>(null);
+  const [statusMessage, setStatusMessage] = useState('Waiting for container...');
+  const [installStatus, setInstallStatus] = useState<InstallStatus | null>(null);
+
+  // Check container status
+  useEffect(() => {
+    let cancelled = false;
+    window.containerAPI.status().then(({ running }) => {
+      if (!cancelled) setContainerReady(running);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Wait for container to start
+  useEffect(() => {
+    if (containerReady) return;
+
+    const cleanups = [
+      window.containerAPI.onProgress((progress) => {
+        if (progress.stage === 'ready') {
+          setContainerReady(true);
+        } else if (progress.stage === 'build' || progress.stage === 'pull' || progress.stage === 'build-image') {
+          setStatusMessage('Installing software...');
+        } else if (progress.stage === 'init' || progress.stage === 'start-machine') {
+          setStatusMessage('Starting container runtime...');
+        }
+      }),
+      window.containerAPI.onSetupProgress((progress) => {
+        if (progress.stage === 'setup-done' || progress.stage === 'ready') {
+          setContainerReady(true);
+        } else if (progress.stage === 'build-image' || progress.stage === 'build' || progress.stage === 'pull') {
+          setStatusMessage('Installing software...');
+        }
+      }),
+    ];
+
+    const interval = setInterval(async () => {
+      const { running } = await window.containerAPI.status();
+      if (running) setContainerReady(true);
+    }, 3000);
+
+    return () => {
+      cleanups.forEach((fn) => fn());
+      clearInterval(interval);
+    };
+  }, [containerReady]);
+
+  // Listen for streaming install progress for this app
+  useEffect(() => {
+    const cleanup = window.containerAPI.onInstallProgress((progress) => {
+      if (progress.dirName !== dirName) return;
+      if (progress.type === 'step' && progress.registry && progress.packages) {
+        setInstallStatus({ registry: progress.registry, packages: progress.packages, lastLine: '' });
+      } else if (progress.type === 'line' && progress.line) {
+        setInstallStatus((prev) => prev ? { ...prev, lastLine: progress.line! } : prev);
+      } else if (progress.type === 'done') {
+        setInstallStatus(null);
+      }
+    });
+    return cleanup;
+  }, [dirName]);
+
+  // Once container is ready, ensure app deps are installed
+  useEffect(() => {
+    if (!containerReady) return;
+    let cancelled = false;
+
+    window.containerAPI.appDepsReady(dirName).then((ready) => {
+      if (cancelled) return;
+      if (ready) {
+        setDepsReady(true);
+        return;
+      }
+      window.containerAPI.ensureAppDeps(dirName)
+        .then(() => { if (!cancelled) setDepsReady(true); })
+        .catch(() => { if (!cancelled) setDepsReady(true); });
+    });
+
+    return () => { cancelled = true; };
+  }, [containerReady, dirName]);
+
+  if (containerReady === null) return null;
+  if (!containerReady) return <InstallingView message={statusMessage} />;
+  if (!depsReady) return <InstallingView message="Installing software..." installStatus={installStatus} />;
+
+  return <>{children}</>;
 };
 
 const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirName, workspacePath }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loadError, setLoadError] = useState(false);
   const appDir = `${workspacePath}/.applications/${dirName}`;
-  const { connect, executeCode } = useKernel();
+  const { connect, executeCode } = useKernel(`miniapp::${dirName}`);
   const composerRuntime = useComposerRuntime();
 
   const handleIframeLoad = useCallback(() => {
@@ -277,56 +524,15 @@ interface SourceFile {
   path: string;
 }
 
-type RebuildState =
-  | { kind: 'idle' }
-  | { kind: 'building' }
-  | { kind: 'error'; message: string };
-
 const SourceViewer: FC<{
   appDir: string;
   dirName: string;
-  onRebuildSuccess: () => void;
-}> = ({ appDir, dirName, onRebuildSuccess }) => {
+  rebuildState: RebuildState;
+}> = ({ appDir, dirName, rebuildState }) => {
   const [files, setFiles] = useState<SourceFile[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [content, setContent] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
-
-  const handleRebuild = useCallback(async () => {
-    setRebuildState({ kind: 'building' });
-    try {
-      const result = await window.containerAPI.exec([
-        'esbuild',
-        `.applications/${dirName}/src/index.tsx`,
-        '--bundle',
-        `--outfile=.applications/${dirName}/dist/bundle.js`,
-        '--jsx=automatic',
-        '--loader:.tsx=tsx',
-        '--loader:.ts=ts',
-        '--format=iife',
-        '--alias:@reusable=/data/.applications/_reusable',
-      ]);
-      if (result.exitCode !== 0) {
-        setRebuildState({
-          kind: 'error',
-          message: result.stderr.trim() || result.stdout.trim() || `esbuild exited with code ${result.exitCode}`,
-        });
-        return;
-      }
-      setRebuildState({ kind: 'idle' });
-      onRebuildSuccess();
-    } catch (err) {
-      setRebuildState({
-        kind: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }, [dirName, onRebuildSuccess]);
-
-  const handleShowInFinder = useCallback(async () => {
-    await window.filesAPI.showInFinder(appDir);
-  }, [appDir]);
 
   // Discover which source files exist
   useEffect(() => {
@@ -380,8 +586,6 @@ const SourceViewer: FC<{
     return <div className="sourceViewerEmpty">No source files found.</div>;
   }
 
-  const isBuilding = rebuildState.kind === 'building';
-
   return (
     <div className="sourceViewer">
       <div className="sourceViewerTabs">
@@ -394,25 +598,6 @@ const SourceViewer: FC<{
             {f.label}
           </button>
         ))}
-        <div className="sourceViewerActions">
-          <button
-            className="sourceViewerAction"
-            onClick={handleRebuild}
-            disabled={isBuilding}
-            title="Rebuild and reload the app"
-          >
-            <RefreshCwIcon className="sourceViewerActionIcon" />
-            {isBuilding ? 'Rebuilding…' : 'Rebuild'}
-          </button>
-          <button
-            className="sourceViewerAction"
-            onClick={handleShowInFinder}
-            title="Show app folder in Finder"
-          >
-            <FolderIcon className="sourceViewerActionIcon" />
-            Show in Finder
-          </button>
-        </div>
       </div>
       {rebuildState.kind === 'error' && (
         <div className="sourceViewerRebuildError">

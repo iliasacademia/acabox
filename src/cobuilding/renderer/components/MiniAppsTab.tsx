@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutGridIcon, PlusIcon, TrashIcon } from 'lucide-react';
+import { LayoutGridIcon, PlusIcon, TrashIcon, UploadIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
 interface MiniAppEntry {
@@ -12,15 +12,22 @@ export function MiniAppsTab({
   onSelectApp,
   onDeleteApp,
   onNewApplication,
+  activeAppDirName,
+  autoSelectFirst,
+  onAutoSelectDone,
 }: {
   workspacePath: string;
   onSelectApp: (dirName: string) => void;
   onDeleteApp?: (dirName: string) => void;
   onNewApplication?: () => void;
+  activeAppDirName?: string;
+  autoSelectFirst?: boolean;
+  onAutoSelectDone?: () => void;
 }) {
   const [apps, setApps] = useState<MiniAppEntry[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [pendingDelete, setPendingDelete] = useState<MiniAppEntry | null>(null);
+  const [importing, setImporting] = useState(false);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
 
@@ -48,6 +55,17 @@ export function MiniAppsTab({
     refresh();
   }, [refresh]);
 
+  // Auto-select first app when requested (e.g. clicking Apps nav with no miniapp tabs open)
+  useEffect(() => {
+    if (autoSelectFirst && apps.length > 0) {
+      onSelectApp(apps[0].dirName);
+      onAutoSelectDone?.();
+    } else if (autoSelectFirst && !loading && apps.length === 0) {
+      // No apps available — clear the flag
+      onAutoSelectDone?.();
+    }
+  }, [autoSelectFirst, apps, loading, onSelectApp, onAutoSelectDone]);
+
   const handleDeleteApp = useCallback(async (app: MiniAppEntry) => {
     try {
       const appDir = `${workspacePath}/.applications/${app.dirName}`;
@@ -60,6 +78,25 @@ export function MiniAppsTab({
       setPendingDelete(null);
     }
   }, [workspacePath]);
+
+  const handleImportApp = useCallback(async () => {
+    setImporting(true);
+    try {
+      const result = await window.miniAppsAPI.importApp();
+      if (result.ok && result.dirName) {
+        // Show the app in the sidebar and open it immediately
+        await refresh();
+        onSelectApp(result.dirName);
+        // Install deps in the background — the ContainerGate will show
+        // "Installing software..." via the ensureAppDeps IPC
+        window.containerAPI.ensureAppDeps(result.dirName).catch(() => {});
+      } else if (!result.canceled) {
+        console.error('Import failed:', result.error);
+      }
+    } finally {
+      setImporting(false);
+    }
+  }, [refresh, onSelectApp]);
 
   const handleNewApplication = useCallback(() => {
     assistantRuntime.switchToNewThread();
@@ -91,6 +128,10 @@ export function MiniAppsTab({
         <PlusIcon style={{ width: 16, height: 16 }} />
         New Application
       </button>
+      <button className="threadListNewBtn miniAppsImportBtn" onClick={handleImportApp} disabled={importing}>
+        <UploadIcon style={{ width: 16, height: 16 }} />
+        {importing ? 'Importing…' : 'Import App'}
+      </button>
       {loading && apps.length === 0 ? (
         <div className="miniAppsTabEmpty">Loading…</div>
       ) : apps.length === 0 ? (
@@ -98,7 +139,7 @@ export function MiniAppsTab({
       ) : (
         <div className="miniAppsTabList">
           {apps.map((app) => (
-            <div key={app.dirName} className="miniAppsTabItem">
+            <div key={app.dirName} className={`miniAppsTabItem${activeAppDirName === app.dirName ? ' miniAppsTabItem--active' : ''}`}>
               <button
                 className="miniAppsTabItemTrigger"
                 onClick={() => onSelectApp(app.dirName)}

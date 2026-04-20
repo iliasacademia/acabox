@@ -148,6 +148,7 @@ export function createAgentSession(
   source?: string,
   onNotificationClick?: (action: NotificationNavigationAction | null) => void,
   model?: string,
+  messagePreprocessor?: (text: string) => string,
   writingConversationContext?: { conversationId: number; projectId: number },
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
@@ -422,7 +423,8 @@ If no writing projects are found, suggest the user link their Writing Agent acco
         };
       });
       insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }));
-      messageQueue.push({ text: userMessage, attachments });
+      const processedText = messagePreprocessor ? messagePreprocessor(userMessage) : userMessage;
+      messageQueue.push({ text: processedText, attachments });
     },
 
     destroy() {

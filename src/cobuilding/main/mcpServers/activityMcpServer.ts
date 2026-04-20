@@ -8,10 +8,10 @@ export function createActivityMcpServer() {
     tools: [{
       name: 'query_activity',
       description:
-        'Query the user\'s recent activity — browser pages visited and files edited/viewed. ' +
+        'Query the user\'s recent activity — browser pages visited, files edited/viewed, and dictated notes. ' +
         'Returns raw session data for a time range. Use this to answer questions like ' +
         '"What did I do today?", "What was I reading in the last 2 hours?", ' +
-        '"What files was I working on this week?".',
+        '"What files was I working on this week?", "What notes did I dictate?".',
       inputSchema: {
         period: z.enum(['today', 'last_2h', 'last_24h', 'this_week']).optional()
           .describe('Convenience shorthand for common time ranges. Ignored if "since" is provided.'),
@@ -21,8 +21,8 @@ export function createActivityMcpServer() {
           .describe('ISO timestamp for custom range end. Defaults to now.'),
         search: z.string().optional()
           .describe('Filter results by title or URL/path content.'),
-        source: z.enum(['browser', 'file', 'all']).optional()
-          .describe('Which activity source to query. Defaults to "all".'),
+        source: z.string().optional()
+          .describe('Which activity sources to include. Comma-separated: "browser", "file", "notes", or "all". Examples: "browser,notes", "file". Defaults to "all".'),
       },
       handler: async (args) => {
         const result = queryActivity(args);
@@ -33,8 +33,9 @@ export function createActivityMcpServer() {
           ? result.browser_sessions.reduce((sum, group) => sum + (group.sessions as unknown[]).length, 0)
           : 0;
         const fileCount = result.file_sessions?.length || 0;
+        const notesCount = result.notes_sessions?.length || 0;
         const header = `Activity from ${result.query.since} to ${result.query.until}\n` +
-          `Browser sessions: ${browserCount} | File sessions: ${fileCount}\n`;
+          `Browser sessions: ${browserCount} | File sessions: ${fileCount} | Notes sessions: ${notesCount}\n`;
         return { content: [{ type: 'text' as const, text: header + '\n' + JSON.stringify(result, null, 2) }] };
       },
     }],

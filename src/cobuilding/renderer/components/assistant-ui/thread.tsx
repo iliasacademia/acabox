@@ -41,6 +41,8 @@ export const Thread: FC = () => {
       <ComposerPrimitive.AttachmentDropzone className="threadDropzone">
         <ThreadPrimitive.Viewport
           turnAnchor="top"
+          scrollToBottomOnThreadSwitch
+          scrollToBottomOnInitialize
           className="threadViewport"
         >
           <AuiIf condition={(s: any) => s.thread.isEmpty}>
@@ -150,18 +152,6 @@ const Composer: FC = () => {
         }}
       />
       <div className="composerShell">
-        <ComposerPrimitive.AddAttachment asChild>
-          <TooltipIconButton
-            tooltip="Attach file"
-            side="bottom"
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="composerAttach"
-          >
-            <PaperclipIcon className="composerAttachIcon" />
-          </TooltipIconButton>
-        </ComposerPrimitive.AddAttachment>
         <ComposerPrimitive.Input
           placeholder="Send a message..."
           className="composerInput"
@@ -169,8 +159,22 @@ const Composer: FC = () => {
           autoFocus
           aria-label="Message input"
         />
-        <ModelSelector />
-        <ComposerAction />
+        <div className="composerToolbar">
+          <ComposerPrimitive.AddAttachment asChild>
+            <TooltipIconButton
+              tooltip="Attach file"
+              side="bottom"
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="composerAttach"
+            >
+              <PaperclipIcon className="composerAttachIcon" />
+            </TooltipIconButton>
+          </ComposerPrimitive.AddAttachment>
+          <ModelSelector />
+          <ComposerAction />
+        </div>
       </div>
     </ComposerPrimitive.Root>
   );

@@ -1,15 +1,16 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, net, protocol, shell, systemPreferences } from 'electron';
 import * as fs from 'fs';
+import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
-import { registerFileHandlers } from './fileHandlers';
+import { registerFileHandlers, assertWithinWorkspace } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession } from './agentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
-import { copyClaudeMdToWorkspace, copySkillsToWorkspace, syncMiniAppAssets } from './skills';
+import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { kernelGatewayService } from './kernelGatewayService';
@@ -23,6 +24,7 @@ import {
   insertMessage,
   deleteSession,
   getMessages,
+  findSessionForApp,
 } from './db/chatRepository';
 import {
   createWorkspace,
@@ -56,6 +58,8 @@ import { startScheduledTasks, stopScheduledTasks, getTaskScheduler } from './sch
 import { runScheduledTask } from './scheduledTasks/runner';
 import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
+import { BackgroundBuilder } from './backgroundBuilder';
+import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer, installDepsStreaming } from './environmentGenerator';
 import { checkLogin, getCurrentUser, logout } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
@@ -85,6 +89,7 @@ import {
   fetchConversationDetail as fetchWritingConversationDetail,
   fetchSupportingFiles as fetchWritingSupportingFiles,
 } from './writingAgentService';
+import { registerNotesHandlers } from './notesHandlers';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 
@@ -139,6 +144,43 @@ function clearReactionUserInstructions(): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+type ReactionSource = 'browser' | 'file' | 'notes';
+const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['browser', 'file', 'notes'];
+
+function getReactionSources(): ReactionSource[] {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.reactionSources ?? DEFAULT_REACTION_SOURCES;
+  } catch {
+    return DEFAULT_REACTION_SOURCES;
+  }
+}
+
+function setReactionSources(sources: ReactionSource[]): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.reactionSources = sources;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function buildReactionsPrompt(sources: ReactionSource[]): string {
+  const sourceFilter = sources.length === 3 ? 'all' : sources.join(',');
+  return 'Complete ALL of the following steps in order:\n' +
+    '\n' +
+    '1. Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. ' +
+    `When querying activity, set source to "${sourceFilter}".\n` +
+    '2. Use the reaction skill to react to the latest update only with suggestions and relevant resources. ' +
+    'The reaction skill will handle creating the user-visible reaction thread and sending the notification.';
+}
+
+function updateReactionsTaskPrompt(workspaceId: string, sources: ReactionSource[]): void {
+  const task = getTaskBySessionSource(workspaceId, 'reactions-system');
+  if (!task) return;
+  updateTask(task.id, { prompt: buildReactionsPrompt(sources) });
+}
 
 const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 30;
 
@@ -177,6 +219,25 @@ function setWritingAgentLinked(linked: boolean): void {
     data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
   } catch { }
   data.writingAgentLinked = linked;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function getOpenAIKey(): string | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.openaiApiKey ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function setOpenAIKey(key: string): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.openaiApiKey = key;
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -441,15 +502,19 @@ app.whenReady().then(() => {
 
     if (activeWorkspace) {
       migrateWorkspaceFiles(activeWorkspace.directory_path);
-      copySkillsToWorkspace(activeWorkspace.directory_path);
-      copyClaudeMdToWorkspace(activeWorkspace.directory_path);
-      syncMiniAppAssets(activeWorkspace.directory_path);
+      provisionWorkspace(activeWorkspace.directory_path);
       containerService.writeStartContainerScript(activeWorkspace.directory_path);
     }
 
     createMainWindow();
 
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
+    registerNotesHandlers(
+      () => activeWorkspace?.directory_path ?? null,
+      () => activeWorkspace?.api_key ?? null,
+      () => activeWorkspace?.id ?? null,
+      getOpenAIKey,
+    );
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
     initSessionFiles(() => activeWorkspace?.directory_path ?? null);
@@ -544,9 +609,7 @@ ipcMain.handle(
     }
 
     fs.mkdirSync(directoryPath, { recursive: true });
-    copySkillsToWorkspace(directoryPath);
-    syncMiniAppAssets(directoryPath);
-    copyClaudeMdToWorkspace(directoryPath);
+    provisionWorkspace(directoryPath);
     containerService.writeStartContainerScript(directoryPath);
 
     const id = randomUUID();
@@ -554,6 +617,9 @@ ipcMain.handle(
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
+      const scheduler = getTaskScheduler();
+      scheduler.stop();
+      scheduler.start();
     }
     return activeWorkspace ?? null;
   },
@@ -586,9 +652,7 @@ ipcMain.handle(
       if (!fs.existsSync(directoryPath)) {
         fs.mkdirSync(directoryPath, { recursive: true });
       }
-      copySkillsToWorkspace(directoryPath);
-      copyClaudeMdToWorkspace(directoryPath);
-      syncMiniAppAssets(directoryPath);
+      provisionWorkspace(directoryPath);
       containerService.writeStartContainerScript(directoryPath);
     }
 
@@ -607,6 +671,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   const target = workspaces.find((w) => w.id === id);
   if (!target) throw new Error('Workspace not found.');
 
+  backgroundBuilder.dispose();
   kernelGatewayService.stop();
   containerService.stop();
 
@@ -622,9 +687,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   scheduler.stop();
   scheduler.start();
 
-  copySkillsToWorkspace(target.directory_path);
-  copyClaudeMdToWorkspace(target.directory_path);
-  syncMiniAppAssets(target.directory_path);
+  provisionWorkspace(target.directory_path);
   containerService.writeStartContainerScript(target.directory_path);
 
   return activeWorkspace ?? null;
@@ -638,9 +701,18 @@ ipcMain.handle('container:start', async () => {
   await containerService.start(activeWorkspace.directory_path, (stage, message, percent) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('container:progress', { stage, message, percent });
   });
+  // Mark all existing apps as having their deps ready (baked into the image at startup)
+  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
+  for (const app of discoverApps(appsDir)) {
+    ensuredApps.add(app);
+  }
+  // Start watching for new app folders / dep file changes
+  backgroundBuilder.startWatching(activeWorkspace.directory_path);
 });
 
 ipcMain.handle('container:stop', () => {
+  backgroundBuilder.stopWatching();
+  ensuredApps.clear();
   containerService.stop();
 });
 
@@ -776,6 +848,14 @@ ipcMain.handle('writingAgent:continueConversation', async (_event, conversationI
   return sessionId;
 });
 
+ipcMain.handle('settings:getOpenAIKey', () => {
+  return getOpenAIKey();
+});
+
+ipcMain.handle('settings:setOpenAIKey', (_event, key: string) => {
+  setOpenAIKey(key);
+});
+
 ipcMain.handle('container:getBundledStatus', () => {
   return containerService.getBundledBinaryStatus();
 });
@@ -806,10 +886,105 @@ ipcMain.handle('container:ensureSetup', async () => {
   const progressCallback = (stage: string, message: string, percent?: number) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
   };
-  await containerService.ensureSetup(progressCallback);
+  await containerService.ensureSetup(progressCallback, activeWorkspace?.directory_path);
   if (activeWorkspace) {
     await containerService.start(activeWorkspace.directory_path, progressCallback);
+      for (const app of discoverApps(path.join(activeWorkspace.directory_path, '.applications'))) {
+      ensuredApps.add(app);
+    }
+    backgroundBuilder.startWatching(activeWorkspace.directory_path);
   }
+});
+
+// ─── Environment IPC ──────────────────────────────────────────────
+
+ipcMain.handle('container:getEnvironmentInfo', async () => {
+  if (!activeWorkspace) return null;
+  const info = getEnvironmentInfo(activeWorkspace.directory_path);
+  const imageHash = await containerService.getImageEnvironmentHash();
+
+  return {
+    imageType: info.hasAnyDeps ? 'user' : 'base',
+    imageHash,
+    environmentHash: info.environmentHash,
+    inSync: info.environmentHash != null && imageHash === info.environmentHash,
+    backgroundBuildState: backgroundBuilder.getState(),
+    totalPip: info.merged.pipRequirements,
+    totalNpm: info.merged.npmPackages,
+    totalR: info.merged.rPackages,
+    totalApt: info.merged.aptPackages,
+    totalSetup: info.merged.setupScripts.map((s) => s.destName),
+    apps: info.apps.map((a) => ({
+      name: a.appName,
+      pip: a.pipPackages,
+      npm: a.npmDependencies,
+      r: a.rPackages,
+      apt: a.aptPackages,
+      setup: a.setupScripts,
+    })),
+  };
+});
+
+// Track which apps have had their deps ensured this session.
+// Cleared on container stop/restart so deps are re-checked against the new image.
+const ensuredApps = new Set<string>();
+
+ipcMain.handle('container:appDepsReady', (_event, dirName: string) => {
+  return ensuredApps.has(dirName);
+});
+
+ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  if (!containerService.isRunning()) throw new Error('Container is not running');
+  if (ensuredApps.has(dirName)) {
+    return { installed: [] };
+  }
+
+  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
+
+  const sendProgress = (payload: Record<string, unknown>) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('container:installProgress', { dirName, ...payload });
+    }
+  };
+
+  const results = await installDepsStreaming(
+    appsDir,
+    dirName,
+    (cmd, onLine) => containerService.execStreaming(cmd, onLine),
+    (registry, packages) => sendProgress({ type: 'step', registry, packages }),
+    (line) => sendProgress({ type: 'line', line }),
+  );
+
+  // Mirror installs to Jupyter container if it's running
+  const steps = getInstallSteps(appsDir, dirName);
+  if (steps.length > 0) {
+    const jupyterStatus = await kernelGatewayService.getStatus();
+    if (jupyterStatus.running) {
+      sendProgress({ type: 'step', registry: 'jupyter', packages: ['syncing to kernel...'] });
+      for (const step of steps) {
+        await kernelGatewayService.exec(step.command);
+      }
+    }
+  }
+
+  sendProgress({ type: 'done' });
+  ensuredApps.add(dirName);
+  return { installed: results };
+});
+
+ipcMain.handle('container:rebuildEnvironment', async () => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
+  fs.rmSync(envDir, { recursive: true, force: true });
+
+  const progressCallback = (stage: string, message: string, percent?: number) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('container:backgroundBuild', { stage, message, percent });
+    }
+  };
+  await containerService.rebuildImage(activeWorkspace.directory_path, progressCallback);
+
 });
 
 // ─── Debug: Data Management ─────────────────────────────────────
@@ -1023,10 +1198,20 @@ ipcMain.handle('commandLog:getAll', () => commandLogger.getAll());
 ipcMain.handle('commandLog:getByApp', (_event, appDirName: string) => commandLogger.getByApp(appDirName));
 ipcMain.handle('commandLog:getAppNames', () => commandLogger.getAppNames());
 
+const backgroundBuilder = new BackgroundBuilder(
+  () => activeWorkspace?.directory_path ?? null,
+  () => mainWindow,
+);
+
 commandLogger.onEntry((entry) => {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('commandLog:entry', entry);
   }
+  // When the install wrapper succeeds, mark the app's deps as ensured
+  if (entry.exitCode === 0 && entry.command.join(' ').includes('.applications/install') && entry.appDirName) {
+    ensuredApps.add(entry.appDirName);
+  }
+  backgroundBuilder.onCommandEntry(entry);
 });
 
 // System log IPC handlers
@@ -1077,6 +1262,71 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
+// Find or create a session associated with a mini app
+ipcMain.handle('sessions:findForApp', (_event, dirName: string) => {
+  if (!activeWorkspace) return null;
+
+  // Search for an existing session that created or is bound to this app
+  const existingId = findSessionForApp(activeWorkspace.id, dirName);
+  if (existingId) return existingId;
+
+  // No session found — create a new one with a synthetic context message
+  const sessionId = randomUUID();
+  const displayName = dirName.replace(/[-_]/g, ' ');
+  createSession(sessionId, activeWorkspace.id);
+  insertMessage(
+    sessionId,
+    'user',
+    JSON.stringify({ text: `This chat is connected to the application "${dirName}".` }),
+  );
+  updateSessionTitle(sessionId, displayName);
+  return sessionId;
+});
+
+function buildNotesConversationHistory(sessionId: string): string {
+  const messages = getMessages(sessionId);
+  if (messages.length === 0) return '';
+
+  const lines: string[] = [];
+  let i = 0;
+  while (i < messages.length) {
+    if (messages[i].type !== 'user') { i++; continue; }
+    const userMsg = messages[i];
+    i++;
+
+    // Collect all consecutive assistant/tool_result rows until the next user row
+    const assistantTexts: string[] = [];
+    while (i < messages.length && messages[i].type !== 'user') {
+      if (messages[i].type === 'assistant') {
+        try {
+          const parsed = JSON.parse(messages[i].content);
+          if (Array.isArray(parsed)) {
+            for (const block of parsed) {
+              if (block.type === 'text') assistantTexts.push(block.text);
+            }
+          } else if (parsed.text) {
+            assistantTexts.push(parsed.text);
+          }
+        } catch {
+          // Skip malformed
+        }
+      }
+      i++;
+    }
+
+    if (assistantTexts.length > 0) {
+      try {
+        const request = JSON.parse(userMsg.content).text;
+        lines.push(`- User: "${request}"`);
+        lines.push(`  Assistant: "${assistantTexts.join('\n')}"`);
+      } catch {
+        // Skip malformed
+      }
+    }
+  }
+  return lines.join('\n');
+}
+
 async function generateSessionTitle(sessionId: string, firstMessage: string, apiKey: string): Promise<void> {
   try {
     const client = new Anthropic({ apiKey });
@@ -1115,6 +1365,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
     return;
   }
 
+  const isNotesSession = threadId.startsWith('notes-assistant-');
   let isFirstMessage = false;
 
   if (!hasSession(threadId)) {
@@ -1128,6 +1379,27 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
       writingConversationContext = { conversationId: Number(parts[1]), projectId: Number(parts[2]) };
     }
 
+    let messagePreprocessor: ((text: string) => string) | undefined;
+    if (isNotesSession && !existingDbSession?.sdk_session_id) {
+      // Only inject history on the first SDK turn for this session.
+      // Subsequent turns resume the SDK session which already has context.
+      const dayFile = threadId.replace('notes-assistant-', '');
+      const notesFilePath = `.notes/${dayFile}.md`;
+      let injected = false;
+      messagePreprocessor = (userText: string) => {
+        if (injected) return userText;
+        injected = true;
+        const history = buildNotesConversationHistory(threadId);
+        let enriched = '';
+        if (history) {
+          enriched += `## Background Context\n\nHere is the conversation history from this notes session (the user is dictating notes via speech-to-text, and some of these are automated request/response pairs detected by an assistant):\n\n${history}\n\n`;
+        }
+        enriched += `## Important\n\nThe user's dictation notes for today are stored in the file at: ${notesFilePath}\nPlease make sure to read this file to understand the full context of their notes before responding.\n\n`;
+        enriched += `## User's Request\n\n${userText}`;
+        return enriched;
+      };
+    }
+
     const session = createAgentSession(
       threadId,
       {
@@ -1137,9 +1409,10 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
       },
       activeWorkspace,
       existingDbSession?.sdk_session_id ?? undefined,
-      undefined,
+      isNotesSession ? 'notes-assistant' : undefined,
       handleNotificationNavigation,
       model,
+      messagePreprocessor,
       writingConversationContext,
     );
 
@@ -1154,7 +1427,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
   ensureForwarding(threadId, event.sender);
   getRegisteredSession(threadId)!.sendMessage(text, attachments);
 
-  if (isFirstMessage && activeWorkspace.api_key) {
+  if (isFirstMessage && !isNotesSession && activeWorkspace.api_key) {
     generateSessionTitle(threadId, text, activeWorkspace.api_key);
   }
 });
@@ -1205,27 +1478,157 @@ const ANTHROPIC_ALLOWED_MODELS = new Set([
 // The character limits prevent IPC message bloat and are well above anything
 // a legitimate mini-app would need.
 const ANTHROPIC_MAX_TOKENS_LIMIT = 4096;
-const ANTHROPIC_MAX_MESSAGE_CHARS = 100_000; // ~25k tokens
+const ANTHROPIC_MAX_TEXT_CHARS = 100_000; // ~25k tokens
 const ANTHROPIC_MAX_MESSAGES = 50;
 const ANTHROPIC_MAX_SYSTEM_CHARS = 10_000;
+const ANTHROPIC_MAX_CONTENT_BLOCKS = 20;
+const ANTHROPIC_MAX_FILE_SIZE = 10_000_000; // 10 MB per file
+const ANTHROPIC_MAX_BASE64_CHARS = 20_000_000; // ~15 MB decoded
+const ANTHROPIC_ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+]);
 
-function validateAnthropicParams(params: unknown): {
-  messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+// Media type lookup for file-path based content blocks. The main process
+// determines the type from the extension — the iframe cannot spoof it.
+const EXT_TO_MEDIA_TYPE: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  pdf: 'application/pdf',
+};
+
+type ValidatedContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; source: { type: 'base64'; media_type: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'; data: string } }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string }; title?: string };
+
+// Resolves a single content block. For file-path sources, reads the file from
+// the workspace and base64-encodes it. For base64 sources, validates the data
+// in place. Returns a clean, reconstructed block safe to pass to the SDK.
+async function resolveContentBlock(
+  raw: unknown,
+  workspaceDir: string,
+): Promise<ValidatedContentBlock> {
+  if (!raw || typeof raw !== 'object') throw new Error('Content block must be an object');
+  const block = raw as Record<string, unknown>;
+  if (typeof block.type !== 'string') throw new Error('Content block must have a type');
+
+  if (block.type === 'text') {
+    if (typeof block.text !== 'string') throw new Error('Text block must have a text field');
+    if (block.text.length > ANTHROPIC_MAX_TEXT_CHARS) throw new Error(`Text block exceeds ${ANTHROPIC_MAX_TEXT_CHARS} characters`);
+    return { type: 'text', text: block.text };
+  }
+
+  if (block.type === 'image') {
+    const source = block.source as Record<string, unknown> | undefined;
+    if (!source || typeof source !== 'object') throw new Error('Image block must have a source');
+
+    if (source.type === 'file') {
+      if (typeof source.path !== 'string') throw new Error('Image file source must have a path');
+      const resolved = assertWithinWorkspace(source.path, workspaceDir);
+      const ext = path.extname(resolved).slice(1).toLowerCase();
+      const mediaType = EXT_TO_MEDIA_TYPE[ext];
+      if (!mediaType || !ANTHROPIC_ALLOWED_IMAGE_TYPES.has(mediaType)) {
+        throw new Error(`Unsupported image type: .${ext}`);
+      }
+      const stats = await fsPromises.stat(resolved);
+      if (stats.size > ANTHROPIC_MAX_FILE_SIZE) throw new Error(`Image file exceeds ${ANTHROPIC_MAX_FILE_SIZE} bytes`);
+      const buffer = await fsPromises.readFile(resolved);
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: buffer.toString('base64') },
+      };
+    }
+
+    if (source.type === 'base64') {
+      if (typeof source.media_type !== 'string' || !ANTHROPIC_ALLOWED_IMAGE_TYPES.has(source.media_type)) {
+        throw new Error('Image base64 source must have a valid media_type (image/jpeg, image/png, image/gif, image/webp)');
+      }
+      if (typeof source.data !== 'string') throw new Error('Image base64 source must have a data field');
+      if (source.data.length > ANTHROPIC_MAX_BASE64_CHARS) throw new Error(`Image base64 data exceeds ${ANTHROPIC_MAX_BASE64_CHARS} characters`);
+      return {
+        type: 'image',
+        source: { type: 'base64', media_type: source.media_type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: source.data },
+      };
+    }
+
+    throw new Error('Image source type must be "file" or "base64"');
+  }
+
+  if (block.type === 'document') {
+    const source = block.source as Record<string, unknown> | undefined;
+    if (!source || typeof source !== 'object') throw new Error('Document block must have a source');
+
+    const title = typeof block.title === 'string' ? block.title.slice(0, 1000) : undefined;
+
+    if (source.type === 'file') {
+      if (typeof source.path !== 'string') throw new Error('Document file source must have a path');
+      const resolved = assertWithinWorkspace(source.path, workspaceDir);
+      const ext = path.extname(resolved).slice(1).toLowerCase();
+      if (ext !== 'pdf') throw new Error('Only PDF documents are supported');
+      const stats = await fsPromises.stat(resolved);
+      if (stats.size > ANTHROPIC_MAX_FILE_SIZE) throw new Error(`Document file exceeds ${ANTHROPIC_MAX_FILE_SIZE} bytes`);
+      const buffer = await fsPromises.readFile(resolved);
+      return {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: buffer.toString('base64') },
+        ...(title ? { title } : {}),
+      };
+    }
+
+    if (source.type === 'base64') {
+      if (source.media_type !== 'application/pdf') throw new Error('Document base64 source must have media_type "application/pdf"');
+      if (typeof source.data !== 'string') throw new Error('Document base64 source must have a data field');
+      if (source.data.length > ANTHROPIC_MAX_BASE64_CHARS) throw new Error(`Document base64 data exceeds ${ANTHROPIC_MAX_BASE64_CHARS} characters`);
+      return {
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: source.data },
+        ...(title ? { title } : {}),
+      };
+    }
+
+    throw new Error('Document source type must be "file" or "base64"');
+  }
+
+  throw new Error(`Unsupported content block type: ${block.type}`);
+}
+
+type ValidatedMessage = { role: 'user' | 'assistant'; content: string | ValidatedContentBlock[] };
+
+async function validateAnthropicParams(params: unknown, workspaceDir: string): Promise<{
+  messages: ValidatedMessage[];
   model: string;
   max_tokens: number;
   system?: string;
-} {
+}> {
   if (!params || typeof params !== 'object') throw new Error('Invalid params');
   const p = params as Record<string, unknown>;
 
   if (!Array.isArray(p.messages) || p.messages.length === 0) throw new Error('messages must be a non-empty array');
   if (p.messages.length > ANTHROPIC_MAX_MESSAGES) throw new Error(`messages exceeds maximum of ${ANTHROPIC_MAX_MESSAGES}`);
+
+  const messages: ValidatedMessage[] = [];
   for (const m of p.messages) {
     if (!m || typeof m !== 'object') throw new Error('Each message must be an object');
     const msg = m as Record<string, unknown>;
     if (msg.role !== 'user' && msg.role !== 'assistant') throw new Error('message role must be user or assistant');
-    if (typeof msg.content !== 'string') throw new Error('message content must be a string');
-    if (msg.content.length > ANTHROPIC_MAX_MESSAGE_CHARS) throw new Error(`message content exceeds ${ANTHROPIC_MAX_MESSAGE_CHARS} characters`);
+
+    if (typeof msg.content === 'string') {
+      if (msg.content.length > ANTHROPIC_MAX_TEXT_CHARS) throw new Error(`message content exceeds ${ANTHROPIC_MAX_TEXT_CHARS} characters`);
+      messages.push({ role: msg.role, content: msg.content });
+    } else if (Array.isArray(msg.content)) {
+      if (msg.content.length === 0) throw new Error('content array must not be empty');
+      if (msg.content.length > ANTHROPIC_MAX_CONTENT_BLOCKS) throw new Error(`content array exceeds ${ANTHROPIC_MAX_CONTENT_BLOCKS} blocks`);
+      const blocks = await Promise.all(msg.content.map((b: unknown) => resolveContentBlock(b, workspaceDir)));
+      messages.push({ role: msg.role, content: blocks });
+    } else {
+      throw new Error('message content must be a string or array of content blocks');
+    }
   }
 
   // Silently clamp model to the allowlist so agent code that specifies a model
@@ -1243,14 +1646,15 @@ function validateAnthropicParams(params: unknown): {
   if (typeof p.system === 'string' && p.system.length > ANTHROPIC_MAX_SYSTEM_CHARS) throw new Error(`system prompt exceeds ${ANTHROPIC_MAX_SYSTEM_CHARS} characters`);
   const system = typeof p.system === 'string' ? p.system : undefined;
 
-  return { messages: p.messages as Array<{ role: 'user' | 'assistant'; content: string }>, model, max_tokens, system };
+  return { messages, model, max_tokens, system };
 }
 
 // Non-streaming completion. Uses ipcMain.handle so the result is automatically
 // returned as a promise reply — no manual event sending required.
 ipcMain.handle('anthropic:complete', async (_event, params: unknown) => {
   if (!activeWorkspace?.api_key) throw new Error('No active workspace API key');
-  const validated = validateAnthropicParams(params);
+  if (!activeWorkspace.directory_path) throw new Error('No active workspace directory');
+  const validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
   // Log call metadata for audit purposes. Message content is intentionally
   // omitted to avoid writing user data to the log file.
   log.info('[anthropic:complete] workspace=%s model=%s max_tokens=%d messages=%d',
@@ -1282,9 +1686,13 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace API key' });
     return;
   }
-  let validated: ReturnType<typeof validateAnthropicParams>;
+  if (!activeWorkspace.directory_path) {
+    event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: 'No active workspace directory' });
+    return;
+  }
+  let validated: Awaited<ReturnType<typeof validateAnthropicParams>>;
   try {
-    validated = validateAnthropicParams(params);
+    validated = await validateAnthropicParams(params, activeWorkspace.directory_path);
   } catch (err) {
     event.sender.send('anthropic:stream:event', { streamKey, type: 'error', payload: err instanceof Error ? err.message : String(err) });
     return;
@@ -1493,6 +1901,23 @@ ipcMain.handle('reactionPrompt:reset', () => {
   clearReactionUserInstructions();
 });
 
+// Reaction sources IPC handlers
+ipcMain.handle('reactionSources:get', () => {
+  return getReactionSources();
+});
+
+ipcMain.handle('reactionSources:set', (_event, sources: ReactionSource[]) => {
+  setReactionSources(sources);
+  if (activeWorkspace) {
+    updateReactionsTaskPrompt(activeWorkspace.id, sources);
+    // Reschedule the task so the next run uses the updated prompt
+    const task = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
+    if (task) {
+      getTaskScheduler().scheduleTask(task.id);
+    }
+  }
+});
+
 // FOCUS.md IPC handlers
 ipcMain.handle('focusPrompt:get', () => {
   if (!activeWorkspace) return { content: '' };
@@ -1583,6 +2008,7 @@ app.on('before-quit', () => {
     ['stopFileMonitor', stopFileMonitor],
     ['stopBrowserMonitor', stopBrowserMonitor],
     ['stopScheduledTasks', stopScheduledTasks],
+    ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
     ['destroyAllSessions', destroyAllSessions],
     ['kernelGatewayService.stop', () => kernelGatewayService.stop()],
     ['containerService.stop', () => containerService.stop()],
