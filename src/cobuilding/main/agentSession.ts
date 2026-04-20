@@ -15,6 +15,14 @@ import { createActivityMcpServer } from './mcpServers/activityMcpServer';
 import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
 import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
 import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
+import { createWritingAgentMcpServer } from './mcpServers/writingAgentMcpServer';
+import {
+  listProjects as listWritingProjects,
+  listProjectFiles as listWritingProjectFiles,
+  listConversations as listWritingConversations,
+  getConversation as getWritingConversation,
+  listConversationMessages as listWritingConversationMessages,
+} from './db/writingAgentRepository';
 
 export function getClaudeCliPath(): string {
   if (app.isPackaged) {
@@ -36,6 +44,102 @@ export interface AgentSession {
   readonly isRunning: boolean;
 }
 
+function buildWritingProjectContext(workspaceId: string): string | null {
+  try {
+    const projects = listWritingProjects(workspaceId);
+    if (projects.length === 0) return null;
+
+    const sections: string[] = [];
+    for (const project of projects) {
+      const lines: string[] = [`### ${project.name}`];
+      if (project.description) {
+        lines.push(project.description);
+      }
+
+      const files = listWritingProjectFiles(project.id);
+      if (files.length > 0) {
+        lines.push('\n**Files:**');
+        for (const f of files) {
+          const primary = f.is_primary_manuscript ? ' (primary manuscript)' : '';
+          const filePath = f.rel_path ? ` — ${f.rel_path}` : '';
+          lines.push(`- ${f.file_name}${primary}${filePath}`);
+        }
+      }
+
+      const conversations = listWritingConversations(project.id);
+      if (conversations.length > 0) {
+        lines.push('\n**Recent conversations:**');
+        for (const c of conversations.slice(0, 5)) {
+          const title = c.title || 'Untitled';
+          const summary = c.summary ? ` — ${c.summary}` : '';
+          lines.push(`- ${title} (${c.agent_name})${summary}`);
+        }
+        if (conversations.length > 5) {
+          lines.push(`- ... and ${conversations.length - 5} more (use list_conversations to see all)`);
+        }
+      }
+
+      sections.push(lines.join('\n'));
+    }
+
+    return sections.join('\n\n');
+  } catch (err) {
+    log.warn('[AgentSession] Failed to build writing project context:', err);
+    return null;
+  }
+}
+
+function buildWritingConversationContext(conversationId: number, projectId: number): string | null {
+  try {
+    const conversation = getWritingConversation(conversationId);
+    if (!conversation) return null;
+
+    const messages = listWritingConversationMessages(conversationId);
+    if (messages.length === 0) return null;
+
+    const lines: string[] = [];
+    lines.push(`## Continuing Writing Agent Conversation`);
+    lines.push('');
+    lines.push(`You are continuing an existing writing agent conversation. The user chose to continue this conversation in Cobuild. Treat the history below as prior context and continue naturally.`);
+    lines.push('');
+    lines.push(`**Conversation:** "${conversation.title || 'Untitled'}" (with ${conversation.agent_name})`);
+    if (conversation.summary) {
+      lines.push(`**Summary:** ${conversation.summary}`);
+    }
+    lines.push(`**Conversation ID:** ${conversationId} (use get_conversation_messages tool to re-read if needed)`);
+    lines.push('');
+
+    // Determine which messages to include
+    const MAX_FULL = 20;
+    const TAIL_SIZE = 15;
+    const displayMessages = messages.filter(m => m.role === 'user' || m.role === 'assistant');
+    let messagesToShow = displayMessages;
+    if (displayMessages.length > MAX_FULL) {
+      lines.push(`### Previous Messages (showing last ${TAIL_SIZE} of ${displayMessages.length} — use get_conversation_messages for full history)`);
+      messagesToShow = displayMessages.slice(-TAIL_SIZE);
+    } else {
+      lines.push(`### Previous Messages (${displayMessages.length} messages)`);
+    }
+
+    lines.push('');
+    for (const msg of messagesToShow) {
+      const role = msg.role === 'user' ? 'User' : `Assistant (${conversation.agent_name})`;
+      // Truncate very long individual messages to keep system prompt manageable
+      const content = msg.content && msg.content.length > 3000
+        ? msg.content.slice(0, 3000) + '\n\n[... message truncated — use get_conversation_messages for full text]'
+        : (msg.content || '');
+      lines.push(`**${role}:**`);
+      lines.push(content);
+      lines.push('');
+    }
+
+    return lines.join('\n');
+  } catch (err) {
+    log.warn('[AgentSession] Failed to build writing conversation context:', err);
+    return null;
+  }
+}
+
 export function createAgentSession(
   sessionId: string,
   callbacks: ChatCallbacks,
@@ -44,6 +148,7 @@ export function createAgentSession(
   source?: string,
   onNotificationClick?: (action: NotificationNavigationAction | null) => void,
   model?: string,
+  writingConversationContext?: { conversationId: number; projectId: number },
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
   const listeners = new Set<Partial<ChatCallbacks>>();
@@ -115,6 +220,14 @@ export function createAgentSession(
       const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
       const msWordServer = createMsWordMcpServer();
+      const writingAgentServer = createWritingAgentMcpServer(workspace.id);
+
+      // Build writing project context for system prompt
+      const writingProjectContext = buildWritingProjectContext(workspace.id);
+      const conversationContext = writingConversationContext
+        ? buildWritingConversationContext(writingConversationContext.conversationId, writingConversationContext.projectId)
+        : null;
+
       // Read SOUL.md for system prompt customization
       let soulMdContent: string | undefined;
       try {
@@ -160,7 +273,28 @@ If a Word document is open: use ONLY the ms-word MCP tools for all edits. Do NOT
 The user will see edits appear live in the open Word document as you make them.
 
 If no Word document is open (mcp__ms-word__get_file_path returns an error): use the docx skill to edit the .docx file on disk.`;
-            const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
+
+            let writingAgentGuidance = `You have access to the user's Writing Agent data via writing-agent MCP tools. This data is synced locally and available offline.
+
+When the user asks about their writing projects, manuscripts, or past writing conversations:
+- Use mcp__writing-agent__list_projects to see all their writing projects
+- Use mcp__writing-agent__get_project_files to see manuscripts and files in a project
+- Use mcp__writing-agent__list_conversations to see past writing agent conversations for a project
+- Use mcp__writing-agent__get_conversation_messages to read the full message history of a past conversation
+- Use mcp__writing-agent__list_supporting_files to see reference materials
+
+When the user wants to edit a manuscript from their writing project:
+1. First use mcp__ms-word__open_document to open the manuscript file at its path
+2. Then use the ms-word tools to interactively edit the document
+3. You can reference past conversation feedback when making edits
+
+If no writing projects are found, suggest the user link their Writing Agent account and sync via the Writing sidebar.`;
+
+            if (writingProjectContext) {
+              writingAgentGuidance += `\n\n## Current Writing Projects\n\nThe following writing projects are synced locally. You already know this context — no need to call list_projects or get_project_files unless you need to refresh.\n\n${writingProjectContext}`;
+            }
+
+            const appendParts = [soulMdContent, docxEditingGuidance, writingAgentGuidance, conversationContext].filter(Boolean).join('\n\n');
             return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };
           })(),
           ...(sdkSessionId && { resume: sdkSessionId }),
@@ -178,6 +312,7 @@ If no Word document is open (mcp__ms-word__get_file_path returns an error): use 
             notification: notificationServer,
             reaction: reactionServer,
             'ms-word': msWordServer,
+            'writing-agent': writingAgentServer,
           },
           allowedTools: [
             "Bash",
@@ -208,6 +343,11 @@ If no Word document is open (mcp__ms-word__get_file_path returns an error): use 
             "mcp__ms-word__apply_style",
             "mcp__ms-word__apply_formatting",
             "mcp__ms-word__delete_selection",
+            "mcp__writing-agent__list_projects",
+            "mcp__writing-agent__get_project_files",
+            "mcp__writing-agent__list_conversations",
+            "mcp__writing-agent__get_conversation_messages",
+            "mcp__writing-agent__list_supporting_files",
           ],
           hooks: {
             PreToolUse: [{

@@ -9,7 +9,7 @@ import {
   useAssistantRuntime,
   useComposerRuntime,
 } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon, BookOpenIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
@@ -21,6 +21,7 @@ import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ScheduledTasksSidebar } from './components/ScheduledTasksSidebar';
 import { ReactionsSidebar } from './components/ReactionsSidebar';
+import { WritingSidebar } from './components/WritingSidebar';
 import { FocusEditor } from './components/FocusEditor';
 
 import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
@@ -86,7 +87,7 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
 }
 
 /** Listens for notification:navigate IPC and navigates to the specified target. */
-type SidebarTab = 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'debug';
+type SidebarTab = 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'writing' | 'debug';
 
 function NotificationNavigator({
   setSidebarTab,
@@ -216,7 +217,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isNewTask, setIsNewTask] = useState(false);
   const [taskRefreshKey, setTaskRefreshKey] = useState(0);
-
   const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs();
   const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(new Set());
 
@@ -351,6 +351,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <span className="activityBarBtnLabel">Reactions</span>
             </button>
             <button
+              className={`activityBarBtn ${sidebarTab === 'writing' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setSidebarTab('writing')}
+            >
+              <BookOpenIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Writing</span>
+            </button>
+            <button
               className={`activityBarBtn activityBarBtn--bottom ${sidebarTab === 'debug' ? 'activityBarBtn--active' : ''}`}
               onClick={() => { setSidebarTab('debug'); handleOpenDebug(); }}
             >
@@ -383,6 +390,10 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                 />
               ) : sidebarTab === 'reactions' ? (
                 <ReactionsSidebar onOpenFocus={handleOpenFocus} />
+              ) : sidebarTab === 'writing' ? (
+                <WritingSidebar
+                  onContinueConversation={deactivateAllTabs}
+                />
               ) : sidebarTab === 'scheduled' ? (
                 <ScheduledTasksSidebar
                   selectedTaskId={selectedTaskId}

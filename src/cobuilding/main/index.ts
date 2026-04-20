@@ -18,7 +18,9 @@ import { initObservationsDatabase, getObservationsDatabase, closeObservationsDat
 import {
   listSessions,
   getSession,
+  createSession,
   updateSessionTitle,
+  insertMessage,
   deleteSession,
   getMessages,
 } from './db/chatRepository';
@@ -59,6 +61,30 @@ import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
 import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
+import {
+  upsertProject as upsertWritingProject,
+  listProjects as listWritingProjects,
+  deleteProjectsForWorkspace as deleteWritingProjectsForWorkspace,
+  upsertProjectFile as upsertWritingProjectFile,
+  listProjectFiles as listWritingProjectFiles,
+  clearProjectFiles as clearWritingProjectFiles,
+  upsertConversation as upsertWritingConversation,
+  listConversations as listWritingConversations,
+  clearConversations as clearWritingConversations,
+  upsertSupportingFile as upsertWritingSupportingFile,
+  listSupportingFiles as listWritingSupportingFiles,
+  deleteSupportingFilesForWorkspace as deleteWritingSupportingFilesForWorkspace,
+  upsertConversationMessage as upsertWritingConversationMessage,
+  clearConversationMessages as clearWritingConversationMessages,
+} from './db/writingAgentRepository';
+import {
+  checkWritingAgentAccess,
+  fetchProjects as fetchWritingProjects,
+  fetchProjectFiles as fetchWritingProjectFiles,
+  fetchConversations as fetchWritingConversations,
+  fetchConversationDetail as fetchWritingConversationDetail,
+  fetchSupportingFiles as fetchWritingSupportingFiles,
+} from './writingAgentService';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 
@@ -132,6 +158,25 @@ function setMaxAttachmentSizeMB(sizeMB: number): void {
     data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
   } catch { }
   data.maxAttachmentSizeMB = sizeMB;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function getWritingAgentLinked(): boolean {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.writingAgentLinked === true;
+  } catch {
+    return false;
+  }
+}
+
+function setWritingAgentLinked(linked: boolean): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.writingAgentLinked = linked;
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -635,6 +680,102 @@ ipcMain.handle('settings:setMaxAttachmentSizeMB', (_event, sizeMB: number) => {
   setMaxAttachmentSizeMB(sizeMB);
 });
 
+// --- Writing Agent IPC handlers ---
+
+ipcMain.handle('writingAgent:isLinked', () => {
+  return getWritingAgentLinked();
+});
+
+ipcMain.handle('writingAgent:link', async () => {
+  const hasAccess = await checkWritingAgentAccess();
+  if (hasAccess) {
+    setWritingAgentLinked(true);
+    return { success: true };
+  }
+  return { success: false, error: 'No Writing Agent access found for this account' };
+});
+
+ipcMain.handle('writingAgent:unlink', () => {
+  setWritingAgentLinked(false);
+  if (activeWorkspace) {
+    deleteWritingProjectsForWorkspace(activeWorkspace.id);
+    deleteWritingSupportingFilesForWorkspace(activeWorkspace.id);
+  }
+  return { success: true };
+});
+
+ipcMain.handle('writingAgent:refresh', async () => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const projects = await fetchWritingProjects();
+  deleteWritingProjectsForWorkspace(activeWorkspace.id);
+  for (const p of projects) {
+    upsertWritingProject(activeWorkspace.id, p);
+    const files = await fetchWritingProjectFiles(p.id);
+    for (const f of files) upsertWritingProjectFile(p.id, f);
+    const convosResponse = await fetchWritingConversations(p.id);
+    const convos = convosResponse.conversations ?? [];
+    for (const c of convos) {
+      upsertWritingConversation(p.id, c);
+      // Fetch and cache full message history for each conversation
+      try {
+        const detail = await fetchWritingConversationDetail(c.id, p.id);
+        clearWritingConversationMessages(c.id);
+        for (const msg of detail.messages ?? []) {
+          upsertWritingConversationMessage(c.id, msg);
+        }
+      } catch (err) {
+        log.warn(`[WritingAgent] Failed to fetch messages for conversation ${c.id}:`, err);
+      }
+    }
+  }
+  // Fetch user-level supporting files
+  deleteWritingSupportingFilesForWorkspace(activeWorkspace.id);
+  const supportingFiles = await fetchWritingSupportingFiles();
+  for (const sf of supportingFiles) upsertWritingSupportingFile(activeWorkspace.id, sf);
+  return { success: true, projectCount: projects.length };
+});
+
+ipcMain.handle('writingAgent:listProjects', () => {
+  if (!activeWorkspace) return [];
+  return listWritingProjects(activeWorkspace.id);
+});
+
+ipcMain.handle('writingAgent:getProjectFiles', (_event, projectId: number) => {
+  return listWritingProjectFiles(projectId);
+});
+
+ipcMain.handle('writingAgent:listConversations', (_event, projectId: number) => {
+  return listWritingConversations(projectId);
+});
+
+ipcMain.handle('writingAgent:listSupportingFiles', () => {
+  if (!activeWorkspace) return [];
+  return listWritingSupportingFiles(activeWorkspace.id);
+});
+
+ipcMain.handle('writingAgent:getConversationDetail', async (_event, conversationId: number, projectId: number) => {
+  return fetchWritingConversationDetail(conversationId, projectId);
+});
+
+ipcMain.handle('writingAgent:continueConversation', async (_event, conversationId: number, projectId: number) => {
+  if (!activeWorkspace) throw new Error('No active workspace');
+  const detail = await fetchWritingConversationDetail(conversationId, projectId);
+  const sessionId = randomUUID();
+  createSession(sessionId, activeWorkspace.id, `writing_agent:${conversationId}:${projectId}`);
+  const title = detail.conversation.title || 'Writing Agent Chat';
+  updateSessionTitle(sessionId, title);
+  // Insert all messages from the server conversation in cobuild format
+  const messages = detail.messages || [];
+  for (const msg of messages) {
+    if (msg.role === 'user') {
+      insertMessage(sessionId, 'user', JSON.stringify({ text: msg.content }));
+    } else if (msg.role === 'assistant') {
+      insertMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text: msg.content }]));
+    }
+  }
+  return sessionId;
+});
+
 ipcMain.handle('container:getBundledStatus', () => {
   return containerService.getBundledBinaryStatus();
 });
@@ -980,6 +1121,13 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
     const existingDbSession = getSession(threadId);
     isFirstMessage = !existingDbSession;
 
+    // Check if this is a continued writing agent conversation
+    let writingConversationContext: { conversationId: number; projectId: number } | undefined;
+    if (existingDbSession?.source?.startsWith('writing_agent:')) {
+      const parts = existingDbSession.source.split(':');
+      writingConversationContext = { conversationId: Number(parts[1]), projectId: Number(parts[2]) };
+    }
+
     const session = createAgentSession(
       threadId,
       {
@@ -992,6 +1140,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
       undefined,
       handleNotificationNavigation,
       model,
+      writingConversationContext,
     );
 
     registerSession(threadId, session);

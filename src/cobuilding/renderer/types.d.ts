@@ -334,6 +334,67 @@ declare global {
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
   }
 
+  interface WritingAgentProject {
+    id: number;
+    workspace_id: string;
+    name: string;
+    description: string;
+    file_count: number;
+    primary_manuscript_id: number | null;
+    server_created_at: string;
+    server_updated_at: string;
+    synced_at: string;
+  }
+
+  interface WritingAgentFile {
+    id: number;
+    project_id: number;
+    file_name: string;
+    file_type: string;
+    rel_path: string | null;
+    is_primary_manuscript: number;
+    size: number;
+    tag: string | null;
+    server_created_at: string;
+    server_updated_at: string;
+  }
+
+  interface WritingAgentSupportingFile {
+    id: number;
+    workspace_id: string;
+    file_name: string;
+    file_type: string;
+    rel_path: string | null;
+    size: number;
+    tag: string | null;
+    summary: string | null;
+    server_created_at: string;
+    server_updated_at: string;
+  }
+
+  interface WritingAgentConversation {
+    id: number;
+    project_id: number;
+    agent_name: string;
+    title: string | null;
+    summary: string | null;
+    server_created_at: string;
+    server_updated_at: string;
+  }
+
+  interface WritingAgentAPI {
+    isLinked(): Promise<boolean>;
+    link(): Promise<{ success: boolean; error?: string }>;
+    unlink(): Promise<{ success: boolean }>;
+    refresh(): Promise<{ success: boolean; projectCount?: number; error?: string }>;
+    listProjects(): Promise<WritingAgentProject[]>;
+    getProjectFiles(projectId: number): Promise<WritingAgentFile[]>;
+    listConversations(projectId: number): Promise<WritingAgentConversation[]>;
+    getConversationDetail(conversationId: number, projectId: number): Promise<any>;
+    continueConversation(conversationId: number, projectId: number): Promise<string>;
+    listSupportingFiles(): Promise<WritingAgentSupportingFile[]>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     filesAPI: FilesAPI;
@@ -353,5 +414,6 @@ declare global {
     fileMonitorAPI: FileMonitorAPI;
     browserMonitorAPI: BrowserMonitorAPI;
     debugAPI: DebugAPI;
+    writingAgentAPI: WritingAgentAPI;
   }
 }
