@@ -311,7 +311,9 @@ export async function insertParagraphInWord(
 tell application "Microsoft Word" to activate
 delay 0.3
 tell application "System Events"
-  ${keySequence}
+  tell process "Microsoft Word"
+    ${keySequence}
+  end tell
 end tell
 delay 0.1
 tell application "Microsoft Word"
@@ -673,17 +675,19 @@ export async function positionCursorInWord(
 tell application "Microsoft Word" to activate
 delay 0.3
 tell application "System Events"
-  keystroke "f" using command down
-  delay 0.3
-  keystroke "a" using command down
-  delay 0.1
-  keystroke "${escaped}"
-  delay 0.1
-  keystroke return
-  delay 0.2
-  key code 53
-  delay 0.1
-  key code ${arrowKeyCode}
+  tell process "Microsoft Word"
+    keystroke "f" using command down
+    delay 0.3
+    keystroke "a" using command down
+    delay 0.1
+    keystroke "${escaped}"
+    delay 0.1
+    keystroke return
+    delay 0.2
+    key code 53
+    delay 0.1
+    key code ${arrowKeyCode}
+  end tell
 end tell`;
 
     await runAppleScript(script);
@@ -731,17 +735,19 @@ export async function selectTextInWord(
 tell application "Microsoft Word" to activate
 delay 0.3
 tell application "System Events"
-  keystroke "f" using command down
-  delay 0.3
-  keystroke "a" using command down
-  delay 0.1
-  keystroke "${escapedPrefix}"
-  delay 0.1
-  keystroke return
-  delay 0.3
-  key code 53
-  delay 0.3
-  key code 123
+  tell process "Microsoft Word"
+    keystroke "f" using command down
+    delay 0.3
+    keystroke "a" using command down
+    delay 0.1
+    keystroke "${escapedPrefix}"
+    delay 0.1
+    keystroke return
+    delay 0.3
+    key code 53
+    delay 0.3
+    key code 123
+  end tell
 end tell`;
 
     await runAppleScript(positionScript);
@@ -776,12 +782,14 @@ end tell`;
 tell application "Microsoft Word" to activate
 delay 0.2
 tell application "System Events"
-  repeat ${batches} times
-    repeat ${Math.min(batchSize, estimatedLines)} times
-      key code ${lineKeyCode} using shift down
+  tell process "Microsoft Word"
+    repeat ${batches} times
+      repeat ${Math.min(batchSize, estimatedLines)} times
+        key code ${lineKeyCode} using shift down
+      end repeat
+      delay 0.2
     end repeat
-    delay 0.2
-  end repeat
+  end tell
 end tell`;
           await runAppleScript(lineScript);
         } else {
@@ -791,9 +799,11 @@ end tell`;
 tell application "Microsoft Word" to activate
 delay 0.1
 tell application "System Events"
-  repeat ${absDelta} times
-    key code ${keyCode} using shift down
-  end repeat
+  tell process "Microsoft Word"
+    repeat ${absDelta} times
+      key code ${keyCode} using shift down
+    end repeat
+  end tell
 end tell`;
           await runAppleScript(arrowScript);
         }
@@ -890,7 +900,9 @@ export async function deleteSelectionInWord(): Promise<DeleteSelectionResult> {
 tell application "Microsoft Word" to activate
 delay 0.2
 tell application "System Events"
-  key code 51
+  tell process "Microsoft Word"
+    key code 51
+  end tell
 end tell`;
 
     await runAppleScript(script);

@@ -112,6 +112,7 @@ function htmlToText(html: string): string {
   return text;
 }
 
+
 function buildWritingConversationContext(conversationId: number, projectId: number): string | null {
   try {
     const conversation = getWritingConversation(conversationId);

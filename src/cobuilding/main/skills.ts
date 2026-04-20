@@ -31,6 +31,20 @@ const SKILLS = [
   'xlsx',
 ];
 
+function cpSyncWithRetry(src: string, dest: string, maxRetries = 5): void {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      fs.cpSync(src, dest, { recursive: true });
+      return;
+    } catch (err: any) {
+      if (err.code === 'EINTR' && attempt < maxRetries) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export function copySkillsToWorkspace(workspaceDir: string): void {
   const skillsSourceDir = path.join(getCobuildingSourceDir(), 'skills');
   const targetDir = path.join(workspaceDir, '.claude', 'skills');
@@ -50,7 +64,7 @@ export function copySkillsToWorkspace(workspaceDir: string): void {
   for (const skill of SKILLS) {
     const src = path.join(skillsSourceDir, skill);
     const dest = path.join(targetDir, skill);
-    fs.cpSync(src, dest, { recursive: true });
+    cpSyncWithRetry(src, dest);
   }
 }
 
@@ -61,24 +75,24 @@ export function syncMiniAppAssets(workspaceDir: string): void {
 
   const bridgeSrc = path.join(assetsDir, 'bridge');
   const bridgeDest = path.join(appsDir, '_bridge');
-  fs.cpSync(bridgeSrc, bridgeDest, { recursive: true });
+  cpSyncWithRetry(bridgeSrc, bridgeDest);
 
   const vendorSrc = path.join(assetsDir, 'vendor');
   if (fs.existsSync(vendorSrc)) {
     const vendorDest = path.join(appsDir, '_vendor');
-    fs.cpSync(vendorSrc, vendorDest, { recursive: true });
+    cpSyncWithRetry(vendorSrc, vendorDest);
   }
 
   const templatesSrc = path.join(assetsDir, 'templates');
   if (fs.existsSync(templatesSrc)) {
     const templatesDest = path.join(appsDir, '_templates');
-    fs.cpSync(templatesSrc, templatesDest, { recursive: true });
+    cpSyncWithRetry(templatesSrc, templatesDest);
   }
 
   const reusableSrc = path.join(assetsDir, 'reusable');
   if (fs.existsSync(reusableSrc)) {
     const reusableDest = path.join(appsDir, '_reusable');
-    fs.cpSync(reusableSrc, reusableDest, { recursive: true });
+    cpSyncWithRetry(reusableSrc, reusableDest);
   }
 
   // Install wrapper: the only sanctioned way for the agent to install software.

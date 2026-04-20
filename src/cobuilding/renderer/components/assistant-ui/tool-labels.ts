@@ -72,8 +72,34 @@ export function getToolLabel(
     }
     case 'TodoWrite':
       return 'Updating tasks';
+    case 'EnterPlanMode':
+      return 'Creating plan';
+    case 'ExitPlanMode':
+      return 'Exiting plan mode';
     case 'mcp__activity__query_activity':
       return 'Querying activity';
+    case 'mcp__ms-word__get_file_path':
+      return 'Getting Word file path';
+    case 'mcp__ms-word__get_text':
+      return 'Reading Word document';
+    case 'mcp__ms-word__get_selection':
+      return 'Getting selection';
+    case 'mcp__ms-word__save_document':
+      return 'Saving Word document';
+    case 'mcp__ms-word__open_document':
+      return 'Opening Word document';
+    case 'mcp__ms-word__position_cursor':
+      return 'Positioning cursor';
+    case 'mcp__ms-word__insert_paragraph':
+      return 'Inserting paragraph';
+    case 'mcp__ms-word__select_text':
+      return 'Selecting text';
+    case 'mcp__ms-word__apply_style':
+      return 'Applying style';
+    case 'mcp__ms-word__apply_formatting':
+      return 'Applying formatting';
+    case 'mcp__ms-word__delete_selection':
+      return 'Deleting selection';
     case 'mcp__mini-apps__open_mini_application': {
       const dirName = resolved?.dir_name as string | undefined;
       return dirName ? `Opening app: ${dirName}` : 'Opening app';

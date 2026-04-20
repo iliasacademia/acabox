@@ -3,6 +3,7 @@ import { MarkdownText } from './markdown-text';
 import { ToolFallback } from './tool-fallback';
 import { ToolGroup } from './tool-group';
 import { TodoWrite } from './todo-write';
+import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
 import { ModelSelector } from '../ModelSelector';
 import { TooltipIconButton } from './tooltip-icon-button';
@@ -254,7 +255,7 @@ const AssistantMessage: FC = () => {
           components={{
             Text: MarkdownText,
             Reasoning,
-            tools: { Fallback: ToolFallback, TodoWrite },
+            tools: { Fallback: ToolFallback, TodoWrite, EnterPlanMode },
             ToolGroup,
           }}
         />
