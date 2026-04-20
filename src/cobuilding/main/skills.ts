@@ -102,7 +102,27 @@ export function copyClaudeSettingsToWorkspace(workspaceDir: string): void {
   const dest = path.join(claudeDir, 'settings.json');
 
   fs.mkdirSync(claudeDir, { recursive: true });
-  fs.cpSync(src, dest);
+
+  if (fs.existsSync(src)) {
+    fs.cpSync(src, dest);
+  } else {
+    const defaultSettings = {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [
+              {
+                type: 'command',
+                command: 'bash .claude/hooks/block-host-installs.sh',
+              },
+            ],
+          },
+        ],
+      },
+    };
+    fs.writeFileSync(dest, JSON.stringify(defaultSettings, null, 2) + '\n');
+  }
 }
 
 /**
