@@ -1,0 +1,275 @@
+/* Writing Agent conversation view — scoped from main branch conversations.css */
+
+.writingAgentView {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  font-family: "DM Sans", "Inter", sans-serif;
+}
+
+.writingAgentView .conversationHeader {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 24px;
+  border-bottom: 1px solid #dddde2;
+  flex-shrink: 0;
+}
+
+.writingAgentView .conversationTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 28px;
+  color: #141413;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.writingAgentView .conversationSummary {
+  margin: 2px 0 0 0;
+  font-size: 12px;
+  color: #535366;
+}
+
+.writingAgentView .conversationMessages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 24px;
+  background-color: transparent;
+}
+
+/* Message container */
+.writingAgentView .conversationMessage {
+  margin-bottom: 12px;
+  max-width: 100%;
+}
+
+.writingAgentView .conversationMessage.user {
+  max-width: 423px;
+  margin-left: auto;
+  margin-right: 0;
+}
+
+/* Message content */
+.writingAgentView .messageContent {
+  padding: 16px;
+  background-color: transparent;
+  border-radius: 8px;
+  font-size: 15px;
+  line-height: 24px;
+  color: #141413;
+}
+
+.writingAgentView .conversationMessage.user .messageContent {
+  background-color: #e6ecf7;
+}
+
+.writingAgentView .conversationMessage.assistant .messageContent {
+  padding-bottom: 4px;
+}
+
+/* Typography within messages */
+.writingAgentView .messageContent p {
+  margin: 0 0 8px 0;
+}
+
+.writingAgentView .messageContent p:last-child {
+  margin-bottom: 0;
+}
+
+.writingAgentView .messageContent h1,
+.writingAgentView .messageContent h2,
+.writingAgentView .messageContent h3 {
+  margin: 16px 0 8px 0;
+  font-weight: 600;
+}
+
+.writingAgentView .messageContent h1:first-child,
+.writingAgentView .messageContent h2:first-child,
+.writingAgentView .messageContent h3:first-child {
+  margin-top: 0;
+}
+
+.writingAgentView .messageContent ul,
+.writingAgentView .messageContent ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.writingAgentView .messageContent li {
+  margin: 4px 0;
+}
+
+/* Code blocks */
+.writingAgentView .codeBlock {
+  background-color: #2d2d2d;
+  color: #f8f8f2;
+  padding: 12px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 12px 0;
+  font-family: "Monaco", "Menlo", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.writingAgentView .inlineCode {
+  background-color: #e8e8e8;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-family: "Monaco", "Menlo", "Courier New", monospace;
+  font-size: 13px;
+}
+
+/* Links */
+.writingAgentView .messageLink {
+  color: #667eea;
+  text-decoration: underline;
+}
+
+.writingAgentView .messageLink:hover {
+  color: #5568d3;
+}
+
+/* Empty message */
+.writingAgentView .emptyMessage {
+  color: #999999;
+  font-style: italic;
+}
+
+/* Message contexts / file pills */
+.writingAgentView .messageContexts {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.writingAgentView .messageFileContext {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  background-color: #e8f0fe;
+  color: #1a56db;
+  border-radius: 20px;
+  font-size: 12px;
+}
+
+.writingAgentView .messageContext {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background-color: #ffffff;
+  border: 1px solid #e0e0e0;
+  border-radius: 16px;
+  font-size: 12px;
+  color: #666666;
+}
+
+/* HTML content from writing agent reviews — used in chat thread messages */
+.writingAgentHtml {
+  font-size: 15px;
+  line-height: 24px;
+}
+
+.writingAgentHtml p {
+  margin: 0 0 12px 0;
+}
+
+.writingAgentHtml p:last-child {
+  margin-bottom: 0;
+}
+
+.writingAgentHtml .critique,
+.writingAgentHtml .framework_to_address {
+  margin-bottom: 24px;
+}
+
+.writingAgentHtml .critique:last-child,
+.writingAgentHtml .framework_to_address:last-child {
+  margin-bottom: 0;
+}
+
+.writingAgentHtml h2 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 20px 0 8px 0;
+}
+
+.writingAgentHtml h2:first-child {
+  margin-top: 0;
+}
+
+.writingAgentHtml h3 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 16px 0 8px 0;
+}
+
+.writingAgentHtml blockquote,
+.writingAgentHtml q {
+  display: block;
+  margin: 12px 0;
+  padding: 12px 16px;
+  border-left: 3px solid #667eea;
+  background-color: #f8f9fc;
+  border-radius: 0 6px 6px 0;
+  font-style: italic;
+  color: #444340;
+  line-height: 1.6;
+}
+
+.writingAgentHtml .summary {
+  margin-bottom: 20px;
+}
+
+.writingAgentHtml section {
+  margin-bottom: 16px;
+}
+
+.writingAgentHtml article {
+  display: block;
+}
+
+.writingAgentHtml ul,
+.writingAgentHtml ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.writingAgentHtml li {
+  margin: 4px 0;
+}
+
+/* Loading dots */
+.writingAgentView .messageLoading {
+  margin-top: 12px;
+  display: flex;
+  gap: 6px;
+}
+
+.writingAgentView .loadingDot {
+  width: 8px;
+  height: 8px;
+  background-color: #999999;
+  border-radius: 50%;
+  animation: waLoadingBounce 1.4s ease-in-out infinite;
+}
+
+.writingAgentView .loadingDot:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.writingAgentView .loadingDot:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes waLoadingBounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}
