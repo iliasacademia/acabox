@@ -6,6 +6,7 @@ interface TabBarProps {
   tabs: TabDescriptor[];
   activeTabId: string | null;
   dirtyTabIds: Set<string>;
+  hasLiveKernel?: (id: string) => boolean;
   onActivate: (id: string) => void;
   onClose: (id: string) => void;
   onPin: (id: string) => void;
@@ -31,6 +32,7 @@ export const TabBar: FC<TabBarProps> = ({
   tabs,
   activeTabId,
   dirtyTabIds,
+  hasLiveKernel,
   onActivate,
   onClose,
   onPin,
@@ -67,6 +69,8 @@ export const TabBar: FC<TabBarProps> = ({
                 e.stopPropagation();
                 if (isDirty) {
                   if (!window.confirm('You have unsaved changes. Close anyway?')) return;
+                } else if (hasLiveKernel?.(tab.id)) {
+                  if (!window.confirm('This will shut down the running kernel and lose any in-memory state. Close anyway?')) return;
                 }
                 onClose(tab.id);
               }}

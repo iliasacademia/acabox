@@ -43,6 +43,7 @@ import { TaskPanel } from './components/TaskPanel';
 import { TabBar } from './tabs/TabBar';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
+import { kernelRegistry } from './components/notebook/kernelRegistry';
 import type { Workspace } from '../shared/types';
 import { initFullStory, identifyUser, trackEvent } from './utils/fullstory';
 import './App.css';
@@ -278,7 +279,11 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   const [taskRefreshKey, setTaskRefreshKey] = useState(0);
   const [selectedNoteDay, setSelectedNoteDay] = useState<string | null>(null);
 
-  const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs();
+  const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs({
+    onBeforeClose: (id) => {
+      kernelRegistry.shutdown(id).catch(() => {});
+    },
+  });
   const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(new Set());
   const [autoSelectFirstApp, setAutoSelectFirstApp] = useState(false);
   // Per-mini-app reload nonce — bumped each time the app is (re-)opened so the
@@ -286,6 +291,27 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   // open_mini_application on an already-open tab just activates it without
   // reloading the iframe contents.
   const [miniAppReloadNonces, setMiniAppReloadNonces] = useState<Record<string, number>>({});
+
+  // Latest tabs ref so handleSelectApp's identity doesn't change on every tab
+  // mutation (it would otherwise re-render sidebar components on each close/open).
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+
+  // Clear kernel registry when the workspace directory changes — the Jupyter
+  // gateway container is restarted on workspace switch, so any cached kernels
+  // are stale handles to a dead container.
+  const prevWorkspacePathRef = useRef<string>(workspace.directory_path);
+  useEffect(() => {
+    if (prevWorkspacePathRef.current !== workspace.directory_path) {
+      kernelRegistry.clearAll().catch(() => {});
+      prevWorkspacePathRef.current = workspace.directory_path;
+    }
+  }, [workspace.directory_path]);
+
+  const hasLiveKernel = useCallback((tabId: string) => {
+    const entry = kernelRegistry.get(tabId);
+    return entry !== null && entry.status !== 'dead' && entry.status !== 'disconnected';
+  }, []);
 
   const handleDirtyChange = useCallback((tabId: string, dirty: boolean) => {
     setDirtyTabIds((prev) => {
@@ -333,9 +359,16 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
 
   const handleSelectApp = useCallback((dirName: string) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName);
-    setMiniAppReloadNonces((prev) => ({ ...prev, [dirName]: (prev[dirName] ?? 0) + 1 }));
+    const tabId = `miniapp::${dirName}`;
+    // Only force an iframe reload when the tab doesn't already exist. Re-clicking
+    // an already-open mini app should just activate it — remounting the viewer
+    // would tear down its kernel connection bookkeeping and the iframe state.
+    const alreadyOpen = tabsRef.current.some((t) => t.id === tabId);
+    if (!alreadyOpen) {
+      setMiniAppReloadNonces((prev) => ({ ...prev, [dirName]: (prev[dirName] ?? 0) + 1 }));
+    }
     const descriptor: TabDescriptor = {
-      id: `miniapp::${dirName}`,
+      id: tabId,
       kind: 'miniapp',
       label: dirName,
       pinned: true, // mini apps are always pinned
@@ -560,6 +593,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                       tabs={tabs}
                       activeTabId={activeTabId}
                       dirtyTabIds={dirtyTabIds}
+                      hasLiveKernel={hasLiveKernel}
                       onActivate={activateTab}
                       onClose={closeTab}
                       onPin={pinTab}

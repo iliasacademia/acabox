@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
 import { CodeIcon, DownloadIcon, FolderIcon, MonitorIcon, RefreshCwIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
-import { useKernel } from './notebook/useKernel';
+import { useKernel, type KernelStatus } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
 
@@ -157,6 +157,7 @@ const MiniAppHeader: FC<{
         <FolderIcon style={{ width: 16, height: 16 }} />
         Show in Finder
       </button>
+      <KernelStatusIndicator dirName={dirName} />
       <div className="miniAppHeaderViewToggle">
         <button
           className={`miniAppHeaderViewBtn${!viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
@@ -175,6 +176,38 @@ const MiniAppHeader: FC<{
           Code
         </button>
       </div>
+    </div>
+  );
+};
+
+const KERNEL_STATUS_LABEL: Record<KernelStatus, string> = {
+  disconnected: 'Kernel off',
+  starting: 'Starting kernel…',
+  idle: 'Kernel idle',
+  busy: 'Kernel running',
+  dead: 'Kernel stopped',
+};
+
+const KERNEL_STATUS_COLOR: Record<KernelStatus, string> = {
+  disconnected: '#bbb',
+  starting: '#d98c00',
+  idle: '#2e9e5e',
+  busy: '#2b7fd6',
+  dead: '#c0392b',
+};
+
+const KernelStatusIndicator: FC<{ dirName: string }> = ({ dirName }) => {
+  const { status } = useKernel(`miniapp::${dirName}`);
+  if (status === 'disconnected') return null;
+  const label = KERNEL_STATUS_LABEL[status];
+  const pulse = status === 'starting' || status === 'busy';
+  return (
+    <div className="miniAppHeaderKernelStatus" title={label}>
+      <span
+        className={`miniAppHeaderKernelStatusDot${pulse ? ' miniAppHeaderKernelStatusDot--pulse' : ''}`}
+        style={{ background: KERNEL_STATUS_COLOR[status] }}
+      />
+      <span>{label}</span>
     </div>
   );
 };
@@ -308,7 +341,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [loadError, setLoadError] = useState(false);
   const appDir = `${workspacePath}/.applications/${dirName}`;
-  const { connect, executeCode } = useKernel();
+  const { connect, executeCode } = useKernel(`miniapp::${dirName}`);
   const composerRuntime = useComposerRuntime();
 
   const handleIframeLoad = useCallback(() => {

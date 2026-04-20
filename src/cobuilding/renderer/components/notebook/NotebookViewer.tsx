@@ -41,7 +41,7 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onDirtyChang
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
 
-  const kernel = useKernel();
+  const kernel = useKernel(`notebook::${filePath}`);
   const cellRefs = useRef<Map<number, NotebookCellHandle>>(new Map());
   const pendingFocusRef = useRef<number | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
