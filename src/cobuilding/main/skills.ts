@@ -16,6 +16,7 @@ const SKILLS = [
   'differential-expression',
   'docx',
   'ensembl-database',
+  'flow-cytometry',
   'geo-database',
   'gnomad-database',
   'manage-mini-application',
