@@ -33,6 +33,16 @@ function escapeAppleScriptString(input: string): string {
     .replace(/\t/g, ' ');
 }
 
+/**
+ * Build an AppleScript string expression that preserves paragraph breaks.
+ * Word uses \r for paragraph separators. This splits on newlines and joins
+ * with AppleScript's `return` character via string concatenation.
+ */
+function buildAppleScriptString(input: string): string {
+  const segments = input.split(/\r\n|\r|\n/);
+  return segments.map((s) => '"' + escapeAppleScriptString(s) + '"').join(' & return & ');
+}
+
 const WORD_EXTENSIONS = new Set(['.doc', '.docx', '.docm', '.dotx', '.dotm', '.rtf']);
 
 function runWordAction(action: Record<string, unknown>): Promise<any> {
@@ -911,5 +921,70 @@ end tell`;
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] deleteSelectionInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage };
+  }
+}
+
+// ─── Find and Replace (Object Model) ────────────────────────────
+
+export interface FindAndReplaceResult {
+  success: boolean;
+  error?: string;
+  replacementsCount: number;
+}
+
+/**
+ * Find and replace text in the active Word document using Word's native
+ * find object. Single atomic operation — no keyboard simulation needed.
+ */
+export async function findAndReplaceInWord(
+  searchText: string,
+  replacementText: string,
+  replaceScope: 'first' | 'all' = 'first',
+  matchCase = true,
+): Promise<FindAndReplaceResult> {
+  logger.info(`[WordActions] findAndReplaceInWord scope=${replaceScope} matchCase=${matchCase}`);
+
+  try {
+    const searchExpr = buildAppleScriptString(searchText);
+    const replaceExpr = buildAppleScriptString(replacementText);
+    const replaceConst = replaceScope === 'all' ? 'replace all' : 'replace one';
+
+    const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  set doc to active document
+  set docRange to create range doc start 0 end (end of content of text object of doc)
+  set myFind to find object of docRange
+  tell myFind
+    set content to ${searchExpr}
+    set replacement to ${replaceExpr}
+    set match case to ${matchCase}
+    set forward to true
+    set wrap to find stop
+    set format to false
+  end tell
+  set wasReplaced to execute find myFind replace ${replaceConst}
+  if wasReplaced then
+    return "ok||1"
+  else
+    return "ok||0"
+  end if
+end tell`;
+
+    const result = await runAppleScriptStdin(script);
+    const parts = result.split('||');
+
+    if (parts[0] === 'error') {
+      return { success: false, error: parts[1] || 'Unknown error', replacementsCount: 0 };
+    }
+
+    const count = parseInt(parts[1] || '0', 10);
+    return { success: true, replacementsCount: count };
+  } catch (err) {
+    const errorMessage = (err as Error).message || 'Unknown error';
+    logger.info(`[WordActions] findAndReplaceInWord error: ${errorMessage}`);
+    return { success: false, error: errorMessage, replacementsCount: 0 };
   }
 }

@@ -294,10 +294,8 @@ When executing edits, first call mcp__ms-word__get_file_path to check whether a 
 
 If a Word document is open: use ONLY the ms-word MCP tools for all edits. Do NOT use the docx skill or modify the .docx file on disk directly — that would conflict with the open document in Word.
 - Use mcp__ms-word__get_text to read the document content
-- Use mcp__ms-word__position_cursor to place the cursor at the target location
-- Use mcp__ms-word__select_text to select text you want to replace or delete
-- Use mcp__ms-word__delete_selection to delete the selected text
-- Use mcp__ms-word__insert_paragraph to insert new content
+- Use mcp__ms-word__find_and_replace to replace text (PREFERRED — atomic, reliable, uses Word's native find-and-replace)
+- Use mcp__ms-word__select_text + mcp__ms-word__delete_selection + mcp__ms-word__insert_paragraph as FALLBACK only if find_and_replace fails
 - Use mcp__ms-word__save_document to save after editing
 The user will see edits appear live in the open Word document as you make them.
 
@@ -372,6 +370,7 @@ If no writing projects are found, suggest the user link their Writing Agent acco
             "mcp__ms-word__apply_style",
             "mcp__ms-word__apply_formatting",
             "mcp__ms-word__delete_selection",
+            "mcp__ms-word__find_and_replace",
             "mcp__writing-agent__list_projects",
             "mcp__writing-agent__get_project_files",
             "mcp__writing-agent__list_conversations",

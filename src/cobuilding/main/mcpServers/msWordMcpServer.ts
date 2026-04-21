@@ -12,6 +12,7 @@ import {
   applyStyleInWord,
   applyFormattingInWord,
   deleteSelectionInWord,
+  findAndReplaceInWord,
 } from '../../../server/wordActions';
 
 export function createMsWordMcpServer() {
@@ -191,6 +192,30 @@ export function createMsWordMcpServer() {
         async () => {
           try {
             const result = await deleteSelectionInWord();
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+          } catch (err) {
+            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+          }
+        },
+      ),
+
+      tool(
+        'find_and_replace',
+        'Find text in the active Word document and replace it. Uses Word\'s native find-and-replace — atomic, reliable, no keyboard simulation. Prefer this over the select_text + delete_selection + insert_paragraph sequence for text edits.',
+        {
+          search_text: z.string().describe('The exact text to find in the document'),
+          replacement_text: z.string().describe('The text to replace it with'),
+          replace_scope: z.enum(['first', 'all']).default('first').describe('"first" replaces only the first occurrence, "all" replaces every occurrence'),
+          match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
+        },
+        async (args) => {
+          try {
+            const result = await findAndReplaceInWord(
+              args.search_text,
+              args.replacement_text,
+              args.replace_scope,
+              args.match_case,
+            );
             return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
           } catch (err) {
             return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
