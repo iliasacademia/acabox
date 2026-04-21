@@ -61,7 +61,8 @@ RUN pip install --no-cache-dir \
     pubchempy \
     GEOparse \
     rcsb-api \
-    biopython
+    biopython \
+    flowkit
 
 # Fix Python kernel spec to use absolute venv path.
 # During build, PATH includes the venv so ipykernel registers bare "python".
