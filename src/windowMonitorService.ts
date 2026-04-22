@@ -559,7 +559,8 @@ export class WindowMonitorService {
       const buttonWidthOverride = this.buttonV2WidthOverrides.get(windowId);
       if (buttonWidthOverride !== undefined) {
         desiredState['button-v2'].frame.width = buttonWidthOverride;
-      } else {
+      } else if (!this.workspaceDirectory) {
+        // Only shrink to ENABLE_FEEDBACK_BUTTON_WIDTH in writing agent mode
         const docPath = this.getDocumentPathForWindow(windowId);
         if (!docPath || !wordIntegrationDataStoreV2.getProjectFileForPath(docPath)) {
           desiredState['button-v2'].frame.width = ENABLE_FEEDBACK_BUTTON_WIDTH;
