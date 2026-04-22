@@ -3,7 +3,7 @@ import {
   useLocalRuntime,
   AssistantRuntimeProvider,
 } from '@assistant-ui/react';
-import { Thread } from '../../cobuilding/renderer/components/assistant-ui/thread';
+import { OverlayThread } from './OverlayThread';
 import { useHttpChatAdapter } from './httpChatAdapter';
 import '../../cobuilding/renderer/App.css';
 import '@assistant-ui/react-markdown/styles/dot.css';
@@ -260,7 +260,7 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
       {/* Chat — uses the same Thread component as the desktop app */}
       <div style={{ flex: 1, minHeight: 0 }}>
         <AssistantRuntimeProvider runtime={runtime}>
-          <Thread />
+          <OverlayThread />
         </AssistantRuntimeProvider>
       </div>
     </div>
