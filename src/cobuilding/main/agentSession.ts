@@ -148,18 +148,17 @@ export function createAgentSession(
           },
           model: model || 'claude-opus-4-6',
           systemPrompt: (() => {
-            const docxEditingGuidance = `When the user wants to make edits or suggestions to a .docx file, ALWAYS use EnterPlanMode first to present your proposed changes for approval before making any edits. Do not edit any .docx files directly — plan first, wait for approval, then execute.
+            const docxEditingGuidance = `When the user wants to make edits or suggestions to a .docx file:
 
-When executing edits, first call mcp__ms-word__get_file_path to check whether a Word document is currently open.
+IMPORTANT: NEVER unpack, modify XML, or edit .docx files directly on disk. ALWAYS use the ms-word MCP tools.
 
-If a Word document is open: use ONLY the ms-word MCP tools for all edits. Do NOT use the docx skill or modify the .docx file on disk directly — that would conflict with the open document in Word.
-- Use mcp__ms-word__get_text to read the document content
-- Use mcp__ms-word__find_and_replace to replace text (PREFERRED — atomic, reliable, uses Word's native find-and-replace)
-- Use mcp__ms-word__select_text + mcp__ms-word__delete_selection + mcp__ms-word__insert_paragraph as FALLBACK only if find_and_replace fails
-- Use mcp__ms-word__save_document to save after editing
-The user will see edits appear live in the open Word document as you make them.
+1. First call mcp__ms-word__track_changes_status to check if Track Changes is enabled.
+2. If Track Changes is OFF, ask the user to enable it (Review tab → Track Changes in Word) so they can review your edits. You can also call mcp__ms-word__set_track_changes to enable it.
+3. Use mcp__ms-word__get_text to read the document content.
+4. Use mcp__ms-word__find_and_replace to make edits. With Track Changes enabled, each edit appears as a tracked revision the user can accept or reject — just like a human collaborator's markup.
+5. Use mcp__ms-word__save_document to save after editing.
 
-If no Word document is open (mcp__ms-word__get_file_path returns an error): use the docx skill to edit the .docx file on disk.`;
+The user sees edits appear live in Word as tracked changes. Do NOT use any other method to edit Word documents.`;
 
             const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
             return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };
@@ -203,13 +202,9 @@ If no Word document is open (mcp__ms-word__get_file_path returns an error): use 
             "mcp__ms-word__get_selection",
             "mcp__ms-word__save_document",
             "mcp__ms-word__open_document",
-            "mcp__ms-word__position_cursor",
-            "mcp__ms-word__insert_paragraph",
-            "mcp__ms-word__select_text",
-            "mcp__ms-word__apply_style",
-            "mcp__ms-word__apply_formatting",
-            "mcp__ms-word__delete_selection",
             "mcp__ms-word__find_and_replace",
+            "mcp__ms-word__track_changes_status",
+            "mcp__ms-word__set_track_changes",
           ],
           hooks: {
             PreToolUse: [{
