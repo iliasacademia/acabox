@@ -675,18 +675,22 @@ export async function positionCursorInWord(
 
   windowMonitorService.suppressSelectionEvents(true);
 
-  // For 'after': use last 60 chars (cursor goes after the match)
-  // For 'before': use first 60 chars (cursor goes before the match)
-  const searchText = type === 'after'
-    ? (anchor.length > 60 ? anchor.substring(anchor.length - 60) : anchor)
-    : (anchor.length > 60 ? anchor.substring(0, 60) : anchor);
-
-  const searchExpr = buildAppleScriptString(searchText);
   const cursorProperty = type === 'after' ? 'end' : 'start';
 
   try {
-    // Use Word's native find object — works in background without focus
-    const script = `
+    // For 'after': use last N chars; for 'before': use first N chars
+    const prefixLengths = [60, 30, 15];
+
+    for (const len of prefixLengths) {
+      const rawSearch = type === 'after'
+        ? (anchor.length > len ? anchor.substring(anchor.length - len) : anchor)
+        : (anchor.length > len ? anchor.substring(0, len) : anchor);
+      const cleanSearch = rawSearch.replace(/[\r\n]+/g, ' ').trim();
+      if (!cleanSearch) continue;
+
+      for (const matchCase of [true, false]) {
+        const searchExpr = '"' + escapeAppleScriptString(cleanSearch) + '"';
+        const script = `
 tell application "Microsoft Word"
   if (count of documents) is 0 then
     return "error||No document open"
@@ -698,7 +702,7 @@ tell application "Microsoft Word"
     set content to ${searchExpr}
     set forward to true
     set wrap to find stop
-    set match case to true
+    set match case to ${matchCase}
   end tell
   set wasFound to execute find myFind
   if wasFound then
@@ -707,16 +711,19 @@ tell application "Microsoft Word"
     select cursorRange
     return "ok"
   else
-    return "notfound||Text not found in document"
+    return "notfound"
   end if
 end tell`;
 
-    const result = await runAppleScriptStdin(script);
-    const parts = result.split('||');
-    if (parts[0] === 'error' || parts[0] === 'notfound') {
-      return { success: false, error: parts[1] || 'Text not found' };
+        const result = await runAppleScriptStdin(script);
+        if (result.startsWith('ok')) {
+          logger.info(`[WordActions] positionCursorInWord: found with len=${len} matchCase=${matchCase}`);
+          return { success: true };
+        }
+      }
     }
-    return { success: true };
+
+    return { success: false, error: 'Anchor text not found in document' };
   } catch (err) {
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] positionCursorInWord error: ${errorMessage}`);
@@ -758,11 +765,28 @@ export async function selectTextInWord(
   try {
     // Use Word's native find object to locate the text, then extend the range
     // to the full target length and select it. Works in background without focus.
-    const searchPrefix = text.length > 60 ? text.substring(0, 60) : text;
-    const searchExpr = buildAppleScriptString(searchPrefix);
     const targetLen = text.length;
 
-    const script = `
+    // Try progressively shorter search prefixes and case-insensitive fallback.
+    // Word's find object can fail on text with special formatting, field codes,
+    // or paragraph marks, so we degrade gracefully.
+    const prefixLengths = [
+      Math.min(text.length, 60),
+      Math.min(text.length, 30),
+      Math.min(text.length, 15),
+    ];
+
+    for (const prefixLen of prefixLengths) {
+      for (const matchCase of [true, false]) {
+        // Strip paragraph breaks from the search prefix — Word's find object
+        // uses ^p for paragraph marks, not literal returns.
+        const rawPrefix = text.substring(0, prefixLen);
+        const cleanPrefix = rawPrefix.replace(/[\r\n]+/g, ' ').trim();
+        if (!cleanPrefix) continue;
+
+        const searchExpr = '"' + escapeAppleScriptString(cleanPrefix) + '"';
+
+        const script = `
 tell application "Microsoft Word"
   if (count of documents) is 0 then
     return "error||No document open"
@@ -774,13 +798,12 @@ tell application "Microsoft Word"
     set content to ${searchExpr}
     set forward to true
     set wrap to find stop
-    set match case to true
+    set match case to ${matchCase}
   end tell
   set wasFound to execute find myFind
   if not wasFound then
-    return "notfound||Text not found in document"
+    return "notfound||"
   end if
-  -- docRange is now narrowed to the found prefix; extend to full target length
   set foundStart to (start of content of docRange)
   set docEnd to (end of content of text object of doc)
   set selEnd to foundStart + ${targetLen}
@@ -791,27 +814,23 @@ tell application "Microsoft Word"
   return "ok||" & selectedContent
 end tell`;
 
-    const result = await runAppleScriptStdin(script);
-    const sepIdx = result.indexOf('||');
-    const status = sepIdx >= 0 ? result.substring(0, sepIdx) : result;
-    const payload = sepIdx >= 0 ? result.substring(sepIdx + 2) : '';
+        const result = await runAppleScriptStdin(script);
+        const sepIdx = result.indexOf('||');
+        const status = sepIdx >= 0 ? result.substring(0, sepIdx) : result;
+        const payload = sepIdx >= 0 ? result.substring(sepIdx + 2) : '';
 
-    if (status === 'error' || status === 'notfound') {
-      return { success: false, error: payload || 'Text not found' };
+        if (status === 'ok' && payload) {
+          const selectedText = payload.replace(/[\n\r\f\v\x0c\x0b\x0e\x0f]/g, '');
+          const exact = selectedText === text;
+          logger.info(`[WordActions] selectTextInWord: found with prefix=${prefixLen} matchCase=${matchCase}, selected ${selectedText.length} chars, exact=${exact}`);
+          return { success: true, selectedText, iterations: 1, exact };
+        }
+
+        logger.info(`[WordActions] selectTextInWord: prefix=${prefixLen} matchCase=${matchCase} → not found, trying next`);
+      }
     }
 
-    // Strip invisible chars (page breaks, section breaks)
-    const selectedText = payload.replace(/[\n\r\f\v\x0c\x0b\x0e\x0f]/g, '');
-    const exact = selectedText === text;
-
-    logger.info(`[WordActions] selectTextInWord: selected ${selectedText.length} chars, exact=${exact}`);
-
-    return {
-      success: true,
-      selectedText,
-      iterations: 1,
-      exact,
-    };
+    return { success: false, error: 'Text not found in document after all search strategies' };
   } catch (err) {
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] selectTextInWord error: ${errorMessage}`);
