@@ -360,21 +360,23 @@ def main():
 
 def export_wsp(fcs_paths, gate_defs, outdir):
     """Export a FlowJo-compatible .wsp workspace file."""
+    import traceback
     try:
-        session = fk.Session(fcs_path_list=fcs_paths)
-
-        # Build and add gating strategy
         strategy = build_gating_strategy(gate_defs)
-        group_name = "All Samples"
-        sample_ids = session.get_sample_ids()
 
-        session.add_sample_group(group_name, sample_ids=sample_ids, gating_strategy=strategy)
+        session = fk.Session(
+            gating_strategy=strategy,
+            fcs_samples=fcs_paths,
+        )
 
         wsp_path = os.path.join(outdir, "analysis.wsp")
-        session.export_wsp(wsp_path, group_name)
+        # export_wsp expects a file handle, not a path
+        with open(wsp_path, "wb") as fh:
+            session.export_wsp(fh, "All Samples")
         return wsp_path
     except Exception as e:
         print(f"WARNING: WSP export failed: {e}")
+        traceback.print_exc()
         return None
 
 
