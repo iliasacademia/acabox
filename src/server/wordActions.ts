@@ -941,3 +941,50 @@ end tell`;
     windowMonitorService.suppressSelectionEvents(false);
   }
 }
+
+// ─── Reload Document ────────────────────────────────────────────
+
+export interface ReloadDocumentResult {
+  success: boolean;
+  error?: string;
+  filePath?: string;
+}
+
+/**
+ * Reload the active Word document from disk.
+ * Closes the document (discarding in-memory state) and reopens it,
+ * so any on-disk edits (e.g. XML modifications) are reflected live.
+ */
+export async function reloadDocumentInWord(): Promise<ReloadDocumentResult> {
+  logger.info('[WordActions] reloadDocumentInWord');
+
+  try {
+    const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  set doc to active document
+  set docPath to full name of doc
+  close doc saving no
+  delay 0.3
+  open docPath
+  return "ok||" & docPath
+end tell`;
+
+    const result = await runAppleScriptStdin(script);
+    const sepIdx = result.indexOf('||');
+    const status = sepIdx >= 0 ? result.substring(0, sepIdx) : result;
+    const payload = sepIdx >= 0 ? result.substring(sepIdx + 2) : '';
+
+    if (status === 'error') {
+      return { success: false, error: payload || 'Unknown error' };
+    }
+
+    return { success: true, filePath: payload };
+  } catch (err) {
+    const errorMessage = (err as Error).message || 'Unknown error';
+    logger.info(`[WordActions] reloadDocumentInWord error: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  }
+}

@@ -13,6 +13,7 @@ import {
   applyFormattingInWord,
   deleteSelectionInWord,
   findAndReplaceInWord,
+  reloadDocumentInWord,
 } from '../../../server/wordActions';
 
 export function createMsWordMcpServer() {
@@ -216,6 +217,20 @@ export function createMsWordMcpServer() {
               args.replace_scope,
               args.match_case,
             );
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+          } catch (err) {
+            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+          }
+        },
+      ),
+
+      tool(
+        'reload_document',
+        'Reload the active Word document from disk. Use this after editing the .docx file directly (e.g. XML modifications) so the user sees the changes live. Closes and reopens the document — any unsaved in-memory changes are discarded, so call save_document first if needed.',
+        {},
+        async () => {
+          try {
+            const result = await reloadDocumentInWord();
             return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
           } catch (err) {
             return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
