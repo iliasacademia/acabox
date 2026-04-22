@@ -10,6 +10,7 @@ import path from 'path';
 import { app } from 'electron';
 import { defaultLogger as logger } from '../utils/logger';
 import { logToWindowMonitorDb } from '../windowMonitorDb';
+import { windowMonitorService } from '../windowMonitorService';
 
 function getWordActionsBinPath(): string {
   if (app.isPackaged) {
@@ -669,6 +670,8 @@ export async function positionCursorInWord(
     return { success: false, error: 'anchor text is required' };
   }
 
+  windowMonitorService.suppressSelectionEvents(true);
+
   // For 'after': use last 60 chars (cursor goes after the match)
   // For 'before': use first 60 chars (cursor goes before the match)
   const searchText = type === 'after'
@@ -706,6 +709,8 @@ end tell`;
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] positionCursorInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
   }
 }
 
@@ -736,6 +741,8 @@ export async function selectTextInWord(
     return { success: false, error: 'text is required' };
   }
 
+  // Suppress selection events so programmatic selections don't appear as user pills
+  windowMonitorService.suppressSelectionEvents(true);
   try {
     // Step 1: Position cursor at start of target text using Cmd+F
     const searchPrefix = text.length > 60 ? text.substring(0, 60) : text;
@@ -890,6 +897,8 @@ end tell`;
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] selectTextInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
   }
 }
 
@@ -905,6 +914,7 @@ export interface DeleteSelectionResult {
 export async function deleteSelectionInWord(): Promise<DeleteSelectionResult> {
   logger.info('[WordActions] deleteSelectionInWord');
 
+  windowMonitorService.suppressSelectionEvents(true);
   try {
     const script = `
 tell application "Microsoft Word" to activate
@@ -921,6 +931,8 @@ end tell`;
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] deleteSelectionInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
   }
 }
 
@@ -944,6 +956,7 @@ export async function findAndReplaceInWord(
 ): Promise<FindAndReplaceResult> {
   logger.info(`[WordActions] findAndReplaceInWord scope=${replaceScope} matchCase=${matchCase}`);
 
+  windowMonitorService.suppressSelectionEvents(true);
   try {
     const searchExpr = buildAppleScriptString(searchText);
     const replaceExpr = buildAppleScriptString(replacementText);
@@ -986,5 +999,7 @@ end tell`;
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] findAndReplaceInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage, replacementsCount: 0 };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
   }
 }

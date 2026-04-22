@@ -278,6 +278,9 @@ export class WindowMonitorService {
   // are treated as workspace files and the overlay shows workspace sessions.
   private workspaceDirectory: string | null = null;
   private sessionsProvider: (() => Array<{ id: string; title: string; created_at: string }>) | null = null;
+  // When true, WINDOW_TEXT_SELECTED events are ignored (used to suppress
+  // programmatic selections from MCP tools like find_and_replace/select_text).
+  private selectionEventsSuppressed = false;
 
   start(baseUrl: string, authToken: string, allAppsEnabled: boolean = false): void {
     this.baseUrl = baseUrl;
@@ -386,7 +389,8 @@ export class WindowMonitorService {
       }
 
       // Cache selected text content in memory when it changes (same pattern as documentTextContentCache).
-      if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.length > 0) {
+      // Skip when suppressed — programmatic selections (from MCP tools) should not appear as user pills.
+      if (event.event === 'WINDOW_TEXT_SELECTED' && event.window && event.selection.length > 0 && !this.selectionEventsSuppressed) {
         logger.info(`[WindowMonitor] WINDOW_TEXT_SELECTED wid=${event.window.id} filePath=${event.selection.filePath} selectionLength=${event.selection.length}`);
         try {
           const content = readFileSync(event.selection.filePath, 'utf-8');
@@ -1037,6 +1041,15 @@ export class WindowMonitorService {
 
   getWorkspaceSessions(): Array<{ id: string; title: string; created_at: string }> {
     return this.sessionsProvider?.() ?? [];
+  }
+
+  /**
+   * Suppress selection events from being cached and broadcast to the popup.
+   * Call with `true` before programmatic Word operations (find/replace, select_text)
+   * and `false` after they complete, so tool-driven selections don't appear as user pills.
+   */
+  suppressSelectionEvents(suppress: boolean): void {
+    this.selectionEventsSuppressed = suppress;
   }
 
   stop(): void {
