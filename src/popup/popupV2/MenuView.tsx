@@ -4,7 +4,7 @@ import {
   AssistantRuntimeProvider,
 } from '@assistant-ui/react';
 import { OverlayThread } from './OverlayThread';
-import { useHttpChatAdapter } from './httpChatAdapter';
+import { useHttpChatAdapter, useHttpHistoryAdapter } from './httpChatAdapter';
 import '../../cobuilding/renderer/App.css';
 import '@assistant-ui/react-markdown/styles/dot.css';
 import {
@@ -199,7 +199,8 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
     getContext,
   });
 
-  const runtime = useLocalRuntime(chatAdapter);
+  const history = useHttpHistoryAdapter(serverUrl, tokenParam, sessionId);
+  const runtime = useLocalRuntime(chatAdapter, { adapters: { history } });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
