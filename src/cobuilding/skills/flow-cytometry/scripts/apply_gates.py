@@ -234,9 +234,9 @@ def plot_gated_scatter(sample, gating_result, gate_def, panel, outdir, sample_na
     event_count = int(membership.sum())
     pct = event_count / len(x) * 100 if len(x) > 0 else 0
 
-    ax.set_xlabel(channel_label(x_ch, panel), fontsize=11)
-    ax.set_ylabel(channel_label(y_ch, panel), fontsize=11)
-    ax.set_title(f"{sample_name} — {label}\n{event_count:,} events ({pct:.1f}%)", fontsize=10)
+    ax.set_xlabel(channel_label(x_ch, panel), fontsize=13)
+    ax.set_ylabel(channel_label(y_ch, panel), fontsize=13)
+    ax.set_title(f"{sample_name} — {label}\n{event_count:,} events ({pct:.1f}%)", fontsize=13)
 
     plt.tight_layout()
     filename = f"gated_{name}_{sample_name}.png".replace("/", "_").replace(" ", "_")
@@ -275,6 +275,8 @@ def main():
     parser.add_argument("--outdir", required=True, help="Output directory")
     parser.add_argument("--gates_file", required=True, help="JSON file with gate definitions")
     parser.add_argument("--panel_file", default=None, help="Path to panel.json")
+    parser.add_argument("--inspect_file", default=None,
+                        help="Path to inspect_results.json (needed for WSP export)")
     parser.add_argument("--samples", nargs="*", default=None, help="Sample names (default: all)")
     args = parser.parse_args()
 
@@ -334,10 +336,46 @@ def main():
     for sample_name, stats in all_stats.items():
         results["samples"][sample_name] = stats
 
-    results_path = os.path.join(args.outdir, "gate_results.json")
+    run_data_dir = os.path.join(args.outdir, "run_data")
+    os.makedirs(run_data_dir, exist_ok=True)
+    results_path = os.path.join(run_data_dir, "gate_results.json")
     with open(results_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Wrote {results_path}")
+
+    # Export FlowJo workspace (.wsp)
+    fcs_paths = None
+    if args.inspect_file and os.path.exists(args.inspect_file):
+        with open(args.inspect_file) as f:
+            inspect_data = json.load(f)
+        fcs_paths = [s["path"] for s in inspect_data["samples"]]
+
+    if fcs_paths:
+        wsp_path = export_wsp(fcs_paths, gate_defs, args.outdir)
+        if wsp_path:
+            print(f"Wrote {wsp_path}")
+    else:
+        print("Skipping WSP export (no --inspect_file provided)")
+
+
+def export_wsp(fcs_paths, gate_defs, outdir):
+    """Export a FlowJo-compatible .wsp workspace file."""
+    try:
+        session = fk.Session(fcs_path_list=fcs_paths)
+
+        # Build and add gating strategy
+        strategy = build_gating_strategy(gate_defs)
+        group_name = "All Samples"
+        sample_ids = session.get_sample_ids()
+
+        session.add_sample_group(group_name, sample_ids=sample_ids, gating_strategy=strategy)
+
+        wsp_path = os.path.join(outdir, "analysis.wsp")
+        session.export_wsp(wsp_path, group_name)
+        return wsp_path
+    except Exception as e:
+        print(f"WARNING: WSP export failed: {e}")
+        return None
 
 
 if __name__ == "__main__":

@@ -191,10 +191,10 @@ def plot_single_sample(sample, sample_name, x_channel, y_channel, panel,
     scatter = ax.scatter(x_sub[valid], y_sub[valid], c=colors[valid],
                          cmap="viridis", s=2, alpha=0.6, rasterized=True)
 
-    ax.set_xlabel(channel_label(x_channel, panel), fontsize=11)
-    ax.set_ylabel(channel_label(y_channel, panel), fontsize=11)
+    ax.set_xlabel(channel_label(x_channel, panel), fontsize=13)
+    ax.set_ylabel(channel_label(y_channel, panel), fontsize=13)
     ax.set_title(f"{sample_name}\n{channel_label(x_channel, panel)} vs {channel_label(y_channel, panel)}\n"
-                 f"({len(x_sub):,} of {len(x):,} events)", fontsize=10)
+                 f"({len(x_sub):,} of {len(x):,} events)", fontsize=13)
 
     # Overlay gates
     for gate in gates:
@@ -260,8 +260,14 @@ def main():
         print(f"  Saved: {path}")
         metadata["plots"].append({"sample": name, "path": path, **stats})
 
-    # Write metadata
-    meta_path = os.path.join(args.outdir, "plot_metadata.json")
+    # Write metadata to run_data/ (one level up from plots/ subdir if applicable)
+    # Determine the main outdir: if --outdir is .../plots, put run_data at parent
+    main_outdir = args.outdir
+    if os.path.basename(main_outdir) == "plots":
+        main_outdir = os.path.dirname(main_outdir)
+    run_data_dir = os.path.join(main_outdir, "run_data")
+    os.makedirs(run_data_dir, exist_ok=True)
+    meta_path = os.path.join(run_data_dir, "plot_metadata.json")
     with open(meta_path, "w") as f:
         json.dump(metadata, f, indent=2)
     print(f"Wrote {meta_path}")
