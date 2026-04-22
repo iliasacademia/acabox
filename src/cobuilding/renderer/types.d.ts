@@ -23,6 +23,8 @@ interface CopyProgress {
 interface FilesAPI {
   readDirectory(dirPath: string): Promise<DirEntry[]>;
   readFile(filePath: string): Promise<FileContent>;
+  fileExists(filePath: string): Promise<boolean>;
+  findByName(filename: string, hintDirs: string[]): Promise<string | null>;
   downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
   showInFinder(filePath: string): Promise<void>;
   revealInFinder(filePath: string): Promise<void>;
@@ -181,6 +183,8 @@ declare global {
   interface FilesAPI {
     readDirectory(dirPath: string): Promise<DirEntry[]>;
     readFile(filePath: string): Promise<FileContent>;
+    fileExists(filePath: string): Promise<boolean>;
+    findByName(filename: string, hintDirs: string[]): Promise<string | null>;
     writeFile(filePath: string, content: string): Promise<void>;
     downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
     showInFinder(filePath: string): Promise<void>;

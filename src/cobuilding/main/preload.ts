@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('workspacesAPI', {
 contextBridge.exposeInMainWorld('filesAPI', {
   readDirectory: (dirPath: string) => ipcRenderer.invoke('files:readDirectory', dirPath),
   readFile: (filePath: string) => ipcRenderer.invoke('files:readFile', filePath),
+  fileExists: (filePath: string) => ipcRenderer.invoke('files:exists', filePath),
+  findByName: (filename: string, hintDirs: string[]) => ipcRenderer.invoke('files:findByName', filename, hintDirs),
   copyToWorkspace: (sourcePaths: string[], destinationDir: string) =>
     ipcRenderer.invoke('files:copyToWorkspace', sourcePaths, destinationDir),
   moveFile: (sourcePath: string, destinationDir: string) =>

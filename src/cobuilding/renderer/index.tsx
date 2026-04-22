@@ -358,6 +358,16 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     openTab(descriptor);
   }, [openTab]);
 
+  // Open file tabs from clickable paths in chat messages
+  useEffect(() => {
+    const handler = (e: CustomEvent<{ filePath: string; lineNumber?: number }>) => {
+      const absolutePath = `${workspace.directory_path}/${e.detail.filePath}`;
+      handleSelectFile(absolutePath);
+    };
+    window.addEventListener('open-file-tab', handler);
+    return () => window.removeEventListener('open-file-tab', handler);
+  }, [workspace.directory_path, handleSelectFile]);
+
   const handleSelectApp = useCallback((dirName: string) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName);
     const tabId = `miniapp::${dirName}`;

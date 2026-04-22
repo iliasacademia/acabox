@@ -83,6 +83,48 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       }));
   });
 
+  ipcMain.handle('files:exists', async (_event, filePath: string) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+    try {
+      const resolved = assertWithinWorkspace(filePath, workspaceDir);
+      await fsPromises.access(resolved);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle('files:findByName', async (_event, filename: string, hintDirs: string[]) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+
+    // Try hint directories first (from message context)
+    for (const hint of hintDirs) {
+      try {
+        const candidate = path.join(hint, filename);
+        const resolved = assertWithinWorkspace(candidate, workspaceDir);
+        await fsPromises.access(resolved);
+        return candidate;
+      } catch { /* continue */ }
+    }
+
+    // Fall back: recursive search, prefer most recently modified
+    const entries = await fsPromises.readdir(workspaceDir, { recursive: true, withFileTypes: true });
+    const matches: { rel: string; mtime: number }[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() && entry.name === filename) {
+        const full = path.join(entry.parentPath, entry.name);
+        const rel = path.relative(workspaceDir, full);
+        try {
+          const stat = await fsPromises.stat(full);
+          matches.push({ rel, mtime: stat.mtimeMs });
+        } catch { /* skip */ }
+      }
+    }
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b.mtime - a.mtime);
+    return matches[0].rel;
+  });
+
   ipcMain.handle('files:readFile', async (_event, filePath: string) => {
     const workspaceDir = requireWorkspace(getWorkspacePath);
     const resolved = assertWithinWorkspace(filePath, workspaceDir);

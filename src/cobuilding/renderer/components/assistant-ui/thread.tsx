@@ -45,13 +45,15 @@ export const Thread: FC = () => {
           scrollToBottomOnInitialize
           className="threadViewport"
         >
-          <AuiIf condition={(s: any) => s.thread.isEmpty}>
-            <ThreadWelcome />
-          </AuiIf>
+          <div className="threadContent">
+            <AuiIf condition={(s: any) => s.thread.isEmpty}>
+              <ThreadWelcome />
+            </AuiIf>
 
-          <ThreadPrimitive.Messages>
-            {() => <ThreadMessage />}
-          </ThreadPrimitive.Messages>
+            <ThreadPrimitive.Messages>
+              {() => <ThreadMessage />}
+            </ThreadPrimitive.Messages>
+          </div>
 
           <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
             <ThreadScrollToBottom />
