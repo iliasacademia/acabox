@@ -77,6 +77,7 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
     });
   }, []);
 
+
   const loadRoot = useCallback(async () => {
     const entries = await window.filesAPI.readDirectory(workspacePath);
     setRootChildren(
@@ -109,6 +110,13 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
     await loadRoot();
     setRefreshKey((k) => k + 1);
   }, [loadRoot]);
+
+  // Auto-refresh when files change on disk (e.g., created by container commands)
+  useEffect(() => {
+    return window.filesAPI.onWorkspaceChanged(() => {
+      refreshTree();
+    });
+  }, [refreshTree]);
 
   const handleDropOnDir = useCallback(async (e: React.DragEvent, targetDir: string) => {
     e.preventDefault();

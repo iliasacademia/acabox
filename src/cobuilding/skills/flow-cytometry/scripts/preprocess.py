@@ -8,9 +8,6 @@ import pickle
 import sys
 
 import flowkit as fk
-import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -76,49 +73,6 @@ def transform_sample(sample):
     }
 
 
-def plot_compensation_qc(sample_name, raw_sample, comp_sample, outdir, channels=None):
-    """Generate before/after compensation scatter plots for QC."""
-    os.makedirs(outdir, exist_ok=True)
-
-    if channels is None:
-        # Pick first two fluorescence channels
-        fluoro = [l for l in raw_sample.pnn_labels
-                  if not l.upper().startswith("FSC")
-                  and not l.upper().startswith("SSC")
-                  and l.lower() != "time"]
-        if len(fluoro) < 2:
-            return
-        channels = fluoro[:2]
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-
-    for ax, sample, title in [(axes[0], raw_sample, "Before compensation"),
-                               (axes[1], comp_sample, "After compensation")]:
-        source = "raw" if title.startswith("Before") else "comp"
-        try:
-            events = sample.get_events(source=source)
-            ch_indices = [list(sample.pnn_labels).index(c) for c in channels]
-            x = events[:, ch_indices[0]]
-            y = events[:, ch_indices[1]]
-            # Subsample for plotting
-            n = min(10000, len(x))
-            idx = np.random.choice(len(x), n, replace=False)
-            ax.scatter(x[idx], y[idx], s=1, alpha=0.3, c="steelblue", rasterized=True)
-            ax.set_xlabel(channels[0])
-            ax.set_ylabel(channels[1])
-            ax.set_title(f"{sample_name}\n{title}")
-        except Exception as e:
-            ax.text(0.5, 0.5, f"Error: {e}", transform=ax.transAxes,
-                    ha="center", va="center")
-            ax.set_title(title)
-
-    plt.tight_layout()
-    path = os.path.join(outdir, f"{sample_name}_compensation_qc.png")
-    plt.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close()
-    return path
-
-
 def main():
     parser = argparse.ArgumentParser(description="Preprocess FCS files")
     parser.add_argument("--fcs_files", nargs="*", default=None, help="Paths to .fcs files")
@@ -144,7 +98,6 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
 
     summary = {"samples": [], "transform": None}
-    qc_dir = os.path.join(args.outdir, "compensation_qc")
 
     for fcs_path in args.fcs_files:
         if not os.path.exists(fcs_path):
@@ -154,21 +107,12 @@ def main():
         name = sample_name_from_path(fcs_path)
         print(f"Processing {name}...")
 
-        # Load raw sample for QC comparison
-        raw_sample = fk.Sample(fcs_path)
-
         # Load sample for processing
         sample = fk.Sample(fcs_path)
 
         # Compensate
         compensated = compensate_sample(sample, args.compensation)
         print(f"  Compensation: {'applied' if compensated else 'skipped'}")
-
-        # QC plot (before/after compensation)
-        if compensated:
-            qc_path = plot_compensation_qc(name, raw_sample, sample, qc_dir)
-            if qc_path:
-                print(f"  QC plot: {qc_path}")
 
         # Transform
         xform_info = transform_sample(sample)
@@ -191,8 +135,10 @@ def main():
             "transformed": bool(xform_info),
         })
 
-    # Write summary
-    summary_path = os.path.join(args.outdir, "preprocess_summary.json")
+    # Write summary to run_data/
+    run_data_dir = os.path.join(args.outdir, "run_data")
+    os.makedirs(run_data_dir, exist_ok=True)
+    summary_path = os.path.join(run_data_dir, "preprocess_summary.json")
     with open(summary_path, "w") as f:
         json.dump(summary, f, indent=2)
     print(f"\nWrote {summary_path}")

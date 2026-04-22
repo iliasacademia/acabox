@@ -23,6 +23,8 @@ interface CopyProgress {
 interface FilesAPI {
   readDirectory(dirPath: string): Promise<DirEntry[]>;
   readFile(filePath: string): Promise<FileContent>;
+  fileExists(filePath: string): Promise<boolean>;
+  findByName(filename: string, hintDirs: string[]): Promise<string | null>;
   downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
   showInFinder(filePath: string): Promise<void>;
   revealInFinder(filePath: string): Promise<void>;
@@ -35,6 +37,7 @@ interface FilesAPI {
   convertImageToPng(base64Data: string): Promise<string>;
   getPathForFile(file: File): string;
   onCopyProgress(callback: (progress: CopyProgress) => void): () => void;
+  onWorkspaceChanged(callback: () => void): () => void;
 }
 
 interface WorkspacesAPI {
@@ -181,6 +184,8 @@ declare global {
   interface FilesAPI {
     readDirectory(dirPath: string): Promise<DirEntry[]>;
     readFile(filePath: string): Promise<FileContent>;
+    fileExists(filePath: string): Promise<boolean>;
+    findByName(filename: string, hintDirs: string[]): Promise<string | null>;
     writeFile(filePath: string, content: string): Promise<void>;
     downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
     showInFinder(filePath: string): Promise<void>;
@@ -196,6 +201,7 @@ declare global {
     convertImageToPng(base64Data: string): Promise<string>;
     getPathForFile(file: File): string;
     onCopyProgress(callback: (progress: CopyProgress) => void): () => void;
+    onWorkspaceChanged(callback: () => void): () => void;
   }
 
   interface WorkspacesAPI {

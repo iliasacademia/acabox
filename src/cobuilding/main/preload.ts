@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('workspacesAPI', {
 contextBridge.exposeInMainWorld('filesAPI', {
   readDirectory: (dirPath: string) => ipcRenderer.invoke('files:readDirectory', dirPath),
   readFile: (filePath: string) => ipcRenderer.invoke('files:readFile', filePath),
+  fileExists: (filePath: string) => ipcRenderer.invoke('files:exists', filePath),
+  findByName: (filename: string, hintDirs: string[]) => ipcRenderer.invoke('files:findByName', filename, hintDirs),
   copyToWorkspace: (sourcePaths: string[], destinationDir: string) =>
     ipcRenderer.invoke('files:copyToWorkspace', sourcePaths, destinationDir),
   moveFile: (sourcePath: string, destinationDir: string) =>
@@ -67,6 +69,11 @@ contextBridge.exposeInMainWorld('filesAPI', {
     const handler = (_event: unknown, progress: { copied: number; total: number; currentName: string | null }) => callback(progress);
     ipcRenderer.on('files:copyProgress', handler);
     return () => { ipcRenderer.removeListener('files:copyProgress', handler); };
+  },
+  onWorkspaceChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('files:workspaceChanged', handler);
+    return () => { ipcRenderer.removeListener('files:workspaceChanged', handler); };
   },
 });
 

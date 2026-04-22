@@ -11,7 +11,7 @@ import {
 import { useAuiState } from '@assistant-ui/react';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
-import { type FC, memo, useState } from 'react';
+import { type FC, memo, useEffect, useMemo, useState } from 'react';
 import { CheckIcon, CopyIcon } from 'lucide-react';
 
 import { TooltipIconButton } from './tooltip-icon-button';
@@ -20,6 +20,50 @@ import { TooltipIconButton } from './tooltip-icon-button';
 function looksLikeHtml(text: string): boolean {
   const trimmed = text.trim();
   return trimmed.startsWith('<') && /<\/?[a-z][\s\S]*>/i.test(trimmed);
+}
+
+declare global {
+  interface WindowEventMap {
+    'open-file-tab': CustomEvent<{ filePath: string; lineNumber?: number }>;
+  }
+}
+
+/** Matches backtick text that looks like a file path (with or without directory). */
+const FILE_EXT_RE = /^(\.{0,2}\/?(?:[\w.@-]+\/)*[\w.@-]+\.(?:png|jpg|jpeg|gif|svg|webp|bmp|pdf|csv|tsv|json|jsonl|md|txt|py|r|sh|js|ts|tsx|jsx|css|html|yaml|yml|toml|sql|ipynb|xlsx|xlsm|tex|latex|log|xml|env|cfg|ini|bib|fcs|h5ad|h5|hdf5|parquet|feather|rds|rda))(?::(\d+))?$/i;
+
+/**
+ * Module-level cache: candidate text → resolved relative path.
+ * Only positive results are cached. Negative results (null) are NOT cached so
+ * that files the agent just created can be discovered on the next render.
+ */
+const resolvedPathCache = new Map<string, string>();
+
+function useResolvedFilePath(candidate: string | null, hintDirs: string[]): string | null {
+  const [resolved, setResolved] = useState<string | null>(
+    () => (candidate ? (resolvedPathCache.get(candidate) ?? null) : null),
+  );
+  useEffect(() => {
+    if (!candidate) { setResolved(null); return; }
+    const cached = resolvedPathCache.get(candidate);
+    if (cached !== undefined) { setResolved(cached); return; }
+    let cancelled = false;
+    const resolve = async () => {
+      let result: string | null = null;
+      if (candidate.includes('/')) {
+        const exists = await (window as any).filesAPI.fileExists(candidate);
+        result = exists ? candidate : null;
+      } else {
+        result = await (window as any).filesAPI.findByName(candidate, hintDirs);
+      }
+      if (result !== null) {
+        resolvedPathCache.set(candidate, result);
+      }
+      if (!cancelled) setResolved(result);
+    };
+    resolve();
+    return () => { cancelled = true; };
+  }, [candidate]); // hintDirs intentionally excluded — first resolution wins
+  return resolved;
 }
 
 const MarkdownTextImpl = () => {
@@ -101,13 +145,62 @@ const defaultComponents = memoizeMarkdownComponents({
       {children}
     </a>
   ),
-  code: function Code({ className, ...props }) {
+  code: function Code({ className, children, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
+    const text = typeof children === 'string' ? children : '';
+    const match = !isCodeBlock ? text.match(FILE_EXT_RE) : null;
+    const candidate = match?.[1] ?? null;
+    const lineNumber = match?.[2] ? parseInt(match[2], 10) : undefined;
+
+    // Extract directory hints from message context (for bare filenames)
+    const messageText = useAuiState((s: any) => {
+      if (!candidate || candidate.includes('/')) return '';
+      const parts = s.message?.parts;
+      if (!parts) return '';
+      return parts.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('\n');
+    });
+
+    const hintDirs = useMemo(() => {
+      if (!messageText) return [];
+      const dirs = new Set<string>();
+      const re = /(?:[\w.@-]+\/)+/g;
+      let m;
+      while ((m = re.exec(messageText)) !== null) {
+        dirs.add(m[0].replace(/\/$/, ''));
+      }
+      return Array.from(dirs);
+    }, [messageText]);
+
+    const resolvedPath = useResolvedFilePath(candidate, hintDirs);
+
+    if (isCodeBlock) {
+      return <code className={className ?? ''} {...props}>{children}</code>;
+    }
+
+    if (resolvedPath) {
+      return (
+        <code
+          className={`inlineCode inlineCode--filePath${className ? ` ${className}` : ''}`}
+          onClick={() => {
+            window.dispatchEvent(new CustomEvent('open-file-tab', {
+              detail: { filePath: resolvedPath, lineNumber },
+            }));
+          }}
+          title={`Open ${resolvedPath}${lineNumber ? ` at line ${lineNumber}` : ''}`}
+          {...props}
+        >
+          {children}
+        </code>
+      );
+    }
+
     return (
       <code
-        className={`${!isCodeBlock ? 'inlineCode' : ''}${className ? ` ${className}` : ''}`}
+        className={`inlineCode${className ? ` ${className}` : ''}`}
         {...props}
-      />
+      >
+        {children}
+      </code>
     );
   },
   CodeHeader,

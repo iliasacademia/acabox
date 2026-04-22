@@ -1,4 +1,5 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
+import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -81,6 +82,48 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
         path: path.join(resolved, e.name),
         isDirectory: e.isDirectory(),
       }));
+  });
+
+  ipcMain.handle('files:exists', async (_event, filePath: string) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+    try {
+      const resolved = assertWithinWorkspace(filePath, workspaceDir);
+      await fsPromises.access(resolved);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
+  ipcMain.handle('files:findByName', async (_event, filename: string, hintDirs: string[]) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+
+    // Try hint directories first (from message context)
+    for (const hint of hintDirs) {
+      try {
+        const candidate = path.join(hint, filename);
+        const resolved = assertWithinWorkspace(candidate, workspaceDir);
+        await fsPromises.access(resolved);
+        return candidate;
+      } catch { /* continue */ }
+    }
+
+    // Fall back: recursive search, prefer most recently modified
+    const entries = await fsPromises.readdir(workspaceDir, { recursive: true, withFileTypes: true });
+    const matches: { rel: string; mtime: number }[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() && entry.name === filename) {
+        const full = path.join(entry.parentPath, entry.name);
+        const rel = path.relative(workspaceDir, full);
+        try {
+          const stat = await fsPromises.stat(full);
+          matches.push({ rel, mtime: stat.mtimeMs });
+        } catch { /* skip */ }
+      }
+    }
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b.mtime - a.mtime);
+    return matches[0].rel;
   });
 
   ipcMain.handle('files:readFile', async (_event, filePath: string) => {
@@ -390,4 +433,50 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       fsPromises.rm(tmpOutput, { force: true }).catch(() => {});
     }
   });
+
+  // --- Workspace file watcher ---
+  // Watch the workspace directory for changes (files created/deleted by
+  // container commands, etc.) and notify the renderer so the file tree
+  // refreshes automatically.
+  const WATCHER_DEBOUNCE_MS = 1000;
+  let watcher: fs.FSWatcher | null = null;
+  let watchedPath: string | null = null;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function startWatcher(): void {
+    const workspaceDir = getWorkspacePath();
+    if (!workspaceDir || watchedPath === workspaceDir) return;
+
+    // Clean up previous watcher if workspace changed
+    if (watcher) {
+      watcher.close();
+      watcher = null;
+    }
+    watchedPath = workspaceDir;
+
+    try {
+      watcher = fs.watch(workspaceDir, { recursive: true }, () => {
+        // Debounce: many events fire in rapid succession during a script run
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          const win = getMainWindow();
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('files:workspaceChanged');
+          }
+        }, WATCHER_DEBOUNCE_MS);
+      });
+      watcher.on('error', () => {
+        // Silently ignore watcher errors (e.g., directory deleted)
+        if (watcher) { watcher.close(); watcher = null; }
+      });
+    } catch {
+      // fs.watch may not be supported on all platforms/filesystems
+    }
+  }
+
+  // Start the watcher after a short delay (workspace may not be set yet at registration time)
+  setTimeout(startWatcher, 2000);
+  // Re-check periodically in case the workspace changes
+  setInterval(startWatcher, 10000);
 }

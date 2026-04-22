@@ -174,8 +174,10 @@ def main():
         "panel": panel,
     }
 
-    # Write JSON
-    json_path = os.path.join(args.outdir, "inspect_results.json")
+    # Write JSON to run_data/
+    run_data_dir = os.path.join(args.outdir, "run_data")
+    os.makedirs(run_data_dir, exist_ok=True)
+    json_path = os.path.join(run_data_dir, "inspect_results.json")
     with open(json_path, "w") as f:
         json.dump(results, f, indent=2)
     print(f"Wrote {json_path}")
