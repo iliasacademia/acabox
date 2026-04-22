@@ -1,4 +1,5 @@
 import { ipcMain, dialog, shell, type BrowserWindow } from 'electron';
+import * as fs from 'fs';
 import * as fsPromises from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -432,4 +433,50 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       fsPromises.rm(tmpOutput, { force: true }).catch(() => {});
     }
   });
+
+  // --- Workspace file watcher ---
+  // Watch the workspace directory for changes (files created/deleted by
+  // container commands, etc.) and notify the renderer so the file tree
+  // refreshes automatically.
+  const WATCHER_DEBOUNCE_MS = 1000;
+  let watcher: fs.FSWatcher | null = null;
+  let watchedPath: string | null = null;
+  let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function startWatcher(): void {
+    const workspaceDir = getWorkspacePath();
+    if (!workspaceDir || watchedPath === workspaceDir) return;
+
+    // Clean up previous watcher if workspace changed
+    if (watcher) {
+      watcher.close();
+      watcher = null;
+    }
+    watchedPath = workspaceDir;
+
+    try {
+      watcher = fs.watch(workspaceDir, { recursive: true }, () => {
+        // Debounce: many events fire in rapid succession during a script run
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+          debounceTimer = null;
+          const win = getMainWindow();
+          if (win && !win.isDestroyed()) {
+            win.webContents.send('files:workspaceChanged');
+          }
+        }, WATCHER_DEBOUNCE_MS);
+      });
+      watcher.on('error', () => {
+        // Silently ignore watcher errors (e.g., directory deleted)
+        if (watcher) { watcher.close(); watcher = null; }
+      });
+    } catch {
+      // fs.watch may not be supported on all platforms/filesystems
+    }
+  }
+
+  // Start the watcher after a short delay (workspace may not be set yet at registration time)
+  setTimeout(startWatcher, 2000);
+  // Re-check periodically in case the workspace changes
+  setInterval(startWatcher, 10000);
 }

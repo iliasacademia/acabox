@@ -37,6 +37,7 @@ interface FilesAPI {
   convertImageToPng(base64Data: string): Promise<string>;
   getPathForFile(file: File): string;
   onCopyProgress(callback: (progress: CopyProgress) => void): () => void;
+  onWorkspaceChanged(callback: () => void): () => void;
 }
 
 interface WorkspacesAPI {
@@ -200,6 +201,7 @@ declare global {
     convertImageToPng(base64Data: string): Promise<string>;
     getPathForFile(file: File): string;
     onCopyProgress(callback: (progress: CopyProgress) => void): () => void;
+    onWorkspaceChanged(callback: () => void): () => void;
   }
 
   interface WorkspacesAPI {

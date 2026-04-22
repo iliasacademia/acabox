@@ -70,6 +70,11 @@ contextBridge.exposeInMainWorld('filesAPI', {
     ipcRenderer.on('files:copyProgress', handler);
     return () => { ipcRenderer.removeListener('files:copyProgress', handler); };
   },
+  onWorkspaceChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('files:workspaceChanged', handler);
+    return () => { ipcRenderer.removeListener('files:workspaceChanged', handler); };
+  },
 });
 
 contextBridge.exposeInMainWorld('miniAppsAPI', {
