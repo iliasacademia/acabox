@@ -109,6 +109,40 @@ export function createAgentSession(
 
   const workspaceBoundaryHook = createWorkspaceBoundaryHook(workspace.directory_path);
 
+  // Block direct .docx file manipulation — force use of ms-word MCP tools instead
+  const docxProtectionHook = async (input: HookInput): Promise<SyncHookJSONOutput> => {
+    if (input.hook_event_name !== 'PreToolUse') return {};
+    const { tool_name, tool_input } = input;
+    const toolInput = (tool_input ?? {}) as Record<string, unknown>;
+
+    // Check if any path argument targets a .docx file
+    const pathFields = ['file_path', 'path', 'command'];
+    for (const field of pathFields) {
+      const val = toolInput[field];
+      if (typeof val === 'string' && (
+        val.includes('.docx') && (
+          tool_name === 'Bash' ? (val.includes('unzip') || val.includes('zip') || val.includes('docx')) :
+          (tool_name === 'Read' || tool_name === 'Write' || tool_name === 'Edit')
+        )
+      )) {
+        // Allow reading .docx file path for reference, but block XML editing patterns
+        if (tool_name === 'Bash' && (val.includes('unzip') || val.includes('mkdir') || val.includes('zip '))) {
+          return {
+            decision: 'block',
+            reason: 'Do not unpack or modify .docx files directly. Use the ms-word MCP tools (find_and_replace with Track Changes) to edit Word documents.',
+          } as any;
+        }
+        if ((tool_name === 'Edit' || tool_name === 'Write') && (val.includes('document.xml') || val.includes('word/'))) {
+          return {
+            decision: 'block',
+            reason: 'Do not edit .docx XML files directly. Use mcp__ms-word__find_and_replace with Track Changes enabled instead.',
+          } as any;
+        }
+      }
+    }
+    return {};
+  };
+
   (async () => {
     try {
       const activityMcpServer = createActivityMcpServer();
@@ -208,7 +242,7 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
           ],
           hooks: {
             PreToolUse: [{
-              hooks: [workspaceBoundaryHook],
+              hooks: [workspaceBoundaryHook, docxProtectionHook],
             }],
           },
         },
