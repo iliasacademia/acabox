@@ -942,6 +942,60 @@ end tell`;
   }
 }
 
+// ─── Track Changes ─────────────────────────────────────────────
+
+export interface TrackChangesStatusResult {
+  success: boolean;
+  error?: string;
+  enabled?: boolean;
+}
+
+/**
+ * Check whether Track Changes is enabled on the active Word document.
+ */
+export async function getTrackChangesStatus(): Promise<TrackChangesStatusResult> {
+  try {
+    const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  if track revisions of active document then
+    return "ok||true"
+  else
+    return "ok||false"
+  end if
+end tell`;
+    const result = await runAppleScriptStdin(script);
+    const parts = result.split('||');
+    if (parts[0] === 'error') return { success: false, error: parts[1] };
+    return { success: true, enabled: parts[1] === 'true' };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Enable or disable Track Changes on the active Word document.
+ */
+export async function setTrackChanges(enabled: boolean): Promise<{ success: boolean; error?: string }> {
+  try {
+    const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  set track revisions of active document to ${enabled}
+  return "ok"
+end tell`;
+    const result = await runAppleScriptStdin(script);
+    if (result.startsWith('error')) return { success: false, error: result.split('||')[1] };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 // ─── Reload Document ────────────────────────────────────────────
 
 export interface ReloadDocumentResult {

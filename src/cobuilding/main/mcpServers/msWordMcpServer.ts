@@ -6,14 +6,9 @@ import {
   getWordSelection,
   saveWordDocument,
   openWordDocument,
-  positionCursorInWord,
-  insertParagraphInWord,
-  selectTextInWord,
-  applyStyleInWord,
-  applyFormattingInWord,
-  deleteSelectionInWord,
   findAndReplaceInWord,
-  reloadDocumentInWord,
+  getTrackChangesStatus,
+  setTrackChanges,
 } from '../../../server/wordActions';
 
 export function createMsWordMcpServer() {
@@ -96,113 +91,8 @@ export function createMsWordMcpServer() {
       ),
 
       tool(
-        'position_cursor',
-        'Position the cursor before or after anchor text in the active Word document using Cmd+F.',
-        {
-          anchor: z.string().describe('The anchor text to search for. For type "after", use last ~60 chars of preceding text. For type "before", use first ~60 chars of following text.'),
-          type: z.enum(['before', 'after']).describe('Where to place cursor relative to anchor: "before" = before the match, "after" = after the match'),
-        },
-        async (args) => {
-          try {
-            const result = await positionCursorInWord(args.anchor, args.type);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
-      ),
-
-      tool(
-        'insert_paragraph',
-        'Insert a new paragraph at the current cursor position in Word.',
-        {
-          content: z.string().describe('The text content to insert'),
-          position: z.enum(['before', 'after']).default('after').describe('Match this to the "type" used in position_cursor. "after" = Enter then paste. "before" = paste then Enter.'),
-          defaultColor: z.string().optional().describe('Optional hex color for inserted text (e.g. "#0000FF")'),
-        },
-        async (args) => {
-          try {
-            const result = await insertParagraphInWord(args.content, args.position, args.defaultColor);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
-      ),
-
-      tool(
-        'select_text',
-        'Find and select exact text in the active Word document using Cmd+F and binary search.',
-        {
-          text: z.string().describe('The exact text to select'),
-        },
-        async (args) => {
-          try {
-            const result = await selectTextInWord(args.text);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
-      ),
-
-      tool(
-        'apply_style',
-        'Apply a named paragraph style to the current selection in Word. Use select_text first.',
-        {
-          style: z.string().describe('The style name (e.g. "Heading 1", "Normal", "Body Text")'),
-        },
-        async (args) => {
-          try {
-            const result = await applyStyleInWord(args.style);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
-      ),
-
-      tool(
-        'apply_formatting',
-        'Apply character-level formatting to the current selection in Word. Use select_text first.',
-        {
-          bold: z.boolean().optional().describe('Set bold on/off'),
-          italic: z.boolean().optional().describe('Set italic on/off'),
-          underline: z.boolean().optional().describe('Set underline on/off'),
-          strikethrough: z.boolean().optional().describe('Set strikethrough on/off'),
-          allCaps: z.boolean().optional().describe('Set all caps on/off'),
-          smallCaps: z.boolean().optional().describe('Set small caps on/off'),
-          superscript: z.boolean().optional().describe('Set superscript on/off'),
-          subscript: z.boolean().optional().describe('Set subscript on/off'),
-          color: z.string().optional().describe('Text color as hex string (e.g. "#FF0000")'),
-        },
-        async (args) => {
-          try {
-            const result = await applyFormattingInWord(args);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
-      ),
-
-      tool(
-        'delete_selection',
-        'Delete the current selection in the active Word document.',
-        {},
-        async () => {
-          try {
-            const result = await deleteSelectionInWord();
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
-      ),
-
-      tool(
         'find_and_replace',
-        'Find text in the active Word document and replace it. Uses Word\'s native find-and-replace — atomic, reliable, no keyboard simulation. Prefer this over the select_text + delete_selection + insert_paragraph sequence for text edits.',
+        'Find text in the active Word document and replace it. Uses Word\'s native find-and-replace — atomic, reliable, no keyboard simulation. When Track Changes is enabled, the edit appears as a tracked revision the user can accept/reject. Always check track_changes_status and ask the user to enable it before making edits.',
         {
           search_text: z.string().describe('The exact text to find in the document'),
           replacement_text: z.string().describe('The text to replace it with'),
@@ -225,18 +115,35 @@ export function createMsWordMcpServer() {
       ),
 
       tool(
-        'reload_document',
-        'Reload the active Word document from disk. Use this after editing the .docx file directly (e.g. XML modifications) so the user sees the changes live. Closes and reopens the document — any unsaved in-memory changes are discarded, so call save_document first if needed.',
+        'track_changes_status',
+        'Check whether Track Changes is enabled on the active Word document. Always call this before making edits. If Track Changes is off, ask the user to enable it (Review tab → Track Changes) so edits appear as tracked revisions they can accept/reject.',
         {},
         async () => {
           try {
-            const result = await reloadDocumentInWord();
+            const result = await getTrackChangesStatus();
             return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
           } catch (err) {
             return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
           }
         },
       ),
+
+      tool(
+        'set_track_changes',
+        'Enable or disable Track Changes on the active Word document.',
+        {
+          enabled: z.boolean().describe('true to enable Track Changes, false to disable'),
+        },
+        async (args) => {
+          try {
+            const result = await setTrackChanges(args.enabled);
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+          } catch (err) {
+            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+          }
+        },
+      ),
+
     ],
   });
 }
