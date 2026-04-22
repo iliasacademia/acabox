@@ -908,14 +908,12 @@ tell application "Microsoft Word"
   set doc to active document
   set docRange to create range doc start 0 end (end of content of text object of doc)
   set myFind to find object of docRange
-  tell myFind
-    set content to ${searchExpr}
-    set replacement to ${replaceExpr}
-    set match case to ${matchCase}
-    set forward to true
-    set wrap to find stop
-    set format to false
-  end tell
+  set content of myFind to ${searchExpr}
+  set content of replacement of myFind to ${replaceExpr}
+  set match case of myFind to ${matchCase}
+  set forward of myFind to true
+  set wrap of myFind to find stop
+  set format of myFind to false
   set wasReplaced to execute find myFind replace ${replaceConst}
   if wasReplaced then
     return "ok||1"
