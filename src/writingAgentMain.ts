@@ -497,7 +497,7 @@ const positionWindowMiddleRight = (): void => {
   logger.debug(`[WINDOW] Positioned at middle-right: x=${x}, y=${y}`);
 };
 
-// Position Word on the left 70% and Academia app on the right 30% of the screen
+// Position Word on the left 66.5% and Academia app on the right 33.5% of the screen
 const arrangeSideBySideWithWord = (): void => {
   if (process.platform !== 'darwin') return;
   if (!mainWindow) return;
@@ -505,15 +505,15 @@ const arrangeSideBySideWithWord = (): void => {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize;
   const workArea = primaryDisplay.workArea;
-  const wordWidth = Math.floor(screenWidth * 0.7);
+  const wordWidth = Math.floor(screenWidth * 0.665);
   const appWidth = screenWidth - wordWidth;
 
-  // Move Academia app to right 30%
+  // Move Academia app to right 33.5%
   const appX = workArea.x + wordWidth;
   mainWindow.setBounds({ x: appX, y: workArea.y, width: appWidth, height: screenHeight }, true);
-  logger.info('[Window] Positioned Academia on right 30% of screen');
+  logger.info('[Window] Positioned Academia on right 33.5% of screen');
 
-  // Move Word to left 70% — poll until Word has a window open (up to ~5s)
+  // Move Word to left 66.5% — poll until Word has a window open (up to ~5s)
   const wordLeft = workArea.x;
   const wordRight = workArea.x + wordWidth;
   const bottom = workArea.y + screenHeight;
@@ -531,7 +531,7 @@ const arrangeSideBySideWithWord = (): void => {
     '-e', 'end repeat',
   ], (error) => {
     if (error) logger.warn('[Window] Failed to position Word:', error.message);
-    else logger.info('[Window] Positioned Word on left 70% of screen');
+    else logger.info('[Window] Positioned Word on left 66.5% of screen');
   });
 };
 

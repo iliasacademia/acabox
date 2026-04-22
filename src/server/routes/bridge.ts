@@ -75,7 +75,10 @@ export async function registerBridgeRoutes(
       const { action, payload, pid, wid: clientWid } = request.body;
       // The client's wid may be stale due to async WebSocket timing.
       // Use the server's known focused window instead.
-      const wid = windowMonitorService.getFocusedWindowId() ?? clientWid;
+      // When the overlay is docked outside Word, clicking inside it causes Word to lose
+      // focus, so getFocusedWindowId() returns null. Fall back to the docked window so
+      // all bridge actions work regardless of focus state.
+      const wid = windowMonitorService.getFocusedWindowId() ?? clientWid ?? windowMonitorService.getDockedWindowId();
 
       if (isNaN(pid)) {
         reply.code(400).send({
@@ -158,6 +161,10 @@ export async function registerBridgeRoutes(
         windowMonitorService.openReviewPanelV3(wid);
       } else if (action === 'closeReviewPanelV3' && wid) {
         windowMonitorService.closeReviewPanelV3(wid);
+      } else if (action === 'setDockRight' && wid) {
+        windowMonitorService.setDockRight(wid, payload.docked === true);
+      } else if (action === 'toggleDockRight' && wid) {
+        windowMonitorService.toggleDockRight(wid);
       } else if (action === 'clearReview' && wid) {
         // Clear review state when user dismisses the overlay
         windowMonitorService.clearSelectedTextReviewState(wid);

@@ -281,21 +281,6 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
   },
 });
 
-contextBridge.exposeInMainWorld('writingAgentAPI', {
-  isLinked: () => ipcRenderer.invoke('writingAgent:isLinked'),
-  link: () => ipcRenderer.invoke('writingAgent:link'),
-  unlink: () => ipcRenderer.invoke('writingAgent:unlink'),
-  refresh: () => ipcRenderer.invoke('writingAgent:refresh'),
-  listProjects: () => ipcRenderer.invoke('writingAgent:listProjects'),
-  getProjectFiles: (projectId: number) => ipcRenderer.invoke('writingAgent:getProjectFiles', projectId),
-  listConversations: (projectId: number) => ipcRenderer.invoke('writingAgent:listConversations', projectId),
-  getConversationDetail: (conversationId: number, projectId: number) =>
-    ipcRenderer.invoke('writingAgent:getConversationDetail', conversationId, projectId),
-  continueConversation: (conversationId: number, projectId: number) =>
-    ipcRenderer.invoke('writingAgent:continueConversation', conversationId, projectId),
-  listSupportingFiles: () => ipcRenderer.invoke('writingAgent:listSupportingFiles'),
-});
-
 // Track active stream iterators per threadId to clean up stale ones
 const activeStreams = new Map<string, () => void>();
 

@@ -15,10 +15,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [isSaving, setIsSaving] = useState(false);
   const [soulContent, setSoulContent] = useState('');
   const [soulLoaded, setSoulLoaded] = useState(false);
-  const [writingAgentLinked, setWritingAgentLinked] = useState(false);
-  const [writingAgentLinking, setWritingAgentLinking] = useState(false);
-  const [writingAgentRefreshing, setWritingAgentRefreshing] = useState(false);
-  const [writingAgentError, setWritingAgentError] = useState<string | null>(null);
   const [openaiKey, setOpenaiKey] = useState('');
   const [openaiKeyLoaded, setOpenaiKeyLoaded] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
@@ -43,7 +39,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
       setOpenaiKeyLoaded(true);
     });
     window.workspacesAPI.list().then(setAllWorkspaces);
-    window.writingAgentAPI.isLinked().then(setWritingAgentLinked);
   }, []);
 
   useEffect(() => {
@@ -217,71 +212,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
             rows={6}
             disabled={!soulLoaded}
           />
-        </div>
-
-        <div className="wsSettings__field">
-          <label className="wsSettings__label">Writing Agent</label>
-          <p className="wsSettings__hint">
-            Connect to the Academia.edu Writing Agent to browse projects, manuscripts, and conversations.
-          </p>
-          {writingAgentLinked ? (
-            <div className="wsSettings__dirRow">
-              <span className="wsSettings__dirPath" style={{ color: 'var(--success, #4caf50)' }}>Connected</span>
-              <button
-                type="button"
-                className="gsStep__btn gsStep__btn--secondary"
-                disabled={writingAgentRefreshing}
-                onClick={async () => {
-                  setWritingAgentRefreshing(true);
-                  setWritingAgentError(null);
-                  try {
-                    await window.writingAgentAPI.refresh();
-                  } catch (err: any) {
-                    setWritingAgentError(err.message || 'Failed to refresh');
-                  } finally {
-                    setWritingAgentRefreshing(false);
-                  }
-                }}
-              >
-                {writingAgentRefreshing ? 'Refreshing...' : 'Refresh'}
-              </button>
-              <button
-                type="button"
-                className="gsStep__btn gsStep__btn--ghost"
-                onClick={async () => {
-                  await window.writingAgentAPI.unlink();
-                  setWritingAgentLinked(false);
-                }}
-              >
-                Unlink
-              </button>
-            </div>
-          ) : (
-            <button
-              type="button"
-              className="gsStep__btn gsStep__btn--primary"
-              disabled={writingAgentLinking}
-              onClick={async () => {
-                setWritingAgentLinking(true);
-                setWritingAgentError(null);
-                try {
-                  const result = await window.writingAgentAPI.link();
-                  if (result.success) {
-                    setWritingAgentLinked(true);
-                  } else {
-                    setWritingAgentError(result.error || 'Failed to link');
-                  }
-                } catch (err: any) {
-                  setWritingAgentError(err.message || 'Failed to link');
-                } finally {
-                  setWritingAgentLinking(false);
-                }
-              }}
-            >
-              {writingAgentLinking ? 'Linking...' : 'Link to Writing Agent'}
-            </button>
-          )}
-          {writingAgentError && <p className="gsStep__error" style={{ marginTop: 8 }}>{writingAgentError}</p>}
         </div>
 
         <div className="wsSettings__field">

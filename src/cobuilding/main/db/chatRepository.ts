@@ -31,13 +31,6 @@ export function getSession(id: string): Session | undefined {
 
 export function listSessions(workspaceId: string, source?: string): Session[] {
   if (source !== undefined) {
-    // writing_agent source uses prefix match because continued conversations
-    // encode IDs as writing_agent:conversationId:projectId
-    if (source === 'writing_agent') {
-      return getDatabase()
-        .prepare("SELECT * FROM sessions WHERE workspace_id = ? AND source LIKE 'writing\\_agent%' ESCAPE '\\' ORDER BY updated_at DESC")
-        .all(workspaceId) as Session[];
-    }
     return getDatabase()
       .prepare('SELECT * FROM sessions WHERE workspace_id = ? AND source = ? ORDER BY updated_at DESC')
       .all(workspaceId, source) as Session[];

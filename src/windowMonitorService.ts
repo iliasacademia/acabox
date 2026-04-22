@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, execFile, spawn } from 'child_process';
 import { app, screen } from 'electron';
 import { readFileSync } from 'fs';
 import * as path from 'path';
@@ -40,6 +40,7 @@ const REVIEW_PANEL_HEIGHT = 650;
 const REVIEW_V3_LEFT_MARGIN = 30;
 const REVIEW_V3_BOTTOM_MARGIN = 30;
 
+const MIN_DOCKED_WIDTH = 320; // Minimum useful panel width when docked to the right of Word
 const REVIEWING_BUTTON_V2_WIDTH = 320;
 const ENABLE_FEEDBACK_BUTTON_WIDTH = 220;
 const BUTTON_WITH_REVIEW_WIDTH = 700;
@@ -263,6 +264,7 @@ export class WindowMonitorService {
   private documentTextCacheCleanupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private reviewErrorMessages = new Map<string, string>();
   private reviewPanelV3Open: Set<string> = new Set();
+  private dockedRightWindows: Set<string> = new Set();
   private reviewPanelV3SelectedText = new Map<string, string>();
   private lastSelectedText: string | null = null;
   private lastDesiredState: DesiredWebviewState = {};
@@ -272,6 +274,10 @@ export class WindowMonitorService {
   private authToken: string | null = null;
   // File paths for which the popup should auto-open when the window is first detected
   private pendingAutoOpenPaths: Set<string> = new Set();
+  // Cobuilding workspace directory — when set, documents within this directory
+  // are treated as workspace files and the overlay shows workspace sessions.
+  private workspaceDirectory: string | null = null;
+  private sessionsProvider: (() => Array<{ id: string; title: string; created_at: string }>) | null = null;
 
   start(baseUrl: string, authToken: string, allAppsEnabled: boolean = false): void {
     this.baseUrl = baseUrl;
@@ -325,6 +331,7 @@ export class WindowMonitorService {
 
         const timer = setTimeout(() => {
           this.selectionClearTimers.delete(windowId);
+          this.selectedTextContentCache.delete(windowId);
           // Now apply the deferred clear
           const deferredState = reduceWindowMonitorEvent(this.state, event);
           this.state = deferredState;
@@ -332,6 +339,7 @@ export class WindowMonitorService {
             logger.info('[VERBOSE] [WindowMonitorService] State:', deferredState);
           }
           this.pushWebviewState();
+          wordPollEventBus.emit('change', 'selected-text-cleared');
         }, 500);
         this.selectionClearTimers.set(windowId, timer);
         return; // Skip immediate processing
@@ -386,6 +394,7 @@ export class WindowMonitorService {
           if (content.length > 0) {
             this.selectedTextContentCache.set(event.window.id, content);
             this.lastSelectedText = content;
+            wordPollEventBus.emit('change', 'selected-text-changed');
           }
         } catch (err) {
           logger.error(`[WindowMonitorService] Failed to cache selected text for window ${event.window.id}:`, err);
@@ -509,7 +518,7 @@ export class WindowMonitorService {
   private pushWebviewState(): void {
     if (!this.baseUrl || !this.authToken) return;
 
-    const screenHeight = screen.getPrimaryDisplay().bounds.height;
+    const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().bounds;
     const desiredState = computeWebviewStateV4(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
 
     const focused = getFocusedWindowInfo(this.state);
@@ -582,17 +591,50 @@ export class WindowMonitorService {
         desiredState[buttonKey].frame.x += clampedDx;
         desiredState[buttonKey].frame.y += clampedDy;
 
-        if (desiredState[popupKey]) {
+        // Don't move the popup with the button when docked — docked override handles position
+        if (desiredState[popupKey] && !this.dockedRightWindows.has(windowId)) {
           desiredState[popupKey].frame.x += clampedDx;
           desiredState[popupKey].frame.y += clampedDy;
         }
       } else {
         desiredState[buttonKey].frame.x += offset.dx;
         desiredState[buttonKey].frame.y += offset.dy;
-        if (desiredState[popupKey]) {
+        // Don't move the popup with the button when docked — docked override handles position
+        if (desiredState[popupKey] && !this.dockedRightWindows.has(windowId)) {
           desiredState[popupKey].frame.x += offset.dx;
           desiredState[popupKey].frame.y += offset.dy;
         }
+      }
+    }
+
+    // Apply docked-right override — snaps popup-v2 to right edge of Word window, full height.
+    // When Word is maximized and there is insufficient space to the right, skip the docked
+    // override so the panel falls back to the regular floating overlay behavior.
+    // Look up bounds by windowId directly — clicking the overlay causes Word to lose focus,
+    // so focused?.window.bounds may be null.
+    if (windowId && this.dockedRightWindows.has(windowId) && desiredState['popup-v2']) {
+      let dockedWindowBounds: WindowBounds | null = focused?.window.bounds ?? null;
+      if (!dockedWindowBounds) {
+        for (const app of this.state.apps) {
+          for (const win of app.windows) {
+            if (win.id === windowId) { dockedWindowBounds = win.bounds; break; }
+          }
+          if (dockedWindowBounds) break;
+        }
+      }
+      if (dockedWindowBounds) {
+        const dockedX = dockedWindowBounds.x + dockedWindowBounds.width;
+        const remainingWidth = screenWidth - dockedX;
+        if (remainingWidth >= MIN_DOCKED_WIDTH) {
+          desiredState['popup-v2'].frame.x = dockedX;
+          desiredState['popup-v2'].frame.y = screenHeight - (dockedWindowBounds.y + dockedWindowBounds.height);
+          desiredState['popup-v2'].frame.width = Math.min(remainingWidth, dockedWindowBounds.width);
+          desiredState['popup-v2'].frame.height = dockedWindowBounds.height;
+          desiredState['popup-v2'].visible = true;
+          // Hide the floating button — the panel is always visible when docked
+          if (desiredState['button-v2']) desiredState['button-v2'].visible = false;
+        }
+        // else: Word is too wide — fall through to regular floating overlay
       }
     }
 
@@ -783,6 +825,7 @@ export class WindowMonitorService {
 
   closePopupForWindow(windowId: string, clearReviewState: boolean = true): void {
     logger.info(`[WindowMonitor] Closing popup for window ${windowId}, clearReviewState=${clearReviewState}`);
+    this.dockedRightWindows.delete(windowId);
     if (this.popupToggledOpen.delete(windowId)) {
       this.popupHeightOverrides.delete(windowId);
       this.popupSizeOverrides.delete(windowId);
@@ -884,8 +927,116 @@ export class WindowMonitorService {
     return this.reviewPanelV3Open.has(windowId);
   }
 
+  getDockedWindowId(): string | null {
+    return this.dockedRightWindows.size > 0 ? [...this.dockedRightWindows][0] : null;
+  }
+
+  /**
+   * Returns true when the window is registered as docked AND there is currently
+   * enough screen space to the right of the Word window to show the panel.
+   * Returns false when Word is maximized (or very wide) and the panel has fallen
+   * back to the floating overlay position.
+   */
+  isDockedActive(windowId: string): boolean {
+    if (!this.dockedRightWindows.has(windowId)) return false;
+    // Find the window bounds by ID (the window may not be focused)
+    let windowBounds: WindowBounds | null = null;
+    for (const app of this.state.apps) {
+      for (const window of app.windows) {
+        if (window.id === windowId) {
+          windowBounds = window.bounds;
+          break;
+        }
+      }
+      if (windowBounds) break;
+    }
+    if (!windowBounds) return false;
+    const { width: screenWidth } = screen.getPrimaryDisplay().bounds;
+    const remainingWidth = screenWidth - (windowBounds.x + windowBounds.width);
+    return remainingWidth >= MIN_DOCKED_WIDTH;
+  }
+
+  setDockRight(windowId: string, docked: boolean): void {
+    if (docked) {
+      this.dockedRightWindows.add(windowId);
+      this.popupToggledOpen.add(windowId);
+      logger.info(`[WindowMonitor] setDockRight: docked wid=${windowId}`);
+
+      // If Word is too wide to fit the panel beside it (e.g. maximized), resize Word to
+      // 66.5% of the work area so the overlay can occupy the remaining 33.5%.
+      // Look up bounds by windowId directly — clicking the overlay causes Word to lose
+      // focus, so getFocusedWindowInfo() may return null.
+      let windowBounds: WindowBounds | null = null;
+      for (const app of this.state.apps) {
+        for (const win of app.windows) {
+          if (win.id === windowId) { windowBounds = win.bounds; break; }
+        }
+        if (windowBounds) break;
+      }
+      const { width: screenWidth } = screen.getPrimaryDisplay().bounds;
+      if (windowBounds && (screenWidth - (windowBounds.x + windowBounds.width)) < MIN_DOCKED_WIDTH) {
+        this.resizeWordForDocking();
+      }
+    } else {
+      this.dockedRightWindows.delete(windowId);
+      logger.info(`[WindowMonitor] setDockRight: undocked wid=${windowId}`);
+    }
+    this.pushWebviewState();
+  }
+
+  private resizeWordForDocking(): void {
+    const workArea = screen.getPrimaryDisplay().workArea;
+    const wordWidth = Math.floor(workArea.width * 0.665);
+    const wordLeft = workArea.x;
+    const wordRight = workArea.x + wordWidth;
+    const top = workArea.y;
+    const bottom = workArea.y + workArea.height;
+
+    execFile('osascript', [
+      '-e', 'tell application "Microsoft Word"',
+      '-e', 'if (count of windows) > 0 then',
+      '-e', `set bounds of window 1 to {${wordLeft}, ${top}, ${wordRight}, ${bottom}}`,
+      '-e', 'end if',
+      '-e', 'end tell',
+    ], (error) => {
+      if (error) {
+        logger.warn('[WindowMonitor] Failed to resize Word for docking:', error.message);
+      }
+      // Re-push state after Word has been resized so the overlay snaps into position
+      setTimeout(() => this.pushWebviewState(), 300);
+    });
+  }
+
+  toggleDockRight(windowId: string): void {
+    if (this.dockedRightWindows.has(windowId)) {
+      this.dockedRightWindows.delete(windowId);
+      logger.info(`[WindowMonitor] Undocked popup for window ${windowId}`);
+    } else {
+      this.dockedRightWindows.add(windowId);
+      this.popupToggledOpen.add(windowId); // Ensure popup is visible when docking
+      logger.info(`[WindowMonitor] Docked popup to right for window ${windowId}`);
+    }
+    this.pushWebviewState();
+  }
+
   getReviewPanelV3SelectedText(windowId: string): string | null {
     return this.reviewPanelV3SelectedText.get(windowId) ?? this.lastSelectedText;
+  }
+
+  setWorkspaceDirectory(directory: string | null): void {
+    this.workspaceDirectory = directory;
+  }
+
+  getWorkspaceDirectory(): string | null {
+    return this.workspaceDirectory;
+  }
+
+  setSessionsProvider(provider: (() => Array<{ id: string; title: string; created_at: string }>) | null): void {
+    this.sessionsProvider = provider;
+  }
+
+  getWorkspaceSessions(): Array<{ id: string; title: string; created_at: string }> {
+    return this.sessionsProvider?.() ?? [];
   }
 
   stop(): void {

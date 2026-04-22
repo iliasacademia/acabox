@@ -173,6 +173,16 @@ export interface WordPollResponse {
   hasSelectedText?: boolean;
   /** Review state for the project file, derived from events polling */
   projectReviewState?: 'idle' | 'reviewing' | 'completed' | 'failed';
+  /** Whether the overlay is currently rendered in the docked position (false when Word is maximized and panel fell back to floating) */
+  isDockedActive?: boolean;
+  /** Whether the open document is within the cobuilding workspace directory */
+  isInWorkspace?: boolean;
+  /** Cobuilding workspace sessions (included when isInWorkspace is true) */
+  workspaceSessions?: Array<{
+    id: string;
+    title: string;
+    created_at: string;
+  }>;
   /** FullStory configuration for popup initialization (avoids extra HTTP calls) */
   fullStoryConfig?: {
     userId: number | null;
@@ -190,11 +200,13 @@ export interface WordPollResponse {
  */
 export interface NavigateRequestBody {
   /** Target page */
-  page: 'conversation' | 'conversations' | 'external';
+  page: 'conversation' | 'conversations' | 'external' | 'session';
   /** Project ID (required for 'conversation' and 'conversations' pages) */
   projectId?: number;
   /** Conversation ID (required for 'conversation' page) */
   conversationId?: number;
+  /** Session ID (required for 'session' page — cobuilding workspace session) */
+  sessionId?: string;
   /** Whether to auto-open the diff modal */
   openDiffModal?: boolean;
   /** URL to open (required for 'external' page) */

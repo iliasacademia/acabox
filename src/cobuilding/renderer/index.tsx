@@ -9,7 +9,7 @@ import {
   useAssistantRuntime,
   useComposerRuntime,
 } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon, BookOpenIcon, MicIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon, MicIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
@@ -21,7 +21,6 @@ import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ScheduledTasksSidebar } from './components/ScheduledTasksSidebar';
 import { ReactionsSidebar } from './components/ReactionsSidebar';
-import { WritingSidebar } from './components/WritingSidebar';
 import { FocusEditor } from './components/FocusEditor';
 import { NotesSidebar } from './components/NotesSidebar';
 import { NotesPanel } from './components/NotesPanel';
@@ -127,6 +126,36 @@ function NotificationNavigator({
     };
     window.electronAPI.on('notification:navigate', handler);
     return () => window.electronAPI.removeListener('notification:navigate', handler);
+  }, [runtime, setSidebarTab, deactivateAllTabs]);
+
+  return null;
+}
+
+/** Listens for navigate-to-page IPC (from Word overlay) and shows the chat view. */
+function OverlayNavigationHandler({
+  setSidebarTab,
+  deactivateAllTabs,
+}: {
+  setSidebarTab: (tab: SidebarTab) => void;
+  deactivateAllTabs: () => void;
+}) {
+  const runtime = useAssistantRuntime();
+
+  useEffect(() => {
+    const handler = (_event: unknown, payload: { page: string; projectId?: number; conversationId?: number; sessionId?: string }) => {
+      console.log('[OverlayNav] Received navigate-to-page:', JSON.stringify(payload));
+      setSidebarTab('chats');
+      deactivateAllTabs();
+      if (payload.sessionId) {
+        try {
+          runtime.threads.switchToThread(payload.sessionId);
+        } catch (err) {
+          console.error('[OverlayNav] Failed to switch to session:', err);
+        }
+      }
+    };
+    window.electronAPI.on('navigate-to-page', handler);
+    return () => window.electronAPI.removeListener('navigate-to-page', handler);
   }, [runtime, setSidebarTab, deactivateAllTabs]);
 
   return null;
@@ -460,6 +489,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); deactivateAllTabs(); }} />
       <NotificationNavigator setSidebarTab={setSidebarTab} deactivateAllTabs={deactivateAllTabs} />
+      <OverlayNavigationHandler setSidebarTab={setSidebarTab} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
         <div className="appRoot">
           <SetupBanner />
@@ -499,13 +529,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             >
               <SparklesIcon style={{ width: 20, height: 20 }} />
               <span className="activityBarBtnLabel">Reactions</span>
-            </button>
-            <button
-              className={`activityBarBtn ${sidebarTab === 'writing' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setSidebarTab('writing')}
-            >
-              <BookOpenIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Writing</span>
             </button>
             <button
               className={`activityBarBtn ${sidebarTab === 'notes' ? 'activityBarBtn--active' : ''}`}
@@ -552,10 +575,6 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                     />
                   ) : sidebarTab === 'reactions' ? (
                     <ReactionsSidebar onOpenFocus={handleOpenFocus} />
-                  ) : sidebarTab === 'writing' ? (
-                    <WritingSidebar
-                      onContinueConversation={deactivateAllTabs}
-                    />
                   ) : sidebarTab === 'scheduled' ? (
                     <ScheduledTasksSidebar
                       selectedTaskId={selectedTaskId}

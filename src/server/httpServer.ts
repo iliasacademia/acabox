@@ -54,6 +54,7 @@ export class AcademiaHttpServer {
   private tokenManager: TokenManager;
   private authToken: string | null = null;
   private navigationHandler: NavigationHandler | null = null;
+  private routeRegistrars: Array<(fastify: FastifyInstance) => Promise<void>> = [];
 
   /**
    * Create a new HTTP server instance
@@ -85,6 +86,14 @@ export class AcademiaHttpServer {
    */
   setNavigationHandler(handler: NavigationHandler): void {
     this.navigationHandler = handler;
+  }
+
+  /**
+   * Register a custom route registrar to be invoked during start().
+   * Must be called before start().
+   */
+  addRouteRegistrar(registrar: (fastify: FastifyInstance) => Promise<void>): void {
+    this.routeRegistrars.push(registrar);
   }
 
   /**
@@ -274,6 +283,11 @@ export class AcademiaHttpServer {
 
     // Register MS Word MCP routes
     await registerMsWordRoutes(this.fastify);
+
+    // Register any custom routes added via addRouteRegistrar()
+    for (const registrar of this.routeRegistrars) {
+      await registrar(this.fastify);
+    }
 
     // Start listening - try ports in range (default 23111-23120)
     const startPort = this.config.port;
