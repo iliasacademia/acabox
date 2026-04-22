@@ -20,7 +20,7 @@ import {
 import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 import { logToWindowMonitorDb } from './windowMonitorDb';
 
-const BUTTON_WIDTH = 260;
+const BUTTON_WIDTH = 290;
 const BUTTON_HEIGHT = 50;
 const BUTTON_LEFT_MARGIN = 50;
 const BUTTON_BOTTOM_MARGIN = 30;
@@ -85,6 +85,9 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
       forApp: 'com.microsoft.Word',
       computeFrame: (_bounds: WindowBounds, screenHeight: number, _contentBounds, selectionBounds, windowId?: string) => {
         if (!_contentBounds) return null;
+
+        // In cobuilding mode, selection goes to the composer pill — no review button needed
+        if (service.getWorkspaceDirectory()) return null;
 
         // Hide review button when review input is open
         if (windowId && service['reviewInputOpen'].has(windowId)) return null;
@@ -562,10 +565,12 @@ export class WindowMonitorService {
           desiredState['button-v2'].frame.width = ENABLE_FEEDBACK_BUTTON_WIDTH;
         }
       }
-      // Widen for "Review Selection" when text is selected
-      const selectedText = this.getSelectedTextForWindow(windowId);
-      if (selectedText && selectedText.length > 0) {
-        desiredState['button-v2'].frame.width = Math.max(desiredState['button-v2'].frame.width, BUTTON_WITH_REVIEW_WIDTH);
+      // Widen for "Review Selection" when text is selected (not in cobuilding mode)
+      if (!this.workspaceDirectory) {
+        const selectedText = this.getSelectedTextForWindow(windowId);
+        if (selectedText && selectedText.length > 0) {
+          desiredState['button-v2'].frame.width = Math.max(desiredState['button-v2'].frame.width, BUTTON_WITH_REVIEW_WIDTH);
+        }
       }
     }
 
