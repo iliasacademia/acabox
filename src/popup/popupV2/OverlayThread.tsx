@@ -6,7 +6,7 @@
  * but has a simpler composer without ModelSelector or file attachments.
  */
 
-import React from 'react';
+import React, { createContext, useContext } from 'react';
 import type { FC } from 'react';
 import {
   ActionBarPrimitive,
@@ -32,8 +32,17 @@ import {
   SquareIcon,
 } from 'lucide-react';
 
-export const OverlayThread: FC = () => {
+interface OverlayContextPills {
+  documentPath?: string | null;
+  selectedText?: string | null;
+  onDismissSelection?: () => void;
+}
+
+const PillsContext = createContext<OverlayContextPills>({});
+
+export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedText, onDismissSelection }) => {
   return (
+    <PillsContext.Provider value={{ documentPath, selectedText, onDismissSelection }}>
     <TooltipProvider>
       <ThreadPrimitive.Root className="threadRoot">
         <ThreadPrimitive.Viewport
@@ -67,6 +76,7 @@ export const OverlayThread: FC = () => {
         </ThreadPrimitive.Viewport>
       </ThreadPrimitive.Root>
     </TooltipProvider>
+    </PillsContext.Provider>
   );
 };
 
@@ -143,11 +153,53 @@ const OverlayUserMessage: FC = () => {
 };
 
 const OverlayComposer: FC = () => {
+  const { documentPath, selectedText, onDismissSelection } = useContext(PillsContext);
+
   return (
     <ComposerPrimitive.Root className="composerRoot">
+      {/* Context pills inside the composer, above the input */}
+      {(documentPath || selectedText) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '8px 12px 0 12px' }}>
+          {documentPath && (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              backgroundColor: '#EEF2F9', borderRadius: '12px', padding: '2px 10px',
+              fontFamily: "'DM Sans', sans-serif", fontSize: '12px', color: '#3d5a80',
+            }}>
+              <span>📄</span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>
+                {documentPath.split('/').pop()}
+              </span>
+            </div>
+          )}
+          {selectedText && (
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '4px',
+              backgroundColor: '#F0EBF8', borderRadius: '12px', padding: '2px 10px',
+              fontFamily: "'DM Sans', sans-serif", fontSize: '12px', color: '#5B4A8A',
+              maxWidth: '100%',
+            }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
+                {selectedText.length > 80 ? selectedText.substring(0, 80) + '...' : selectedText}
+              </span>
+              <button
+                onClick={onDismissSelection}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer',
+                  padding: '0 2px', fontSize: '12px', lineHeight: '1',
+                  color: '#5B4A8A', flexShrink: 0,
+                }}
+                aria-label="Clear selection"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <div className="composerShell">
         <ComposerPrimitive.Input
-          placeholder="Send a message..."
+          placeholder={selectedText ? 'Ask about selection...' : documentPath ? 'Ask about this document...' : 'Send a message...'}
           className="composerInput"
           rows={1}
           autoFocus

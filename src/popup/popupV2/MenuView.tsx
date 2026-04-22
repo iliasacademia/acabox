@@ -214,54 +214,14 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
         </span>
       </div>
 
-      {/* Context indicators */}
-      {(documentPath || activeSelectedText) && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px', flexShrink: 0 }}>
-          {documentPath && (
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              backgroundColor: '#EEF2F9', borderRadius: '6px', padding: '3px 8px',
-              fontFamily: "'DM Sans', sans-serif", fontSize: '12px', color: '#3d5a80',
-              alignSelf: 'flex-start',
-            }}>
-              <span style={{ flexShrink: 0 }}>📄</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {documentPath.split('/').pop()}
-              </span>
-            </div>
-          )}
-          {activeSelectedText && (
-            <div style={{
-              display: 'flex', alignItems: 'flex-start', gap: '4px',
-              backgroundColor: '#F0EBF8', borderRadius: '6px', padding: '4px 8px',
-            }}>
-              <div style={{
-                flex: 1, fontFamily: "'DM Sans', sans-serif", fontSize: '12px',
-                color: '#5B4A8A', lineHeight: '1.4', maxHeight: '60px',
-                overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              }}>
-                {activeSelectedText}
-              </div>
-              <button
-                onClick={() => { setSelectionDismissed(true); setLocalSelectedText(null); }}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  padding: '0 2px', fontSize: '14px', lineHeight: '1',
-                  color: '#5B4A8A', flexShrink: 0,
-                }}
-                aria-label="Clear selection"
-              >
-                ✕
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Chat — uses the same Thread component as the desktop app */}
       <div style={{ flex: 1, minHeight: 0 }}>
         <AssistantRuntimeProvider runtime={runtime}>
-          <OverlayThread />
+          <OverlayThread
+            documentPath={documentPath}
+            selectedText={activeSelectedText}
+            onDismissSelection={() => { setSelectionDismissed(true); setLocalSelectedText(null); }}
+          />
         </AssistantRuntimeProvider>
       </div>
     </div>
