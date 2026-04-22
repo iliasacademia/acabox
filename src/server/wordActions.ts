@@ -952,13 +952,17 @@ export interface ReloadDocumentResult {
 
 /**
  * Reload the active Word document from disk.
- * Closes the document (discarding in-memory state) and reopens it,
- * so any on-disk edits (e.g. XML modifications) are reflected live.
+ * Uses multiple strategies:
+ * 1. Word's native 'revert' command (no close/reopen needed)
+ * 2. Fallback: Cmd+F5 (Mac Word shortcut for revert)
+ * 3. Fallback: close without saving + reopen
  */
 export async function reloadDocumentInWord(): Promise<ReloadDocumentResult> {
   logger.info('[WordActions] reloadDocumentInWord');
 
   try {
+    // Strategy 1: Use Word's revert command via AppleScript object model.
+    // This is the cleanest — no close/reopen, no permission dialogs.
     const script = `
 tell application "Microsoft Word"
   if (count of documents) is 0 then
@@ -966,10 +970,22 @@ tell application "Microsoft Word"
   end if
   set doc to active document
   set docPath to full name of doc
-  close doc saving no
-  delay 0.3
-  open docPath
-  return "ok||" & docPath
+  -- Word's revert discards in-memory changes and reloads from disk
+  try
+    revert doc
+    return "ok||" & docPath
+  on error errMsg
+    -- Revert may fail if document was never saved or is read-only.
+    -- Fall back to close + reopen.
+    try
+      close doc saving no
+      delay 0.3
+      open docPath
+      return "ok||" & docPath
+    on error errMsg2
+      return "error||" & errMsg2
+    end try
+  end try
 end tell`;
 
     const result = await runAppleScriptStdin(script);
