@@ -28,7 +28,6 @@ import { TooltipProvider } from '../../cobuilding/renderer/components/ui/tooltip
 import { ToolFallback } from '../../cobuilding/renderer/components/assistant-ui/tool-fallback';
 import { ToolGroup } from '../../cobuilding/renderer/components/assistant-ui/tool-group';
 import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thinking-indicator';
-import { serverUrl, tokenParam } from './shared';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -39,18 +38,7 @@ import {
   SquareIcon,
 } from 'lucide-react';
 
-// ─── Overlay MarkdownText with word-ref: link support ──────────────
-
-function scrollWordToText(rawText: string) {
-  // Strip newlines/carriage returns the agent may have included
-  const text = rawText.replace(/[\r\n]+/g, ' ').trim();
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (tokenParam) headers['Authorization'] = `Bearer ${tokenParam}`;
-  fetch(`${serverUrl}/api/cobuilding/word/scroll-to`, {
-    method: 'POST', headers,
-    body: JSON.stringify({ text }),
-  }).catch(() => {});
-}
+// ─── Overlay MarkdownText ───────────────────────────────────────────
 
 const useCopyToClipboard = ({ copiedDuration = 3000 }: { copiedDuration?: number } = {}) => {
   const [isCopied, setIsCopied] = useState(false);
@@ -76,26 +64,18 @@ const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
 };
 
 const overlayComponents = memoizeMarkdownComponents({
-  a: ({ href, children, ...props }) => {
-    const isWordRef = href?.startsWith('word-ref:');
-    return (
-      <a
-        {...props}
-        href={href}
-        style={isWordRef ? { color: '#0645b1', cursor: 'pointer', textDecoration: 'underline' } : undefined}
-        onClick={(e) => {
-          e.preventDefault();
-          if (isWordRef) {
-            scrollWordToText(href!.substring('word-ref:'.length));
-          } else if (href) {
-            window.open(href, '_blank');
-          }
-        }}
-      >
-        {children}
-      </a>
-    );
-  },
+  a: ({ href, children, ...props }) => (
+    <a
+      {...props}
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) window.open(href, '_blank');
+      }}
+    >
+      {children}
+    </a>
+  ),
   code: function Code({ className, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
     return <code className={`${!isCodeBlock ? 'inlineCode' : ''}${className ? ` ${className}` : ''}`} {...props} />;
@@ -103,25 +83,12 @@ const overlayComponents = memoizeMarkdownComponents({
   CodeHeader: OverlayCodeHeader,
 });
 
-/**
- * Clean word-ref: URLs in raw markdown source before the parser sees them.
- * \r or \n inside a markdown link URL breaks the parser — it never creates
- * a link node, so AST-level plugins can't fix it.
- */
-function cleanWordRefUrls(markdown: string): string {
-  // Match markdown links with word-ref: URLs and strip \r\n from the URL portion
-  return markdown.replace(/\]\(word-ref:[^)]*\)/g, (match) =>
-    match.replace(/[\r\n]+/g, ' ')
-  );
-}
-
 const OverlayMarkdownText = memo(() => {
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}
       className="auiMd"
       components={overlayComponents}
-      preprocess={cleanWordRefUrls}
     />
   );
 });

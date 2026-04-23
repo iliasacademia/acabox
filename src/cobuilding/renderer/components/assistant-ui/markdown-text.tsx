@@ -46,20 +46,9 @@ const MarkdownTextImpl = () => {
       remarkPlugins={[remarkGfm]}
       className="auiMd"
       components={defaultComponents}
-      preprocess={cleanWordRefUrls}
     />
   );
 };
-
-/**
- * Clean word-ref: URLs in raw markdown before the parser sees them.
- * \r or \n in a URL breaks the markdown parser — it never creates a link node.
- */
-function cleanWordRefUrls(markdown: string): string {
-  return markdown.replace(/\]\(word-ref:[^)]*\)/g, (match) =>
-    match.replace(/[\r\n]+/g, ' ')
-  );
-}
 
 export const MarkdownText = memo(MarkdownTextImpl);
 
@@ -98,28 +87,20 @@ const useCopyToClipboard = ({
 };
 
 const defaultComponents = memoizeMarkdownComponents({
-  a: ({ href, children, ...props }) => {
-    const isWordRef = href?.startsWith('word-ref:');
-    return (
-      <a
-        {...props}
-        href={href}
-        style={isWordRef ? { color: '#0645b1', cursor: 'pointer', textDecoration: 'underline' } : undefined}
-        onClick={(e) => {
-          e.preventDefault();
-          if (isWordRef) {
-            // Scroll Word to the referenced text (strip newlines agent may include)
-            const anchor = href!.substring('word-ref:'.length).replace(/[\r\n]+/g, ' ').trim();
-            (window as any).electronAPI.invoke('word:scroll-to', anchor);
-          } else if (href) {
-            (window as any).electronAPI.invoke('shell:openExternal', href);
-          }
-        }}
-      >
-        {children}
-      </a>
-    );
-  },
+  a: ({ href, children, ...props }) => (
+    <a
+      {...props}
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) {
+          (window as any).electronAPI.invoke('shell:openExternal', href);
+        }
+      }}
+    >
+      {children}
+    </a>
+  ),
   code: function Code({ className, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
     return (
