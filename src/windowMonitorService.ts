@@ -529,20 +529,7 @@ export class WindowMonitorService {
     const desiredState = computeWebviewStateV4(this.state, getWebviewConfigs(this), this.baseUrl, this.authToken, screenHeight);
 
     const focused = getFocusedWindowInfo(this.state);
-    let windowId = focused?.window.id ?? null;
-
-    // In cobuilding mode, keep the overlay visible when Word loses focus
-    // by reusing the last desired state instead of an empty one.
-    if (this.workspaceDirectory && !windowId && this.lastV4FocusedWindowId) {
-      const hasOverlay = Object.keys(desiredState).length > 0;
-      if (!hasOverlay && Object.keys(this.lastDesiredState).length > 0) {
-        // Word lost focus — keep the overlay at its last position
-        windowId = this.lastV4FocusedWindowId;
-        for (const [key, value] of Object.entries(this.lastDesiredState)) {
-          desiredState[key] = value;
-        }
-      }
-    }
+    const windowId = focused?.window.id ?? null;
 
     // Apply per-window overrides using global keys
     if (desiredState['popup-v2'] && windowId) {
