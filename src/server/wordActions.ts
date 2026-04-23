@@ -905,6 +905,11 @@ tell application "Microsoft Word"
   if (count of documents) is 0 then
     return "error||No document open"
   end if
+  -- Temporarily set author name so tracked changes show "Academia Coscientist"
+  set origName to user name
+  set origInitials to user initials
+  set user name to "Academia Coscientist"
+  set user initials to "AC"
   set doc to active document
   set docRange to create range doc start 0 end (end of content of text object of doc)
   set myFind to find object of docRange
@@ -915,6 +920,9 @@ tell application "Microsoft Word"
   set wrap of myFind to find stop
   set format of myFind to false
   set wasReplaced to execute find myFind replace ${replaceConst}
+  -- Restore original author name
+  set user name to origName
+  set user initials to origInitials
   if wasReplaced then
     return "ok||1"
   else
