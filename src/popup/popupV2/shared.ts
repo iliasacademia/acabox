@@ -261,6 +261,8 @@ export const styles: { [key: string]: React.CSSProperties } = {
     alignItems: 'flex-start',
     justifyContent: 'center',
     backgroundColor: 'transparent',
+    borderRadius: '16px',
+    overflow: 'hidden',
   },
   modal: {
     width: '100%',

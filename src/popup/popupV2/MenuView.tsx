@@ -3,7 +3,7 @@ import {
   useLocalRuntime,
   AssistantRuntimeProvider,
 } from '@assistant-ui/react';
-import { OverlayThread, type EditMode } from './OverlayThread';
+import { OverlayThread } from './OverlayThread';
 import { useHttpChatAdapter, useHttpHistoryAdapter } from './httpChatAdapter';
 import '../../cobuilding/renderer/App.css';
 import '@assistant-ui/react-markdown/styles/dot.css';
@@ -129,7 +129,7 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
         </div>
       ) : (
         <div style={styles.feedbackContent}>
-          {sessions.slice(0, 5).map((session) => (
+          {sessions.map((session) => (
             <button
               key={session.id}
               style={styles.notificationCard}
@@ -187,20 +187,10 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
 
   const activeSelectedText = selectionDismissed ? null : localSelectedText;
 
-  // Edit mode: 'ask' = present edits for approval, 'accept' = apply directly
-  const [editMode, setEditMode] = useState<EditMode>(() =>
-    (localStorage.getItem('overlay_edit_mode') as EditMode) || 'ask'
-  );
-  const handleEditModeChange = useCallback((mode: EditMode) => {
-    setEditMode(mode);
-    localStorage.setItem('overlay_edit_mode', mode);
-  }, []);
-
   const getContext = useCallback(() => ({
     documentPath,
     selectedText: activeSelectedText,
-    editMode,
-  }), [documentPath, activeSelectedText, editMode]);
+  }), [documentPath, activeSelectedText]);
 
   const chatAdapter = useHttpChatAdapter({
     serverUrl,
@@ -231,8 +221,6 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
             documentPath={documentPath}
             selectedText={activeSelectedText}
             onDismissSelection={() => { setSelectionDismissed(true); setLocalSelectedText(null); }}
-            editMode={editMode}
-            onEditModeChange={handleEditModeChange}
           />
         </AssistantRuntimeProvider>
       </div>

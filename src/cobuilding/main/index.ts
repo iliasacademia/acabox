@@ -70,8 +70,6 @@ import { AcademiaHttpServer } from '../../server/httpServer';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
-import { setEditApprovalMode } from './mcpServers/msWordMcpServer';
-
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -315,6 +313,9 @@ function handleNotificationNavigation(action: NotificationNavigationAction | nul
 let activeWorkspace: Workspace | null = null;
 
 let cachedApiKey: string | null = null;
+
+// Shared edit state store — keyed by toolCallId, synced between overlay and desktop
+const editStates = new Map<string, string>();
 
 // Tracks IPC forwarding listeners per (threadId, webContentsId) to avoid duplicates.
 // Both chat:subscribe and chat:send use this to ensure exactly one forwarding listener
@@ -577,17 +578,54 @@ app.whenReady().then(() => {
               },
             );
 
+            // POST /api/cobuilding/apply-edit — execute a user-approved edit
+            fastify.post<{ Body: { toolCallId: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean } }>(
+              '/api/cobuilding/apply-edit',
+              async (request, reply) => {
+                try {
+                  const { findAndReplaceInWord } = await import('../../server/wordActions');
+                  const { toolCallId, search_text, replacement_text, replace_scope, match_case } = request.body;
+                  const result = await findAndReplaceInWord(
+                    search_text,
+                    replacement_text,
+                    (replace_scope as 'first' | 'all') || 'first',
+                    match_case ?? true,
+                  );
+                  const state = result.success ? 'applied' : 'error';
+                  if (toolCallId) editStates.set(toolCallId, state);
+                  reply.send(result);
+                } catch (err) {
+                  reply.code(500).send({ success: false, error: String(err) });
+                }
+              },
+            );
+
+            // POST /api/cobuilding/edit-state — set edit state (for deny)
+            fastify.post<{ Body: { toolCallId: string; state: string } }>(
+              '/api/cobuilding/edit-state',
+              async (request, reply) => {
+                const { toolCallId, state } = request.body;
+                if (toolCallId && state) editStates.set(toolCallId, state);
+                reply.send({ ok: true });
+              },
+            );
+
+            // GET /api/cobuilding/edit-states — get all edit states
+            fastify.get('/api/cobuilding/edit-states', async (_request, reply) => {
+              reply.send(Object.fromEntries(editStates));
+            });
+
             // Per-session pending context for messagePreprocessor injection.
             // Context is set before each sendMessage and consumed by the preprocessor,
             // so the DB stores only the user's raw text while Claude gets the context.
-            const pendingContext = new Map<string, { documentPath?: string; selectedText?: string; editMode?: string }>();
+            const pendingContext = new Map<string, { documentPath?: string; selectedText?: string }>();
 
             // POST /api/cobuilding/sessions/:sessionId/send — streams response via SSE
-            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string; editMode?: string } }>(
+            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string } }>(
               '/api/cobuilding/sessions/:sessionId/send',
               async (request, reply) => {
                 const { sessionId } = request.params;
-                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText, editMode: ctxEditMode } = request.body;
+                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText } = request.body;
                 if (!text || typeof text !== 'string') {
                   reply.code(400).send({ error: 'text is required' });
                   return;
@@ -605,11 +643,9 @@ app.whenReady().then(() => {
 
                 // Store context for the messagePreprocessor to pick up
                 // (adds document path and selection context for Claude without it appearing in the stored message)
-                if (ctxDocPath || ctxSelectedText || ctxEditMode) {
-                  pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText, editMode: ctxEditMode });
+                if (ctxDocPath || ctxSelectedText) {
+                  pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
                 }
-                // Reset per-session approval mode based on edit mode toggle
-                setEditApprovalMode(ctxEditMode === 'accept' ? 'always' : 'ask');
 
                 // Hijack the response so Fastify doesn't try to send its own
                 reply.hijack();
@@ -626,16 +662,17 @@ app.whenReady().then(() => {
                   }
                 };
 
-                // Silently tell the desktop app to switch to this session (no show/focus)
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                    page: 'session',
-                    sessionId,
-                  } as NavigateToPagePayload);
-                }
-
                 const existingRunning = getRegisteredSession(sessionId);
                 if (existingRunning?.isRunning) {
+                  // Ensure IPC forwarding to the desktop app BEFORE sending the message,
+                  // so the desktop receives streaming events immediately.
+                  if (mainWindow && !mainWindow.isDestroyed()) {
+                    ensureForwarding(sessionId, mainWindow.webContents);
+                    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+                      page: 'session',
+                      sessionId,
+                    } as NavigateToPagePayload);
+                  }
                   const unsubscribe = existingRunning.addListener({
                     onEvent: (msg) => sendSSE('event', msg),
                     onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); },
@@ -659,7 +696,7 @@ app.whenReady().then(() => {
                     undefined,
                     undefined,
                     undefined,
-                    // messagePreprocessor: inject document/selection/editMode context for Claude
+                    // messagePreprocessor: inject document/selection context for Claude
                     // without storing it in the DB message
                     (userText: string) => {
                       const ctx = pendingContext.get(sessionId);
@@ -668,9 +705,6 @@ app.whenReady().then(() => {
                       let prefix = '';
                       if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
                       if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the review-selected-text skill (NOT review-manuscript).\n"""\n${ctx.selectedText}\n"""\n`;
-                      if (ctx.editMode === 'ask') {
-                        prefix += `EDIT MODE: "Ask before edits" is ON. When calling find_and_replace, the tool will return approval_required. Present each proposed edit to the user and wait for their choice (Allow once / Always allow / Deny) before retrying with approved: true.\n`;
-                      }
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
                   );
@@ -678,6 +712,17 @@ app.whenReady().then(() => {
                 }
 
                 const session = getRegisteredSession(sessionId)!;
+
+                // Ensure IPC forwarding to the desktop app BEFORE sending the message,
+                // so the desktop receives streaming events immediately.
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  ensureForwarding(sessionId, mainWindow.webContents);
+                  mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+                    page: 'session',
+                    sessionId,
+                  } as NavigateToPagePayload);
+                }
+
                 const unsubscribe = session.addListener({
                   onEvent: (msg) => sendSSE('event', msg),
                   onDone: () => {
@@ -707,6 +752,12 @@ app.whenReady().then(() => {
           log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
 
           if (baseUrl && authToken) {
+            // Share server URL and auth token with the renderer for direct API calls
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.executeJavaScript(
+                `window.__COBUILDING_SERVER_URL__ = ${JSON.stringify(baseUrl)}; window.__COBUILDING_AUTH_TOKEN__ = ${JSON.stringify(authToken)};`
+              );
+            }
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
               windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
@@ -1521,6 +1572,33 @@ ipcMain.on('chat:stop', (event, threadId: string) => {
     session.destroy();
     unregisterSession(threadId);
   }
+});
+
+// =============================================================================
+// Edit state sync (desktop ↔ overlay)
+// =============================================================================
+
+ipcMain.handle('edit-state:apply', async (_event, { toolCallId, search_text, replacement_text, replace_scope, match_case }: any) => {
+  try {
+    const { findAndReplaceInWord } = await import('../../server/wordActions');
+    const result = await findAndReplaceInWord(
+      search_text, replacement_text,
+      replace_scope || 'first', match_case ?? true,
+    );
+    if (result.success) editStates.set(toolCallId, 'applied');
+    else editStates.set(toolCallId, 'error');
+    return result;
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('edit-state:set', (_event, { toolCallId, state }: { toolCallId: string; state: string }) => {
+  editStates.set(toolCallId, state);
+});
+
+ipcMain.handle('edit-state:get-all', () => {
+  return Object.fromEntries(editStates);
 });
 
 // =============================================================================

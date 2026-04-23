@@ -15,6 +15,8 @@ export interface WebviewEntryState {
   frame: WebviewFrame;
   ignoresMouseEvents?: boolean;
   makeKey?: boolean;
+  /** When true, panel drops to normal window level (behind the active app). */
+  background?: boolean;
 }
 
 export type DesiredWebviewState = Record<string, WebviewEntryState>;

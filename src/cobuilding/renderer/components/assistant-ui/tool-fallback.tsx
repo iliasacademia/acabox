@@ -11,6 +11,7 @@ import {
   type ToolCallMessagePartStatus,
   type ToolCallMessagePartComponent,
 } from '@assistant-ui/react';
+import { FindAndReplaceSuggestion } from './find-and-replace-suggestion';
 import {
   Collapsible,
   CollapsibleContent,
@@ -280,14 +281,14 @@ function SubagentStatusLine({ parentToolCallId }: { parentToolCallId: string }) 
   );
 }
 
-const ToolFallbackImpl: ToolCallMessagePartComponent = ({
-  toolName,
-  toolCallId,
-  args,
-  argsText,
-  result,
-  status,
-}: any) => {
+const ToolFallbackImpl: ToolCallMessagePartComponent = (props: any) => {
+  const { toolName, toolCallId, args, argsText, result, status } = props;
+
+  // Delegate to suggestion card for find_and_replace tool calls
+  if (toolName === 'mcp__ms-word__find_and_replace') {
+    return <FindAndReplaceSuggestion {...props} />;
+  }
+
   const isCancelled =
     status?.type === 'incomplete' && status.reason === 'cancelled';
   const isAgent = toolName === 'Agent';

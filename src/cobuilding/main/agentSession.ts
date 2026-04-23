@@ -191,14 +191,9 @@ IMPORTANT: NEVER unpack, modify XML, or edit .docx files directly on disk. ALWAY
 1. First call mcp__ms-word__track_changes_status to check if Track Changes is enabled.
 2. If Track Changes is OFF, ask the user to enable it (Review tab → Track Changes in Word) so they can review your edits. You can also call mcp__ms-word__set_track_changes to enable it.
 3. Use mcp__ms-word__get_text to read the document content.
-4. Use mcp__ms-word__find_and_replace to make edits. With Track Changes enabled, each edit appears as a tracked revision the user can accept or reject.
-5. Use mcp__ms-word__save_document to save after editing.
-
-When find_and_replace returns "approval_required": true, present the proposed edit to the user with three options:
-- "Allow once" — apply this single edit
-- "Always allow" — apply this and all subsequent edits automatically
-- "Deny" — skip this edit
-Wait for the user's choice before proceeding. Do NOT apply the edit without explicit approval.
+4. Use mcp__ms-word__find_and_replace to propose edits. Call the tool once per edit. The UI automatically renders a suggestion card with the diff and approve/deny buttons — do NOT describe or preview the edits in your text.
+5. After proposing edits, say something brief like "I've proposed N edits — please review above." The user approves or denies each edit directly in the UI. Approved edits are applied as tracked revisions in Word.
+6. Use mcp__ms-word__save_document to save after editing.
 
 The user sees edits appear live in Word as tracked changes. Do NOT use any other method to edit Word documents.`;
 

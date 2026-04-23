@@ -1,9 +1,12 @@
 /**
  * Tests for approval prompt detection logic.
  * Validates that the pattern matching works regardless of markdown rendering format.
+ *
+ * These mirror the extractAllText / isApprovalContent functions from
+ * approval-buttons.tsx. We duplicate them here because the source module
+ * imports @assistant-ui/react which Jest cannot parse.
  */
 
-// Mirror the extractAllText and isApprovalContent logic from OverlayThread
 function extractAllText(node: any): string {
   if (typeof node === 'string') return node;
   if (typeof node === 'number') return String(node);
@@ -20,28 +23,31 @@ function isApprovalContent(node: any): boolean {
   return /allow once/i.test(text) && /always allow/i.test(text) && /deny/i.test(text);
 }
 
+const ext = extractAllText;
+const isApproval = isApprovalContent;
+
 describe('extractAllText', () => {
   it('extracts from plain string', () => {
-    expect(extractAllText('hello')).toBe('hello');
+    expect(ext('hello')).toBe('hello');
   });
 
   it('extracts from number', () => {
-    expect(extractAllText(42)).toBe('42');
+    expect(ext(42)).toBe('42');
   });
 
   it('extracts from null/undefined', () => {
-    expect(extractAllText(null)).toBe('');
-    expect(extractAllText(undefined)).toBe('');
+    expect(ext(null)).toBe('');
+    expect(ext(undefined)).toBe('');
   });
 
   it('extracts from array of strings', () => {
-    expect(extractAllText(['hello', ' ', 'world'])).toBe('hello world');
+    expect(ext(['hello', ' ', 'world'])).toBe('hello world');
   });
 
   it('extracts from nested React-like element', () => {
     // Simulates: <strong>Allow once</strong>
     const node = { props: { children: 'Allow once' } };
-    expect(extractAllText(node)).toBe('Allow once');
+    expect(ext(node)).toBe('Allow once');
   });
 
   it('extracts from deeply nested elements', () => {
@@ -54,7 +60,7 @@ describe('extractAllText', () => {
         ],
       },
     };
-    expect(extractAllText(node)).toBe('Allow once — apply this edit');
+    expect(ext(node)).toBe('Allow once — apply this edit');
   });
 
   it('extracts from mixed text and elements', () => {
@@ -67,7 +73,7 @@ describe('extractAllText', () => {
       ' / ',
       { props: { children: 'Deny' } },
     ];
-    expect(extractAllText(children)).toBe('Choose: Allow once / Always allow / Deny');
+    expect(ext(children)).toBe('Choose: Allow once / Always allow / Deny');
   });
 
   it('extracts from ul > li structure', () => {
@@ -81,19 +87,19 @@ describe('extractAllText', () => {
         ],
       },
     };
-    expect(extractAllText(node)).toContain('Allow once');
-    expect(extractAllText(node)).toContain('Always allow');
-    expect(extractAllText(node)).toContain('Deny');
+    expect(ext(node)).toContain('Allow once');
+    expect(ext(node)).toContain('Always allow');
+    expect(ext(node)).toContain('Deny');
   });
 });
 
 describe('isApprovalContent', () => {
   it('detects paragraph format: "Choose: Allow once / Always allow / Deny"', () => {
-    expect(isApprovalContent('Choose: Allow once / Always allow / Deny')).toBe(true);
+    expect(isApproval('Choose: Allow once / Always allow / Deny')).toBe(true);
   });
 
   it('detects without "Choose:" prefix', () => {
-    expect(isApprovalContent('Allow once / Always allow / Deny?')).toBe(true);
+    expect(isApproval('Allow once / Always allow / Deny?')).toBe(true);
   });
 
   it('detects with bold markdown rendered as nested elements', () => {
@@ -105,7 +111,7 @@ describe('isApprovalContent', () => {
       ' / ',
       { props: { children: 'Deny' } },
     ];
-    expect(isApprovalContent(children)).toBe(true);
+    expect(isApproval(children)).toBe(true);
   });
 
   it('detects bullet list format', () => {
@@ -118,7 +124,7 @@ describe('isApprovalContent', () => {
         ],
       },
     };
-    expect(isApprovalContent(ulChildren)).toBe(true);
+    expect(isApproval(ulChildren)).toBe(true);
   });
 
   it('detects deeply nested elements (strong > em)', () => {
@@ -129,41 +135,41 @@ describe('isApprovalContent', () => {
       ' or ',
       { props: { children: { props: { children: 'Deny' } } } },
     ];
-    expect(isApprovalContent(children)).toBe(true);
+    expect(isApproval(children)).toBe(true);
   });
 
   it('detects case-insensitive', () => {
-    expect(isApprovalContent('ALLOW ONCE / ALWAYS ALLOW / DENY')).toBe(true);
-    expect(isApprovalContent('allow once, always allow, deny')).toBe(true);
+    expect(isApproval('ALLOW ONCE / ALWAYS ALLOW / DENY')).toBe(true);
+    expect(isApproval('allow once, always allow, deny')).toBe(true);
   });
 
   it('does not match when missing a choice', () => {
-    expect(isApprovalContent('Allow once / Deny')).toBe(false);
-    expect(isApprovalContent('Always allow / Deny')).toBe(false);
-    expect(isApprovalContent('Allow once / Always allow')).toBe(false);
+    expect(isApproval('Allow once / Deny')).toBe(false);
+    expect(isApproval('Always allow / Deny')).toBe(false);
+    expect(isApproval('Allow once / Always allow')).toBe(false);
   });
 
   it('does not match regular text', () => {
-    expect(isApprovalContent('The results show a significant improvement')).toBe(false);
-    expect(isApprovalContent('Please review the changes above')).toBe(false);
+    expect(isApproval('The results show a significant improvement')).toBe(false);
+    expect(isApproval('Please review the changes above')).toBe(false);
   });
 
   it('does not match partial keywords', () => {
-    expect(isApprovalContent('Allow the process once and deny later')).toBe(false);
+    expect(isApproval('Allow the process once and deny later')).toBe(false);
   });
 
   it('matches with extra text around choices', () => {
-    expect(isApprovalContent(
+    expect(isApproval(
       'Here is the proposed edit. Please choose: Allow once to apply, Always allow for all edits, or Deny to skip.'
     )).toBe(true);
   });
 
   it('handles null/undefined children', () => {
-    expect(isApprovalContent(null)).toBe(false);
-    expect(isApprovalContent(undefined)).toBe(false);
+    expect(isApproval(null)).toBe(false);
+    expect(isApproval(undefined)).toBe(false);
   });
 
   it('handles empty string', () => {
-    expect(isApprovalContent('')).toBe(false);
+    expect(isApproval('')).toBe(false);
   });
 });

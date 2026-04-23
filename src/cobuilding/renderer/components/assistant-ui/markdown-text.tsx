@@ -15,6 +15,7 @@ import { type FC, memo, useEffect, useMemo, useState } from 'react';
 import { CheckIcon, CopyIcon } from 'lucide-react';
 
 import { TooltipIconButton } from './tooltip-icon-button';
+import { ApprovalParagraph, ApprovalList } from './approval-buttons';
 
 /** Detect if content is HTML (starts with a tag like <article>, <div>, <p>, etc.) */
 function looksLikeHtml(text: string): boolean {
@@ -131,6 +132,8 @@ const useCopyToClipboard = ({
 };
 
 const defaultComponents = memoizeMarkdownComponents({
+  p: ApprovalParagraph as any,
+  ul: ApprovalList as any,
   a: ({ href, children, ...props }) => (
     <a
       {...props}

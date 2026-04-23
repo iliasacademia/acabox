@@ -60,10 +60,12 @@ export function buildWordPollResponseV2(
   if (workspaceDir) {
     if (documentPath.startsWith(workspaceDir + '/')) {
       const sessions = windowMonitorService.getWorkspaceSessions();
-      const selectedTextContent = wid ? windowMonitorService.getSelectedTextContent(wid) : null;
+      const selectedTextContent = wid
+        ? windowMonitorService.getSelectedTextContent(wid)
+        : windowMonitorService.getLastSelectedText();
       return {
         isInWorkspace: true,
-        workspaceSessions: sessions.slice(0, 10),
+        workspaceSessions: sessions,
         notificationCount: 0,
         isActive: true,
         recentReviewNotifications: [],
