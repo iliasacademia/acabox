@@ -236,33 +236,33 @@ const OverlayComposer: FC = () => {
 
   return (
     <ComposerPrimitive.Root className="composerRoot">
-      {/* Selected text bar — matches Claude for Word style */}
-      {selectedText && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '8px',
-          padding: '8px 12px',
-          borderBottom: '1px solid #e5e7eb',
-          fontFamily: "'DM Sans', sans-serif", fontSize: '14px', color: '#374151',
-        }}>
-          <span style={{
-            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            "{selectedText.length > 50 ? selectedText.substring(0, 50) + '...' : selectedText}" selected
-          </span>
-          <button
-            onClick={onDismissSelection}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: '2px', fontSize: '16px', lineHeight: '1',
-              color: '#6b7280', flexShrink: 0,
-            }}
-            aria-label="Clear selection"
-          >
-            ✕
-          </button>
-        </div>
-      )}
       <div className="composerShell">
+        {/* Selected text bar inside the shell — matches Claude for Word style */}
+        {selectedText && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '6px 12px',
+            borderBottom: '1px solid #e5e7eb',
+            fontFamily: "'DM Sans', sans-serif", fontSize: '13px', color: '#374151',
+          }}>
+            <span style={{
+              flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>
+              "{selectedText.length > 50 ? selectedText.substring(0, 50) + '...' : selectedText}" selected
+            </span>
+            <button
+              onClick={onDismissSelection}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                padding: '2px', fontSize: '14px', lineHeight: '1',
+                color: '#9ca3af', flexShrink: 0,
+              }}
+              aria-label="Clear selection"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         <ComposerPrimitive.Input
           placeholder={selectedText ? 'Reply' : 'Send a message...'}
           className="composerInput"
