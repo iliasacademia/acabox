@@ -43,24 +43,22 @@ const MarkdownTextImpl = () => {
 
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm, cleanWordRefUrls]}
+      remarkPlugins={[remarkGfm]}
       className="auiMd"
       components={defaultComponents}
+      preprocess={cleanWordRefUrls}
     />
   );
 };
 
-/** Clean word-ref: URLs that contain \r or \n so the markdown parser doesn't break */
-function cleanWordRefUrls() {
-  return (tree: any) => {
-    const visit = (node: any) => {
-      if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('word-ref:')) {
-        node.url = node.url.replace(/[\r\n]+/g, ' ').trim();
-      }
-      if (node.children) node.children.forEach(visit);
-    };
-    visit(tree);
-  };
+/**
+ * Clean word-ref: URLs in raw markdown before the parser sees them.
+ * \r or \n in a URL breaks the markdown parser — it never creates a link node.
+ */
+function cleanWordRefUrls(markdown: string): string {
+  return markdown.replace(/\]\(word-ref:[^)]*\)/g, (match) =>
+    match.replace(/[\r\n]+/g, ' ')
+  );
 }
 
 export const MarkdownText = memo(MarkdownTextImpl);

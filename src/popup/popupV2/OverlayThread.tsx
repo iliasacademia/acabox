@@ -103,25 +103,25 @@ const overlayComponents = memoizeMarkdownComponents({
   CodeHeader: OverlayCodeHeader,
 });
 
-/** Clean word-ref: URLs that contain \r or \n so the markdown parser doesn't break */
-function cleanWordRefPlugin() {
-  return (tree: any) => {
-    const visit = (node: any) => {
-      if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('word-ref:')) {
-        node.url = node.url.replace(/[\r\n]+/g, ' ').trim();
-      }
-      if (node.children) node.children.forEach(visit);
-    };
-    visit(tree);
-  };
+/**
+ * Clean word-ref: URLs in raw markdown source before the parser sees them.
+ * \r or \n inside a markdown link URL breaks the parser — it never creates
+ * a link node, so AST-level plugins can't fix it.
+ */
+function cleanWordRefUrls(markdown: string): string {
+  // Match markdown links with word-ref: URLs and strip \r\n from the URL portion
+  return markdown.replace(/\]\(word-ref:[^)]*\)/g, (match) =>
+    match.replace(/[\r\n]+/g, ' ')
+  );
 }
 
 const OverlayMarkdownText = memo(() => {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm, cleanWordRefPlugin]}
+      remarkPlugins={[remarkGfm]}
       className="auiMd"
       components={overlayComponents}
+      preprocess={cleanWordRefUrls}
     />
   );
 });
