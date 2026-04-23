@@ -270,7 +270,7 @@ const OverlayComposer: FC = () => {
           autoFocus
           aria-label="Message input"
         />
-        <div className="composerToolbar">
+        <div className="composerToolbar" style={{ justifyContent: 'flex-end' }}>
           <div className="composerActions">
             <AuiIf condition={(s: any) => !s.thread.isRunning}>
               <ComposerPrimitive.Send asChild>
