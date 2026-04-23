@@ -123,7 +123,7 @@ export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedT
   return (
     <PillsContext.Provider value={{ documentPath, selectedText, onDismissSelection }}>
     <TooltipProvider>
-      <ThreadPrimitive.Root className="threadRoot">
+      <ThreadPrimitive.Root className="threadRoot" style={{ background: '#f7f7f5' }}>
         <ThreadPrimitive.Viewport
           turnAnchor="top"
           scrollToBottomOnThreadSwitch
