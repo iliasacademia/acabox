@@ -81,18 +81,22 @@ function extractAllText(node: React.ReactNode): string {
   return '';
 }
 
-/** Detects approval prompts and renders clickable buttons.
- *  After clicking, buttons are replaced with a compact status showing the choice made. */
-const ApprovalButtons: FC<{ children: React.ReactNode }> = ({ children }) => {
+/** Checks if a React node tree contains an approval prompt pattern */
+function isApprovalContent(node: React.ReactNode): boolean {
+  const text = extractAllText(node);
+  return /allow once/i.test(text) && /always allow/i.test(text) && /deny/i.test(text);
+}
+
+/** Renders approval buttons for both <p> and <ul> elements containing approval choices */
+const ApprovalButtons: FC<{ children: React.ReactNode; tag?: 'p' | 'ul' }> = ({ children, tag }) => {
   const runtime = useAssistantRuntime();
   const [chosen, setChosen] = useState<string | null>(null);
 
-  const textContent = extractAllText(children);
-
-  const isApprovalPrompt = /allow once.*always allow.*deny/i.test(textContent);
+  const isApprovalPrompt = isApprovalContent(children);
 
   if (!isApprovalPrompt) {
-    return <p>{children}</p>;
+    const Tag = tag === 'ul' ? 'ul' : 'p';
+    return <Tag>{children}</Tag>;
   }
 
   if (chosen) {
@@ -146,8 +150,16 @@ const ApprovalButtons: FC<{ children: React.ReactNode }> = ({ children }) => {
   );
 };
 
+const ApprovalParagraph: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <ApprovalButtons tag="p">{children}</ApprovalButtons>
+);
+const ApprovalList: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <ApprovalButtons tag="ul">{children}</ApprovalButtons>
+);
+
 const overlayComponents = memoizeMarkdownComponents({
-  p: ApprovalButtons as any,
+  p: ApprovalParagraph as any,
+  ul: ApprovalList as any,
   a: ({ href, children, ...props }) => (
     <a
       {...props}
