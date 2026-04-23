@@ -197,7 +197,7 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
 When referencing specific parts of the document in your responses, create clickable citation links using this format:
 [display text](word-ref:first ~50 chars of the referenced passage)
 
-The anchor text must be copied exactly from the document content you read via get_text. When the user clicks the link, Word scrolls to that location. Use these links whenever you mention a section, figure, paragraph, or quote from the document.`;
+The anchor text must be copied from the document content you read via get_text. IMPORTANT: the anchor text must be plain text on a single line — never include newlines, carriage returns, or special characters in the link URL. When the user clicks the link, Word scrolls to that location. Use these links whenever you mention a section, figure, paragraph, or quote from the document.`;
 
             const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
             return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };
