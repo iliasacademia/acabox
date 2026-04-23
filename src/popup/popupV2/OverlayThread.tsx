@@ -6,7 +6,7 @@
  * but has a simpler composer without ModelSelector or file attachments.
  */
 
-import React, { createContext, useContext, memo, useState, useRef, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, memo, useState, useRef, useEffect } from 'react';
 import type { FC } from 'react';
 import {
   ActionBarPrimitive,
@@ -67,11 +67,14 @@ const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   );
 };
 
-/** Detects "Choose: **Allow once** / **Always allow** / **Deny**" and renders buttons */
+const APPROVAL_CHOICES = ['Allow once', 'Always allow', 'Deny'] as const;
+
+/** Detects "Choose: **Allow once** / **Always allow** / **Deny**" and renders clickable buttons.
+ *  After clicking, buttons are replaced with a compact status showing the choice made. */
 const ApprovalButtons: FC<{ children: React.ReactNode }> = ({ children }) => {
   const runtime = useAssistantRuntime();
+  const [chosen, setChosen] = useState<string | null>(null);
 
-  // Extract text content from children to check for the pattern
   const textContent = React.Children.toArray(children)
     .map((child: any) => {
       if (typeof child === 'string') return child;
@@ -89,57 +92,53 @@ const ApprovalButtons: FC<{ children: React.ReactNode }> = ({ children }) => {
     return <p>{children}</p>;
   }
 
-  const sendChoice = useCallback((choice: string) => {
+  if (chosen) {
+    return (
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: '6px',
+        padding: '4px 10px', marginTop: '6px',
+        fontSize: '13px', fontFamily: "'DM Sans', sans-serif",
+        color: chosen === 'Deny' ? '#9ca3af' : '#16a34a',
+      }}>
+        <CheckIcon size={14} />
+        <span>{chosen}</span>
+      </div>
+    );
+  }
+
+  const handleChoice = (choice: string) => {
+    setChosen(choice);
     runtime.thread.append({
       role: 'user',
       content: [{ type: 'text', text: choice }],
     });
-  }, [runtime]);
+  };
+
+  const btnBase: React.CSSProperties = {
+    padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
+    fontFamily: "'DM Sans', sans-serif", fontWeight: 500, cursor: 'pointer',
+  };
 
   return (
-    <div style={{
-      display: 'flex', gap: '8px', marginTop: '8px', marginBottom: '4px',
-      flexWrap: 'wrap',
-    }}>
+    <div style={{ display: 'flex', gap: '8px', marginTop: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
       <button
-        onClick={() => sendChoice('Allow once')}
-        style={{
-          padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
-          fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
-          border: '1px solid #e5e7eb', background: '#fff', color: '#374151',
-          cursor: 'pointer',
-        }}
+        onClick={() => handleChoice('Allow once')}
+        style={{ ...btnBase, border: '1px solid #e5e7eb', background: '#fff', color: '#374151' }}
         onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
         onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-      >
-        Allow once
-      </button>
+      >Allow once</button>
       <button
-        onClick={() => sendChoice('Always allow')}
-        style={{
-          padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
-          fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
-          border: '1px solid #3b82f6', background: '#3b82f6', color: '#fff',
-          cursor: 'pointer',
-        }}
+        onClick={() => handleChoice('Always allow')}
+        style={{ ...btnBase, border: '1px solid #3b82f6', background: '#3b82f6', color: '#fff' }}
         onMouseEnter={e => (e.currentTarget.style.background = '#2563eb')}
         onMouseLeave={e => (e.currentTarget.style.background = '#3b82f6')}
-      >
-        Always allow
-      </button>
+      >Always allow</button>
       <button
-        onClick={() => sendChoice('Deny')}
-        style={{
-          padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
-          fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
-          border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280',
-          cursor: 'pointer',
-        }}
+        onClick={() => handleChoice('Deny')}
+        style={{ ...btnBase, border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280' }}
         onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
         onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-      >
-        Deny
-      </button>
+      >Deny</button>
     </div>
   );
 };
@@ -288,6 +287,30 @@ const OverlayAssistantMessage: FC = () => {
 };
 
 const OverlayUserMessage: FC = () => {
+  // Detect approval response messages and render them compactly
+  const text = useAuiState((s: any) => {
+    const parts = s.message?.parts;
+    if (!parts || parts.length !== 1 || parts[0].type !== 'text') return null;
+    return parts[0].text;
+  });
+
+  const isApprovalResponse = text && APPROVAL_CHOICES.includes(text as any);
+
+  if (isApprovalResponse) {
+    // Render as compact inline status, not a full user bubble
+    return (
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: '6px',
+        padding: '4px 10px', margin: '4px 0',
+        fontSize: '13px', fontFamily: "'DM Sans', sans-serif",
+        color: text === 'Deny' ? '#9ca3af' : '#16a34a',
+      }}>
+        <CheckIcon size={14} />
+        <span>{text}</span>
+      </div>
+    );
+  }
+
   return (
     <MessagePrimitive.Root className="userMessage" data-role="user">
       <div className="userMessageContentWrapper">
