@@ -69,22 +69,25 @@ const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
 
 const APPROVAL_CHOICES = ['Allow once', 'Always allow', 'Deny'] as const;
 
-/** Detects "Choose: **Allow once** / **Always allow** / **Deny**" and renders clickable buttons.
+/** Recursively extract all text from a React node tree */
+function extractAllText(node: React.ReactNode): string {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (!node) return '';
+  if (Array.isArray(node)) return node.map(extractAllText).join('');
+  if (typeof node === 'object' && 'props' in (node as any)) {
+    return extractAllText((node as any).props.children);
+  }
+  return '';
+}
+
+/** Detects approval prompts and renders clickable buttons.
  *  After clicking, buttons are replaced with a compact status showing the choice made. */
 const ApprovalButtons: FC<{ children: React.ReactNode }> = ({ children }) => {
   const runtime = useAssistantRuntime();
   const [chosen, setChosen] = useState<string | null>(null);
 
-  const textContent = React.Children.toArray(children)
-    .map((child: any) => {
-      if (typeof child === 'string') return child;
-      if (child?.props?.children) {
-        const inner = child.props.children;
-        return typeof inner === 'string' ? inner : '';
-      }
-      return '';
-    })
-    .join('');
+  const textContent = extractAllText(children);
 
   const isApprovalPrompt = /allow once.*always allow.*deny/i.test(textContent);
 
