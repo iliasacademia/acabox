@@ -192,7 +192,12 @@ IMPORTANT: NEVER unpack, modify XML, or edit .docx files directly on disk. ALWAY
 4. Use mcp__ms-word__find_and_replace to make edits. With Track Changes enabled, each edit appears as a tracked revision the user can accept or reject — just like a human collaborator's markup.
 5. Use mcp__ms-word__save_document to save after editing.
 
-The user sees edits appear live in Word as tracked changes. Do NOT use any other method to edit Word documents.`;
+The user sees edits appear live in Word as tracked changes. Do NOT use any other method to edit Word documents.
+
+When referencing specific parts of the document in your responses, create clickable citation links using this format:
+[display text](word-ref:first ~50 chars of the referenced passage)
+
+The anchor text must be copied exactly from the document content you read via get_text. When the user clicks the link, Word scrolls to that location. Use these links whenever you mention a section, figure, paragraph, or quote from the document.`;
 
             const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
             return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };

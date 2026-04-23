@@ -6,7 +6,7 @@
  * but has a simpler composer without ModelSelector or file attachments.
  */
 
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, memo, useState } from 'react';
 import type { FC } from 'react';
 import {
   ActionBarPrimitive,
@@ -17,11 +17,18 @@ import {
   ThreadPrimitive,
   useAuiState,
 } from '@assistant-ui/react';
+import {
+  MarkdownTextPrimitive,
+  unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
+  useIsMarkdownCodeBlock,
+  type CodeHeaderProps,
+} from '@assistant-ui/react-markdown';
+import remarkGfm from 'remark-gfm';
 import { TooltipProvider } from '../../cobuilding/renderer/components/ui/tooltip';
-import { MarkdownText } from '../../cobuilding/renderer/components/assistant-ui/markdown-text';
 import { ToolFallback } from '../../cobuilding/renderer/components/assistant-ui/tool-fallback';
 import { ToolGroup } from '../../cobuilding/renderer/components/assistant-ui/tool-group';
 import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thinking-indicator';
+import { serverUrl, tokenParam } from './shared';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -31,6 +38,78 @@ import {
   RefreshCwIcon,
   SquareIcon,
 } from 'lucide-react';
+
+// ─── Overlay MarkdownText with word-ref: link support ──────────────
+
+function scrollWordToText(text: string) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (tokenParam) headers['Authorization'] = `Bearer ${tokenParam}`;
+  fetch(`${serverUrl}/api/cobuilding/word/scroll-to`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ text }),
+  }).catch(() => {});
+}
+
+const useCopyToClipboard = ({ copiedDuration = 3000 }: { copiedDuration?: number } = {}) => {
+  const [isCopied, setIsCopied] = useState(false);
+  const copyToClipboard = (value: string) => {
+    navigator.clipboard.writeText(value).then(() => {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), copiedDuration);
+    });
+  };
+  return { isCopied, copyToClipboard };
+};
+
+const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
+  const { isCopied, copyToClipboard } = useCopyToClipboard();
+  return (
+    <div className="codeHeaderRoot">
+      <span className="codeHeaderLanguage">{language}</span>
+      <button className="iconBtn" onClick={() => code && copyToClipboard(code)}>
+        {isCopied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+      </button>
+    </div>
+  );
+};
+
+const overlayComponents = memoizeMarkdownComponents({
+  a: ({ href, children, ...props }) => {
+    const isWordRef = href?.startsWith('word-ref:');
+    return (
+      <a
+        {...props}
+        href={href}
+        style={isWordRef ? { color: '#0645b1', cursor: 'pointer', textDecoration: 'underline' } : undefined}
+        onClick={(e) => {
+          e.preventDefault();
+          if (isWordRef) {
+            scrollWordToText(href!.substring('word-ref:'.length));
+          } else if (href) {
+            window.open(href, '_blank');
+          }
+        }}
+      >
+        {children}
+      </a>
+    );
+  },
+  code: function Code({ className, ...props }) {
+    const isCodeBlock = useIsMarkdownCodeBlock();
+    return <code className={`${!isCodeBlock ? 'inlineCode' : ''}${className ? ` ${className}` : ''}`} {...props} />;
+  },
+  CodeHeader: OverlayCodeHeader,
+});
+
+const OverlayMarkdownText = memo(() => {
+  return (
+    <MarkdownTextPrimitive
+      remarkPlugins={[remarkGfm]}
+      className="auiMd"
+      components={overlayComponents}
+    />
+  );
+});
 
 interface OverlayContextPills {
   documentPath?: string | null;
@@ -108,7 +187,7 @@ const OverlayAssistantMessage: FC = () => {
       <div className="assistantMessageContent">
         <MessagePrimitive.Parts
           components={{
-            Text: MarkdownText,
+            Text: OverlayMarkdownText,
             Reasoning,
             tools: { Fallback: ToolFallback },
             ToolGroup,

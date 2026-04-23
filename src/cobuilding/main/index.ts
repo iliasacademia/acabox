@@ -561,6 +561,25 @@ app.whenReady().then(() => {
 
           // Register cobuilding session routes for the Word overlay
           httpServer.addRouteRegistrar(async (fastify) => {
+            // POST /api/cobuilding/word/scroll-to — scroll Word to specific text
+            fastify.post<{ Body: { text: string } }>(
+              '/api/cobuilding/word/scroll-to',
+              async (request, reply) => {
+                const { text } = request.body;
+                if (!text || typeof text !== 'string') {
+                  reply.code(400).send({ error: 'text is required' });
+                  return;
+                }
+                try {
+                  const { positionCursorInWord } = await import('../../server/wordActions');
+                  const result = await positionCursorInWord(text, 'before');
+                  reply.send(result);
+                } catch (err: any) {
+                  reply.send({ success: false, error: err.message });
+                }
+              },
+            );
+
             // GET /api/cobuilding/sessions/:sessionId/messages
             fastify.get<{ Params: { sessionId: string } }>(
               '/api/cobuilding/sessions/:sessionId/messages',
