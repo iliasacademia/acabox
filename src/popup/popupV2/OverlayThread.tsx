@@ -6,7 +6,7 @@
  * but has a simpler composer without ModelSelector or file attachments.
  */
 
-import React, { createContext, useContext, memo, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, memo, useState, useRef, useEffect, useCallback } from 'react';
 import type { FC } from 'react';
 import {
   ActionBarPrimitive,
@@ -16,6 +16,7 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   useAuiState,
+  useAssistantRuntime,
 } from '@assistant-ui/react';
 import {
   MarkdownTextPrimitive,
@@ -66,7 +67,85 @@ const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   );
 };
 
+/** Detects "Choose: **Allow once** / **Always allow** / **Deny**" and renders buttons */
+const ApprovalButtons: FC<{ children: React.ReactNode }> = ({ children }) => {
+  const runtime = useAssistantRuntime();
+
+  // Extract text content from children to check for the pattern
+  const textContent = React.Children.toArray(children)
+    .map((child: any) => {
+      if (typeof child === 'string') return child;
+      if (child?.props?.children) {
+        const inner = child.props.children;
+        return typeof inner === 'string' ? inner : '';
+      }
+      return '';
+    })
+    .join('');
+
+  const isApprovalPrompt = /choose.*allow once.*always allow.*deny/i.test(textContent);
+
+  if (!isApprovalPrompt) {
+    return <p>{children}</p>;
+  }
+
+  const sendChoice = useCallback((choice: string) => {
+    runtime.thread.append({
+      role: 'user',
+      content: [{ type: 'text', text: choice }],
+    });
+  }, [runtime]);
+
+  return (
+    <div style={{
+      display: 'flex', gap: '8px', marginTop: '8px', marginBottom: '4px',
+      flexWrap: 'wrap',
+    }}>
+      <button
+        onClick={() => sendChoice('Allow once')}
+        style={{
+          padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
+          fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+          border: '1px solid #e5e7eb', background: '#fff', color: '#374151',
+          cursor: 'pointer',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
+        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+      >
+        Allow once
+      </button>
+      <button
+        onClick={() => sendChoice('Always allow')}
+        style={{
+          padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
+          fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+          border: '1px solid #3b82f6', background: '#3b82f6', color: '#fff',
+          cursor: 'pointer',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.background = '#2563eb')}
+        onMouseLeave={e => (e.currentTarget.style.background = '#3b82f6')}
+      >
+        Always allow
+      </button>
+      <button
+        onClick={() => sendChoice('Deny')}
+        style={{
+          padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
+          fontFamily: "'DM Sans', sans-serif", fontWeight: 500,
+          border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280',
+          cursor: 'pointer',
+        }}
+        onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
+        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+      >
+        Deny
+      </button>
+    </div>
+  );
+};
+
 const overlayComponents = memoizeMarkdownComponents({
+  p: ApprovalButtons as any,
   a: ({ href, children, ...props }) => (
     <a
       {...props}
