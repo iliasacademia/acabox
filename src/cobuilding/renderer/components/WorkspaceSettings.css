@@ -14,6 +14,8 @@
 .wsSettings__card {
   width: 100%;
   max-width: 480px;
+  max-height: 85vh;
+  overflow-y: auto;
   background: #ffffff;
   border-radius: 12px;
   padding: 28px;
