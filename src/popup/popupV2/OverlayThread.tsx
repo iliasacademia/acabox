@@ -33,10 +33,11 @@ import {
   ArrowUpIcon,
   CheckIcon,
   CopyIcon,
-  HandIcon,
   LoaderIcon,
   PlayIcon,
   RefreshCwIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
   SquareIcon,
 } from 'lucide-react';
 
@@ -234,51 +235,55 @@ const EditModeMenu: FC = () => {
   }, [open]);
 
   return (
-    <div ref={menuRef} style={{ position: 'relative' }}>
+    <div ref={menuRef} style={{ position: 'relative', display: 'inline-flex' }}>
       <button
-        className="iconBtn"
         onClick={() => setOpen(!open)}
         aria-label="Edit mode"
         title={editMode === 'ask' ? 'Ask before edits' : 'Accept all edits'}
-        style={{ color: editMode === 'ask' ? '#f59e0b' : undefined }}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '4px', borderRadius: '6px', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+          color: '#6b7280',
+        }}
       >
-        <HandIcon size={16} />
+        <SettingsIcon size={16} />
       </button>
       {open && (
         <div style={{
-          position: 'absolute', bottom: '100%', left: '50%', transform: 'translateX(-50%)',
-          marginBottom: '6px', background: '#fff', borderRadius: '12px',
-          border: '1px solid #e5e7eb', boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-          padding: '4px', minWidth: '200px', zIndex: 10,
-          fontFamily: "'DM Sans', sans-serif", fontSize: '14px',
+          position: 'absolute', bottom: 'calc(100% + 4px)', left: 0,
+          background: '#fff', borderRadius: '12px',
+          border: '1px solid #e5e7eb', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+          padding: '4px', width: '200px', zIndex: 50,
+          fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
         }}>
           <button
             onClick={() => { onEditModeChange?.('ask'); setOpen(false); }}
             style={{
-              display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
-              padding: '8px 12px', border: 'none', background: 'none',
+              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+              padding: '8px 10px', border: 'none', background: 'none',
               cursor: 'pointer', borderRadius: '8px', textAlign: 'left',
             }}
             onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
           >
-            <HandIcon size={16} />
-            <span style={{ flex: 1 }}>Ask before edits</span>
-            {editMode === 'ask' && <CheckIcon size={16} color="#3b82f6" />}
+            <ShieldCheckIcon size={15} color="#6b7280" />
+            <span style={{ flex: 1, color: '#374151' }}>Ask before edits</span>
+            {editMode === 'ask' && <CheckIcon size={15} color="#3b82f6" />}
           </button>
           <button
             onClick={() => { onEditModeChange?.('accept'); setOpen(false); }}
             style={{
-              display: 'flex', alignItems: 'center', gap: '10px', width: '100%',
-              padding: '8px 12px', border: 'none', background: 'none',
+              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+              padding: '8px 10px', border: 'none', background: 'none',
               cursor: 'pointer', borderRadius: '8px', textAlign: 'left',
             }}
             onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
             onMouseLeave={e => (e.currentTarget.style.background = 'none')}
           >
-            <PlayIcon size={16} />
-            <span style={{ flex: 1 }}>Accept all edits</span>
-            {editMode === 'accept' && <CheckIcon size={16} color="#3b82f6" />}
+            <PlayIcon size={15} color="#6b7280" />
+            <span style={{ flex: 1, color: '#374151' }}>Accept all edits</span>
+            {editMode === 'accept' && <CheckIcon size={15} color="#3b82f6" />}
           </button>
         </div>
       )}
