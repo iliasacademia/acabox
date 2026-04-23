@@ -622,9 +622,9 @@ app.whenReady().then(() => {
                   : text;
 
                 // Store context for the messagePreprocessor to pick up
-                // (adds document path for Claude without it appearing in the stored message)
-                if (ctxDocPath) {
-                  pendingContext.set(sessionId, { documentPath: ctxDocPath });
+                // (adds document path and selection context for Claude without it appearing in the stored message)
+                if (ctxDocPath || ctxSelectedText) {
+                  pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
                 }
 
                 // Hijack the response so Fastify doesn't try to send its own
@@ -675,13 +675,16 @@ app.whenReady().then(() => {
                     undefined,
                     undefined,
                     undefined,
-                    // messagePreprocessor: inject document path context for Claude
+                    // messagePreprocessor: inject document/selection context for Claude
                     // without storing it in the DB message
                     (userText: string) => {
                       const ctx = pendingContext.get(sessionId);
                       pendingContext.delete(sessionId);
-                      if (!ctx?.documentPath) return userText;
-                      return `Active Word document: ${ctx.documentPath}\n\n${userText}`;
+                      if (!ctx) return userText;
+                      let prefix = '';
+                      if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
+                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document:\n"""\n${ctx.selectedText}\n"""\n`;
+                      return prefix ? `${prefix}\n${userText}` : userText;
                     },
                   );
                   registerSession(sessionId, session);

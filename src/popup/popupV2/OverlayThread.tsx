@@ -283,7 +283,7 @@ const OverlayComposer: FC = () => {
             </AuiIf>
             <AuiIf condition={(s: any) => s.thread.isRunning}>
               <ComposerPrimitive.Cancel asChild>
-                <button className="composerCancel" aria-label="Stop generating">
+                <button className="composerSend" aria-label="Stop generating" style={{ background: '#dc2626' }}>
                   <SquareIcon className="composerCancelIcon" />
                 </button>
               </ComposerPrimitive.Cancel>
