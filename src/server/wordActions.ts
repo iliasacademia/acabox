@@ -10,6 +10,7 @@ import path from 'path';
 import { app } from 'electron';
 import { defaultLogger as logger } from '../utils/logger';
 import { logToWindowMonitorDb } from '../windowMonitorDb';
+import { windowMonitorService } from '../windowMonitorService';
 
 function getWordActionsBinPath(): string {
   if (app.isPackaged) {
@@ -31,6 +32,16 @@ function escapeAppleScriptString(input: string): string {
     .replace(/\r/g, ' ')
     .replace(/\n/g, ' ')
     .replace(/\t/g, ' ');
+}
+
+/**
+ * Build an AppleScript string expression that preserves paragraph breaks.
+ * Word uses \r for paragraph separators. This splits on newlines and joins
+ * with AppleScript's `return` character via string concatenation.
+ */
+function buildAppleScriptString(input: string): string {
+  const segments = input.split(/\r\n|\r|\n/);
+  return segments.map((s) => '"' + escapeAppleScriptString(s) + '"').join(' & return & ');
 }
 
 const WORD_EXTENSIONS = new Set(['.doc', '.docx', '.docm', '.dotx', '.dotm', '.rtf']);
@@ -264,6 +275,7 @@ export async function insertParagraphInWord(
 ): Promise<InsertParagraphResult> {
   logger.info(`[WordActions] insertParagraphInWord called with position: ${position}`);
 
+  windowMonitorService.suppressSelectionEvents(true);
   try {
     const enterThenPaste = `
       keystroke return
@@ -326,6 +338,8 @@ end tell`;
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] insertParagraphInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
   }
 }
 
@@ -659,43 +673,63 @@ export async function positionCursorInWord(
     return { success: false, error: 'anchor text is required' };
   }
 
-  // For 'after': use last 60 chars (cursor goes after the match)
-  // For 'before': use first 60 chars (cursor goes before the match)
-  const searchText = type === 'after'
-    ? (anchor.length > 60 ? anchor.substring(anchor.length - 60) : anchor)
-    : (anchor.length > 60 ? anchor.substring(0, 60) : anchor);
+  windowMonitorService.suppressSelectionEvents(true);
 
-  const escaped = escapeAppleScriptString(searchText);
-
-  // key code 124 = Right arrow (after match), key code 123 = Left arrow (before match)
-  const arrowKeyCode = type === 'after' ? 124 : 123;
+  const cursorProperty = type === 'after' ? 'end' : 'start';
 
   try {
-    const script = `
-tell application "Microsoft Word" to activate
-delay 0.3
-tell application "System Events"
-  tell process "Microsoft Word"
-    keystroke "f" using command down
-    delay 0.3
-    keystroke "a" using command down
-    delay 0.1
-    keystroke "${escaped}"
-    delay 0.1
-    keystroke return
-    delay 0.2
-    key code 53
-    delay 0.1
-    key code ${arrowKeyCode}
+    // For 'after': use last N chars; for 'before': use first N chars
+    const prefixLengths = [60, 30, 15];
+
+    for (const len of prefixLengths) {
+      const rawSearch = type === 'after'
+        ? (anchor.length > len ? anchor.substring(anchor.length - len) : anchor)
+        : (anchor.length > len ? anchor.substring(0, len) : anchor);
+      const cleanSearch = rawSearch.replace(/[\r\n]+/g, ' ').trim();
+      if (!cleanSearch) continue;
+
+      for (const matchCase of [true, false]) {
+        const searchExpr = '"' + escapeAppleScriptString(cleanSearch) + '"';
+        const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  set doc to active document
+  set docRange to create range doc start 0 end (end of content of text object of doc)
+  set myFind to find object of docRange
+  tell myFind
+    set content to ${searchExpr}
+    set forward to true
+    set wrap to find stop
+    set match case to ${matchCase}
   end tell
+  set wasFound to execute find myFind
+  if wasFound then
+    set cursorPos to ${cursorProperty} of content of docRange
+    set cursorRange to create range doc start cursorPos end cursorPos
+    select cursorRange
+    return "ok"
+  else
+    return "notfound"
+  end if
 end tell`;
 
-    await runAppleScript(script);
-    return { success: true };
+        const result = await runAppleScriptStdin(script);
+        if (result.startsWith('ok')) {
+          logger.info(`[WordActions] positionCursorInWord: found with len=${len} matchCase=${matchCase}`);
+          return { success: true };
+        }
+      }
+    }
+
+    return { success: false, error: 'Anchor text not found in document' };
   } catch (err) {
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] positionCursorInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
   }
 }
 
@@ -726,160 +760,83 @@ export async function selectTextInWord(
     return { success: false, error: 'text is required' };
   }
 
+  // Suppress selection events so programmatic selections don't appear as user pills
+  windowMonitorService.suppressSelectionEvents(true);
   try {
-    // Step 1: Position cursor at start of target text using Cmd+F
-    const searchPrefix = text.length > 60 ? text.substring(0, 60) : text;
-    const escapedPrefix = escapeAppleScriptString(searchPrefix);
-
-    const positionScript = `
-tell application "Microsoft Word" to activate
-delay 0.3
-tell application "System Events"
-  tell process "Microsoft Word"
-    keystroke "f" using command down
-    delay 0.3
-    keystroke "a" using command down
-    delay 0.1
-    keystroke "${escapedPrefix}"
-    delay 0.1
-    keystroke return
-    delay 0.3
-    key code 53
-    delay 0.3
-    key code 123
-  end tell
-end tell`;
-
-    await runAppleScript(positionScript);
-
-    // Step 2: Binary search using Shift+Arrow keys
-    // Arrow key presses don't map 1:1 to characters (Word skips invisible formatting).
-    // Track total presses and actual char count separately, using the ratio to estimate.
+    // Use Word's native find object to locate the text, then extend the range
+    // to the full target length and select it. Works in background without focus.
     const targetLen = text.length;
-    let totalPresses = 0; // total arrow key presses from cursor start
-    let lastSelectedText = '';
-    let exact = false;
-    const maxIterations = 12;
-    let iteration = 0;
 
-    // Initial estimate: press targetLen/2 arrows (ratio starts at 1:1)
-    let nextPresses = Math.floor(targetLen / 2);
+    // Try progressively shorter search prefixes and case-insensitive fallback.
+    // Word's find object can fail on text with special formatting, field codes,
+    // or paragraph marks, so we degrade gracefully.
+    const prefixLengths = [
+      Math.min(text.length, 60),
+      Math.min(text.length, 30),
+      Math.min(text.length, 15),
+    ];
 
-    for (iteration = 0; iteration < maxIterations; iteration++) {
-      const delta = nextPresses - totalPresses;
+    for (const prefixLen of prefixLengths) {
+      for (const matchCase of [true, false]) {
+        // Strip paragraph breaks from the search prefix — Word's find object
+        // uses ^p for paragraph marks, not literal returns.
+        const rawPrefix = text.substring(0, prefixLen);
+        const cleanPrefix = rawPrefix.replace(/[\r\n]+/g, ' ').trim();
+        if (!cleanPrefix) continue;
 
-      if (delta !== 0) {
-        const absDelta = Math.abs(delta);
-        const extend = delta > 0;
+        const searchExpr = '"' + escapeAppleScriptString(cleanPrefix) + '"';
 
-        if (absDelta > 200) {
-          // Use Shift+Down/Up for large jumps (one line at a time with delay, batched in one script)
-          const lineKeyCode = extend ? 125 : 126; // Down : Up
-          const estimatedLines = Math.max(1, Math.ceil(absDelta / 80)); // ~80 chars per line
-          const batchSize = 5;
-          const batches = Math.ceil(estimatedLines / batchSize);
-          const lineScript = `
-tell application "Microsoft Word" to activate
-delay 0.2
-tell application "System Events"
-  tell process "Microsoft Word"
-    repeat ${batches} times
-      repeat ${Math.min(batchSize, estimatedLines)} times
-        key code ${lineKeyCode} using shift down
-      end repeat
-      delay 0.2
-    end repeat
+        const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  set doc to active document
+  set docRange to create range doc start 0 end (end of content of text object of doc)
+  set myFind to find object of docRange
+  tell myFind
+    set content to ${searchExpr}
+    set forward to true
+    set wrap to find stop
+    set match case to ${matchCase}
   end tell
+  set wasFound to execute find myFind
+  if not wasFound then
+    return "notfound||"
+  end if
+  set foundStart to (start of content of docRange)
+  set docEnd to (end of content of text object of doc)
+  set selEnd to foundStart + ${targetLen}
+  if selEnd > docEnd then set selEnd to docEnd
+  set selRange to create range doc start foundStart end selEnd
+  select selRange
+  set selectedContent to content of text object of selection
+  return "ok||" & selectedContent
 end tell`;
-          await runAppleScript(lineScript);
-        } else {
-          // Use Shift+Right/Left for fine adjustments
-          const keyCode = extend ? 124 : 123; // Right : Left
-          const arrowScript = `
-tell application "Microsoft Word" to activate
-delay 0.1
-tell application "System Events"
-  tell process "Microsoft Word"
-    repeat ${absDelta} times
-      key code ${keyCode} using shift down
-    end repeat
-  end tell
-end tell`;
-          await runAppleScript(arrowScript);
+
+        const result = await runAppleScriptStdin(script);
+        const sepIdx = result.indexOf('||');
+        const status = sepIdx >= 0 ? result.substring(0, sepIdx) : result;
+        const payload = sepIdx >= 0 ? result.substring(sepIdx + 2) : '';
+
+        if (status === 'ok' && payload) {
+          const selectedText = payload.replace(/[\n\r\f\v\x0c\x0b\x0e\x0f]/g, '');
+          const exact = selectedText === text;
+          logger.info(`[WordActions] selectTextInWord: found with prefix=${prefixLen} matchCase=${matchCase}, selected ${selectedText.length} chars, exact=${exact}`);
+          return { success: true, selectedText, iterations: 1, exact };
         }
-        totalPresses = nextPresses;
-      }
 
-      // Wait for Word to update the selection before reading
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      // Read what's currently selected
-      const readScript = `tell application "Microsoft Word"
-  return content of text object of selection
-end tell`;
-      const rawSelectedText = await runAppleScript(readScript);
-      // Strip invisible chars (page breaks, section breaks, form feeds) that Word
-      // inserts when a selection spans multiple pages
-      lastSelectedText = rawSelectedText.replace(/[\n\r\f\v\x0c\x0b\x0e\x0f]/g, '');
-      const actualLen = lastSelectedText.length;
-
-      logger.info(`[WordActions] selectTextInWord iteration ${iteration + 1}: presses=${totalPresses}, raw=${rawSelectedText.length}, cleaned=${actualLen}, target=${targetLen}`);
-
-      if (lastSelectedText === text) {
-        exact = true;
-        break;
-      }
-
-      // Log where startsWith diverges for debugging
-      if (actualLen > 0 && !text.startsWith(lastSelectedText)) {
-        const minLen = Math.min(actualLen, targetLen);
-        let divergeIdx = 0;
-        for (let i = 0; i < minLen; i++) {
-          if (lastSelectedText[i] !== text[i]) {
-            divergeIdx = i;
-            break;
-          }
-        }
-        if (divergeIdx > 0 || (minLen > 0 && lastSelectedText[0] !== text[0])) {
-          const selSnippet = lastSelectedText.substring(divergeIdx, divergeIdx + 20);
-          const targetSnippet = text.substring(divergeIdx, divergeIdx + 20);
-          const selCodes = Array.from(selSnippet).map(c => c.charCodeAt(0));
-          const targetCodes = Array.from(targetSnippet).map(c => c.charCodeAt(0));
-          logger.info(`[WordActions] selectTextInWord diverge at ${divergeIdx}: sel=${JSON.stringify(selSnippet)} (${selCodes}), target=${JSON.stringify(targetSnippet)} (${targetCodes})`);
-        }
-      }
-
-      // Use observed ratio of presses-to-chars to estimate next press count
-      const ratio = totalPresses > 0 && actualLen > 0 ? totalPresses / actualLen : 1;
-
-      if (text.startsWith(lastSelectedText) && actualLen < targetLen) {
-        // Under-selected: estimate presses needed for remaining chars
-        const charsNeeded = targetLen - actualLen;
-        const pressesNeeded = Math.max(1, Math.ceil(charsNeeded * ratio));
-        // When close (< 100 chars), go direct; otherwise halve to avoid overshoot
-        nextPresses = totalPresses + (charsNeeded < 100 ? pressesNeeded : Math.max(1, Math.ceil(pressesNeeded / 2)));
-      } else if (actualLen > targetLen || !text.startsWith(lastSelectedText)) {
-        // Over-selected or wrong content: shrink
-        const charsOver = actualLen - targetLen;
-        const pressesToShrink = Math.max(1, Math.ceil(Math.abs(charsOver) * ratio));
-        nextPresses = totalPresses - (Math.abs(charsOver) < 100 ? pressesToShrink : Math.max(1, Math.ceil(pressesToShrink / 2)));
-        if (nextPresses < 1) nextPresses = 1;
-      } else {
-        // Same length but different content — try +1
-        nextPresses = totalPresses + 1;
+        logger.info(`[WordActions] selectTextInWord: prefix=${prefixLen} matchCase=${matchCase} → not found, trying next`);
       }
     }
 
-    return {
-      success: true,
-      selectedText: lastSelectedText,
-      iterations: iteration + 1,
-      exact,
-    };
+    return { success: false, error: 'Text not found in document after all search strategies' };
   } catch (err) {
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] selectTextInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
   }
 }
 
@@ -895,21 +852,207 @@ export interface DeleteSelectionResult {
 export async function deleteSelectionInWord(): Promise<DeleteSelectionResult> {
   logger.info('[WordActions] deleteSelectionInWord');
 
+  windowMonitorService.suppressSelectionEvents(true);
   try {
+    // Use Word's object model — works in background without focus
     const script = `
-tell application "Microsoft Word" to activate
-delay 0.2
-tell application "System Events"
-  tell process "Microsoft Word"
-    key code 51
-  end tell
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  type text selection text ""
 end tell`;
 
-    await runAppleScript(script);
+    await runAppleScriptStdin(script);
     return { success: true };
   } catch (err) {
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] deleteSelectionInWord error: ${errorMessage}`);
+    return { success: false, error: errorMessage };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
+  }
+}
+
+// ─── Find and Replace (Object Model) ────────────────────────────
+
+export interface FindAndReplaceResult {
+  success: boolean;
+  error?: string;
+  replacementsCount: number;
+}
+
+/**
+ * Find and replace text in the active Word document using Word's native
+ * find object. Single atomic operation — no keyboard simulation needed.
+ */
+export async function findAndReplaceInWord(
+  searchText: string,
+  replacementText: string,
+  replaceScope: 'first' | 'all' = 'first',
+  matchCase = true,
+): Promise<FindAndReplaceResult> {
+  logger.info(`[WordActions] findAndReplaceInWord scope=${replaceScope} matchCase=${matchCase}`);
+
+  windowMonitorService.suppressSelectionEvents(true);
+  try {
+    const searchExpr = buildAppleScriptString(searchText);
+    const replaceExpr = buildAppleScriptString(replacementText);
+    const replaceConst = replaceScope === 'all' ? 'replace all' : 'replace one';
+
+    const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  set doc to active document
+  set docRange to create range doc start 0 end (end of content of text object of doc)
+  set myFind to find object of docRange
+  set content of myFind to ${searchExpr}
+  set content of replacement of myFind to ${replaceExpr}
+  set match case of myFind to ${matchCase}
+  set forward of myFind to true
+  set wrap of myFind to find stop
+  set format of myFind to false
+  set wasReplaced to execute find myFind replace ${replaceConst}
+  if wasReplaced then
+    return "ok||1"
+  else
+    return "ok||0"
+  end if
+end tell`;
+
+    const result = await runAppleScriptStdin(script);
+    const parts = result.split('||');
+
+    if (parts[0] === 'error') {
+      return { success: false, error: parts[1] || 'Unknown error', replacementsCount: 0 };
+    }
+
+    const count = parseInt(parts[1] || '0', 10);
+    return { success: true, replacementsCount: count };
+  } catch (err) {
+    const errorMessage = (err as Error).message || 'Unknown error';
+    logger.info(`[WordActions] findAndReplaceInWord error: ${errorMessage}`);
+    return { success: false, error: errorMessage, replacementsCount: 0 };
+  } finally {
+    windowMonitorService.suppressSelectionEvents(false);
+  }
+}
+
+// ─── Track Changes ─────────────────────────────────────────────
+
+export interface TrackChangesStatusResult {
+  success: boolean;
+  error?: string;
+  enabled?: boolean;
+}
+
+/**
+ * Check whether Track Changes is enabled on the active Word document.
+ */
+export async function getTrackChangesStatus(): Promise<TrackChangesStatusResult> {
+  try {
+    const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  if track revisions of active document then
+    return "ok||true"
+  else
+    return "ok||false"
+  end if
+end tell`;
+    const result = await runAppleScriptStdin(script);
+    const parts = result.split('||');
+    if (parts[0] === 'error') return { success: false, error: parts[1] };
+    return { success: true, enabled: parts[1] === 'true' };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+/**
+ * Enable or disable Track Changes on the active Word document.
+ */
+export async function setTrackChanges(enabled: boolean): Promise<{ success: boolean; error?: string }> {
+  try {
+    const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  set track revisions of active document to ${enabled}
+  return "ok"
+end tell`;
+    const result = await runAppleScriptStdin(script);
+    if (result.startsWith('error')) return { success: false, error: result.split('||')[1] };
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+// ─── Reload Document ────────────────────────────────────────────
+
+export interface ReloadDocumentResult {
+  success: boolean;
+  error?: string;
+  filePath?: string;
+}
+
+/**
+ * Reload the active Word document from disk.
+ * Uses multiple strategies:
+ * 1. Word's native 'revert' command (no close/reopen needed)
+ * 2. Fallback: Cmd+F5 (Mac Word shortcut for revert)
+ * 3. Fallback: close without saving + reopen
+ */
+export async function reloadDocumentInWord(): Promise<ReloadDocumentResult> {
+  logger.info('[WordActions] reloadDocumentInWord');
+
+  try {
+    // Strategy 1: Use Word's revert command via AppleScript object model.
+    // This is the cleanest — no close/reopen, no permission dialogs.
+    const script = `
+tell application "Microsoft Word"
+  if (count of documents) is 0 then
+    return "error||No document open"
+  end if
+  set doc to active document
+  set docPath to full name of doc
+  -- Word's revert discards in-memory changes and reloads from disk
+  try
+    revert doc
+    return "ok||" & docPath
+  on error errMsg
+    -- Revert may fail if document was never saved or is read-only.
+    -- Fall back to close + reopen.
+    try
+      close doc saving no
+      delay 0.3
+      open docPath
+      return "ok||" & docPath
+    on error errMsg2
+      return "error||" & errMsg2
+    end try
+  end try
+end tell`;
+
+    const result = await runAppleScriptStdin(script);
+    const sepIdx = result.indexOf('||');
+    const status = sepIdx >= 0 ? result.substring(0, sepIdx) : result;
+    const payload = sepIdx >= 0 ? result.substring(sepIdx + 2) : '';
+
+    if (status === 'error') {
+      return { success: false, error: payload || 'Unknown error' };
+    }
+
+    return { success: true, filePath: payload };
+  } catch (err) {
+    const errorMessage = (err as Error).message || 'Unknown error';
+    logger.info(`[WordActions] reloadDocumentInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage };
   }
 }

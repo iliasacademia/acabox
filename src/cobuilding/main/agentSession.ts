@@ -15,14 +15,6 @@ import { createActivityMcpServer } from './mcpServers/activityMcpServer';
 import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
 import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
 import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
-import { createWritingAgentMcpServer } from './mcpServers/writingAgentMcpServer';
-import {
-  listProjects as listWritingProjects,
-  listProjectFiles as listWritingProjectFiles,
-  listConversations as listWritingConversations,
-  getConversation as getWritingConversation,
-  listConversationMessages as listWritingConversationMessages,
-} from './db/writingAgentRepository';
 
 export function getClaudeCliPath(): string {
   if (app.isPackaged) {
@@ -44,130 +36,6 @@ export interface AgentSession {
   readonly isRunning: boolean;
 }
 
-function buildWritingProjectContext(workspaceId: string): string | null {
-  try {
-    const projects = listWritingProjects(workspaceId);
-    if (projects.length === 0) return null;
-
-    const sections: string[] = [];
-    for (const project of projects) {
-      const lines: string[] = [`### ${project.name}`];
-      if (project.description) {
-        lines.push(project.description);
-      }
-
-      const files = listWritingProjectFiles(project.id);
-      if (files.length > 0) {
-        lines.push('\n**Files:**');
-        for (const f of files) {
-          const primary = f.is_primary_manuscript ? ' (primary manuscript)' : '';
-          const filePath = f.rel_path ? ` — ${f.rel_path}` : '';
-          lines.push(`- ${f.file_name}${primary}${filePath}`);
-        }
-      }
-
-      const conversations = listWritingConversations(project.id);
-      if (conversations.length > 0) {
-        lines.push('\n**Recent conversations:**');
-        for (const c of conversations.slice(0, 5)) {
-          const title = c.title || 'Untitled';
-          const summary = c.summary ? ` — ${c.summary}` : '';
-          lines.push(`- ${title} (${c.agent_name})${summary}`);
-        }
-        if (conversations.length > 5) {
-          lines.push(`- ... and ${conversations.length - 5} more (use list_conversations to see all)`);
-        }
-      }
-
-      sections.push(lines.join('\n'));
-    }
-
-    return sections.join('\n\n');
-  } catch (err) {
-    log.warn('[AgentSession] Failed to build writing project context:', err);
-    return null;
-  }
-}
-
-/** Convert HTML content from Writing Agent responses to readable plain text */
-function htmlToText(html: string): string {
-  let text = html;
-  // Convert block elements to newlines
-  text = text.replace(/<\/(?:p|div|section|article|blockquote|h[1-6]|li)>/gi, '\n');
-  text = text.replace(/<(?:br|hr)\s*\/?>/gi, '\n');
-  // Convert headings to markdown-style
-  text = text.replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, level, content) => {
-    return '#'.repeat(Number(level)) + ' ' + content.replace(/<[^>]+>/g, '').trim();
-  });
-  // Convert blockquotes
-  text = text.replace(/<(?:blockquote|q)[^>]*>([\s\S]*?)<\/(?:blockquote|q)>/gi, (_m, content) => {
-    return '> ' + content.replace(/<[^>]+>/g, '').trim();
-  });
-  // Strip all remaining HTML tags
-  text = text.replace(/<[^>]+>/g, '');
-  // Decode common HTML entities
-  text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ');
-  // Collapse excessive whitespace
-  text = text.replace(/\n{3,}/g, '\n\n').trim();
-  return text;
-}
-
-
-function buildWritingConversationContext(conversationId: number, projectId: number): string | null {
-  try {
-    const conversation = getWritingConversation(conversationId);
-    if (!conversation) return null;
-
-    const messages = listWritingConversationMessages(conversationId);
-    if (messages.length === 0) return null;
-
-    const lines: string[] = [];
-    lines.push(`## Continuing Writing Agent Conversation`);
-    lines.push('');
-    lines.push(`You are continuing an existing writing agent conversation. The user chose to continue this conversation in Cobuild. Treat the history below as prior context and continue naturally.`);
-    lines.push('');
-    lines.push(`**Conversation:** "${conversation.title || 'Untitled'}" (with ${conversation.agent_name})`);
-    if (conversation.summary) {
-      lines.push(`**Summary:** ${conversation.summary}`);
-    }
-    lines.push(`**Conversation ID:** ${conversationId} (use get_conversation_messages tool to re-read if needed)`);
-    lines.push('');
-
-    // Determine which messages to include
-    const MAX_FULL = 20;
-    const TAIL_SIZE = 15;
-    const displayMessages = messages.filter(m => m.role === 'user' || m.role === 'assistant');
-    let messagesToShow = displayMessages;
-    if (displayMessages.length > MAX_FULL) {
-      lines.push(`### Previous Messages (showing last ${TAIL_SIZE} of ${displayMessages.length} — use get_conversation_messages for full history)`);
-      messagesToShow = displayMessages.slice(-TAIL_SIZE);
-    } else {
-      lines.push(`### Previous Messages (${displayMessages.length} messages)`);
-    }
-
-    lines.push('');
-    for (const msg of messagesToShow) {
-      const role = msg.role === 'user' ? 'User' : `Assistant (${conversation.agent_name})`;
-      // Convert HTML to plain text and truncate long messages
-      let content = msg.content || '';
-      if (/<[a-z][\s\S]*>/i.test(content)) {
-        content = htmlToText(content);
-      }
-      if (content.length > 3000) {
-        content = content.slice(0, 3000) + '\n\n[... message truncated — use get_conversation_messages for full text]';
-      }
-      lines.push(`**${role}:**`);
-      lines.push(content);
-      lines.push('');
-    }
-
-    return lines.join('\n');
-  } catch (err) {
-    log.warn('[AgentSession] Failed to build writing conversation context:', err);
-    return null;
-  }
-}
-
 export function createAgentSession(
   sessionId: string,
   callbacks: ChatCallbacks,
@@ -177,7 +45,6 @@ export function createAgentSession(
   onNotificationClick?: (action: NotificationNavigationAction | null) => void,
   model?: string,
   messagePreprocessor?: (text: string) => string,
-  writingConversationContext?: { conversationId: number; projectId: number },
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
   const listeners = new Set<Partial<ChatCallbacks>>();
@@ -242,6 +109,40 @@ export function createAgentSession(
 
   const workspaceBoundaryHook = createWorkspaceBoundaryHook(workspace.directory_path);
 
+  // Block direct .docx file manipulation — force use of ms-word MCP tools instead
+  const docxProtectionHook = async (input: HookInput): Promise<SyncHookJSONOutput> => {
+    if (input.hook_event_name !== 'PreToolUse') return {};
+    const { tool_name, tool_input } = input;
+    const toolInput = (tool_input ?? {}) as Record<string, unknown>;
+
+    // Check if any path argument targets a .docx file
+    const pathFields = ['file_path', 'path', 'command'];
+    for (const field of pathFields) {
+      const val = toolInput[field];
+      if (typeof val === 'string' && (
+        val.includes('.docx') && (
+          tool_name === 'Bash' ? (val.includes('unzip') || val.includes('zip') || val.includes('docx')) :
+          (tool_name === 'Read' || tool_name === 'Write' || tool_name === 'Edit')
+        )
+      )) {
+        // Allow reading .docx file path for reference, but block XML editing patterns
+        if (tool_name === 'Bash' && (val.includes('unzip') || val.includes('mkdir') || val.includes('zip '))) {
+          return {
+            decision: 'block',
+            reason: 'Do not unpack or modify .docx files directly. Use the ms-word MCP tools (find_and_replace with Track Changes) to edit Word documents.',
+          } as any;
+        }
+        if ((tool_name === 'Edit' || tool_name === 'Write') && (val.includes('document.xml') || val.includes('word/'))) {
+          return {
+            decision: 'block',
+            reason: 'Do not edit .docx XML files directly. Use mcp__ms-word__find_and_replace with Track Changes enabled instead.',
+          } as any;
+        }
+      }
+    }
+    return {};
+  };
+
   (async () => {
     try {
       const activityMcpServer = createActivityMcpServer();
@@ -249,13 +150,6 @@ export function createAgentSession(
       const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
       const msWordServer = createMsWordMcpServer();
-      const writingAgentServer = createWritingAgentMcpServer(workspace.id);
-
-      // Build writing project context for system prompt
-      const writingProjectContext = buildWritingProjectContext(workspace.id);
-      const conversationContext = writingConversationContext
-        ? buildWritingConversationContext(writingConversationContext.conversationId, writingConversationContext.projectId)
-        : null;
 
       // Read SOUL.md for system prompt customization
       let soulMdContent: string | undefined;
@@ -288,42 +182,19 @@ export function createAgentSession(
           },
           model: model || 'claude-opus-4-6',
           systemPrompt: (() => {
-            const docxEditingGuidance = `When the user wants to make edits or suggestions to a .docx file, ALWAYS use EnterPlanMode first to present your proposed changes for approval before making any edits. Do not edit any .docx files directly — plan first, wait for approval, then execute.
+            const docxEditingGuidance = `When the user wants to make edits or suggestions to a .docx file:
 
-When executing edits, first call mcp__ms-word__get_file_path to check whether a Word document is currently open.
+IMPORTANT: NEVER unpack, modify XML, or edit .docx files directly on disk. ALWAYS use the ms-word MCP tools.
 
-If a Word document is open: use ONLY the ms-word MCP tools for all edits. Do NOT use the docx skill or modify the .docx file on disk directly — that would conflict with the open document in Word.
-- Use mcp__ms-word__get_text to read the document content
-- Use mcp__ms-word__position_cursor to place the cursor at the target location
-- Use mcp__ms-word__select_text to select text you want to replace or delete
-- Use mcp__ms-word__delete_selection to delete the selected text
-- Use mcp__ms-word__insert_paragraph to insert new content
-- Use mcp__ms-word__save_document to save after editing
-The user will see edits appear live in the open Word document as you make them.
+1. First call mcp__ms-word__track_changes_status to check if Track Changes is enabled.
+2. If Track Changes is OFF, ask the user to enable it (Review tab → Track Changes in Word) so they can review your edits. You can also call mcp__ms-word__set_track_changes to enable it.
+3. Use mcp__ms-word__get_text to read the document content.
+4. Use mcp__ms-word__find_and_replace to make edits. With Track Changes enabled, each edit appears as a tracked revision the user can accept or reject — just like a human collaborator's markup.
+5. Use mcp__ms-word__save_document to save after editing.
 
-If no Word document is open (mcp__ms-word__get_file_path returns an error): use the docx skill to edit the .docx file on disk.`;
+The user sees edits appear live in Word as tracked changes. Do NOT use any other method to edit Word documents.`;
 
-            let writingAgentGuidance = `You have access to the user's Writing Agent data via writing-agent MCP tools. This data is synced locally and available offline.
-
-When the user asks about their writing projects, manuscripts, or past writing conversations:
-- Use mcp__writing-agent__list_projects to see all their writing projects
-- Use mcp__writing-agent__get_project_files to see manuscripts and files in a project
-- Use mcp__writing-agent__list_conversations to see past writing agent conversations for a project
-- Use mcp__writing-agent__get_conversation_messages to read the full message history of a past conversation
-- Use mcp__writing-agent__list_supporting_files to see reference materials
-
-When the user wants to edit a manuscript from their writing project:
-1. First use mcp__ms-word__open_document to open the manuscript file at its path
-2. Then use the ms-word tools to interactively edit the document
-3. You can reference past conversation feedback when making edits
-
-If no writing projects are found, suggest the user link their Writing Agent account and sync via the Writing sidebar.`;
-
-            if (writingProjectContext) {
-              writingAgentGuidance += `\n\n## Current Writing Projects\n\nThe following writing projects are synced locally. You already know this context — no need to call list_projects or get_project_files unless you need to refresh.\n\n${writingProjectContext}`;
-            }
-
-            const appendParts = [soulMdContent, docxEditingGuidance, writingAgentGuidance, conversationContext].filter(Boolean).join('\n\n');
+            const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
             return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };
           })(),
           ...(sdkSessionId && { resume: sdkSessionId }),
@@ -341,7 +212,6 @@ If no writing projects are found, suggest the user link their Writing Agent acco
             notification: notificationServer,
             reaction: reactionServer,
             'ms-word': msWordServer,
-            'writing-agent': writingAgentServer,
           },
           allowedTools: [
             "Bash",
@@ -366,21 +236,13 @@ If no writing projects are found, suggest the user link their Writing Agent acco
             "mcp__ms-word__get_selection",
             "mcp__ms-word__save_document",
             "mcp__ms-word__open_document",
-            "mcp__ms-word__position_cursor",
-            "mcp__ms-word__insert_paragraph",
-            "mcp__ms-word__select_text",
-            "mcp__ms-word__apply_style",
-            "mcp__ms-word__apply_formatting",
-            "mcp__ms-word__delete_selection",
-            "mcp__writing-agent__list_projects",
-            "mcp__writing-agent__get_project_files",
-            "mcp__writing-agent__list_conversations",
-            "mcp__writing-agent__get_conversation_messages",
-            "mcp__writing-agent__list_supporting_files",
+            "mcp__ms-word__find_and_replace",
+            "mcp__ms-word__track_changes_status",
+            "mcp__ms-word__set_track_changes",
           ],
           hooks: {
             PreToolUse: [{
-              hooks: [workspaceBoundaryHook],
+              hooks: [workspaceBoundaryHook, docxProtectionHook],
             }],
           },
         },

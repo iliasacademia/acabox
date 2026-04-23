@@ -222,9 +222,10 @@ export interface GetNotificationsResponse {
 
 // Navigation payload for navigate-to-page IPC
 export interface NavigateToPagePayload {
-  page: "conversation" | "conversations" | "external"; // Extensible: 'project' | 'settings' | etc.
+  page: "conversation" | "conversations" | "external" | "session"; // Extensible: 'project' | 'settings' | etc.
   projectId?: number; // Required for 'conversation' and 'conversations' pages
   conversationId?: number; // Required for 'conversation' page
+  sessionId?: string; // Required for 'session' page (cobuilding workspace session)
   openDiffModal?: boolean; // Auto-open diff modal when navigating to conversation
   url?: string; // Required for 'external' page
 }

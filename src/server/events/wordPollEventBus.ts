@@ -19,7 +19,9 @@ export type WordPollChangeReason =
   | 'window-document-path-changed'
   | 'reviewing-state-changed'
   | 'webview-visibility-changed'
-  | 'review-error-changed';
+  | 'review-error-changed'
+  | 'selected-text-changed'
+  | 'selected-text-cleared';
 
 interface WordPollEvents {
   change: [reason: WordPollChangeReason];

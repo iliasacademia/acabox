@@ -85,6 +85,7 @@ export interface WordPollResponse {
   reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
   selectedTextReviewStartedAt?: number;
   selectedText?: string;
+  hasSelectedText?: boolean;
   isAwaitingReviewInput?: boolean;
   shouldShowButtonV2?: boolean;
   shouldShowPopupV2?: boolean;
@@ -94,6 +95,16 @@ export interface WordPollResponse {
   reviewErrorMessage?: string;
   projectReviewState?: 'idle' | 'reviewing' | 'completed' | 'failed';
   wid?: string;
+  /** Whether the panel is currently rendered in the docked position (false when Word is maximized and panel fell back to floating) */
+  isDockedActive?: boolean;
+  /** Whether the open document is within the cobuilding workspace directory */
+  isInWorkspace?: boolean;
+  /** Cobuilding workspace sessions (included when isInWorkspace is true) */
+  workspaceSessions?: Array<{
+    id: string;
+    title: string;
+    created_at: string;
+  }>;
 }
 
 export interface WebSocketMessage {
@@ -106,9 +117,10 @@ export type ReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
 export type ViewMode = 'menu' | 'review' | 'review-input';
 
 export interface NavigateRequest {
-  page: 'conversation' | 'conversations' | 'external';
+  page: 'conversation' | 'conversations' | 'external' | 'session';
   projectId?: number;
   conversationId?: number;
+  sessionId?: string;
   openDiffModal?: boolean;
   url?: string;
 }
@@ -221,6 +233,22 @@ export const WidthToggleIcon: React.FC = () => (
     React.createElement('path', { d: 'M8 8L4 12L8 16', stroke: '#141413', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }),
     React.createElement('path', { d: 'M16 8L20 12L16 16', stroke: '#141413', strokeWidth: '2', strokeLinecap: 'round', strokeLinejoin: 'round' }),
     React.createElement('line', { x1: '4', y1: '12', x2: '20', y2: '12', stroke: '#141413', strokeWidth: '2', strokeLinecap: 'round' })
+  )
+);
+
+// Panel docked to right side: large rectangle on left, narrow filled bar on right
+export const DockRightIcon: React.FC = () => (
+  React.createElement('svg', { width: '16', height: '16', viewBox: '0 0 16 16', fill: 'none', xmlns: 'http://www.w3.org/2000/svg' },
+    React.createElement('rect', { x: '1', y: '2', width: '9', height: '12', rx: '1', stroke: '#141413', strokeWidth: '1.5' }),
+    React.createElement('rect', { x: '12', y: '2', width: '3', height: '12', rx: '1', fill: '#141413' })
+  )
+);
+
+// Floating/undocked: narrow filled bar on left, large rectangle on right
+export const UndockIcon: React.FC = () => (
+  React.createElement('svg', { width: '16', height: '16', viewBox: '0 0 16 16', fill: 'none', xmlns: 'http://www.w3.org/2000/svg' },
+    React.createElement('rect', { x: '1', y: '2', width: '3', height: '12', rx: '1', fill: '#141413' }),
+    React.createElement('rect', { x: '6', y: '2', width: '9', height: '12', rx: '1', stroke: '#141413', strokeWidth: '1.5' })
   )
 );
 
@@ -839,7 +867,24 @@ if (typeof document !== 'undefined') {
     .review-content p, .review-content h1, .review-content h2, .review-content h3, .review-content h4, .review-content h5, .review-content h6, .review-content ul, .review-content ol, .review-content li {
       margin: 0 0 12px 0;
     }
-
+    .markdown-content { font-family: 'DM Sans', sans-serif; font-size: 14px; line-height: 1.5; color: #141413; }
+    .markdown-content p { margin: 0 0 8px 0; }
+    .markdown-content p:last-child { margin-bottom: 0; }
+    .markdown-content h1, .markdown-content h2, .markdown-content h3, .markdown-content h4 { margin: 12px 0 6px 0; font-weight: 600; }
+    .markdown-content h1 { font-size: 18px; }
+    .markdown-content h2 { font-size: 16px; }
+    .markdown-content h3 { font-size: 15px; }
+    .markdown-content ul, .markdown-content ol { margin: 0 0 8px 0; padding-left: 20px; }
+    .markdown-content li { margin: 2px 0; }
+    .markdown-content code { background: #e8e6df; border-radius: 3px; padding: 1px 4px; font-family: monospace; font-size: 13px; }
+    .markdown-content pre { background: #f5f4f0; border-radius: 6px; padding: 10px; margin: 0 0 8px 0; overflow-x: auto; }
+    .markdown-content pre code { background: none; padding: 0; }
+    .markdown-content blockquote { border-left: 3px solid #ccc9bc; margin: 0 0 8px 0; padding: 4px 12px; color: #535366; }
+    .markdown-content strong { font-weight: 600; }
+    .markdown-content a { color: #0645b1; text-decoration: underline; }
+    .markdown-content table { border-collapse: collapse; margin: 0 0 8px 0; width: 100%; }
+    .markdown-content th, .markdown-content td { border: 1px solid #ccc9bc; padding: 4px 8px; text-align: left; font-size: 13px; }
+    .markdown-content th { background: #f5f4f0; font-weight: 600; }
   `;
 
   if (!document.getElementById('academia-notifications-popup-v2-styles')) {

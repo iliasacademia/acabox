@@ -1,85 +1,147 @@
-import React, { useState } from 'react';
-import DOMPurify from 'isomorphic-dompurify';
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  useLocalRuntime,
+  AssistantRuntimeProvider,
+} from '@assistant-ui/react';
+import { OverlayThread } from './OverlayThread';
+import { useHttpChatAdapter, useHttpHistoryAdapter } from './httpChatAdapter';
+import '../../cobuilding/renderer/App.css';
+import '@assistant-ui/react-markdown/styles/dot.css';
 import {
   ConversationItem,
-  NotificationData,
-  ReviewState,
   styles,
   ArrowForwardIcon,
-  LoadingSpinner,
-  postBridge,
-  formatNotificationDate,
+  ArrowBackIcon,
   formatConversationDate,
+  serverUrl,
+  tokenParam,
 } from './shared';
 
-// ─── Menu View ──────────────────────────────────────────────────────
+// ─── Conversation List View ─────────────────────────────────────────
 
-interface MenuViewProps {
-  recentReviewNotifications: NotificationData[];
+interface ConversationListViewProps {
   conversations: ConversationItem[];
   isLoading: boolean;
-  projectId: number | null;
-  fileId: number | null;
-  reviewState: ReviewState;
-  reviewErrorMessage?: string | null;
-  onClose: () => void;
-  onViewReviewFeedback: (notification: NotificationData) => void;
-  onViewPreviousFeedback: () => void;
-  onGenerateShortReview: () => void;
-  onGenerateFullReview: () => void;
+  onContinueConversation: (conversation: ConversationItem) => void;
 }
 
-export const MenuView: React.FC<MenuViewProps> = ({
-  recentReviewNotifications,
+export const ConversationListView: React.FC<ConversationListViewProps> = ({
   conversations,
   isLoading,
-  projectId,
-  fileId,
-  reviewState,
-  reviewErrorMessage,
-  onClose,
-  onViewReviewFeedback,
-  onViewPreviousFeedback,
-  onGenerateShortReview,
-  onGenerateFullReview,
+  onContinueConversation,
 }) => {
-  const isReviewing = reviewState === 'reviewing';
-  const showFailedMessage = reviewState === 'failed';
-  const buttonsDisabled = isLoading || !projectId || !fileId || isReviewing;
+  if (isLoading) {
+    return (
+      <div style={styles.loadingText}>Loading conversations...</div>
+    );
+  }
 
-  // Map conversation_id -> notification for badge/behavior lookup
-  const notificationByConvId = new Map(recentReviewNotifications.map(n => [n.conversation_id, n]));
-
-  // In-progress reviews whose conversation isn't in the list yet (show at top)
-  const convIds = new Set(conversations.map(c => c.id));
-  const inProgressExtras = recentReviewNotifications.filter(n => n.isInProgress && !convIds.has(n.conversation_id));
+  if (conversations.length === 0) {
+    return (
+      <>
+        <div style={styles.sectionHeader}>
+          <span style={styles.sectionHeaderText}>Conversations</span>
+        </div>
+        <div style={{
+          fontFamily: "'DM Sans', sans-serif",
+          fontSize: '15px',
+          color: '#6d6d7d',
+          lineHeight: '1.5',
+          padding: '8px 0',
+        }}>
+          No conversations yet for this manuscript. Start one from the sidebar.
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
-      {/* Section 1: Feedback and Conversations */}
-      <div>
-        <div style={styles.sectionHeader}>
-          <span style={styles.sectionHeaderText}>Feedback and Conversations</span>
+      <div style={styles.sectionHeader}>
+        <span style={styles.sectionHeaderText}>Conversations</span>
+      </div>
+      <div style={styles.feedbackContent}>
+        {conversations.slice(0, 5).map((conversation) => (
+          <button
+            key={conversation.id}
+            style={styles.notificationCard}
+            onClick={() => onContinueConversation(conversation)}
+            aria-label="Continue conversation"
+          >
+            <div style={styles.notificationContent as React.CSSProperties}>
+              <span style={styles.notificationDate}>
+                {formatConversationDate(conversation.created_at)}
+              </span>
+              <span style={styles.notificationTitle}>
+                {conversation.title || conversation.summary || 'Conversation'}
+              </span>
+            </div>
+            <div style={styles.arrowIcon}>
+              <ArrowForwardIcon />
+            </div>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+};
+
+// ─── Workspace Sessions View ─────────────────────────────────────────
+
+interface WorkspaceSessionsViewProps {
+  sessions: Array<{ id: string; title: string; created_at: string }>;
+  onOpenSession: (session: { id: string; title: string; created_at: string }) => void;
+  onNewConversation: () => void;
+}
+
+export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
+  sessions,
+  onOpenSession,
+  onNewConversation,
+}) => {
+  return (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px' }}>
+        <span style={styles.sectionHeaderText}>Conversations</span>
+        <button
+          onClick={onNewConversation}
+          style={{
+            ...styles.actionButton,
+            width: 'auto',
+            padding: '4px 12px',
+            gap: '4px',
+          }}
+          aria-label="New conversation"
+        >
+          <span style={{ fontSize: '16px', lineHeight: '20px' }}>+</span>
+          <span style={styles.buttonText}>New</span>
+        </button>
+      </div>
+      {sessions.length === 0 ? (
+        <div style={{
+          fontFamily: "'DM Sans', sans-serif",
+          fontSize: '15px',
+          color: '#6d6d7d',
+          lineHeight: '1.5',
+          padding: '8px 0',
+        }}>
+          No conversations yet. Start a new one!
         </div>
+      ) : (
         <div style={styles.feedbackContent}>
-          {/* In-progress reviews not yet in the conversations list */}
-          {inProgressExtras.map((notification) => (
+          {sessions.slice(0, 5).map((session) => (
             <button
-              key={`notif-${notification.id}`}
+              key={session.id}
               style={styles.notificationCard}
-              onClick={() => onViewReviewFeedback(notification)}
-              aria-label="View review feedback"
+              onClick={() => onOpenSession(session)}
+              aria-label="Open conversation"
             >
-              {!notification.isRead && <div style={styles.blueDot} />}
               <div style={styles.notificationContent as React.CSSProperties}>
                 <span style={styles.notificationDate}>
-                  {formatNotificationDate(notification.created_at)}
+                  {formatConversationDate(session.created_at)}
                 </span>
                 <span style={styles.notificationTitle}>
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                    <LoadingSpinner />
-                    <span>Selection review</span>
-                  </span>
+                  {session.title || 'Conversation'}
                 </span>
               </div>
               <div style={styles.arrowIcon}>
@@ -87,162 +149,94 @@ export const MenuView: React.FC<MenuViewProps> = ({
               </div>
             </button>
           ))}
-
-          {/* Conversations from list_conversations (up to 5), with badge if a review notification matches */}
-          {conversations.slice(0, 5).map((conversation) => {
-            const notification = notificationByConvId.get(conversation.id);
-            const isSelectionReview = notification?.review_type === 'selected-text';
-
-            return (
-              <button
-                key={conversation.id}
-                style={styles.notificationCard}
-                onClick={() => onViewReviewFeedback(notification ?? {
-                  id: 0,
-                  project_id: projectId!,
-                  conversation_id: conversation.id,
-                  created_at: new Date(conversation.created_at).getTime(),
-                  title: conversation.title || conversation.summary || 'Conversation',
-                  conversation_title: conversation.title || conversation.summary || undefined,
-                  isRead: true,
-                })}
-                aria-label={notification ? 'View review feedback' : 'View conversation'}
-              >
-                {notification && !notification.isRead && <div style={styles.blueDot} />}
-                <div style={styles.notificationContent as React.CSSProperties}>
-                  <span style={styles.notificationDate}>
-                    {notification
-                      ? formatNotificationDate(notification.created_at)
-                      : formatConversationDate(conversation.created_at)
-                    }
-                  </span>
-                  <span style={styles.notificationTitle}>
-                    {notification?.isInProgress && (
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-                        <LoadingSpinner />
-                        <span>Selection review</span>
-                      </span>
-                    )}
-                    {notification && !notification.isInProgress && isSelectionReview && 'Selection review'}
-                    {notification && !notification.isInProgress && !isSelectionReview && (
-                      <span
-                        dangerouslySetInnerHTML={{
-                          __html: DOMPurify.sanitize(notification.body_html || notification.conversation_title || notification.title || 'Feedback on your manuscript')
-                        }}
-                      />
-                    )}
-                    {!notification && (conversation.title || conversation.summary || 'Conversation')}
-                  </span>
-                </div>
-                <div style={styles.arrowIcon}>
-                  <ArrowForwardIcon />
-                </div>
-              </button>
-            );
-          })}
-
-          {/* View all row */}
-          <button
-            style={styles.viewPreviousRow}
-            onClick={onViewPreviousFeedback}
-            aria-label="View all feedback and conversations"
-          >
-            <span style={styles.viewPreviousText}>View all feedback and conversations</span>
-            <div style={styles.arrowIcon}>
-              <ArrowForwardIcon />
-            </div>
-          </button>
-        </div>
-      </div>
-
-      {/* Section 2: Get Feedback Actions */}
-      <div>
-        <div style={styles.sectionHeader}>
-          <span style={styles.sectionHeaderText}>Get feedback</span>
-        </div>
-        <div style={styles.feedbackButtonsRow}>
-          <button
-            style={{
-              ...styles.feedbackButton,
-              ...(buttonsDisabled ? styles.feedbackButtonDisabled : {}),
-            }}
-            onClick={onGenerateShortReview}
-            disabled={buttonsDisabled}
-            aria-label="Generate review on recent changes"
-          >
-            <span style={styles.feedbackButtonText}>
-              {isReviewing ? 'Reviewing...' : 'On recent changes'}
-            </span>
-            <div style={styles.arrowIcon}>
-              <ArrowForwardIcon />
-            </div>
-          </button>
-          <button
-            style={{
-              ...styles.feedbackButton,
-              ...(buttonsDisabled ? styles.feedbackButtonDisabled : {}),
-            }}
-            onClick={onGenerateFullReview}
-            disabled={buttonsDisabled}
-            aria-label="Generate review on full manuscript"
-          >
-            <span style={styles.feedbackButtonText}>
-              {isReviewing ? 'Reviewing...' : 'On the full manuscript'}
-            </span>
-            <div style={styles.arrowIcon}>
-              <ArrowForwardIcon />
-            </div>
-          </button>
-        </div>
-      </div>
-
-      {/* Review error message from review button */}
-      {reviewErrorMessage && (
-        <div style={styles.errorMessage}>
-          {reviewErrorMessage}
-        </div>
-      )}
-
-      {/* Error Message (if any) */}
-      {showFailedMessage && (
-        <div style={styles.errorMessage}>
-          Review failed. Please try again.
         </div>
       )}
     </>
   );
 };
 
-// ─── Enable Feedback View ───────────────────────────────────────────
+// ─── Workspace Conversation View ─────────────────────────────────────
 
-interface EnableFeedbackViewProps {
+interface WorkspaceConversationViewProps {
+  sessionId: string;
+  sessionTitle: string;
+  documentPath?: string | null;
+  selectedText?: string | null;
+  onBack: () => void;
+}
+
+export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps> = ({
+  sessionId,
+  sessionTitle,
+  documentPath,
+  selectedText: selectedTextProp,
+  onBack,
+}) => {
+  // Local selected text state — syncs from prop, can be dismissed with X
+  const [localSelectedText, setLocalSelectedText] = useState<string | null>(selectedTextProp ?? null);
+  const [selectionDismissed, setSelectionDismissed] = useState(false);
+
+  useEffect(() => {
+    if (selectedTextProp) {
+      setLocalSelectedText(selectedTextProp);
+      setSelectionDismissed(false);
+    } else if (!selectionDismissed) {
+      setLocalSelectedText(null);
+    }
+  }, [selectedTextProp]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const activeSelectedText = selectionDismissed ? null : localSelectedText;
+
+  const getContext = useCallback(() => ({
+    documentPath,
+    selectedText: activeSelectedText,
+  }), [documentPath, activeSelectedText]);
+
+  const chatAdapter = useHttpChatAdapter({
+    serverUrl,
+    token: tokenParam,
+    sessionId,
+    getContext,
+  });
+
+  const history = useHttpHistoryAdapter(serverUrl, tokenParam, sessionId);
+  const runtime = useLocalRuntime(chatAdapter, { adapters: { history } });
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* Header with back button */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '8px', flexShrink: 0 }}>
+        <button onClick={onBack} style={styles.backButton} aria-label="Back">
+          <ArrowBackIcon />
+        </button>
+        <span style={styles.sectionHeaderText}>
+          {sessionTitle || 'Conversation'}
+        </span>
+      </div>
+
+      {/* Chat — uses the same Thread component as the desktop app */}
+      <div style={{ flex: 1, minHeight: 0 }}>
+        <AssistantRuntimeProvider runtime={runtime}>
+          <OverlayThread
+            documentPath={documentPath}
+            selectedText={activeSelectedText}
+            onDismissSelection={() => { setSelectionDismissed(true); setLocalSelectedText(null); }}
+          />
+        </AssistantRuntimeProvider>
+      </div>
+    </div>
+  );
+};
+
+// ─── Not Linked View ─────────────────────────────────────────────────
+
+interface NotLinkedViewProps {
   isUnsavedDocument: boolean;
 }
 
-export const EnableFeedbackView: React.FC<EnableFeedbackViewProps> = ({
+export const NotLinkedView: React.FC<NotLinkedViewProps> = ({
   isUnsavedDocument,
 }) => {
-  const [isEnableFeedbackLoading, setIsEnableFeedbackLoading] = useState(false);
-  const [enableFeedbackError, setEnableFeedbackError] = useState<string | null>(null);
-
-  const handleShareToEnableFeedback = async () => {
-    setIsEnableFeedbackLoading(true);
-    setEnableFeedbackError(null);
-    try {
-      console.log('[AcademiaNotificationsPopupV2] Share to enable feedback clicked');
-      const response = await postBridge('shareToEnableFeedback');
-      const data = await response.json();
-      if (!data.success) {
-        setEnableFeedbackError(data.error || 'Failed to enable feedback');
-        setIsEnableFeedbackLoading(false);
-      }
-      // On success, the popup will be closed by the service
-    } catch (err) {
-      setEnableFeedbackError('Something went wrong. Please try again.');
-      setIsEnableFeedbackLoading(false);
-    }
-  };
-
   return (
     <>
       {isUnsavedDocument ? (
@@ -251,34 +245,17 @@ export const EnableFeedbackView: React.FC<EnableFeedbackViewProps> = ({
             Save your document first
           </div>
           <div style={styles.enableFeedbackDescription}>
-            Please save your document before enabling feedback. Once saved, you can share it with Writing Agent.
+            Please save your document to get started.
           </div>
         </>
       ) : (
         <>
           <div style={styles.enableFeedbackTitle}>
-            {isEnableFeedbackLoading ? 'Setting up...' : 'Share this document for feedback?'}
+            Not linked to a project
           </div>
           <div style={styles.enableFeedbackDescription}>
-            {isEnableFeedbackLoading
-              ? 'Creating project and uploading your document. This may take a moment.'
-              : "This document hasn't been shared with Writing Agent yet. Share it to start getting feedback."}
+            This document isn't linked to a Writing Agent project yet. Create a project in Writing Agent to start working on this manuscript.
           </div>
-          {enableFeedbackError && (
-            <div style={styles.enableFeedbackError}>{enableFeedbackError}</div>
-          )}
-          <button
-            style={{
-              ...styles.enableFeedbackShareButton,
-              ...(isEnableFeedbackLoading ? { opacity: 0.6, cursor: 'not-allowed' } : {}),
-            }}
-            onClick={handleShareToEnableFeedback}
-            disabled={isEnableFeedbackLoading}
-          >
-            <span style={styles.enableFeedbackShareButtonText}>
-              {isEnableFeedbackLoading ? 'Setting up...' : 'Share to enable feedback'}
-            </span>
-          </button>
         </>
       )}
     </>

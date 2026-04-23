@@ -65,31 +65,11 @@ import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
 import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
-import {
-  upsertProject as upsertWritingProject,
-  listProjects as listWritingProjects,
-  deleteProjectsForWorkspace as deleteWritingProjectsForWorkspace,
-  upsertProjectFile as upsertWritingProjectFile,
-  listProjectFiles as listWritingProjectFiles,
-  clearProjectFiles as clearWritingProjectFiles,
-  upsertConversation as upsertWritingConversation,
-  listConversations as listWritingConversations,
-  clearConversations as clearWritingConversations,
-  upsertSupportingFile as upsertWritingSupportingFile,
-  listSupportingFiles as listWritingSupportingFiles,
-  deleteSupportingFilesForWorkspace as deleteWritingSupportingFilesForWorkspace,
-  upsertConversationMessage as upsertWritingConversationMessage,
-  clearConversationMessages as clearWritingConversationMessages,
-} from './db/writingAgentRepository';
-import {
-  checkWritingAgentAccess,
-  fetchProjects as fetchWritingProjects,
-  fetchProjectFiles as fetchWritingProjectFiles,
-  fetchConversations as fetchWritingConversations,
-  fetchConversationDetail as fetchWritingConversationDetail,
-  fetchSupportingFiles as fetchWritingSupportingFiles,
-} from './writingAgentService';
 import { registerNotesHandlers } from './notesHandlers';
+import { AcademiaHttpServer } from '../../server/httpServer';
+import { windowMonitorService } from '../../windowMonitorService';
+import { wordAccessibility } from '../../native/wordAccessibility';
+import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 
@@ -200,25 +180,6 @@ function setMaxAttachmentSizeMB(sizeMB: number): void {
     data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
   } catch { }
   data.maxAttachmentSizeMB = sizeMB;
-  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-function getWritingAgentLinked(): boolean {
-  try {
-    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.writingAgentLinked === true;
-  } catch {
-    return false;
-  }
-}
-
-function setWritingAgentLinked(linked: boolean): void {
-  const settingsPath = getSettingsPath();
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch { }
-  data.writingAgentLinked = linked;
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -454,6 +415,22 @@ function createMainWindow(): void {
 
   mainWindow.webContents.on('did-finish-load', () => {
     log.info('[APP] Window did-finish-load.');
+
+    // Check accessibility permission on startup (macOS only)
+    if (process.platform === 'darwin') {
+      try {
+        const hasPermission = wordAccessibility.checkPermission();
+        const appInfo = wordAccessibility.getAppInfo();
+        log.info('[Permissions] Accessibility permission status:', {
+          granted: hasPermission,
+          bundleId: appInfo.bundleId,
+          teamId: appInfo.teamId,
+        });
+        mainWindow?.webContents.send(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, { hasPermission });
+      } catch (error) {
+        log.error('[Permissions] Error checking permission on startup:', error);
+      }
+    }
   });
 }
 
@@ -553,6 +530,195 @@ app.whenReady().then(() => {
       ensureReactionsTask(activeWorkspace.id);
     }
     startScheduledTasks(handleNotificationNavigation);
+
+    // Start HTTP server and window monitor for the Word overlay
+    if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
+      (async () => {
+        try {
+          const httpServer = new AcademiaHttpServer(null, () => null);
+
+          // Navigation handler — show main window and send navigation event to renderer
+          httpServer.setNavigationHandler(async (payload) => {
+            if (payload.page === 'external' && payload.url) {
+              await shell.openExternal(payload.url);
+              return;
+            }
+            if (!mainWindow || mainWindow.isDestroyed()) {
+              createMainWindow();
+            }
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              if (mainWindow.isMinimized()) mainWindow.restore();
+              mainWindow.show();
+              mainWindow.focus();
+              mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+                page: payload.page,
+                projectId: payload.projectId,
+                conversationId: payload.conversationId,
+                sessionId: payload.sessionId,
+              } as NavigateToPagePayload);
+            }
+          });
+
+          // Register cobuilding session routes for the Word overlay
+          httpServer.addRouteRegistrar(async (fastify) => {
+            // GET /api/cobuilding/sessions/:sessionId/messages
+            fastify.get<{ Params: { sessionId: string } }>(
+              '/api/cobuilding/sessions/:sessionId/messages',
+              async (request, reply) => {
+                const { sessionId } = request.params;
+                const msgs = getMessages(sessionId);
+                const parsed = msgs.map(m => {
+                  let content: unknown;
+                  try { content = JSON.parse(m.content); } catch { content = m.content; }
+                  return { id: m.id, type: m.type, content, created_at: m.created_at };
+                });
+                reply.send({ messages: parsed });
+              },
+            );
+
+            // Per-session pending context for messagePreprocessor injection.
+            // Context is set before each sendMessage and consumed by the preprocessor,
+            // so the DB stores only the user's raw text while Claude gets the context.
+            const pendingContext = new Map<string, { documentPath?: string; selectedText?: string }>();
+
+            // POST /api/cobuilding/sessions/:sessionId/send — streams response via SSE
+            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string } }>(
+              '/api/cobuilding/sessions/:sessionId/send',
+              async (request, reply) => {
+                const { sessionId } = request.params;
+                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText } = request.body;
+                if (!text || typeof text !== 'string') {
+                  reply.code(400).send({ error: 'text is required' });
+                  return;
+                }
+                if (!activeWorkspace) {
+                  reply.code(400).send({ error: 'No active workspace' });
+                  return;
+                }
+
+                // Build the display message: selection quote + user instruction
+                // This is what gets stored in the DB and shown in both overlay and desktop app.
+                const displayMessage = ctxSelectedText
+                  ? `"${ctxSelectedText}"\n\n${text}`
+                  : text;
+
+                // Store context for the messagePreprocessor to pick up
+                // (adds document path for Claude without it appearing in the stored message)
+                if (ctxDocPath) {
+                  pendingContext.set(sessionId, { documentPath: ctxDocPath });
+                }
+
+                // Hijack the response so Fastify doesn't try to send its own
+                reply.hijack();
+                reply.raw.writeHead(200, {
+                  'Content-Type': 'text/event-stream',
+                  'Cache-Control': 'no-cache',
+                  'Connection': 'keep-alive',
+                  'X-Accel-Buffering': 'no',
+                });
+
+                const sendSSE = (event: string, data: unknown) => {
+                  if (!reply.raw.destroyed) {
+                    reply.raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+                  }
+                };
+
+                // Silently tell the desktop app to switch to this session (no show/focus)
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+                    page: 'session',
+                    sessionId,
+                  } as NavigateToPagePayload);
+                }
+
+                const existingRunning = getRegisteredSession(sessionId);
+                if (existingRunning?.isRunning) {
+                  const unsubscribe = existingRunning.addListener({
+                    onEvent: (msg) => sendSSE('event', msg),
+                    onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); },
+                    onError: (err) => { sendSSE('error', { error: err }); reply.raw.end(); unsubscribe(); },
+                  });
+                  existingRunning.sendMessage(displayMessage);
+                  return;
+                }
+
+                if (!hasSession(sessionId)) {
+                  const existingDbSession = getSession(sessionId);
+                  const session = createAgentSession(
+                    sessionId,
+                    {
+                      onEvent: () => {},
+                      onDone: () => {},
+                      onError: () => { unregisterSession(sessionId); },
+                    },
+                    activeWorkspace,
+                    existingDbSession?.sdk_session_id ?? undefined,
+                    undefined,
+                    undefined,
+                    undefined,
+                    // messagePreprocessor: inject document path context for Claude
+                    // without storing it in the DB message
+                    (userText: string) => {
+                      const ctx = pendingContext.get(sessionId);
+                      pendingContext.delete(sessionId);
+                      if (!ctx?.documentPath) return userText;
+                      return `Active Word document: ${ctx.documentPath}\n\n${userText}`;
+                    },
+                  );
+                  registerSession(sessionId, session);
+                }
+
+                const session = getRegisteredSession(sessionId)!;
+                const unsubscribe = session.addListener({
+                  onEvent: (msg) => sendSSE('event', msg),
+                  onDone: () => {
+                    sendSSE('done', {});
+                    reply.raw.end();
+                    unsubscribe();
+                  },
+                  onError: (err) => {
+                    sendSSE('error', { error: err });
+                    reply.raw.end();
+                    unsubscribe();
+                  },
+                });
+
+                request.raw.on('close', () => {
+                  unsubscribe();
+                });
+
+                session.sendMessage(displayMessage);
+              },
+            );
+          });
+
+          const port = await httpServer.start();
+          const baseUrl = httpServer.getBaseUrl();
+          const authToken = httpServer.getAuthToken();
+          log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
+
+          if (baseUrl && authToken) {
+            // Set workspace directory so the overlay knows which docs are in the workspace
+            if (activeWorkspace) {
+              windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
+              windowMonitorService.setSessionsProvider(() => {
+                if (!activeWorkspace) return [];
+                return listSessions(activeWorkspace.id).map(s => ({
+                  id: s.id,
+                  title: s.title,
+                  created_at: s.created_at,
+                }));
+              });
+            }
+            windowMonitorService.start(baseUrl, authToken, false);
+            log.info('[WindowMonitor] Started for Word overlay');
+          }
+
+        } catch (error) {
+          log.error('[HTTP Server] Failed to start:', error);
+        }
+      })();
+    }
 
     if (isSmokeTest) {
       log.info('[SMOKE TEST] All services started — shutting down');
@@ -680,6 +846,8 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
 
   if (activeWorkspace) {
     ensureReactionsTask(activeWorkspace.id);
+    // Update workspace directory for the Word overlay
+    windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
   }
 
   // Restart scheduler so it picks up the new workspace's tasks
@@ -750,102 +918,6 @@ ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
 
 ipcMain.handle('settings:setMaxAttachmentSizeMB', (_event, sizeMB: number) => {
   setMaxAttachmentSizeMB(sizeMB);
-});
-
-// --- Writing Agent IPC handlers ---
-
-ipcMain.handle('writingAgent:isLinked', () => {
-  return getWritingAgentLinked();
-});
-
-ipcMain.handle('writingAgent:link', async () => {
-  const hasAccess = await checkWritingAgentAccess();
-  if (hasAccess) {
-    setWritingAgentLinked(true);
-    return { success: true };
-  }
-  return { success: false, error: 'No Writing Agent access found for this account' };
-});
-
-ipcMain.handle('writingAgent:unlink', () => {
-  setWritingAgentLinked(false);
-  if (activeWorkspace) {
-    deleteWritingProjectsForWorkspace(activeWorkspace.id);
-    deleteWritingSupportingFilesForWorkspace(activeWorkspace.id);
-  }
-  return { success: true };
-});
-
-ipcMain.handle('writingAgent:refresh', async () => {
-  if (!activeWorkspace) throw new Error('No active workspace');
-  const projects = await fetchWritingProjects();
-  deleteWritingProjectsForWorkspace(activeWorkspace.id);
-  for (const p of projects) {
-    upsertWritingProject(activeWorkspace.id, p);
-    const files = await fetchWritingProjectFiles(p.id);
-    for (const f of files) upsertWritingProjectFile(p.id, f);
-    const convosResponse = await fetchWritingConversations(p.id);
-    const convos = convosResponse.conversations ?? [];
-    for (const c of convos) {
-      upsertWritingConversation(p.id, c);
-      // Fetch and cache full message history for each conversation
-      try {
-        const detail = await fetchWritingConversationDetail(c.id, p.id);
-        clearWritingConversationMessages(c.id);
-        for (const msg of detail.messages ?? []) {
-          upsertWritingConversationMessage(c.id, msg);
-        }
-      } catch (err) {
-        log.warn(`[WritingAgent] Failed to fetch messages for conversation ${c.id}:`, err);
-      }
-    }
-  }
-  // Fetch user-level supporting files
-  deleteWritingSupportingFilesForWorkspace(activeWorkspace.id);
-  const supportingFiles = await fetchWritingSupportingFiles();
-  for (const sf of supportingFiles) upsertWritingSupportingFile(activeWorkspace.id, sf);
-  return { success: true, projectCount: projects.length };
-});
-
-ipcMain.handle('writingAgent:listProjects', () => {
-  if (!activeWorkspace) return [];
-  return listWritingProjects(activeWorkspace.id);
-});
-
-ipcMain.handle('writingAgent:getProjectFiles', (_event, projectId: number) => {
-  return listWritingProjectFiles(projectId);
-});
-
-ipcMain.handle('writingAgent:listConversations', (_event, projectId: number) => {
-  return listWritingConversations(projectId);
-});
-
-ipcMain.handle('writingAgent:listSupportingFiles', () => {
-  if (!activeWorkspace) return [];
-  return listWritingSupportingFiles(activeWorkspace.id);
-});
-
-ipcMain.handle('writingAgent:getConversationDetail', async (_event, conversationId: number, projectId: number) => {
-  return fetchWritingConversationDetail(conversationId, projectId);
-});
-
-ipcMain.handle('writingAgent:continueConversation', async (_event, conversationId: number, projectId: number) => {
-  if (!activeWorkspace) throw new Error('No active workspace');
-  const detail = await fetchWritingConversationDetail(conversationId, projectId);
-  const sessionId = randomUUID();
-  createSession(sessionId, activeWorkspace.id, `writing_agent:${conversationId}:${projectId}`);
-  const title = detail.conversation.title || 'Writing Agent Chat';
-  updateSessionTitle(sessionId, title);
-  // Insert all messages from the server conversation in cobuild format
-  const messages = detail.messages || [];
-  for (const msg of messages) {
-    if (msg.role === 'user') {
-      insertMessage(sessionId, 'user', JSON.stringify({ text: msg.content }));
-    } else if (msg.role === 'assistant') {
-      insertMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text: msg.content }]));
-    }
-  }
-  return sessionId;
 });
 
 ipcMain.handle('settings:getOpenAIKey', () => {
@@ -1372,13 +1444,6 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
     const existingDbSession = getSession(threadId);
     isFirstMessage = !existingDbSession;
 
-    // Check if this is a continued writing agent conversation
-    let writingConversationContext: { conversationId: number; projectId: number } | undefined;
-    if (existingDbSession?.source?.startsWith('writing_agent:')) {
-      const parts = existingDbSession.source.split(':');
-      writingConversationContext = { conversationId: Number(parts[1]), projectId: Number(parts[2]) };
-    }
-
     let messagePreprocessor: ((text: string) => string) | undefined;
     if (isNotesSession && !existingDbSession?.sdk_session_id) {
       // Only inject history on the first SDK turn for this session.
@@ -1413,7 +1478,6 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
       handleNotificationNavigation,
       model,
       messagePreprocessor,
-      writingConversationContext,
     );
 
     registerSession(threadId, session);
@@ -1994,6 +2058,44 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     throw new Error('Invalid URL');
   }
   await shell.openExternal(url);
+});
+
+// Permission IPC handlers (macOS only)
+ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: true, hasPermission: true };
+  }
+  try {
+    const hasPermission = wordAccessibility.checkPermission();
+    return { success: true, hasPermission };
+  } catch (error: any) {
+    return { success: false, hasPermission: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.REQUEST_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: true, hasPermission: true };
+  }
+  try {
+    wordAccessibility.openAccessibilitySettings();
+    const hasPermission = wordAccessibility.checkPermission();
+    return { success: true, hasPermission };
+  } catch (error: any) {
+    return { success: false, hasPermission: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
+  if (process.platform !== 'darwin') {
+    return { success: false, error: 'Only supported on macOS' };
+  }
+  try {
+    const result = wordAccessibility.resetAndRequestPermission();
+    return { success: true, ...result };
+  } catch (error: any) {
+    return { success: false, resetSuccess: false, error: error.message };
+  }
 });
 
 app.on('window-all-closed', () => {

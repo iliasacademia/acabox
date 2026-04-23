@@ -55,13 +55,16 @@ export async function registerNavigationRoutes(
           properties: {
             page: {
               type: 'string',
-              enum: ['conversation', 'conversations', 'external'],
+              enum: ['conversation', 'conversations', 'external', 'session'],
             },
             projectId: {
               type: 'number',
             },
             conversationId: {
               type: 'number',
+            },
+            sessionId: {
+              type: 'string',
             },
             openDiffModal: {
               type: 'boolean',
@@ -77,7 +80,17 @@ export async function registerNavigationRoutes(
       request: FastifyRequest<{ Body: NavigateRequestBody }>,
       reply: FastifyReply
     ) => {
-      const { page, projectId, conversationId, openDiffModal, url } = request.body;
+      const { page, projectId, conversationId, sessionId, openDiffModal, url } = request.body;
+
+      // Validate sessionId is provided for session page
+      if (page === 'session' && !sessionId) {
+        reply.code(400).send({
+          error: 'BadRequest',
+          message: 'sessionId is required when page is "session"',
+          statusCode: 400,
+        });
+        return;
+      }
 
       // Validate projectId is provided for conversation/conversations pages
       if ((page === 'conversation' || page === 'conversations') && projectId === undefined) {
@@ -113,6 +126,7 @@ export async function registerNavigationRoutes(
         page,
         projectId,
         conversationId,
+        sessionId,
         openDiffModal,
         url: page === 'external' ? url : undefined,
       });
@@ -122,6 +136,7 @@ export async function registerNavigationRoutes(
           page,
           projectId,
           conversationId,
+          sessionId,
           openDiffModal,
           url,
         });

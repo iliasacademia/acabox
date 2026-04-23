@@ -1,73 +1,49 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { trackTriggerDiffReview, trackTriggerFullReview } from './utils/analytics';
 import { onVisibilityChanged, cacheFullStoryConfig } from './utils/fullstory';
-import { ConversationView } from './popupV2/ConversationView';
-import { ReviewInputView } from './popupV2/ReviewInputView';
 import {
   ConversationItem,
-  NotificationData,
-  ViewMode,
-  ReviewState,
   styles,
   serverUrl,
   tokenParam,
   widParam,
-  pidParam,
   postBridge,
   getV4FocusedWid,
   navigateToPage,
   CloseIcon,
   WidthToggleIcon,
-  POPUP_HEIGHT_NO_NOTIFICATIONS,
-  POPUP_HEIGHT_REVIEW_VIEW,
+  DockRightIcon,
+  UndockIcon,
   POPUP_HEIGHT_ENABLE_FEEDBACK,
   POPUP_HEIGHT_UNSAVED_DOCUMENT,
   POPUP_HEIGHT_PER_CONVERSATION,
-  POPUP_HEIGHT_REVIEW_INPUT,
-  POPUP_HEIGHT_REVIEW_INPUT_PROGRESS,
-  REVIEW_STATUS_CARD_HEIGHT,
-  ERROR_MESSAGE_HEIGHT,
 } from './popupV2/shared';
 import { useWordPollWebSocket } from './popupV2/useWordPollWebSocket';
-import { MenuView, EnableFeedbackView } from './popupV2/MenuView';
+import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceConversationView } from './popupV2/MenuView';
 
 
 console.log('[AcademiaNotificationsPopupV2] Initializing...');
 
+// Base height: title bar + section header + "View all" row + padding
+const POPUP_HEIGHT_CONVERSATIONS_BASE = 140;
+
 const AcademiaNotificationsPopupV2: React.FC = () => {
   console.log('[AcademiaNotificationsPopupV2] Component mounting');
 
-  // State for review notifications (up to 2 most recent, any type)
-  const [recentReviewNotifications, setRecentReviewNotifications] = useState<NotificationData[]>([]);
-  // State for all conversations (fetched from list_conversations API)
+  // State for conversations (fetched from list_conversations API)
   const [conversations, setConversations] = useState<ConversationItem[]>([]);
-  // State for project file info (fetched from /word/:pid/poll)
+  // State for project file info
   const [projectId, setProjectId] = useState<number | null>(null);
-  const [fileId, setFileId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [error, setError] = useState<string | null>(null);
   const [isEnableFeedback, setIsEnableFeedback] = useState(false);
   const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
-  const [reviewErrorMessage, setReviewErrorMessage] = useState<string | null>(null);
+  // Cobuilding workspace state
+  const [isInWorkspace, setIsInWorkspace] = useState(false);
+  const [workspaceSessions, setWorkspaceSessions] = useState<Array<{ id: string; title: string; created_at: string }>>([]);
+  const [activeSession, setActiveSession] = useState<{ id: string; title: string } | null>(null);
 
-  // State for save prompt before review
-  const [showSavePrompt, setShowSavePrompt] = useState(false);
-  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
-  const [savePromptReviewType, setSavePromptReviewType] = useState<'diff' | 'full' | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-
-  // State for review status
-  const [reviewState, setReviewState] = useState<ReviewState>('idle');
-  // State for review input view (selected-text review)
-  const [isAwaitingReviewInput, setIsAwaitingReviewInput] = useState(false);
-  const [selectedTextForReview, setSelectedTextForReview] = useState<string | null>(null);
-  // Track previous height to avoid unnecessary resize calls (prevents infinite loop)
+  // Track previous height/width to avoid unnecessary resize calls
   const previousHeightRef = useRef<number>(0);
-  // Track logged notification IDs to avoid stale closure logging issues
-  const loggedReviewIdsRef = useRef<Set<number>>(new Set());
-  // Track previous width to avoid unnecessary resize calls (same pattern as previousHeightRef)
   const previousWidthRef = useRef<number>(0);
 
   // Title bar drag state
@@ -83,7 +59,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   } | null>(null);
   const [isTitleBarDragging, setIsTitleBarDragging] = useState(false);
 
-  // Resize state — persists user-chosen size across gestures
+  // Resize state
   const accumulatedSizeRef = useRef<{ width: number; height: number } | null>(null);
   const resizeStateRef = useRef<{
     startScreenX: number;
@@ -93,16 +69,17 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     rafId: number | null;
   } | null>(null);
 
-  // State for inline review view
-  const [viewMode, setViewMode] = useState<ViewMode>('menu');
-  const [activeNotification, setActiveNotification] = useState<NotificationData | null>(null);
-  const prevShowPopupRef = useRef(false);
-
   // Width toggle state
   const [isWide, setIsWide] = useState(false);
+
+  // Dock-to-right state — persisted per document path in localStorage
+  const DOCK_PREF_KEY = 'academia_popup_docked:';
+  const [isDocked, setIsDocked] = useState(false);
   const narrowWidthRef = useRef<number>(window.innerWidth);
   const WIDE_WIDTH = 700;
   const sizeAnimRef = useRef<number | null>(null);
+  const prevDocPathRef = useRef<string | null>(null);
+  const prevIsDockedActiveRef = useRef<boolean | undefined>(undefined);
 
   // Animate popup size (width and/or height) over ~250ms with ease-out
   const animateSize = (fromWidth: number, toWidth: number, fromHeight: number, toHeight: number, onDone?: () => void) => {
@@ -133,16 +110,31 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // WebSocket-based polling
   const pollData = useWordPollWebSocket(widParam, tokenParam, serverUrl);
   const effectiveWid = getV4FocusedWid();
+  const docPath = pollData?.activeDocumentPath ?? null;
 
-  // Derive review state from word poll data (pushed via WebSocket)
+  // Restore per-document dock preference whenever the active document changes.
   useEffect(() => {
-    if (!pollData?.projectReviewState) return;
-    const state = pollData.projectReviewState;
-    console.log('[AcademiaNotificationsPopupV2] Review state from poll data:', state);
-    setReviewState(state);
-  }, [pollData?.projectReviewState]);
+    if (!docPath) return;
+    const pref = localStorage.getItem(DOCK_PREF_KEY + docPath) === 'true';
+    setIsDocked(pref);
+    if (pref || prevDocPathRef.current !== null) {
+      postBridge('setDockRight', { docked: pref });
+    }
+    prevDocPathRef.current = docPath;
+  }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // React to pollData changes to update component state
+  // When Word is maximized the overlay falls back to floating (isDockedActive = false).
+  // Detect the true→false transition and reset isDocked so one click re-docks.
+  useEffect(() => {
+    const curr = pollData?.isDockedActive;
+    const prev = prevIsDockedActiveRef.current;
+    prevIsDockedActiveRef.current = curr;
+    if (prev === true && curr === false) {
+      setIsDocked(false);
+    }
+  }, [pollData?.isDockedActive]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // React to pollData changes
   useEffect(() => {
     console.log('[AcademiaNotificationsPopupV2] pollData changed:', pollData);
     if (!pollData) return;
@@ -152,13 +144,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
     setIsEnableFeedback(pollData.isEnableFeedback ?? false);
     setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
-    setReviewErrorMessage(pollData.reviewErrorMessage ?? null);
-    setIsAwaitingReviewInput(pollData.isAwaitingReviewInput ?? false);
-    setSelectedTextForReview(pollData.selectedText ?? null);
+    setIsInWorkspace(pollData.isInWorkspace ?? false);
+    setWorkspaceSessions(pollData.workspaceSessions ?? []);
 
-    if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback) {
-      console.log(`[AcademiaNotificationsPopupV2] Hiding popup: shouldShowPopupV2=false. Active path: ${pollData.activeDocumentPath || 'none'}`);
-      // Cancel any running size animation to stop stale setPopupSize calls
+    if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback && !pollData.isInWorkspace) {
+      console.log(`[AcademiaNotificationsPopupV2] Hiding popup. Active path: ${pollData.activeDocumentPath || 'none'}`);
       if (sizeAnimRef.current !== null) {
         cancelAnimationFrame(sizeAnimRef.current);
         sizeAnimRef.current = null;
@@ -166,26 +156,13 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       previousHeightRef.current = 0;
       previousWidthRef.current = 0;
       accumulatedSizeRef.current = null;
-      postBridge('closeWindow', { clearReviewState: !(pollData.isReviewingSelectedText ?? false) }).catch(() => {});
+      postBridge('closeWindow', {}).catch(() => {});
       return;
     }
 
-    if (pollData.projectId && pollData.projectFileId) {
+    if (pollData.projectId) {
       setProjectId(pollData.projectId);
-      setFileId(pollData.projectFileId);
       setIsLoading(false);
-
-      const incoming = pollData.recentReviewNotifications || [];
-      const incomingIds = new Set(incoming.map(n => n.id));
-
-      for (const n of incoming) {
-        if (!loggedReviewIdsRef.current.has(n.id)) {
-          console.log('[AcademiaNotificationsPopupV2] Found NEW review notification:', n);
-        }
-      }
-      loggedReviewIdsRef.current = incomingIds;
-
-      setRecentReviewNotifications(incoming);
     } else {
       setIsLoading(false);
     }
@@ -208,63 +185,23 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       .catch(() => {});
   }, [projectId]);
 
-  // Reset viewMode when popup transitions from hidden to visible
-  useEffect(() => {
-    const isVisible = pollData?.shouldShowPopupV2 ?? false;
-    const wasVisible = prevShowPopupRef.current;
-    prevShowPopupRef.current = isVisible;
-
-    if (isVisible && !wasVisible) {
-      if (isAwaitingReviewInput || pollData?.isReviewingSelectedText) {
-        setViewMode('review-input');
-      } else {
-        setViewMode('menu');
-      }
-    }
-  }, [pollData?.shouldShowPopupV2, isAwaitingReviewInput, pollData?.isReviewingSelectedText]);
-
-  // Auto-switch to review-input view when poll data indicates awaiting input or reviewing selected text
-  useEffect(() => {
-    if (isAwaitingReviewInput || pollData?.isReviewingSelectedText) {
-      if (viewMode !== 'review-input') {
-        setViewMode('review-input');
-      }
-    } else if (viewMode === 'review-input') {
-      setViewMode('menu');
-    }
-  }, [isAwaitingReviewInput, pollData?.isReviewingSelectedText]);
-
-  // Handle window resizing based on view mode and notification count
+  // Handle window resizing based on content
   useEffect(() => {
     let height: number;
 
-    if (showSavePrompt || showPermissionPrompt) {
-      height = POPUP_HEIGHT_ENABLE_FEEDBACK; // Similar size to enable feedback view
+    if (activeSession) {
+      // Full conversation view — use a large fixed height
+      height = 500;
+    } else if (isInWorkspace) {
+      height = POPUP_HEIGHT_CONVERSATIONS_BASE;
+      height += Math.min(workspaceSessions.length, 5) * POPUP_HEIGHT_PER_CONVERSATION;
     } else if (isEnableFeedback && isUnsavedDocument) {
       height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
     } else if (isEnableFeedback) {
       height = POPUP_HEIGHT_ENABLE_FEEDBACK;
-    } else if (viewMode === 'review') {
-      height = POPUP_HEIGHT_REVIEW_VIEW;
-    } else if (viewMode === 'review-input') {
-      height = pollData?.isReviewingSelectedText ? POPUP_HEIGHT_REVIEW_INPUT_PROGRESS : POPUP_HEIGHT_REVIEW_INPUT;
     } else {
-      // Base height covers section header + "View all" row + "Get feedback" section
-      height = POPUP_HEIGHT_NO_NOTIFICATIONS;
-      // Add height for each item in the unified list (up to 5 conversations + any in-progress extras)
-      const convIds = new Set(conversations.map(c => c.id));
-      const inProgressExtrasCount = recentReviewNotifications.filter(n => n.isInProgress && !convIds.has(n.conversation_id)).length;
-      const totalItems = inProgressExtrasCount + Math.min(conversations.length, 5);
-      height += totalItems * POPUP_HEIGHT_PER_CONVERSATION;
-    }
-
-    const isReviewActive = pollData?.isReviewingSelectedText && pollData?.reviewType;
-    if (isReviewActive && viewMode === 'menu') {
-      height += REVIEW_STATUS_CARD_HEIGHT;
-    }
-
-    if (reviewErrorMessage && viewMode === 'menu') {
-      height += ERROR_MESSAGE_HEIGHT;
+      height = POPUP_HEIGHT_CONVERSATIONS_BASE;
+      height += Math.min(conversations.length, 5) * POPUP_HEIGHT_PER_CONVERSATION;
     }
 
     const width = isWide ? WIDE_WIDTH : narrowWidthRef.current;
@@ -272,7 +209,6 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (height !== previousHeightRef.current || width !== previousWidthRef.current) {
       const isFirstOpen = !previousHeightRef.current || !previousWidthRef.current;
       if (isFirstOpen) {
-        // Snap on first open / reopen — don't animate from 0
         postBridge('setPopupSize', { width, height });
         previousHeightRef.current = height;
         previousWidthRef.current = width;
@@ -284,69 +220,42 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         });
       }
     }
-  }, [isEnableFeedback, isUnsavedDocument, viewMode, recentReviewNotifications, conversations, pollData, isWide, reviewErrorMessage, showSavePrompt, showPermissionPrompt]);
+  }, [isEnableFeedback, isUnsavedDocument, conversations, isWide, isInWorkspace, workspaceSessions, activeSession]);
 
-  // Handle clicking on a review notification card - show inline review
-  const handleViewReviewFeedback = async (notification: NotificationData) => {
-    console.log('[AcademiaNotificationsPopupV2] View review feedback clicked:', notification);
-
-    if (notification.isInProgress) {
-      setViewMode('review-input');
-      return;
-    }
-
-    if (!notification.isRead) {
-      try {
-        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-        if (tokenParam) {
-          headers['Authorization'] = `Bearer ${tokenParam}`;
-        }
-
-        await fetch(`${serverUrl}/api/notifications/${notification.id}`, {
-          method: 'PATCH',
-          headers,
-          body: JSON.stringify({ status: 'read' }),
-        });
-
-        setRecentReviewNotifications(prev =>
-          prev.map(n => n.id === notification.id ? { ...n, isRead: true } : n)
-        );
-        console.log('[AcademiaNotificationsPopupV2] Review notification marked as read');
-      } catch (err) {
-        console.error('[AcademiaNotificationsPopupV2] Error marking notification as read:', err);
-      }
-    }
-
-    setActiveNotification(notification);
-    setViewMode('review');
-
-    // Auto-widen on entering conversation view
-    setIsWide(true);
-    const currentWidth = accumulatedSizeRef.current?.width ?? window.innerWidth;
-    const currentHeight = accumulatedSizeRef.current?.height ?? window.innerHeight;
-    animateSize(currentWidth, WIDE_WIDTH, currentHeight, POPUP_HEIGHT_REVIEW_VIEW);
-  };
-
-  // Handle clicking "View previous feedback" link
-  const handleViewPreviousFeedback = async () => {
-    if (!projectId) {
-      console.error('[AcademiaNotificationsPopupV2] No project ID for previous feedback');
-      return;
-    }
-
-    console.log('[AcademiaNotificationsPopupV2] View previous feedback clicked');
+  // Handle clicking a conversation — navigate to it in the main window
+  const handleContinueConversation = async (conversation: ConversationItem) => {
+    console.log('[AcademiaNotificationsPopupV2] Continue conversation:', conversation.id);
+    if (!projectId) return;
 
     try {
       await navigateToPage({
-        page: 'conversations',
+        page: 'conversation',
         projectId,
+        conversationId: conversation.id,
       }, tokenParam);
 
       onVisibilityChanged('popup', false);
-      postBridge('closeWindow').catch(() => {});
+      setIsDocked(false);
+      postBridge('closeWindow', {}).catch(() => {});
     } catch (err) {
-      console.error('[AcademiaNotificationsPopupV2] Error in handleViewPreviousFeedback:', err);
+      console.error('[AcademiaNotificationsPopupV2] Error continuing conversation:', err);
     }
+  };
+
+  // Handle clicking a workspace session — show conversation in overlay
+  const handleOpenSession = (session: { id: string; title: string; created_at: string }) => {
+    console.log('[AcademiaNotificationsPopupV2] Open workspace session:', session.id);
+    setActiveSession({ id: session.id, title: session.title });
+  };
+
+  const handleBackToSessions = () => {
+    setActiveSession(null);
+  };
+
+  const handleNewConversation = () => {
+    const id = crypto.randomUUID();
+    console.log('[AcademiaNotificationsPopupV2] New conversation:', id);
+    setActiveSession({ id, title: 'New Conversation' });
   };
 
   // Handle toggling popup width
@@ -359,227 +268,33 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     animateSize(currentWidth, targetWidth, currentHeight, currentHeight);
   };
 
-  // Handle clicking "Back" from review view - return to menu
-  const handleBackFromReview = () => {
-    console.log('[AcademiaNotificationsPopupV2] Back from review clicked');
-
-    const currentWidth = accumulatedSizeRef.current?.width ?? window.innerWidth;
-    const currentHeight = accumulatedSizeRef.current?.height ?? window.innerHeight;
-    setIsWide(false);
-    setViewMode('menu');
-    setActiveNotification(null);
-    animateSize(currentWidth, narrowWidthRef.current, currentHeight, currentHeight, () => {
-      accumulatedSizeRef.current = null;
-      postBridge('clearPopupSize', {});
-    });
-  };
-
-  // Handle clicking "Back" from review input view - return to menu
-  const handleBackFromReviewInput = () => {
-    console.log('[AcademiaNotificationsPopupV2] Back from review input clicked');
-    setViewMode('menu');
+  // Handle toggling dock-to-right mode
+  const handleToggleDock = () => {
+    const newDocked = !isDocked;
+    setIsDocked(newDocked);
+    if (docPath) {
+      localStorage.setItem(DOCK_PREF_KEY + docPath, String(newDocked));
+    }
+    postBridge('setDockRight', { docked: newDocked });
   };
 
   const handleClose = async () => {
     console.log('[AcademiaNotificationsPopupV2] Close button clicked');
-
     try {
       onVisibilityChanged('popup', false);
-      const shouldPreserveReviewState = pollData?.isReviewingSelectedText ?? false;
-      await postBridge('closeWindow', { clearReviewState: !shouldPreserveReviewState });
+      setIsDocked(false);
+      await postBridge('closeWindow', {});
       console.log('[AcademiaNotificationsPopupV2] Close window request sent');
     } catch (err) {
       console.error('[AcademiaNotificationsPopupV2] Close failed:', err);
     }
   };
 
-  const runPreCheck = async (): Promise<{ canProceed: boolean; reason?: string; message?: string }> => {
-    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-    if (tokenParam) {
-      headers['Authorization'] = `Bearer ${tokenParam}`;
-    }
-    const res = await fetch(`${serverUrl}/api/review-pre-check`, {
-      method: 'POST',
-      headers,
-      body: '{}',
-    });
-    return res.json();
-  };
-
-  const doSaveAndContinue = async (alwaysSave: boolean) => {
-    setIsSaving(true);
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (tokenParam) {
-        headers['Authorization'] = `Bearer ${tokenParam}`;
-      }
-      const url = alwaysSave ? `${serverUrl}/api/word-save?alwaysSave=true` : `${serverUrl}/api/word-save`;
-      const res = await fetch(url, {
-        method: 'POST',
-        headers,
-        body: '{}',
-      });
-      const data = await res.json();
-      if (!data.success) {
-        setReviewErrorMessage(data.error || 'Failed to save document.');
-        setIsSaving(false);
-        setShowSavePrompt(false);
-        return;
-      }
-      setShowSavePrompt(false);
-      setIsSaving(false);
-      // Re-trigger the review that was blocked
-      if (savePromptReviewType === 'diff') {
-        triggerDiffReview();
-      } else if (savePromptReviewType === 'full') {
-        triggerFullReview();
-      }
-    } catch (err) {
-      console.error('[AcademiaNotificationsPopupV2] Save error:', err);
-      setReviewErrorMessage('Failed to save document.');
-      setIsSaving(false);
-      setShowSavePrompt(false);
-    }
-  };
-
-  const handleSaveAndContinue = () => doSaveAndContinue(false);
-  const handleAlwaysSaveAndContinue = () => doSaveAndContinue(true);
-
-  const handleCancelSave = () => {
-    setShowSavePrompt(false);
-    setSavePromptReviewType(null);
-  };
-
-  const triggerDiffReview = async () => {
-    if (!projectId || !fileId || !effectiveWid) return;
-
-    trackTriggerDiffReview('overlay', projectId, fileId);
-    setReviewState('reviewing');
-
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (tokenParam) {
-        headers['Authorization'] = `Bearer ${tokenParam}`;
-      }
-
-      const response = await fetch(
-        `${serverUrl}/api/diff-review/${effectiveWid}`,
-        { method: 'POST', headers, body: '{}' }
-      );
-
-      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-
-      const data = await response.json();
-      console.log('[AcademiaNotificationsPopupV2] Diff review triggered:', data);
-      setReviewState('reviewing');
-    } catch (err) {
-      console.error('[AcademiaNotificationsPopupV2] Failed to trigger diff review:', err);
-      setReviewState('failed');
-    }
-  };
-
-  const triggerFullReview = async () => {
-    if (!projectId || !fileId || !effectiveWid) return;
-
-    trackTriggerFullReview('overlay', projectId, fileId);
-    setReviewState('reviewing');
-
-    try {
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (tokenParam) {
-        headers['Authorization'] = `Bearer ${tokenParam}`;
-      }
-
-      const response = await fetch(
-        `${serverUrl}/api/full-paper-review/${effectiveWid}`,
-        { method: 'POST', headers, body: '{}' }
-      );
-
-      if (!response.ok) throw new Error(`HTTP error: ${response.status}`);
-
-      const data = await response.json();
-      console.log('[AcademiaNotificationsPopupV2] Full review triggered:', data);
-      setReviewState('reviewing');
-    } catch (err) {
-      console.error('[AcademiaNotificationsPopupV2] Failed to trigger full review:', err);
-      setReviewState('failed');
-    }
-  };
-
-  const handleGenerateShortReview = async () => {
-    if (!projectId || !fileId || !effectiveWid) {
-      console.error('[AcademiaNotificationsPopupV2] Missing project, file ID, or window ID');
-      return;
-    }
-
-    console.log('[AcademiaNotificationsPopupV2] Triggering diff review...');
-
-    try {
-      const preCheck = await runPreCheck();
-      if (!preCheck.canProceed) {
-        if (preCheck.reason === 'duplicate_name') {
-          setReviewErrorMessage(preCheck.message || 'Multiple windows have the same name.');
-          return;
-        }
-        if (preCheck.reason === 'unsaved_changes') {
-          setShowSavePrompt(true);
-          setSavePromptReviewType('diff');
-          return;
-        }
-        if (preCheck.reason === 'permission_denied') {
-          setShowPermissionPrompt(true);
-          setSavePromptReviewType('diff');
-          return;
-        }
-      }
-    } catch (err) {
-      console.error('[AcademiaNotificationsPopupV2] Pre-check error:', err);
-      // Fail-open
-    }
-
-    triggerDiffReview();
-  };
-
-  const handleGenerateFullReview = async () => {
-    if (!projectId || !fileId || !effectiveWid) {
-      console.error('[AcademiaNotificationsPopupV2] Missing project, file ID, or window ID');
-      return;
-    }
-
-    console.log('[AcademiaNotificationsPopupV2] Triggering full review...');
-
-    try {
-      const preCheck = await runPreCheck();
-      console.log('[AcademiaNotificationsPopupV2] Full review pre-check result:', preCheck);
-      if (!preCheck.canProceed) {
-        if (preCheck.reason === 'duplicate_name') {
-          setReviewErrorMessage(preCheck.message || 'Multiple windows have the same name.');
-          return;
-        }
-        if (preCheck.reason === 'unsaved_changes') {
-          setShowSavePrompt(true);
-          setSavePromptReviewType('full');
-          return;
-        }
-        if (preCheck.reason === 'permission_denied') {
-          setShowPermissionPrompt(true);
-          setSavePromptReviewType('full');
-          return;
-        }
-      }
-    } catch (err) {
-      console.error('[AcademiaNotificationsPopupV2] Pre-check error:', err);
-      // Fail-open
-    }
-
-    triggerFullReview();
-  };
-
   // --- Title bar drag handlers ---
   const handleTitleBarPointerDown = async (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDocked) return; // Dragging is disabled when docked
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
-    // Fetch the server's current drag offset to use as base (prevents position jump if button was dragged first)
     let baseOffsetX = titleBarAccumulatedOffsetRef.current.dx;
     let baseOffsetY = titleBarAccumulatedOffsetRef.current.dy;
     try {
@@ -697,7 +412,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   return (
     <div style={styles.container}>
-      <div style={{ ...styles.modal, overflowY: viewMode === 'review' ? 'hidden' : 'auto' }}>
+      <div style={{ ...styles.modal, overflowY: 'auto' }}>
         {/* Draggable title bar */}
         <div
           style={{ ...styles.titleBar, cursor: isTitleBarDragging ? 'grabbing' : 'default' }}
@@ -706,15 +421,24 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           onPointerUp={handleTitleBarPointerUp}
         >
           {/* Left spacer balances the right-side buttons to keep title visually centered */}
-          <div style={{ width: '44px', flexShrink: 0 }} />
+          <div style={{ width: '72px', flexShrink: 0 }} />
           <span style={styles.titleBarText}>Academia</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
             <button
               style={styles.titleBarCloseBtn}
-              onClick={handleToggleWidth}
+              onClick={handleToggleDock}
+              onPointerDown={e => e.stopPropagation()}
+              aria-label={isDocked ? 'Undock panel' : 'Dock to right'}
+              title={isDocked ? 'Undock panel' : 'Dock to right'}
+            >
+              {isDocked ? <UndockIcon /> : <DockRightIcon />}
+            </button>
+            <button
+              style={{ ...styles.titleBarCloseBtn, opacity: isDocked ? 0.3 : 1, cursor: isDocked ? 'default' : undefined }}
+              onClick={isDocked ? undefined : handleToggleWidth}
               onPointerDown={e => e.stopPropagation()}
               aria-label={isWide ? 'Narrow window' : 'Widen window'}
-              title={isWide ? 'Narrow window' : 'Widen window'}
+              title={isDocked ? 'Not available while docked' : (isWide ? 'Narrow window' : 'Widen window')}
             >
               <WidthToggleIcon />
             </button>
@@ -728,7 +452,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
             </button>
           </div>
         </div>
-        {/* Resize handle at top-right corner, within title bar area */}
+        {/* Resize handle at top-right corner */}
         <div
           style={{
             ...styles.resizeHandle,
@@ -738,167 +462,27 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           onPointerMove={handleResizePointerMove}
           onPointerUp={handleResizePointerUp}
         />
-        {showPermissionPrompt ? (
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: '15px', color: '#374151', lineHeight: '1.5' }}>
-              Unable to check for unsaved changes. Remember to save before reviewing.
-            </div>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={() => { setShowPermissionPrompt(false); setSavePromptReviewType(null); }}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#FFFFFF',
-                  color: '#374151',
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '8px',
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  navigateToPage({ page: 'external', url: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation' }, tokenParam);
-                }}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#FFFFFF',
-                  color: '#374151',
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '8px',
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                }}
-              >
-                Enable Permissions
-              </button>
-              <button
-                onClick={() => {
-                  setShowPermissionPrompt(false);
-                  if (savePromptReviewType === 'diff') {
-                    triggerDiffReview();
-                  } else if (savePromptReviewType === 'full') {
-                    triggerFullReview();
-                  }
-                  setSavePromptReviewType(null);
-                }}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#000000',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                }}
-              >
-                Continue Review
-              </button>
-            </div>
-          </div>
-        ) : showSavePrompt ? (
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: '15px', color: '#374151', lineHeight: '1.5' }}>
-              Reviewing requires saving the document.
-            </div>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button
-                onClick={handleCancelSave}
-                disabled={isSaving}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#FFFFFF',
-                  color: '#374151',
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '8px',
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: isSaving ? 'not-allowed' : 'pointer',
-                  opacity: isSaving ? 0.5 : 1,
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleSaveAndContinue}
-                disabled={isSaving}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#FFFFFF',
-                  color: '#374151',
-                  border: '1px solid #D1D5DB',
-                  borderRadius: '8px',
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: isSaving ? 'not-allowed' : 'pointer',
-                  opacity: isSaving ? 0.5 : 1,
-                }}
-              >
-                {isSaving ? 'Saving...' : 'Save and Continue'}
-              </button>
-              <button
-                onClick={handleAlwaysSaveAndContinue}
-                disabled={isSaving}
-                style={{
-                  padding: '8px 16px',
-                  backgroundColor: '#000000',
-                  color: '#FFFFFF',
-                  border: 'none',
-                  borderRadius: '8px',
-                  fontFamily: "'DM Sans', sans-serif",
-                  fontSize: '14px',
-                  fontWeight: 500,
-                  cursor: isSaving ? 'not-allowed' : 'pointer',
-                  opacity: isSaving ? 0.7 : 1,
-                }}
-              >
-                {isSaving ? 'Saving...' : 'Always Save and Continue'}
-              </button>
-            </div>
-          </div>
-        ) : isEnableFeedback
-          ? <EnableFeedbackView isUnsavedDocument={isUnsavedDocument} />
-          : viewMode === 'review-input'
-            ? <ReviewInputView
-                selectedText={selectedTextForReview}
-                reviewType={pollData?.isReviewingSelectedText ? (pollData?.reviewType ?? null) : null}
-                isAwaitingReviewInput={isAwaitingReviewInput}
-                effectiveWid={effectiveWid}
-                reviewStartedAt={pollData?.selectedTextReviewStartedAt ?? null}
-                onBack={handleBackFromReviewInput}
-              />
-          : viewMode === 'review' && activeNotification
-            ? <ConversationView
-                activeNotification={activeNotification}
-                projectId={activeNotification.project_id}
-                onBack={handleBackFromReview}
-                onClose={handleClose}
-                setRecentReviewNotifications={setRecentReviewNotifications}
-              />
-            : <MenuView
-                recentReviewNotifications={recentReviewNotifications}
-                conversations={conversations}
-                isLoading={isLoading}
-                projectId={projectId}
-                fileId={fileId}
-                reviewState={reviewState}
-                reviewErrorMessage={reviewErrorMessage}
-                onClose={handleClose}
-                onViewReviewFeedback={handleViewReviewFeedback}
-                onViewPreviousFeedback={handleViewPreviousFeedback}
-                onGenerateShortReview={handleGenerateShortReview}
-                onGenerateFullReview={handleGenerateFullReview}
-              />}
+        {activeSession
+          ? <WorkspaceConversationView
+              sessionId={activeSession.id}
+              sessionTitle={activeSession.title}
+              documentPath={docPath}
+              selectedText={pollData?.selectedText}
+              onBack={handleBackToSessions}
+            />
+          : isInWorkspace
+          ? <WorkspaceSessionsView
+              sessions={workspaceSessions}
+              onOpenSession={handleOpenSession}
+              onNewConversation={handleNewConversation}
+            />
+          : isEnableFeedback
+          ? <NotLinkedView isUnsavedDocument={isUnsavedDocument} />
+          : <ConversationListView
+              conversations={conversations}
+              isLoading={isLoading}
+              onContinueConversation={handleContinueConversation}
+            />}
       </div>
     </div>
   );
