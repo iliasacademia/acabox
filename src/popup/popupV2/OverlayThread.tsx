@@ -213,8 +213,19 @@ export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedT
 
           <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
             <ThreadPrimitive.ScrollToBottom asChild>
-              <button className="scrollToBottom" aria-label="Scroll to bottom">
-                <ArrowDownIcon size={16} />
+              <button
+                aria-label="Scroll to bottom"
+                style={{
+                  position: 'absolute', top: '-36px', zIndex: 10,
+                  alignSelf: 'center', borderRadius: '50%',
+                  width: '28px', height: '28px', padding: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  background: '#fff', border: '1px solid #e5e7eb',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  cursor: 'pointer', color: '#6b7280',
+                }}
+              >
+                <ArrowDownIcon size={14} />
               </button>
             </ThreadPrimitive.ScrollToBottom>
             <OverlayComposer />
@@ -440,15 +451,31 @@ const OverlayComposer: FC = () => {
           <div className="composerActions">
             <AuiIf condition={(s: any) => !s.thread.isRunning}>
               <ComposerPrimitive.Send asChild>
-                <button className="composerSend" aria-label="Send message">
-                  <ArrowUpIcon className="composerSendIcon" />
+                <button
+                  aria-label="Send message"
+                  style={{
+                    width: '28px', height: '28px', borderRadius: '50%',
+                    background: '#141413', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', padding: 0,
+                  }}
+                >
+                  <ArrowUpIcon size={14} />
                 </button>
               </ComposerPrimitive.Send>
             </AuiIf>
             <AuiIf condition={(s: any) => s.thread.isRunning}>
               <ComposerPrimitive.Cancel asChild>
-                <button className="composerSend" aria-label="Stop generating" style={{ background: '#dc2626' }}>
-                  <SquareIcon className="composerCancelIcon" />
+                <button
+                  aria-label="Stop generating"
+                  style={{
+                    width: '28px', height: '28px', borderRadius: '50%',
+                    background: '#dc2626', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', padding: 0,
+                  }}
+                >
+                  <SquareIcon size={12} />
                 </button>
               </ComposerPrimitive.Cancel>
             </AuiIf>
