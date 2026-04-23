@@ -123,7 +123,7 @@ export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedT
   return (
     <PillsContext.Provider value={{ documentPath, selectedText, onDismissSelection }}>
     <TooltipProvider>
-      <ThreadPrimitive.Root className="threadRoot" style={{ background: '#f7f7f5' }}>
+      <ThreadPrimitive.Root className="threadRoot">
         <ThreadPrimitive.Viewport
           turnAnchor="top"
           scrollToBottomOnThreadSwitch
@@ -236,33 +236,35 @@ const OverlayComposer: FC = () => {
 
   return (
     <ComposerPrimitive.Root className="composerRoot">
-      <div className="composerShell">
-        {/* Selected text bar inside the shell — matches Claude for Word style */}
-        {selectedText && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: '8px',
-            padding: '6px 12px',
-            borderBottom: '1px solid #e5e7eb',
-            fontFamily: "'DM Sans', sans-serif", fontSize: '13px', color: '#374151',
+      {/* Selected text bar — above the composer shell, matching Claude for Word */}
+      {selectedText && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '8px 14px',
+          marginBottom: '4px',
+          background: '#f5f5f3',
+          borderRadius: '16px',
+          fontFamily: "'DM Sans', sans-serif", fontSize: '13px', color: '#374151',
+        }}>
+          <span style={{
+            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            <span style={{
-              flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            }}>
-              "{selectedText.length > 50 ? selectedText.substring(0, 50) + '...' : selectedText}" selected
-            </span>
-            <button
-              onClick={onDismissSelection}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                padding: '2px', fontSize: '14px', lineHeight: '1',
-                color: '#9ca3af', flexShrink: 0,
-              }}
-              aria-label="Clear selection"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+            "{selectedText.length > 50 ? selectedText.substring(0, 50) + '...' : selectedText}" selected
+          </span>
+          <button
+            onClick={onDismissSelection}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '2px', fontSize: '14px', lineHeight: '1',
+              color: '#9ca3af', flexShrink: 0,
+            }}
+            aria-label="Clear selection"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+      <div className="composerShell">
         <ComposerPrimitive.Input
           placeholder={selectedText ? 'Reply' : 'Send a message...'}
           className="composerInput"
