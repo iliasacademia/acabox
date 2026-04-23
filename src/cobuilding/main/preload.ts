@@ -291,6 +291,31 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
 // Track active stream iterators per threadId to clean up stale ones
 const activeStreams = new Map<string, () => void>();
 
+// Buffer events that arrive before a stream iterator is created for a threadId.
+// This prevents lost events when the overlay sends a message and the main process
+// sets up IPC forwarding before the renderer has subscribed.
+const eventBuffers = new Map<string, { events: any[]; done: boolean; error?: string }>();
+
+ipcRenderer.on('chat:event', (_event: any, threadId: string, token: any) => {
+  if (activeStreams.has(threadId)) return; // Active stream handles these
+  const buf = eventBuffers.get(threadId) || { events: [], done: false };
+  buf.events.push(token);
+  eventBuffers.set(threadId, buf);
+});
+ipcRenderer.on('chat:done', (_event: any, threadId: string) => {
+  if (activeStreams.has(threadId)) return;
+  const buf = eventBuffers.get(threadId) || { events: [], done: false };
+  buf.done = true;
+  eventBuffers.set(threadId, buf);
+});
+ipcRenderer.on('chat:error', (_event: any, threadId: string, err: string) => {
+  if (activeStreams.has(threadId)) return;
+  const buf = eventBuffers.get(threadId) || { events: [], done: false };
+  buf.done = true;
+  buf.error = err;
+  eventBuffers.set(threadId, buf);
+});
+
 function createStreamIterator(threadId: string) {
   // Clean up any existing stream iterator for this threadId
   if (activeStreams.has(threadId)) {
@@ -298,9 +323,26 @@ function createStreamIterator(threadId: string) {
   }
   activeStreams.get(threadId)?.();
 
+  // Drain any buffered events that arrived before this stream was created
+  const buffered = eventBuffers.get(threadId);
+  eventBuffers.delete(threadId);
+
   const pending: any[] = [];
   let resolve: (() => void) | null = null;
   let done = false;
+
+  if (buffered) {
+    console.debug(`[StreamIterator] Draining ${buffered.events.length} buffered events for ${threadId}`);
+    for (const token of buffered.events) {
+      pending.push({ value: token, done: false });
+    }
+    if (buffered.error) {
+      pending.push({ value: null, done: true, error: buffered.error });
+      done = true;
+    } else if (buffered.done) {
+      done = true;
+    }
+  }
 
   const notify = () => {
     if (resolve) {

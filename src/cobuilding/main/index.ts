@@ -70,8 +70,6 @@ import { AcademiaHttpServer } from '../../server/httpServer';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
-import { setEditApprovalMode } from './mcpServers/msWordMcpServer';
-
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -580,14 +578,14 @@ app.whenReady().then(() => {
             // Per-session pending context for messagePreprocessor injection.
             // Context is set before each sendMessage and consumed by the preprocessor,
             // so the DB stores only the user's raw text while Claude gets the context.
-            const pendingContext = new Map<string, { documentPath?: string; selectedText?: string; editMode?: string }>();
+            const pendingContext = new Map<string, { documentPath?: string; selectedText?: string }>();
 
             // POST /api/cobuilding/sessions/:sessionId/send — streams response via SSE
-            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string; editMode?: string } }>(
+            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string } }>(
               '/api/cobuilding/sessions/:sessionId/send',
               async (request, reply) => {
                 const { sessionId } = request.params;
-                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText, editMode: ctxEditMode } = request.body;
+                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText } = request.body;
                 if (!text || typeof text !== 'string') {
                   reply.code(400).send({ error: 'text is required' });
                   return;
@@ -605,11 +603,9 @@ app.whenReady().then(() => {
 
                 // Store context for the messagePreprocessor to pick up
                 // (adds document path and selection context for Claude without it appearing in the stored message)
-                if (ctxDocPath || ctxSelectedText || ctxEditMode) {
-                  pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText, editMode: ctxEditMode });
+                if (ctxDocPath || ctxSelectedText) {
+                  pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
                 }
-                // Reset per-session approval mode based on edit mode toggle
-                setEditApprovalMode(ctxEditMode === 'accept' ? 'always' : 'ask');
 
                 // Hijack the response so Fastify doesn't try to send its own
                 reply.hijack();
@@ -626,16 +622,17 @@ app.whenReady().then(() => {
                   }
                 };
 
-                // Silently tell the desktop app to switch to this session (no show/focus)
-                if (mainWindow && !mainWindow.isDestroyed()) {
-                  mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                    page: 'session',
-                    sessionId,
-                  } as NavigateToPagePayload);
-                }
-
                 const existingRunning = getRegisteredSession(sessionId);
                 if (existingRunning?.isRunning) {
+                  // Ensure IPC forwarding to the desktop app BEFORE sending the message,
+                  // so the desktop receives streaming events immediately.
+                  if (mainWindow && !mainWindow.isDestroyed()) {
+                    ensureForwarding(sessionId, mainWindow.webContents);
+                    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+                      page: 'session',
+                      sessionId,
+                    } as NavigateToPagePayload);
+                  }
                   const unsubscribe = existingRunning.addListener({
                     onEvent: (msg) => sendSSE('event', msg),
                     onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); },
@@ -659,7 +656,7 @@ app.whenReady().then(() => {
                     undefined,
                     undefined,
                     undefined,
-                    // messagePreprocessor: inject document/selection/editMode context for Claude
+                    // messagePreprocessor: inject document/selection context for Claude
                     // without storing it in the DB message
                     (userText: string) => {
                       const ctx = pendingContext.get(sessionId);
@@ -668,9 +665,6 @@ app.whenReady().then(() => {
                       let prefix = '';
                       if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
                       if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the review-selected-text skill (NOT review-manuscript).\n"""\n${ctx.selectedText}\n"""\n`;
-                      if (ctx.editMode === 'ask') {
-                        prefix += `EDIT MODE: "Ask before edits" is ON. When calling find_and_replace, the tool will return approval_required. Present each proposed edit to the user and wait for their choice (Allow once / Always allow / Deny) before retrying with approved: true.\n`;
-                      }
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
                   );
@@ -678,6 +672,17 @@ app.whenReady().then(() => {
                 }
 
                 const session = getRegisteredSession(sessionId)!;
+
+                // Ensure IPC forwarding to the desktop app BEFORE sending the message,
+                // so the desktop receives streaming events immediately.
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  ensureForwarding(sessionId, mainWindow.webContents);
+                  mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
+                    page: 'session',
+                    sessionId,
+                  } as NavigateToPagePayload);
+                }
+
                 const unsubscribe = session.addListener({
                   onEvent: (msg) => sendSSE('event', msg),
                   onDone: () => {

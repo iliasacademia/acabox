@@ -207,7 +207,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       height = 500;
     } else if (isInWorkspace) {
       height = POPUP_HEIGHT_CONVERSATIONS_BASE;
-      height += Math.min(workspaceSessions.length, 5) * POPUP_HEIGHT_PER_CONVERSATION;
+      height += workspaceSessions.length * POPUP_HEIGHT_PER_CONVERSATION;
     } else if (isEnableFeedback && isUnsavedDocument) {
       height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
     } else if (isEnableFeedback) {

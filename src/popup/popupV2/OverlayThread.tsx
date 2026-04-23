@@ -6,7 +6,7 @@
  * but has a simpler composer without ModelSelector or file attachments.
  */
 
-import React, { createContext, useContext, memo, useState, useRef, useEffect } from 'react';
+import React, { createContext, useContext, memo, useState } from 'react';
 import type { FC } from 'react';
 import {
   ActionBarPrimitive,
@@ -16,7 +16,6 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   useAuiState,
-  useAssistantRuntime,
 } from '@assistant-ui/react';
 import {
   MarkdownTextPrimitive,
@@ -29,16 +28,14 @@ import { TooltipProvider } from '../../cobuilding/renderer/components/ui/tooltip
 import { ToolFallback } from '../../cobuilding/renderer/components/assistant-ui/tool-fallback';
 import { ToolGroup } from '../../cobuilding/renderer/components/assistant-ui/tool-group';
 import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thinking-indicator';
+import { ApprovalParagraph, ApprovalList, APPROVAL_CHOICES } from '../../cobuilding/renderer/components/assistant-ui/approval-buttons';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   CheckIcon,
   CopyIcon,
   LoaderIcon,
-  PlayIcon,
   RefreshCwIcon,
-  SettingsIcon,
-  ShieldCheckIcon,
   SquareIcon,
 } from 'lucide-react';
 
@@ -67,95 +64,6 @@ const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   );
 };
 
-const APPROVAL_CHOICES = ['Allow once', 'Always allow', 'Deny'] as const;
-
-/** Recursively extract all text from a React node tree */
-function extractAllText(node: React.ReactNode): string {
-  if (typeof node === 'string') return node;
-  if (typeof node === 'number') return String(node);
-  if (!node) return '';
-  if (Array.isArray(node)) return node.map(extractAllText).join('');
-  if (typeof node === 'object' && 'props' in (node as any)) {
-    return extractAllText((node as any).props.children);
-  }
-  return '';
-}
-
-/** Checks if a React node tree contains an approval prompt pattern */
-function isApprovalContent(node: React.ReactNode): boolean {
-  const text = extractAllText(node);
-  return /allow once/i.test(text) && /always allow/i.test(text) && /deny/i.test(text);
-}
-
-/** Renders approval buttons for both <p> and <ul> elements containing approval choices */
-const ApprovalButtons: FC<{ children: React.ReactNode; tag?: 'p' | 'ul' }> = ({ children, tag }) => {
-  const runtime = useAssistantRuntime();
-  const [chosen, setChosen] = useState<string | null>(null);
-
-  const isApprovalPrompt = isApprovalContent(children);
-
-  if (!isApprovalPrompt) {
-    const Tag = tag === 'ul' ? 'ul' : 'p';
-    return <Tag>{children}</Tag>;
-  }
-
-  if (chosen) {
-    return (
-      <div style={{
-        display: 'inline-flex', alignItems: 'center', gap: '6px',
-        padding: '4px 10px', marginTop: '6px',
-        fontSize: '13px', fontFamily: "'DM Sans', sans-serif",
-        color: chosen === 'Deny' ? '#9ca3af' : '#16a34a',
-      }}>
-        <CheckIcon size={14} />
-        <span>{chosen}</span>
-      </div>
-    );
-  }
-
-  const handleChoice = (choice: string) => {
-    setChosen(choice);
-    runtime.thread.append({
-      role: 'user',
-      content: [{ type: 'text', text: choice }],
-    });
-  };
-
-  const btnBase: React.CSSProperties = {
-    padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
-    fontFamily: "'DM Sans', sans-serif", fontWeight: 500, cursor: 'pointer',
-  };
-
-  return (
-    <div style={{ display: 'flex', gap: '8px', marginTop: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-      <button
-        onClick={() => handleChoice('Allow once')}
-        style={{ ...btnBase, border: '1px solid #e5e7eb', background: '#fff', color: '#374151' }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
-        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-      >Allow once</button>
-      <button
-        onClick={() => handleChoice('Always allow')}
-        style={{ ...btnBase, border: '1px solid #3b82f6', background: '#3b82f6', color: '#fff' }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#2563eb')}
-        onMouseLeave={e => (e.currentTarget.style.background = '#3b82f6')}
-      >Always allow</button>
-      <button
-        onClick={() => handleChoice('Deny')}
-        style={{ ...btnBase, border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280' }}
-        onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
-        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
-      >Deny</button>
-    </div>
-  );
-};
-
-const ApprovalParagraph: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <ApprovalButtons tag="p">{children}</ApprovalButtons>
-);
-const ApprovalList: FC<{ children: React.ReactNode }> = ({ children }) => (
-  <ApprovalButtons tag="ul">{children}</ApprovalButtons>
-);
 
 const overlayComponents = memoizeMarkdownComponents({
   p: ApprovalParagraph as any,
@@ -189,21 +97,17 @@ const OverlayMarkdownText = memo(() => {
   );
 });
 
-export type EditMode = 'ask' | 'accept';
-
 interface OverlayContextPills {
   documentPath?: string | null;
   selectedText?: string | null;
   onDismissSelection?: () => void;
-  editMode?: EditMode;
-  onEditModeChange?: (mode: EditMode) => void;
 }
 
 const PillsContext = createContext<OverlayContextPills>({});
 
-export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedText, onDismissSelection, editMode, onEditModeChange }) => {
+export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedText, onDismissSelection }) => {
   return (
-    <PillsContext.Provider value={{ documentPath, selectedText, onDismissSelection, editMode, onEditModeChange }}>
+    <PillsContext.Provider value={{ documentPath, selectedText, onDismissSelection }}>
     <TooltipProvider>
       <ThreadPrimitive.Root className="threadRoot">
         <ThreadPrimitive.Viewport
@@ -377,76 +281,6 @@ const OverlaySendButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAt
   ),
 );
 
-const EditModeMenu: FC = () => {
-  const { editMode, onEditModeChange } = useContext(PillsContext);
-  const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open]);
-
-  return (
-    <div ref={menuRef} style={{ position: 'relative', display: 'inline-flex' }}>
-      <button
-        onClick={() => setOpen(!open)}
-        aria-label="Edit mode"
-        title={editMode === 'ask' ? 'Ask before edits' : 'Accept all edits'}
-        style={{
-          background: 'none', border: 'none', cursor: 'pointer',
-          padding: '4px', borderRadius: '6px', display: 'flex',
-          alignItems: 'center', justifyContent: 'center',
-          color: '#6b7280',
-        }}
-      >
-        <SettingsIcon size={16} />
-      </button>
-      {open && (
-        <div style={{
-          position: 'absolute', bottom: 'calc(100% + 4px)', left: 0,
-          background: '#fff', borderRadius: '12px',
-          border: '1px solid #e5e7eb', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
-          padding: '4px', width: '200px', zIndex: 50,
-          fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
-        }}>
-          <button
-            onClick={() => { onEditModeChange?.('ask'); setOpen(false); }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
-              padding: '8px 10px', border: 'none', background: 'none',
-              cursor: 'pointer', borderRadius: '8px', textAlign: 'left',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-          >
-            <ShieldCheckIcon size={15} color="#6b7280" />
-            <span style={{ flex: 1, color: '#374151' }}>Ask before edits</span>
-            {editMode === 'ask' && <CheckIcon size={15} color="#3b82f6" />}
-          </button>
-          <button
-            onClick={() => { onEditModeChange?.('accept'); setOpen(false); }}
-            style={{
-              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
-              padding: '8px 10px', border: 'none', background: 'none',
-              cursor: 'pointer', borderRadius: '8px', textAlign: 'left',
-            }}
-            onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
-            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-          >
-            <PlayIcon size={15} color="#6b7280" />
-            <span style={{ flex: 1, color: '#374151' }}>Accept all edits</span>
-            {editMode === 'accept' && <CheckIcon size={15} color="#3b82f6" />}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
 
 const OverlayComposer: FC = () => {
   const { selectedText, onDismissSelection } = useContext(PillsContext);
@@ -490,7 +324,6 @@ const OverlayComposer: FC = () => {
           aria-label="Message input"
         />
         <div className="composerToolbar">
-          <EditModeMenu />
           <div style={{ flex: 1 }} />
           <div className="composerActions">
             <AuiIf condition={(s: any) => !s.thread.isRunning}>

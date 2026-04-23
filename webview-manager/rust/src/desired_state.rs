@@ -18,6 +18,9 @@ pub struct WebviewEntryState {
     pub ignores_mouse_events: bool,
     #[serde(default, rename = "makeKey")]
     pub make_key: bool,
+    /// When true, panel drops to normal window level (behind the active app).
+    #[serde(default)]
+    pub background: bool,
 }
 
 pub type DesiredState = HashMap<String, WebviewEntryState>;

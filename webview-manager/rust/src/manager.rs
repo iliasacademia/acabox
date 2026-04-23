@@ -4,6 +4,7 @@ use objc2::rc::Retained;
 use objc2::MainThreadMarker;
 use webview_manager::debug::debug_log;
 use webview_manager::panel::KeyablePanel;
+use objc2_app_kit::{NSFloatingWindowLevel, NSNormalWindowLevel};
 use objc2_foundation::{NSPoint, NSRect, NSSize};
 
 use crate::desired_state::{DesiredState, WebviewEntryState, WebviewFrame};
@@ -19,6 +20,7 @@ struct WebViewEntry {
     frame: WebviewFrame,
     ignores_mouse_events: bool,
     make_key: bool,
+    background: bool,
 }
 
 pub struct Manager {
@@ -100,6 +102,9 @@ impl Manager {
                         panel.makeKeyWindow();
                     }
                 }
+                if state.background {
+                    panel.setLevel(NSNormalWindowLevel);
+                }
                 self.entries.insert(
                     id.to_string(),
                     WebViewEntry {
@@ -110,6 +115,7 @@ impl Manager {
                         frame: state.frame.clone(),
                         ignores_mouse_events: state.ignores_mouse_events,
                         make_key: state.make_key,
+                        background: state.background,
                     },
                 );
                 Response::ok("CREATE", id).emit();
@@ -133,15 +139,28 @@ impl Manager {
         let frame_changed = existing.frame != desired.frame;
         let visibility_changed = existing.visible != desired.visible;
         let make_key_changed = existing.make_key != desired.make_key;
+        let background_changed = existing.background != desired.background;
 
-        if !frame_changed && !visibility_changed && !make_key_changed {
+        if !frame_changed && !visibility_changed && !make_key_changed && !background_changed {
             return; // No-op
         }
 
         debug_log!(
-            "update: id={}, frame_changed={}, visibility_changed={} (visible: {}→{}), make_key={}",
-            id, frame_changed, visibility_changed, existing.visible, desired.visible, desired.make_key
+            "update: id={}, frame_changed={}, visibility_changed={} (visible: {}→{}), make_key={}, background={}",
+            id, frame_changed, visibility_changed, existing.visible, desired.visible, desired.make_key, desired.background
         );
+
+        // Adjust window level when background mode changes
+        if background_changed {
+            if desired.background {
+                existing.panel.setLevel(NSNormalWindowLevel);
+                debug_log!("update: lowered to normal level id={}", id);
+            } else {
+                existing.panel.setLevel(NSFloatingWindowLevel + 1);
+                debug_log!("update: raised to floating level id={}", id);
+            }
+            existing.background = desired.background;
+        }
 
         // Reposition before show to avoid flicker
         if frame_changed {
