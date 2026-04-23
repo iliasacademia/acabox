@@ -2082,6 +2082,19 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   await shell.openExternal(url);
 });
 
+// Word document navigation IPC handler
+ipcMain.handle('word:scroll-to', async (_event, text: string) => {
+  if (!text || typeof text !== 'string') {
+    return { success: false, error: 'text is required' };
+  }
+  try {
+    const { positionCursorInWord } = await import('../../server/wordActions');
+    return await positionCursorInWord(text, 'before');
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+});
+
 // Permission IPC handlers (macOS only)
 ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
   if (process.platform !== 'darwin') {

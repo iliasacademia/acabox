@@ -87,20 +87,28 @@ const useCopyToClipboard = ({
 };
 
 const defaultComponents = memoizeMarkdownComponents({
-  a: ({ href, children, ...props }) => (
-    <a
-      {...props}
-      href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        if (href) {
-          (window as any).electronAPI.invoke('shell:openExternal', href);
-        }
-      }}
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children, ...props }) => {
+    const isWordRef = href?.startsWith('word-ref:');
+    return (
+      <a
+        {...props}
+        href={href}
+        style={isWordRef ? { color: '#0645b1', cursor: 'pointer', textDecoration: 'underline' } : undefined}
+        onClick={(e) => {
+          e.preventDefault();
+          if (isWordRef) {
+            // Scroll Word to the referenced text
+            const anchor = href!.substring('word-ref:'.length);
+            (window as any).electronAPI.invoke('word:scroll-to', anchor);
+          } else if (href) {
+            (window as any).electronAPI.invoke('shell:openExternal', href);
+          }
+        }}
+      >
+        {children}
+      </a>
+    );
+  },
   code: function Code({ className, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
     return (
