@@ -173,14 +173,21 @@ const FindAndReplaceSuggestionImpl = ({
   const [cardState, setCardState] = useState<CardState>('pending');
   const [error, setError] = useState<string | null>(null);
 
-  // Load persisted state from server on mount
+  // Poll server for edit state changes (syncs overlay ↔ desktop)
   useEffect(() => {
     if (!toolCallId) return;
-    fetchEditStates().then(states => {
-      const persisted = states[toolCallId] as CardState | undefined;
-      if (persisted) setCardState(persisted);
-    });
-  }, [toolCallId]);
+    let cancelled = false;
+    const check = () => {
+      fetchEditStates().then(states => {
+        if (cancelled) return;
+        const persisted = states[toolCallId] as CardState | undefined;
+        if (persisted && persisted !== cardState) setCardState(persisted);
+      });
+    };
+    check(); // initial load
+    const timer = setInterval(check, 2000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [toolCallId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const parsed = parseResult(result);
   const searchText = parsed?.search_text ?? (args as any)?.search_text ?? '';
