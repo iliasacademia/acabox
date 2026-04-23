@@ -1,4 +1,4 @@
-import React, { createContext, memo, useContext, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { CheckIcon, LoaderIcon, XCircleIcon, MinusCircleIcon } from 'lucide-react';
 
 /**
@@ -88,76 +88,27 @@ async function fetchEditStates(): Promise<Record<string, string>> {
   return {};
 }
 
-// ─── Batch action context ────────────────────────────────────────
+// ─── Module-level batch registry ─────────────────────────────────
+// Works across ToolGroups since cards may be separated by text.
 
-type BatchAction = 'approve-all' | 'deny-all' | null;
+type BatchAction = 'approve-all' | 'deny-all';
 type BatchListener = (action: BatchAction) => void;
 
-interface SuggestionGroupContextValue {
-  registerPending: (id: string) => void;
-  unregisterPending: (id: string) => void;
-  getPendingCount: () => number;
-  subscribeBatch: (listener: BatchListener) => () => void;
-  emitBatch: (action: BatchAction) => void;
+const pendingCards = new Set<string>();
+const batchListeners = new Set<BatchListener>();
+const countListeners = new Set<() => void>();
+
+function registerPending(id: string) {
+  pendingCards.add(id);
+  countListeners.forEach(l => l());
 }
-
-const SuggestionGroupContext = createContext<SuggestionGroupContextValue | null>(null);
-
-export function SuggestionGroupProvider({ children }: { children: React.ReactNode }) {
-  const pendingRef = useRef(new Set<string>());
-  const listenersRef = useRef(new Set<BatchListener>());
-
-  const ctx: SuggestionGroupContextValue = {
-    registerPending: (id) => { pendingRef.current.add(id); },
-    unregisterPending: (id) => { pendingRef.current.delete(id); },
-    getPendingCount: () => pendingRef.current.size,
-    subscribeBatch: (listener) => {
-      listenersRef.current.add(listener);
-      return () => { listenersRef.current.delete(listener); };
-    },
-    emitBatch: (action) => {
-      for (const l of listenersRef.current) l(action);
-    },
-  };
-
-  return (
-    <SuggestionGroupContext.Provider value={ctx}>
-      {children}
-    </SuggestionGroupContext.Provider>
-  );
+function unregisterPending(id: string) {
+  pendingCards.delete(id);
+  countListeners.forEach(l => l());
 }
-
-// ─── Batch header ────────────────────────────────────────────────
-
-export const SuggestionBatchHeader: React.FC = () => {
-  const group = useContext(SuggestionGroupContext);
-  const [, forceUpdate] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => forceUpdate(n => n + 1), 500);
-    return () => clearInterval(timer);
-  }, []);
-
-  if (!group) return null;
-  const count = group.getPendingCount();
-  if (count === 0) return null;
-
-  return (
-    <div className="suggestionBatchHeader">
-      <span className="suggestionBatchCount">
-        {count} {count === 1 ? 'suggestion' : 'suggestions'}
-      </span>
-      <div className="suggestionBatchActions">
-        <button className="suggestionBtn suggestionBtn--approve" onClick={() => group.emitBatch('approve-all')}>
-          Approve all
-        </button>
-        <button className="suggestionBtn suggestionBtn--deny" onClick={() => group.emitBatch('deny-all')}>
-          Deny all
-        </button>
-      </div>
-    </div>
-  );
-};
+function emitBatch(action: BatchAction) {
+  batchListeners.forEach(l => l(action));
+}
 
 // ─── Individual suggestion card ──────────────────────────────────
 
@@ -169,9 +120,9 @@ const FindAndReplaceSuggestionImpl = ({
   result,
   status,
 }: any) => {
-  const group = useContext(SuggestionGroupContext);
   const [cardState, setCardState] = useState<CardState>('pending');
   const [error, setError] = useState<string | null>(null);
+  const [showBatchHeader, setShowBatchHeader] = useState(false);
 
   // Poll server for edit state changes (syncs overlay ↔ desktop)
   useEffect(() => {
@@ -184,7 +135,7 @@ const FindAndReplaceSuggestionImpl = ({
         if (persisted && persisted !== cardState) setCardState(persisted);
       });
     };
-    check(); // initial load
+    check();
     const timer = setInterval(check, 2000);
     return () => { cancelled = true; clearInterval(timer); };
   }, [toolCallId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -195,30 +146,43 @@ const FindAndReplaceSuggestionImpl = ({
   const isRunning = status?.type === 'running';
   const isProposal = parsed?.proposed === true;
 
-  // Register with batch group when pending
+  // Register/unregister with module-level batch registry
   useEffect(() => {
-    if (isProposal && cardState === 'pending' && group) {
-      group.registerPending(toolCallId);
-      return () => group.unregisterPending(toolCallId);
+    if (isProposal && cardState === 'pending') {
+      registerPending(toolCallId);
+      return () => unregisterPending(toolCallId);
     }
-  }, [isProposal, cardState, toolCallId, group]);
+  }, [isProposal, cardState, toolCallId]);
+
+  // Show batch header on the first pending card
+  useEffect(() => {
+    const update = () => {
+      const firstPending = [...pendingCards][0];
+      setShowBatchHeader(firstPending === toolCallId && pendingCards.size > 1);
+    };
+    countListeners.add(update);
+    update();
+    return () => { countListeners.delete(update); };
+  }, [toolCallId]);
 
   const handleApproveRef = useRef<() => void>(() => {});
   const handleDenyRef = useRef<() => void>(() => {});
 
   // Listen for batch actions
   useEffect(() => {
-    if (!isProposal || cardState !== 'pending' || !group) return;
-    return group.subscribeBatch((action) => {
+    if (!isProposal || cardState !== 'pending') return;
+    const listener: BatchListener = (action) => {
       if (action === 'approve-all') handleApproveRef.current();
       if (action === 'deny-all') handleDenyRef.current();
-    });
-  }, [isProposal, cardState, group]);
+    };
+    batchListeners.add(listener);
+    return () => { batchListeners.delete(listener); };
+  }, [isProposal, cardState]);
 
   const handleApprove = useCallback(async () => {
     if (!parsed) return;
     setCardState('applying');
-    if (group) group.unregisterPending(toolCallId);
+    unregisterPending(toolCallId);
     try {
       const res = await applyEdit(toolCallId, parsed);
       if (res.success) {
@@ -231,13 +195,13 @@ const FindAndReplaceSuggestionImpl = ({
       setError(String(err));
       setCardState('error');
     }
-  }, [parsed, toolCallId, group]);
+  }, [parsed, toolCallId]);
 
   const handleDeny = useCallback(() => {
     setCardState('denied');
     setEditState(toolCallId, 'denied');
-    if (group) group.unregisterPending(toolCallId);
-  }, [toolCallId, group]);
+    unregisterPending(toolCallId);
+  }, [toolCallId]);
 
   // Keep refs in sync so batch listeners call the latest version
   handleApproveRef.current = handleApprove;
@@ -310,20 +274,37 @@ const FindAndReplaceSuggestionImpl = ({
   // --- Proposal: show diff with approve/deny ---
   if (isProposal && searchText) {
     return (
-      <div className="suggestionCard">
-        <div className="suggestionDiff">
-          <del className="suggestionDiffDel">{searchText}</del>
-          <ins className="suggestionDiffIns">{replacementText}</ins>
+      <>
+        {showBatchHeader && (
+          <div className="suggestionBatchHeader">
+            <span className="suggestionBatchCount">
+              {pendingCards.size} suggestions
+            </span>
+            <div className="suggestionBatchActions">
+              <button className="suggestionBtn suggestionBtn--approve" onClick={() => emitBatch('approve-all')}>
+                Approve all
+              </button>
+              <button className="suggestionBtn suggestionBtn--deny" onClick={() => emitBatch('deny-all')}>
+                Deny all
+              </button>
+            </div>
+          </div>
+        )}
+        <div className="suggestionCard">
+          <div className="suggestionDiff">
+            <del className="suggestionDiffDel">{searchText}</del>
+            <ins className="suggestionDiffIns">{replacementText}</ins>
+          </div>
+          <div className="suggestionActions">
+            <button className="suggestionBtn suggestionBtn--approve" onClick={handleApprove}>
+              Approve
+            </button>
+            <button className="suggestionBtn suggestionBtn--deny" onClick={handleDeny}>
+              Deny
+            </button>
+          </div>
         </div>
-        <div className="suggestionActions">
-          <button className="suggestionBtn suggestionBtn--approve" onClick={handleApprove}>
-            Approve
-          </button>
-          <button className="suggestionBtn suggestionBtn--deny" onClick={handleDeny}>
-            Deny
-          </button>
-        </div>
-      </div>
+      </>
     );
   }
 
