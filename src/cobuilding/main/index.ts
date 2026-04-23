@@ -70,6 +70,7 @@ import { AcademiaHttpServer } from '../../server/httpServer';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
+import { setEditApprovalMode } from './mcpServers/msWordMcpServer';
 
 const isSmokeTest = process.argv.includes('--smoke-test');
 
@@ -607,6 +608,8 @@ app.whenReady().then(() => {
                 if (ctxDocPath || ctxSelectedText || ctxEditMode) {
                   pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText, editMode: ctxEditMode });
                 }
+                // Reset per-session approval mode based on edit mode toggle
+                setEditApprovalMode(ctxEditMode === 'accept' ? 'always' : 'ask');
 
                 // Hijack the response so Fastify doesn't try to send its own
                 reply.hijack();
@@ -666,7 +669,7 @@ app.whenReady().then(() => {
                       if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
                       if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document:\n"""\n${ctx.selectedText}\n"""\n`;
                       if (ctx.editMode === 'ask') {
-                        prefix += `EDIT MODE: "Ask before edits" is ON. Do NOT make any changes to the document yet. Instead, present your proposed edits clearly in the chat (show what you would change and why) and wait for the user to confirm before applying them with find_and_replace.\n`;
+                        prefix += `EDIT MODE: "Ask before edits" is ON. When calling find_and_replace, the tool will return approval_required. Present each proposed edit to the user and wait for their choice (Allow once / Always allow / Deny) before retrying with approved: true.\n`;
                       }
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
