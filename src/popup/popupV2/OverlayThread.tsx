@@ -41,7 +41,9 @@ import {
 
 // ─── Overlay MarkdownText with word-ref: link support ──────────────
 
-function scrollWordToText(text: string) {
+function scrollWordToText(rawText: string) {
+  // Strip newlines/carriage returns the agent may have included
+  const text = rawText.replace(/[\r\n]+/g, ' ').trim();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (tokenParam) headers['Authorization'] = `Bearer ${tokenParam}`;
   fetch(`${serverUrl}/api/cobuilding/word/scroll-to`, {
@@ -101,10 +103,23 @@ const overlayComponents = memoizeMarkdownComponents({
   CodeHeader: OverlayCodeHeader,
 });
 
+/** Clean word-ref: URLs that contain \r or \n so the markdown parser doesn't break */
+function cleanWordRefPlugin() {
+  return (tree: any) => {
+    const visit = (node: any) => {
+      if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('word-ref:')) {
+        node.url = node.url.replace(/[\r\n]+/g, ' ').trim();
+      }
+      if (node.children) node.children.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+
 const OverlayMarkdownText = memo(() => {
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, cleanWordRefPlugin]}
       className="auiMd"
       components={overlayComponents}
     />

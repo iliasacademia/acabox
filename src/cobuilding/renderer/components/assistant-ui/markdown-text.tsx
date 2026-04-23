@@ -43,12 +43,25 @@ const MarkdownTextImpl = () => {
 
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, cleanWordRefUrls]}
       className="auiMd"
       components={defaultComponents}
     />
   );
 };
+
+/** Clean word-ref: URLs that contain \r or \n so the markdown parser doesn't break */
+function cleanWordRefUrls() {
+  return (tree: any) => {
+    const visit = (node: any) => {
+      if (node.type === 'link' && typeof node.url === 'string' && node.url.startsWith('word-ref:')) {
+        node.url = node.url.replace(/[\r\n]+/g, ' ').trim();
+      }
+      if (node.children) node.children.forEach(visit);
+    };
+    visit(tree);
+  };
+}
 
 export const MarkdownText = memo(MarkdownTextImpl);
 
@@ -97,8 +110,8 @@ const defaultComponents = memoizeMarkdownComponents({
         onClick={(e) => {
           e.preventDefault();
           if (isWordRef) {
-            // Scroll Word to the referenced text
-            const anchor = href!.substring('word-ref:'.length);
+            // Scroll Word to the referenced text (strip newlines agent may include)
+            const anchor = href!.substring('word-ref:'.length).replace(/[\r\n]+/g, ' ').trim();
             (window as any).electronAPI.invoke('word:scroll-to', anchor);
           } else if (href) {
             (window as any).electronAPI.invoke('shell:openExternal', href);
