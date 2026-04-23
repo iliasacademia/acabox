@@ -5,7 +5,7 @@
  * HTTP fetch + SSE streaming instead of Electron IPC.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type {
   ChatModelAdapter,
   ThreadAssistantMessagePart,
@@ -182,8 +182,16 @@ function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
 }
 
 export function useHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
+  // Keep a ref to getContext so the adapter always reads the latest
+  // selection/context without being recreated (which would lose thread state)
+  const getContextRef = useRef(opts.getContext);
+  getContextRef.current = opts.getContext;
+
   return useMemo(
-    () => createHttpChatAdapter(opts),
+    () => createHttpChatAdapter({
+      ...opts,
+      getContext: () => getContextRef.current(),
+    }),
     [opts.serverUrl, opts.token, opts.sessionId],
   );
 }
