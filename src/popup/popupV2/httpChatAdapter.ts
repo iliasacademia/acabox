@@ -5,7 +5,7 @@
  * HTTP fetch + SSE streaming instead of Electron IPC.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type {
   ChatModelAdapter,
   ThreadAssistantMessagePart,
@@ -139,8 +139,8 @@ interface HttpChatAdapterOptions {
   serverUrl: string;
   token: string | null;
   sessionId: string;
-  /** Called to get context (document path, selected text) at send time */
-  getContext: () => { documentPath?: string | null; selectedText?: string | null };
+  /** Called to get context (document path, selected text, edit mode) at send time */
+  getContext: () => { documentPath?: string | null; selectedText?: string | null; editMode?: string };
 }
 
 function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
@@ -165,6 +165,7 @@ function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
           text: userText,
           ...(ctx.documentPath ? { documentPath: ctx.documentPath } : {}),
           ...(ctx.selectedText ? { selectedText: ctx.selectedText } : {}),
+          ...(ctx.editMode ? { editMode: ctx.editMode } : {}),
         }),
         signal: abortSignal,
       });
@@ -181,8 +182,16 @@ function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
 }
 
 export function useHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
+  // Keep a ref to getContext so the adapter always reads the latest
+  // selection/context without being recreated (which would lose thread state)
+  const getContextRef = useRef(opts.getContext);
+  getContextRef.current = opts.getContext;
+
   return useMemo(
-    () => createHttpChatAdapter(opts),
+    () => createHttpChatAdapter({
+      ...opts,
+      getContext: () => getContextRef.current(),
+    }),
     [opts.serverUrl, opts.token, opts.sessionId],
   );
 }

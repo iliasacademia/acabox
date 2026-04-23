@@ -28,6 +28,7 @@ const SKILLS = [
   'reaction',
   'reactome-database',
   'review-manuscript',
+  'review-selected-text',
   'string-database-ppi',
   'xlsx',
 ];

@@ -6,7 +6,7 @@
  * but has a simpler composer without ModelSelector or file attachments.
  */
 
-import React, { createContext, useContext } from 'react';
+import React, { createContext, useContext, memo, useState, useRef, useEffect } from 'react';
 import type { FC } from 'react';
 import {
   ActionBarPrimitive,
@@ -16,9 +16,16 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   useAuiState,
+  useAssistantRuntime,
 } from '@assistant-ui/react';
+import {
+  MarkdownTextPrimitive,
+  unstable_memoizeMarkdownComponents as memoizeMarkdownComponents,
+  useIsMarkdownCodeBlock,
+  type CodeHeaderProps,
+} from '@assistant-ui/react-markdown';
+import remarkGfm from 'remark-gfm';
 import { TooltipProvider } from '../../cobuilding/renderer/components/ui/tooltip';
-import { MarkdownText } from '../../cobuilding/renderer/components/assistant-ui/markdown-text';
 import { ToolFallback } from '../../cobuilding/renderer/components/assistant-ui/tool-fallback';
 import { ToolGroup } from '../../cobuilding/renderer/components/assistant-ui/tool-group';
 import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thinking-indicator';
@@ -28,21 +35,175 @@ import {
   CheckIcon,
   CopyIcon,
   LoaderIcon,
+  PlayIcon,
   RefreshCwIcon,
+  SettingsIcon,
+  ShieldCheckIcon,
   SquareIcon,
 } from 'lucide-react';
+
+// ─── Overlay MarkdownText ───────────────────────────────────────────
+
+const useCopyToClipboard = ({ copiedDuration = 3000 }: { copiedDuration?: number } = {}) => {
+  const [isCopied, setIsCopied] = useState(false);
+  const copyToClipboard = (value: string) => {
+    navigator.clipboard.writeText(value).then(() => {
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), copiedDuration);
+    });
+  };
+  return { isCopied, copyToClipboard };
+};
+
+const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
+  const { isCopied, copyToClipboard } = useCopyToClipboard();
+  return (
+    <div className="codeHeaderRoot">
+      <span className="codeHeaderLanguage">{language}</span>
+      <button className="iconBtn" onClick={() => code && copyToClipboard(code)}>
+        {isCopied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+      </button>
+    </div>
+  );
+};
+
+const APPROVAL_CHOICES = ['Allow once', 'Always allow', 'Deny'] as const;
+
+/** Recursively extract all text from a React node tree */
+function extractAllText(node: React.ReactNode): string {
+  if (typeof node === 'string') return node;
+  if (typeof node === 'number') return String(node);
+  if (!node) return '';
+  if (Array.isArray(node)) return node.map(extractAllText).join('');
+  if (typeof node === 'object' && 'props' in (node as any)) {
+    return extractAllText((node as any).props.children);
+  }
+  return '';
+}
+
+/** Checks if a React node tree contains an approval prompt pattern */
+function isApprovalContent(node: React.ReactNode): boolean {
+  const text = extractAllText(node);
+  return /allow once/i.test(text) && /always allow/i.test(text) && /deny/i.test(text);
+}
+
+/** Renders approval buttons for both <p> and <ul> elements containing approval choices */
+const ApprovalButtons: FC<{ children: React.ReactNode; tag?: 'p' | 'ul' }> = ({ children, tag }) => {
+  const runtime = useAssistantRuntime();
+  const [chosen, setChosen] = useState<string | null>(null);
+
+  const isApprovalPrompt = isApprovalContent(children);
+
+  if (!isApprovalPrompt) {
+    const Tag = tag === 'ul' ? 'ul' : 'p';
+    return <Tag>{children}</Tag>;
+  }
+
+  if (chosen) {
+    return (
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: '6px',
+        padding: '4px 10px', marginTop: '6px',
+        fontSize: '13px', fontFamily: "'DM Sans', sans-serif",
+        color: chosen === 'Deny' ? '#9ca3af' : '#16a34a',
+      }}>
+        <CheckIcon size={14} />
+        <span>{chosen}</span>
+      </div>
+    );
+  }
+
+  const handleChoice = (choice: string) => {
+    setChosen(choice);
+    runtime.thread.append({
+      role: 'user',
+      content: [{ type: 'text', text: choice }],
+    });
+  };
+
+  const btnBase: React.CSSProperties = {
+    padding: '6px 16px', borderRadius: '8px', fontSize: '13px',
+    fontFamily: "'DM Sans', sans-serif", fontWeight: 500, cursor: 'pointer',
+  };
+
+  return (
+    <div style={{ display: 'flex', gap: '8px', marginTop: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
+      <button
+        onClick={() => handleChoice('Allow once')}
+        style={{ ...btnBase, border: '1px solid #e5e7eb', background: '#fff', color: '#374151' }}
+        onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
+        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+      >Allow once</button>
+      <button
+        onClick={() => handleChoice('Always allow')}
+        style={{ ...btnBase, border: '1px solid #3b82f6', background: '#3b82f6', color: '#fff' }}
+        onMouseEnter={e => (e.currentTarget.style.background = '#2563eb')}
+        onMouseLeave={e => (e.currentTarget.style.background = '#3b82f6')}
+      >Always allow</button>
+      <button
+        onClick={() => handleChoice('Deny')}
+        style={{ ...btnBase, border: '1px solid #e5e7eb', background: '#fff', color: '#6b7280' }}
+        onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
+        onMouseLeave={e => (e.currentTarget.style.background = '#fff')}
+      >Deny</button>
+    </div>
+  );
+};
+
+const ApprovalParagraph: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <ApprovalButtons tag="p">{children}</ApprovalButtons>
+);
+const ApprovalList: FC<{ children: React.ReactNode }> = ({ children }) => (
+  <ApprovalButtons tag="ul">{children}</ApprovalButtons>
+);
+
+const overlayComponents = memoizeMarkdownComponents({
+  p: ApprovalParagraph as any,
+  ul: ApprovalList as any,
+  a: ({ href, children, ...props }) => (
+    <a
+      {...props}
+      href={href}
+      onClick={(e) => {
+        e.preventDefault();
+        if (href) window.open(href, '_blank');
+      }}
+    >
+      {children}
+    </a>
+  ),
+  code: function Code({ className, ...props }) {
+    const isCodeBlock = useIsMarkdownCodeBlock();
+    return <code className={`${!isCodeBlock ? 'inlineCode' : ''}${className ? ` ${className}` : ''}`} {...props} />;
+  },
+  CodeHeader: OverlayCodeHeader,
+});
+
+const OverlayMarkdownText = memo(() => {
+  return (
+    <MarkdownTextPrimitive
+      remarkPlugins={[remarkGfm]}
+      className="auiMd"
+      components={overlayComponents}
+    />
+  );
+});
+
+export type EditMode = 'ask' | 'accept';
 
 interface OverlayContextPills {
   documentPath?: string | null;
   selectedText?: string | null;
   onDismissSelection?: () => void;
+  editMode?: EditMode;
+  onEditModeChange?: (mode: EditMode) => void;
 }
 
 const PillsContext = createContext<OverlayContextPills>({});
 
-export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedText, onDismissSelection }) => {
+export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedText, onDismissSelection, editMode, onEditModeChange }) => {
   return (
-    <PillsContext.Provider value={{ documentPath, selectedText, onDismissSelection }}>
+    <PillsContext.Provider value={{ documentPath, selectedText, onDismissSelection, editMode, onEditModeChange }}>
     <TooltipProvider>
       <ThreadPrimitive.Root className="threadRoot">
         <ThreadPrimitive.Viewport
@@ -67,9 +228,7 @@ export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedT
 
           <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
             <ThreadPrimitive.ScrollToBottom asChild>
-              <button className="scrollToBottom" aria-label="Scroll to bottom">
-                <ArrowDownIcon size={16} />
-              </button>
+              <OverlayScrollToBottom />
             </ThreadPrimitive.ScrollToBottom>
             <OverlayComposer />
           </ThreadPrimitive.ViewportFooter>
@@ -108,7 +267,7 @@ const OverlayAssistantMessage: FC = () => {
       <div className="assistantMessageContent">
         <MessagePrimitive.Parts
           components={{
-            Text: MarkdownText,
+            Text: OverlayMarkdownText,
             Reasoning,
             tools: { Fallback: ToolFallback },
             ToolGroup,
@@ -141,6 +300,30 @@ const OverlayAssistantMessage: FC = () => {
 };
 
 const OverlayUserMessage: FC = () => {
+  // Detect approval response messages and render them compactly
+  const text = useAuiState((s: any) => {
+    const parts = s.message?.parts;
+    if (!parts || parts.length !== 1 || parts[0].type !== 'text') return null;
+    return parts[0].text;
+  });
+
+  const isApprovalResponse = text && APPROVAL_CHOICES.includes(text as any);
+
+  if (isApprovalResponse) {
+    // Render as compact inline status, not a full user bubble
+    return (
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: '6px',
+        padding: '4px 10px', margin: '4px 0',
+        fontSize: '13px', fontFamily: "'DM Sans', sans-serif",
+        color: text === 'Deny' ? '#9ca3af' : '#16a34a',
+      }}>
+        <CheckIcon size={14} />
+        <span>{text}</span>
+      </div>
+    );
+  }
+
   return (
     <MessagePrimitive.Root className="userMessage" data-role="user">
       <div className="userMessageContentWrapper">
@@ -152,72 +335,181 @@ const OverlayUserMessage: FC = () => {
   );
 };
 
+const OverlayScrollToBottom = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+  (props, ref) => (
+    <button
+      ref={ref}
+      {...props}
+      aria-label="Scroll to bottom"
+      style={{
+        position: 'absolute', top: '-36px', zIndex: 10,
+        alignSelf: 'center', borderRadius: '50%',
+        width: '28px', height: '28px', padding: 0,
+        display: props.disabled ? 'none' : 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        background: '#fff', border: '1px solid #e5e7eb',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+        cursor: 'pointer', color: '#6b7280',
+      }}
+    >
+      <ArrowDownIcon size={14} />
+    </button>
+  ),
+);
+
+const OverlaySendButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+  (props, ref) => (
+    <button
+      ref={ref}
+      {...props}
+      aria-label="Send message"
+      style={{
+        width: '28px', height: '28px', borderRadius: '50%',
+        background: props.disabled ? '#d1d5db' : '#141413',
+        border: 'none', cursor: props.disabled ? 'default' : 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: '#fff', padding: 0,
+        transition: 'background 0.15s',
+      }}
+    >
+      <ArrowUpIcon size={14} />
+    </button>
+  ),
+);
+
+const EditModeMenu: FC = () => {
+  const { editMode, onEditModeChange } = useContext(PillsContext);
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  return (
+    <div ref={menuRef} style={{ position: 'relative', display: 'inline-flex' }}>
+      <button
+        onClick={() => setOpen(!open)}
+        aria-label="Edit mode"
+        title={editMode === 'ask' ? 'Ask before edits' : 'Accept all edits'}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '4px', borderRadius: '6px', display: 'flex',
+          alignItems: 'center', justifyContent: 'center',
+          color: '#6b7280',
+        }}
+      >
+        <SettingsIcon size={16} />
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', bottom: 'calc(100% + 4px)', left: 0,
+          background: '#fff', borderRadius: '12px',
+          border: '1px solid #e5e7eb', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+          padding: '4px', width: '200px', zIndex: 50,
+          fontFamily: "'DM Sans', sans-serif", fontSize: '13px',
+        }}>
+          <button
+            onClick={() => { onEditModeChange?.('ask'); setOpen(false); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+              padding: '8px 10px', border: 'none', background: 'none',
+              cursor: 'pointer', borderRadius: '8px', textAlign: 'left',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+          >
+            <ShieldCheckIcon size={15} color="#6b7280" />
+            <span style={{ flex: 1, color: '#374151' }}>Ask before edits</span>
+            {editMode === 'ask' && <CheckIcon size={15} color="#3b82f6" />}
+          </button>
+          <button
+            onClick={() => { onEditModeChange?.('accept'); setOpen(false); }}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px', width: '100%',
+              padding: '8px 10px', border: 'none', background: 'none',
+              cursor: 'pointer', borderRadius: '8px', textAlign: 'left',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#f5f5f3')}
+            onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+          >
+            <PlayIcon size={15} color="#6b7280" />
+            <span style={{ flex: 1, color: '#374151' }}>Accept all edits</span>
+            {editMode === 'accept' && <CheckIcon size={15} color="#3b82f6" />}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const OverlayComposer: FC = () => {
-  const { documentPath, selectedText, onDismissSelection } = useContext(PillsContext);
+  const { selectedText, onDismissSelection } = useContext(PillsContext);
 
   return (
     <ComposerPrimitive.Root className="composerRoot">
-      {/* Context pills inside the composer, above the input */}
-      {(documentPath || selectedText) && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '8px 12px 0 12px' }}>
-          {documentPath && (
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              backgroundColor: '#EEF2F9', borderRadius: '12px', padding: '2px 10px',
-              fontFamily: "'DM Sans', sans-serif", fontSize: '12px', color: '#3d5a80',
-            }}>
-              <span>📄</span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '180px' }}>
-                {documentPath.split('/').pop()}
-              </span>
-            </div>
-          )}
-          {selectedText && (
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '4px',
-              backgroundColor: '#F0EBF8', borderRadius: '12px', padding: '2px 10px',
-              fontFamily: "'DM Sans', sans-serif", fontSize: '12px', color: '#5B4A8A',
-              maxWidth: '100%',
-            }}>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }}>
-                {selectedText.length > 80 ? selectedText.substring(0, 80) + '...' : selectedText}
-              </span>
-              <button
-                onClick={onDismissSelection}
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  padding: '0 2px', fontSize: '12px', lineHeight: '1',
-                  color: '#5B4A8A', flexShrink: 0,
-                }}
-                aria-label="Clear selection"
-              >
-                ✕
-              </button>
-            </div>
-          )}
+      {/* Selected text bar — above the composer shell, matching Claude for Word */}
+      {selectedText && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '8px 14px',
+          marginBottom: '4px',
+          background: '#f5f5f3',
+          borderRadius: '16px',
+          fontFamily: "'DM Sans', sans-serif", fontSize: '13px', color: '#374151',
+        }}>
+          <span style={{
+            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            "{selectedText.length > 50 ? selectedText.substring(0, 50) + '...' : selectedText}" selected
+          </span>
+          <button
+            onClick={onDismissSelection}
+            style={{
+              background: 'none', border: 'none', cursor: 'pointer',
+              padding: '2px', fontSize: '14px', lineHeight: '1',
+              color: '#9ca3af', flexShrink: 0,
+            }}
+            aria-label="Clear selection"
+          >
+            ✕
+          </button>
         </div>
       )}
       <div className="composerShell">
         <ComposerPrimitive.Input
-          placeholder={selectedText ? 'Ask about selection...' : documentPath ? 'Ask about this document...' : 'Send a message...'}
+          placeholder={selectedText ? 'Reply' : 'Send a message...'}
           className="composerInput"
           rows={1}
           autoFocus
           aria-label="Message input"
         />
         <div className="composerToolbar">
+          <EditModeMenu />
+          <div style={{ flex: 1 }} />
           <div className="composerActions">
             <AuiIf condition={(s: any) => !s.thread.isRunning}>
               <ComposerPrimitive.Send asChild>
-                <button className="composerSend" aria-label="Send message">
-                  <ArrowUpIcon className="composerSendIcon" />
-                </button>
+                <OverlaySendButton />
               </ComposerPrimitive.Send>
             </AuiIf>
             <AuiIf condition={(s: any) => s.thread.isRunning}>
               <ComposerPrimitive.Cancel asChild>
-                <button className="composerCancel" aria-label="Stop generating">
-                  <SquareIcon className="composerCancelIcon" />
+                <button
+                  aria-label="Stop generating"
+                  style={{
+                    width: '28px', height: '28px', borderRadius: '50%',
+                    background: '#dc2626', border: 'none', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    color: '#fff', padding: 0,
+                  }}
+                >
+                  <SquareIcon size={12} />
                 </button>
               </ComposerPrimitive.Cancel>
             </AuiIf>

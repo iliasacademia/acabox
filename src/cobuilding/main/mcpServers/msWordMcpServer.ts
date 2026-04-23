@@ -11,6 +11,18 @@ import {
   setTrackChanges,
 } from '../../../server/wordActions';
 
+// Per-session edit approval state.
+// 'ask' = require approval per edit, 'always' = auto-approve all edits this session
+let editApprovalMode: 'ask' | 'always' = 'ask';
+
+export function setEditApprovalMode(mode: 'ask' | 'always') {
+  editApprovalMode = mode;
+}
+
+export function getEditApprovalMode() {
+  return editApprovalMode;
+}
+
 export function createMsWordMcpServer() {
   return createSdkMcpServer({
     name: 'ms-word',
@@ -92,15 +104,39 @@ export function createMsWordMcpServer() {
 
       tool(
         'find_and_replace',
-        'Find text in the active Word document and replace it. Uses Word\'s native find-and-replace — atomic, reliable, no keyboard simulation. When Track Changes is enabled, the edit appears as a tracked revision the user can accept/reject. Always check track_changes_status and ask the user to enable it before making edits.',
+        `Find text in the active Word document and replace it. When Track Changes is enabled, the edit appears as a tracked revision.
+
+When the result contains "approval_required": true, the user must approve the edit before it's applied. Present the proposed change to the user and ask them to choose:
+- "Allow once" → call find_and_replace again with approved: true
+- "Always allow" → call find_and_replace with approved: true AND always_allow: true (auto-approves all subsequent edits this session)
+- "Deny" → skip this edit
+
+Do NOT call find_and_replace with approved: true unless the user has explicitly approved.`,
         {
           search_text: z.string().describe('The exact text to find in the document'),
           replacement_text: z.string().describe('The text to replace it with'),
           replace_scope: z.enum(['first', 'all']).default('first').describe('"first" replaces only the first occurrence, "all" replaces every occurrence'),
           match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
+          approved: z.boolean().optional().describe('Set to true only after user has approved the edit'),
+          always_allow: z.boolean().optional().describe('Set to true when user chose "Always allow" — auto-approves all subsequent edits'),
         },
         async (args) => {
           try {
+            // If user chose "always allow", switch to auto-approve mode
+            if (args.always_allow) {
+              editApprovalMode = 'always';
+            }
+
+            // In "ask" mode: require approval before executing
+            if (editApprovalMode === 'ask' && !args.approved) {
+              return { content: [{ type: 'text' as const, text: JSON.stringify({
+                approval_required: true,
+                search_text: args.search_text,
+                replacement_text: args.replacement_text,
+                message: `Academia Coscientist wants to replace "${args.search_text.substring(0, 60)}${args.search_text.length > 60 ? '...' : ''}" with "${args.replacement_text.substring(0, 60)}${args.replacement_text.length > 60 ? '...' : ''}"`,
+              }) }] };
+            }
+
             const result = await findAndReplaceInWord(
               args.search_text,
               args.replacement_text,

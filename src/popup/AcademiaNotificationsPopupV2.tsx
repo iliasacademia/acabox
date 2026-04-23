@@ -40,7 +40,20 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // Cobuilding workspace state
   const [isInWorkspace, setIsInWorkspace] = useState(false);
   const [workspaceSessions, setWorkspaceSessions] = useState<Array<{ id: string; title: string; created_at: string }>>([]);
-  const [activeSession, setActiveSession] = useState<{ id: string; title: string } | null>(null);
+  const [activeSession, setActiveSessionRaw] = useState<{ id: string; title: string } | null>(() => {
+    try {
+      const saved = localStorage.getItem('overlay_active_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+  const setActiveSession = (session: { id: string; title: string } | null) => {
+    setActiveSessionRaw(session);
+    if (session) {
+      localStorage.setItem('overlay_active_session', JSON.stringify(session));
+    } else {
+      localStorage.removeItem('overlay_active_session');
+    }
+  };
 
   // Track previous height/width to avoid unnecessary resize calls
   const previousHeightRef = useRef<number>(0);
