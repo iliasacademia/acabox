@@ -19,6 +19,10 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [openaiKeyLoaded, setOpenaiKeyLoaded] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
 
+  // Accessibility permission for Word overlay
+  const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
+  const [requestingPermission, setRequestingPermission] = useState(false);
+
   const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
   const [isSwitching, setIsSwitching] = useState<string | null>(null);
 
@@ -39,6 +43,10 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
       setOpenaiKeyLoaded(true);
     });
     window.workspacesAPI.list().then(setAllWorkspaces);
+    // Check accessibility permission
+    window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
+      if (result) setAccessibilityGranted(result.hasPermission ?? false);
+    }).catch(() => setAccessibilityGranted(false));
   }, []);
 
   useEffect(() => {
@@ -104,6 +112,26 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
       setIsCreating(false);
     }
   };
+
+  const handleRequestPermission = async () => {
+    setRequestingPermission(true);
+    try {
+      const result: any = await window.electronAPI.invoke('request-accessibility-permission');
+      if (result) setAccessibilityGranted(result.hasPermission ?? false);
+    } catch { /* ignore */ }
+    setRequestingPermission(false);
+  };
+
+  // Re-check permission when window gains focus (user may have granted it in System Settings)
+  useEffect(() => {
+    const recheck = () => {
+      window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
+        if (result) setAccessibilityGranted(result.hasPermission ?? false);
+      }).catch(() => {});
+    };
+    window.addEventListener('focus', recheck);
+    return () => window.removeEventListener('focus', recheck);
+  }, []);
 
   return (
     <div className="wsSettings" onClick={onClose}>
@@ -236,6 +264,44 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
             >
               {showOpenaiKey ? 'Hide' : 'Show'}
             </button>
+          </div>
+        </div>
+
+        <div className="wsSettings__divider" />
+
+        {/* Accessibility Permission for Word Overlay */}
+        <div className="wsSettings__field">
+          <label className="wsSettings__label">Word Overlay</label>
+          <p className="wsSettings__hint">
+            Accessibility permission is required for the Word overlay to detect the active document and selected text.
+          </p>
+          <div className="wsSettings__dirRow">
+            <span style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 14,
+              color: accessibilityGranted === null ? '#888' : accessibilityGranted ? '#16a34a' : '#dc2626',
+            }}>
+              <span style={{ fontSize: 16 }}>
+                {accessibilityGranted === null ? '⏳' : accessibilityGranted ? '✓' : '✗'}
+              </span>
+              {accessibilityGranted === null
+                ? 'Checking...'
+                : accessibilityGranted
+                ? 'Accessibility permission granted'
+                : 'Accessibility permission not granted'}
+            </span>
+            {accessibilityGranted === false && (
+              <button
+                type="button"
+                className="gsStep__btn gsStep__btn--primary"
+                disabled={requestingPermission}
+                onClick={handleRequestPermission}
+              >
+                {requestingPermission ? 'Opening...' : 'Grant Permission'}
+              </button>
+            )}
           </div>
         </div>
 
