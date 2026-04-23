@@ -667,7 +667,7 @@ app.whenReady().then(() => {
                       if (!ctx) return userText;
                       let prefix = '';
                       if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
-                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document:\n"""\n${ctx.selectedText}\n"""\n`;
+                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the review-selected-text skill (NOT review-manuscript).\n"""\n${ctx.selectedText}\n"""\n`;
                       if (ctx.editMode === 'ask') {
                         prefix += `EDIT MODE: "Ask before edits" is ON. When calling find_and_replace, the tool will return approval_required. Present each proposed edit to the user and wait for their choice (Allow once / Always allow / Deny) before retrying with approved: true.\n`;
                       }
