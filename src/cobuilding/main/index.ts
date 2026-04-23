@@ -579,14 +579,14 @@ app.whenReady().then(() => {
             // Per-session pending context for messagePreprocessor injection.
             // Context is set before each sendMessage and consumed by the preprocessor,
             // so the DB stores only the user's raw text while Claude gets the context.
-            const pendingContext = new Map<string, { documentPath?: string; selectedText?: string }>();
+            const pendingContext = new Map<string, { documentPath?: string; selectedText?: string; editMode?: string }>();
 
             // POST /api/cobuilding/sessions/:sessionId/send — streams response via SSE
-            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string } }>(
+            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string; editMode?: string } }>(
               '/api/cobuilding/sessions/:sessionId/send',
               async (request, reply) => {
                 const { sessionId } = request.params;
-                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText } = request.body;
+                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText, editMode: ctxEditMode } = request.body;
                 if (!text || typeof text !== 'string') {
                   reply.code(400).send({ error: 'text is required' });
                   return;
@@ -604,8 +604,8 @@ app.whenReady().then(() => {
 
                 // Store context for the messagePreprocessor to pick up
                 // (adds document path and selection context for Claude without it appearing in the stored message)
-                if (ctxDocPath || ctxSelectedText) {
-                  pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
+                if (ctxDocPath || ctxSelectedText || ctxEditMode) {
+                  pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText, editMode: ctxEditMode });
                 }
 
                 // Hijack the response so Fastify doesn't try to send its own
@@ -656,7 +656,7 @@ app.whenReady().then(() => {
                     undefined,
                     undefined,
                     undefined,
-                    // messagePreprocessor: inject document/selection context for Claude
+                    // messagePreprocessor: inject document/selection/editMode context for Claude
                     // without storing it in the DB message
                     (userText: string) => {
                       const ctx = pendingContext.get(sessionId);
@@ -665,6 +665,9 @@ app.whenReady().then(() => {
                       let prefix = '';
                       if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
                       if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document:\n"""\n${ctx.selectedText}\n"""\n`;
+                      if (ctx.editMode === 'ask') {
+                        prefix += `EDIT MODE: "Ask before edits" is ON. Do NOT make any changes to the document yet. Instead, present your proposed edits clearly in the chat (show what you would change and why) and wait for the user to confirm before applying them with find_and_replace.\n`;
+                      }
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
                   );
