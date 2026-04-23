@@ -54,7 +54,19 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
+/** Check if we're in the desktop Electron renderer (has IPC) vs overlay webview (HTTP only) */
+const hasIPC = typeof (window as any).editStatesAPI !== 'undefined';
+
 async function applyEdit(toolCallId: string, proposal: EditProposal): Promise<{ success: boolean; error?: string; replacementsCount?: number }> {
+  if (hasIPC) {
+    return (window as any).editStatesAPI.applyEdit({
+      toolCallId,
+      search_text: proposal.search_text,
+      replacement_text: proposal.replacement_text,
+      replace_scope: proposal.replace_scope || 'first',
+      match_case: proposal.match_case ?? true,
+    });
+  }
   const { url } = getServerConfig();
   const res = await fetch(`${url}/api/cobuilding/apply-edit`, {
     method: 'POST',
@@ -71,6 +83,10 @@ async function applyEdit(toolCallId: string, proposal: EditProposal): Promise<{ 
 }
 
 async function setEditState(toolCallId: string, state: string): Promise<void> {
+  if (hasIPC) {
+    (window as any).editStatesAPI.setState(toolCallId, state);
+    return;
+  }
   const { url } = getServerConfig();
   fetch(`${url}/api/cobuilding/edit-state`, {
     method: 'POST',
@@ -80,6 +96,9 @@ async function setEditState(toolCallId: string, state: string): Promise<void> {
 }
 
 async function fetchEditStates(): Promise<Record<string, string>> {
+  if (hasIPC) {
+    return (window as any).editStatesAPI.getAll();
+  }
   const { url } = getServerConfig();
   try {
     const res = await fetch(`${url}/api/cobuilding/edit-states`, { headers: authHeaders() });

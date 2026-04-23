@@ -463,6 +463,16 @@ contextBridge.exposeInMainWorld('chatAPI', {
   },
 });
 
+// Edit state API — used by suggestion cards in the desktop app
+contextBridge.exposeInMainWorld('editStatesAPI', {
+  applyEdit: (params: { toolCallId: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean }) =>
+    ipcRenderer.invoke('edit-state:apply', params),
+  setState: (toolCallId: string, state: string) =>
+    ipcRenderer.invoke('edit-state:set', { toolCallId, state }),
+  getAll: () =>
+    ipcRenderer.invoke('edit-state:get-all'),
+});
+
 // All streaming Anthropic responses share a single IPC channel
 // ('anthropic:stream:event') and are demultiplexed by streamKey here rather
 // than using per-request dynamic channel names (e.g. 'chunk:req-123'). One

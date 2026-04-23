@@ -314,6 +314,9 @@ let activeWorkspace: Workspace | null = null;
 
 let cachedApiKey: string | null = null;
 
+// Shared edit state store — keyed by toolCallId, synced between overlay and desktop
+const editStates = new Map<string, string>();
+
 // Tracks IPC forwarding listeners per (threadId, webContentsId) to avoid duplicates.
 // Both chat:subscribe and chat:send use this to ensure exactly one forwarding listener
 // per session per renderer.
@@ -574,9 +577,6 @@ app.whenReady().then(() => {
                 reply.send({ messages: parsed });
               },
             );
-
-            // Shared edit state store — keyed by toolCallId
-            const editStates = new Map<string, string>();
 
             // POST /api/cobuilding/apply-edit — execute a user-approved edit
             fastify.post<{ Body: { toolCallId: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean } }>(
@@ -1572,6 +1572,33 @@ ipcMain.on('chat:stop', (event, threadId: string) => {
     session.destroy();
     unregisterSession(threadId);
   }
+});
+
+// =============================================================================
+// Edit state sync (desktop ↔ overlay)
+// =============================================================================
+
+ipcMain.handle('edit-state:apply', async (_event, { toolCallId, search_text, replacement_text, replace_scope, match_case }: any) => {
+  try {
+    const { findAndReplaceInWord } = await import('../../server/wordActions');
+    const result = await findAndReplaceInWord(
+      search_text, replacement_text,
+      replace_scope || 'first', match_case ?? true,
+    );
+    if (result.success) editStates.set(toolCallId, 'applied');
+    else editStates.set(toolCallId, 'error');
+    return result;
+  } catch (err) {
+    return { success: false, error: String(err) };
+  }
+});
+
+ipcMain.handle('edit-state:set', (_event, { toolCallId, state }: { toolCallId: string; state: string }) => {
+  editStates.set(toolCallId, state);
+});
+
+ipcMain.handle('edit-state:get-all', () => {
+  return Object.fromEntries(editStates);
 });
 
 // =============================================================================
