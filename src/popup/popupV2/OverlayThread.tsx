@@ -86,7 +86,7 @@ const ApprovalButtons: FC<{ children: React.ReactNode }> = ({ children }) => {
     })
     .join('');
 
-  const isApprovalPrompt = /choose.*allow once.*always allow.*deny/i.test(textContent);
+  const isApprovalPrompt = /allow once.*always allow.*deny/i.test(textContent);
 
   if (!isApprovalPrompt) {
     return <p>{children}</p>;
