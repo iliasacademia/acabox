@@ -213,20 +213,7 @@ export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedT
 
           <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
             <ThreadPrimitive.ScrollToBottom asChild>
-              <button
-                aria-label="Scroll to bottom"
-                style={{
-                  position: 'absolute', top: '-36px', zIndex: 10,
-                  alignSelf: 'center', borderRadius: '50%',
-                  width: '28px', height: '28px', padding: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: '#fff', border: '1px solid #e5e7eb',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
-                  cursor: 'pointer', color: '#6b7280',
-                }}
-              >
-                <ArrowDownIcon size={14} />
-              </button>
+              <OverlayScrollToBottom />
             </ThreadPrimitive.ScrollToBottom>
             <OverlayComposer />
           </ThreadPrimitive.ViewportFooter>
@@ -332,6 +319,48 @@ const OverlayUserMessage: FC = () => {
     </MessagePrimitive.Root>
   );
 };
+
+const OverlayScrollToBottom = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+  (props, ref) => (
+    <button
+      ref={ref}
+      {...props}
+      aria-label="Scroll to bottom"
+      style={{
+        position: 'absolute', top: '-36px', zIndex: 10,
+        alignSelf: 'center', borderRadius: '50%',
+        width: '28px', height: '28px', padding: 0,
+        display: props.disabled ? 'none' : 'flex',
+        alignItems: 'center', justifyContent: 'center',
+        background: '#fff', border: '1px solid #e5e7eb',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+        cursor: 'pointer', color: '#6b7280',
+      }}
+    >
+      <ArrowDownIcon size={14} />
+    </button>
+  ),
+);
+
+const OverlaySendButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
+  (props, ref) => (
+    <button
+      ref={ref}
+      {...props}
+      aria-label="Send message"
+      style={{
+        width: '28px', height: '28px', borderRadius: '50%',
+        background: props.disabled ? '#d1d5db' : '#141413',
+        border: 'none', cursor: props.disabled ? 'default' : 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: '#fff', padding: 0,
+        transition: 'background 0.15s',
+      }}
+    >
+      <ArrowUpIcon size={14} />
+    </button>
+  ),
+);
 
 const EditModeMenu: FC = () => {
   const { editMode, onEditModeChange } = useContext(PillsContext);
@@ -451,17 +480,7 @@ const OverlayComposer: FC = () => {
           <div className="composerActions">
             <AuiIf condition={(s: any) => !s.thread.isRunning}>
               <ComposerPrimitive.Send asChild>
-                <button
-                  aria-label="Send message"
-                  style={{
-                    width: '28px', height: '28px', borderRadius: '50%',
-                    background: '#141413', border: 'none', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#fff', padding: 0,
-                  }}
-                >
-                  <ArrowUpIcon size={14} />
-                </button>
+                <OverlaySendButton />
               </ComposerPrimitive.Send>
             </AuiIf>
             <AuiIf condition={(s: any) => s.thread.isRunning}>
