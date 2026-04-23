@@ -6,22 +6,10 @@ import {
   getWordSelection,
   saveWordDocument,
   openWordDocument,
-  findAndReplaceInWord,
   getTrackChangesStatus,
   setTrackChanges,
 } from '../../../server/wordActions';
 
-// Per-session edit approval state.
-// 'ask' = require approval per edit, 'always' = auto-approve all edits this session
-let editApprovalMode: 'ask' | 'always' = 'ask';
-
-export function setEditApprovalMode(mode: 'ask' | 'always') {
-  editApprovalMode = mode;
-}
-
-export function getEditApprovalMode() {
-  return editApprovalMode;
-}
 
 export function createMsWordMcpServer() {
   return createSdkMcpServer({
@@ -104,49 +92,26 @@ export function createMsWordMcpServer() {
 
       tool(
         'find_and_replace',
-        `Find text in the active Word document and replace it. When Track Changes is enabled, the edit appears as a tracked revision.
+        `Propose a text edit in the active Word document. The edit is NOT applied immediately — the user sees a suggestion card in the UI and approves or denies each edit. Only approved edits are applied as tracked revisions in Word.
 
-When the result contains "approval_required": true, the user must approve the edit before it's applied. Present the proposed change to the user and ask them to choose:
-- "Allow once" → call find_and_replace again with approved: true
-- "Always allow" → call find_and_replace with approved: true AND always_allow: true (auto-approves all subsequent edits this session)
-- "Deny" → skip this edit
-
-Do NOT call find_and_replace with approved: true unless the user has explicitly approved.`,
+Call this tool once per edit. Do NOT describe the edits in your text — the UI shows them automatically.`,
         {
           search_text: z.string().describe('The exact text to find in the document'),
           replacement_text: z.string().describe('The text to replace it with'),
           replace_scope: z.enum(['first', 'all']).default('first').describe('"first" replaces only the first occurrence, "all" replaces every occurrence'),
           match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
-          approved: z.boolean().optional().describe('Set to true only after user has approved the edit'),
-          always_allow: z.boolean().optional().describe('Set to true when user chose "Always allow" — auto-approves all subsequent edits'),
         },
         async (args) => {
-          try {
-            // If user chose "always allow", switch to auto-approve mode
-            if (args.always_allow) {
-              editApprovalMode = 'always';
-            }
-
-            // In "ask" mode: require approval before executing
-            if (editApprovalMode === 'ask' && !args.approved) {
-              return { content: [{ type: 'text' as const, text: JSON.stringify({
-                approval_required: true,
-                search_text: args.search_text,
-                replacement_text: args.replacement_text,
-                message: `Academia Coscientist wants to replace "${args.search_text.substring(0, 60)}${args.search_text.length > 60 ? '...' : ''}" with "${args.replacement_text.substring(0, 60)}${args.replacement_text.length > 60 ? '...' : ''}"`,
-              }) }] };
-            }
-
-            const result = await findAndReplaceInWord(
-              args.search_text,
-              args.replacement_text,
-              args.replace_scope,
-              args.match_case,
-            );
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
+          // Always return the proposal — never execute directly.
+          // The UI renders a suggestion card with approve/deny buttons.
+          // Approved edits are executed via the apply-edit endpoint.
+          return { content: [{ type: 'text' as const, text: JSON.stringify({
+            proposed: true,
+            search_text: args.search_text,
+            replacement_text: args.replacement_text,
+            replace_scope: args.replace_scope,
+            match_case: args.match_case,
+          }) }] };
         },
       ),
 

@@ -8,6 +8,7 @@ import React, {
 } from 'react';
 import { ChevronDownIcon, LoaderIcon } from 'lucide-react';
 import { useScrollLock } from '@assistant-ui/react';
+import { SuggestionGroupProvider, SuggestionBatchHeader } from './find-and-replace-suggestion';
 import {
   Collapsible,
   CollapsibleContent,
@@ -136,7 +137,12 @@ type ToolGroupComponent = FC<
 const ToolGroupImpl: FC<
   PropsWithChildren<{ startIndex: number; endIndex: number }>
 > = ({ children }) => {
-  return <>{children}</>;
+  return (
+    <SuggestionGroupProvider>
+      <SuggestionBatchHeader />
+      {children}
+    </SuggestionGroupProvider>
+  );
 };
 
 const ToolGroup = memo(ToolGroupImpl) as unknown as ToolGroupComponent;

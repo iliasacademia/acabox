@@ -3992,3 +3992,162 @@ body.cobuild-resizing webview {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* --- Suggestion Card (find_and_replace) --- */
+
+.suggestionBatchHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  margin: 4px 0;
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+
+.suggestionBatchCount {
+  font-size: 15px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.suggestionBatchActions {
+  display: flex;
+  gap: 8px;
+}
+
+.suggestionCard {
+  border-radius: 12px;
+  background: #fafaf8;
+  border-left: 4px solid #c9a227;
+  padding: 12px 16px;
+  margin: 6px 0;
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 14px;
+}
+
+.suggestionCard--running,
+.suggestionCard--pending {
+  border-left-color: #9ca3af;
+}
+
+.suggestionCard--applied {
+  border-left-color: #16a34a;
+}
+
+.suggestionCard--skipped {
+  border-left-color: #9ca3af;
+  opacity: 0.7;
+}
+
+.suggestionCard--error {
+  border-left-color: #dc2626;
+}
+
+.suggestionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.suggestionHeader svg {
+  flex-shrink: 0;
+}
+
+.suggestionCard--applied .suggestionHeader {
+  color: #16a34a;
+}
+
+.suggestionCard--error .suggestionHeader {
+  color: #dc2626;
+}
+
+.suggestionHeaderText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.suggestionSpinner {
+  animation: spin 1.5s linear infinite;
+}
+
+.suggestionTitle {
+  font-size: 13px;
+  color: #6b7280;
+  margin-bottom: 8px;
+  line-height: 1.4;
+}
+
+.suggestionDiff {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #374151;
+  margin: 8px 0;
+  word-break: break-word;
+}
+
+.suggestionDiffDel {
+  color: #991b1b;
+  text-decoration: line-through;
+  text-decoration-color: #991b1b;
+  background: rgba(153, 27, 27, 0.06);
+}
+
+.suggestionDiffIns {
+  color: #1e40af;
+  text-decoration: underline;
+  text-decoration-color: #1e40af;
+  background: rgba(30, 64, 175, 0.06);
+  text-underline-offset: 2px;
+}
+
+.suggestionActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.suggestionBtn {
+  padding: 5px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.suggestionBtn--allow,
+.suggestionBtn--approve {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #374151;
+}
+
+.suggestionBtn--allow:hover,
+.suggestionBtn--approve:hover {
+  background: #f5f5f3;
+}
+
+.suggestionBtn--always {
+  border: 1px solid #3b82f6;
+  background: #3b82f6;
+  color: #fff;
+}
+
+.suggestionBtn--always:hover {
+  background: #2563eb;
+}
+
+.suggestionBtn--deny {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #6b7280;
+}
+
+.suggestionBtn--deny:hover {
+  background: #f5f5f3;
+}

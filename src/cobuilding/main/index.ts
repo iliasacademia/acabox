@@ -575,6 +575,46 @@ app.whenReady().then(() => {
               },
             );
 
+            // Shared edit state store — keyed by toolCallId
+            const editStates = new Map<string, string>();
+
+            // POST /api/cobuilding/apply-edit — execute a user-approved edit
+            fastify.post<{ Body: { toolCallId: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean } }>(
+              '/api/cobuilding/apply-edit',
+              async (request, reply) => {
+                try {
+                  const { findAndReplaceInWord } = await import('../../server/wordActions');
+                  const { toolCallId, search_text, replacement_text, replace_scope, match_case } = request.body;
+                  const result = await findAndReplaceInWord(
+                    search_text,
+                    replacement_text,
+                    (replace_scope as 'first' | 'all') || 'first',
+                    match_case ?? true,
+                  );
+                  const state = result.success ? 'applied' : 'error';
+                  if (toolCallId) editStates.set(toolCallId, state);
+                  reply.send(result);
+                } catch (err) {
+                  reply.code(500).send({ success: false, error: String(err) });
+                }
+              },
+            );
+
+            // POST /api/cobuilding/edit-state — set edit state (for deny)
+            fastify.post<{ Body: { toolCallId: string; state: string } }>(
+              '/api/cobuilding/edit-state',
+              async (request, reply) => {
+                const { toolCallId, state } = request.body;
+                if (toolCallId && state) editStates.set(toolCallId, state);
+                reply.send({ ok: true });
+              },
+            );
+
+            // GET /api/cobuilding/edit-states — get all edit states
+            fastify.get('/api/cobuilding/edit-states', async (_request, reply) => {
+              reply.send(Object.fromEntries(editStates));
+            });
+
             // Per-session pending context for messagePreprocessor injection.
             // Context is set before each sendMessage and consumed by the preprocessor,
             // so the DB stores only the user's raw text while Claude gets the context.
@@ -712,6 +752,12 @@ app.whenReady().then(() => {
           log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
 
           if (baseUrl && authToken) {
+            // Share server URL and auth token with the renderer for direct API calls
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.executeJavaScript(
+                `window.__COBUILDING_SERVER_URL__ = ${JSON.stringify(baseUrl)}; window.__COBUILDING_AUTH_TOKEN__ = ${JSON.stringify(authToken)};`
+              );
+            }
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
               windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);

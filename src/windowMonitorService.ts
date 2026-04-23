@@ -900,6 +900,10 @@ export class WindowMonitorService {
     return this.selectedTextContentCache.get(windowId) ?? null;
   }
 
+  getLastSelectedText(): string | null {
+    return this.lastSelectedText;
+  }
+
   getDocumentTextForWindow(windowId: string): DocumentTextInfo | null {
     for (const app of this.state.apps) {
       for (const window of app.windows) {
