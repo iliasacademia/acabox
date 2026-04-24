@@ -27,7 +27,7 @@ const loggerPort = findAvailablePort(devServerPort + 1000);
 
 // Root native modules that need to be copied outside the asar archive.
 // Transitive runtime dependencies are resolved automatically.
-const nativeModuleRoots = ['canvas', 'better-sqlite3', '@anthropic-ai/claude-agent-sdk', 'onnxruntime-node'];
+const nativeModuleRoots = ['canvas', 'better-sqlite3', '@anthropic-ai/claude-agent-sdk', 'onnxruntime-node', 'googleapis', 'google-auth-library'];
 
 // Packages only needed at install/build time — never needed at runtime.
 const installTimeOnly = new Set([
