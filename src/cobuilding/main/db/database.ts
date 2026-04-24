@@ -70,6 +70,165 @@ const migrations = [
       DROP TABLE IF EXISTS writing_projects;
     `,
   },
+  {
+    version: 8,
+    sql: `
+      CREATE TABLE plans (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_plans_workspace ON plans(workspace_id);
+
+      CREATE TABLE calendar_events (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        plan_id TEXT REFERENCES plans(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        start_at TEXT NOT NULL,
+        end_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active'
+          CHECK (status IN ('active', 'inactive', 'inactive_hidden')),
+        color TEXT,
+        recurrence_rule TEXT,
+        recurrence_parent_id TEXT REFERENCES calendar_events(id) ON DELETE CASCADE,
+        recurrence_exception_date TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_calendar_events_workspace ON calendar_events(workspace_id);
+      CREATE INDEX idx_calendar_events_plan ON calendar_events(plan_id);
+      CREATE INDEX idx_calendar_events_time ON calendar_events(workspace_id, start_at, end_at);
+
+      CREATE TABLE event_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_event_files_event ON event_files(event_id);
+
+      CREATE TABLE plan_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_plan_files_plan ON plan_files(plan_id);
+    `,
+  },
+  {
+    version: 9,
+    sql: `
+      CREATE TABLE event_dependencies (
+        id              TEXT PRIMARY KEY,
+        predecessor_id  TEXT NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        successor_id    TEXT NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        lag_min_ms      INTEGER NOT NULL DEFAULT 0,
+        lag_max_ms      INTEGER,
+        lag_current_ms  INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        UNIQUE(predecessor_id, successor_id),
+        CHECK(lag_min_ms >= 0),
+        CHECK(lag_max_ms IS NULL OR lag_max_ms >= lag_min_ms),
+        CHECK(lag_current_ms >= lag_min_ms)
+      );
+      CREATE INDEX idx_event_deps_predecessor ON event_dependencies(predecessor_id);
+      CREATE INDEX idx_event_deps_successor   ON event_dependencies(successor_id);
+    `,
+  },
+  {
+    version: 10,
+    sql: `
+      CREATE TABLE calendar_resources (
+        id           TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        type         TEXT NOT NULL CHECK (type IN ('file', 'link', 'note')),
+        event_id     TEXT REFERENCES calendar_events(id) ON DELETE CASCADE,
+        plan_id      TEXT REFERENCES plans(id) ON DELETE CASCADE,
+        file_path    TEXT,
+        url          TEXT,
+        note_content TEXT,
+        title        TEXT NOT NULL DEFAULT '',
+        created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        CHECK (
+          (type = 'file' AND file_path IS NOT NULL AND url IS NULL          AND note_content IS NULL) OR
+          (type = 'link' AND url IS NOT NULL        AND file_path IS NULL   AND note_content IS NULL) OR
+          (type = 'note' AND note_content IS NOT NULL AND file_path IS NULL AND url IS NULL)
+        ),
+        CHECK (event_id IS NULL OR plan_id IS NULL)
+      );
+      CREATE INDEX idx_calendar_resources_workspace ON calendar_resources(workspace_id);
+      CREATE INDEX idx_calendar_resources_event     ON calendar_resources(event_id);
+      CREATE INDEX idx_calendar_resources_plan      ON calendar_resources(plan_id);
+    `,
+  },
+  {
+    version: 11,
+    sql: `
+      CREATE TABLE calendar_reactions (
+        id              TEXT PRIMARY KEY,
+        workspace_id    TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        event_id        TEXT REFERENCES calendar_events(id) ON DELETE SET NULL,
+        plan_id         TEXT REFERENCES plans(id) ON DELETE SET NULL,
+        title           TEXT NOT NULL DEFAULT '',
+        content         TEXT NOT NULL DEFAULT '',
+        status          TEXT NOT NULL DEFAULT 'unread'
+          CHECK (status IN ('unread', 'read', 'dismissed')),
+        trigger_context TEXT NOT NULL DEFAULT '{}',
+        created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_calendar_reactions_workspace ON calendar_reactions(workspace_id);
+      CREATE INDEX idx_calendar_reactions_event     ON calendar_reactions(event_id);
+      CREATE INDEX idx_calendar_reactions_status    ON calendar_reactions(workspace_id, status);
+
+      ALTER TABLE calendar_resources ADD COLUMN ai_generated INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
+  {
+    version: 12,
+    sql: `
+      CREATE TABLE calendar_resources_v12 (
+        id           TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        type         TEXT NOT NULL CHECK (type IN ('file', 'link', 'note', 'folder')),
+        event_id     TEXT REFERENCES calendar_events(id) ON DELETE CASCADE,
+        plan_id      TEXT REFERENCES plans(id) ON DELETE CASCADE,
+        parent_id    TEXT,
+        file_path    TEXT,
+        url          TEXT,
+        note_content TEXT,
+        title        TEXT NOT NULL DEFAULT '',
+        sort_order   INTEGER NOT NULL DEFAULT 0,
+        ai_generated INTEGER NOT NULL DEFAULT 0,
+        created_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at   TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        CHECK (
+          (type = 'file'   AND file_path IS NOT NULL AND url IS NULL          AND note_content IS NULL) OR
+          (type = 'link'   AND url IS NOT NULL        AND file_path IS NULL   AND note_content IS NULL) OR
+          (type = 'note'   AND note_content IS NOT NULL AND file_path IS NULL AND url IS NULL) OR
+          (type = 'folder' AND file_path IS NULL      AND url IS NULL         AND note_content IS NULL)
+        ),
+        CHECK (event_id IS NULL OR plan_id IS NULL)
+      );
+      INSERT INTO calendar_resources_v12
+        (id, workspace_id, type, event_id, plan_id, file_path, url, note_content, title, ai_generated, created_at, updated_at)
+        SELECT id, workspace_id, type, event_id, plan_id, file_path, url, note_content, title, ai_generated, created_at, updated_at
+        FROM calendar_resources;
+      DROP TABLE calendar_resources;
+      ALTER TABLE calendar_resources_v12 RENAME TO calendar_resources;
+      CREATE INDEX idx_calendar_resources_workspace ON calendar_resources(workspace_id);
+      CREATE INDEX idx_calendar_resources_event     ON calendar_resources(event_id);
+      CREATE INDEX idx_calendar_resources_plan      ON calendar_resources(plan_id);
+      CREATE INDEX idx_calendar_resources_parent    ON calendar_resources(parent_id);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

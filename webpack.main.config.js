@@ -21,6 +21,8 @@ module.exports = {
       '@anthropic-ai/claude-agent-sdk': 'commonjs2 @anthropic-ai/claude-agent-sdk',
       'pdf-parse': 'commonjs2 pdf-parse',
       'onnxruntime-node': 'commonjs2 onnxruntime-node',
+      'googleapis': 'commonjs2 googleapis',
+      'google-auth-library': 'commonjs2 google-auth-library',
     },
     // Mark all .node files as external (native modules)
     function ({ request }, callback) {

@@ -1,4 +1,4 @@
-import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData } from '../shared/types';
+import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarPlan, CalendarEvent, EventFile, PlanFile, CreatePlanData, UpdatePlanData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry, CalendarReaction } from '../shared/types';
 
 interface DirEntry {
   name: string;
@@ -485,8 +485,90 @@ declare global {
     listSupportingFiles(): Promise<WritingAgentSupportingFile[]>;
   }
 
+  type CalendarMutationEvent =
+    | { type: 'plan-created';       plan: CalendarPlan }
+    | { type: 'plan-updated';       plan: CalendarPlan }
+    | { type: 'plan-deleted';       planId: string }
+    | { type: 'event-created';      event: CalendarEvent }
+    | { type: 'event-updated';      event: CalendarEvent }
+    | { type: 'event-deleted';      eventId: string }
+    | { type: 'event-moved';        moved: CalendarEvent; cascaded: CascadeUpdate[] }
+    | { type: 'dependency-created'; dependency: EventDependency }
+    | { type: 'dependency-updated'; dependency: EventDependency }
+    | { type: 'dependency-deleted'; dependencyId: string };
+
+  interface CalendarAPI {
+    listPlans(): Promise<CalendarPlan[]>;
+    createPlan(data: CreatePlanData): Promise<CalendarPlan>;
+    updatePlan(id: string, data: UpdatePlanData): Promise<CalendarPlan | null>;
+    deletePlan(id: string): Promise<void>;
+    getPlanTimeRange(id: string): Promise<{ start_at: string; end_at: string } | null>;
+
+    listEvents(opts?: { from?: string; to?: string; planId?: string }): Promise<CalendarEvent[]>;
+    createEvent(data: CreateEventData): Promise<CalendarEvent>;
+    updateEvent(id: string, data: UpdateEventData): Promise<CalendarEvent | null>;
+    deleteEvent(id: string): Promise<void>;
+
+    addEventFile(eventId: string, filePath: string): Promise<EventFile>;
+    listEventFiles(eventId: string): Promise<EventFile[]>;
+    removeEventFile(id: number): Promise<void>;
+    addPlanFile(planId: string, filePath: string): Promise<PlanFile>;
+    listPlanFiles(planId: string, includeFromEvents?: boolean): Promise<PlanFile[]>;
+    removePlanFile(id: number): Promise<void>;
+
+    listResources(opts?: ListResourcesOptions): Promise<CalendarResource[]>;
+    createResource(data: CreateResourceData): Promise<CalendarResource>;
+    updateResource(id: string, data: UpdateResourceData): Promise<CalendarResource | null>;
+    deleteResource(id: string): Promise<void>;
+    openResourceFile(filePath: string): Promise<string>;
+    openResourceUrl(url: string): Promise<void>;
+    revealResourceFile(filePath: string): Promise<void>;
+    pickResourceFile(): Promise<string[] | null>;
+    moveResource(id: string, data: MoveResourceData): Promise<CalendarResource | null>;
+    listWorkspaceFiles(): Promise<WorkspaceFileEntry[]>;
+
+    listDependencies(): Promise<EventDependency[]>;
+    createDependency(data: CreateDependencyData): Promise<EventDependency | { error: 'cycle' }>;
+    updateDependency(id: string, data: UpdateDependencyData): Promise<EventDependency | null>;
+    deleteDependency(id: string): Promise<void>;
+    moveEventWithCascade(id: string, newStartAt: string, newEndAt: string): Promise<{ moved: CalendarEvent; cascaded: CascadeUpdate[] } | null>;
+    adjustBuffer(depId: string, newLagCurrentMs: number): Promise<{ dependency: EventDependency; cascaded: CascadeUpdate[] }>;
+    onCalendarMutation(callback: (mutation: CalendarMutationEvent) => void): () => void;
+
+    listReactions(opts?: { includeRead?: boolean; includeDismissed?: boolean }): Promise<CalendarReaction[]>;
+    getReactionCount(): Promise<{ unread: number }>;
+    updateReactionStatus(id: string, status: 'read' | 'dismissed'): Promise<CalendarReaction | null>;
+    deleteReaction(id: string): Promise<void>;
+    onReactionsUpdated(callback: () => void): () => void;
+  }
+
+  interface GoogleCalendarEvent {
+    id: string;
+    summary: string | null;
+    description: string | null;
+    location: string | null;
+    start: { dateTime?: string; date?: string; timeZone?: string };
+    end: { dateTime?: string; date?: string; timeZone?: string };
+    status: string;
+    colorId?: string;
+    htmlLink?: string;
+    recurrence?: string[];
+    recurringEventId?: string;
+    organizer?: { email: string; displayName?: string };
+  }
+
+  interface GoogleCalendarAPI {
+    status(): Promise<{ connected: boolean; hasCredentials: boolean }>;
+    connect(): Promise<void>;
+    disconnect(): Promise<void>;
+    fetchEvents(from: string, to: string): Promise<GoogleCalendarEvent[]>;
+    setCredentials(clientId: string, clientSecret: string): Promise<void>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
+    calendarAPI: CalendarAPI;
+    googleCalendarAPI: GoogleCalendarAPI;
     filesAPI: FilesAPI;
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;

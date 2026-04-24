@@ -1,0 +1,411 @@
+.resPanel {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+/* Header */
+.resHeader {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 10px 6px 12px;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.resHeaderTitle {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9B9B96;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  flex: 1;
+}
+
+.resHeaderAddBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #9B9B96;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.resHeaderAddBtn:hover {
+  background-color: #EEECE7;
+  color: #555;
+}
+
+/* Scrollable list */
+.resList {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 6px 8px;
+}
+
+/* Section headers (plan / floating) */
+.resSectionHeader {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 4px 6px 2px 6px;
+  gap: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.resSectionHeader:hover {
+  background-color: #EEECE7;
+}
+
+.resSectionChevron {
+  font-size: 9px;
+  color: #9B9B96;
+  width: 10px;
+  flex-shrink: 0;
+}
+
+.resSectionDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.resSectionName {
+  font-size: 11px;
+  font-weight: 500;
+  color: #555;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resSectionAddBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #9B9B96;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.resSectionHeader:hover .resSectionAddBtn {
+  opacity: 1;
+}
+
+.resSectionAddBtn:hover {
+  background-color: #E2DFD8;
+  color: #555;
+}
+
+/* Event sub-section */
+.resEventHeader {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 2px 6px 2px 16px;
+  gap: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  user-select: none;
+}
+
+.resEventHeader:hover {
+  background-color: #EEECE7;
+}
+
+.resEventName {
+  font-size: 10.5px;
+  color: #777;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resEventAddBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #9B9B96;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.resEventHeader:hover .resEventAddBtn {
+  opacity: 1;
+}
+
+/* Resource rows */
+.resRowContainer {
+  position: relative;
+}
+
+.resRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 3px 8px 3px 12px;
+  gap: 6px;
+  border-radius: 5px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  text-align: left;
+  width: 100%;
+}
+
+.resRow:hover {
+  background-color: #EEECE7;
+}
+
+.resRowIndented {
+  padding-left: 20px;
+}
+
+.resRowDeepIndented {
+  padding-left: 28px;
+}
+
+.resTypeIcon {
+  font-size: 11px;
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
+  color: #9B9B96;
+}
+
+.resRowTitle {
+  font-size: 11.5px;
+  color: #333;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.resRowTitleInput {
+  font-size: 11.5px;
+  color: #333;
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  padding: 0;
+  font-family: inherit;
+  min-width: 0;
+}
+
+.resDeleteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #9B9B96;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.resRowContainer:hover .resDeleteBtn {
+  opacity: 1;
+}
+
+.resDeleteBtn:hover {
+  background-color: #E2DFD8;
+  color: #d44;
+}
+
+/* Note editor */
+.resNoteEditor {
+  margin: 2px 8px 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.resNoteEditorIndented {
+  margin-left: 20px;
+}
+
+.resNoteEditorDeepIndented {
+  margin-left: 28px;
+}
+
+.resNoteTextarea {
+  width: 100%;
+  min-height: 80px;
+  max-height: 200px;
+  resize: vertical;
+  font-family: "DM Mono", "Menlo", monospace;
+  font-size: 11px;
+  color: #333;
+  background: #f9f8f6;
+  border: 1px solid #E2DFD8;
+  border-radius: 5px;
+  padding: 6px 8px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.resNoteTextarea:focus {
+  border-color: #C8C5BE;
+}
+
+/* Add affordance row */
+.resAddAffordance {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 12px;
+}
+
+.resAddAffordanceIndented {
+  padding-left: 20px;
+}
+
+.resAddAffordanceDeepIndented {
+  padding-left: 28px;
+}
+
+.resAddTypeBtn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: #EEECE7;
+  border: none;
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: #666;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.resAddTypeBtn:hover {
+  background-color: #E2DFD8;
+  color: #333;
+}
+
+/* Link input */
+.resLinkForm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 8px 4px 12px;
+}
+
+.resLinkFormIndented {
+  padding-left: 20px;
+}
+
+.resLinkFormDeepIndented {
+  padding-left: 28px;
+}
+
+.resLinkInput {
+  font-size: 11px;
+  color: #333;
+  background: #f9f8f6;
+  border: 1px solid #E2DFD8;
+  border-radius: 4px;
+  padding: 4px 7px;
+  outline: none;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.resLinkInput:focus {
+  border-color: #C8C5BE;
+}
+
+.resLinkFormActions {
+  display: flex;
+  gap: 4px;
+}
+
+.resLinkSaveBtn {
+  padding: 2px 8px;
+  background: #333;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 10.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.resLinkSaveBtn:hover {
+  background: #555;
+}
+
+.resLinkCancelBtn {
+  padding: 2px 8px;
+  background: #EEECE7;
+  color: #666;
+  border: none;
+  border-radius: 4px;
+  font-size: 10.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.resLinkCancelBtn:hover {
+  background: #E2DFD8;
+}
+
+/* Empty state */
+.resEmptyState {
+  padding: 12px 12px;
+  font-size: 11px;
+  color: #B0AEA9;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* AI sparkle indicator */
+.resAiSparkle {
+  font-size: 9px;
+  color: #7C6EFF;
+  flex-shrink: 0;
+  margin-right: 1px;
+}

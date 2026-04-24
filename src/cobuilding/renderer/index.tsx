@@ -9,7 +9,7 @@ import {
   useAssistantRuntime,
   useComposerRuntime,
 } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon, MicIcon } from 'lucide-react';
+import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon, MicIcon, CalendarIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
@@ -25,6 +25,7 @@ import { FocusEditor } from './components/FocusEditor';
 import { NotesSidebar } from './components/NotesSidebar';
 import { NotesPanel } from './components/NotesPanel';
 import { NotesChat } from './components/NotesChat';
+import { CalendarPage } from './components/CalendarPage';
 
 import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -92,7 +93,7 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
 }
 
 /** Listens for notification:navigate IPC and navigates to the specified target. */
-type SidebarTab = 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'writing' | 'notes' | 'debug';
+type SidebarTab = 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'writing' | 'notes' | 'calendar' | 'debug';
 
 function NotificationNavigator({
   setSidebarTab,
@@ -548,6 +549,13 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               <span className="activityBarBtnLabel">Notes</span>
             </button>
             <button
+              className={`activityBarBtn ${sidebarTab === 'calendar' ? 'activityBarBtn--active' : ''}`}
+              onClick={() => setSidebarTab('calendar')}
+            >
+              <CalendarIcon style={{ width: 20, height: 20 }} />
+              <span className="activityBarBtnLabel">Calendar</span>
+            </button>
+            <button
               className={`activityBarBtn activityBarBtn--bottom ${sidebarTab === 'debug' ? 'activityBarBtn--active' : ''}`}
               onClick={() => { setSidebarTab('debug'); handleOpenDebug(); }}
             >
@@ -563,50 +571,56 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
             </button>
           </div>
           <PanelGroup direction="horizontal" autoSaveId="cobuild.layout" className="appPanelGroup">
-            <Panel id="sidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
-              <div className="sidebarPanel">
-                <div className="sidebarContent">
-                  {sidebarTab === 'chats' ? (
-                    <ThreadList />
-                  ) : sidebarTab === 'files' ? (
-                    <FilesTab
-                      workspacePath={workspace.directory_path}
-                      onSelectFile={handleSelectFile}
-                    />
-                  ) : sidebarTab === 'apps' ? (
-                    <MiniAppsTab
-                      workspacePath={workspace.directory_path}
-                      onSelectApp={handleSelectApp}
-                      onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
-                      onNewApplication={() => { setSidebarTab('chats'); }}
-                      activeAppDirName={activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : undefined}
-                      autoSelectFirst={autoSelectFirstApp}
-                      onAutoSelectDone={() => setAutoSelectFirstApp(false)}
-                    />
-                  ) : sidebarTab === 'reactions' ? (
-                    <ReactionsSidebar onOpenFocus={handleOpenFocus} />
-                  ) : sidebarTab === 'scheduled' ? (
-                    <ScheduledTasksSidebar
-                      selectedTaskId={selectedTaskId}
-                      onSelectTask={(id) => { setSelectedTaskId(id); setIsNewTask(false); }}
-                      onNewTask={() => { setSelectedTaskId(null); setIsNewTask(true); }}
-                      refreshKey={taskRefreshKey}
-                    />
-                  ) : sidebarTab === 'notes' ? (
-                    <NotesSidebar
-                      selectedDay={selectedNoteDay}
-                      onSelectDay={setSelectedNoteDay}
-                    />
-                  ) : sidebarTab === 'debug' ? (
-                    <DebugSidebar activeSection={debugSection} onSelect={(s) => { setDebugSection(s); localStorage.setItem('debug-section', s); }} />
-                  ) : null}
-                </div>
-              </div>
-            </Panel>
-            <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+            {sidebarTab !== 'calendar' && (
+              <>
+                <Panel id="sidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
+                  <div className="sidebarPanel">
+                    <div className="sidebarContent">
+                      {sidebarTab === 'chats' ? (
+                        <ThreadList />
+                      ) : sidebarTab === 'files' ? (
+                        <FilesTab
+                          workspacePath={workspace.directory_path}
+                          onSelectFile={handleSelectFile}
+                        />
+                      ) : sidebarTab === 'apps' ? (
+                        <MiniAppsTab
+                          workspacePath={workspace.directory_path}
+                          onSelectApp={handleSelectApp}
+                          onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
+                          onNewApplication={() => { setSidebarTab('chats'); }}
+                          activeAppDirName={activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : undefined}
+                          autoSelectFirst={autoSelectFirstApp}
+                          onAutoSelectDone={() => setAutoSelectFirstApp(false)}
+                        />
+                      ) : sidebarTab === 'reactions' ? (
+                        <ReactionsSidebar onOpenFocus={handleOpenFocus} />
+                      ) : sidebarTab === 'scheduled' ? (
+                        <ScheduledTasksSidebar
+                          selectedTaskId={selectedTaskId}
+                          onSelectTask={(id) => { setSelectedTaskId(id); setIsNewTask(false); }}
+                          onNewTask={() => { setSelectedTaskId(null); setIsNewTask(true); }}
+                          refreshKey={taskRefreshKey}
+                        />
+                      ) : sidebarTab === 'notes' ? (
+                        <NotesSidebar
+                          selectedDay={selectedNoteDay}
+                          onSelectDay={setSelectedNoteDay}
+                        />
+                      ) : sidebarTab === 'debug' ? (
+                        <DebugSidebar activeSection={debugSection} onSelect={(s) => { setDebugSection(s); localStorage.setItem('debug-section', s); }} />
+                      ) : null}
+                    </div>
+                  </div>
+                </Panel>
+                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+              </>
+            )}
             <Panel id="main" order={2} defaultSize={54} minSize={30}>
               <div className="mainPanel">
-                {sidebarTab === 'notes' ? (
+                {sidebarTab === 'calendar' ? (
+                  <CalendarPage />
+                ) : sidebarTab === 'notes' ? (
                   <PanelGroup direction="horizontal" autoSaveId="cobuild.notesLayout" className="appPanelGroup">
                     <Panel id="notesMain" order={1} defaultSize={65} minSize={40}>
                       <NotesPanel selectedDay={selectedNoteDay} />
