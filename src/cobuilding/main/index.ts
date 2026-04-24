@@ -67,6 +67,31 @@ import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { registerNotesHandlers } from './notesHandlers';
 import { AcademiaHttpServer } from '../../server/httpServer';
+import {
+  isConnected as isGoogleCalendarConnected,
+  disconnect as disconnectGoogleCalendar,
+  startOAuthFlow as startGoogleCalendarOAuth,
+  fetchEvents as fetchGoogleCalendarEvents,
+  hasCredentials as googleCalendarHasCredentials,
+  setStoredCredentials as setGoogleCalendarCredentials,
+} from './googleCalendarService';
+import {
+  listPlans,
+  createPlan,
+  updatePlan,
+  deletePlan,
+  getPlanTimeRange,
+  listEvents,
+  createEvent,
+  updateEvent,
+  deleteEvent,
+  addEventFile,
+  listEventFiles,
+  removeEventFile,
+  addPlanFile,
+  listPlanFiles,
+  removePlanFile,
+} from './db/calendarRepository';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
@@ -2183,6 +2208,98 @@ ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
   } catch (error: any) {
     return { success: false, resetSuccess: false, error: error.message };
   }
+});
+
+// ---- Calendar IPC handlers ----
+
+ipcMain.handle('calendar:listPlans', async () => {
+  const ws = getActiveWorkspace();
+  if (!ws) return [];
+  return listPlans(ws.id);
+});
+
+ipcMain.handle('calendar:createPlan', async (_event, data) => {
+  const ws = getActiveWorkspace();
+  if (!ws) throw new Error('No active workspace');
+  return createPlan(ws.id, data);
+});
+
+ipcMain.handle('calendar:updatePlan', async (_event, id: string, data) => {
+  return updatePlan(id, data) ?? null;
+});
+
+ipcMain.handle('calendar:deletePlan', async (_event, id: string) => {
+  deletePlan(id);
+});
+
+ipcMain.handle('calendar:getPlanTimeRange', async (_event, id: string) => {
+  return getPlanTimeRange(id);
+});
+
+ipcMain.handle('calendar:listEvents', async (_event, opts) => {
+  const ws = getActiveWorkspace();
+  if (!ws) return [];
+  return listEvents(ws.id, opts ?? {});
+});
+
+ipcMain.handle('calendar:createEvent', async (_event, data) => {
+  const ws = getActiveWorkspace();
+  if (!ws) throw new Error('No active workspace');
+  return createEvent(ws.id, data);
+});
+
+ipcMain.handle('calendar:updateEvent', async (_event, id: string, data) => {
+  return updateEvent(id, data) ?? null;
+});
+
+ipcMain.handle('calendar:deleteEvent', async (_event, id: string) => {
+  deleteEvent(id);
+});
+
+ipcMain.handle('calendar:addEventFile', async (_event, eventId: string, filePath: string) => {
+  return addEventFile(eventId, filePath);
+});
+
+ipcMain.handle('calendar:listEventFiles', async (_event, eventId: string) => {
+  return listEventFiles(eventId);
+});
+
+ipcMain.handle('calendar:removeEventFile', async (_event, id: number) => {
+  removeEventFile(id);
+});
+
+ipcMain.handle('calendar:addPlanFile', async (_event, planId: string, filePath: string) => {
+  return addPlanFile(planId, filePath);
+});
+
+ipcMain.handle('calendar:listPlanFiles', async (_event, planId: string, includeFromEvents?: boolean) => {
+  return listPlanFiles(planId, includeFromEvents);
+});
+
+ipcMain.handle('calendar:removePlanFile', async (_event, id: number) => {
+  removePlanFile(id);
+});
+
+// ---- Google Calendar IPC handlers ----
+
+ipcMain.handle('googleCalendar:status', () => {
+  return { connected: isGoogleCalendarConnected(), hasCredentials: googleCalendarHasCredentials() };
+});
+
+ipcMain.handle('googleCalendar:setCredentials', (_event, clientId: string, clientSecret: string) => {
+  setGoogleCalendarCredentials(clientId, clientSecret);
+});
+
+ipcMain.handle('googleCalendar:connect', async () => {
+  await startGoogleCalendarOAuth();
+});
+
+ipcMain.handle('googleCalendar:disconnect', () => {
+  disconnectGoogleCalendar();
+});
+
+ipcMain.handle('googleCalendar:fetchEvents', async (_event, from: string, to: string) => {
+  return fetchGoogleCalendarEvents({ from, to });
 });
 
 app.on('window-all-closed', () => {

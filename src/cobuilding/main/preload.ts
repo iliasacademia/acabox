@@ -188,6 +188,34 @@ contextBridge.exposeInMainWorld('debugAPI', {
   clearSelected: (ids: string[]) => ipcRenderer.invoke('debug:clearSelected', ids),
 });
 
+contextBridge.exposeInMainWorld('calendarAPI', {
+  listPlans: () => ipcRenderer.invoke('calendar:listPlans'),
+  createPlan: (data: unknown) => ipcRenderer.invoke('calendar:createPlan', data),
+  updatePlan: (id: string, data: unknown) => ipcRenderer.invoke('calendar:updatePlan', id, data),
+  deletePlan: (id: string) => ipcRenderer.invoke('calendar:deletePlan', id),
+  getPlanTimeRange: (id: string) => ipcRenderer.invoke('calendar:getPlanTimeRange', id),
+
+  listEvents: (opts?: unknown) => ipcRenderer.invoke('calendar:listEvents', opts),
+  createEvent: (data: unknown) => ipcRenderer.invoke('calendar:createEvent', data),
+  updateEvent: (id: string, data: unknown) => ipcRenderer.invoke('calendar:updateEvent', id, data),
+  deleteEvent: (id: string) => ipcRenderer.invoke('calendar:deleteEvent', id),
+
+  addEventFile: (eventId: string, filePath: string) => ipcRenderer.invoke('calendar:addEventFile', eventId, filePath),
+  listEventFiles: (eventId: string) => ipcRenderer.invoke('calendar:listEventFiles', eventId),
+  removeEventFile: (id: number) => ipcRenderer.invoke('calendar:removeEventFile', id),
+  addPlanFile: (planId: string, filePath: string) => ipcRenderer.invoke('calendar:addPlanFile', planId, filePath),
+  listPlanFiles: (planId: string, includeFromEvents?: boolean) => ipcRenderer.invoke('calendar:listPlanFiles', planId, includeFromEvents),
+  removePlanFile: (id: number) => ipcRenderer.invoke('calendar:removePlanFile', id),
+});
+
+contextBridge.exposeInMainWorld('googleCalendarAPI', {
+  status: () => ipcRenderer.invoke('googleCalendar:status'),
+  connect: () => ipcRenderer.invoke('googleCalendar:connect'),
+  disconnect: () => ipcRenderer.invoke('googleCalendar:disconnect'),
+  fetchEvents: (from: string, to: string) => ipcRenderer.invoke('googleCalendar:fetchEvents', from, to),
+  setCredentials: (clientId: string, clientSecret: string) => ipcRenderer.invoke('googleCalendar:setCredentials', clientId, clientSecret),
+});
+
 contextBridge.exposeInMainWorld('scheduledTasksAPI', {
   list: () => ipcRenderer.invoke('scheduledTasks:list'),
   get: (id: string) => ipcRenderer.invoke('scheduledTasks:get', id),

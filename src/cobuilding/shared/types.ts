@@ -110,3 +110,76 @@ export interface UpdateTaskData {
 export type NotificationNavigationAction =
   | { type: 'thread'; threadId: string; sidebarTab?: 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'notes' | 'debug' }
   | { type: 'sidebar'; tab: 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'notes' | 'debug' };
+
+// ---- Calendar ----
+
+export interface CalendarPlan {
+  id: string;
+  workspace_id: string;
+  name: string;
+  color: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CalendarEvent {
+  id: string;
+  workspace_id: string;
+  plan_id: string | null;
+  name: string;
+  start_at: string;
+  end_at: string;
+  status: 'active' | 'inactive' | 'inactive_hidden';
+  color: string | null;
+  recurrence_rule: string | null;
+  recurrence_parent_id: string | null;
+  recurrence_exception_date: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface EventFile {
+  id: number;
+  event_id: string;
+  file_path: string;
+  created_at: string;
+}
+
+export interface PlanFile {
+  id: number;
+  plan_id: string;
+  file_path: string;
+  created_at: string;
+}
+
+export interface CreatePlanData {
+  name: string;
+  color: string;
+}
+
+export interface UpdatePlanData {
+  name?: string;
+  color?: string;
+}
+
+export interface CreateEventData {
+  plan_id?: string | null;
+  name: string;
+  start_at: string;
+  end_at: string;
+  status?: 'active' | 'inactive' | 'inactive_hidden';
+  color?: string | null;
+  recurrence_rule?: string | null;
+  recurrence_parent_id?: string | null;
+  recurrence_exception_date?: string | null;
+}
+
+export interface UpdateEventData {
+  plan_id?: string | null;
+  name?: string;
+  start_at?: string;
+  end_at?: string;
+  status?: 'active' | 'inactive' | 'inactive_hidden';
+  color?: string | null;
+  recurrence_rule?: string | null;
+}

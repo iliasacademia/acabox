@@ -1,4 +1,4 @@
-import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData } from '../shared/types';
+import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarPlan, CalendarEvent, EventFile, PlanFile, CreatePlanData, UpdatePlanData, CreateEventData, UpdateEventData } from '../shared/types';
 
 interface DirEntry {
   name: string;
@@ -485,8 +485,53 @@ declare global {
     listSupportingFiles(): Promise<WritingAgentSupportingFile[]>;
   }
 
+  interface CalendarAPI {
+    listPlans(): Promise<CalendarPlan[]>;
+    createPlan(data: CreatePlanData): Promise<CalendarPlan>;
+    updatePlan(id: string, data: UpdatePlanData): Promise<CalendarPlan | null>;
+    deletePlan(id: string): Promise<void>;
+    getPlanTimeRange(id: string): Promise<{ start_at: string; end_at: string } | null>;
+
+    listEvents(opts?: { from?: string; to?: string; planId?: string }): Promise<CalendarEvent[]>;
+    createEvent(data: CreateEventData): Promise<CalendarEvent>;
+    updateEvent(id: string, data: UpdateEventData): Promise<CalendarEvent | null>;
+    deleteEvent(id: string): Promise<void>;
+
+    addEventFile(eventId: string, filePath: string): Promise<EventFile>;
+    listEventFiles(eventId: string): Promise<EventFile[]>;
+    removeEventFile(id: number): Promise<void>;
+    addPlanFile(planId: string, filePath: string): Promise<PlanFile>;
+    listPlanFiles(planId: string, includeFromEvents?: boolean): Promise<PlanFile[]>;
+    removePlanFile(id: number): Promise<void>;
+  }
+
+  interface GoogleCalendarEvent {
+    id: string;
+    summary: string | null;
+    description: string | null;
+    location: string | null;
+    start: { dateTime?: string; date?: string; timeZone?: string };
+    end: { dateTime?: string; date?: string; timeZone?: string };
+    status: string;
+    colorId?: string;
+    htmlLink?: string;
+    recurrence?: string[];
+    recurringEventId?: string;
+    organizer?: { email: string; displayName?: string };
+  }
+
+  interface GoogleCalendarAPI {
+    status(): Promise<{ connected: boolean; hasCredentials: boolean }>;
+    connect(): Promise<void>;
+    disconnect(): Promise<void>;
+    fetchEvents(from: string, to: string): Promise<GoogleCalendarEvent[]>;
+    setCredentials(clientId: string, clientSecret: string): Promise<void>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
+    calendarAPI: CalendarAPI;
+    googleCalendarAPI: GoogleCalendarAPI;
     filesAPI: FilesAPI;
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;

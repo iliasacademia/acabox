@@ -70,6 +70,56 @@ const migrations = [
       DROP TABLE IF EXISTS writing_projects;
     `,
   },
+  {
+    version: 8,
+    sql: `
+      CREATE TABLE plans (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        name TEXT NOT NULL,
+        color TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_plans_workspace ON plans(workspace_id);
+
+      CREATE TABLE calendar_events (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        plan_id TEXT REFERENCES plans(id) ON DELETE SET NULL,
+        name TEXT NOT NULL,
+        start_at TEXT NOT NULL,
+        end_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'active'
+          CHECK (status IN ('active', 'inactive', 'inactive_hidden')),
+        color TEXT,
+        recurrence_rule TEXT,
+        recurrence_parent_id TEXT REFERENCES calendar_events(id) ON DELETE CASCADE,
+        recurrence_exception_date TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_calendar_events_workspace ON calendar_events(workspace_id);
+      CREATE INDEX idx_calendar_events_plan ON calendar_events(plan_id);
+      CREATE INDEX idx_calendar_events_time ON calendar_events(workspace_id, start_at, end_at);
+
+      CREATE TABLE event_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        event_id TEXT NOT NULL REFERENCES calendar_events(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_event_files_event ON event_files(event_id);
+
+      CREATE TABLE plan_files (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        plan_id TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_plan_files_plan ON plan_files(plan_id);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {
