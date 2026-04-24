@@ -26,6 +26,26 @@
   overflow: hidden;
 }
 
+.calendarPanelSectionTop {
+  flex: 1;
+  min-height: 0;
+  border-radius: 8px;
+  border: 1px solid #E2DFD8;
+  background-color: #f9f8f6;
+  overflow: hidden;
+}
+
+.calendarPanelSectionBottom {
+  flex: 1;
+  min-height: 0;
+  border-radius: 8px;
+  border: 1px solid #E2DFD8;
+  background-color: #f9f8f6;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
 /* Overview sidebar */
 .overviewPanel {
   width: 100%;
@@ -34,21 +54,13 @@
   flex-direction: column;
   overflow: hidden;
   font-family: inherit;
+  position: relative;
 }
 
 .overviewPanel button {
   font-family: inherit;
 }
 
-.overviewHeader {
-  padding: 10px 12px 8px;
-  flex-shrink: 0;
-  border-bottom: 1px solid #E2DFD8;
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-}
 
 .overviewTitle {
   font-size: 10px;
@@ -132,6 +144,20 @@
   color: #9B9B96;
 }
 
+.overviewGroupRenameInput {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  color: #2C2C28;
+  background: #EDE9E3;
+  border: 1px solid #C5C1BA;
+  border-radius: 4px;
+  padding: 1px 5px;
+  margin: 0;
+  width: 100%;
+  outline: none;
+}
+
 .overviewChevron {
   flex-shrink: 0;
   opacity: 0.5;
@@ -148,11 +174,90 @@
   padding: 1px 0 4px 0;
 }
 
+.overviewGroupEvents .overviewEventRowWrap {
+  margin-left: 14px;
+  width: calc(100% - 14px);
+}
+
+.overviewGroupEvents .overviewEventRow {
+  width: auto;
+}
+
+/* dot center = 14px margin + 16px padding-left + 4px (half of 8px dot) = 34px */
+.overviewDepConnector {
+  width: 0;
+  height: 8px;
+  margin-left: 34px;
+  margin-top: -4px;
+  margin-bottom: -4px;
+  border-left: 1.5px solid;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+.overviewEventRowWrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.overviewEventRowWrap .overviewEventRow {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.overviewEventExpandBtn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
+  height: 20px;
+  padding: 0 5px 0 4px;
+  margin-right: 4px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #C0BCB5;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.overviewEventRowWrap:hover .overviewEventExpandBtn {
+  opacity: 1;
+}
+
+.overviewEventExpandBtn.overviewEventExpandBtnHasFiles {
+  opacity: 1;
+  color: #8A8882;
+}
+
+.overviewEventExpandBtn:hover {
+  background: #EEECE7;
+  color: #5A5A55;
+}
+
+.overviewEventExpandChevron {
+  flex-shrink: 0;
+  transition: transform 0.14s;
+}
+
+.overviewEventExpandBtn.overviewEventExpandBtnOpen .overviewEventExpandChevron {
+  transform: rotate(90deg);
+}
+
+.overviewEventFilesCount {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+}
+
 .overviewEventRow {
   display: flex;
   flex-direction: row;
   align-items: center;
-  padding: 4px 10px 4px 26px;
+  padding: 6px 8px 6px 16px;
   background: none;
   border: none;
   cursor: pointer;
@@ -163,7 +268,7 @@
 }
 
 .overviewEventRowIndented {
-  padding-left: 28px;
+  padding-left: 16px;
 }
 
 .overviewEventRow:hover {
@@ -189,7 +294,7 @@
 }
 
 .overviewEventName {
-  font-size: 12.5px;
+  font-size: 13px;
   color: #3C3C38;
   white-space: nowrap;
   overflow: hidden;
@@ -336,19 +441,23 @@
   color: #6B6B66;
 }
 
-/* Add group button in header */
+/* Add group button — fixed to bottom-right of panel */
 .overviewAddGroupBtn {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  background: none;
-  border: none;
-  border-radius: 4px;
-  color: #9B9B96;
+  width: 24px;
+  height: 24px;
+  background: #F4F2ED;
+  border: 1px solid #E2DFD8;
+  border-radius: 6px;
+  color: #6B6B66;
   cursor: pointer;
   flex-shrink: 0;
+  z-index: 2;
 }
 
 .overviewAddGroupBtn:hover {
@@ -499,6 +608,12 @@
   -webkit-font-smoothing: antialiased;
 }
 
+.calendarControlsRight {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .calendarTitle {
   box-sizing: border-box;
   color: #1A1A18;
@@ -557,14 +672,13 @@
 }
 
 .calendarTodayButton {
-  align-items: start;
+  align-items: center;
   align-self: stretch;
   background-color: #f9f8f6;
   border: 1px solid #E2DFD8;
   border-radius: 6px;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
   justify-content: center;
   padding-block: 0;
   padding-inline: 12px;
@@ -576,13 +690,27 @@
   background-color: #EDE9E3;
 }
 
+.calendarTodayButtonActive {
+  background-color: #1A1A18;
+  border-color: #1A1A18;
+}
+
+.calendarTodayButtonActive:hover {
+  background-color: #2C2C28;
+}
+
 .calendarTodayText {
-  align-self: stretch;
   box-sizing: border-box;
   color: #6B6B66;
+  font-family: "DM Sans", system-ui, sans-serif;
   font-size: 13px;
   font-weight: 500;
   line-height: 16px;
+  white-space: nowrap;
+}
+
+.calendarTodayTextActive {
+  color: #f9f8f6;
 }
 
 .calendarViewToggle {
@@ -727,6 +855,7 @@
   align-items: flex-start;
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+  position: relative;
 }
 
 .weekTimeColumn {
@@ -762,6 +891,28 @@
 
 .weekDayColumnToday {
   background-color: rgba(26, 26, 24, 0.02);
+}
+
+.weekNowLine {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 1.5px;
+  background-color: #E53935;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+
+.weekNowDot {
+  width: 8px;
+  height: 8px;
+  min-width: 8px;
+  border-radius: 50%;
+  background-color: #E53935;
+  margin-left: -4px;
+  flex-shrink: 0;
 }
 
 .weekHourCell {
@@ -1157,4 +1308,581 @@
 
 .gcalCredentialInput:focus {
   border-color: #C8C4BC;
+}
+
+/* ---- Event dependency UI ---- */
+
+.depHandle {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+  border: 2px solid currentColor;
+  cursor: crosshair;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.1s;
+  pointer-events: auto;
+}
+
+.localEvent {
+  overflow: visible;
+}
+
+.localEvent:hover .depHandle {
+  opacity: 1;
+}
+
+.depDropTarget {
+  outline: 2px dashed rgba(100, 100, 90, 0.5) !important;
+  outline-offset: 2px;
+}
+
+.bufferZone {
+  position: absolute;
+  cursor: pointer;
+  transition: opacity 0.1s;
+}
+
+.bufferZone:hover {
+  opacity: 0.75;
+}
+
+/* Buffer edit popover */
+.bufferEditPopover {
+  position: fixed;
+  background: #fff;
+  border: 1px solid #E2DFD8;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12);
+  padding: 14px 16px;
+  width: 220px;
+  z-index: 1000;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+.bufferEditTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9B9B96;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.bufferEditRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.bufferEditLabel {
+  font-size: 12px;
+  color: #6B6B66;
+  width: 60px;
+  flex-shrink: 0;
+}
+
+.bufferEditInput {
+  flex: 1;
+  border: 1px solid #E2DFD8;
+  border-radius: 5px;
+  padding: 4px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  background: #f9f8f6;
+}
+
+.bufferEditInput:focus {
+  border-color: #9B9B96;
+}
+
+.bufferEditUnit {
+  font-size: 11px;
+  color: #9B9B96;
+  width: 24px;
+  flex-shrink: 0;
+}
+
+.bufferEditActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.bufferEditSave {
+  background: #2C2C28;
+  color: #f9f8f6;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.bufferEditCancel {
+  background: none;
+  color: #9B9B96;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* Dependency section in event edit popover */
+.depSection {
+  padding: 10px 14px 6px;
+  border-top: 1px solid #F0EDE8;
+}
+
+.depSectionTitle {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9B9B96;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 6px;
+}
+
+.depChain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.depItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #3C3C38;
+}
+
+.depItemArrow {
+  color: #9B9B96;
+  flex-shrink: 0;
+}
+
+.depItemName {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.depItemDelete {
+  background: none;
+  border: none;
+  color: #C8C4BC;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.depItemDelete:hover {
+  color: #9B9B96;
+  background: #F0EDE8;
+}
+
+.depHint {
+  font-size: 11px;
+  color: #AEAAA3;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+/* ── Calendar Agent Touch Animations ─────────────────────────────── */
+
+@keyframes touchCreate {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7); }
+  40%  { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0.15); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+}
+
+@keyframes touchEdit {
+  0%   { filter: brightness(1); }
+  30%  { filter: brightness(1.4); }
+  100% { filter: brightness(1); }
+}
+
+@keyframes touchDelete {
+  0%   { opacity: 1; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+  30%  { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0.2); }
+  100% { opacity: 0; }
+}
+
+.touch-create {
+  animation: touchCreate 1.8s ease-out forwards;
+  outline: 2px solid rgba(34, 197, 94, 0.45);
+  outline-offset: 1px;
+}
+
+.touch-edit {
+  animation: touchEdit 1.8s ease-in-out forwards;
+}
+
+.touch-delete {
+  animation: touchDelete 1.0s ease-out forwards;
+  pointer-events: none;
+}
+
+/* ---- Resource rows inside sidebar ---- */
+
+.overviewResourcesSection {
+  display: flex;
+  flex-direction: column;
+  margin-top: 1px;
+}
+
+.overviewResourcesToggle {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 14px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  border-radius: 4px;
+  font-family: inherit;
+  position: relative;
+}
+
+.overviewResourcesToggle:hover {
+  background-color: #EEECE7;
+}
+
+.overviewGroupEvents .overviewResourcesToggle {
+  margin-left: 14px;
+  width: calc(100% - 14px);
+  padding-left: 6px;
+}
+
+.overviewResourcesLabel {
+  font-size: 11px;
+  color: #9B9B96;
+  flex: 1;
+}
+
+.overviewResourcesCount {
+  font-size: 10px;
+  color: #B0ADA6;
+  background: #EEECE7;
+  border-radius: 8px;
+  padding: 0 5px;
+  line-height: 16px;
+}
+
+.overviewResourcesAddBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #9B9B96;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0;
+  flex-shrink: 0;
+}
+
+.overviewResourcesToggle:hover .overviewResourcesAddBtn {
+  opacity: 1;
+}
+
+.overviewResourcesAddBtn:hover {
+  background-color: #E2DFD8;
+  color: #555;
+}
+
+.overviewResourceList {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 3px;
+}
+
+.overviewResourceRow {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px 3px 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+  position: relative;
+}
+
+.overviewGroupEvents .overviewResourceRow {
+  margin-left: 14px;
+  width: calc(100% - 14px);
+  padding-left: 14px;
+}
+
+.overviewResourceRow:hover {
+  background-color: #EEECE7;
+}
+
+.overviewResourceIcon {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  color: #9B9B96;
+}
+
+.overviewResourceTitle {
+  font-size: 11.5px;
+  color: #3C3C38;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overviewResourceTitleInput {
+  font-size: 11.5px;
+  color: #3C3C38;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  outline: none;
+  padding: 0;
+  font-family: inherit;
+}
+
+.overviewResourceAttribution {
+  font-size: 10.5px;
+  color: #AEAAA3;
+  flex-shrink: 0;
+  max-width: 60px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overviewResourceDeleteBtn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: none;
+  border: none;
+  border-radius: 3px;
+  color: #9B9B96;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.overviewResourceRow:hover .overviewResourceDeleteBtn {
+  display: flex;
+}
+
+.overviewResourceDeleteBtn:hover {
+  color: #c44;
+  background-color: #E2DFD8;
+}
+
+/* AI sparkle indicator */
+.aiResourceSparkle {
+  font-size: 9px;
+  color: #7C6EFF;
+  flex-shrink: 0;
+  margin-right: 1px;
+}
+
+/* Add affordance */
+.overviewResourceAddAffordance {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px 3px 22px;
+}
+
+.overviewGroupEvents .overviewResourceAddAffordance {
+  margin-left: 14px;
+  padding-left: 14px;
+}
+
+.overviewResourceAddTypeBtn {
+  padding: 1px 7px;
+  background: #EEECE7;
+  border: none;
+  border-radius: 4px;
+  font-size: 10.5px;
+  color: #666;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.overviewResourceAddTypeBtn:hover {
+  background-color: #E2DFD8;
+  color: #333;
+}
+
+/* Link input form */
+.overviewResourceLinkForm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 10px 4px 22px;
+}
+
+.overviewGroupEvents .overviewResourceLinkForm {
+  margin-left: 14px;
+  padding-left: 14px;
+}
+
+.overviewResourceLinkInput {
+  font-size: 11px;
+  color: #333;
+  background: #f9f8f6;
+  border: 1px solid #E2DFD8;
+  border-radius: 4px;
+  padding: 4px 7px;
+  outline: none;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.overviewResourceLinkInput:focus {
+  border-color: #C8C5BE;
+}
+
+.overviewResourceLinkActions {
+  display: flex;
+  gap: 4px;
+}
+
+.overviewResourceLinkSave {
+  padding: 2px 8px;
+  background: #333;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 10.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.overviewResourceLinkSave:hover {
+  background: #555;
+}
+
+.overviewResourceLinkCancel {
+  padding: 2px 8px;
+  background: #EEECE7;
+  color: #666;
+  border: none;
+  border-radius: 4px;
+  font-size: 10.5px;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.overviewResourceLinkCancel:hover {
+  background: #E2DFD8;
+}
+
+/* Inline note editor */
+.overviewResourceNoteEditor {
+  padding: 3px 10px 4px 22px;
+}
+
+.overviewGroupEvents .overviewResourceNoteEditor {
+  margin-left: 14px;
+  padding-left: 14px;
+}
+
+.overviewResourceNoteTextarea {
+  width: 100%;
+  min-height: 70px;
+  max-height: 180px;
+  resize: vertical;
+  font-family: "DM Mono", "Menlo", monospace;
+  font-size: 11px;
+  color: #333;
+  background: #f9f8f6;
+  border: 1px solid #E2DFD8;
+  border-radius: 5px;
+  padding: 5px 8px;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.overviewResourceNoteTextarea:focus {
+  border-color: #C8C5BE;
+}
+
+/* ---- Folder rows ---- */
+
+.overviewFolderRow {
+  font-weight: 500;
+}
+
+.overviewFolderChildren {
+  display: flex;
+  flex-direction: column;
+}
+
+.overviewResourceIconSpacer {
+  display: inline-block;
+  width: 10px;
+  flex-shrink: 0;
+}
+
+/* ---- Drag-over highlight ---- */
+
+.overviewResourceDropTarget {
+  background-color: #E8F0FE !important;
+  outline: 1.5px solid #4A8CDB;
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+
+/* ---- Resource row sizing bump ---- */
+
+.overviewResourceRow {
+  padding: 4px 8px 4px 10px;
+}
+
+.overviewGroupEvents .overviewResourceRow {
+  padding-left: 8px;
+}
+
+/* ---- ResourceSection inside event (extra indent) ---- */
+
+.overviewGroupEvents .overviewResourcesSection.overviewGroupEvents {
+  margin-left: 0;
 }

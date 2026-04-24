@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './EventEditPopover.css';
 import { PLAN_COLORS, nextAutoColor } from '../calendarColors';
-import type { CalendarEvent, CalendarPlan, UpdateEventData } from '../../shared/types';
+import type { CalendarEvent, CalendarPlan, UpdateEventData, EventDependency } from '../../shared/types';
 
 interface Props {
   event: CalendarEvent;
   plans: CalendarPlan[];
+  allEvents: CalendarEvent[];
+  dependencies: EventDependency[];
   anchorX: number;
   anchorY: number;
   onSave: (id: string, updates: UpdateEventData) => Promise<void>;
@@ -13,10 +15,15 @@ interface Props {
   onClose: () => void;
   onStatusChange?: (status: 'active' | 'inactive') => void;
   onColorChange?: (color: string) => void;
+  onDependencyDelete?: (id: string) => void;
 }
 
 const POPOVER_W = 272;
-const POPOVER_H = 500;
+const POPOVER_H = 560;
+
+const RRULE_DOW = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+const FULL_DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const SHORT_MONTH_NAMES_EEP = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 const FULL_MONTHS_EEP = ['January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'];
@@ -219,7 +226,7 @@ function isAllDay(startIso: string, endIso: string): boolean {
 }
 
 
-export function EventEditPopover({ event, plans, anchorX, anchorY, onSave, onDelete, onClose, onStatusChange, onColorChange }: Props) {
+export function EventEditPopover({ event, plans, allEvents, dependencies, anchorX, anchorY, onSave, onDelete, onClose, onStatusChange, onColorChange, onDependencyDelete }: Props) {
   const [name, setName] = useState(event.name);
   const [planId, setPlanId] = useState<string | null>(event.plan_id);
   const [status, setStatus] = useState<'active' | 'inactive'>(
@@ -237,6 +244,28 @@ export function EventEditPopover({ event, plans, anchorX, anchorY, onSave, onDel
   const [deleting, setDeleting] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [openPicker, setOpenPicker] = useState<'start-date' | 'start-time' | 'end-date' | 'end-time' | null>(null);
+  const [recurrenceRule, setRecurrenceRule] = useState<string | null>(event.recurrence_rule ?? null);
+  const [showRepeatDropdown, setShowRepeatDropdown] = useState(false);
+
+  const repeatOptions = useMemo(() => {
+    const s = new Date(startIso);
+    const dow = s.getDay();
+    const monthDay = s.getDate();
+    const monthAbbr = SHORT_MONTH_NAMES_EEP[s.getMonth()];
+    return [
+      { label: 'Does not repeat', value: null },
+      { label: 'Daily', value: 'RRULE:FREQ=DAILY' },
+      { label: `Weekly on ${FULL_DAY_NAMES[dow]}`, value: `RRULE:FREQ=WEEKLY;BYDAY=${RRULE_DOW[dow]}` },
+      { label: `Monthly on day ${monthDay}`, value: `RRULE:FREQ=MONTHLY;BYMONTHDAY=${monthDay}` },
+      { label: `Yearly on ${monthAbbr} ${monthDay}`, value: 'RRULE:FREQ=YEARLY' },
+    ] as { label: string; value: string | null }[];
+  }, [startIso]);
+
+  const currentRepeatLabel = useMemo(() => {
+    if (!recurrenceRule) return 'Does not repeat';
+    const opt = repeatOptions.find(o => o.value === recurrenceRule);
+    return opt ? opt.label : recurrenceRule.replace('RRULE:', '');
+  }, [recurrenceRule, repeatOptions]);
 
   const nameRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -264,11 +293,12 @@ export function EventEditPopover({ event, plans, anchorX, anchorY, onSave, onDel
       if (showNewPlan) { setShowNewPlan(false); return; }
       if (showPlanPicker) { setShowPlanPicker(false); return; }
       if (showColorPicker) { setShowColorPicker(false); return; }
+      if (showRepeatDropdown) { setShowRepeatDropdown(false); return; }
       onClose();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, openPicker, showNewPlan, showPlanPicker, showColorPicker]);
+  }, [onClose, openPicker, showNewPlan, showPlanPicker, showColorPicker, showRepeatDropdown]);
 
   function handleStatusChange(newStatus: 'active' | 'inactive') {
     setStatus(newStatus);
@@ -305,7 +335,7 @@ export function EventEditPopover({ event, plans, anchorX, anchorY, onSave, onDel
   async function handleSave() {
     setSaving(true);
     try {
-      await onSave(event.id, { name, plan_id: planId, status, color, start_at: startIso, end_at: endIso });
+      await onSave(event.id, { name, plan_id: planId, status, color, start_at: startIso, end_at: endIso, recurrence_rule: recurrenceRule });
     } finally {
       setSaving(false);
       onClose();
@@ -520,6 +550,66 @@ export function EventEditPopover({ event, plans, anchorX, anchorY, onSave, onDel
           >Background</button>
         </div>
       </div>
+
+      {/* Recurrence */}
+      <div className="eepSection">
+        <div className="eepSectionLabel">Repeat</div>
+        {!showRepeatDropdown ? (
+          <button className="eepRepeatBtn" onClick={() => setShowRepeatDropdown(true)}>
+            <span className="eepRepeatLabel">{currentRepeatLabel}</span>
+            <svg className="eepChevron" width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M2 4l3 3 3-3" stroke="#9B9B96" strokeWidth="1.3" strokeLinecap="round" />
+            </svg>
+          </button>
+        ) : (
+          <div className="eepRepeatList">
+            {repeatOptions.map(opt => (
+              <button
+                key={opt.value ?? 'none'}
+                className={`eepRepeatPill${opt.value === recurrenceRule ? ' eepRepeatPillSel' : ''}`}
+                onClick={() => { setRecurrenceRule(opt.value); setShowRepeatDropdown(false); }}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Dependency chain */}
+      {(() => {
+        const evMap = new Map(allEvents.map(e => [e.id, e]));
+        const preds = dependencies.filter(d => d.successor_id === event.id);
+        const succs = dependencies.filter(d => d.predecessor_id === event.id);
+        if (preds.length === 0 && succs.length === 0) return null;
+        return (
+          <div className="depSection">
+            <div className="depSectionTitle">Linked Events</div>
+            <div className="depChain">
+              {preds.map(d => {
+                const pred = evMap.get(d.predecessor_id);
+                return (
+                  <div key={d.id} className="depItem">
+                    <span className="depItemArrow">→</span>
+                    <span className="depItemName" title={pred?.name ?? d.predecessor_id}>{pred?.name ?? '…'}</span>
+                    <button className="depItemDelete" onClick={() => onDependencyDelete?.(d.id)} title="Remove link">×</button>
+                  </div>
+                );
+              })}
+              {succs.map(d => {
+                const succ = evMap.get(d.successor_id);
+                return (
+                  <div key={d.id} className="depItem">
+                    <span className="depItemArrow">←</span>
+                    <span className="depItemName" title={succ?.name ?? d.successor_id}>{succ?.name ?? '…'}</span>
+                    <button className="depItemDelete" onClick={() => onDependencyDelete?.(d.id)} title="Remove link">×</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Footer */}
       <div className="eepFooter">

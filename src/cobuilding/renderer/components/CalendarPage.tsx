@@ -1,11 +1,13 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { RRule } from 'rrule';
 import './CalendarPage.css';
 import { CalendarChat } from './CalendarChat';
 import { CalendarSidebar } from './CalendarSidebar';
+import { CalendarReactionsInbox } from './CalendarReactionsInbox';
 import { EventEditPopover } from './EventEditPopover';
 import { GcalEventPopover } from './GcalEventPopover';
 import { nextAutoColor, AUTO_COLORS } from '../calendarColors';
-import type { CalendarPlan, CalendarEvent, UpdateEventData } from '../../shared/types';
+import type { CalendarPlan, CalendarEvent, UpdateEventData, EventDependency, CascadeUpdate } from '../../shared/types';
 
 const GCAL_COLORS: Record<string, string> = {
   '1': '#a4bdfc', '2': '#7ae7bf', '3': '#dbadff', '4': '#ff887c',
@@ -63,10 +65,10 @@ function gcalEventColor(ev: GoogleCalendarEvent): string {
   return ev.colorId ? (GCAL_COLORS[ev.colorId] ?? DEFAULT_GCAL_COLOR) : DEFAULT_GCAL_COLOR;
 }
 
-function eventTimeOffsetAndHeight(start: Date, end: Date): { top: number; height: number } {
+function eventTimeOffsetAndHeight(start: Date, end: Date, hourHeight: number): { top: number; height: number } {
   const startMin = start.getHours() * 60 + start.getMinutes();
   const endMin = end.getHours() * 60 + end.getMinutes();
-  const pxPerMin = HOUR_HEIGHT / 60;
+  const pxPerMin = hourHeight / 60;
   return {
     top: startMin * pxPerMin,
     height: Math.max((endMin - startMin) * pxPerMin - 2, 16),
@@ -74,8 +76,8 @@ function eventTimeOffsetAndHeight(start: Date, end: Date): { top: number; height
 }
 
 // For events spanning multiple days — computes top/height within a given day column using absolute timestamps
-function segmentTimeOffsetAndHeight(segStart: Date, segEnd: Date, dayStart: Date): { top: number; height: number } {
-  const pxPerMs = HOUR_HEIGHT / (3600 * 1000);
+function segmentTimeOffsetAndHeight(segStart: Date, segEnd: Date, dayStart: Date, hourHeight: number): { top: number; height: number } {
+  const pxPerMs = hourHeight / (3600 * 1000);
   const topMs = Math.max(segStart.getTime() - dayStart.getTime(), 0);
   const heightMs = Math.max(segEnd.getTime() - segStart.getTime(), 0);
   return {
@@ -150,20 +152,111 @@ function isMultiDayEvent(ev: CalendarEvent): boolean {
   return endDay > startDay;
 }
 
-function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionCommit, onEventClick, onGcalEventClick, onEventDrop, blocked }: {
+type CascadePreviewMap = Map<string, { start_at: string; end_at: string }>;
+
+function computeClientCascade(
+  movedEventId: string,
+  newStart: Date,
+  newEnd: Date,
+  events: CalendarEvent[],
+  deps: EventDependency[],
+): CascadePreviewMap {
+  const preview: CascadePreviewMap = new Map();
+  preview.set(movedEventId, { start_at: newStart.toISOString(), end_at: newEnd.toISOString() });
+  const successorEdges = new Map<string, EventDependency[]>();
+  const predecessorEdges = new Map<string, EventDependency[]>();
+  for (const d of deps) {
+    if (!successorEdges.has(d.predecessor_id)) successorEdges.set(d.predecessor_id, []);
+    successorEdges.get(d.predecessor_id)!.push(d);
+    if (!predecessorEdges.has(d.successor_id)) predecessorEdges.set(d.successor_id, []);
+    predecessorEdges.get(d.successor_id)!.push(d);
+  }
+  const evMap = new Map(events.map(e => [e.id, e]));
+  function getEffective(id: string) { return preview.get(id) ?? evMap.get(id); }
+  const queue = [movedEventId];
+  const visited = new Set([movedEventId]);
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    for (const dep of successorEdges.get(currentId) ?? []) {
+      const succId = dep.successor_id;
+      let latestEnd = 0;
+      for (const pd of predecessorEdges.get(succId) ?? []) {
+        const pred = getEffective(pd.predecessor_id);
+        if (!pred?.end_at) continue;
+        const ms = new Date(pred.end_at).getTime() + pd.lag_current_ms;
+        if (ms > latestEnd) latestEnd = ms;
+      }
+      if (latestEnd === 0) continue;
+      const orig = evMap.get(succId);
+      if (!orig) continue;
+      // Loose ordering: only push forward, never pull backward
+      if (latestEnd <= new Date(orig.start_at).getTime()) continue;
+      const dur = new Date(orig.end_at).getTime() - new Date(orig.start_at).getTime();
+      preview.set(succId, { start_at: new Date(latestEnd).toISOString(), end_at: new Date(latestEnd + dur).toISOString() });
+      if (!visited.has(succId)) { visited.add(succId); queue.push(succId); }
+    }
+  }
+  preview.delete(movedEventId);
+  return preview;
+}
+
+function expandRecurringEvent(ev: CalendarEvent, from: Date, to: Date): CalendarEvent[] {
+  if (!ev.recurrence_rule) return [ev];
+  const dur = new Date(ev.end_at).getTime() - new Date(ev.start_at).getTime();
+  const dtstart = new Date(ev.start_at);
+  let rule: RRule;
+  try {
+    rule = new RRule({ ...RRule.parseString(ev.recurrence_rule.replace(/^RRULE:/, '')), dtstart });
+  } catch {
+    return [ev];
+  }
+  const occurrences = rule.between(from, to, true);
+  if (occurrences.length === 0) return [];
+  return occurrences.map(occ => ({
+    ...ev,
+    id: `${ev.id}:${occ.toISOString()}`,
+    start_at: occ.toISOString(),
+    end_at: new Date(occ.getTime() + dur).toISOString(),
+    recurrence_parent_id: ev.id,
+  }));
+}
+
+function WeekView({ weekStart, today, googleEvents, localEvents, allEvents, dependencies, onSelectionCommit, onEventClick, onGcalEventClick, onEventDrop, onDependencyCreate, blocked, touchedEntities }: {
   weekStart: Date;
   today: Date;
   googleEvents: GoogleCalendarEvent[];
   localEvents: CalendarEvent[];
+  allEvents: CalendarEvent[];
+  dependencies: EventDependency[];
   onSelectionCommit: SelectionCommitFn;
   onEventClick: EventClickFn;
   onGcalEventClick: (ev: GoogleCalendarEvent, x: number, y: number) => void;
   onEventDrop: EventDropFn;
+  onDependencyCreate: (predecessorId: string, successorId: string) => void;
   blocked: React.MutableRefObject<boolean>;
+  touchedEntities: Map<string, 'create' | 'edit' | 'delete'>;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
+  const [bodyWidth, setBodyWidth] = useState(0);
+  const [hourHeight, setHourHeight] = useState(HOUR_HEIGHT);
+  const hourHeightRef = useRef(HOUR_HEIGHT);
+  hourHeightRef.current = hourHeight;
+  const [cascadePreviewMap, setCascadePreviewMap] = useState<CascadePreviewMap>(new Map());
+  const [connectingFrom, setConnectingFrom] = useState<CalendarEvent | null>(null);
+  const connectingFromRef = useRef<CalendarEvent | null>(null);
+  connectingFromRef.current = connectingFrom;
+  const [connectingPos, setConnectingPos] = useState<{ x: number; y: number } | null>(null);
   const days = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)), [weekStart.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const tick = () => setNow(new Date());
+    const ms = (60 - new Date().getSeconds()) * 1000;
+    const initial = setTimeout(() => { tick(); const id = setInterval(tick, 60000); return () => clearInterval(id); }, ms);
+    return () => clearTimeout(initial);
+  }, []);
+  const nowTopPx = (now.getHours() * 60 + now.getMinutes()) * (hourHeight / 60);
 
   const [dragStart, setDragStart] = useState<{ dayIdx: number; hour: number } | null>(null);
   const [dragEnd, setDragEnd] = useState<{ dayIdx: number; hour: number } | null>(null);
@@ -183,7 +276,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
     if (!bodyRef.current) return;
     const isCurrentWeek = days.some(d => isSameDay(d, today));
     const scrollHour = isCurrentWeek ? Math.max(0, today.getHours() - 1) : 7;
-    bodyRef.current.scrollTop = scrollHour * HOUR_HEIGHT;
+    bodyRef.current.scrollTop = scrollHour * hourHeight;
   }, [weekStart.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => () => { isDragging.current = false; }, []);
@@ -192,7 +285,11 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
     const body = bodyRef.current;
     const header = headerRef.current;
     if (!body || !header) return;
-    const sync = () => { header.style.paddingRight = `${body.offsetWidth - body.clientWidth}px`; };
+    const sync = () => {
+      header.style.paddingRight = `${body.offsetWidth - body.clientWidth}px`;
+      setBodyWidth(body.clientWidth);
+      setHourHeight(Math.max(HOUR_HEIGHT, Math.floor(body.clientHeight / 24)));
+    };
     sync();
     const ro = new ResizeObserver(sync);
     ro.observe(body);
@@ -210,14 +307,17 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
     return map;
   }, [googleEvents, weekStart.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Include multi-day events in all columns they overlap; apply resize preview
+  // Include multi-day events in all columns they overlap; apply resize/cascade previews
   const localByDay = useMemo(() => {
     const map: CalendarEvent[][] = days.map(() => []);
-    const effectiveEvents = localEvents.map(ev =>
-      resizeDrag?.event.id === ev.id
-        ? { ...ev, start_at: resizeDrag.previewStartAt.toISOString(), end_at: resizeDrag.previewEndAt.toISOString() }
-        : ev
-    );
+    const effectiveEvents = localEvents.map(ev => {
+      if (resizeDrag?.event.id === ev.id) {
+        return { ...ev, start_at: resizeDrag.previewStartAt.toISOString(), end_at: resizeDrag.previewEndAt.toISOString() };
+      }
+      const cascadePreview = cascadePreviewMap.get(ev.id);
+      if (cascadePreview) return { ...ev, ...cascadePreview };
+      return ev;
+    });
     for (const ev of effectiveEvents) {
       const evStart = new Date(ev.start_at);
       const evEnd = new Date(ev.end_at);
@@ -230,7 +330,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
       }
     }
     return map;
-  }, [localEvents, weekStart.getTime(), resizeDrag]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [localEvents, weekStart.getTime(), resizeDrag, cascadePreviewMap]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleCellMouseDown(dayIdx: number, hour: number, e: React.MouseEvent) {
     if (e.button !== 0) return;
@@ -275,6 +375,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
   function handleEventDragStart(ev: CalendarEvent, dayIdx: number, e: React.MouseEvent) {
     if (e.button !== 0) return;
     if (blocked.current) return;
+    if (ev.recurrence_parent_id) return;
     e.stopPropagation();
     e.preventDefault();
     if (!bodyRef.current) return;
@@ -282,11 +383,15 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
     const evStart = new Date(ev.start_at);
     const evEnd = new Date(ev.end_at);
     const durationMs = evEnd.getTime() - evStart.getTime();
+    const durationMinutes = durationMs / 1000 / 60;
     const evStartMinute = evStart.getHours() * 60 + evStart.getMinutes();
     const bodyRect = bodyRef.current.getBoundingClientRect();
     const relY = e.clientY - bodyRect.top + bodyRef.current.scrollTop;
-    const clickMinute = (relY / HOUR_HEIGHT) * 60;
-    const offsetMinutes = Math.max(0, clickMinute - evStartMinute);
+    const clickMinute = (relY / hourHeightRef.current) * 60;
+    const offsetMinutes = Math.min(
+      Math.max(0, clickMinute - evStartMinute),
+      durationMinutes,
+    );
 
     const drag: WeekMoveDrag = {
       event: ev, durationMs, offsetMinutes,
@@ -300,18 +405,25 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
 
     const onMove = (me: MouseEvent) => {
       if (!bodyRef.current || !moveDragRef.current) return;
+      const hh = hourHeightRef.current;
       const br = bodyRef.current.getBoundingClientRect();
       const colW = (br.width - GUTTER_W) / 7;
       const relX = me.clientX - br.left - GUTTER_W;
       const relY2 = me.clientY - br.top + bodyRef.current.scrollTop;
       const targetDayIdx = Math.max(0, Math.min(6, Math.floor(relX / colW)));
-      const durationMinutes = moveDragRef.current.durationMs / 1000 / 60;
-      const rawStart = (relY2 / HOUR_HEIGHT) * 60 - moveDragRef.current.offsetMinutes;
-      const snapped = Math.round(rawStart / 15) * 15;
-      const targetStartMinute = Math.max(0, Math.min(24 * 60 - durationMinutes, snapped));
+      const dur = moveDragRef.current.durationMs / 1000 / 60;
+      const rawStart = (relY2 / hh) * 60 - moveDragRef.current.offsetMinutes;
+      const snapped = Math.round(rawStart / 5) * 5;
+      const targetStartMinute = Math.max(0, Math.min(24 * 60 - dur, snapped));
       const updated = { ...moveDragRef.current, targetDayIdx, targetStartMinute };
       moveDragRef.current = updated;
       setMoveDrag(updated);
+      // Compute cascade preview for downstream events
+      const targetDay = days[targetDayIdx];
+      const previewStart = new Date(targetDay);
+      previewStart.setHours(Math.floor(targetStartMinute / 60), targetStartMinute % 60, 0, 0);
+      const previewEnd = new Date(previewStart.getTime() + moveDragRef.current.durationMs);
+      setCascadePreviewMap(computeClientCascade(ev.id, previewStart, previewEnd, [...localEvents, ...allEvents], dependencies));
     };
 
     const onUp = () => {
@@ -319,13 +431,16 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
       document.removeEventListener('mouseup', onUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      setCascadePreviewMap(new Map());
       const d = moveDragRef.current;
       moveDragRef.current = null;
       setMoveDrag(null);
       if (!d) return;
+      const snappedFinal = Math.round(d.targetStartMinute / 15) * 15;
+      const finalStartMinute = Math.max(0, Math.min(24 * 60 - d.durationMs / 1000 / 60, snappedFinal));
       const targetDay = days[d.targetDayIdx];
       const newStart = new Date(targetDay);
-      newStart.setHours(Math.floor(d.targetStartMinute / 60), d.targetStartMinute % 60, 0, 0);
+      newStart.setHours(Math.floor(finalStartMinute / 60), finalStartMinute % 60, 0, 0);
       const newEnd = new Date(newStart.getTime() + d.durationMs);
       if (newStart.toISOString() !== d.event.start_at || d.targetDayIdx !== d.sourceDayIdx) {
         onEventDrop(d.event, newStart, newEnd);
@@ -361,7 +476,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
       const cursorDayIdx = Math.max(0, Math.min(6, Math.floor(relX / colW)));
       const cursorDay = days[cursorDayIdx];
       const relY = me.clientY - br.top + bodyRef.current.scrollTop;
-      const rawMinute = (relY / HOUR_HEIGHT) * 60;
+      const rawMinute = (relY / hourHeight) * 60;
       const snapped = Math.round(rawMinute / 15) * 15;
       const clampedMinute = Math.max(0, Math.min(24 * 60, snapped));
       const d = resizeDragRef.current;
@@ -373,6 +488,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
         const updated = { ...d, previewEndAt: newEnd > minEnd ? newEnd : minEnd };
         resizeDragRef.current = updated;
         setResizeDrag(updated);
+        setCascadePreviewMap(computeClientCascade(ev.id, updated.previewStartAt, updated.previewEndAt, [...localEvents, ...allEvents], dependencies));
       } else {
         const newStart = new Date(cursorDay);
         newStart.setHours(Math.floor(clampedMinute / 60), clampedMinute % 60, 0, 0);
@@ -388,6 +504,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
       document.removeEventListener('mouseup', onUp);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      setCascadePreviewMap(new Map());
       const d = resizeDragRef.current;
       resizeDragRef.current = null;
       setResizeDrag(null);
@@ -397,6 +514,25 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
       }
     };
 
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  function handleDepHandleMouseDown(sourceEvent: CalendarEvent, e: React.MouseEvent) {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    setConnectingFrom(sourceEvent);
+    setConnectingPos({ x: e.clientX, y: e.clientY });
+
+    const onMove = (me: MouseEvent) => setConnectingPos({ x: me.clientX, y: me.clientY });
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      setConnectingFrom(null);
+      setConnectingPos(null);
+    };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
@@ -412,11 +548,11 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
     if (minDayIdx === maxDayIdx) {
       const minH = Math.min(startHour, endHour);
       const maxH = Math.max(startHour, endHour);
-      return { top: minH * HOUR_HEIGHT, height: (maxH - minH + 1) * HOUR_HEIGHT };
+      return { top: minH * hourHeight, height: (maxH - minH + 1) * hourHeight };
     }
-    if (dayIdx === minDayIdx) return { top: startHour * HOUR_HEIGHT, height: (24 - startHour) * HOUR_HEIGHT };
-    if (dayIdx === maxDayIdx) return { top: 0, height: (endHour + 1) * HOUR_HEIGHT };
-    return { top: 0, height: 24 * HOUR_HEIGHT };
+    if (dayIdx === minDayIdx) return { top: startHour * hourHeight, height: (24 - startHour) * hourHeight };
+    if (dayIdx === maxDayIdx) return { top: 0, height: (endHour + 1) * hourHeight };
+    return { top: 0, height: 24 * hourHeight };
   }
 
   return (
@@ -435,7 +571,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
       <div className="weekBody" ref={bodyRef}>
         <div className="weekTimeColumn">
           {HOURS.map(hour => (
-            <div key={hour} className="weekTimeSlot" style={{ height: HOUR_HEIGHT }}>
+            <div key={hour} className="weekTimeSlot" style={{ height: hourHeight }}>
               {hour > 0 && (
                 <span className="weekTimeLabel">
                   {hour < 12 ? `${hour}am` : hour === 12 ? '12pm' : `${hour - 12}pm`}
@@ -460,11 +596,16 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
               className={`weekDayColumn${isSameDay(day, today) ? ' weekDayColumnToday' : ''}`}
               style={{ position: 'relative' }}
             >
+              {isSameDay(day, today) && (
+                <div className="weekNowLine" style={{ top: nowTopPx }}>
+                  <div className="weekNowDot" />
+                </div>
+              )}
               {HOURS.map(hour => (
                 <div
                   key={hour}
                   className="weekHourCell"
-                  style={{ height: HOUR_HEIGHT }}
+                  style={{ height: hourHeight }}
                   onMouseDown={(e) => handleCellMouseDown(i, hour, e)}
                   onMouseEnter={() => {
                     if (isDragging.current) {
@@ -480,7 +621,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
               {eventsByDay[i].map(ev => {
                 const start = new Date(ev.start.dateTime!);
                 const end = new Date(ev.end.dateTime!);
-                const { top, height } = eventTimeOffsetAndHeight(start, end);
+                const { top, height } = eventTimeOffsetAndHeight(start, end, hourHeight);
                 const color = gcalEventColor(ev);
                 return (
                   <div
@@ -504,43 +645,61 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
               {/* Active local events */}
               {activeEvents.map(ev => {
                 const isMoving = moveDrag?.event.id === ev.id;
+                const isCascadeGhost = cascadePreviewMap.has(ev.id);
                 const evStart = new Date(ev.start_at);
                 const evEnd = new Date(ev.end_at);
                 const segStart = evStart > dayStart ? evStart : dayStart;
                 const segEnd = evEnd < dayEnd ? evEnd : dayEnd;
-                const { top, height } = segmentTimeOffsetAndHeight(segStart, segEnd, dayStart);
+                const { top, height } = segmentTimeOffsetAndHeight(segStart, segEnd, dayStart, hourHeight);
                 const isFirstDay = evStart >= dayStart && evStart < dayEnd;
                 const isLastDay = evEnd > dayStart && evEnd <= dayEnd;
                 const color = ev.color ?? AUTO_COLORS[0];
+                const isDropTarget = connectingFrom && connectingFrom.id !== ev.id;
+                const touchClass = touchedEntities.get(ev.id) ?? (ev.recurrence_parent_id ? touchedEntities.get(ev.recurrence_parent_id) : undefined);
                 return (
                   <div
                     key={ev.id}
-                    className="gcalEvent localEvent"
+                    className={`gcalEvent localEvent${isDropTarget ? ' depDropTarget' : ''}${touchClass ? ` touch-${touchClass}` : ''}`}
                     style={{
                       top, height, left: 3, right: 3,
                       backgroundColor: color + 'dd',
                       borderLeft: `3px solid ${color}`,
-                      cursor: 'grab',
-                      opacity: isMoving ? 0.25 : 1,
+                      cursor: connectingFrom ? 'crosshair' : ev.recurrence_parent_id ? 'pointer' : 'grab',
+                      opacity: isMoving ? 0.25 : isCascadeGhost ? 0.55 : 1,
                       zIndex: 2,
                     }}
                     title={ev.name}
-                    onMouseDown={e => handleEventDragStart(ev, i, e)}
-                    onClick={e => { e.stopPropagation(); if (!moveDrag && !resizeDrag) onEventClick(ev, e.clientX, e.clientY); }}
+                    onMouseDown={e => { if (!connectingFrom) handleEventDragStart(ev, i, e); }}
+                    onMouseUp={() => {
+                      if (connectingFromRef.current && connectingFromRef.current.id !== ev.id) {
+                        onDependencyCreate(connectingFromRef.current.id, ev.id);
+                      }
+                    }}
+                    onClick={e => { e.stopPropagation(); if (!moveDrag && !resizeDrag && !connectingFrom) onEventClick(ev, e.clientX, e.clientY); }}
                   >
-                    {isFirstDay && (
+                    {isFirstDay && !ev.recurrence_parent_id && (
                       <div className="weekEventResizeHandle weekEventResizeHandleTop"
                         onMouseDown={e => handleResizeStart(ev, 'top', e)} />
                     )}
-                    <span className="gcalEventTitle" style={{ color: '#fff' }}>{ev.name}</span>
+                    <span className="gcalEventTitle" style={{ color: '#fff' }}>
+                      {ev.recurrence_parent_id && <span style={{ marginRight: 3, opacity: 0.8 }}>↻</span>}
+                      {ev.name}
+                    </span>
                     {height >= 36 && (
                       <span className="gcalEventTime" style={{ color: 'rgba(255,255,255,0.8)' }}>
                         {evStart.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
                       </span>
                     )}
-                    {isLastDay && (
-                      <div className="weekEventResizeHandle weekEventResizeHandleBottom"
-                        onMouseDown={e => handleResizeStart(ev, 'bottom', e)} />
+                    {isLastDay && !ev.recurrence_parent_id && (
+                      <>
+                        <div className="weekEventResizeHandle weekEventResizeHandleBottom"
+                          onMouseDown={e => handleResizeStart(ev, 'bottom', e)} />
+                        <div
+                          className="depHandle"
+                          onMouseDown={e => handleDepHandleMouseDown(ev, e)}
+                          onClick={e => e.stopPropagation()}
+                        />
+                      </>
                     )}
                   </div>
                 );
@@ -549,7 +708,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
               {moveDrag?.event.status === 'active' && moveDrag.targetDayIdx === i && (() => {
                 const ev = moveDrag.event;
                 const color = ev.color ?? AUTO_COLORS[0];
-                const pxPerMin = HOUR_HEIGHT / 60;
+                const pxPerMin = hourHeight / 60;
                 const ghostTop = moveDrag.targetStartMinute * pxPerMin;
                 const ghostHeight = Math.max(moveDrag.durationMs / 1000 / 60 * pxPerMin, 18);
                 return (
@@ -565,30 +724,38 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
               {/* Background lane events */}
               {bgLanes.map((ev, laneIdx) => {
                 const isMoving = moveDrag?.event.id === ev.id;
+                const isCascadeGhost = cascadePreviewMap.has(ev.id);
                 const evStart = new Date(ev.start_at);
                 const evEnd = new Date(ev.end_at);
                 const segStart = evStart > dayStart ? evStart : dayStart;
                 const segEnd = evEnd < dayEnd ? evEnd : dayEnd;
-                const { top, height } = segmentTimeOffsetAndHeight(segStart, segEnd, dayStart);
+                const { top, height } = segmentTimeOffsetAndHeight(segStart, segEnd, dayStart, hourHeight);
                 const isFirstDay = evStart >= dayStart && evStart < dayEnd;
                 const isLastDay = evEnd > dayStart && evEnd <= dayEnd;
                 const color = ev.color ?? AUTO_COLORS[0];
+                const isDropTarget = connectingFrom && connectingFrom.id !== ev.id;
+                const bgTouchClass = touchedEntities.get(ev.id) ?? (ev.recurrence_parent_id ? touchedEntities.get(ev.recurrence_parent_id) : undefined);
                 return (
                   <div
                     key={ev.id}
-                    className="weekBgLane"
+                    className={`weekBgLane${isDropTarget ? ' depDropTarget' : ''}${bgTouchClass ? ` touch-${bgTouchClass}` : ''}`}
                     style={{
                       top, height,
                       left: 2 + laneIdx * (LANE_W + LANE_GAP),
                       width: LANE_W,
                       backgroundColor: color + '18',
                       borderColor: color + '70',
-                      cursor: 'grab',
-                      opacity: isMoving ? 0.25 : 1,
+                      cursor: connectingFrom ? 'crosshair' : 'grab',
+                      opacity: isMoving ? 0.25 : isCascadeGhost ? 0.55 : 1,
                     }}
                     title={ev.name}
-                    onMouseDown={e => handleEventDragStart(ev, i, e)}
-                    onClick={e => { e.stopPropagation(); if (!moveDrag && !resizeDrag) onEventClick(ev, e.clientX, e.clientY); }}
+                    onMouseDown={e => { if (!connectingFrom) handleEventDragStart(ev, i, e); }}
+                    onMouseUp={() => {
+                      if (connectingFromRef.current && connectingFromRef.current.id !== ev.id) {
+                        onDependencyCreate(connectingFromRef.current.id, ev.id);
+                      }
+                    }}
+                    onClick={e => { e.stopPropagation(); if (!moveDrag && !resizeDrag && !connectingFrom) onEventClick(ev, e.clientX, e.clientY); }}
                   >
                     {isFirstDay && (
                       <div className="weekEventResizeHandle weekEventResizeHandleTop"
@@ -596,8 +763,16 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
                     )}
                     <span className="weekBgLaneLabel" style={{ color }}>{ev.name}</span>
                     {isLastDay && (
-                      <div className="weekEventResizeHandle weekEventResizeHandleBottom"
-                        onMouseDown={e => handleResizeStart(ev, 'bottom', e)} />
+                      <>
+                        <div className="weekEventResizeHandle weekEventResizeHandleBottom"
+                          onMouseDown={e => handleResizeStart(ev, 'bottom', e)} />
+                        <div
+                          className="depHandle"
+                          style={{ borderColor: color, bottom: -5, width: 10, height: 10 }}
+                          onMouseDown={e => handleDepHandleMouseDown(ev, e)}
+                          onClick={e => e.stopPropagation()}
+                        />
+                      </>
                     )}
                   </div>
                 );
@@ -606,7 +781,7 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
               {moveDrag && moveDrag.event.status !== 'active' && moveDrag.targetDayIdx === i && (() => {
                 const ev = moveDrag.event;
                 const color = ev.color ?? AUTO_COLORS[0];
-                const pxPerMin = HOUR_HEIGHT / 60;
+                const pxPerMin = hourHeight / 60;
                 const ghostTop = moveDrag.targetStartMinute * pxPerMin;
                 const ghostHeight = Math.max(moveDrag.durationMs / 1000 / 60 * pxPerMin - 2, 16);
                 return (
@@ -622,15 +797,144 @@ function WeekView({ weekStart, today, googleEvents, localEvents, onSelectionComm
                   </div>
                 );
               })()}
+              {/* Cascade ghost blocks for downstream dependent events */}
+              {moveDrag && Array.from(cascadePreviewMap.entries()).map(([evId, times]) => {
+                const orig = [...localEvents, ...allEvents].find(e => e.id === evId);
+                if (!orig) return null;
+                const color = orig.color ?? AUTO_COLORS[0];
+                const segS = new Date(times.start_at) > dayStart ? new Date(times.start_at) : dayStart;
+                const segE = new Date(times.end_at) < dayEnd ? new Date(times.end_at) : dayEnd;
+                if (segS >= dayEnd || segE <= dayStart) return null;
+                const { top: gTop, height: gH } = segmentTimeOffsetAndHeight(segS, segE, dayStart, hourHeight);
+                if (orig.status === 'active') {
+                  return (
+                    <div key={`cascade-${evId}`} className="gcalEvent localEvent" style={{
+                      top: gTop, height: Math.max(gH, 18), left: 3, right: 3,
+                      backgroundColor: color + 'aa',
+                      border: `1.5px dashed ${color}`,
+                      opacity: 0.6, pointerEvents: 'none', zIndex: 3,
+                    }}>
+                      <span className="gcalEventTitle" style={{ color: '#fff' }}>{orig.name}</span>
+                    </div>
+                  );
+                }
+                const laneIdx = bgLanes.findIndex(e => e.id === evId);
+                const effectiveLane = laneIdx >= 0 ? laneIdx : 0;
+                return (
+                  <div key={`cascade-${evId}`} className="weekBgLane" style={{
+                    top: gTop, height: Math.max(gH, 16),
+                    left: 2 + effectiveLane * (LANE_W + LANE_GAP), width: LANE_W,
+                    backgroundColor: color + '18',
+                    border: `1.5px dashed ${color}`,
+                    opacity: 0.6, pointerEvents: 'none', zIndex: 3,
+                  }}>
+                    <span className="weekBgLaneLabel" style={{ color }}>{orig.name}</span>
+                  </div>
+                );
+              })}
             </div>
           );
         })}
+        {/* SVG overlay for dependency connector lines */}
+        {bodyWidth > 0 && (() => {
+          const colW = (bodyWidth - GUTTER_W) / 7;
+          const LANE_W_SVG = 22;
+          const LANE_GAP_SVG = 4;
+          const allEvMap = new Map([...localEvents, ...allEvents].map(e => [e.id, e]));
+
+          // Build bg lane index map: "dayIdx:eventId" → laneIdx
+          const bgLaneIdxMap = new Map<string, number>();
+          for (let di = 0; di < 7; di++) {
+            localByDay[di]
+              .filter(ev => ev.status !== 'active')
+              .sort((a, b) => a.start_at.localeCompare(b.start_at))
+              .forEach((ev, idx) => { bgLaneIdxMap.set(`${di}:${ev.id}`, idx); });
+          }
+
+          function getEventAnchor(evId: string, isBottom: boolean) {
+            const ev = allEvMap.get(evId);
+            if (!ev) return null;
+            const evStart = new Date(ev.start_at);
+            const evEnd = new Date(ev.end_at);
+            let dayIdx = -1;
+            if (isBottom) {
+              for (let di = 6; di >= 0; di--) {
+                if (evStart < addDays(days[di], 1) && evEnd > days[di]) { dayIdx = di; break; }
+              }
+            } else {
+              for (let di = 0; di < 7; di++) {
+                if (evStart < addDays(days[di], 1) && evEnd > days[di]) { dayIdx = di; break; }
+              }
+            }
+            if (dayIdx === -1) return null;
+            const dS = days[dayIdx];
+            const dE = addDays(dS, 1);
+            const segS2 = evStart > dS ? evStart : dS;
+            const segE2 = evEnd < dE ? evEnd : dE;
+            const { top, height } = segmentTimeOffsetAndHeight(segS2, segE2, dS, hourHeight);
+            let x: number;
+            if (ev.status === 'active') {
+              x = GUTTER_W + dayIdx * colW + colW / 2;
+            } else {
+              const laneIdx = bgLaneIdxMap.get(`${dayIdx}:${evId}`) ?? 0;
+              x = GUTTER_W + dayIdx * colW + 2 + laneIdx * (LANE_W_SVG + LANE_GAP_SVG) + LANE_W_SVG / 2;
+            }
+            return { x, y: isBottom ? top + height : top, dayIdx };
+          }
+
+          const paths = dependencies.map(dep => {
+            const from = getEventAnchor(dep.predecessor_id, true);
+            const to = getEventAnchor(dep.successor_id, false);
+            if (!from || !to) return null;
+            const color = allEvMap.get(dep.predecessor_id)?.color ?? AUTO_COLORS[0];
+            const sameDay = from.dayIdx === to.dayIdx;
+            const BOTTOM_Y = 24 * hourHeight;
+            const d = sameDay
+              ? `M ${from.x},${from.y} L ${from.x},${(from.y + to.y) / 2} L ${to.x},${(from.y + to.y) / 2} L ${to.x},${to.y}`
+              : `M ${from.x},${from.y} L ${from.x},${BOTTOM_Y} M ${to.x},0 L ${to.x},${to.y}`;
+            return (
+              <g key={dep.id} opacity={0.65}>
+                <path d={d} fill="none" stroke={color} strokeWidth="1" strokeLinejoin="round" />
+                <circle cx={to.x} cy={to.y} r={2} fill={color} />
+              </g>
+            );
+          }).filter(Boolean);
+
+          let rubberBand: React.ReactNode = null;
+          if (connectingFrom && connectingPos && bodyRef.current) {
+            const fromAnchor = getEventAnchor(connectingFrom.id, true);
+            const br = bodyRef.current.getBoundingClientRect();
+            const toX = connectingPos.x - br.left;
+            const toY = connectingPos.y - br.top + bodyRef.current.scrollTop;
+            if (fromAnchor) {
+              const ctrl = Math.min(48, Math.abs(toY - fromAnchor.y) * 0.4);
+              rubberBand = (
+                <path
+                  d={`M ${fromAnchor.x},${fromAnchor.y} C ${fromAnchor.x},${fromAnchor.y + ctrl} ${toX},${toY - ctrl} ${toX},${toY}`}
+                  fill="none" stroke="#6B6B66" strokeWidth="1.5" strokeDasharray="4 3" opacity={0.45}
+                />
+              );
+            }
+          }
+
+          if (paths.length === 0 && !rubberBand) return null;
+          return (
+            <svg style={{
+              position: 'absolute', top: 0, left: 0,
+              width: '100%', height: 24 * hourHeight,
+              pointerEvents: 'none', overflow: 'visible', zIndex: 6,
+            }}>
+              {paths}
+              {rubberBand}
+            </svg>
+          );
+        })()}
       </div>
     </div>
   );
 }
 
-function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCommit, onEventClick, onGcalEventClick, onEventDrop, onMoreClick, blocked }: {
+function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCommit, onEventClick, onGcalEventClick, onEventDrop, onMoreClick, blocked, touchedEntities }: {
   anchorDate: Date;
   today: Date;
   googleEvents: GoogleCalendarEvent[];
@@ -641,6 +945,7 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
   onEventDrop: EventDropFn;
   onMoreClick: (date: Date) => void;
   blocked: React.MutableRefObject<boolean>;
+  touchedEntities: Map<string, 'create' | 'edit' | 'delete'>;
 }) {
   const monthStart = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
   const startDay = monthStart.getDay();
@@ -672,6 +977,7 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
   function handleEventDragStart(ev: CalendarEvent, e: React.MouseEvent) {
     if (e.button !== 0) return;
     if (blocked.current) return;
+    if (ev.recurrence_parent_id) return;
     e.stopPropagation();
     e.preventDefault();
     const evStart = new Date(ev.start_at);
@@ -707,6 +1013,7 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
   function handleMonthResizeStart(ev: CalendarEvent, e: React.MouseEvent) {
     if (e.button !== 0) return;
     if (blocked.current) return;
+    if (ev.recurrence_parent_id) return;
     e.stopPropagation();
     e.preventDefault();
     const drag: MonthResizeDrag = { event: ev, previewEndAt: new Date(ev.end_at) };
@@ -953,20 +1260,22 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
                   const isLastDay = midnightEnd
                     ? isSameDay(new Date(evEnd.getTime() - 86400000), date)
                     : isSameDay(evEnd, date);
+                  const monthSingleTouchClass = touchedEntities.get(ev.id) ?? (ev.recurrence_parent_id ? touchedEntities.get(ev.recurrence_parent_id) : undefined);
                   return (
                     <div
                       key={ev.id}
-                      className={`monthGcalEvent monthLocalEvent${isBg ? ' monthBgEvent' : ''}`}
+                      className={`monthGcalEvent monthLocalEvent${isBg ? ' monthBgEvent' : ''}${monthSingleTouchClass ? ` touch-${monthSingleTouchClass}` : ''}`}
                       style={isBg
-                        ? { backgroundColor: color + '18', border: `1.5px dashed ${color}88`, color, opacity: isMoving ? 0.25 : 1, cursor: 'grab', position: 'relative' }
-                        : { backgroundColor: color + 'dd', opacity: isMoving ? 0.25 : 1, cursor: 'grab', position: 'relative' }
+                        ? { backgroundColor: color + '18', border: `1.5px dashed ${color}88`, color, opacity: isMoving ? 0.25 : 1, cursor: ev.recurrence_parent_id ? 'pointer' : 'grab', position: 'relative' }
+                        : { backgroundColor: color + 'dd', opacity: isMoving ? 0.25 : 1, cursor: ev.recurrence_parent_id ? 'pointer' : 'grab', position: 'relative' }
                       }
                       title={ev.name}
                       onMouseDown={e => handleEventDragStart(ev, e)}
                       onClick={e => { e.stopPropagation(); if (!moveDrag && !monthResizeDrag) onEventClick(ev, e.clientX, e.clientY); }}
                     >
+                      {ev.recurrence_parent_id && <span style={{ marginRight: 2, fontSize: '9px', opacity: 0.75 }}>↻</span>}
                       {ev.name}
-                      {isLastDay && (
+                      {isLastDay && !ev.recurrence_parent_id && (
                         <div className="monthEventResizeHandle" onMouseDown={e => handleMonthResizeStart(ev, e)} />
                       )}
                     </div>
@@ -1007,10 +1316,11 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
           const color = ev.color ?? AUTO_COLORS[0];
           const isBg = ev.status !== 'active';
           const isMoving = !bar.isGhost && moveDrag?.event.id === ev.id;
+          const barTouchClass = !bar.isGhost ? (touchedEntities.get(ev.id) ?? (ev.recurrence_parent_id ? touchedEntities.get(ev.recurrence_parent_id) : undefined)) : undefined;
           return (
             <div
               key={`${ev.id}-r${bar.rowIdx}-${bi}`}
-              className="monthMultiDayBar"
+              className={`monthMultiDayBar${barTouchClass ? ` touch-${barTouchClass}` : ''}`}
               style={{
                 top: `calc(${bar.rowIdx} / 6 * 100% + ${MONTH_BAR_TOP + bar.lane * MONTH_BAR_STRIDE}px)`,
                 left: `calc(${bar.colStart} / 7 * 100% + ${bar.isStart ? 3 : 0}px)`,
@@ -1027,10 +1337,11 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
             >
               {bar.isStart && (
                 <span className="monthMultiDayBarLabel" style={isBg ? { color } : { color: '#fff' }}>
+                  {ev.recurrence_parent_id && <span style={{ marginRight: 3, opacity: 0.75 }}>↻</span>}
                   {ev.name}
                 </span>
               )}
-              {bar.isEnd && !bar.isGhost && (
+              {bar.isEnd && !bar.isGhost && !ev.recurrence_parent_id && (
                 <div className="monthEventResizeHandle" onMouseDown={e => handleMonthResizeStart(ev, e)} />
               )}
             </div>
@@ -1065,11 +1376,15 @@ export function CalendarPage() {
   const [plans, setPlans] = useState<CalendarPlan[]>([]);
   const [localEvents, setLocalEvents] = useState<CalendarEvent[]>([]);
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
+  const [dependencies, setDependencies] = useState<EventDependency[]>([]);
+  const [touchedEntities, setTouchedEntities] = useState<Map<string, 'create' | 'edit' | 'delete'>>(new Map());
   const [editingEvent, setEditingEvent] = useState<EditingEvent | null>(null);
   const [gcalPopoverEvent, setGcalPopoverEvent] = useState<{ event: GoogleCalendarEvent; anchorX: number; anchorY: number } | null>(null);
 
   const editingSnapshotRef = useRef<CalendarEvent | null>(null);
   const newEventIdRef = useRef<string | null>(null);
+  const allEventsRef = useRef(allEvents);
+  allEventsRef.current = allEvents;
 
   const weekStart = startOfWeek(anchorDate);
 
@@ -1088,6 +1403,7 @@ export function CalendarPage() {
       setGcalHasCredentials(hasCredentials);
     });
     window.calendarAPI.listPlans().then(setPlans);
+    window.calendarAPI.listDependencies().then(setDependencies);
   }, []);
 
   const refreshLocalEvents = useCallback(() => {
@@ -1100,6 +1416,86 @@ export function CalendarPage() {
 
   useEffect(() => { refreshLocalEvents(); }, [refreshLocalEvents]);
   useEffect(() => { refreshAllEvents(); }, [refreshAllEvents]);
+
+  const expandedLocalEvents = useMemo(() => {
+    const from = new Date(viewRange[0]);
+    const to = new Date(viewRange[1]);
+    const planColorMap = new Map(plans.map(p => [p.id, p.color]));
+    return localEvents.flatMap(ev => {
+      const instances = expandRecurringEvent(ev, from, to);
+      const planColor = ev.plan_id ? planColorMap.get(ev.plan_id) : undefined;
+      return planColor ? instances.map(i => ({ ...i, color: planColor })) : instances;
+    });
+  }, [localEvents, viewRange[0], viewRange[1], plans]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const applyTouch = useCallback((id: string, kind: 'create' | 'edit' | 'delete') => {
+    setTouchedEntities(prev => new Map(prev).set(id, kind));
+    setTimeout(() => {
+      setTouchedEntities(prev => { const n = new Map(prev); n.delete(id); return n; });
+    }, 1800);
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = window.calendarAPI.onCalendarMutation((mutation) => {
+      switch (mutation.type) {
+        case 'plan-created':
+          setPlans(prev => [...prev, mutation.plan]);
+          applyTouch(mutation.plan.id, 'create');
+          break;
+        case 'plan-updated':
+          setPlans(prev => prev.map(p => p.id === mutation.plan.id ? mutation.plan : p));
+          applyTouch(mutation.plan.id, 'edit');
+          break;
+        case 'plan-deleted':
+          setPlans(prev => prev.filter(p => p.id !== mutation.planId));
+          setLocalEvents(prev => prev.map(e => e.plan_id === mutation.planId ? { ...e, plan_id: null } : e));
+          setAllEvents(prev => prev.map(e => e.plan_id === mutation.planId ? { ...e, plan_id: null } : e));
+          applyTouch(mutation.planId, 'delete');
+          break;
+        case 'event-created':
+          setLocalEvents(prev => [...prev, mutation.event]);
+          setAllEvents(prev => [...prev, mutation.event]);
+          applyTouch(mutation.event.id, 'create');
+          break;
+        case 'event-updated':
+          setLocalEvents(prev => prev.map(e => e.id === mutation.event.id ? mutation.event : e));
+          setAllEvents(prev => prev.map(e => e.id === mutation.event.id ? mutation.event : e));
+          applyTouch(mutation.event.id, 'edit');
+          break;
+        case 'event-deleted':
+          applyTouch(mutation.eventId, 'delete');
+          setTimeout(() => {
+            setLocalEvents(prev => prev.filter(e => e.id !== mutation.eventId));
+            setAllEvents(prev => prev.filter(e => e.id !== mutation.eventId));
+          }, 1000);
+          break;
+        case 'event-moved':
+          setLocalEvents(prev => prev.map(e => {
+            if (e.id === mutation.moved.id) return mutation.moved;
+            const c = mutation.cascaded.find(cu => cu.eventId === e.id);
+            return c ? { ...e, start_at: c.newStartAt, end_at: c.newEndAt } : e;
+          }));
+          setAllEvents(prev => prev.map(e => {
+            if (e.id === mutation.moved.id) return mutation.moved;
+            const c = mutation.cascaded.find(cu => cu.eventId === e.id);
+            return c ? { ...e, start_at: c.newStartAt, end_at: c.newEndAt } : e;
+          }));
+          applyTouch(mutation.moved.id, 'edit');
+          for (const c of mutation.cascaded) applyTouch(c.eventId, 'edit');
+          break;
+        case 'dependency-created':
+          setDependencies(prev => [...prev, mutation.dependency]);
+          break;
+        case 'dependency-updated':
+          setDependencies(prev => prev.map(d => d.id === mutation.dependency.id ? mutation.dependency : d));
+          break;
+        case 'dependency-deleted':
+          setDependencies(prev => prev.filter(d => d.id !== mutation.dependencyId));
+          break;
+      }
+    });
+    return unsubscribe;
+  }, [applyTouch]);
 
   useEffect(() => {
     if (!gcalConnected) return;
@@ -1145,6 +1541,10 @@ export function CalendarPage() {
   const dateRangeLabel = view === 'week'
     ? formatWeekRange(weekStart)
     : formatMonthYear(anchorDate);
+
+  const isViewingToday = view === 'week'
+    ? isSameDay(weekStart, startOfWeek(today))
+    : anchorDate.getFullYear() === today.getFullYear() && anchorDate.getMonth() === today.getMonth();
 
   const startResize = useCallback((side: 'left' | 'right') => (e: React.MouseEvent) => {
     e.preventDefault();
@@ -1203,8 +1603,11 @@ export function CalendarPage() {
   }, []);
 
   const handleEventClick = useCallback((event: CalendarEvent, anchorX: number, anchorY: number) => {
-    editingSnapshotRef.current = event;
-    setEditingEvent({ event, anchorX, anchorY });
+    const masterEvent = event.recurrence_parent_id
+      ? (allEventsRef.current.find(e => e.id === event.recurrence_parent_id) ?? event)
+      : event;
+    editingSnapshotRef.current = masterEvent;
+    setEditingEvent({ event: masterEvent, anchorX, anchorY });
   }, []);
 
   // Optimistic status preview: immediately reflect status toggle in the calendar view
@@ -1250,14 +1653,39 @@ export function CalendarPage() {
     const optimistic = { ...event, start_at: newStartAt.toISOString(), end_at: newEndAt.toISOString() };
     setLocalEvents(prev => prev.map(e => e.id === event.id ? optimistic : e));
     setAllEvents(prev => prev.map(e => e.id === event.id ? optimistic : e));
-    const updated = await window.calendarAPI.updateEvent(event.id, {
-      start_at: newStartAt.toISOString(),
-      end_at: newEndAt.toISOString(),
-    });
-    if (updated) {
-      setLocalEvents(prev => prev.map(e => e.id === event.id ? updated : e));
-      setAllEvents(prev => prev.map(e => e.id === event.id ? updated : e));
+    const result = await window.calendarAPI.moveEventWithCascade(
+      event.id,
+      newStartAt.toISOString(),
+      newEndAt.toISOString(),
+    );
+    if (result) {
+      setLocalEvents(prev => prev.map(e => {
+        if (e.id === event.id) return result.moved;
+        const cascaded = result.cascaded.find((u: CascadeUpdate) => u.eventId === e.id);
+        if (cascaded) return { ...e, start_at: cascaded.newStartAt, end_at: cascaded.newEndAt };
+        return e;
+      }));
+      setAllEvents(prev => prev.map(e => {
+        if (e.id === event.id) return result.moved;
+        const cascaded = result.cascaded.find((u: CascadeUpdate) => u.eventId === e.id);
+        if (cascaded) return { ...e, start_at: cascaded.newStartAt, end_at: cascaded.newEndAt };
+        return e;
+      }));
     }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleDependencyCreate = useCallback(async (predecessorId: string, successorId: string) => {
+    const result = await window.calendarAPI.createDependency({ predecessor_id: predecessorId, successor_id: successorId });
+    if ('error' in result) {
+      // Could show a toast here — for now just ignore
+      return;
+    }
+    setDependencies(prev => [...prev, result]);
+  }, []);
+
+  const handleDependencyDelete = useCallback(async (id: string) => {
+    await window.calendarAPI.deleteDependency(id);
+    setDependencies(prev => prev.filter(d => d.id !== id));
   }, []);
 
   async function handleDelete(id: string) {
@@ -1270,10 +1698,11 @@ export function CalendarPage() {
   return (
     <div className="calendarPage" ref={containerRef}>
       <div className="calendarPanel" style={{ width: `${leftWidth}%` }}>
-        <div className="calendarPanelSection">
+        <div className="calendarPanelSectionTop">
           <CalendarSidebar
             plans={plans}
             allEvents={allEvents}
+            dependencies={dependencies}
             onEventClick={(event, anchorX, anchorY) => {
               editingSnapshotRef.current = event;
               setEditingEvent({ event, anchorX, anchorY });
@@ -1306,9 +1735,15 @@ export function CalendarPage() {
               const plan = await window.calendarAPI.createPlan({ name, color });
               setPlans(prev => [...prev, plan]);
             }}
+            onRenamePlan={async (planId, newName) => {
+              const updated = await window.calendarAPI.updatePlan(planId, { name: newName });
+              if (updated) setPlans(prev => prev.map(p => p.id === planId ? updated : p));
+            }}
           />
         </div>
-        <div className="calendarPanelSection" />
+        <div className="calendarPanelSectionBottom">
+          <CalendarReactionsInbox allEvents={allEvents} plans={plans} />
+        </div>
       </div>
       <div className="calendarResizeHandle" onMouseDown={startResize('left')} />
       <div className="calendarContainer" style={{ flex: 1, minWidth: 0 }}>
@@ -1329,24 +1764,31 @@ export function CalendarPage() {
                 </svg>
               </button>
             </div>
-            <button className="calendarTodayButton" onClick={() => setAnchorDate(new Date())}>
-              <div className="calendarTodayText">Today</div>
+            <button
+              className={isViewingToday ? 'calendarTodayButton calendarTodayButtonActive' : 'calendarTodayButton'}
+              onClick={() => setAnchorDate(new Date())}
+            >
+              <div className={isViewingToday ? 'calendarTodayText calendarTodayTextActive' : 'calendarTodayText'}>
+                {view === 'week' ? 'This Week' : 'This Month'}
+              </div>
             </button>
           </div>
 
-          <div className="calendarViewToggle">
-            <button
-              className={view === 'week' ? 'calendarViewOptionActive' : 'calendarViewOption'}
-              onClick={() => setView('week')}
-            >
-              <div className={view === 'week' ? 'calendarViewTextActive' : 'calendarViewText'}>Week</div>
-            </button>
-            <button
-              className={view === 'month' ? 'calendarViewOptionActive' : 'calendarViewOption'}
-              onClick={() => setView('month')}
-            >
-              <div className={view === 'month' ? 'calendarViewTextActive' : 'calendarViewText'}>Month</div>
-            </button>
+          <div className="calendarControlsRight">
+            <div className="calendarViewToggle">
+              <button
+                className={view === 'week' ? 'calendarViewOptionActive' : 'calendarViewOption'}
+                onClick={() => setView('week')}
+              >
+                <div className={view === 'week' ? 'calendarViewTextActive' : 'calendarViewText'}>Week</div>
+              </button>
+              <button
+                className={view === 'month' ? 'calendarViewOptionActive' : 'calendarViewOption'}
+                onClick={() => setView('month')}
+              >
+                <div className={view === 'month' ? 'calendarViewTextActive' : 'calendarViewText'}>Month</div>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1355,24 +1797,29 @@ export function CalendarPage() {
               weekStart={weekStart}
               today={today}
               googleEvents={gcalEnabled ? googleEvents : []}
-              localEvents={localEvents}
+              localEvents={expandedLocalEvents}
+              allEvents={allEvents}
+              dependencies={dependencies}
               onSelectionCommit={handleSelectionCommit}
               onEventClick={handleEventClick}
               onGcalEventClick={(ev, x, y) => setGcalPopoverEvent({ event: ev, anchorX: x, anchorY: y })}
               onEventDrop={handleEventDrop}
+              onDependencyCreate={handleDependencyCreate}
               blocked={popoverOpenRef}
+              touchedEntities={touchedEntities}
             />
           : <MonthView
               anchorDate={anchorDate}
               today={today}
               googleEvents={gcalEnabled ? googleEvents : []}
-              localEvents={localEvents}
+              localEvents={expandedLocalEvents}
               onSelectionCommit={handleSelectionCommit}
               onEventClick={handleEventClick}
               onGcalEventClick={(ev, x, y) => setGcalPopoverEvent({ event: ev, anchorX: x, anchorY: y })}
               onEventDrop={handleEventDrop}
               onMoreClick={date => { setAnchorDate(date); setView('week'); }}
               blocked={popoverOpenRef}
+              touchedEntities={touchedEntities}
             />
         }
 
@@ -1453,6 +1900,8 @@ export function CalendarPage() {
         <EventEditPopover
           event={editingEvent.event}
           plans={plans}
+          allEvents={allEvents}
+          dependencies={dependencies}
           anchorX={editingEvent.anchorX}
           anchorY={editingEvent.anchorY}
           onSave={handleSave}
@@ -1460,6 +1909,7 @@ export function CalendarPage() {
           onClose={handleModalClose}
           onStatusChange={handleStatusPreview}
           onColorChange={handleColorPreview}
+          onDependencyDelete={handleDependencyDelete}
         />
       )}
       {gcalPopoverEvent && (

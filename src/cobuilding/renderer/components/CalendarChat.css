@@ -15,17 +15,18 @@
   color: #1A1A18;
 }
 
-.calendarChatThread .threadViewport {
-  scrollbar-width: none;
-  padding-inline: 8px;
-}
-
 .calendarChatThread .threadContent {
   flex-grow: 0;
+  margin-top: auto;
 }
 
-.calendarChatThread .threadViewport::-webkit-scrollbar {
-  display: none;
+.calendarChatThread .threadViewport {
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-inline: 8px;
+  padding-top: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
 }
 
 .calendarChatThread .threadViewportFooter {

@@ -152,6 +152,66 @@ export interface PlanFile {
   created_at: string;
 }
 
+export type CalendarResourceType = 'file' | 'link' | 'note' | 'folder';
+
+export interface CalendarResource {
+  id: string;
+  workspace_id: string;
+  type: CalendarResourceType;
+  event_id: string | null;
+  plan_id: string | null;
+  parent_id: string | null;
+  file_path: string | null;
+  url: string | null;
+  note_content: string | null;
+  title: string;
+  sort_order: number;
+  ai_generated: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateResourceData {
+  type: CalendarResourceType;
+  event_id?: string | null;
+  plan_id?: string | null;
+  parent_id?: string | null;
+  file_path?: string | null;
+  url?: string | null;
+  note_content?: string | null;
+  title?: string;
+  sort_order?: number;
+  ai_generated?: boolean;
+}
+
+export interface UpdateResourceData {
+  title?: string;
+  url?: string;
+  note_content?: string;
+  file_path?: string;
+}
+
+export interface MoveResourceData {
+  plan_id?: string | null;
+  event_id?: string | null;
+  parent_id?: string | null;
+  sort_order?: number;
+}
+
+export interface ListResourcesOptions {
+  event_id?: string;
+  plan_id?: string;
+  parent_id?: string | null;
+  standalone?: boolean;
+}
+
+export interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  children?: WorkspaceFileEntry[];
+}
+
 export interface CreatePlanData {
   name: string;
   color: string;
@@ -182,4 +242,64 @@ export interface UpdateEventData {
   status?: 'active' | 'inactive' | 'inactive_hidden';
   color?: string | null;
   recurrence_rule?: string | null;
+}
+
+export interface EventDependency {
+  id: string;
+  predecessor_id: string;
+  successor_id: string;
+  lag_min_ms: number;
+  lag_max_ms: number | null;
+  lag_current_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDependencyData {
+  predecessor_id: string;
+  successor_id: string;
+  lag_min_ms?: number;
+  lag_max_ms?: number | null;
+  lag_current_ms?: number;
+}
+
+export interface UpdateDependencyData {
+  lag_min_ms?: number;
+  lag_max_ms?: number | null;
+  lag_current_ms?: number;
+}
+
+export interface CascadeUpdate {
+  eventId: string;
+  newStartAt: string;
+  newEndAt: string;
+}
+
+// ---- Calendar Reactions (AI Insights) ----
+
+export interface CalendarReaction {
+  id: string;
+  workspace_id: string;
+  event_id: string | null;
+  plan_id: string | null;
+  title: string;
+  content: string;
+  status: 'unread' | 'read' | 'dismissed';
+  trigger_context: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateReactionData {
+  event_id?: string | null;
+  plan_id?: string | null;
+  title: string;
+  content: string;
+  trigger_context: string;
+}
+
+export interface CalendarEditBundle {
+  mutations: Array<{ type: string; entityId: string; entityName?: string; timestamp: string }>;
+  workspaceId: string;
+  triggeredAt: string;
 }

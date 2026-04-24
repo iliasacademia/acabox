@@ -38,7 +38,12 @@ interface AnthropicToolUseBlock {
   input: Record<string, unknown>;
 }
 
-type AnthropicContentBlock = AnthropicTextBlock | AnthropicToolUseBlock;
+interface AnthropicThinkingBlock {
+  type: 'thinking';
+  thinking: string;
+}
+
+type AnthropicContentBlock = AnthropicTextBlock | AnthropicToolUseBlock | AnthropicThinkingBlock;
 
 interface AnthropicToolResultBlock {
   type: 'tool_result';
@@ -118,11 +123,14 @@ function convertAssistantContent(content: string, toolResults: ToolResultsMap) {
   const blocks = parsed as AnthropicContentBlock[];
   return blocks
     .filter((block): block is AnthropicContentBlock =>
-      block.type === 'text' || block.type === 'tool_use',
+      block.type === 'text' || block.type === 'tool_use' || block.type === 'thinking',
     )
     .map((block) => {
       if (block.type === 'text') {
         return { type: 'text' as const, text: block.text };
+      }
+      if (block.type === 'thinking') {
+        return { type: 'reasoning' as const, text: block.thinking };
       }
       const result = toolResults.get(block.id);
       return {

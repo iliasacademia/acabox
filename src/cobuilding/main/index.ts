@@ -8,6 +8,8 @@ import { registerFileHandlers, assertWithinWorkspace } from './fileHandlers';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { createAgentSession } from './agentSession';
+import { createCalendarAgentSession } from './calendarAgentSession';
+import type { CalendarMutationEvent } from './calendarAgentSession';
 import { registerSession, unregisterSession, getRegisteredSession, hasSession, destroyAllSessions } from './sessionRegistry';
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
@@ -91,7 +93,35 @@ import {
   addPlanFile,
   listPlanFiles,
   removePlanFile,
+  getEvent,
 } from './db/calendarRepository';
+import {
+  createDependency,
+  getDependency,
+  getSuccessors,
+  listDependenciesByWorkspace,
+  updateDependency,
+  deleteDependency,
+  hasCycle,
+  applyCascade,
+  adjustBufferAndCascade,
+} from './db/dependencyRepository';
+import {
+  createResource,
+  listResources,
+  updateResource,
+  moveResource,
+  deleteResource,
+} from './db/resourceRepository';
+import {
+  createReaction,
+  listReactions,
+  countUnreadReactions,
+  updateReactionStatus,
+  deleteReaction,
+} from './db/calendarReactionRepository';
+import { createCalendarReactionService } from './calendarReactionService';
+import type { CalendarReactionService } from './calendarReactionService';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
@@ -339,6 +369,8 @@ let activeWorkspace: Workspace | null = null;
 
 let cachedApiKey: string | null = null;
 
+let calendarReactionSvc: CalendarReactionService | null = null;
+
 // Shared edit state store — keyed by toolCallId, synced between overlay and desktop
 const editStates = new Map<string, string>();
 
@@ -557,6 +589,15 @@ app.whenReady().then(() => {
       ensureReactionsTask(activeWorkspace.id);
     }
     startScheduledTasks(handleNotificationNavigation);
+
+    calendarReactionSvc = createCalendarReactionService(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('calendar:reactionsUpdated');
+      }
+    });
+    if (activeWorkspace) {
+      calendarReactionSvc.setWorkspace(activeWorkspace.id, activeWorkspace.api_key);
+    }
 
     // Start HTTP server and window monitor for the Word overlay
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
@@ -871,6 +912,7 @@ ipcMain.handle(
       const scheduler = getTaskScheduler();
       scheduler.stop();
       scheduler.start();
+      calendarReactionSvc?.setWorkspace(activeWorkspace.id, activeWorkspace.api_key);
     }
     return activeWorkspace ?? null;
   },
@@ -1523,60 +1565,85 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
   }
 
   const isNotesSession = threadId.startsWith('notes-assistant-');
+  const isCalendarSession = threadId === 'calendar-assistant';
   let isFirstMessage = false;
 
   if (!hasSession(threadId)) {
     const existingDbSession = getSession(threadId);
     isFirstMessage = !existingDbSession;
 
-    let messagePreprocessor: ((text: string) => string) | undefined;
-    if (isNotesSession && !existingDbSession?.sdk_session_id) {
-      // Only inject history on the first SDK turn for this session.
-      // Subsequent turns resume the SDK session which already has context.
-      const dayFile = threadId.replace('notes-assistant-', '');
-      const notesFilePath = `.notes/${dayFile}.md`;
-      let injected = false;
-      messagePreprocessor = (userText: string) => {
-        if (injected) return userText;
-        injected = true;
-        const history = buildNotesConversationHistory(threadId);
-        let enriched = '';
-        if (history) {
-          enriched += `## Background Context\n\nHere is the conversation history from this notes session (the user is dictating notes via speech-to-text, and some of these are automated request/response pairs detected by an assistant):\n\n${history}\n\n`;
-        }
-        enriched += `## Important\n\nThe user's dictation notes for today are stored in the file at: ${notesFilePath}\nPlease make sure to read this file to understand the full context of their notes before responding.\n\n`;
-        enriched += `## User's Request\n\n${userText}`;
-        return enriched;
-      };
+    if (isCalendarSession) {
+      const session = createCalendarAgentSession(
+        threadId,
+        activeWorkspace.id,
+        activeWorkspace.api_key,
+        activeWorkspace.directory_path,
+        {
+          onEvent: () => {},
+          onDone: () => {},
+          onError: () => { unregisterSession(threadId); },
+        },
+        (mutation: CalendarMutationEvent) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('calendar:mutation', mutation);
+          }
+        },
+      );
+      registerSession(threadId, session);
+      event.sender.on('destroyed', () => {
+        session.destroy();
+        unregisterSession(threadId);
+      });
+    } else {
+      let messagePreprocessor: ((text: string) => string) | undefined;
+      if (isNotesSession && !existingDbSession?.sdk_session_id) {
+        // Only inject history on the first SDK turn for this session.
+        // Subsequent turns resume the SDK session which already has context.
+        const dayFile = threadId.replace('notes-assistant-', '');
+        const notesFilePath = `.notes/${dayFile}.md`;
+        let injected = false;
+        messagePreprocessor = (userText: string) => {
+          if (injected) return userText;
+          injected = true;
+          const history = buildNotesConversationHistory(threadId);
+          let enriched = '';
+          if (history) {
+            enriched += `## Background Context\n\nHere is the conversation history from this notes session (the user is dictating notes via speech-to-text, and some of these are automated request/response pairs detected by an assistant):\n\n${history}\n\n`;
+          }
+          enriched += `## Important\n\nThe user's dictation notes for today are stored in the file at: ${notesFilePath}\nPlease make sure to read this file to understand the full context of their notes before responding.\n\n`;
+          enriched += `## User's Request\n\n${userText}`;
+          return enriched;
+        };
+      }
+
+      const session = createAgentSession(
+        threadId,
+        {
+          onEvent: () => {},
+          onDone: () => {},
+          onError: () => { unregisterSession(threadId); },
+        },
+        activeWorkspace,
+        existingDbSession?.sdk_session_id ?? undefined,
+        isNotesSession ? 'notes-assistant' : undefined,
+        handleNotificationNavigation,
+        model,
+        messagePreprocessor,
+      );
+
+      registerSession(threadId, session);
+
+      event.sender.on('destroyed', () => {
+        session.destroy();
+        unregisterSession(threadId);
+      });
     }
-
-    const session = createAgentSession(
-      threadId,
-      {
-        onEvent: () => {},
-        onDone: () => {},
-        onError: () => { unregisterSession(threadId); },
-      },
-      activeWorkspace,
-      existingDbSession?.sdk_session_id ?? undefined,
-      isNotesSession ? 'notes-assistant' : undefined,
-      handleNotificationNavigation,
-      model,
-      messagePreprocessor,
-    );
-
-    registerSession(threadId, session);
-
-    event.sender.on('destroyed', () => {
-      session.destroy();
-      unregisterSession(threadId);
-    });
   }
 
   ensureForwarding(threadId, event.sender);
   getRegisteredSession(threadId)!.sendMessage(text, attachments);
 
-  if (isFirstMessage && !isNotesSession && activeWorkspace.api_key) {
+  if (isFirstMessage && !isNotesSession && !isCalendarSession && activeWorkspace.api_key) {
     generateSessionTitle(threadId, text, activeWorkspace.api_key);
   }
 });
@@ -2221,7 +2288,9 @@ ipcMain.handle('calendar:listPlans', async () => {
 ipcMain.handle('calendar:createPlan', async (_event, data) => {
   const ws = getActiveWorkspace();
   if (!ws) throw new Error('No active workspace');
-  return createPlan(ws.id, data);
+  const plan = createPlan(ws.id, data);
+  calendarReactionSvc?.recordMutation({ type: 'plan-created', entityId: plan.id, entityName: plan.name, timestamp: new Date().toISOString() });
+  return plan;
 });
 
 ipcMain.handle('calendar:updatePlan', async (_event, id: string, data) => {
@@ -2245,11 +2314,15 @@ ipcMain.handle('calendar:listEvents', async (_event, opts) => {
 ipcMain.handle('calendar:createEvent', async (_event, data) => {
   const ws = getActiveWorkspace();
   if (!ws) throw new Error('No active workspace');
-  return createEvent(ws.id, data);
+  const event = createEvent(ws.id, data);
+  calendarReactionSvc?.recordMutation({ type: 'event-created', entityId: event.id, entityName: event.name, timestamp: new Date().toISOString() });
+  return event;
 });
 
 ipcMain.handle('calendar:updateEvent', async (_event, id: string, data) => {
-  return updateEvent(id, data) ?? null;
+  const event = updateEvent(id, data) ?? null;
+  if (event) calendarReactionSvc?.recordMutation({ type: 'event-updated', entityId: event.id, entityName: event.name, timestamp: new Date().toISOString() });
+  return event;
 });
 
 ipcMain.handle('calendar:deleteEvent', async (_event, id: string) => {
@@ -2257,7 +2330,9 @@ ipcMain.handle('calendar:deleteEvent', async (_event, id: string) => {
 });
 
 ipcMain.handle('calendar:addEventFile', async (_event, eventId: string, filePath: string) => {
-  return addEventFile(eventId, filePath);
+  const result = addEventFile(eventId, filePath);
+  calendarReactionSvc?.recordMutation({ type: 'event-file-added', entityId: eventId, entityName: filePath, timestamp: new Date().toISOString() });
+  return result;
 });
 
 ipcMain.handle('calendar:listEventFiles', async (_event, eventId: string) => {
@@ -2269,7 +2344,9 @@ ipcMain.handle('calendar:removeEventFile', async (_event, id: number) => {
 });
 
 ipcMain.handle('calendar:addPlanFile', async (_event, planId: string, filePath: string) => {
-  return addPlanFile(planId, filePath);
+  const result = addPlanFile(planId, filePath);
+  calendarReactionSvc?.recordMutation({ type: 'plan-file-added', entityId: planId, entityName: filePath, timestamp: new Date().toISOString() });
+  return result;
 });
 
 ipcMain.handle('calendar:listPlanFiles', async (_event, planId: string, includeFromEvents?: boolean) => {
@@ -2278,6 +2355,145 @@ ipcMain.handle('calendar:listPlanFiles', async (_event, planId: string, includeF
 
 ipcMain.handle('calendar:removePlanFile', async (_event, id: number) => {
   removePlanFile(id);
+});
+
+// ---- Calendar Resources IPC handlers ----
+
+ipcMain.handle('calendar:listResources', async (_event, opts) => {
+  const ws = getActiveWorkspace();
+  if (!ws) return [];
+  return listResources(ws.id, opts ?? {});
+});
+
+ipcMain.handle('calendar:createResource', async (_event, data) => {
+  const ws = getActiveWorkspace();
+  if (!ws) throw new Error('No active workspace');
+  const resource = createResource(ws.id, data);
+  if (!data.ai_generated) {
+    // Use the linked event/plan as the entity so cooldown checks work correctly.
+    const entityId = data.event_id ?? data.plan_id ?? resource.id;
+    calendarReactionSvc?.recordMutation({ type: 'resource-added', entityId, entityName: resource.title, timestamp: new Date().toISOString() });
+  }
+  return resource;
+});
+
+ipcMain.handle('calendar:updateResource', async (_event, id: string, data) => {
+  return updateResource(id, data) ?? null;
+});
+
+ipcMain.handle('calendar:deleteResource', async (_event, id: string) => {
+  deleteResource(id);
+});
+
+ipcMain.handle('calendar:openResourceFile', async (_event, filePath: string) => {
+  return shell.openPath(filePath);
+});
+
+ipcMain.handle('calendar:openResourceUrl', async (_event, url: string) => {
+  await shell.openExternal(url);
+});
+
+ipcMain.handle('calendar:revealResourceFile', async (_event, filePath: string) => {
+  shell.showItemInFolder(filePath);
+});
+
+
+ipcMain.handle('calendar:moveResource', async (_event, id: string, data) => {
+  return moveResource(id, data) ?? null;
+});
+
+ipcMain.handle('calendar:listWorkspaceFiles', async () => {
+  if (!activeWorkspace) return [];
+  const baseDir = activeWorkspace.directory_path;
+  const IGNORE = new Set(['.git', 'node_modules', '.DS_Store', '__pycache__', '.applications', '.academia']);
+  function walk(dir: string, depth: number): { name: string; path: string; isDir: boolean; children?: unknown[] }[] {
+    try {
+      return fs.readdirSync(dir, { withFileTypes: true })
+        .filter(e => !IGNORE.has(e.name) && !e.name.startsWith('.'))
+        .map(e => {
+          const full = require('path').join(dir, e.name);
+          if (e.isDirectory() && depth < 2) {
+            return { name: e.name, path: full, isDir: true, children: walk(full, depth + 1) };
+          }
+          return { name: e.name, path: full, isDir: e.isDirectory() };
+        });
+    } catch { return []; }
+  }
+  return walk(baseDir, 0);
+});
+
+ipcMain.handle('calendar:pickResourceFile', async () => {
+  if (!mainWindow) return null;
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile', 'multiSelections'],
+  });
+  return result.canceled ? null : result.filePaths;
+});
+
+// ---- Event dependency IPC handlers ----
+
+ipcMain.handle('calendar:listDependencies', async () => {
+  const ws = getActiveWorkspace();
+  if (!ws) return [];
+  return listDependenciesByWorkspace(ws.id);
+});
+
+ipcMain.handle('calendar:createDependency', async (_event, data) => {
+  if (hasCycle(data.predecessor_id, data.successor_id)) {
+    return { error: 'cycle' };
+  }
+  return createDependency(data);
+});
+
+ipcMain.handle('calendar:updateDependency', async (_event, id: string, data) => {
+  return updateDependency(id, data) ?? null;
+});
+
+ipcMain.handle('calendar:deleteDependency', async (_event, id: string) => {
+  deleteDependency(id);
+});
+
+ipcMain.handle('calendar:moveEventWithCascade', async (_event, id: string, newStartAt: string, newEndAt: string) => {
+  const moved = updateEvent(id, { start_at: newStartAt, end_at: newEndAt });
+  if (!moved) return null;
+  calendarReactionSvc?.recordMutation({ type: 'event-moved', entityId: moved.id, entityName: moved.name, timestamp: new Date().toISOString() });
+  const cascaded = applyCascade(id);
+  // Fetch updated versions of cascaded events
+  const cascadedEvents = cascaded.map(u => getEvent(u.eventId)).filter(Boolean);
+  return { moved, cascaded: cascadeUpdatesWithEvents(cascaded, cascadedEvents as any[]) };
+});
+
+function cascadeUpdatesWithEvents(updates: any[], events: any[]) {
+  return updates.map(u => {
+    const ev = events.find((e: any) => e.id === u.eventId);
+    return { ...u, event: ev ?? null };
+  });
+}
+
+ipcMain.handle('calendar:adjustBuffer', async (_event, depId: string, newLagCurrentMs: number) => {
+  return adjustBufferAndCascade(depId, newLagCurrentMs);
+});
+
+// ---- Calendar Reactions IPC handlers ----
+
+ipcMain.handle('calendar:listReactions', async (_event, opts) => {
+  const ws = getActiveWorkspace();
+  if (!ws) return [];
+  return listReactions(ws.id, opts ?? {});
+});
+
+ipcMain.handle('calendar:getReactionCount', async () => {
+  const ws = getActiveWorkspace();
+  if (!ws) return { unread: 0 };
+  return { unread: countUnreadReactions(ws.id) };
+});
+
+ipcMain.handle('calendar:updateReactionStatus', async (_event, id: string, status: 'read' | 'dismissed') => {
+  return updateReactionStatus(id, status) ?? null;
+});
+
+ipcMain.handle('calendar:deleteReaction', async (_event, id: string) => {
+  deleteReaction(id);
 });
 
 // ---- Google Calendar IPC handlers ----

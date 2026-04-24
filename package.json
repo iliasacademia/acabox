@@ -157,6 +157,7 @@
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "^2.1.9",
     "remark-gfm": "^4.0.1",
+    "rrule": "^2.8.1",
     "serialize-error": "^12.0.0",
     "tesseract.js-core": "^6.0.0",
     "tough-cookie": "^5.1.2",

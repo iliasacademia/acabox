@@ -206,6 +206,39 @@ contextBridge.exposeInMainWorld('calendarAPI', {
   addPlanFile: (planId: string, filePath: string) => ipcRenderer.invoke('calendar:addPlanFile', planId, filePath),
   listPlanFiles: (planId: string, includeFromEvents?: boolean) => ipcRenderer.invoke('calendar:listPlanFiles', planId, includeFromEvents),
   removePlanFile: (id: number) => ipcRenderer.invoke('calendar:removePlanFile', id),
+
+  listResources: (opts?: unknown) => ipcRenderer.invoke('calendar:listResources', opts),
+  createResource: (data: unknown) => ipcRenderer.invoke('calendar:createResource', data),
+  updateResource: (id: string, data: unknown) => ipcRenderer.invoke('calendar:updateResource', id, data),
+  deleteResource: (id: string) => ipcRenderer.invoke('calendar:deleteResource', id),
+  openResourceFile: (filePath: string) => ipcRenderer.invoke('calendar:openResourceFile', filePath),
+  openResourceUrl: (url: string) => ipcRenderer.invoke('calendar:openResourceUrl', url),
+  revealResourceFile: (filePath: string) => ipcRenderer.invoke('calendar:revealResourceFile', filePath),
+  pickResourceFile: () => ipcRenderer.invoke('calendar:pickResourceFile'),
+  moveResource: (id: string, data: unknown) => ipcRenderer.invoke('calendar:moveResource', id, data),
+  listWorkspaceFiles: () => ipcRenderer.invoke('calendar:listWorkspaceFiles'),
+
+  listDependencies: () => ipcRenderer.invoke('calendar:listDependencies'),
+  createDependency: (data: unknown) => ipcRenderer.invoke('calendar:createDependency', data),
+  updateDependency: (id: string, data: unknown) => ipcRenderer.invoke('calendar:updateDependency', id, data),
+  deleteDependency: (id: string) => ipcRenderer.invoke('calendar:deleteDependency', id),
+  moveEventWithCascade: (id: string, newStartAt: string, newEndAt: string) => ipcRenderer.invoke('calendar:moveEventWithCascade', id, newStartAt, newEndAt),
+  adjustBuffer: (depId: string, newLagCurrentMs: number) => ipcRenderer.invoke('calendar:adjustBuffer', depId, newLagCurrentMs),
+  onCalendarMutation: (callback: (mutation: unknown) => void): (() => void) => {
+    const handler = (_event: unknown, mutation: unknown) => callback(mutation);
+    ipcRenderer.on('calendar:mutation', handler);
+    return () => { ipcRenderer.removeListener('calendar:mutation', handler); };
+  },
+
+  listReactions: (opts?: unknown) => ipcRenderer.invoke('calendar:listReactions', opts),
+  getReactionCount: () => ipcRenderer.invoke('calendar:getReactionCount'),
+  updateReactionStatus: (id: string, status: string) => ipcRenderer.invoke('calendar:updateReactionStatus', id, status),
+  deleteReaction: (id: string) => ipcRenderer.invoke('calendar:deleteReaction', id),
+  onReactionsUpdated: (callback: () => void): (() => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('calendar:reactionsUpdated', handler);
+    return () => { ipcRenderer.removeListener('calendar:reactionsUpdated', handler); };
+  },
 });
 
 contextBridge.exposeInMainWorld('googleCalendarAPI', {
