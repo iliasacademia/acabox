@@ -31,7 +31,9 @@ function escapeAppleScriptString(input: string): string {
     .replace(/\r\n/g, ' ')
     .replace(/\r/g, ' ')
     .replace(/\n/g, ' ')
-    .replace(/\t/g, ' ');
+    .replace(/\t/g, ' ')
+    // Remove control characters that break AppleScript
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
 }
 
 /**
@@ -905,29 +907,38 @@ tell application "Microsoft Word"
   if (count of documents) is 0 then
     return "error||No document open"
   end if
-  -- Temporarily set author name so tracked changes show "Academia Coscientist"
-  set origName to user name
-  set origInitials to user initials
-  set user name to "Academia Coscientist"
-  set user initials to "AC"
-  set doc to active document
-  set docRange to create range doc start 0 end (end of content of text object of doc)
-  set myFind to find object of docRange
-  set content of myFind to ${searchExpr}
-  set content of replacement of myFind to ${replaceExpr}
-  set match case of myFind to ${matchCase}
-  set forward of myFind to true
-  set wrap of myFind to find stop
-  set format of myFind to false
-  set wasReplaced to execute find myFind replace ${replaceConst}
-  -- Restore original author name
-  set user name to origName
-  set user initials to origInitials
-  if wasReplaced then
-    return "ok||1"
-  else
-    return "ok||0"
-  end if
+  try
+    -- Temporarily set author name so tracked changes show "Academia Coscientist"
+    set origName to user name
+    set origInitials to user initials
+    set user name to "Academia Coscientist"
+    set user initials to "AC"
+    set doc to active document
+    set docRange to create range doc start 0 end (end of content of text object of doc)
+    set myFind to find object of docRange
+    set content of myFind to ${searchExpr}
+    set content of replacement of myFind to ${replaceExpr}
+    set match case of myFind to ${matchCase}
+    set forward of myFind to true
+    set wrap of myFind to find stop
+    set format of myFind to false
+    set wasReplaced to execute find myFind replace ${replaceConst}
+    -- Restore original author name
+    set user name to origName
+    set user initials to origInitials
+    if wasReplaced then
+      return "ok||1"
+    else
+      return "ok||0"
+    end if
+  on error errMsg number errNum
+    -- Restore author name even on error
+    try
+      set user name to origName
+      set user initials to origInitials
+    end try
+    return "error||" & errMsg
+  end try
 end tell`;
 
     const result = await runAppleScriptStdin(script);
