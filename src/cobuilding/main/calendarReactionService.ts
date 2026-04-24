@@ -9,7 +9,7 @@ import { hasRecentReactionForEntity } from './db/calendarReactionRepository';
 import * as resources from './db/resourceRepository';
 import type { CalendarEditBundle } from '../shared/types';
 
-const DEBOUNCE_MS = 30_000;
+const DEBOUNCE_MS = 15 * 60 * 1000; // 15 minutes
 const MODEL = 'claude-sonnet-4-6';
 const MAX_TURNS = 8;
 const FETCH_MAX_BYTES = 30_000;
