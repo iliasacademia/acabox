@@ -8,7 +8,7 @@ interface CalendarResourcesPanelProps {
 }
 
 type Scope =
-  | { type: 'plan'; id: string }
+  | { type: 'group'; id: string }
   | { type: 'event'; id: string }
   | { type: 'floating' };
 
@@ -87,7 +87,7 @@ export function CalendarResourcesPanel({ groups, allEvents }: CalendarResourcesP
     if (!paths || paths.length === 0) return;
     const data: CreateResourceData = {
       type: 'file',
-      group_id: scope.type === 'plan' ? scope.id : null,
+      group_id: scope.type === 'group' ? scope.id : null,
       event_id: scope.type === 'event' ? scope.id : null,
     };
     const created = await Promise.all(
@@ -97,7 +97,7 @@ export function CalendarResourcesPanel({ groups, allEvents }: CalendarResourcesP
     );
     setResources(prev => [...prev, ...created]);
     // ensure the section is expanded
-    if (scope.type === 'plan') setExpandedSections(prev => new Set([...prev, scope.id]));
+    if (scope.type === 'group') setExpandedSections(prev => new Set([...prev, scope.id]));
     if (scope.type === 'floating') setExpandedSections(prev => new Set([...prev, '__floating__']));
     setAddingScope(null);
   };
@@ -114,11 +114,11 @@ export function CalendarResourcesPanel({ groups, allEvents }: CalendarResourcesP
       type: 'link',
       url: linkForm.url.trim(),
       title: linkForm.title.trim() || linkForm.url.trim(),
-      group_id: scope.type === 'plan' ? scope.id : null,
+      group_id: scope.type === 'group' ? scope.id : null,
       event_id: scope.type === 'event' ? scope.id : null,
     });
     setResources(prev => [...prev, created]);
-    if (scope.type === 'plan') setExpandedSections(prev => new Set([...prev, scope.id]));
+    if (scope.type === 'group') setExpandedSections(prev => new Set([...prev, scope.id]));
     if (scope.type === 'floating') setExpandedSections(prev => new Set([...prev, '__floating__']));
     setLinkForm(null);
   };
@@ -128,11 +128,11 @@ export function CalendarResourcesPanel({ groups, allEvents }: CalendarResourcesP
       type: 'note',
       note_content: '',
       title: '',
-      group_id: scope.type === 'plan' ? scope.id : null,
+      group_id: scope.type === 'group' ? scope.id : null,
       event_id: scope.type === 'event' ? scope.id : null,
     });
     setResources(prev => [...prev, created]);
-    if (scope.type === 'plan') setExpandedSections(prev => new Set([...prev, scope.id]));
+    if (scope.type === 'group') setExpandedSections(prev => new Set([...prev, scope.id]));
     if (scope.type === 'floating') setExpandedSections(prev => new Set([...prev, '__floating__']));
     noteIdRef.current = created.id;
     setEditingNoteId(created.id);
@@ -374,8 +374,8 @@ export function CalendarResourcesPanel({ groups, allEvents }: CalendarResourcesP
           const groupResources = byPlan.get(group.id) ?? [];
           // events under this group that have resources
           const groupEvents = allEvents.filter(e => e.group_id === group.id && byEvent.has(e.id));
-          const isAddingHere = isScopeMatch({ type: 'plan', id: group.id });
-          const hasContent = groupResources.length > 0 || groupEvents.length > 0 || isAddingHere || (linkForm && linkForm.scope.type === 'plan' && linkForm.scope.id === group.id);
+          const isAddingHere = isScopeMatch({ type: 'group', id: group.id });
+          const hasContent = groupResources.length > 0 || groupEvents.length > 0 || isAddingHere || (linkForm && linkForm.scope.type === 'group' && linkForm.scope.id === group.id);
 
           if (!hasContent) return null;
 
@@ -391,7 +391,7 @@ export function CalendarResourcesPanel({ groups, allEvents }: CalendarResourcesP
                   title="Add resource to group"
                   onClick={e => {
                     e.stopPropagation();
-                    setAddingScope(s => isScopeMatch({ type: 'plan', id: group.id }) ? null : { type: 'plan', id: group.id });
+                    setAddingScope(s => isScopeMatch({ type: 'group', id: group.id }) ? null : { type: 'group', id: group.id });
                     setExpandedSections(prev => new Set([...prev, group.id]));
                   }}
                 >
@@ -401,8 +401,8 @@ export function CalendarResourcesPanel({ groups, allEvents }: CalendarResourcesP
               {expanded && (
                 <>
                   {groupResources.map(r => renderResourceRow(r, 'resRowIndented'))}
-                  {renderAddAffordance({ type: 'plan', id: group.id }, 'resAddAffordanceIndented')}
-                  {renderLinkForm({ type: 'plan', id: group.id }, 'resLinkFormIndented')}
+                  {renderAddAffordance({ type: 'group', id: group.id }, 'resAddAffordanceIndented')}
+                  {renderLinkForm({ type: 'group', id: group.id }, 'resLinkFormIndented')}
                   {groupEvents.map(event => {
                     const eventResources = byEvent.get(event.id) ?? [];
                     const eventKey = `event-${event.id}`;

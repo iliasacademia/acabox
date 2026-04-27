@@ -66,8 +66,8 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Event name/title.' },
-        start_at: { type: 'string', description: 'ISO 8601 start datetime (e.g. "2026-04-25T09:00:00.000Z").' },
-        end_at: { type: 'string', description: 'ISO 8601 end datetime.' },
+        start_at: { type: 'string', description: 'ISO 8601 start datetime with local timezone offset (see system prompt for the user\'s timezone, e.g. "2026-04-25T09:00:00-04:00").' },
+        end_at: { type: 'string', description: 'ISO 8601 end datetime with local timezone offset.' },
         group_id: { type: 'string', description: 'ID of the group this event belongs to. Omit for ungrouped events.' },
         color: { type: 'string', description: 'Hex color override. If omitted, inherits from group or uses a default.' },
         status: { type: 'string', enum: ['active', 'inactive', 'inactive_hidden'], description: 'Event status. "active" shows normally; "inactive" renders as a background lane. Defaults to "active".' },
@@ -111,8 +111,8 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
       properties: {
         id: { type: 'string', description: 'Event ID.' },
         name: { type: 'string', description: 'New name.' },
-        start_at: { type: 'string', description: 'New start ISO 8601 datetime.' },
-        end_at: { type: 'string', description: 'New end ISO 8601 datetime.' },
+        start_at: { type: 'string', description: 'New start ISO 8601 datetime with local timezone offset.' },
+        end_at: { type: 'string', description: 'New end ISO 8601 datetime with local timezone offset.' },
         group_id: { type: ['string', 'null'], description: 'New group ID, or null to ungroup the event.' },
         color: { type: ['string', 'null'], description: 'New hex color, or null to clear.' },
         status: { type: 'string', enum: ['active', 'inactive', 'inactive_hidden'], description: 'Event status.' },
@@ -176,8 +176,8 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Event ID to move.' },
-        new_start_at: { type: 'string', description: 'New start ISO 8601 datetime.' },
-        new_end_at: { type: 'string', description: 'New end ISO 8601 datetime.' },
+        new_start_at: { type: 'string', description: 'New start ISO 8601 datetime with local timezone offset.' },
+        new_end_at: { type: 'string', description: 'New end ISO 8601 datetime with local timezone offset.' },
       },
       required: ['id', 'new_start_at', 'new_end_at'],
     },
@@ -262,8 +262,21 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+function localTZOffset(): string {
+  const off = -new Date().getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  const h = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0');
+  const m = String(Math.abs(off) % 60).padStart(2, '0');
+  return `${sign}${h}:${m}`;
+}
+
 function buildSystemPrompt(): string {
-  return `You are a calendar assistant for Academia, a research workspace tool. Today is ${new Date().toISOString().split('T')[0]}.
+  const now = new Date();
+  const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tzOffset = localTZOffset();
+
+  return `You are a calendar assistant for Academia, a research workspace tool. Today is ${todayLocal}.
 
 You help users manage groups, events, task dependencies, and attached resources (files, links, notes, folders) on their calendar. Groups are named, color-coded containers that semantically cluster related events — always use meaningful group names that reflect a coherent research topic, project phase, or workflow stage (e.g. "RNA extraction", "Grant submission", "Sequencing run", "Lab rotation"). Events have a name, start/end time (ISO 8601), optional group, and status. Dependencies are finish-to-start constraints. Resources are files, URLs, markdown notes, or folders that can be attached to groups or events to help organize related materials.
 
@@ -271,7 +284,7 @@ When creating groups, prefer semantic names over generic ones. Cluster events by
 
 Use your tools immediately when the user asks for changes. Do not describe what you are about to do — act, then summarize briefly. When moving an event cascades downstream changes, mention what shifted.
 
-When the user says "tomorrow", "next Monday", etc., resolve relative to today's date. Use UTC timestamps unless the user specifies a timezone.
+When the user says "tomorrow", "next Monday", etc., resolve relative to today's date. The user's local timezone is ${tzName} (UTC${tzOffset}). Always include the timezone offset in all datetime values — never use UTC (Z) unless explicitly requested. For example, 9am today is "${todayLocal}T09:00:00${tzOffset}".
 
 When attaching workspace files, use list_workspace_files first to discover available files, then use attach_workspace_file with the relative path.`;
 }

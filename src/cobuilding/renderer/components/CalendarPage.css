@@ -60,6 +60,45 @@
   font-family: inherit;
 }
 
+.overviewPanelHeader {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  padding: 8px 10px 6px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #ECEAE4;
+}
+
+.overviewPanelTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: #AEAAA3;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  flex: 1;
+}
+
+.overviewNewBtn {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: #ECEAE4;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  color: #5A5A55;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.overviewNewBtn:hover {
+  background: #E2DFD8;
+  color: #2C2C28;
+}
+
 
 .overviewTitle {
   font-size: 10px;
@@ -434,24 +473,6 @@
 }
 
 /* Add group button — fixed to bottom-right of panel */
-.overviewAddGroupBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  background: #F4F2ED;
-  border: 1px solid #E2DFD8;
-  border-radius: 6px;
-  color: #6B6B66;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.overviewAddGroupBtn:hover {
-  background-color: #EEECE7;
-  color: #3C3C38;
-}
 
 /* New group inline form */
 .overviewNewGroupForm {
@@ -1956,16 +1977,6 @@
 
 /* ---- Polymorphic create menu ---- */
 
-.overviewPolyBtnWrap {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  z-index: 10;
-}
 
 .polyCreateMenu {
   background: #f9f8f6;

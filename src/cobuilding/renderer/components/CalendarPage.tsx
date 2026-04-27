@@ -1355,9 +1355,18 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
 export function CalendarPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const leftPanelRef = useRef<HTMLDivElement>(null);
-  const [leftWidth, setLeftWidth] = useState(20);
-  const [rightWidth, setRightWidth] = useState(20);
-  const [leftTopHeight, setLeftTopHeight] = useState(50);
+  const [leftWidth, setLeftWidth] = useState(() => {
+    const v = parseFloat(localStorage.getItem('cal_leftWidth') ?? '');
+    return isFinite(v) ? v : 20;
+  });
+  const [rightWidth, setRightWidth] = useState(() => {
+    const v = parseFloat(localStorage.getItem('cal_rightWidth') ?? '');
+    return isFinite(v) ? v : 20;
+  });
+  const [leftTopHeight, setLeftTopHeight] = useState(() => {
+    const v = parseFloat(localStorage.getItem('cal_leftTopHeight') ?? '');
+    return isFinite(v) ? v : 50;
+  });
   const leftWidthRef = useRef(leftWidth);
   const rightWidthRef = useRef(rightWidth);
   const leftTopHeightRef = useRef(leftTopHeight);
@@ -1576,6 +1585,8 @@ export function CalendarPage() {
       document.body.style.cursor = '';
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      localStorage.setItem('cal_leftWidth', String(leftWidthRef.current));
+      localStorage.setItem('cal_rightWidth', String(rightWidthRef.current));
     };
 
     document.addEventListener('mousemove', onMouseMove);
@@ -1601,6 +1612,7 @@ export function CalendarPage() {
       document.body.style.cursor = '';
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      localStorage.setItem('cal_leftTopHeight', String(leftTopHeightRef.current));
     };
 
     document.addEventListener('mousemove', onMouseMove);
@@ -1767,6 +1779,11 @@ export function CalendarPage() {
             onRenameGroup={async (groupId, newName) => {
               const updated = await window.calendarAPI.updateGroup(groupId, { name: newName });
               if (updated) setGroups(prev => prev.map(g => g.id === groupId ? updated : g));
+            }}
+            onGroupCreated={group => setGroups(prev => [...prev, group])}
+            onEventCreated={event => {
+              setAllEvents(prev => [...prev, event]);
+              setLocalEvents(prev => [...prev, event]);
             }}
           />
         </div>

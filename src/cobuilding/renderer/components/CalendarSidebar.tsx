@@ -136,7 +136,7 @@ function buildResourceTree(resources: CalendarResource[], parentId: string | nul
 // ---- Scope types ----
 
 type ResourceScope =
-  | { type: 'plan'; id: string }
+  | { type: 'group'; id: string }
   | { type: 'event'; id: string }
   | { type: 'floating' };
 
@@ -170,11 +170,13 @@ function todayISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function ResourceEditModal({ state, groups, onClose, onMutated }: {
+function ResourceEditModal({ state, groups, onClose, onMutated, onGroupCreated, onEventCreated }: {
   state: ResourceModalState;
   groups: CalendarGroup[];
   onClose: () => void;
   onMutated: () => void;
+  onGroupCreated?: (group: CalendarGroup) => void;
+  onEventCreated?: (event: CalendarEvent) => void;
 }) {
   const isWorkspace = state.scopeProps.group_id === null && state.scopeProps.event_id === null;
 
@@ -254,16 +256,18 @@ function ResourceEditModal({ state, groups, onClose, onMutated }: {
           await window.calendarAPI.createResource({ type: 'folder', ...state.scopeProps, parent_id: state.parentId ?? null, title: title || 'New Folder' });
         } else if (step === 'group') {
           if (!groupName.trim()) return;
-          await window.calendarAPI.createGroup({ name: groupName.trim(), color: PLAN_COLORS[groupColorIdx].shades[600] });
+          const group = await window.calendarAPI.createGroup({ name: groupName.trim(), color: PLAN_COLORS[groupColorIdx].shades[600] });
+          onGroupCreated?.(group);
         } else if (step === 'event') {
           if (!eventName.trim() || !eventStart) return;
           const end = eventEnd && eventEnd >= eventStart ? eventEnd : eventStart;
-          await window.calendarAPI.createEvent({
+          const event = await window.calendarAPI.createEvent({
             name: eventName.trim(),
             start_at: `${eventStart}T09:00:00`,
             end_at: `${end}T17:00:00`,
             group_id: eventGroupId || null,
           });
+          onEventCreated?.(event);
         }
       }
       onMutated();
@@ -533,10 +537,10 @@ function ResourceSection({ scope, resources, indent, onMutated, onOpenModal, onO
   const [editingTitleValue, setEditingTitleValue] = useState('');
 
   const scopeProps: Pick<CreateResourceData, 'group_id' | 'event_id'> = {
-    group_id: scope.type === 'plan' ? scope.id : null,
+    group_id: scope.type === 'group' ? scope.id : null,
     event_id: scope.type === 'event' ? scope.id : null,
   };
-  const scopeLabel = scope.type === 'event' ? 'Event' : scope.type === 'plan' ? 'Group' : 'Workspace';
+  const scopeLabel = scope.type === 'event' ? 'Event' : scope.type === 'group' ? 'Group' : 'Workspace';
 
   const openAddModal = (type: CalendarResource['type'] | null = null, ax = 0, ay = 0, parentId?: string | null) => {
     onOpenModal({ mode: 'create', type, resource: null, scopeProps, scopeLabel, anchorX: ax, anchorY: ay, parentId });
@@ -608,10 +612,10 @@ function ResourceSection({ scope, resources, indent, onMutated, onOpenModal, onO
   };
 
   const handleDrop = async (e: React.DragEvent, targetFolderId: string | null) => {
-    e.preventDefault();
-    e.stopPropagation();
     const resourceId = e.dataTransfer.getData('application/resource-id');
     if (!resourceId || resourceId === targetFolderId) { setDragOverTarget(null); return; }
+    e.preventDefault();
+    e.stopPropagation();
     await window.calendarAPI.moveResource(resourceId, { parent_id: targetFolderId });
     setDragOverTarget(null);
     onMutated();
@@ -776,10 +780,10 @@ function EventItem({ event, groupColor, resources, isLinked, onEventClick, onEve
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={async e => {
-            e.preventDefault();
-            e.stopPropagation();
             const resourceId = e.dataTransfer.getData('application/resource-id');
             if (!resourceId) return;
+            e.preventDefault();
+            e.stopPropagation();
             setDragOver(false);
             await window.calendarAPI.moveResource(resourceId, { event_id: event.id, group_id: null, parent_id: null });
             onResourceMutated();
@@ -959,9 +963,9 @@ function GroupRow({ group, events, dependencies, groupResources, eventResourcesM
             />
           ))}
           <ResourceSection
-            scope={{ type: 'plan', id: group.id }}
+            scope={{ type: 'group', id: group.id }}
             resources={groupResources}
-            indent={16}
+            indent={24}
             onMutated={onResourceMutated}
             onOpenModal={onOpenModal}
             onOpenContextMenu={onOpenContextMenu}
@@ -1042,10 +1046,13 @@ interface CalendarSidebarProps {
   onDeleteGroup: (groupId: string, deleteEvents: boolean) => void;
   onCreateGroup: (name: string, color: string) => Promise<void>;
   onRenameGroup: (groupId: string, newName: string) => Promise<void>;
+  onGroupCreated: (group: CalendarGroup) => void;
+  onEventCreated: (event: CalendarEvent) => void;
 }
 
-export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick, onReassign, onDeleteGroup, onCreateGroup, onRenameGroup }: CalendarSidebarProps) {
+export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick, onReassign, onDeleteGroup, onCreateGroup, onRenameGroup, onGroupCreated, onEventCreated }: CalendarSidebarProps) {
   const [draggingEvent, setDraggingEvent] = useState<CalendarEvent | null>(null);
+  const draggingEventRef = useRef<CalendarEvent | null>(null);
   const [dragOverGroupId, setDragOverGroupId] = useState<string | 'unorganized' | null>(null);
   const [deletingGroup, setDeletingGroup] = useState<CalendarGroup | null>(null);
   const [resources, setResources] = useState<CalendarResource[]>([]);
@@ -1109,11 +1116,22 @@ export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick,
     [allEvents],
   );
 
+  function startDraggingEvent(event: CalendarEvent) {
+    draggingEventRef.current = event;
+    setDraggingEvent(event);
+  }
+
+  function clearDraggingEvent() {
+    draggingEventRef.current = null;
+    setDraggingEvent(null);
+  }
+
   function handleDragOver(e: React.DragEvent, targetId: string | 'unorganized') {
     const isResourceDrag = e.dataTransfer.types.includes('application/resource-id');
-    if (!draggingEvent && !isResourceDrag) return;
-    if (draggingEvent) {
-      const currentGroupId = draggingEvent.group_id ?? 'unorganized';
+    const ev = draggingEventRef.current;
+    if (!ev && !isResourceDrag) return;
+    if (ev) {
+      const currentGroupId = ev.group_id ?? 'unorganized';
       if (currentGroupId === targetId) return;
     }
     e.preventDefault();
@@ -1127,14 +1145,15 @@ export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick,
       setDragOverGroupId(null);
       return;
     }
-    if (!draggingEvent) return;
-    onReassign(draggingEvent.id, targetGroupId);
-    setDraggingEvent(null);
+    const ev = draggingEventRef.current;
+    if (!ev) return;
+    onReassign(ev.id, targetGroupId);
+    clearDraggingEvent();
     setDragOverGroupId(null);
   }
 
   function handleDragEnd() {
-    setDraggingEvent(null);
+    clearDraggingEvent();
     setDragOverGroupId(null);
   }
 
@@ -1162,11 +1181,27 @@ export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick,
     setContextMenu({ x, y, items });
   }, []);
 
-  const floatingScopeProps: Pick<CreateResourceData, 'group_id' | 'event_id'> = { group_id: null, event_id: null };
+
 
   return (
     <>
       <div className="overviewPanel" onDragEnd={handleDragEnd}>
+        <div className="overviewPanelHeader">
+          <span className="overviewPanelTitle">Plan</span>
+          <button
+            className="overviewNewBtn"
+            onClick={e => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setResModal({ mode: 'create', type: null, resource: null, scopeProps: { group_id: null, event_id: null }, scopeLabel: 'Workspace', anchorX: rect.right, anchorY: rect.bottom + 4 });
+            }}
+            title="Create new…"
+          >
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+              <path d="M5 1v8M1 5h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+            New
+          </button>
+        </div>
         <div className="overviewList">
           {groups.map(group => {
             const groupEvents = eventsByGroup.get(group.id) ?? [];
@@ -1180,7 +1215,7 @@ export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick,
                 eventResourcesMap={eventResourcesMapForGroup(groupEvents)}
                 isDragOver={dragOverGroupId === group.id}
                 onEventClick={onEventClick}
-                onEventDragStart={setDraggingEvent}
+                onEventDragStart={startDraggingEvent}
                 onDragOver={e => handleDragOver(e, group.id)}
                 onDragLeave={() => setDragOverGroupId(null)}
                 onDrop={e => handleGroupDrop(e, group.id)}
@@ -1207,7 +1242,7 @@ export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick,
                 resources={resourcesByEvent.get(event.id) ?? []}
                 isLinked={false}
                 onEventClick={onEventClick}
-                onEventDragStart={setDraggingEvent}
+                onEventDragStart={startDraggingEvent}
                 onResourceMutated={reloadResources}
                 onOpenModal={openModal}
                 onOpenContextMenu={openContextMenu}
@@ -1216,7 +1251,7 @@ export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick,
             <ResourceSection
               scope={{ type: 'floating' }}
               resources={floatingResources}
-              indent={16}
+              indent={8}
               onMutated={reloadResources}
               onOpenModal={openModal}
               onOpenContextMenu={openContextMenu}
@@ -1224,20 +1259,6 @@ export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick,
           </div>
         </div>
 
-        <div className="overviewPolyBtnWrap">
-          <button
-            className="overviewAddGroupBtn"
-            onClick={e => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              setResModal({ mode: 'create', type: null, resource: null, scopeProps: floatingScopeProps, scopeLabel: 'Workspace', anchorX: rect.left, anchorY: rect.top });
-            }}
-            title="Create…"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-            </svg>
-          </button>
-        </div>
       </div>
 
       {resModal && (
@@ -1246,6 +1267,8 @@ export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick,
           groups={groups}
           onClose={() => setResModal(null)}
           onMutated={reloadResources}
+          onGroupCreated={onGroupCreated}
+          onEventCreated={onEventCreated}
         />
       )}
 
