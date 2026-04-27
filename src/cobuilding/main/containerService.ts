@@ -584,21 +584,25 @@ class CobuildingContainerService {
   }
 
   private async ensureBaseImagePulled(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
-    // Check if the base image already exists locally
-    try {
-      const { stdout } = await this.execAsync(podmanBin, [
-        'image', 'inspect', '--format', '{{.Id}}', GHCR_BASE_IMAGE,
-      ], this.getExecEnv());
-      if (stdout.trim().length > 0) {
-        log.debug('[ContainerService] Base image already present locally');
+    const localDigest = await this.getLocalDigest(podmanBin);
+
+    if (localDigest) {
+      // Image exists locally — check if it's up to date
+      const remoteDigest = await this.getRemoteDigest(podmanBin);
+      if (!remoteDigest) {
+        log.warn('[ContainerService] Could not fetch remote digest (offline?), using local base image');
         return;
       }
-    } catch {
-      // Image not present — pull it
+      if (localDigest === remoteDigest) {
+        log.debug('[ContainerService] Base image up to date');
+        return;
+      }
+      log.debug(`[ContainerService] Base image stale (local: ${localDigest.substring(0, 16)}, remote: ${remoteDigest.substring(0, 16)}), pulling update...`);
+      onProgress?.('pull', 'Base image outdated, pulling update...', 0);
+    } else {
+      log.debug(`[ContainerService] Pulling base image: ${GHCR_BASE_IMAGE}`);
+      onProgress?.('pull', 'Pulling base image from registry...', 0);
     }
-
-    log.debug(`[ContainerService] Pulling base image: ${GHCR_BASE_IMAGE}`);
-    onProgress?.('pull', 'Pulling base image from registry...', 0);
 
     const totalLayers = await this.getRemoteLayerCount(podmanBin);
     await this.spawnPullWithProgress(podmanBin, GHCR_BASE_IMAGE, totalLayers, onProgress);
@@ -613,6 +617,46 @@ class CobuildingContainerService {
     const totalLayers = await this.getRemoteLayerCount(podmanBin);
     await this.spawnPullWithProgress(podmanBin, GHCR_BASE_IMAGE, totalLayers, onProgress);
     log.debug('[ContainerService] Base image updated');
+  }
+
+  private async getLocalDigest(podmanBin: string): Promise<string | null> {
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'image', 'inspect', '--format', '{{.Digest}}', GHCR_BASE_IMAGE,
+      ], this.getExecEnv());
+      const digest = stdout.trim();
+      return digest && digest !== '<no value>' ? digest : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async getRemoteDigest(podmanBin: string): Promise<string | null> {
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'manifest', 'inspect', GHCR_BASE_IMAGE,
+      ], this.getExecEnv());
+      const parsed = JSON.parse(stdout);
+
+      // Direct image manifest — return its digest
+      if (parsed.config?.digest) {
+        return parsed.config.digest;
+      }
+
+      // Manifest list — return the amd64 entry's digest
+      if (parsed.manifests) {
+        const amd64 = parsed.manifests.find(
+          (m: { platform?: { architecture?: string; os?: string } }) =>
+            m.platform?.architecture === 'amd64' && m.platform?.os === 'linux'
+        );
+        if (amd64?.digest) {
+          return amd64.digest;
+        }
+      }
+    } catch (error) {
+      log.debug(`[ContainerService] Could not determine remote digest: ${(error as Error).message}`);
+    }
+    return null;
   }
 
   private async getRemoteLayerCount(podmanBin: string): Promise<number> {
