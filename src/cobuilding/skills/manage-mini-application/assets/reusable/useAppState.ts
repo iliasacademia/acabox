@@ -496,7 +496,9 @@ export function useAppState<
       if (typeof path !== "string" || path === "") return null;
       try {
         const result = await window.filesAPI.readFile(path);
-        if ("type" in result && result.type === "text") return result.content;
+        if ("content" in result && typeof (result as any).content === "string") {
+          return (result as any).content;
+        }
         return null;
       } catch {
         return null;
