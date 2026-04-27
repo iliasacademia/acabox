@@ -14,7 +14,6 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
 
 .calendarPanelSection {
@@ -73,6 +72,7 @@
 .overviewList {
   flex: 1;
   overflow-y: auto;
+  scrollbar-gutter: stable;
   padding: 4px 6px 8px;
 }
 
@@ -81,6 +81,7 @@
   flex-direction: column;
   border-radius: 6px;
   transition: background-color 0.1s;
+  margin-bottom: 6px;
 }
 
 .overviewGroupDragOver {
@@ -101,25 +102,13 @@
   flex-direction: row;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px 6px 8px;
+  padding: 5px 6px 5px 8px;
   background: none;
   border: none;
   cursor: pointer;
   text-align: left;
   width: 100%;
   border-radius: 5px;
-}
-
-.overviewGroupHeader:hover {
-  background-color: #EEECE7;
-}
-
-.overviewGroupAccent {
-  width: 3px;
-  min-width: 3px;
-  height: 30px;
-  border-radius: 2px;
-  flex-shrink: 0;
 }
 
 .overviewGroupMeta {
@@ -160,6 +149,8 @@
 
 .overviewChevron {
   flex-shrink: 0;
+  width: 13px;
+  height: 13px;
   opacity: 0.5;
   transition: transform 0.12s;
 }
@@ -168,30 +159,30 @@
   transform: rotate(90deg);
 }
 
-.overviewGroupEvents {
+.overviewGroupBody {
   display: flex;
   flex-direction: column;
-  padding: 1px 0 4px 0;
+  padding: 2px 0 4px 0;
 }
 
-.overviewGroupEvents .overviewEventRowWrap {
-  margin-left: 14px;
-  width: calc(100% - 14px);
+.overviewGroupBody .overviewEventRowWrap {
+  margin-left: 16px;
+  width: calc(100% - 16px);
 }
 
-.overviewGroupEvents .overviewEventRow {
+.overviewGroupBody .overviewEventRow {
   width: auto;
 }
 
-/* dot center = 14px margin + 16px padding-left + 4px (half of 8px dot) = 34px */
+/* dot center = 16px (EventRowWrap margin) + 16px (EventRow padding-left) + 4px (half dot) = 36px */
 .overviewDepConnector {
   width: 0;
-  height: 8px;
-  margin-left: 34px;
-  margin-top: -4px;
-  margin-bottom: -4px;
-  border-left: 1.5px solid;
-  opacity: 0.45;
+  height: 10px;
+  margin-left: 36px;
+  margin-top: -3px;
+  margin-bottom: -3px;
+  border-left: 1.5px dashed;
+  opacity: 0.5;
   flex-shrink: 0;
 }
 
@@ -207,50 +198,33 @@
   width: auto;
 }
 
-.overviewEventExpandBtn {
+.overviewEventAddBtn {
   display: flex;
   align-items: center;
-  gap: 3px;
+  justify-content: center;
   flex-shrink: 0;
-  height: 20px;
-  padding: 0 5px 0 4px;
+  width: 18px;
+  height: 18px;
   margin-right: 4px;
   background: none;
   border: none;
   border-radius: 4px;
   color: #C0BCB5;
+  font-size: 15px;
+  line-height: 1;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.12s;
+  padding: 0;
 }
 
-.overviewEventRowWrap:hover .overviewEventExpandBtn {
+.overviewEventRowWrap:hover .overviewEventAddBtn {
   opacity: 1;
 }
 
-.overviewEventExpandBtn.overviewEventExpandBtnHasFiles {
-  opacity: 1;
-  color: #8A8882;
-}
-
-.overviewEventExpandBtn:hover {
+.overviewEventAddBtn:hover {
   background: #EEECE7;
   color: #5A5A55;
-}
-
-.overviewEventExpandChevron {
-  flex-shrink: 0;
-  transition: transform 0.14s;
-}
-
-.overviewEventExpandBtn.overviewEventExpandBtnOpen .overviewEventExpandChevron {
-  transform: rotate(90deg);
-}
-
-.overviewEventFilesCount {
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
 }
 
 .overviewEventRow {
@@ -273,6 +247,12 @@
 
 .overviewEventRow:hover {
   background-color: #EEECE7;
+}
+
+.overviewEventRowDragOver {
+  background-color: #E8E5DE;
+  outline: 1.5px dashed #C5C1BA;
+  outline-offset: -2px;
 }
 
 .overviewEventDot {
@@ -330,8 +310,9 @@
   min-width: 0;
 }
 
+.overviewGroupAddBtn,
 .overviewGroupDeleteBtn {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   width: 22px;
@@ -341,21 +322,32 @@
   background: none;
   border: none;
   border-radius: 4px;
-  color: #9B9B96;
   cursor: pointer;
+  margin-right: 2px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+
+.overviewGroupAddBtn:hover {
+  background-color: rgba(255,255,255,0.2);
+}
+
+.overviewGroupDeleteBtn {
   margin-right: 6px;
 }
 
 .overviewGroupDeleteBtn:hover {
-  background-color: #E2DFD8;
-  color: #3C3C38;
+  background-color: rgba(255,255,255,0.2);
 }
 
+.overviewGroup:hover .overviewGroupAddBtn,
 .overviewGroup:hover .overviewGroupDeleteBtn {
-  display: flex;
+  opacity: 1;
+  pointer-events: auto;
 }
 
-.deletePlanOverlay {
+.deleteGroupOverlay {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.25);
@@ -365,7 +357,7 @@
   z-index: 1000;
 }
 
-.deletePlanDialog {
+.deleteGroupDialog {
   background: #ffffff;
   border: 1px solid #E2DFD8;
   border-radius: 12px;
@@ -374,26 +366,26 @@
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
 
-.deletePlanTitle {
+.deleteGroupTitle {
   font-size: 13px;
   font-weight: 600;
   color: #1A1A18;
   margin: 0 0 6px;
 }
 
-.deletePlanBody {
+.deleteGroupBody {
   font-size: 12px;
   color: #6B6B66;
   margin: 0 0 16px;
 }
 
-.deletePlanActions {
+.deleteGroupActions {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.deletePlanActionDanger {
+.deleteGroupActionDanger {
   background: #FDECEA;
   color: #C0392B;
   border: 1px solid #F5C6C2;
@@ -405,11 +397,11 @@
   text-align: left;
 }
 
-.deletePlanActionDanger:hover {
+.deleteGroupActionDanger:hover {
   background: #FAD6D2;
 }
 
-.deletePlanActionKeep {
+.deleteGroupActionKeep {
   background: #F4F2ED;
   color: #2C2C28;
   border: 1px solid #E2DFD8;
@@ -421,11 +413,11 @@
   text-align: left;
 }
 
-.deletePlanActionKeep:hover {
+.deleteGroupActionKeep:hover {
   background: #ECEAE4;
 }
 
-.deletePlanActionCancel {
+.deleteGroupActionCancel {
   background: none;
   color: #9B9B96;
   border: none;
@@ -436,16 +428,13 @@
   text-align: left;
 }
 
-.deletePlanActionCancel:hover {
+.deleteGroupActionCancel:hover {
   background: #F4F2ED;
   color: #6B6B66;
 }
 
 /* Add group button — fixed to bottom-right of panel */
 .overviewAddGroupBtn {
-  position: absolute;
-  bottom: 10px;
-  right: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -457,7 +446,6 @@
   color: #6B6B66;
   cursor: pointer;
   flex-shrink: 0;
-  z-index: 2;
 }
 
 .overviewAddGroupBtn:hover {
@@ -566,6 +554,19 @@
 }
 
 .calendarResizeHandle:hover {
+  background-color: #E2DFD8;
+}
+
+.calendarPanelVerticalHandle {
+  height: 8px;
+  width: 100%;
+  cursor: row-resize;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: background-color 0.15s;
+}
+
+.calendarPanelVerticalHandle:hover {
   background-color: #E2DFD8;
 }
 
@@ -1542,92 +1543,63 @@
 
 /* ---- Resource rows inside sidebar ---- */
 
-.overviewResourcesSection {
-  display: flex;
-  flex-direction: column;
-  margin-top: 1px;
-}
-
-.overviewResourcesToggle {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 10px 3px 14px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-  border-radius: 4px;
-  font-family: inherit;
-  position: relative;
-}
-
-.overviewResourcesToggle:hover {
-  background-color: #EEECE7;
-}
-
-.overviewGroupEvents .overviewResourcesToggle {
-  margin-left: 14px;
-  width: calc(100% - 14px);
-  padding-left: 6px;
-}
-
-.overviewResourcesLabel {
-  font-size: 11px;
-  color: #9B9B96;
-  flex: 1;
-}
-
-.overviewResourcesCount {
-  font-size: 10px;
-  color: #B0ADA6;
-  background: #EEECE7;
-  border-radius: 8px;
-  padding: 0 5px;
-  line-height: 16px;
-}
-
-.overviewResourcesAddBtn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  background: none;
-  border: none;
-  border-radius: 3px;
-  color: #9B9B96;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  padding: 0;
-  opacity: 0;
-  flex-shrink: 0;
-}
-
-.overviewResourcesToggle:hover .overviewResourcesAddBtn {
-  opacity: 1;
-}
-
-.overviewResourcesAddBtn:hover {
-  background-color: #E2DFD8;
-  color: #555;
-}
+/* ---- Resource list (flat, no toggle heading) ---- */
 
 .overviewResourceList {
   display: flex;
   flex-direction: column;
-  padding-bottom: 3px;
+  padding-bottom: 2px;
+}
+
+.overviewResourceRowWrap {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.overviewResourceRowWrap .overviewResourceRow {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+
+.overviewResourceAddBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: #C0BCB5;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+  padding: 0;
+}
+
+.overviewResourceRowWrap:hover .overviewResourceAddBtn {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.overviewResourceAddBtn:hover {
+  background: #EEECE7;
+  color: #5A5A55;
 }
 
 .overviewResourceRow {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 6px;
-  padding: 3px 10px 3px 22px;
+  gap: 7px;
+  padding: 5px 8px;
   border-radius: 4px;
   cursor: pointer;
   background: none;
@@ -1636,12 +1608,6 @@
   width: 100%;
   font-family: inherit;
   position: relative;
-}
-
-.overviewGroupEvents .overviewResourceRow {
-  margin-left: 14px;
-  width: calc(100% - 14px);
-  padding-left: 14px;
 }
 
 .overviewResourceRow:hover {
@@ -1649,14 +1615,14 @@
 }
 
 .overviewResourceIcon {
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   flex-shrink: 0;
   color: #9B9B96;
 }
 
 .overviewResourceTitle {
-  font-size: 11.5px;
+  font-size: 13px;
   color: #3C3C38;
   flex: 1;
   min-width: 0;
@@ -1666,7 +1632,7 @@
 }
 
 .overviewResourceTitleInput {
-  font-size: 11.5px;
+  font-size: 13px;
   color: #3C3C38;
   flex: 1;
   min-width: 0;
@@ -1677,34 +1643,28 @@
   font-family: inherit;
 }
 
-.overviewResourceAttribution {
-  font-size: 10.5px;
-  color: #AEAAA3;
-  flex-shrink: 0;
-  max-width: 60px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .overviewResourceDeleteBtn {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   background: none;
   border: none;
-  border-radius: 3px;
+  border-radius: 4px;
   color: #9B9B96;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
   padding: 0;
   flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
 }
 
-.overviewResourceRow:hover .overviewResourceDeleteBtn {
-  display: flex;
+.overviewResourceRowWrap:hover .overviewResourceDeleteBtn {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .overviewResourceDeleteBtn:hover {
@@ -1712,140 +1672,12 @@
   background-color: #E2DFD8;
 }
 
-/* AI sparkle indicator */
 .aiResourceSparkle {
   font-size: 9px;
   color: #7C6EFF;
   flex-shrink: 0;
   margin-right: 1px;
 }
-
-/* Add affordance */
-.overviewResourceAddAffordance {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px 3px 22px;
-}
-
-.overviewGroupEvents .overviewResourceAddAffordance {
-  margin-left: 14px;
-  padding-left: 14px;
-}
-
-.overviewResourceAddTypeBtn {
-  padding: 1px 7px;
-  background: #EEECE7;
-  border: none;
-  border-radius: 4px;
-  font-size: 10.5px;
-  color: #666;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.overviewResourceAddTypeBtn:hover {
-  background-color: #E2DFD8;
-  color: #333;
-}
-
-/* Link input form */
-.overviewResourceLinkForm {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px 10px 4px 22px;
-}
-
-.overviewGroupEvents .overviewResourceLinkForm {
-  margin-left: 14px;
-  padding-left: 14px;
-}
-
-.overviewResourceLinkInput {
-  font-size: 11px;
-  color: #333;
-  background: #f9f8f6;
-  border: 1px solid #E2DFD8;
-  border-radius: 4px;
-  padding: 4px 7px;
-  outline: none;
-  font-family: inherit;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.overviewResourceLinkInput:focus {
-  border-color: #C8C5BE;
-}
-
-.overviewResourceLinkActions {
-  display: flex;
-  gap: 4px;
-}
-
-.overviewResourceLinkSave {
-  padding: 2px 8px;
-  background: #333;
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  font-size: 10.5px;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.overviewResourceLinkSave:hover {
-  background: #555;
-}
-
-.overviewResourceLinkCancel {
-  padding: 2px 8px;
-  background: #EEECE7;
-  color: #666;
-  border: none;
-  border-radius: 4px;
-  font-size: 10.5px;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.overviewResourceLinkCancel:hover {
-  background: #E2DFD8;
-}
-
-/* Inline note editor */
-.overviewResourceNoteEditor {
-  padding: 3px 10px 4px 22px;
-}
-
-.overviewGroupEvents .overviewResourceNoteEditor {
-  margin-left: 14px;
-  padding-left: 14px;
-}
-
-.overviewResourceNoteTextarea {
-  width: 100%;
-  min-height: 70px;
-  max-height: 180px;
-  resize: vertical;
-  font-family: "DM Mono", "Menlo", monospace;
-  font-size: 11px;
-  color: #333;
-  background: #f9f8f6;
-  border: 1px solid #E2DFD8;
-  border-radius: 5px;
-  padding: 5px 8px;
-  outline: none;
-  box-sizing: border-box;
-}
-
-.overviewResourceNoteTextarea:focus {
-  border-color: #C8C5BE;
-}
-
-/* ---- Folder rows ---- */
 
 .overviewFolderRow {
   font-weight: 500;
@@ -1858,11 +1690,9 @@
 
 .overviewResourceIconSpacer {
   display: inline-block;
-  width: 10px;
+  width: 13px;
   flex-shrink: 0;
 }
-
-/* ---- Drag-over highlight ---- */
 
 .overviewResourceDropTarget {
   background-color: #E8F0FE !important;
@@ -1871,18 +1701,295 @@
   border-radius: 4px;
 }
 
-/* ---- Resource row sizing bump ---- */
+/* ---- Resource edit popover ---- */
 
-.overviewResourceRow {
-  padding: 4px 8px 4px 10px;
+.resModalPanel {
+  position: fixed;
+  z-index: 1100;
+  background: #f9f8f6;
+  border: 1px solid #E2DFD8;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  padding: 14px;
+  width: 288px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
+  font-family: "DM Sans", system-ui, sans-serif;
 }
 
-.overviewGroupEvents .overviewResourceRow {
-  padding-left: 8px;
+.resModalHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 14px;
 }
 
-/* ---- ResourceSection inside event (extra indent) ---- */
-
-.overviewGroupEvents .overviewResourcesSection.overviewGroupEvents {
-  margin-left: 0;
+.resModalTitle {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1A1A18;
 }
+
+.resModalBackBtn,
+.resModalCloseBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  color: #9B9B96;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.resModalBackBtn:hover,
+.resModalCloseBtn:hover {
+  background: #EEECE7;
+  color: #3C3C38;
+}
+
+.resModalTypePicker {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.resModalTypePicker6 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.resModalTypeBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 10px 4px;
+  background: #EDE9E3;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  color: #3C3C38;
+}
+
+.resModalTypeBtn:hover {
+  background: #E5E1DA;
+  outline: 1px solid #D4D0C9;
+  outline-offset: -1px;
+}
+
+.resModalTypeBtn .overviewResourceIcon {
+  width: 14px;
+  height: 14px;
+}
+
+.resModalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.resModalLabel {
+  font-size: 10px;
+  font-weight: 600;
+  color: #9B9B96;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.resModalInput {
+  width: 100%;
+  box-sizing: border-box;
+  background: #EDE9E3;
+  border: 1px solid #E2DFD8;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 13px;
+  color: #1A1A18;
+  outline: none;
+}
+
+.resModalInput:focus {
+  border-color: #9B9B96;
+  background: #E8E4DE;
+}
+
+.resModalInput::placeholder {
+  color: #C8C4BC;
+}
+
+.resModalTextarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 100px;
+  max-height: 220px;
+  resize: vertical;
+  background: #EDE9E3;
+  border: 1px solid #E2DFD8;
+  border-radius: 6px;
+  padding: 7px 8px;
+  font-family: "DM Mono", "Menlo", monospace;
+  font-size: 12px;
+  color: #1A1A18;
+  outline: none;
+  line-height: 1.5;
+}
+
+.resModalTextarea:focus {
+  border-color: #9B9B96;
+}
+
+.resModalTextarea::placeholder {
+  color: #C8C4BC;
+}
+
+.resModalFooter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid #E2DFD8;
+}
+
+.resModalDeleteBtn {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: #9B9B96;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.resModalDeleteBtn:hover { color: #d44; }
+
+.resModalCancelBtn {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  color: #6B6B66;
+  background: none;
+  border: none;
+  border-radius: 5px;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.resModalCancelBtn:hover { background: #EEECE7; }
+
+.resModalSaveBtn {
+  font-family: "DM Sans", system-ui, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f9f8f6;
+  background: #1A1A18;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 14px;
+  cursor: pointer;
+}
+
+.resModalSaveBtn:disabled { opacity: 0.4; cursor: default; }
+.resModalSaveBtn:not(:disabled):hover { background: #333330; }
+
+.resModalColorPicker {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 4px 0 2px;
+}
+
+.resModalSelect {
+  appearance: none;
+  cursor: pointer;
+}
+
+.resModalDateInput {
+  cursor: pointer;
+}
+
+/* ---- Context menu ---- */
+
+.resContextMenu {
+  position: fixed;
+  background: #f9f8f6;
+  border: 1px solid #E2DFD8;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  min-width: 148px;
+  z-index: 2000;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+.resContextItem {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: #2C2C28;
+  cursor: pointer;
+}
+
+.resContextItem:hover { background: #EEECE7; }
+
+.resContextItemDanger { color: #C0392B; }
+.resContextItemDanger:hover { background: #FDECEA; }
+
+/* ---- Polymorphic create menu ---- */
+
+.overviewPolyBtnWrap {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  z-index: 10;
+}
+
+.polyCreateMenu {
+  background: #f9f8f6;
+  border: 1px solid #E2DFD8;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  min-width: 120px;
+  font-family: "DM Sans", system-ui, sans-serif;
+}
+
+.polyCreateMenuItem {
+  display: block;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  background: none;
+  border-radius: 5px;
+  text-align: left;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: #2C2C28;
+  cursor: pointer;
+}
+
+.polyCreateMenuItem:hover { background: #EEECE7; }

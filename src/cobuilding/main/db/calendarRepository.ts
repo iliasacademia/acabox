@@ -1,51 +1,51 @@
 import { randomUUID } from 'crypto';
 import { getDatabase } from './database';
-import type { CalendarPlan, CalendarEvent, EventFile, PlanFile, CreatePlanData, UpdatePlanData, CreateEventData, UpdateEventData } from '../../shared/types';
+import type { CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData } from '../../shared/types';
 
-// ---- Plans ----
+// ---- Groups ----
 
-export function createPlan(workspaceId: string, data: CreatePlanData): CalendarPlan {
+export function createGroup(workspaceId: string, data: CreateGroupData): CalendarGroup {
   const id = randomUUID();
   getDatabase()
-    .prepare(`INSERT INTO plans (id, workspace_id, name, color) VALUES (?, ?, ?, ?)`)
+    .prepare(`INSERT INTO groups (id, workspace_id, name, color) VALUES (?, ?, ?, ?)`)
     .run(id, workspaceId, data.name, data.color);
-  return getPlan(id)!;
+  return getGroup(id)!;
 }
 
-export function getPlan(id: string): CalendarPlan | undefined {
+export function getGroup(id: string): CalendarGroup | undefined {
   return getDatabase()
-    .prepare(`SELECT * FROM plans WHERE id = ?`)
-    .get(id) as CalendarPlan | undefined;
+    .prepare(`SELECT * FROM groups WHERE id = ?`)
+    .get(id) as CalendarGroup | undefined;
 }
 
-export function listPlans(workspaceId: string): CalendarPlan[] {
+export function listGroups(workspaceId: string): CalendarGroup[] {
   return getDatabase()
-    .prepare(`SELECT * FROM plans WHERE workspace_id = ? ORDER BY created_at ASC`)
-    .all(workspaceId) as CalendarPlan[];
+    .prepare(`SELECT * FROM groups WHERE workspace_id = ? ORDER BY created_at ASC`)
+    .all(workspaceId) as CalendarGroup[];
 }
 
-export function updatePlan(id: string, data: UpdatePlanData): CalendarPlan | undefined {
+export function updateGroup(id: string, data: UpdateGroupData): CalendarGroup | undefined {
   const fields: string[] = [];
   const values: unknown[] = [];
   if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
   if (data.color !== undefined) { fields.push('color = ?'); values.push(data.color); }
-  if (fields.length === 0) return getPlan(id);
+  if (fields.length === 0) return getGroup(id);
   fields.push(`updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')`);
   values.push(id);
   getDatabase()
-    .prepare(`UPDATE plans SET ${fields.join(', ')} WHERE id = ?`)
+    .prepare(`UPDATE groups SET ${fields.join(', ')} WHERE id = ?`)
     .run(...values);
-  return getPlan(id);
+  return getGroup(id);
 }
 
-export function deletePlan(id: string): void {
-  getDatabase().prepare(`DELETE FROM plans WHERE id = ?`).run(id);
+export function deleteGroup(id: string): void {
+  getDatabase().prepare(`DELETE FROM groups WHERE id = ?`).run(id);
 }
 
-export function getPlanTimeRange(planId: string): { start_at: string; end_at: string } | null {
+export function getGroupTimeRange(groupId: string): { start_at: string; end_at: string } | null {
   const row = getDatabase()
-    .prepare(`SELECT MIN(start_at) AS start_at, MAX(end_at) AS end_at FROM calendar_events WHERE plan_id = ?`)
-    .get(planId) as { start_at: string | null; end_at: string | null } | undefined;
+    .prepare(`SELECT MIN(start_at) AS start_at, MAX(end_at) AS end_at FROM calendar_events WHERE group_id = ?`)
+    .get(groupId) as { start_at: string | null; end_at: string | null } | undefined;
   if (!row || row.start_at == null) return null;
   return { start_at: row.start_at, end_at: row.end_at! };
 }
@@ -57,14 +57,14 @@ export function createEvent(workspaceId: string, data: CreateEventData): Calenda
   getDatabase()
     .prepare(`
       INSERT INTO calendar_events
-        (id, workspace_id, plan_id, name, start_at, end_at, status, color,
+        (id, workspace_id, group_id, name, start_at, end_at, status, color,
          recurrence_rule, recurrence_parent_id, recurrence_exception_date)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `)
     .run(
       id,
       workspaceId,
-      data.plan_id ?? null,
+      data.group_id ?? null,
       data.name,
       data.start_at,
       data.end_at,
@@ -86,7 +86,7 @@ export function getEvent(id: string): CalendarEvent | undefined {
 export interface ListEventsOptions {
   from?: string;
   to?: string;
-  planId?: string;
+  groupId?: string;
   mastersOnly?: boolean;
 }
 
@@ -96,7 +96,7 @@ export function listEvents(workspaceId: string, opts: ListEventsOptions = {}): C
 
   if (opts.from) { conditions.push('end_at >= ?'); values.push(opts.from); }
   if (opts.to) { conditions.push('start_at <= ?'); values.push(opts.to); }
-  if (opts.planId) { conditions.push('plan_id = ?'); values.push(opts.planId); }
+  if (opts.groupId) { conditions.push('group_id = ?'); values.push(opts.groupId); }
   if (opts.mastersOnly) { conditions.push('recurrence_parent_id IS NULL'); }
 
   return getDatabase()
@@ -108,7 +108,7 @@ export function updateEvent(id: string, data: UpdateEventData): CalendarEvent | 
   const fields: string[] = [];
   const values: unknown[] = [];
 
-  if ('plan_id' in data) { fields.push('plan_id = ?'); values.push(data.plan_id ?? null); }
+  if ('group_id' in data) { fields.push('group_id = ?'); values.push(data.group_id ?? null); }
   if (data.name !== undefined) { fields.push('name = ?'); values.push(data.name); }
   if (data.start_at !== undefined) { fields.push('start_at = ?'); values.push(data.start_at); }
   if (data.end_at !== undefined) { fields.push('end_at = ?'); values.push(data.end_at); }
@@ -151,39 +151,38 @@ export function removeEventFile(id: number): void {
   getDatabase().prepare(`DELETE FROM event_files WHERE id = ?`).run(id);
 }
 
-// ---- Plan files ----
+// ---- Group files ----
 
-export function addPlanFile(planId: string, filePath: string): PlanFile {
+export function addGroupFile(groupId: string, filePath: string): GroupFile {
   const result = getDatabase()
-    .prepare(`INSERT INTO plan_files (plan_id, file_path) VALUES (?, ?)`)
-    .run(planId, filePath);
+    .prepare(`INSERT INTO group_files (group_id, file_path) VALUES (?, ?)`)
+    .run(groupId, filePath);
   return getDatabase()
-    .prepare(`SELECT * FROM plan_files WHERE id = ?`)
-    .get(result.lastInsertRowid) as PlanFile;
+    .prepare(`SELECT * FROM group_files WHERE id = ?`)
+    .get(result.lastInsertRowid) as GroupFile;
 }
 
-export function listPlanFiles(planId: string, includeFromEvents = false): PlanFile[] {
+export function listGroupFiles(groupId: string, includeFromEvents = false): GroupFile[] {
   if (!includeFromEvents) {
     return getDatabase()
-      .prepare(`SELECT * FROM plan_files WHERE plan_id = ? ORDER BY created_at ASC`)
-      .all(planId) as PlanFile[];
+      .prepare(`SELECT * FROM group_files WHERE group_id = ? ORDER BY created_at ASC`)
+      .all(groupId) as GroupFile[];
   }
 
-  // UNION directly-attached plan files with files from child events.
-  // Event file rows are shaped to match PlanFile (id, plan_id, file_path, created_at).
+  // UNION directly-attached group files with files from child events.
   return getDatabase()
     .prepare(`
-      SELECT id, plan_id, file_path, created_at FROM plan_files WHERE plan_id = ?
+      SELECT id, group_id, file_path, created_at FROM group_files WHERE group_id = ?
       UNION ALL
-      SELECT ef.id, ce.plan_id, ef.file_path, ef.created_at
+      SELECT ef.id, ce.group_id, ef.file_path, ef.created_at
         FROM event_files ef
         JOIN calendar_events ce ON ce.id = ef.event_id
-        WHERE ce.plan_id = ?
+        WHERE ce.group_id = ?
       ORDER BY created_at ASC
     `)
-    .all(planId, planId) as PlanFile[];
+    .all(groupId, groupId) as GroupFile[];
 }
 
-export function removePlanFile(id: number): void {
-  getDatabase().prepare(`DELETE FROM plan_files WHERE id = ?`).run(id);
+export function removeGroupFile(id: number): void {
+  getDatabase().prepare(`DELETE FROM group_files WHERE id = ?`).run(id);
 }

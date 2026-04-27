@@ -113,7 +113,7 @@ export type NotificationNavigationAction =
 
 // ---- Calendar ----
 
-export interface CalendarPlan {
+export interface CalendarGroup {
   id: string;
   workspace_id: string;
   name: string;
@@ -125,7 +125,7 @@ export interface CalendarPlan {
 export interface CalendarEvent {
   id: string;
   workspace_id: string;
-  plan_id: string | null;
+  group_id: string | null;
   name: string;
   start_at: string;
   end_at: string;
@@ -145,9 +145,9 @@ export interface EventFile {
   created_at: string;
 }
 
-export interface PlanFile {
+export interface GroupFile {
   id: number;
-  plan_id: string;
+  group_id: string;
   file_path: string;
   created_at: string;
 }
@@ -159,7 +159,7 @@ export interface CalendarResource {
   workspace_id: string;
   type: CalendarResourceType;
   event_id: string | null;
-  plan_id: string | null;
+  group_id: string | null;
   parent_id: string | null;
   file_path: string | null;
   url: string | null;
@@ -174,7 +174,7 @@ export interface CalendarResource {
 export interface CreateResourceData {
   type: CalendarResourceType;
   event_id?: string | null;
-  plan_id?: string | null;
+  group_id?: string | null;
   parent_id?: string | null;
   file_path?: string | null;
   url?: string | null;
@@ -192,7 +192,7 @@ export interface UpdateResourceData {
 }
 
 export interface MoveResourceData {
-  plan_id?: string | null;
+  group_id?: string | null;
   event_id?: string | null;
   parent_id?: string | null;
   sort_order?: number;
@@ -200,7 +200,7 @@ export interface MoveResourceData {
 
 export interface ListResourcesOptions {
   event_id?: string;
-  plan_id?: string;
+  group_id?: string;
   parent_id?: string | null;
   standalone?: boolean;
 }
@@ -212,18 +212,18 @@ export interface WorkspaceFileEntry {
   children?: WorkspaceFileEntry[];
 }
 
-export interface CreatePlanData {
+export interface CreateGroupData {
   name: string;
   color: string;
 }
 
-export interface UpdatePlanData {
+export interface UpdateGroupData {
   name?: string;
   color?: string;
 }
 
 export interface CreateEventData {
-  plan_id?: string | null;
+  group_id?: string | null;
   name: string;
   start_at: string;
   end_at: string;
@@ -235,7 +235,7 @@ export interface CreateEventData {
 }
 
 export interface UpdateEventData {
-  plan_id?: string | null;
+  group_id?: string | null;
   name?: string;
   start_at?: string;
   end_at?: string;
@@ -281,7 +281,7 @@ export interface CalendarReaction {
   id: string;
   workspace_id: string;
   event_id: string | null;
-  plan_id: string | null;
+  group_id: string | null;
   title: string;
   content: string;
   status: 'unread' | 'read' | 'dismissed';
@@ -292,7 +292,7 @@ export interface CalendarReaction {
 
 export interface CreateReactionData {
   event_id?: string | null;
-  plan_id?: string | null;
+  group_id?: string | null;
   title: string;
   content: string;
   trigger_context: string;

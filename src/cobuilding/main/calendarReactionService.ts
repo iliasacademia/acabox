@@ -32,7 +32,7 @@ interface Finding {
   title: string;
   content: string;
   event_id?: string | null;
-  plan_id?: string | null;
+  group_id?: string | null;
   resources?: FindingResource[];
 }
 
@@ -110,7 +110,7 @@ const REPORT_TOOL: Anthropic.Tool = {
             title: { type: 'string', description: 'Short title, under 60 chars.' },
             content: { type: 'string', description: '2–4 sentences of plain text explaining why this is relevant.' },
             event_id: { type: 'string', description: 'ID of the specific event this relates to, if any.' },
-            plan_id: { type: 'string', description: 'ID of the specific plan this relates to, if any.' },
+            group_id: { type: 'string', description: 'ID of the specific group this relates to, if any.' },
             resources: {
               type: 'array',
               description: 'Verified URLs you fetched and confirmed exist.',
@@ -155,7 +155,7 @@ function filterCooledDown(
 function buildSystemPrompt(bundle: CalendarEditBundle, workspaceId: string): string {
   const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
   const twoMonthsOut = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
-  const plans = cal.listPlans(workspaceId);
+  const groups = cal.listGroups(workspaceId);
   const events = cal.listEvents(workspaceId, { from: twoWeeksAgo, to: twoMonthsOut });
   const today = new Date().toISOString().split('T')[0];
 
@@ -167,14 +167,14 @@ Recent calendar edits:
 ${JSON.stringify(bundle.mutations, null, 2)}
 
 Calendar context:
-Plans: ${JSON.stringify(plans.map(p => ({ id: p.id, name: p.name })))}
-Upcoming events: ${JSON.stringify(events.map(e => ({ id: e.id, name: e.name, start_at: e.start_at, end_at: e.end_at, plan_id: e.plan_id })))}
+Groups: ${JSON.stringify(groups.map(g => ({ id: g.id, name: g.name })))}
+Upcoming events: ${JSON.stringify(events.map(e => ({ id: e.id, name: e.name, start_at: e.start_at, end_at: e.end_at, group_id: e.group_id })))}
 
 ---
 
 ## Your task
 
-1. Look at the event/plan names and infer what the researcher is working on.
+1. Look at the event/group names and infer what the researcher is working on.
 2. Use fetch_url to search for and retrieve real, relevant content from:
    - arXiv: https://arxiv.org/search/?query=TERM&searchtype=all&order=-announced_date_first
    - PubMed: https://pubmed.ncbi.nlm.nih.gov/?term=TERM&sort=date
@@ -268,7 +268,7 @@ async function generateReactions(
   for (const finding of findings) {
     const reaction = reactions.createReaction(workspaceId, {
       event_id: finding.event_id ?? null,
-      plan_id: finding.plan_id ?? null,
+      group_id: finding.group_id ?? null,
       title: finding.title,
       content: finding.content,
       trigger_context: triggerContext,
@@ -282,7 +282,7 @@ async function generateReactions(
             url: r.url,
             title: r.title,
             event_id: finding.event_id ?? null,
-            plan_id: finding.plan_id ?? null,
+            group_id: finding.group_id ?? null,
             ai_generated: true,
           });
         } catch (err) {

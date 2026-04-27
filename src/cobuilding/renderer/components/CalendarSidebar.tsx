@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { PLAN_COLORS } from '../calendarColors';
-import type { CalendarPlan, CalendarEvent, EventDependency, CalendarResource, CreateResourceData } from '../../shared/types';
+import type { CalendarGroup, CalendarEvent, EventDependency, CalendarResource, CreateResourceData } from '../../shared/types';
 
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -10,7 +10,7 @@ function formatDateShort(iso: string): string {
   return `${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
-function planDateRange(events: CalendarEvent[]): string | null {
+function groupDateRange(events: CalendarEvent[]): string | null {
   if (events.length === 0) return null;
   const starts = events.map(e => e.start_at).sort();
   const ends = events.map(e => e.end_at).sort();
@@ -22,6 +22,19 @@ function planDateRange(events: CalendarEvent[]): string | null {
 
 function basename(p: string): string {
   return p.split('/').pop() ?? p;
+}
+
+function hexLuminance(hex: string): number {
+  const c = hex.replace('#', '');
+  const r = parseInt(c.slice(0, 2), 16) / 255;
+  const g = parseInt(c.slice(2, 4), 16) / 255;
+  const b = parseInt(c.slice(4, 6), 16) / 255;
+  const lin = (v: number) => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+function groupHeaderTextColor(hex: string): string {
+  return hexLuminance(hex) > 0.35 ? '#2C2C28' : '#f9f8f6';
 }
 
 function resourceDisplayTitle(r: CalendarResource): string {
@@ -80,6 +93,25 @@ function NoteIcon() {
   );
 }
 
+function GroupIcon() {
+  return (
+    <svg className="overviewResourceIcon" viewBox="0 0 11 11" fill="none">
+      <circle cx="4" cy="4" r="2" stroke="currentColor" strokeWidth="1.1"/>
+      <circle cx="7.5" cy="7.5" r="2" stroke="currentColor" strokeWidth="1.1"/>
+    </svg>
+  );
+}
+
+function EventIcon() {
+  return (
+    <svg className="overviewResourceIcon" viewBox="0 0 11 11" fill="none">
+      <rect x="1.5" y="2.5" width="8" height="7" rx="1" stroke="currentColor" strokeWidth="1.1"/>
+      <path d="M1.5 5h8" stroke="currentColor" strokeWidth="1.1"/>
+      <path d="M3.5 1.5v2M7.5 1.5v2" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round"/>
+    </svg>
+  );
+}
+
 function ResourceTypeIcon({ type, open }: { type: CalendarResource['type']; open?: boolean }) {
   if (type === 'file') return <FileIcon />;
   if (type === 'link') return <LinkIcon />;
@@ -108,9 +140,379 @@ type ResourceScope =
   | { type: 'event'; id: string }
   | { type: 'floating' };
 
-interface LinkFormState {
-  url: string;
-  title: string;
+// ---- Shared modal + context-menu types ----
+
+type ModalType = CalendarResource['type'] | 'group' | 'event';
+
+interface ResourceModalState {
+  mode: 'create' | 'edit';
+  type: ModalType | null;
+  resource: CalendarResource | null;
+  scopeProps: Pick<CreateResourceData, 'group_id' | 'event_id'>;
+  scopeLabel: string;
+  anchorX: number;
+  anchorY: number;
+  parentId?: string | null;
+}
+
+interface ContextMenuItem {
+  label: string;
+  onClick: () => void;
+  danger?: boolean;
+}
+
+// ---- ResourceEditModal ----
+
+const POPOVER_W = 288;
+
+function todayISO(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function ResourceEditModal({ state, groups, onClose, onMutated }: {
+  state: ResourceModalState;
+  groups: CalendarGroup[];
+  onClose: () => void;
+  onMutated: () => void;
+}) {
+  const isWorkspace = state.scopeProps.group_id === null && state.scopeProps.event_id === null;
+
+  const initialStep: ModalType | 'pick' =
+    state.mode === 'edit' ? state.resource!.type : state.type ?? 'pick';
+  const [step, setStep] = useState<ModalType | 'pick'>(initialStep);
+
+  // resource fields
+  const [title, setTitle] = useState(state.resource?.title ?? '');
+  const [noteContent, setNoteContent] = useState(state.resource?.note_content ?? '');
+  const [url, setUrl] = useState(state.resource?.url ?? '');
+
+  // group fields
+  const [groupName, setGroupName] = useState('');
+  const [groupColorIdx, setGroupColorIdx] = useState(0);
+
+  // event fields
+  const [eventName, setEventName] = useState('');
+  const [eventStart, setEventStart] = useState(() => todayISO());
+  const [eventEnd, setEventEnd] = useState(() => todayISO());
+  const [eventGroupId, setEventGroupId] = useState('');
+
+  const [saving, setSaving] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const left = Math.min(state.anchorX + 8, window.innerWidth - POPOVER_W - 8);
+  const top = Math.max(8, Math.min(state.anchorY - 16, window.innerHeight - 500));
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (step !== 'pick' && state.mode === 'create' && state.type == null) {
+        setStep('pick');
+      } else {
+        onClose();
+      }
+    };
+    const onDown = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) onClose();
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown);
+    };
+  }, [onClose, step, state]);
+
+  async function handlePickFile() {
+    const paths = await window.calendarAPI.pickResourceFile();
+    if (!paths || paths.length === 0) return;
+    await Promise.all(paths.map(fp =>
+      window.calendarAPI.createResource({ type: 'file', ...state.scopeProps, parent_id: state.parentId ?? null, file_path: fp, title: basename(fp) })
+    ));
+    onMutated();
+    onClose();
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      if (state.mode === 'edit' && state.resource) {
+        if (step === 'note') {
+          await window.calendarAPI.updateResource(state.resource.id, { title, note_content: noteContent });
+        } else if (step === 'link') {
+          await window.calendarAPI.updateResource(state.resource.id, { url: url.trim(), title: title.trim() || url.trim() });
+        } else if (step === 'folder') {
+          await window.calendarAPI.updateResource(state.resource.id, { title });
+        }
+      } else {
+        if (step === 'note') {
+          await window.calendarAPI.createResource({ type: 'note', ...state.scopeProps, parent_id: state.parentId ?? null, title, note_content: noteContent });
+        } else if (step === 'link') {
+          if (!url.trim()) return;
+          await window.calendarAPI.createResource({ type: 'link', ...state.scopeProps, parent_id: state.parentId ?? null, url: url.trim(), title: title.trim() || url.trim() });
+        } else if (step === 'folder') {
+          await window.calendarAPI.createResource({ type: 'folder', ...state.scopeProps, parent_id: state.parentId ?? null, title: title || 'New Folder' });
+        } else if (step === 'group') {
+          if (!groupName.trim()) return;
+          await window.calendarAPI.createGroup({ name: groupName.trim(), color: PLAN_COLORS[groupColorIdx].shades[600] });
+        } else if (step === 'event') {
+          if (!eventName.trim() || !eventStart) return;
+          const end = eventEnd && eventEnd >= eventStart ? eventEnd : eventStart;
+          await window.calendarAPI.createEvent({
+            name: eventName.trim(),
+            start_at: `${eventStart}T09:00:00`,
+            end_at: `${end}T17:00:00`,
+            group_id: eventGroupId || null,
+          });
+        }
+      }
+      onMutated();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!state.resource) return;
+    await window.calendarAPI.deleteResource(state.resource.id);
+    onMutated();
+    onClose();
+  }
+
+  const canSave =
+    step === 'note' ||
+    (step === 'link' && url.trim().length > 0) ||
+    (step === 'folder' && title.trim().length > 0) ||
+    (step === 'group' && groupName.trim().length > 0) ||
+    (step === 'event' && eventName.trim().length > 0 && eventStart.length > 0);
+
+  const titleLabel =
+    state.mode === 'edit' ? `Edit ${step}`
+    : step === 'pick' ? (isWorkspace ? 'Create new' : `Add to ${state.scopeLabel}`)
+    : step === 'group' ? 'New group'
+    : step === 'event' ? 'New event'
+    : `Add ${step}`;
+
+  return (
+    <div ref={containerRef} className="resModalPanel" style={{ left, top }}>
+      <div className="resModalHeader">
+        {step !== 'pick' && state.mode === 'create' && state.type == null && (
+          <button className="resModalBackBtn" onClick={() => setStep('pick')}>
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M7.5 2.5L4.5 6l3 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        )}
+        <span className="resModalTitle">{titleLabel}</span>
+        <button className="resModalCloseBtn" onClick={onClose}>
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M2 2l8 8M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
+      </div>
+
+      {step === 'pick' && (
+        <div className={`resModalTypePicker${isWorkspace ? ' resModalTypePicker6' : ''}`}>
+          {isWorkspace && (
+            <>
+              <button className="resModalTypeBtn" onClick={() => setStep('group')}>
+                <GroupIcon /><span>Group</span>
+              </button>
+              <button className="resModalTypeBtn" onClick={() => setStep('event')}>
+                <EventIcon /><span>Event</span>
+              </button>
+            </>
+          )}
+          <button className="resModalTypeBtn" onClick={handlePickFile}>
+            <FileIcon /><span>File</span>
+          </button>
+          <button className="resModalTypeBtn" onClick={() => setStep('link')}>
+            <LinkIcon /><span>Link</span>
+          </button>
+          <button className="resModalTypeBtn" onClick={() => setStep('note')}>
+            <NoteIcon /><span>Note</span>
+          </button>
+          <button className="resModalTypeBtn" onClick={() => setStep('folder')}>
+            <FolderIcon /><span>Folder</span>
+          </button>
+        </div>
+      )}
+
+      {step === 'group' && (
+        <div className="resModalForm">
+          <label className="resModalLabel">Name</label>
+          <input
+            className="resModalInput"
+            placeholder="Group name"
+            value={groupName}
+            autoFocus
+            onChange={e => setGroupName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && groupName.trim()) handleSave(); }}
+          />
+          <label className="resModalLabel">Color</label>
+          <div className="resModalColorPicker">
+            {PLAN_COLORS.map((fam, i) => (
+              <button
+                key={fam.family}
+                className={`overviewNewGroupSwatch${groupColorIdx === i ? ' overviewNewGroupSwatchSel' : ''}`}
+                style={{ backgroundColor: fam.shades[600] }}
+                onClick={() => setGroupColorIdx(i)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {step === 'event' && (
+        <div className="resModalForm">
+          <label className="resModalLabel">Name</label>
+          <input
+            className="resModalInput"
+            placeholder="Event name"
+            value={eventName}
+            autoFocus
+            onChange={e => setEventName(e.target.value)}
+          />
+          <label className="resModalLabel">Start</label>
+          <input
+            className="resModalInput resModalDateInput"
+            type="date"
+            value={eventStart}
+            onChange={e => { setEventStart(e.target.value); if (!eventEnd || eventEnd < e.target.value) setEventEnd(e.target.value); }}
+          />
+          <label className="resModalLabel">End</label>
+          <input
+            className="resModalInput resModalDateInput"
+            type="date"
+            value={eventEnd}
+            min={eventStart}
+            onChange={e => setEventEnd(e.target.value)}
+          />
+          {groups.length > 0 && (
+            <>
+              <label className="resModalLabel">Group</label>
+              <select
+                className="resModalInput resModalSelect"
+                value={eventGroupId}
+                onChange={e => setEventGroupId(e.target.value)}
+              >
+                <option value="">No group</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+            </>
+          )}
+        </div>
+      )}
+
+      {step === 'note' && (
+        <div className="resModalForm">
+          <label className="resModalLabel">Title</label>
+          <input
+            className="resModalInput"
+            placeholder="Optional title"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+          />
+          <label className="resModalLabel">Content</label>
+          <textarea
+            className="resModalTextarea"
+            placeholder="Write a note…"
+            value={noteContent}
+            autoFocus
+            onChange={e => setNoteContent(e.target.value)}
+          />
+        </div>
+      )}
+
+      {step === 'link' && (
+        <div className="resModalForm">
+          <label className="resModalLabel">URL</label>
+          <input
+            className="resModalInput"
+            placeholder="https://…"
+            value={url}
+            autoFocus
+            onChange={e => setUrl(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && url.trim()) handleSave(); }}
+          />
+          <label className="resModalLabel">Title (optional)</label>
+          <input
+            className="resModalInput"
+            placeholder="Display name"
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && url.trim()) handleSave(); }}
+          />
+        </div>
+      )}
+
+      {step === 'folder' && (
+        <div className="resModalForm">
+          <label className="resModalLabel">Folder Name</label>
+          <input
+            className="resModalInput"
+            placeholder="Folder name"
+            value={title}
+            autoFocus
+            onChange={e => setTitle(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter' && title.trim()) handleSave(); }}
+          />
+        </div>
+      )}
+
+      {step !== 'pick' && (
+        <div className="resModalFooter">
+          {state.mode === 'edit' && state.resource && (
+            <button className="resModalDeleteBtn" onClick={handleDelete}>Delete</button>
+          )}
+          <div style={{ flex: 1 }} />
+          <button className="resModalCancelBtn" onClick={onClose}>Cancel</button>
+          <button className="resModalSaveBtn" onClick={handleSave} disabled={saving || !canSave}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---- ContextMenu ----
+
+function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: ContextMenuItem[]; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  const left = Math.min(x, window.innerWidth - 160);
+  const top = Math.min(y, window.innerHeight - items.length * 28 - 12);
+
+  return (
+    <div ref={ref} className="resContextMenu" style={{ left, top }}>
+      {items.map((item, i) => (
+        <button
+          key={i}
+          className={`resContextItem${item.danger ? ' resContextItemDanger' : ''}`}
+          onClick={() => { item.onClick(); onClose(); }}
+        >
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 // ---- ResourceSection ----
@@ -118,107 +520,35 @@ interface LinkFormState {
 interface ResourceSectionProps {
   scope: ResourceScope;
   resources: CalendarResource[];
-  insideGroupEvents?: boolean;
+  indent: number;
   onMutated: () => void;
+  onOpenModal: (state: ResourceModalState) => void;
+  onOpenContextMenu: (x: number, y: number, items: ContextMenuItem[]) => void;
 }
 
-function ResourceSection({ scope, resources, insideGroupEvents, onMutated }: ResourceSectionProps) {
-  const [expanded, setExpanded] = useState(false);
-  const [addingActive, setAddingActive] = useState(false);
-  const [linkForm, setLinkForm] = useState<LinkFormState | null>(null);
-  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
-  const [editingNoteContent, setEditingNoteContent] = useState('');
+function ResourceSection({ scope, resources, indent, onMutated, onOpenModal, onOpenContextMenu }: ResourceSectionProps) {
+  const [folderExpanded, setFolderExpanded] = useState<Set<string>>(new Set());
+  const [dragOverTarget, setDragOverTarget] = useState<string | null>(null);
   const [editingTitleId, setEditingTitleId] = useState<string | null>(null);
   const [editingTitleValue, setEditingTitleValue] = useState('');
-  const [folderExpanded, setFolderExpanded] = useState<Set<string>>(new Set());
-  const [dragOverTarget, setDragOverTarget] = useState<string | 'root' | null>(null);
 
-  const noteSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const noteIdRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    return () => { if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current); };
-  }, []);
-
-  const flushNote = useCallback(async () => {
-    if (noteSaveTimer.current && noteIdRef.current) {
-      clearTimeout(noteSaveTimer.current);
-      noteSaveTimer.current = null;
-      await window.calendarAPI.updateResource(noteIdRef.current, { note_content: editingNoteContent });
-      onMutated();
-    }
-  }, [editingNoteContent, onMutated]);
-
-  const scopeProps: Pick<CreateResourceData, 'plan_id' | 'event_id'> = {
-    plan_id: scope.type === 'plan' ? scope.id : null,
+  const scopeProps: Pick<CreateResourceData, 'group_id' | 'event_id'> = {
+    group_id: scope.type === 'plan' ? scope.id : null,
     event_id: scope.type === 'event' ? scope.id : null,
+  };
+  const scopeLabel = scope.type === 'event' ? 'Event' : scope.type === 'plan' ? 'Group' : 'Workspace';
+
+  const openAddModal = (type: CalendarResource['type'] | null = null, ax = 0, ay = 0, parentId?: string | null) => {
+    onOpenModal({ mode: 'create', type, resource: null, scopeProps, scopeLabel, anchorX: ax, anchorY: ay, parentId });
+  };
+
+  const openEditModal = (r: CalendarResource, ax = 0, ay = 0) => {
+    onOpenModal({ mode: 'edit', type: r.type, resource: r, scopeProps, scopeLabel, anchorX: ax, anchorY: ay });
   };
 
   const handleDelete = async (id: string) => {
     await window.calendarAPI.deleteResource(id);
     onMutated();
-  };
-
-  const handleAddFile = async () => {
-    const paths = await window.calendarAPI.pickResourceFile();
-    if (!paths || paths.length === 0) return;
-    await Promise.all(paths.map(fp =>
-      window.calendarAPI.createResource({ type: 'file', ...scopeProps, file_path: fp, title: basename(fp) })
-    ));
-    setAddingActive(false);
-    setExpanded(true);
-    onMutated();
-  };
-
-  const handleSaveLink = async () => {
-    if (!linkForm?.url.trim()) return;
-    await window.calendarAPI.createResource({
-      type: 'link',
-      ...scopeProps,
-      url: linkForm.url.trim(),
-      title: linkForm.title.trim() || linkForm.url.trim(),
-    });
-    setLinkForm(null);
-    setExpanded(true);
-    onMutated();
-  };
-
-  const handleAddNote = async () => {
-    const created = await window.calendarAPI.createResource({
-      type: 'note', ...scopeProps, note_content: '', title: '',
-    });
-    setAddingActive(false);
-    setExpanded(true);
-    noteIdRef.current = created.id;
-    setEditingNoteId(created.id);
-    setEditingNoteContent('');
-    onMutated();
-  };
-
-  const handleAddFolder = async () => {
-    const created = await window.calendarAPI.createResource({
-      type: 'folder', ...scopeProps, title: 'New Folder',
-    });
-    setAddingActive(false);
-    setExpanded(true);
-    setFolderExpanded(prev => new Set(prev).add(created.id));
-    setEditingTitleId(created.id);
-    setEditingTitleValue('New Folder');
-    onMutated();
-  };
-
-  const handleNoteClick = async (r: CalendarResource) => {
-    if (editingNoteId === r.id) return;
-    await flushNote();
-    noteIdRef.current = r.id;
-    setEditingNoteId(r.id);
-    setEditingNoteContent(r.note_content ?? '');
-  };
-
-  const handleNoteBlur = async () => {
-    await flushNote();
-    setEditingNoteId(null);
-    noteIdRef.current = null;
   };
 
   const handleTitleSave = async (id: string) => {
@@ -227,16 +557,46 @@ function ResourceSection({ scope, resources, insideGroupEvents, onMutated }: Res
     onMutated();
   };
 
-  const handleResourceClick = (r: CalendarResource) => {
+  const handleResourceClick = (r: CalendarResource, ax: number, ay: number) => {
     if (r.type === 'file' && r.file_path) window.calendarAPI.openResourceFile(r.file_path);
     else if (r.type === 'link' && r.url) window.calendarAPI.openResourceUrl(r.url);
-    else if (r.type === 'note') handleNoteClick(r);
+    else if (r.type === 'note') openEditModal(r, ax, ay);
+    else if (r.type === 'folder') toggleFolder(r.id);
   };
 
-  const handleContextMenu = (e: React.MouseEvent, r: CalendarResource) => {
-    if (r.type !== 'file' || !r.file_path) return;
+  const showResourceContextMenu = (e: React.MouseEvent, r: CalendarResource) => {
     e.preventDefault();
-    window.calendarAPI.revealResourceFile(r.file_path);
+    e.stopPropagation();
+    const ax = e.clientX;
+    const ay = e.clientY;
+    onOpenContextMenu(ax, ay, [
+      ...(r.type === 'note' || r.type === 'link' || r.type === 'folder'
+        ? [{ label: 'Edit', onClick: () => openEditModal(r, ax, ay) }]
+        : []),
+      ...(r.type === 'file' && r.file_path
+        ? [{ label: 'Reveal in Finder', onClick: () => window.calendarAPI.revealResourceFile(r.file_path!) }]
+        : []),
+      { label: 'Delete', onClick: () => handleDelete(r.id), danger: true },
+    ]);
+  };
+
+  const showSectionContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const ax = e.clientX;
+    const ay = e.clientY;
+    onOpenContextMenu(ax, ay, [
+      { label: 'Add File', onClick: async () => {
+        const paths = await window.calendarAPI.pickResourceFile();
+        if (!paths || paths.length === 0) return;
+        await Promise.all(paths.map(fp =>
+          window.calendarAPI.createResource({ type: 'file', ...scopeProps, file_path: fp, title: basename(fp) })
+        ));
+        onMutated();
+      }},
+      { label: 'Add Link', onClick: () => openAddModal('link', ax, ay) },
+      { label: 'Add Note', onClick: () => openAddModal('note', ax, ay) },
+      { label: 'Add Folder', onClick: () => openAddModal('folder', ax, ay) },
+    ]);
   };
 
   const toggleFolder = (id: string) => {
@@ -265,42 +625,28 @@ function ResourceSection({ scope, resources, insideGroupEvents, onMutated }: Res
     const isFolderOpen = isFolder && folderExpanded.has(r.id);
     const isDragOver = dragOverTarget === r.id;
     const isEditingTitle = editingTitleId === r.id;
-    const isEditingNote = editingNoteId === r.id;
-    const indent = 10 + depth * 14;
+    const rowIndent = depth * 12;
 
     return (
       <React.Fragment key={r.id}>
+        <div className="overviewResourceRowWrap" style={{ marginLeft: `${rowIndent}px` }}>
         <button
           className={`overviewResourceRow${isFolder ? ' overviewFolderRow' : ''}${isDragOver ? ' overviewResourceDropTarget' : ''}`}
-          style={{ paddingLeft: `${indent}px` }}
           draggable
-          onDragStart={e => {
-            e.dataTransfer.setData('application/resource-id', r.id);
-            e.stopPropagation();
-          }}
+          onDragStart={e => { e.dataTransfer.setData('application/resource-id', r.id); e.stopPropagation(); }}
           onDragOver={e => {
             if (!e.dataTransfer.types.includes('application/resource-id')) return;
-            e.preventDefault();
-            e.stopPropagation();
+            e.preventDefault(); e.stopPropagation();
             if (isFolder && dragOverTarget !== r.id) setDragOverTarget(r.id);
           }}
-          onDragLeave={() => {
-            if (dragOverTarget === r.id) setDragOverTarget(null);
-          }}
+          onDragLeave={() => { if (dragOverTarget === r.id) setDragOverTarget(null); }}
           onDrop={e => { if (isFolder) handleDrop(e, r.id); }}
-          onClick={e => {
-            e.stopPropagation();
-            if (isFolder) toggleFolder(r.id);
-            else handleResourceClick(r);
-          }}
-          onContextMenu={e => handleContextMenu(e, r)}
+          onClick={e => { e.stopPropagation(); const rect = e.currentTarget.getBoundingClientRect(); handleResourceClick(r, rect.right, rect.top + rect.height / 2); }}
+          onContextMenu={e => showResourceContextMenu(e, r)}
         >
           {isFolder ? (
-            <svg
-              className={`overviewChevron${isFolderOpen ? ' overviewChevronOpen' : ''}`}
-              width="10" height="10" viewBox="0 0 10 10" fill="none"
-            >
-              <path d="M3.5 2.5L6 5L3.5 7.5" stroke="#9B9B95" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <svg className={`overviewChevron${isFolderOpen ? ' overviewChevronOpen' : ''}`} width="13" height="13" viewBox="0 0 10 10" fill="none">
+              <path d="M3.5 2.5L6 5L3.5 7.5" stroke="#9B9B95" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
             </svg>
           ) : (
             <span className="overviewResourceIconSpacer" />
@@ -336,30 +682,20 @@ function ResourceSection({ scope, resources, insideGroupEvents, onMutated }: Res
             className="overviewResourceDeleteBtn"
             onClick={e => { e.stopPropagation(); handleDelete(r.id); }}
             title="Remove"
-          >
-            ×
-          </button>
+          >×</button>
         </button>
-        {isEditingNote && (
-          <div className="overviewResourceNoteEditor" style={{ paddingLeft: `${indent + 22}px` }}>
-            <textarea
-              className="overviewResourceNoteTextarea"
-              autoFocus
-              value={editingNoteContent}
-              onChange={e => {
-                const val = e.target.value;
-                setEditingNoteContent(val);
-                if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current);
-                noteSaveTimer.current = setTimeout(async () => {
-                  noteSaveTimer.current = null;
-                  await window.calendarAPI.updateResource(r.id, { note_content: val });
-                  onMutated();
-                }, 500);
-              }}
-              onBlur={handleNoteBlur}
-            />
-          </div>
+        {isFolder && (
+          <button
+            className="overviewResourceAddBtn"
+            onClick={e => {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              openAddModal(null, rect.right, rect.top + rect.height / 2, r.id);
+            }}
+            title="Add to folder"
+          >+</button>
         )}
+        </div>
         {isFolderOpen && node.children.length > 0 && (
           <div className="overviewFolderChildren">
             {node.children.map(child => renderNode(child, depth + 1))}
@@ -369,151 +705,123 @@ function ResourceSection({ scope, resources, insideGroupEvents, onMutated }: Res
     );
   }
 
-  const cls = insideGroupEvents ? 'overviewGroupEvents' : '';
+  if (resources.length === 0) return null;
 
   return (
-    <div className={`overviewResourcesSection${cls ? ' ' + cls : ''}`}>
-      <button
-        className={`overviewResourcesToggle${dragOverTarget === 'root' ? ' overviewResourceDropTarget' : ''}`}
-        onClick={() => setExpanded(v => !v)}
-        onDragOver={e => {
-          if (!e.dataTransfer.types.includes('application/resource-id')) return;
-          e.preventDefault();
-          e.stopPropagation();
-          setDragOverTarget('root');
-        }}
-        onDragLeave={() => setDragOverTarget(null)}
-        onDrop={e => handleDrop(e, null)}
-      >
-        <svg
-          className={`overviewChevron${expanded ? ' overviewChevronOpen' : ''}`}
-          width="10" height="10" viewBox="0 0 10 10" fill="none"
-        >
-          <path d="M3.5 2.5L6 5L3.5 7.5" stroke="#9B9B95" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        <span className="overviewResourcesLabel">Files &amp; Notes</span>
-        {resources.length > 0 && (
-          <span className="overviewResourcesCount">{resources.length}</span>
-        )}
-        <button
-          className="overviewResourcesAddBtn"
-          onClick={e => { e.stopPropagation(); setAddingActive(v => !v); setExpanded(true); }}
-          title="Add file, link, note, or folder"
-        >
-          +
-        </button>
-      </button>
-
-      {expanded && (
-        <div className="overviewResourceList">
-          {tree.map(node => renderNode(node, 0))}
-
-          {addingActive && (
-            <div className="overviewResourceAddAffordance">
-              <button className="overviewResourceAddTypeBtn" onClick={handleAddFile}>File</button>
-              <button className="overviewResourceAddTypeBtn" onClick={() => { setLinkForm({ url: '', title: '' }); setAddingActive(false); }}>Link</button>
-              <button className="overviewResourceAddTypeBtn" onClick={handleAddNote}>Note</button>
-              <button className="overviewResourceAddTypeBtn" onClick={handleAddFolder}>Folder</button>
-            </div>
-          )}
-
-          {linkForm && (
-            <div className="overviewResourceLinkForm">
-              <input
-                className="overviewResourceLinkInput"
-                placeholder="https://..."
-                value={linkForm.url}
-                autoFocus
-                onChange={e => setLinkForm(prev => prev ? { ...prev, url: e.target.value } : null)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSaveLink(); if (e.key === 'Escape') setLinkForm(null); }}
-              />
-              <input
-                className="overviewResourceLinkInput"
-                placeholder="Title (optional)"
-                value={linkForm.title}
-                onChange={e => setLinkForm(prev => prev ? { ...prev, title: e.target.value } : null)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSaveLink(); if (e.key === 'Escape') setLinkForm(null); }}
-              />
-              <div className="overviewResourceLinkActions">
-                <button className="overviewResourceLinkSave" onClick={handleSaveLink}>Add</button>
-                <button className="overviewResourceLinkCancel" onClick={() => setLinkForm(null)}>Cancel</button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+    <div className="overviewResourceList" style={{ marginLeft: `${indent}px` }} onContextMenu={showSectionContextMenu}>
+      {tree.map(node => renderNode(node, 0))}
     </div>
   );
 }
 
 // ---- EventItem ----
-// Event row with per-event file badge and expandable ResourceSection
 
 interface EventItemProps {
   event: CalendarEvent;
-  planColor: string;
+  groupColor: string;
   resources: CalendarResource[];
   isLinked: boolean;
   onEventClick?: (event: CalendarEvent, anchorX: number, anchorY: number) => void;
   onEventDragStart: (event: CalendarEvent) => void;
   onResourceMutated: () => void;
+  onOpenModal: (state: ResourceModalState) => void;
+  onOpenContextMenu: (x: number, y: number, items: ContextMenuItem[]) => void;
 }
 
-function EventItem({ event, planColor, resources, isLinked, onEventClick, onEventDragStart, onResourceMutated }: EventItemProps) {
-  const [resourcesExpanded, setResourcesExpanded] = useState(false);
+function EventItem({ event, groupColor, resources, isLinked, onEventClick, onEventDragStart, onResourceMutated, onOpenModal, onOpenContextMenu }: EventItemProps) {
+  const [dragOver, setDragOver] = useState(false);
+
+  const scopeProps: Pick<CreateResourceData, 'group_id' | 'event_id'> = {
+    group_id: null,
+    event_id: event.id,
+  };
+
+  const showAddContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const ax = e.clientX;
+    const ay = e.clientY;
+    onOpenContextMenu(ax, ay, [
+      { label: 'Add File', onClick: async () => {
+        const paths = await window.calendarAPI.pickResourceFile();
+        if (!paths || paths.length === 0) return;
+        await Promise.all(paths.map(fp =>
+          window.calendarAPI.createResource({ type: 'file', ...scopeProps, file_path: fp, title: basename(fp) })
+        ));
+        onResourceMutated();
+      }},
+      { label: 'Add Link', onClick: () => onOpenModal({ mode: 'create', type: 'link', resource: null, scopeProps, scopeLabel: event.name, anchorX: ax, anchorY: ay }) },
+      { label: 'Add Note', onClick: () => onOpenModal({ mode: 'create', type: 'note', resource: null, scopeProps, scopeLabel: event.name, anchorX: ax, anchorY: ay }) },
+      { label: 'Add Folder', onClick: () => onOpenModal({ mode: 'create', type: 'folder', resource: null, scopeProps, scopeLabel: event.name, anchorX: ax, anchorY: ay }) },
+    ]);
+  };
 
   return (
     <>
       <div className="overviewEventRowWrap">
         <button
-          className="overviewEventRow"
+          className={`overviewEventRow${dragOver ? ' overviewEventRowDragOver' : ''}`}
           draggable
           onDragStart={() => onEventDragStart(event)}
           onClick={e => {
             const r = e.currentTarget.getBoundingClientRect();
             onEventClick?.(event, r.right, r.top + r.height / 2);
           }}
+          onContextMenu={showAddContextMenu}
+          onDragOver={e => {
+            if (!e.dataTransfer.types.includes('application/resource-id')) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setDragOver(true);
+          }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={async e => {
+            e.preventDefault();
+            e.stopPropagation();
+            const resourceId = e.dataTransfer.getData('application/resource-id');
+            if (!resourceId) return;
+            setDragOver(false);
+            await window.calendarAPI.moveResource(resourceId, { event_id: event.id, group_id: null, parent_id: null });
+            onResourceMutated();
+          }}
         >
           <span
             className={`overviewEventDot${event.status !== 'active' ? ' overviewEventDotInactive' : ''}`}
-            style={event.status === 'active' ? { backgroundColor: planColor } : { borderColor: planColor }}
+            style={event.status === 'active' ? { backgroundColor: groupColor } : { borderColor: groupColor }}
           />
           <span className="overviewEventName">{event.name}</span>
           <span className="overviewEventDate">{formatDateShort(event.start_at)}</span>
         </button>
         <button
-          className={`overviewEventExpandBtn${resourcesExpanded ? ' overviewEventExpandBtnOpen' : ''}${resources.length > 0 ? ' overviewEventExpandBtnHasFiles' : ''}`}
-          onClick={() => setResourcesExpanded(v => !v)}
-          title={resources.length > 0 ? `${resources.length} file${resources.length === 1 ? '' : 's'}` : 'Files & notes'}
-        >
-          {resources.length > 0 && (
-            <span className="overviewEventFilesCount">{resources.length}</span>
-          )}
-          <svg className="overviewEventExpandChevron" width="10" height="10" viewBox="0 0 10 10" fill="none">
-            <path d="M3.5 2.5L6 5L3.5 7.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </button>
+          className="overviewEventAddBtn"
+          onClick={e => {
+            e.stopPropagation();
+            const rect = e.currentTarget.getBoundingClientRect();
+            onOpenModal({ mode: 'create', type: null, resource: null, scopeProps, scopeLabel: event.name, anchorX: rect.right, anchorY: rect.top + rect.height / 2 });
+          }}
+          title="Add file, link or note"
+        >+</button>
       </div>
-      {resourcesExpanded && (
-        <ResourceSection
-          scope={{ type: 'event', id: event.id }}
-          resources={resources}
-          insideGroupEvents
-          onMutated={onResourceMutated}
-        />
-      )}
-      {isLinked && <div className="overviewDepConnector" style={{ borderColor: planColor }} />}
+      {isLinked && <div className="overviewDepConnector" style={{ borderColor: groupColor }} />}
+      <ResourceSection
+        scope={{ type: 'event', id: event.id }}
+        resources={resources}
+        indent={36}
+        onMutated={onResourceMutated}
+        onOpenModal={onOpenModal}
+        onOpenContextMenu={onOpenContextMenu}
+      />
     </>
   );
 }
 
-// ---- PlanRow ----
+// ---- GroupRow ----
 
-interface PlanRowProps {
-  plan: CalendarPlan;
+interface GroupRowProps {
+  group: CalendarGroup;
   events: CalendarEvent[];
   dependencies: EventDependency[];
-  planResources: CalendarResource[];
+  groupResources: CalendarResource[];
   eventResourcesMap: Map<string, CalendarResource[]>;
   isDragOver: boolean;
   onEventClick?: (event: CalendarEvent, anchorX: number, anchorY: number) => void;
@@ -524,18 +832,20 @@ interface PlanRowProps {
   onDeleteClick: () => void;
   onRename: (newName: string) => Promise<void>;
   onResourceMutated: () => void;
+  onOpenModal: (state: ResourceModalState) => void;
+  onOpenContextMenu: (x: number, y: number, items: ContextMenuItem[]) => void;
 }
 
-function PlanRow({ plan, events, dependencies, planResources, eventResourcesMap, isDragOver, onEventClick, onEventDragStart, onDragOver, onDragLeave, onDrop, onDeleteClick, onRename, onResourceMutated }: PlanRowProps) {
+function GroupRow({ group, events, dependencies, groupResources, eventResourcesMap, isDragOver, onEventClick, onEventDragStart, onDragOver, onDragLeave, onDrop, onDeleteClick, onRename, onResourceMutated, onOpenModal, onOpenContextMenu }: GroupRowProps) {
   const [expanded, setExpanded] = useState(true);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const renameRef = useRef<HTMLInputElement>(null);
-  const dateRange = useMemo(() => planDateRange(events), [events]);
+  const dateRange = useMemo(() => groupDateRange(events), [events]);
 
   function startRename(e: React.MouseEvent) {
     e.stopPropagation();
-    setRenameValue(plan.name);
+    setRenameValue(group.name);
     setRenaming(true);
     setTimeout(() => { renameRef.current?.select(); }, 0);
   }
@@ -543,7 +853,7 @@ function PlanRow({ plan, events, dependencies, planResources, eventResourcesMap,
   async function commitRename() {
     const trimmed = renameValue.trim();
     setRenaming(false);
-    if (trimmed && trimmed !== plan.name) await onRename(trimmed);
+    if (trimmed && trimmed !== group.name) await onRename(trimmed);
   }
 
   const linkedPairs = useMemo(() => {
@@ -561,6 +871,9 @@ function PlanRow({ plan, events, dependencies, planResources, eventResourcesMap,
     return linkedPairs.has([a.id, b.id].sort().join('|'));
   }
 
+  const textColor = groupHeaderTextColor(group.color);
+  const iconOpacity = hexLuminance(group.color) > 0.35 ? '0.5' : '0.7';
+
   return (
     <div
       className={`overviewGroup${isDragOver ? ' overviewGroupDragOver' : ''}`}
@@ -568,23 +881,24 @@ function PlanRow({ plan, events, dependencies, planResources, eventResourcesMap,
       onDragLeave={onDragLeave}
       onDrop={onDrop}
     >
-      <div className="overviewGroupHeaderWrap">
+      <div className="overviewGroupHeaderWrap" style={{ backgroundColor: group.color, borderRadius: '5px' }}>
         <button
           className="overviewGroupHeader"
           onClick={() => { if (!renaming) setExpanded(prev => !prev); }}
         >
           <svg
             className={`overviewChevron${expanded ? ' overviewChevronOpen' : ''}`}
-            width="10" height="10" viewBox="0 0 10 10" fill="none"
+            width="13" height="13" viewBox="0 0 10 10" fill="none"
+            style={{ opacity: iconOpacity }}
           >
-            <path d="M3.5 2.5L6 5L3.5 7.5" stroke="#9B9B95" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M3.5 2.5L6 5L3.5 7.5" stroke={textColor} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
-          <div className="overviewGroupAccent" style={{ backgroundColor: plan.color }} />
           <div className="overviewGroupMeta">
             {renaming ? (
               <input
                 ref={renameRef}
                 className="overviewGroupRenameInput"
+                style={{ color: textColor }}
                 value={renameValue}
                 onChange={e => setRenameValue(e.target.value)}
                 onBlur={commitRename}
@@ -596,40 +910,61 @@ function PlanRow({ plan, events, dependencies, planResources, eventResourcesMap,
                 autoFocus
               />
             ) : (
-              <span className="overviewGroupName" onDoubleClick={startRename}>{plan.name}</span>
+              <span className="overviewGroupName" style={{ color: textColor }} onDoubleClick={startRename}>{group.name}</span>
             )}
-            {!renaming && dateRange && <span className="overviewGroupRange">{dateRange}</span>}
+            {!renaming && dateRange && (
+              <span className="overviewGroupRange" style={{ color: textColor, opacity: 0.72 }}>{dateRange}</span>
+            )}
           </div>
         </button>
         <button
+          className="overviewGroupAddBtn"
+          style={{ color: textColor, opacity: 0.6 }}
+          onClick={e => {
+            e.stopPropagation();
+            const rect = e.currentTarget.getBoundingClientRect();
+            onOpenModal({ mode: 'create', type: null, resource: null, scopeProps: { group_id: group.id, event_id: null }, scopeLabel: group.name, anchorX: rect.right, anchorY: rect.top + rect.height / 2 });
+          }}
+          title="Add to group"
+        >
+          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+            <path d="M6 2v8M2 6h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+          </svg>
+        </button>
+        <button
           className="overviewGroupDeleteBtn"
+          style={{ color: textColor, opacity: 0.6 }}
           onClick={e => { e.stopPropagation(); onDeleteClick(); }}
           title="Remove group"
         >
           <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path d="M2 2L10 10M10 2L2 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
           </svg>
         </button>
       </div>
       {expanded && (
-        <div className="overviewGroupEvents">
+        <div className="overviewGroupBody">
           {events.map((event, i) => (
             <EventItem
               key={event.id}
               event={event}
-              planColor={plan.color}
+              groupColor={group.color}
               resources={eventResourcesMap.get(event.id) ?? []}
               isLinked={i < events.length - 1 && isLinkedToNext(event, events[i + 1])}
               onEventClick={onEventClick}
               onEventDragStart={onEventDragStart}
               onResourceMutated={onResourceMutated}
+              onOpenModal={onOpenModal}
+              onOpenContextMenu={onOpenContextMenu}
             />
           ))}
           <ResourceSection
-            scope={{ type: 'plan', id: plan.id }}
-            resources={planResources}
-            insideGroupEvents
+            scope={{ type: 'plan', id: group.id }}
+            resources={groupResources}
+            indent={16}
             onMutated={onResourceMutated}
+            onOpenModal={onOpenModal}
+            onOpenContextMenu={onOpenContextMenu}
           />
         </div>
       )}
@@ -637,7 +972,7 @@ function PlanRow({ plan, events, dependencies, planResources, eventResourcesMap,
   );
 }
 
-// ---- NewGroupForm ----
+// ---- NewGroupForm — kept for inline use if needed ----
 
 interface NewGroupFormProps {
   onSubmit: (name: string, color: string) => Promise<void>;
@@ -699,22 +1034,23 @@ function NewGroupForm({ onSubmit, onCancel }: NewGroupFormProps) {
 // ---- CalendarSidebar ----
 
 interface CalendarSidebarProps {
-  plans: CalendarPlan[];
+  groups: CalendarGroup[];
   allEvents: CalendarEvent[];
   dependencies: EventDependency[];
   onEventClick?: (event: CalendarEvent, anchorX: number, anchorY: number) => void;
-  onReassign: (eventId: string, newPlanId: string | null) => void;
-  onDeletePlan: (planId: string, deleteEvents: boolean) => void;
+  onReassign: (eventId: string, newGroupId: string | null) => void;
+  onDeleteGroup: (groupId: string, deleteEvents: boolean) => void;
   onCreateGroup: (name: string, color: string) => Promise<void>;
-  onRenamePlan: (planId: string, newName: string) => Promise<void>;
+  onRenameGroup: (groupId: string, newName: string) => Promise<void>;
 }
 
-export function CalendarSidebar({ plans, allEvents, dependencies, onEventClick, onReassign, onDeletePlan, onCreateGroup, onRenamePlan }: CalendarSidebarProps) {
+export function CalendarSidebar({ groups, allEvents, dependencies, onEventClick, onReassign, onDeleteGroup, onCreateGroup, onRenameGroup }: CalendarSidebarProps) {
   const [draggingEvent, setDraggingEvent] = useState<CalendarEvent | null>(null);
-  const [dragOverPlanId, setDragOverPlanId] = useState<string | 'unorganized' | null>(null);
-  const [deletingPlan, setDeletingPlan] = useState<CalendarPlan | null>(null);
-  const [showNewGroupForm, setShowNewGroupForm] = useState(false);
+  const [dragOverGroupId, setDragOverGroupId] = useState<string | 'unorganized' | null>(null);
+  const [deletingGroup, setDeletingGroup] = useState<CalendarGroup | null>(null);
   const [resources, setResources] = useState<CalendarResource[]>([]);
+  const [resModal, setResModal] = useState<ResourceModalState | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; items: ContextMenuItem[] } | null>(null);
 
   const reloadResources = useCallback(async () => {
     const all = await window.calendarAPI.listResources({});
@@ -723,20 +1059,18 @@ export function CalendarSidebar({ plans, allEvents, dependencies, onEventClick, 
 
   useEffect(() => { reloadResources(); }, [reloadResources]);
 
-  // Plan-level resources: plan_id set, event_id null
-  const resourcesByPlan = useMemo(() => {
+  const resourcesByGroup = useMemo(() => {
     const m = new Map<string, CalendarResource[]>();
     for (const r of resources) {
-      if (r.plan_id && !r.event_id) {
-        const arr = m.get(r.plan_id) ?? [];
+      if (r.group_id && !r.event_id) {
+        const arr = m.get(r.group_id) ?? [];
         arr.push(r);
-        m.set(r.plan_id, arr);
+        m.set(r.group_id, arr);
       }
     }
     return m;
   }, [resources]);
 
-  // Event-level resources: event_id set
   const resourcesByEvent = useMemo(() => {
     const m = new Map<string, CalendarResource[]>();
     for (const r of resources) {
@@ -750,17 +1084,17 @@ export function CalendarSidebar({ plans, allEvents, dependencies, onEventClick, 
   }, [resources]);
 
   const floatingResources = useMemo(
-    () => resources.filter(r => !r.plan_id && !r.event_id),
+    () => resources.filter(r => !r.group_id && !r.event_id),
     [resources]
   );
 
-  const eventsByPlan = useMemo(() => {
+  const eventsByGroup = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
     for (const event of allEvents) {
-      if (event.plan_id) {
-        const arr = map.get(event.plan_id) ?? [];
+      if (event.group_id) {
+        const arr = map.get(event.group_id) ?? [];
         arr.push(event);
-        map.set(event.plan_id, arr);
+        map.set(event.group_id, arr);
       }
     }
     for (const [id, arr] of map) {
@@ -770,141 +1104,177 @@ export function CalendarSidebar({ plans, allEvents, dependencies, onEventClick, 
   }, [allEvents]);
 
   const unplannedEvents = useMemo(
-    () => allEvents.filter(e => !e.plan_id && e.status !== 'inactive_hidden')
+    () => allEvents.filter(e => !e.group_id && e.status !== 'inactive_hidden')
       .sort((a, b) => a.start_at.localeCompare(b.start_at)),
     [allEvents],
   );
 
   function handleDragOver(e: React.DragEvent, targetId: string | 'unorganized') {
-    if (!draggingEvent) return;
-    const currentPlanId = draggingEvent.plan_id ?? 'unorganized';
-    if (currentPlanId === targetId) return;
+    const isResourceDrag = e.dataTransfer.types.includes('application/resource-id');
+    if (!draggingEvent && !isResourceDrag) return;
+    if (draggingEvent) {
+      const currentGroupId = draggingEvent.group_id ?? 'unorganized';
+      if (currentGroupId === targetId) return;
+    }
     e.preventDefault();
-    setDragOverPlanId(targetId);
+    setDragOverGroupId(targetId);
   }
 
-  function handleDrop(targetPlanId: string | null) {
+  function handleGroupDrop(e: React.DragEvent, targetGroupId: string | null) {
+    const resourceId = e.dataTransfer.getData('application/resource-id');
+    if (resourceId) {
+      window.calendarAPI.moveResource(resourceId, { group_id: targetGroupId, event_id: null, parent_id: null }).then(reloadResources);
+      setDragOverGroupId(null);
+      return;
+    }
     if (!draggingEvent) return;
-    onReassign(draggingEvent.id, targetPlanId);
+    onReassign(draggingEvent.id, targetGroupId);
     setDraggingEvent(null);
-    setDragOverPlanId(null);
+    setDragOverGroupId(null);
   }
 
   function handleDragEnd() {
     setDraggingEvent(null);
-    setDragOverPlanId(null);
+    setDragOverGroupId(null);
   }
 
   function confirmDelete(deleteEvents: boolean) {
-    if (!deletingPlan) return;
-    onDeletePlan(deletingPlan.id, deleteEvents);
-    setDeletingPlan(null);
+    if (!deletingGroup) return;
+    onDeleteGroup(deletingGroup.id, deleteEvents);
+    setDeletingGroup(null);
   }
 
-  const deletingPlanEventCount = deletingPlan
-    ? (eventsByPlan.get(deletingPlan.id)?.length ?? 0)
+  const deletingGroupEventCount = deletingGroup
+    ? (eventsByGroup.get(deletingGroup.id)?.length ?? 0)
     : 0;
 
-  const eventResourcesMapForPlan = useCallback((planEvents: CalendarEvent[]) => {
+  const eventResourcesMapForGroup = useCallback((groupEvents: CalendarEvent[]) => {
     const m = new Map<string, CalendarResource[]>();
-    for (const ev of planEvents) {
+    for (const ev of groupEvents) {
       const evRes = resourcesByEvent.get(ev.id);
       if (evRes) m.set(ev.id, evRes);
     }
     return m;
   }, [resourcesByEvent]);
 
+  const openModal = useCallback((state: ResourceModalState) => setResModal(state), []);
+  const openContextMenu = useCallback((x: number, y: number, items: ContextMenuItem[]) => {
+    setContextMenu({ x, y, items });
+  }, []);
+
+  const floatingScopeProps: Pick<CreateResourceData, 'group_id' | 'event_id'> = { group_id: null, event_id: null };
+
   return (
     <>
       <div className="overviewPanel" onDragEnd={handleDragEnd}>
         <div className="overviewList">
-          {plans.map(plan => {
-            const planEvents = eventsByPlan.get(plan.id) ?? [];
+          {groups.map(group => {
+            const groupEvents = eventsByGroup.get(group.id) ?? [];
             return (
-              <PlanRow
-                key={plan.id}
-                plan={plan}
-                events={planEvents}
+              <GroupRow
+                key={group.id}
+                group={group}
+                events={groupEvents}
                 dependencies={dependencies}
-                planResources={resourcesByPlan.get(plan.id) ?? []}
-                eventResourcesMap={eventResourcesMapForPlan(planEvents)}
-                isDragOver={dragOverPlanId === plan.id}
+                groupResources={resourcesByGroup.get(group.id) ?? []}
+                eventResourcesMap={eventResourcesMapForGroup(groupEvents)}
+                isDragOver={dragOverGroupId === group.id}
                 onEventClick={onEventClick}
                 onEventDragStart={setDraggingEvent}
-                onDragOver={e => handleDragOver(e, plan.id)}
-                onDragLeave={() => setDragOverPlanId(null)}
-                onDrop={() => handleDrop(plan.id)}
-                onDeleteClick={() => setDeletingPlan(plan)}
-                onRename={newName => onRenamePlan(plan.id, newName)}
+                onDragOver={e => handleDragOver(e, group.id)}
+                onDragLeave={() => setDragOverGroupId(null)}
+                onDrop={e => handleGroupDrop(e, group.id)}
+                onDeleteClick={() => setDeletingGroup(group)}
+                onRename={newName => onRenameGroup(group.id, newName)}
                 onResourceMutated={reloadResources}
+                onOpenModal={openModal}
+                onOpenContextMenu={openContextMenu}
               />
             );
           })}
-          {showNewGroupForm && (
-            <NewGroupForm
-              onSubmit={async (name, color) => {
-                await onCreateGroup(name, color);
-                setShowNewGroupForm(false);
-              }}
-              onCancel={() => setShowNewGroupForm(false)}
-            />
-          )}
           <div
-            className={`overviewUnorganizedSection${dragOverPlanId === 'unorganized' ? ' overviewGroupDragOver' : ''}`}
+            className={`overviewUnorganizedSection${dragOverGroupId === 'unorganized' ? ' overviewGroupDragOver' : ''}`}
             onDragOver={e => handleDragOver(e, 'unorganized')}
-            onDragLeave={() => setDragOverPlanId(null)}
-            onDrop={() => handleDrop(null)}
+            onDragLeave={() => setDragOverGroupId(null)}
+            onDrop={e => handleGroupDrop(e, null)}
           >
             <div className="overviewSectionLabel">Unorganized</div>
             {unplannedEvents.map(event => (
               <EventItem
                 key={event.id}
                 event={event}
-                planColor="#C8C5BE"
+                groupColor="#C8C5BE"
                 resources={resourcesByEvent.get(event.id) ?? []}
                 isLinked={false}
                 onEventClick={onEventClick}
                 onEventDragStart={setDraggingEvent}
                 onResourceMutated={reloadResources}
+                onOpenModal={openModal}
+                onOpenContextMenu={openContextMenu}
               />
             ))}
             <ResourceSection
               scope={{ type: 'floating' }}
               resources={floatingResources}
+              indent={16}
               onMutated={reloadResources}
+              onOpenModal={openModal}
+              onOpenContextMenu={openContextMenu}
             />
           </div>
         </div>
-        <button
-          className="overviewAddGroupBtn"
-          onClick={() => setShowNewGroupForm(v => !v)}
-          title="New group"
-        >
-          <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-            <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          </svg>
-        </button>
+
+        <div className="overviewPolyBtnWrap">
+          <button
+            className="overviewAddGroupBtn"
+            onClick={e => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setResModal({ mode: 'create', type: null, resource: null, scopeProps: floatingScopeProps, scopeLabel: 'Workspace', anchorX: rect.left, anchorY: rect.top });
+            }}
+            title="Create…"
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
-      {deletingPlan && (
-        <div className="deletePlanOverlay" onClick={() => setDeletingPlan(null)}>
-          <div className="deletePlanDialog" onClick={e => e.stopPropagation()}>
-            <p className="deletePlanTitle">Remove "{deletingPlan.name}"?</p>
-            <p className="deletePlanBody">
-              {deletingPlanEventCount > 0
-                ? `This group has ${deletingPlanEventCount} event${deletingPlanEventCount === 1 ? '' : 's'}.`
+      {resModal && (
+        <ResourceEditModal
+          state={resModal}
+          groups={groups}
+          onClose={() => setResModal(null)}
+          onMutated={reloadResources}
+        />
+      )}
+
+      {contextMenu && (
+        <ContextMenu
+          {...contextMenu}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
+
+      {deletingGroup && (
+        <div className="deleteGroupOverlay" onClick={() => setDeletingGroup(null)}>
+          <div className="deleteGroupDialog" onClick={e => e.stopPropagation()}>
+            <p className="deleteGroupTitle">Remove "{deletingGroup.name}"?</p>
+            <p className="deleteGroupBody">
+              {deletingGroupEventCount > 0
+                ? `This group has ${deletingGroupEventCount} event${deletingGroupEventCount === 1 ? '' : 's'}.`
                 : 'This group has no events.'}
             </p>
-            <div className="deletePlanActions">
-              {deletingPlanEventCount > 0 && (
-                <button className="deletePlanActionDanger" onClick={() => confirmDelete(true)}>
+            <div className="deleteGroupActions">
+              {deletingGroupEventCount > 0 && (
+                <button className="deleteGroupActionDanger" onClick={() => confirmDelete(true)}>
                   Delete group and events
                 </button>
               )}
-              <button className="deletePlanActionKeep" onClick={() => confirmDelete(false)}>
-                {deletingPlanEventCount > 0 ? 'Remove group, keep events' : 'Remove group'}
+              <button className="deleteGroupActionKeep" onClick={() => confirmDelete(false)}>
+                {deletingGroupEventCount > 0 ? 'Remove group, keep events' : 'Remove group'}
               </button>
-              <button className="deletePlanActionCancel" onClick={() => setDeletingPlan(null)}>
+              <button className="deleteGroupActionCancel" onClick={() => setDeletingGroup(null)}>
                 Cancel
               </button>
             </div>

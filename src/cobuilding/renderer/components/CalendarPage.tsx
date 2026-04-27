@@ -7,7 +7,7 @@ import { CalendarReactionsInbox } from './CalendarReactionsInbox';
 import { EventEditPopover } from './EventEditPopover';
 import { GcalEventPopover } from './GcalEventPopover';
 import { nextAutoColor, AUTO_COLORS } from '../calendarColors';
-import type { CalendarPlan, CalendarEvent, UpdateEventData, EventDependency, CascadeUpdate } from '../../shared/types';
+import type { CalendarGroup, CalendarEvent, UpdateEventData, EventDependency, CascadeUpdate } from '../../shared/types';
 
 const GCAL_COLORS: Record<string, string> = {
   '1': '#a4bdfc', '2': '#7ae7bf', '3': '#dbadff', '4': '#ff887c',
@@ -1354,12 +1354,16 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
 
 export function CalendarPage() {
   const containerRef = useRef<HTMLDivElement>(null);
+  const leftPanelRef = useRef<HTMLDivElement>(null);
   const [leftWidth, setLeftWidth] = useState(20);
   const [rightWidth, setRightWidth] = useState(20);
+  const [leftTopHeight, setLeftTopHeight] = useState(50);
   const leftWidthRef = useRef(leftWidth);
   const rightWidthRef = useRef(rightWidth);
+  const leftTopHeightRef = useRef(leftTopHeight);
   leftWidthRef.current = leftWidth;
   rightWidthRef.current = rightWidth;
+  leftTopHeightRef.current = leftTopHeight;
 
   const [view, setView] = useState<'week' | 'month'>('week');
   const [anchorDate, setAnchorDate] = useState(() => new Date());
@@ -1373,7 +1377,7 @@ export function CalendarPage() {
   const [credentialInput, setCredentialInput] = useState({ clientId: '', clientSecret: '' });
   const [showCredentialForm, setShowCredentialForm] = useState(false);
 
-  const [plans, setPlans] = useState<CalendarPlan[]>([]);
+  const [groups, setGroups] = useState<CalendarGroup[]>([]);
   const [localEvents, setLocalEvents] = useState<CalendarEvent[]>([]);
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
   const [dependencies, setDependencies] = useState<EventDependency[]>([]);
@@ -1402,7 +1406,7 @@ export function CalendarPage() {
       setGcalConnected(connected);
       setGcalHasCredentials(hasCredentials);
     });
-    window.calendarAPI.listPlans().then(setPlans);
+    window.calendarAPI.listGroups().then(setGroups);
     window.calendarAPI.listDependencies().then(setDependencies);
   }, []);
 
@@ -1420,13 +1424,13 @@ export function CalendarPage() {
   const expandedLocalEvents = useMemo(() => {
     const from = new Date(viewRange[0]);
     const to = new Date(viewRange[1]);
-    const planColorMap = new Map(plans.map(p => [p.id, p.color]));
+    const groupColorMap = new Map(groups.map(g => [g.id, g.color]));
     return localEvents.flatMap(ev => {
       const instances = expandRecurringEvent(ev, from, to);
-      const planColor = ev.plan_id ? planColorMap.get(ev.plan_id) : undefined;
-      return planColor ? instances.map(i => ({ ...i, color: planColor })) : instances;
+      const groupColor = ev.group_id ? groupColorMap.get(ev.group_id) : undefined;
+      return groupColor ? instances.map(i => ({ ...i, color: groupColor })) : instances;
     });
-  }, [localEvents, viewRange[0], viewRange[1], plans]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [localEvents, viewRange[0], viewRange[1], groups]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const applyTouch = useCallback((id: string, kind: 'create' | 'edit' | 'delete') => {
     setTouchedEntities(prev => new Map(prev).set(id, kind));
@@ -1438,19 +1442,19 @@ export function CalendarPage() {
   useEffect(() => {
     const unsubscribe = window.calendarAPI.onCalendarMutation((mutation) => {
       switch (mutation.type) {
-        case 'plan-created':
-          setPlans(prev => [...prev, mutation.plan]);
-          applyTouch(mutation.plan.id, 'create');
+        case 'group-created':
+          setGroups(prev => [...prev, mutation.group]);
+          applyTouch(mutation.group.id, 'create');
           break;
-        case 'plan-updated':
-          setPlans(prev => prev.map(p => p.id === mutation.plan.id ? mutation.plan : p));
-          applyTouch(mutation.plan.id, 'edit');
+        case 'group-updated':
+          setGroups(prev => prev.map(g => g.id === mutation.group.id ? mutation.group : g));
+          applyTouch(mutation.group.id, 'edit');
           break;
-        case 'plan-deleted':
-          setPlans(prev => prev.filter(p => p.id !== mutation.planId));
-          setLocalEvents(prev => prev.map(e => e.plan_id === mutation.planId ? { ...e, plan_id: null } : e));
-          setAllEvents(prev => prev.map(e => e.plan_id === mutation.planId ? { ...e, plan_id: null } : e));
-          applyTouch(mutation.planId, 'delete');
+        case 'group-deleted':
+          setGroups(prev => prev.filter(g => g.id !== mutation.groupId));
+          setLocalEvents(prev => prev.map(e => e.group_id === mutation.groupId ? { ...e, group_id: null } : e));
+          setAllEvents(prev => prev.map(e => e.group_id === mutation.groupId ? { ...e, group_id: null } : e));
+          applyTouch(mutation.groupId, 'delete');
           break;
         case 'event-created':
           setLocalEvents(prev => [...prev, mutation.event]);
@@ -1578,20 +1582,45 @@ export function CalendarPage() {
     document.addEventListener('mouseup', onMouseUp);
   }, []);
 
+  const startVerticalResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'row-resize';
+    const startY = e.clientY;
+    const startTop = leftTopHeightRef.current;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!leftPanelRef.current) return;
+      const panelHeight = leftPanelRef.current.offsetHeight;
+      const deltaPct = ((moveEvent.clientY - startY) / panelHeight) * 100;
+      setLeftTopHeight(Math.max(15, Math.min(85, startTop + deltaPct)));
+    };
+
+    const onMouseUp = () => {
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }, []);
+
   // Block drag when any popover is open
   const popoverOpenRef = useRef(false);
   popoverOpenRef.current = editingEvent !== null || gcalPopoverEvent !== null;
 
-  const plansRef = useRef(plans);
-  plansRef.current = plans;
+  const groupsRef = useRef(groups);
+  groupsRef.current = groups;
 
   const handleSelectionCommit = useCallback(async (startAt: Date, endAt: Date, anchorX: number, anchorY: number) => {
-    const color = nextAutoColor(plansRef.current.map(p => p.color));
+    const color = nextAutoColor(groupsRef.current.map(g => g.color));
     const event = await window.calendarAPI.createEvent({
       name: 'New event',
       start_at: startAt.toISOString(),
       end_at: endAt.toISOString(),
-      plan_id: null,
+      group_id: null,
       status: 'active',
       color,
     });
@@ -1646,7 +1675,7 @@ export function CalendarPage() {
       setLocalEvents(prev => prev.map(e => e.id === id ? updated : e));
       setAllEvents(prev => prev.map(e => e.id === id ? updated : e));
     }
-    window.calendarAPI.listPlans().then(setPlans);
+    window.calendarAPI.listGroups().then(setGroups);
   }
 
   const handleEventDrop = useCallback(async (event: CalendarEvent, newStartAt: Date, newEndAt: Date) => {
@@ -1697,52 +1726,53 @@ export function CalendarPage() {
 
   return (
     <div className="calendarPage" ref={containerRef}>
-      <div className="calendarPanel" style={{ width: `${leftWidth}%` }}>
-        <div className="calendarPanelSectionTop">
+      <div className="calendarPanel" style={{ width: `${leftWidth}%` }} ref={leftPanelRef}>
+        <div className="calendarPanelSectionTop" style={{ flex: leftTopHeight }}>
           <CalendarSidebar
-            plans={plans}
+            groups={groups}
             allEvents={allEvents}
             dependencies={dependencies}
             onEventClick={(event, anchorX, anchorY) => {
               editingSnapshotRef.current = event;
               setEditingEvent({ event, anchorX, anchorY });
             }}
-            onReassign={async (eventId, newPlanId) => {
-              const planColor = newPlanId ? plans.find(p => p.id === newPlanId)?.color : undefined;
-              const updates = { plan_id: newPlanId, ...(planColor ? { color: planColor } : {}) };
+            onReassign={async (eventId, newGroupId) => {
+              const groupColor = newGroupId ? groups.find(g => g.id === newGroupId)?.color : undefined;
+              const updates = { group_id: newGroupId, ...(groupColor ? { color: groupColor } : {}) };
               const updated = await window.calendarAPI.updateEvent(eventId, updates);
               if (updated) {
                 setAllEvents(prev => prev.map(e => e.id === eventId ? updated : e));
                 setLocalEvents(prev => prev.map(e => e.id === eventId ? updated : e));
               }
             }}
-            onDeletePlan={async (planId, deleteEvents) => {
+            onDeleteGroup={async (groupId, deleteEvents) => {
               if (deleteEvents) {
-                const toDelete = allEvents.filter(e => e.plan_id === planId);
+                const toDelete = allEvents.filter(e => e.group_id === groupId);
                 await Promise.all(toDelete.map(e => window.calendarAPI.deleteEvent(e.id)));
-                setAllEvents(prev => prev.filter(e => e.plan_id !== planId));
-                setLocalEvents(prev => prev.filter(e => e.plan_id !== planId));
+                setAllEvents(prev => prev.filter(e => e.group_id !== groupId));
+                setLocalEvents(prev => prev.filter(e => e.group_id !== groupId));
               } else {
-                const planEventIds = new Set(allEvents.filter(e => e.plan_id === planId).map(e => e.id));
-                await Promise.all([...planEventIds].map(id => window.calendarAPI.updateEvent(id, { plan_id: null })));
-                setAllEvents(prev => prev.map(e => planEventIds.has(e.id) ? { ...e, plan_id: null } : e));
-                setLocalEvents(prev => prev.map(e => planEventIds.has(e.id) ? { ...e, plan_id: null } : e));
+                const groupEventIds = new Set(allEvents.filter(e => e.group_id === groupId).map(e => e.id));
+                await Promise.all([...groupEventIds].map(id => window.calendarAPI.updateEvent(id, { group_id: null })));
+                setAllEvents(prev => prev.map(e => groupEventIds.has(e.id) ? { ...e, group_id: null } : e));
+                setLocalEvents(prev => prev.map(e => groupEventIds.has(e.id) ? { ...e, group_id: null } : e));
               }
-              await window.calendarAPI.deletePlan(planId);
-              setPlans(prev => prev.filter(p => p.id !== planId));
+              await window.calendarAPI.deleteGroup(groupId);
+              setGroups(prev => prev.filter(g => g.id !== groupId));
             }}
             onCreateGroup={async (name, color) => {
-              const plan = await window.calendarAPI.createPlan({ name, color });
-              setPlans(prev => [...prev, plan]);
+              const group = await window.calendarAPI.createGroup({ name, color });
+              setGroups(prev => [...prev, group]);
             }}
-            onRenamePlan={async (planId, newName) => {
-              const updated = await window.calendarAPI.updatePlan(planId, { name: newName });
-              if (updated) setPlans(prev => prev.map(p => p.id === planId ? updated : p));
+            onRenameGroup={async (groupId, newName) => {
+              const updated = await window.calendarAPI.updateGroup(groupId, { name: newName });
+              if (updated) setGroups(prev => prev.map(g => g.id === groupId ? updated : g));
             }}
           />
         </div>
-        <div className="calendarPanelSectionBottom">
-          <CalendarReactionsInbox allEvents={allEvents} plans={plans} />
+        <div className="calendarPanelVerticalHandle" onMouseDown={startVerticalResize} />
+        <div className="calendarPanelSectionBottom" style={{ flex: 100 - leftTopHeight }}>
+          <CalendarReactionsInbox allEvents={allEvents} groups={groups} />
         </div>
       </div>
       <div className="calendarResizeHandle" onMouseDown={startResize('left')} />
@@ -1899,7 +1929,7 @@ export function CalendarPage() {
       {editingEvent && (
         <EventEditPopover
           event={editingEvent.event}
-          plans={plans}
+          groups={groups}
           allEvents={allEvents}
           dependencies={dependencies}
           anchorX={editingEvent.anchorX}

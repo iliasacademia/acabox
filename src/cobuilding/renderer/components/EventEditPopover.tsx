@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './EventEditPopover.css';
 import { PLAN_COLORS, nextAutoColor } from '../calendarColors';
-import type { CalendarEvent, CalendarPlan, UpdateEventData, EventDependency } from '../../shared/types';
+import type { CalendarEvent, CalendarGroup, UpdateEventData, EventDependency } from '../../shared/types';
 
 interface Props {
   event: CalendarEvent;
-  plans: CalendarPlan[];
+  groups: CalendarGroup[];
   allEvents: CalendarEvent[];
   dependencies: EventDependency[];
   anchorX: number;
@@ -226,19 +226,19 @@ function isAllDay(startIso: string, endIso: string): boolean {
 }
 
 
-export function EventEditPopover({ event, plans, allEvents, dependencies, anchorX, anchorY, onSave, onDelete, onClose, onStatusChange, onColorChange, onDependencyDelete }: Props) {
+export function EventEditPopover({ event, groups, allEvents, dependencies, anchorX, anchorY, onSave, onDelete, onClose, onStatusChange, onColorChange, onDependencyDelete }: Props) {
   const [name, setName] = useState(event.name);
-  const [planId, setPlanId] = useState<string | null>(event.plan_id);
+  const [groupId, setGroupId] = useState<string | null>(event.group_id);
   const [status, setStatus] = useState<'active' | 'inactive'>(
     event.status === 'inactive_hidden' ? 'inactive' : event.status
   );
-  const [color, setColor] = useState(event.color ?? nextAutoColor(plans.map(p => p.color)));
+  const [color, setColor] = useState(event.color ?? nextAutoColor(groups.map(g => g.color)));
   const [startIso, setStartIso] = useState(event.start_at);
   const [endIso, setEndIso] = useState(event.end_at);
-  const [localPlans, setLocalPlans] = useState<CalendarPlan[]>(plans);
-  const [showPlanPicker, setShowPlanPicker] = useState(false);
-  const [showNewPlan, setShowNewPlan] = useState(false);
-  const [newPlanName, setNewPlanName] = useState('');
+  const [localGroups, setLocalGroups] = useState<CalendarGroup[]>(groups);
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
   const [selectedFamily, setSelectedFamily] = useState(0);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -269,12 +269,12 @@ export function EventEditPopover({ event, plans, allEvents, dependencies, anchor
 
   const nameRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const newPlanInputRef = useRef<HTMLInputElement>(null);
+  const newGroupInputRef = useRef<HTMLInputElement>(null);
 
   const allDay = isAllDay(event.start_at, event.end_at);
 
   useEffect(() => { nameRef.current?.focus(); nameRef.current?.select(); }, []);
-  useEffect(() => { if (showNewPlan) newPlanInputRef.current?.focus(); }, [showNewPlan]);
+  useEffect(() => { if (showNewGroup) newGroupInputRef.current?.focus(); }, [showNewGroup]);
 
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
@@ -290,52 +290,52 @@ export function EventEditPopover({ event, plans, allEvents, dependencies, anchor
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       if (openPicker) { setOpenPicker(null); return; }
-      if (showNewPlan) { setShowNewPlan(false); return; }
-      if (showPlanPicker) { setShowPlanPicker(false); return; }
+      if (showNewGroup) { setShowNewGroup(false); return; }
+      if (showGroupPicker) { setShowGroupPicker(false); return; }
       if (showColorPicker) { setShowColorPicker(false); return; }
       if (showRepeatDropdown) { setShowRepeatDropdown(false); return; }
       onClose();
     };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose, openPicker, showNewPlan, showPlanPicker, showColorPicker, showRepeatDropdown]);
+  }, [onClose, openPicker, showNewGroup, showGroupPicker, showColorPicker, showRepeatDropdown]);
 
   function handleStatusChange(newStatus: 'active' | 'inactive') {
     setStatus(newStatus);
     onStatusChange?.(newStatus);
   }
 
-  function selectPlan(id: string | null, planColor?: string) {
-    setPlanId(id);
+  function selectGroup(id: string | null, groupColor?: string) {
+    setGroupId(id);
     let newColor: string | undefined;
-    if (planColor) {
-      newColor = planColor;
+    if (groupColor) {
+      newColor = groupColor;
     } else if (id) {
-      const p = localPlans.find(pl => pl.id === id);
-      if (p) newColor = p.color;
+      const g = localGroups.find(gr => gr.id === id);
+      if (g) newColor = g.color;
     }
     if (newColor) {
       setColor(newColor);
       onColorChange?.(newColor);
     }
-    setShowPlanPicker(false);
-    setShowNewPlan(false);
-    setNewPlanName('');
+    setShowGroupPicker(false);
+    setShowNewGroup(false);
+    setNewGroupName('');
   }
 
-  async function handleCreatePlan() {
-    const trimmed = newPlanName.trim();
+  async function handleCreateGroup() {
+    const trimmed = newGroupName.trim();
     if (!trimmed) return;
     const newColor = PLAN_COLORS[selectedFamily].shades[600];
-    const plan = await window.calendarAPI.createPlan({ name: trimmed, color: newColor });
-    setLocalPlans(prev => [...prev, plan]);
-    selectPlan(plan.id, plan.color);
+    const group = await window.calendarAPI.createGroup({ name: trimmed, color: newColor });
+    setLocalGroups(prev => [...prev, group]);
+    selectGroup(group.id, group.color);
   }
 
   async function handleSave() {
     setSaving(true);
     try {
-      await onSave(event.id, { name, plan_id: planId, status, color, start_at: startIso, end_at: endIso, recurrence_rule: recurrenceRule });
+      await onSave(event.id, { name, group_id: groupId, status, color, start_at: startIso, end_at: endIso, recurrence_rule: recurrenceRule });
     } finally {
       setSaving(false);
       onClose();
@@ -352,7 +352,7 @@ export function EventEditPopover({ event, plans, allEvents, dependencies, anchor
     }
   }
 
-  const selectedPlan = planId ? localPlans.find(p => p.id === planId) : null;
+  const selectedGroup = groupId ? localGroups.find(g => g.id === groupId) : null;
 
   const left = Math.min(anchorX + 8, window.innerWidth - POPOVER_W - 8);
   const top = Math.min(anchorY, window.innerHeight - POPOVER_H - 8);
@@ -439,57 +439,57 @@ export function EventEditPopover({ event, plans, allEvents, dependencies, anchor
         )}
       </div>
 
-      {/* Plan selector */}
+      {/* Group selector */}
       <div className="eepSection">
-        <div className="eepSectionLabel">Plan</div>
-        {!showPlanPicker ? (
+        <div className="eepSectionLabel">Group</div>
+        {!showGroupPicker ? (
           <button
             className="eepPlanBtn"
-            onClick={() => { setShowPlanPicker(true); setShowNewPlan(false); }}
+            onClick={() => { setShowGroupPicker(true); setShowNewGroup(false); }}
           >
-            {selectedPlan ? (
+            {selectedGroup ? (
               <>
-                <span className="eepColorDot" style={{ backgroundColor: selectedPlan.color }} />
-                <span className="eepPlanName">{selectedPlan.name}</span>
+                <span className="eepColorDot" style={{ backgroundColor: selectedGroup.color }} />
+                <span className="eepPlanName">{selectedGroup.name}</span>
               </>
             ) : (
               <>
                 <span className="eepColorDotEmpty" />
-                <span className="eepPlanName eepPlanNameMuted">No plan</span>
+                <span className="eepPlanName eepPlanNameMuted">No group</span>
               </>
             )}
             <svg className="eepChevron" width="10" height="10" viewBox="0 0 10 10" fill="none">
               <path d="M2 4l3 3 3-3" stroke="#9B9B96" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           </button>
-        ) : !showNewPlan ? (
+        ) : !showNewGroup ? (
           <div className="eepPlanList">
-            <button className="eepPlanPill eepPlanPillNoplan" onClick={() => selectPlan(null)}>
+            <button className="eepPlanPill eepPlanPillNoplan" onClick={() => selectGroup(null)}>
               <span className="eepColorDotEmpty" />
-              <span>No plan</span>
+              <span>No group</span>
             </button>
-            {localPlans.map(p => (
-              <button key={p.id} className="eepPlanPill" onClick={() => selectPlan(p.id)}>
-                <span className="eepColorDot" style={{ backgroundColor: p.color }} />
-                <span>{p.name}</span>
+            {localGroups.map(g => (
+              <button key={g.id} className="eepPlanPill" onClick={() => selectGroup(g.id)}>
+                <span className="eepColorDot" style={{ backgroundColor: g.color }} />
+                <span>{g.name}</span>
               </button>
             ))}
-            <button className="eepPlanPill eepPlanPillNew" onClick={() => setShowNewPlan(true)}>
+            <button className="eepPlanPill eepPlanPillNew" onClick={() => setShowNewGroup(true)}>
               <span className="eepPlusDot">+</span>
-              <span>New plan</span>
+              <span>New group</span>
             </button>
           </div>
         ) : (
           <div className="eepNewPlanForm">
             <input
-              ref={newPlanInputRef}
+              ref={newGroupInputRef}
               className="eepSmallInput"
-              placeholder="Plan name"
-              value={newPlanName}
-              onChange={e => setNewPlanName(e.target.value)}
+              placeholder="Group name"
+              value={newGroupName}
+              onChange={e => setNewGroupName(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter') { e.preventDefault(); handleCreatePlan(); }
-                if (e.key === 'Escape') { e.stopPropagation(); setShowNewPlan(false); }
+                if (e.key === 'Enter') { e.preventDefault(); handleCreateGroup(); }
+                if (e.key === 'Escape') { e.stopPropagation(); setShowNewGroup(false); }
               }}
             />
             <div className="eepFamilyRow">
@@ -503,15 +503,15 @@ export function EventEditPopover({ event, plans, allEvents, dependencies, anchor
               ))}
             </div>
             <div className="eepNewPlanActions">
-              <button className="eepSmallCancelBtn" onClick={() => { setShowNewPlan(false); setNewPlanName(''); }}>Cancel</button>
-              <button className="eepSmallSaveBtn" onClick={handleCreatePlan} disabled={!newPlanName.trim()}>Create</button>
+              <button className="eepSmallCancelBtn" onClick={() => { setShowNewGroup(false); setNewGroupName(''); }}>Cancel</button>
+              <button className="eepSmallSaveBtn" onClick={handleCreateGroup} disabled={!newGroupName.trim()}>Create</button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Color (only when no plan) */}
-      {!selectedPlan && (
+      {/* Color (only when no group) */}
+      {!selectedGroup && (
         <div className="eepSection">
           <div className="eepSectionLabel">Color</div>
           <div className="eepColorRow">
