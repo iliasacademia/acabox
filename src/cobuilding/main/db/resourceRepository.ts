@@ -11,7 +11,7 @@ import type {
 function nextSortOrder(
   workspaceId: string,
   parentId: string | null,
-  planId: string | null,
+  groupId: string | null,
   eventId: string | null,
 ): number {
   const conditions: string[] = ['workspace_id = ?'];
@@ -23,8 +23,8 @@ function nextSortOrder(
   } else {
     conditions.push('parent_id IS NULL');
     if (eventId) { conditions.push('event_id = ?'); params.push(eventId); }
-    else if (planId) { conditions.push('plan_id = ?'); params.push(planId); }
-    else { conditions.push('event_id IS NULL AND plan_id IS NULL'); }
+    else if (groupId) { conditions.push('group_id = ?'); params.push(groupId); }
+    else { conditions.push('event_id IS NULL AND group_id IS NULL'); }
   }
 
   const row = getDatabase()
@@ -39,13 +39,13 @@ export function createResource(workspaceId: string, data: CreateResourceData): C
   const sortOrder = data.sort_order ?? nextSortOrder(
     workspaceId,
     data.parent_id ?? null,
-    data.plan_id ?? null,
+    data.group_id ?? null,
     data.event_id ?? null,
   );
   getDatabase()
     .prepare(
       `INSERT INTO calendar_resources
-         (id, workspace_id, type, event_id, plan_id, parent_id, file_path, url, note_content, title, sort_order, ai_generated)
+         (id, workspace_id, type, event_id, group_id, parent_id, file_path, url, note_content, title, sort_order, ai_generated)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
@@ -53,7 +53,7 @@ export function createResource(workspaceId: string, data: CreateResourceData): C
       workspaceId,
       data.type,
       data.event_id ?? null,
-      data.plan_id ?? null,
+      data.group_id ?? null,
       data.parent_id ?? null,
       data.file_path ?? null,
       data.url ?? null,
@@ -82,9 +82,9 @@ export function listResources(
     conditions.push('event_id = ?');
     params.push(opts.event_id);
   }
-  if (opts.plan_id !== undefined) {
-    conditions.push('plan_id = ?');
-    params.push(opts.plan_id);
+  if (opts.group_id !== undefined) {
+    conditions.push('group_id = ?');
+    params.push(opts.group_id);
   }
   if (opts.parent_id !== undefined) {
     if (opts.parent_id === null) {
@@ -95,7 +95,7 @@ export function listResources(
     }
   }
   if (opts.standalone) {
-    conditions.push('event_id IS NULL AND plan_id IS NULL');
+    conditions.push('event_id IS NULL AND group_id IS NULL');
   }
 
   const sql = `SELECT * FROM calendar_resources WHERE ${conditions.join(' AND ')} ORDER BY sort_order ASC, created_at ASC`;
@@ -132,7 +132,7 @@ export function moveResource(id: string, data: MoveResourceData): CalendarResour
   const sets: string[] = [];
   const params: unknown[] = [];
 
-  if ('plan_id' in data) { sets.push('plan_id = ?'); params.push(data.plan_id ?? null); }
+  if ('group_id' in data) { sets.push('group_id = ?'); params.push(data.group_id ?? null); }
   if ('event_id' in data) { sets.push('event_id = ?'); params.push(data.event_id ?? null); }
   if ('parent_id' in data) { sets.push('parent_id = ?'); params.push(data.parent_id ?? null); }
   if (data.sort_order !== undefined) { sets.push('sort_order = ?'); params.push(data.sort_order); }
@@ -153,8 +153,8 @@ export function deleteResource(id: string): void {
   if (resource) {
     // Orphan direct children — move them up to the deleted folder's parent scope
     getDatabase()
-      .prepare(`UPDATE calendar_resources SET parent_id = ?, plan_id = ?, event_id = ? WHERE parent_id = ?`)
-      .run(resource.parent_id, resource.plan_id, resource.event_id, id);
+      .prepare(`UPDATE calendar_resources SET parent_id = ?, group_id = ?, event_id = ? WHERE parent_id = ?`)
+      .run(resource.parent_id, resource.group_id, resource.event_id, id);
   }
   getDatabase().prepare(`DELETE FROM calendar_resources WHERE id = ?`).run(id);
 }

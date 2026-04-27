@@ -2,7 +2,8 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 import { shell, app } from 'electron';
-import { google } from 'googleapis';
+import { calendar as calendarApi } from '@googleapis/calendar';
+import { OAuth2Client } from 'google-auth-library';
 
 const SCOPES = ['https://www.googleapis.com/auth/calendar.readonly'];
 
@@ -81,7 +82,7 @@ function makeOAuth2Client(redirectUri: string) {
   if (!clientId || !clientSecret) {
     throw new Error('Google Calendar credentials not configured');
   }
-  return new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  return new OAuth2Client(clientId, clientSecret, redirectUri);
 }
 
 export function isConnected(): boolean {
@@ -181,7 +182,7 @@ export async function fetchEvents(opts: { from: string; to: string }): Promise<G
     writeTokens({ ...current, ...newTokens });
   });
 
-  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+  const calendar = calendarApi({ version: 'v3', auth: oauth2Client });
 
   const response = await calendar.events.list({
     calendarId: 'primary',

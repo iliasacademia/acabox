@@ -13,7 +13,13 @@ export function CalendarChat() {
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <div className="calendarChatThread">
-        <Thread />
+        <Thread
+          turnAnchor="bottom"
+          autoScroll={false}
+          scrollToBottomOnRunStart={false}
+          scrollToBottomOnThreadSwitch={false}
+          scrollToBottomOnInitialize={false}
+        />
       </div>
     </AssistantRuntimeProvider>
   );

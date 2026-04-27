@@ -5,15 +5,15 @@ import path from 'path';
 import fs from 'fs';
 import { createSession, insertMessage, getMessages } from './db/chatRepository';
 import type { ChatCallbacks, AgentSession } from './agentSession';
-import type { ChatStreamMessage, CalendarPlan, CalendarEvent, EventDependency, CascadeUpdate } from '../shared/types';
+import type { ChatStreamMessage, CalendarGroup, CalendarEvent, EventDependency, CascadeUpdate } from '../shared/types';
 import * as cal from './db/calendarRepository';
 import * as dep from './db/dependencyRepository';
 import * as res from './db/resourceRepository';
 
 export type CalendarMutationEvent =
-  | { type: 'plan-created';       plan: CalendarPlan }
-  | { type: 'plan-updated';       plan: CalendarPlan }
-  | { type: 'plan-deleted';       planId: string }
+  | { type: 'group-created';       group: CalendarGroup }
+  | { type: 'group-updated';       group: CalendarGroup }
+  | { type: 'group-deleted';       groupId: string }
   | { type: 'event-created';      event: CalendarEvent }
   | { type: 'event-updated';      event: CalendarEvent }
   | { type: 'event-deleted';      eventId: string }
@@ -26,8 +26,8 @@ const CALENDAR_SESSION_SOURCE = 'calendar-assistant';
 
 const CALENDAR_TOOLS: Anthropic.Tool[] = [
   {
-    name: 'list_plans',
-    description: 'List all calendar plans (project containers) in the workspace.',
+    name: 'list_groups',
+    description: 'List all calendar groups in the workspace.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
@@ -48,12 +48,12 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
-    name: 'create_plan',
-    description: 'Create a new plan (project container). Plans group related events together.',
+    name: 'create_group',
+    description: 'Create a new group. Groups semantically cluster related events — use meaningful names that reflect the research topic, project phase, or workflow stage (e.g. "RNA extraction", "Grant submission", "Lab rotation").',
     input_schema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Display name for the plan.' },
+        name: { type: 'string', description: 'Display name for the group. Should reflect a coherent theme or project phase.' },
         color: { type: 'string', description: 'Hex color code (e.g. "#4A90D9"). Defaults to a blue-grey if omitted.' },
       },
       required: ['name'],
@@ -66,10 +66,10 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
       type: 'object',
       properties: {
         name: { type: 'string', description: 'Event name/title.' },
-        start_at: { type: 'string', description: 'ISO 8601 start datetime (e.g. "2026-04-25T09:00:00.000Z").' },
-        end_at: { type: 'string', description: 'ISO 8601 end datetime.' },
-        plan_id: { type: 'string', description: 'ID of the plan this event belongs to. Omit for unplanned events.' },
-        color: { type: 'string', description: 'Hex color override. If omitted, inherits from plan or uses a default.' },
+        start_at: { type: 'string', description: 'ISO 8601 start datetime with local timezone offset (see system prompt for the user\'s timezone, e.g. "2026-04-25T09:00:00-04:00").' },
+        end_at: { type: 'string', description: 'ISO 8601 end datetime with local timezone offset.' },
+        group_id: { type: 'string', description: 'ID of the group this event belongs to. Omit for ungrouped events.' },
+        color: { type: 'string', description: 'Hex color override. If omitted, inherits from group or uses a default.' },
         status: { type: 'string', enum: ['active', 'inactive', 'inactive_hidden'], description: 'Event status. "active" shows normally; "inactive" renders as a background lane. Defaults to "active".' },
         recurrence_rule: { type: 'string', description: 'iCal RRULE string for recurring events (e.g. "RRULE:FREQ=WEEKLY;BYDAY=MO"). Omit for one-time events.' },
       },
@@ -91,12 +91,12 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: 'update_plan',
-    description: "Update a plan's name or color.",
+    name: 'update_group',
+    description: "Update a group's name or color.",
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Plan ID.' },
+        id: { type: 'string', description: 'Group ID.' },
         name: { type: 'string', description: 'New name.' },
         color: { type: 'string', description: 'New hex color.' },
       },
@@ -111,9 +111,9 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
       properties: {
         id: { type: 'string', description: 'Event ID.' },
         name: { type: 'string', description: 'New name.' },
-        start_at: { type: 'string', description: 'New start ISO 8601 datetime.' },
-        end_at: { type: 'string', description: 'New end ISO 8601 datetime.' },
-        plan_id: { type: ['string', 'null'], description: 'New plan ID, or null to unplan the event.' },
+        start_at: { type: 'string', description: 'New start ISO 8601 datetime with local timezone offset.' },
+        end_at: { type: 'string', description: 'New end ISO 8601 datetime with local timezone offset.' },
+        group_id: { type: ['string', 'null'], description: 'New group ID, or null to ungroup the event.' },
         color: { type: ['string', 'null'], description: 'New hex color, or null to clear.' },
         status: { type: 'string', enum: ['active', 'inactive', 'inactive_hidden'], description: 'Event status.' },
         recurrence_rule: { type: ['string', 'null'], description: 'New iCal RRULE string, or null to remove recurrence.' },
@@ -136,13 +136,13 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: 'delete_plan',
-    description: 'Delete a plan. By default, events in the plan become unplanned. Set delete_events=true to also delete all events in the plan.',
+    name: 'delete_group',
+    description: 'Delete a group. By default, events in the group become ungrouped. Set delete_events=true to also delete all events in the group.',
     input_schema: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: 'Plan ID.' },
-        delete_events: { type: 'boolean', description: 'If true, delete all events in this plan. Default false (events become unplanned).' },
+        id: { type: 'string', description: 'Group ID.' },
+        delete_events: { type: 'boolean', description: 'If true, delete all events in this group. Default false (events become ungrouped).' },
       },
       required: ['id'],
     },
@@ -176,19 +176,19 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Event ID to move.' },
-        new_start_at: { type: 'string', description: 'New start ISO 8601 datetime.' },
-        new_end_at: { type: 'string', description: 'New end ISO 8601 datetime.' },
+        new_start_at: { type: 'string', description: 'New start ISO 8601 datetime with local timezone offset.' },
+        new_end_at: { type: 'string', description: 'New end ISO 8601 datetime with local timezone offset.' },
       },
       required: ['id', 'new_start_at', 'new_end_at'],
     },
   },
   {
     name: 'list_resources',
-    description: 'List files, links, notes, and folders attached to the calendar. Filter by plan_id, event_id, or get all.',
+    description: 'List files, links, notes, and folders attached to the calendar. Filter by group_id, event_id, or get all.',
     input_schema: {
       type: 'object',
       properties: {
-        plan_id: { type: 'string', description: 'Filter to resources attached to this plan.' },
+        group_id: { type: 'string', description: 'Filter to resources attached to this group.' },
         event_id: { type: 'string', description: 'Filter to resources attached to this event.' },
         standalone: { type: 'boolean', description: 'If true, return only unattached (floating) resources.' },
       },
@@ -197,18 +197,18 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'list_workspace_files',
-    description: 'List files in the user\'s workspace directory (2 levels deep). Use this to discover files you can attach to plans or events.',
+    description: 'List files in the user\'s workspace directory (2 levels deep). Use this to discover files you can attach to groups or events.',
     input_schema: { type: 'object', properties: {}, required: [] },
   },
   {
     name: 'create_resource',
-    description: 'Attach a file, link, or note to a plan, event, or leave it floating.',
+    description: 'Attach a file, link, or note to a group, event, or leave it floating.',
     input_schema: {
       type: 'object',
       properties: {
         type: { type: 'string', enum: ['file', 'link', 'note'], description: 'Resource type.' },
-        plan_id: { type: 'string', description: 'Plan to attach to. Omit for event-only or floating.' },
-        event_id: { type: 'string', description: 'Event to attach to. Omit for plan-level or floating.' },
+        group_id: { type: 'string', description: 'Group to attach to. Omit for event-only or floating.' },
+        event_id: { type: 'string', description: 'Event to attach to. Omit for group-level or floating.' },
         parent_id: { type: 'string', description: 'Parent folder ID for nesting. Omit for top-level.' },
         file_path: { type: 'string', description: 'Absolute path to file (required for type=file).' },
         url: { type: 'string', description: 'URL (required for type=link).' },
@@ -220,12 +220,12 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'create_folder',
-    description: 'Create a folder to organize resources under a plan or event.',
+    description: 'Create a folder to organize resources under a group or event.',
     input_schema: {
       type: 'object',
       properties: {
         title: { type: 'string', description: 'Folder name.' },
-        plan_id: { type: 'string', description: 'Plan to nest the folder under.' },
+        group_id: { type: 'string', description: 'Group to nest the folder under.' },
         event_id: { type: 'string', description: 'Event to nest the folder under.' },
         parent_id: { type: 'string', description: 'Parent folder ID for nested folders.' },
       },
@@ -234,12 +234,12 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'move_resource',
-    description: 'Move a resource to a different plan, event, or folder, or reorganize its position.',
+    description: 'Move a resource to a different group, event, or folder, or reorganize its position.',
     input_schema: {
       type: 'object',
       properties: {
         id: { type: 'string', description: 'Resource ID.' },
-        plan_id: { type: ['string', 'null'], description: 'New plan ID, or null to unattach from plan.' },
+        group_id: { type: ['string', 'null'], description: 'New group ID, or null to unattach from group.' },
         event_id: { type: ['string', 'null'], description: 'New event ID, or null to unattach from event.' },
         parent_id: { type: ['string', 'null'], description: 'New parent folder ID, or null for top-level.' },
       },
@@ -248,12 +248,12 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: 'attach_workspace_file',
-    description: 'Attach a file from the workspace directory to a plan or event. The path should be relative to the workspace root.',
+    description: 'Attach a file from the workspace directory to a group or event. The path should be relative to the workspace root.',
     input_schema: {
       type: 'object',
       properties: {
         relative_path: { type: 'string', description: 'File path relative to workspace root (e.g. "data/report.csv").' },
-        plan_id: { type: 'string', description: 'Plan to attach to.' },
+        group_id: { type: 'string', description: 'Group to attach to.' },
         event_id: { type: 'string', description: 'Event to attach to.' },
         title: { type: 'string', description: 'Display name. Defaults to filename.' },
       },
@@ -262,14 +262,29 @@ const CALENDAR_TOOLS: Anthropic.Tool[] = [
   },
 ];
 
-function buildSystemPrompt(): string {
-  return `You are a calendar assistant for Academia, a research workspace tool. Today is ${new Date().toISOString().split('T')[0]}.
+function localTZOffset(): string {
+  const off = -new Date().getTimezoneOffset();
+  const sign = off >= 0 ? '+' : '-';
+  const h = String(Math.floor(Math.abs(off) / 60)).padStart(2, '0');
+  const m = String(Math.abs(off) % 60).padStart(2, '0');
+  return `${sign}${h}:${m}`;
+}
 
-You help users manage plans, events, task dependencies, and attached resources (files, links, notes, folders) on their calendar. Plans are project containers (name + color) that group related events. Events have a name, start/end time (ISO 8601), optional plan, and status. Dependencies are finish-to-start constraints. Resources are files, URLs, markdown notes, or folders that can be attached to plans or events to help organize related materials.
+function buildSystemPrompt(): string {
+  const now = new Date();
+  const todayLocal = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const tzName = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tzOffset = localTZOffset();
+
+  return `You are a calendar assistant for Academia, a research workspace tool. Today is ${todayLocal}.
+
+You help users manage groups, events, task dependencies, and attached resources (files, links, notes, folders) on their calendar. Groups are named, color-coded containers that semantically cluster related events — always use meaningful group names that reflect a coherent research topic, project phase, or workflow stage (e.g. "RNA extraction", "Grant submission", "Sequencing run", "Lab rotation"). Events have a name, start/end time (ISO 8601), optional group, and status. Dependencies are finish-to-start constraints. Resources are files, URLs, markdown notes, or folders that can be attached to groups or events to help organize related materials.
+
+When creating groups, prefer semantic names over generic ones. Cluster events by research theme or workflow phase, not by arbitrary time windows.
 
 Use your tools immediately when the user asks for changes. Do not describe what you are about to do — act, then summarize briefly. When moving an event cascades downstream changes, mention what shifted.
 
-When the user says "tomorrow", "next Monday", etc., resolve relative to today's date. Use UTC timestamps unless the user specifies a timezone.
+When the user says "tomorrow", "next Monday", etc., resolve relative to today's date. The user's local timezone is ${tzName} (UTC${tzOffset}). Always include the timezone offset in all datetime values — never use UTC (Z) unless explicitly requested. For example, 9am today is "${todayLocal}T09:00:00${tzOffset}".
 
 When attaching workspace files, use list_workspace_files first to discover available files, then use attach_workspace_file with the relative path.`;
 }
@@ -314,8 +329,8 @@ async function executeCalendarTool(
 ): Promise<{ content: unknown; isError: boolean }> {
   try {
     switch (toolName) {
-      case 'list_plans':
-        return { content: cal.listPlans(workspaceId), isError: false };
+      case 'list_groups':
+        return { content: cal.listGroups(workspaceId), isError: false };
 
       case 'list_events': {
         const from = toolInput.from as string | undefined;
@@ -326,25 +341,25 @@ async function executeCalendarTool(
       case 'list_dependencies':
         return { content: dep.listDependenciesByWorkspace(workspaceId), isError: false };
 
-      case 'create_plan': {
-        const plan = cal.createPlan(workspaceId, {
+      case 'create_group': {
+        const group = cal.createGroup(workspaceId, {
           name: toolInput.name as string,
           color: (toolInput.color as string | undefined) ?? '#4A90D9',
         });
-        onMutation({ type: 'plan-created', plan });
-        return { content: plan, isError: false };
+        onMutation({ type: 'group-created', group });
+        return { content: group, isError: false };
       }
 
       case 'create_event': {
-        const planId = (toolInput.plan_id as string | undefined) ?? null;
+        const groupId = (toolInput.group_id as string | undefined) ?? null;
         const explicitColor = (toolInput.color as string | undefined) ?? null;
-        const planColor = planId && !explicitColor ? (cal.getPlan(planId)?.color ?? null) : null;
+        const groupColor = groupId && !explicitColor ? (cal.getGroup(groupId)?.color ?? null) : null;
         const event = cal.createEvent(workspaceId, {
           name: toolInput.name as string,
           start_at: toolInput.start_at as string,
           end_at: toolInput.end_at as string,
-          plan_id: planId,
-          color: explicitColor ?? planColor,
+          group_id: groupId,
+          color: explicitColor ?? groupColor,
           status: (toolInput.status as 'active' | 'inactive' | 'inactive_hidden' | undefined) ?? 'active',
           recurrence_rule: (toolInput.recurrence_rule as string | undefined) ?? null,
         });
@@ -372,12 +387,12 @@ async function executeCalendarTool(
         return { content: dependency, isError: false };
       }
 
-      case 'update_plan': {
-        const updated = cal.updatePlan(toolInput.id as string, {
+      case 'update_group': {
+        const updated = cal.updateGroup(toolInput.id as string, {
           ...(toolInput.name !== undefined ? { name: toolInput.name as string } : {}),
           ...(toolInput.color !== undefined ? { color: toolInput.color as string } : {}),
         });
-        if (updated) onMutation({ type: 'plan-updated', plan: updated });
+        if (updated) onMutation({ type: 'group-updated', group: updated });
         return { content: updated, isError: false };
       }
 
@@ -386,12 +401,12 @@ async function executeCalendarTool(
         if (toolInput.name !== undefined) updateData.name = toolInput.name;
         if (toolInput.start_at !== undefined) updateData.start_at = toolInput.start_at;
         if (toolInput.end_at !== undefined) updateData.end_at = toolInput.end_at;
-        if ('plan_id' in toolInput) {
-          updateData.plan_id = toolInput.plan_id ?? null;
-          // Inherit plan color unless caller explicitly provided a color
-          if (toolInput.plan_id && !('color' in toolInput)) {
-            const plan = cal.getPlan(toolInput.plan_id as string);
-            if (plan) updateData.color = plan.color;
+        if ('group_id' in toolInput) {
+          updateData.group_id = toolInput.group_id ?? null;
+          // Inherit group color unless caller explicitly provided a color
+          if (toolInput.group_id && !('color' in toolInput)) {
+            const group = cal.getGroup(toolInput.group_id as string);
+            if (group) updateData.color = group.color;
           }
         }
         if ('color' in toolInput) updateData.color = toolInput.color ?? null;
@@ -417,19 +432,19 @@ async function executeCalendarTool(
         return { content: updated, isError: false };
       }
 
-      case 'delete_plan': {
-        const planId = toolInput.id as string;
+      case 'delete_group': {
+        const groupId = toolInput.id as string;
         const deleteEvents = (toolInput.delete_events as boolean | undefined) ?? false;
         if (deleteEvents) {
-          const events = cal.listEvents(workspaceId, { planId });
+          const events = cal.listEvents(workspaceId, { groupId });
           for (const event of events) {
             cal.deleteEvent(event.id);
             onMutation({ type: 'event-deleted', eventId: event.id });
           }
         }
-        // ON DELETE SET NULL handles plan_id FK automatically when not deleteEvents
-        cal.deletePlan(planId);
-        onMutation({ type: 'plan-deleted', planId });
+        // ON DELETE SET NULL handles group_id FK automatically when not deleteEvents
+        cal.deleteGroup(groupId);
+        onMutation({ type: 'group-deleted', groupId });
         return { content: { success: true }, isError: false };
       }
 
@@ -460,7 +475,7 @@ async function executeCalendarTool(
 
       case 'list_resources': {
         const opts: Record<string, unknown> = {};
-        if (toolInput.plan_id) opts.plan_id = toolInput.plan_id;
+        if (toolInput.group_id) opts.group_id = toolInput.group_id;
         if (toolInput.event_id) opts.event_id = toolInput.event_id;
         if (toolInput.standalone) opts.standalone = true;
         return { content: res.listResources(workspaceId, opts as Parameters<typeof res.listResources>[1]), isError: false };
@@ -490,7 +505,7 @@ async function executeCalendarTool(
         const type = toolInput.type as 'file' | 'link' | 'note';
         const created = res.createResource(workspaceId, {
           type,
-          plan_id: (toolInput.plan_id as string | undefined) ?? null,
+          group_id: (toolInput.group_id as string | undefined) ?? null,
           event_id: (toolInput.event_id as string | undefined) ?? null,
           parent_id: (toolInput.parent_id as string | undefined) ?? null,
           file_path: (toolInput.file_path as string | undefined) ?? null,
@@ -505,7 +520,7 @@ async function executeCalendarTool(
       case 'create_folder': {
         const created = res.createResource(workspaceId, {
           type: 'folder',
-          plan_id: (toolInput.plan_id as string | undefined) ?? null,
+          group_id: (toolInput.group_id as string | undefined) ?? null,
           event_id: (toolInput.event_id as string | undefined) ?? null,
           parent_id: (toolInput.parent_id as string | undefined) ?? null,
           title: toolInput.title as string,
@@ -516,7 +531,7 @@ async function executeCalendarTool(
 
       case 'move_resource': {
         const data: Record<string, unknown> = {};
-        if ('plan_id' in toolInput) data.plan_id = toolInput.plan_id ?? null;
+        if ('group_id' in toolInput) data.group_id = toolInput.group_id ?? null;
         if ('event_id' in toolInput) data.event_id = toolInput.event_id ?? null;
         if ('parent_id' in toolInput) data.parent_id = toolInput.parent_id ?? null;
         const updated = res.moveResource(toolInput.id as string, data as Parameters<typeof res.moveResource>[1]);
@@ -532,7 +547,7 @@ async function executeCalendarTool(
         const filename = path.basename(absolutePath);
         const created = res.createResource(workspaceId, {
           type: 'file',
-          plan_id: (toolInput.plan_id as string | undefined) ?? null,
+          group_id: (toolInput.group_id as string | undefined) ?? null,
           event_id: (toolInput.event_id as string | undefined) ?? null,
           file_path: absolutePath,
           title: (toolInput.title as string | undefined) ?? filename,

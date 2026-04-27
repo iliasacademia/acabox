@@ -189,11 +189,11 @@ contextBridge.exposeInMainWorld('debugAPI', {
 });
 
 contextBridge.exposeInMainWorld('calendarAPI', {
-  listPlans: () => ipcRenderer.invoke('calendar:listPlans'),
-  createPlan: (data: unknown) => ipcRenderer.invoke('calendar:createPlan', data),
-  updatePlan: (id: string, data: unknown) => ipcRenderer.invoke('calendar:updatePlan', id, data),
-  deletePlan: (id: string) => ipcRenderer.invoke('calendar:deletePlan', id),
-  getPlanTimeRange: (id: string) => ipcRenderer.invoke('calendar:getPlanTimeRange', id),
+  listGroups: () => ipcRenderer.invoke('calendar:listGroups'),
+  createGroup: (data: unknown) => ipcRenderer.invoke('calendar:createGroup', data),
+  updateGroup: (id: string, data: unknown) => ipcRenderer.invoke('calendar:updateGroup', id, data),
+  deleteGroup: (id: string) => ipcRenderer.invoke('calendar:deleteGroup', id),
+  getGroupTimeRange: (id: string) => ipcRenderer.invoke('calendar:getGroupTimeRange', id),
 
   listEvents: (opts?: unknown) => ipcRenderer.invoke('calendar:listEvents', opts),
   createEvent: (data: unknown) => ipcRenderer.invoke('calendar:createEvent', data),
@@ -203,9 +203,9 @@ contextBridge.exposeInMainWorld('calendarAPI', {
   addEventFile: (eventId: string, filePath: string) => ipcRenderer.invoke('calendar:addEventFile', eventId, filePath),
   listEventFiles: (eventId: string) => ipcRenderer.invoke('calendar:listEventFiles', eventId),
   removeEventFile: (id: number) => ipcRenderer.invoke('calendar:removeEventFile', id),
-  addPlanFile: (planId: string, filePath: string) => ipcRenderer.invoke('calendar:addPlanFile', planId, filePath),
-  listPlanFiles: (planId: string, includeFromEvents?: boolean) => ipcRenderer.invoke('calendar:listPlanFiles', planId, includeFromEvents),
-  removePlanFile: (id: number) => ipcRenderer.invoke('calendar:removePlanFile', id),
+  addGroupFile: (groupId: string, filePath: string) => ipcRenderer.invoke('calendar:addGroupFile', groupId, filePath),
+  listGroupFiles: (groupId: string, includeFromEvents?: boolean) => ipcRenderer.invoke('calendar:listGroupFiles', groupId, includeFromEvents),
+  removeGroupFile: (id: number) => ipcRenderer.invoke('calendar:removeGroupFile', id),
 
   listResources: (opts?: unknown) => ipcRenderer.invoke('calendar:listResources', opts),
   createResource: (data: unknown) => ipcRenderer.invoke('calendar:createResource', data),
