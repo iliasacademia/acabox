@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { CalendarReaction, CalendarEvent, CalendarPlan } from '../../shared/types';
+import type { CalendarReaction, CalendarEvent, CalendarGroup } from '../../shared/types';
 import './CalendarReactionsInbox.css';
 
 const SHORT_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -17,10 +17,10 @@ function formatRelativeDate(iso: string): string {
 
 interface Props {
   allEvents: CalendarEvent[];
-  plans: CalendarPlan[];
+  groups: CalendarGroup[];
 }
 
-export function CalendarReactionsInbox({ allEvents, plans }: Props) {
+export function CalendarReactionsInbox({ allEvents, groups }: Props) {
   const [reactions, setReactions] = useState<CalendarReaction[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [openReactionId, setOpenReactionId] = useState<string | null>(null);
@@ -58,7 +58,7 @@ export function CalendarReactionsInbox({ allEvents, plans }: Props) {
 
   const getEntityLabel = (r: CalendarReaction): string | null => {
     if (r.event_id) return allEvents.find(e => e.id === r.event_id)?.name ?? null;
-    if (r.plan_id) return plans.find(p => p.id === r.plan_id)?.name ?? null;
+    if (r.group_id) return groups.find(g => g.id === r.group_id)?.name ?? null;
     return null;
   };
 

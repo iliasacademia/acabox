@@ -78,11 +78,11 @@ import {
   setStoredCredentials as setGoogleCalendarCredentials,
 } from './googleCalendarService';
 import {
-  listPlans,
-  createPlan,
-  updatePlan,
-  deletePlan,
-  getPlanTimeRange,
+  listGroups,
+  createGroup,
+  updateGroup,
+  deleteGroup,
+  getGroupTimeRange,
   listEvents,
   createEvent,
   updateEvent,
@@ -90,9 +90,9 @@ import {
   addEventFile,
   listEventFiles,
   removeEventFile,
-  addPlanFile,
-  listPlanFiles,
-  removePlanFile,
+  addGroupFile,
+  listGroupFiles,
+  removeGroupFile,
   getEvent,
 } from './db/calendarRepository';
 import {
@@ -2279,30 +2279,31 @@ ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
 
 // ---- Calendar IPC handlers ----
 
-ipcMain.handle('calendar:listPlans', async () => {
+ipcMain.handle('calendar:listGroups', async () => {
   const ws = getActiveWorkspace();
   if (!ws) return [];
-  return listPlans(ws.id);
+  return listGroups(ws.id);
 });
 
-ipcMain.handle('calendar:createPlan', async (_event, data) => {
+ipcMain.handle('calendar:createGroup', async (_event, data) => {
   const ws = getActiveWorkspace();
   if (!ws) throw new Error('No active workspace');
-  const plan = createPlan(ws.id, data);
-  calendarReactionSvc?.recordMutation({ type: 'plan-created', entityId: plan.id, entityName: plan.name, timestamp: new Date().toISOString() });
-  return plan;
+  const group = createGroup(ws.id, data);
+  calendarReactionSvc?.recordMutation({ type: 'group-created', entityId: group.id, entityName: group.name, timestamp: new Date().toISOString() });
+  _event.sender.send('calendar:mutation', { type: 'group-created', group });
+  return group;
 });
 
-ipcMain.handle('calendar:updatePlan', async (_event, id: string, data) => {
-  return updatePlan(id, data) ?? null;
+ipcMain.handle('calendar:updateGroup', async (_event, id: string, data) => {
+  return updateGroup(id, data) ?? null;
 });
 
-ipcMain.handle('calendar:deletePlan', async (_event, id: string) => {
-  deletePlan(id);
+ipcMain.handle('calendar:deleteGroup', async (_event, id: string) => {
+  deleteGroup(id);
 });
 
-ipcMain.handle('calendar:getPlanTimeRange', async (_event, id: string) => {
-  return getPlanTimeRange(id);
+ipcMain.handle('calendar:getGroupTimeRange', async (_event, id: string) => {
+  return getGroupTimeRange(id);
 });
 
 ipcMain.handle('calendar:listEvents', async (_event, opts) => {
@@ -2316,6 +2317,7 @@ ipcMain.handle('calendar:createEvent', async (_event, data) => {
   if (!ws) throw new Error('No active workspace');
   const event = createEvent(ws.id, data);
   calendarReactionSvc?.recordMutation({ type: 'event-created', entityId: event.id, entityName: event.name, timestamp: new Date().toISOString() });
+  _event.sender.send('calendar:mutation', { type: 'event-created', event });
   return event;
 });
 
@@ -2343,18 +2345,18 @@ ipcMain.handle('calendar:removeEventFile', async (_event, id: number) => {
   removeEventFile(id);
 });
 
-ipcMain.handle('calendar:addPlanFile', async (_event, planId: string, filePath: string) => {
-  const result = addPlanFile(planId, filePath);
-  calendarReactionSvc?.recordMutation({ type: 'plan-file-added', entityId: planId, entityName: filePath, timestamp: new Date().toISOString() });
+ipcMain.handle('calendar:addGroupFile', async (_event, groupId: string, filePath: string) => {
+  const result = addGroupFile(groupId, filePath);
+  calendarReactionSvc?.recordMutation({ type: 'group-file-added', entityId: groupId, entityName: filePath, timestamp: new Date().toISOString() });
   return result;
 });
 
-ipcMain.handle('calendar:listPlanFiles', async (_event, planId: string, includeFromEvents?: boolean) => {
-  return listPlanFiles(planId, includeFromEvents);
+ipcMain.handle('calendar:listGroupFiles', async (_event, groupId: string, includeFromEvents?: boolean) => {
+  return listGroupFiles(groupId, includeFromEvents);
 });
 
-ipcMain.handle('calendar:removePlanFile', async (_event, id: number) => {
-  removePlanFile(id);
+ipcMain.handle('calendar:removeGroupFile', async (_event, id: number) => {
+  removeGroupFile(id);
 });
 
 // ---- Calendar Resources IPC handlers ----
@@ -2371,7 +2373,7 @@ ipcMain.handle('calendar:createResource', async (_event, data) => {
   const resource = createResource(ws.id, data);
   if (!data.ai_generated) {
     // Use the linked event/plan as the entity so cooldown checks work correctly.
-    const entityId = data.event_id ?? data.plan_id ?? resource.id;
+    const entityId = data.event_id ?? data.group_id ?? resource.id;
     calendarReactionSvc?.recordMutation({ type: 'resource-added', entityId, entityName: resource.title, timestamp: new Date().toISOString() });
   }
   return resource;

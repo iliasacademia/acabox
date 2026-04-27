@@ -1,14 +1,14 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { CalendarEvent, CalendarPlan, CalendarResource, CreateResourceData } from '../../shared/types';
+import type { CalendarEvent, CalendarGroup, CalendarResource, CreateResourceData } from '../../shared/types';
 import './CalendarResourcesPanel.css';
 
 interface CalendarResourcesPanelProps {
-  plans: CalendarPlan[];
+  groups: CalendarGroup[];
   allEvents: CalendarEvent[];
 }
 
 type Scope =
-  | { type: 'plan'; id: string }
+  | { type: 'group'; id: string }
   | { type: 'event'; id: string }
   | { type: 'floating' };
 
@@ -35,7 +35,7 @@ function displayTitle(r: CalendarResource): string {
   return 'Untitled note';
 }
 
-export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPanelProps) {
+export function CalendarResourcesPanel({ groups, allEvents }: CalendarResourcesPanelProps) {
   const [resources, setResources] = useState<CalendarResource[]>([]);
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['__floating__']));
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
@@ -87,7 +87,7 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
     if (!paths || paths.length === 0) return;
     const data: CreateResourceData = {
       type: 'file',
-      plan_id: scope.type === 'plan' ? scope.id : null,
+      group_id: scope.type === 'group' ? scope.id : null,
       event_id: scope.type === 'event' ? scope.id : null,
     };
     const created = await Promise.all(
@@ -97,7 +97,7 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
     );
     setResources(prev => [...prev, ...created]);
     // ensure the section is expanded
-    if (scope.type === 'plan') setExpandedSections(prev => new Set([...prev, scope.id]));
+    if (scope.type === 'group') setExpandedSections(prev => new Set([...prev, scope.id]));
     if (scope.type === 'floating') setExpandedSections(prev => new Set([...prev, '__floating__']));
     setAddingScope(null);
   };
@@ -114,11 +114,11 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
       type: 'link',
       url: linkForm.url.trim(),
       title: linkForm.title.trim() || linkForm.url.trim(),
-      plan_id: scope.type === 'plan' ? scope.id : null,
+      group_id: scope.type === 'group' ? scope.id : null,
       event_id: scope.type === 'event' ? scope.id : null,
     });
     setResources(prev => [...prev, created]);
-    if (scope.type === 'plan') setExpandedSections(prev => new Set([...prev, scope.id]));
+    if (scope.type === 'group') setExpandedSections(prev => new Set([...prev, scope.id]));
     if (scope.type === 'floating') setExpandedSections(prev => new Set([...prev, '__floating__']));
     setLinkForm(null);
   };
@@ -128,11 +128,11 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
       type: 'note',
       note_content: '',
       title: '',
-      plan_id: scope.type === 'plan' ? scope.id : null,
+      group_id: scope.type === 'group' ? scope.id : null,
       event_id: scope.type === 'event' ? scope.id : null,
     });
     setResources(prev => [...prev, created]);
-    if (scope.type === 'plan') setExpandedSections(prev => new Set([...prev, scope.id]));
+    if (scope.type === 'group') setExpandedSections(prev => new Set([...prev, scope.id]));
     if (scope.type === 'floating') setExpandedSections(prev => new Set([...prev, '__floating__']));
     noteIdRef.current = created.id;
     setEditingNoteId(created.id);
@@ -325,10 +325,10 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
   const floating: CalendarResource[] = [];
 
   for (const r of resources) {
-    if (r.plan_id) {
-      const arr = byPlan.get(r.plan_id) ?? [];
+    if (r.group_id) {
+      const arr = byPlan.get(r.group_id) ?? [];
       arr.push(r);
-      byPlan.set(r.plan_id, arr);
+      byPlan.set(r.group_id, arr);
     } else if (r.event_id) {
       const arr = byEvent.get(r.event_id) ?? [];
       arr.push(r);
@@ -338,9 +338,9 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
     }
   }
 
-  // Events with resources that aren't directly under a plan
+  // Events with resources that aren't directly under a group
   const eventsWithFloatingResources = allEvents.filter(
-    e => byEvent.has(e.id) && !e.plan_id
+    e => byEvent.has(e.id) && !e.group_id
   );
 
   const hasAnything =
@@ -369,30 +369,30 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
           </div>
         )}
 
-        {/* Plan sections */}
-        {plans.map(plan => {
-          const planResources = byPlan.get(plan.id) ?? [];
-          // events under this plan that have resources
-          const planEvents = allEvents.filter(e => e.plan_id === plan.id && byEvent.has(e.id));
-          const isAddingHere = isScopeMatch({ type: 'plan', id: plan.id });
-          const hasContent = planResources.length > 0 || planEvents.length > 0 || isAddingHere || (linkForm && linkForm.scope.type === 'plan' && linkForm.scope.id === plan.id);
+        {/* Group sections */}
+        {groups.map(group => {
+          const groupResources = byPlan.get(group.id) ?? [];
+          // events under this group that have resources
+          const groupEvents = allEvents.filter(e => e.group_id === group.id && byEvent.has(e.id));
+          const isAddingHere = isScopeMatch({ type: 'group', id: group.id });
+          const hasContent = groupResources.length > 0 || groupEvents.length > 0 || isAddingHere || (linkForm && linkForm.scope.type === 'group' && linkForm.scope.id === group.id);
 
           if (!hasContent) return null;
 
-          const expanded = expandedSections.has(plan.id);
+          const expanded = expandedSections.has(group.id);
           return (
-            <div key={plan.id}>
-              <div className="resSectionHeader" onClick={() => toggleSection(plan.id)}>
+            <div key={group.id}>
+              <div className="resSectionHeader" onClick={() => toggleSection(group.id)}>
                 <span className="resSectionChevron">{expanded ? '▾' : '▸'}</span>
-                <span className="resSectionDot" style={{ backgroundColor: plan.color }} />
-                <span className="resSectionName">{plan.name}</span>
+                <span className="resSectionDot" style={{ backgroundColor: group.color }} />
+                <span className="resSectionName">{group.name}</span>
                 <button
                   className="resSectionAddBtn"
-                  title="Add resource to plan"
+                  title="Add resource to group"
                   onClick={e => {
                     e.stopPropagation();
-                    setAddingScope(s => isScopeMatch({ type: 'plan', id: plan.id }) ? null : { type: 'plan', id: plan.id });
-                    setExpandedSections(prev => new Set([...prev, plan.id]));
+                    setAddingScope(s => isScopeMatch({ type: 'group', id: group.id }) ? null : { type: 'group', id: group.id });
+                    setExpandedSections(prev => new Set([...prev, group.id]));
                   }}
                 >
                   +
@@ -400,10 +400,10 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
               </div>
               {expanded && (
                 <>
-                  {planResources.map(r => renderResourceRow(r, 'resRowIndented'))}
-                  {renderAddAffordance({ type: 'plan', id: plan.id }, 'resAddAffordanceIndented')}
-                  {renderLinkForm({ type: 'plan', id: plan.id }, 'resLinkFormIndented')}
-                  {planEvents.map(event => {
+                  {groupResources.map(r => renderResourceRow(r, 'resRowIndented'))}
+                  {renderAddAffordance({ type: 'group', id: group.id }, 'resAddAffordanceIndented')}
+                  {renderLinkForm({ type: 'group', id: group.id }, 'resLinkFormIndented')}
+                  {groupEvents.map(event => {
                     const eventResources = byEvent.get(event.id) ?? [];
                     const eventKey = `event-${event.id}`;
                     const eventExpanded = expandedSections.has(eventKey);
@@ -439,7 +439,7 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
           );
         })}
 
-        {/* Unplanned events with resources */}
+        {/* Ungrouped events with resources */}
         {eventsWithFloatingResources.map(event => {
           const eventResources = byEvent.get(event.id) ?? [];
           const eventKey = `event-${event.id}`;
@@ -478,7 +478,7 @@ export function CalendarResourcesPanel({ plans, allEvents }: CalendarResourcesPa
         {/* Floating / standalone resources */}
         {(floating.length > 0 || isScopeMatch({ type: 'floating' }) || (linkForm && linkForm.scope.type === 'floating')) && (
           <div>
-            {(resources.length > floating.length || plans.length > 0) && (
+            {(resources.length > floating.length || groups.length > 0) && (
               <div className="resSectionHeader" onClick={() => toggleSection('__floating__')}>
                 <span className="resSectionChevron">{expandedSections.has('__floating__') ? '▾' : '▸'}</span>
                 <span className="resSectionName" style={{ color: '#9B9B96' }}>Unattached</span>

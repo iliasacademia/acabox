@@ -229,6 +229,17 @@ const migrations = [
       CREATE INDEX idx_calendar_resources_parent    ON calendar_resources(parent_id);
     `,
   },
+  {
+    version: 13,
+    sql: `
+      ALTER TABLE plans RENAME TO groups;
+      ALTER TABLE plan_files RENAME TO group_files;
+      ALTER TABLE calendar_events RENAME COLUMN plan_id TO group_id;
+      ALTER TABLE calendar_resources RENAME COLUMN plan_id TO group_id;
+      ALTER TABLE calendar_reactions RENAME COLUMN plan_id TO group_id;
+      ALTER TABLE group_files RENAME COLUMN plan_id TO group_id;
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

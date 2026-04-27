@@ -1,20 +1,20 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './EventCreationPopover.css';
 import { PLAN_COLORS, nextAutoColor } from '../calendarColors';
-import type { CalendarPlan } from '../../shared/types';
+import type { CalendarGroup } from '../../shared/types';
 
 interface Props {
-  plans: CalendarPlan[];
+  groups: CalendarGroup[];
   anchorX: number;
   anchorY: number;
-  onCommit: (planId: string | null, color: string) => void;
+  onCommit: (groupId: string | null, color: string) => void;
   onClose: () => void;
 }
 
-export function EventCreationPopover({ plans, anchorX, anchorY, onCommit, onClose }: Props) {
+export function EventCreationPopover({ groups, anchorX, anchorY, onCommit, onClose }: Props) {
   const [focusIdx, setFocusIdx] = useState(0);
-  const [showNewPlan, setShowNewPlan] = useState(false);
-  const [newPlanName, setNewPlanName] = useState('');
+  const [showNewGroup, setShowNewGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
   const [selectedFamily, setSelectedFamily] = useState(0);
   const [selectedShade, setSelectedShade] = useState<keyof typeof PLAN_COLORS[0]['shades']>(600);
   const [expandedFamily, setExpandedFamily] = useState<number | null>(null);
@@ -23,31 +23,31 @@ export function EventCreationPopover({ plans, anchorX, anchorY, onCommit, onClos
   const inputRef = useRef<HTMLInputElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // sorted by updated_at desc (plans already come sorted by created_at; for recency we just reverse)
-  const sortedPlans = [...plans].reverse();
-  // items: sortedPlans + "No plan" + "New plan"
-  const totalItems = sortedPlans.length + 2;
-  const noPlanIdx = sortedPlans.length;
-  const newPlanIdx = sortedPlans.length + 1;
+  // sorted by updated_at desc (groups already come sorted by created_at; for recency we just reverse)
+  const sortedGroups = [...groups].reverse();
+  // items: sortedGroups + "No group" + "New group"
+  const totalItems = sortedGroups.length + 2;
+  const noGroupIdx = sortedGroups.length;
+  const newGroupIdx = sortedGroups.length + 1;
 
-  const autoColor = nextAutoColor(plans.map(p => p.color));
+  const autoColor = nextAutoColor(groups.map(g => g.color));
 
   useEffect(() => {
-    if (showNewPlan && inputRef.current) {
+    if (showNewGroup && inputRef.current) {
       inputRef.current.focus();
-      if (!newPlanName) {
+      if (!newGroupName) {
         const shadeKeys = Object.keys(PLAN_COLORS[selectedFamily].shades).map(Number) as Array<keyof typeof PLAN_COLORS[0]['shades']>;
         setSelectedShade(600 as keyof typeof PLAN_COLORS[0]['shades']);
-        const fam = plans.map(p => p.color);
+        const fam = groups.map(g => g.color);
         const nextFamIdx = PLAN_COLORS.findIndex(f => !fam.includes(f.shades[600]));
         setSelectedFamily(nextFamIdx >= 0 ? nextFamIdx : 0);
       }
     }
-  }, [showNewPlan]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [showNewGroup]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (showNewPlan) return;
+      if (showNewGroup) return;
       if (e.key === 'Escape') { onClose(); return; }
       if (e.key === 'Tab') {
         e.preventDefault();
@@ -60,7 +60,7 @@ export function EventCreationPopover({ plans, anchorX, anchorY, onCommit, onClos
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [focusIdx, showNewPlan, totalItems]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [focusIdx, showNewGroup, totalItems]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onClickOutside = (e: MouseEvent) => {
@@ -73,27 +73,27 @@ export function EventCreationPopover({ plans, anchorX, anchorY, onCommit, onClos
   }, [onClose]);
 
   function handleSelect(idx: number) {
-    if (idx === newPlanIdx) {
-      setShowNewPlan(true);
-      setFocusIdx(newPlanIdx);
+    if (idx === newGroupIdx) {
+      setShowNewGroup(true);
+      setFocusIdx(newGroupIdx);
       return;
     }
-    if (idx === noPlanIdx) {
+    if (idx === noGroupIdx) {
       onCommit(null, autoColor);
       return;
     }
-    const plan = sortedPlans[idx];
-    onCommit(plan.id, plan.color);
+    const group = sortedGroups[idx];
+    onCommit(group.id, group.color);
   }
 
-  async function handleCreatePlan() {
-    const name = newPlanName.trim();
+  async function handleCreateGroup() {
+    const name = newGroupName.trim();
     if (!name || creating) return;
     const color = PLAN_COLORS[selectedFamily].shades[selectedShade];
     setCreating(true);
     try {
-      const plan = await window.calendarAPI.createPlan({ name, color });
-      onCommit(plan.id, color);
+      const group = await window.calendarAPI.createGroup({ name, color });
+      onCommit(group.id, color);
     } finally {
       setCreating(false);
     }
@@ -111,38 +111,38 @@ export function EventCreationPopover({ plans, anchorX, anchorY, onCommit, onClos
       className="ecpOverlay"
       style={{ left, top }}
     >
-      <div className="ecpTitle">Add to plan</div>
+      <div className="ecpTitle">Add to group</div>
 
-      {!showNewPlan ? (
+      {!showNewGroup ? (
         <div className="ecpList">
-          {sortedPlans.map((plan, i) => (
+          {sortedGroups.map((group, i) => (
             <button
-              key={plan.id}
+              key={group.id}
               className={`ecpPill${focusIdx === i ? ' ecpPillFocused' : ''}`}
               onClick={() => handleSelect(i)}
               onMouseEnter={() => setFocusIdx(i)}
             >
-              <span className="ecpColorDot" style={{ backgroundColor: plan.color }} />
-              <span className="ecpPillLabel">{plan.name}</span>
+              <span className="ecpColorDot" style={{ backgroundColor: group.color }} />
+              <span className="ecpPillLabel">{group.name}</span>
             </button>
           ))}
 
           <button
-            className={`ecpPill${focusIdx === noPlanIdx ? ' ecpPillFocused' : ''}`}
-            onClick={() => handleSelect(noPlanIdx)}
-            onMouseEnter={() => setFocusIdx(noPlanIdx)}
+            className={`ecpPill${focusIdx === noGroupIdx ? ' ecpPillFocused' : ''}`}
+            onClick={() => handleSelect(noGroupIdx)}
+            onMouseEnter={() => setFocusIdx(noGroupIdx)}
           >
             <span className="ecpColorDotEmpty" />
-            <span className="ecpPillLabel ecpPillLabelMuted">No plan</span>
+            <span className="ecpPillLabel ecpPillLabelMuted">No group</span>
           </button>
 
           <button
-            className={`ecpPill${focusIdx === newPlanIdx ? ' ecpPillFocused' : ''}`}
-            onClick={() => handleSelect(newPlanIdx)}
-            onMouseEnter={() => setFocusIdx(newPlanIdx)}
+            className={`ecpPill${focusIdx === newGroupIdx ? ' ecpPillFocused' : ''}`}
+            onClick={() => handleSelect(newGroupIdx)}
+            onMouseEnter={() => setFocusIdx(newGroupIdx)}
           >
             <span className="ecpPlusDot">+</span>
-            <span className="ecpPillLabel ecpPillLabelMuted">New plan</span>
+            <span className="ecpPillLabel ecpPillLabelMuted">New group</span>
           </button>
         </div>
       ) : (
@@ -150,12 +150,12 @@ export function EventCreationPopover({ plans, anchorX, anchorY, onCommit, onClos
           <input
             ref={inputRef}
             className="ecpInput"
-            placeholder="Plan name"
-            value={newPlanName}
-            onChange={e => setNewPlanName(e.target.value)}
+            placeholder="Group name"
+            value={newGroupName}
+            onChange={e => setNewGroupName(e.target.value)}
             onKeyDown={e => {
-              if (e.key === 'Enter') { e.preventDefault(); handleCreatePlan(); }
-              if (e.key === 'Escape') { setShowNewPlan(false); }
+              if (e.key === 'Enter') { e.preventDefault(); handleCreateGroup(); }
+              if (e.key === 'Escape') { setShowNewGroup(false); }
             }}
           />
           <div className="ecpColorFamilies">
@@ -190,11 +190,11 @@ export function EventCreationPopover({ plans, anchorX, anchorY, onCommit, onClos
             ))}
           </div>
           <div className="ecpNewPlanActions">
-            <button className="ecpCancelBtn" onClick={() => setShowNewPlan(false)}>Cancel</button>
+            <button className="ecpCancelBtn" onClick={() => setShowNewGroup(false)}>Cancel</button>
             <button
               className="ecpCreateBtn"
-              onClick={handleCreatePlan}
-              disabled={!newPlanName.trim() || creating}
+              onClick={handleCreateGroup}
+              disabled={!newGroupName.trim() || creating}
             >
               {creating ? 'Creating…' : 'Create'}
             </button>

@@ -7,14 +7,14 @@ export function createReaction(workspaceId: string, data: CreateReactionData): C
   getDatabase()
     .prepare(
       `INSERT INTO calendar_reactions
-         (id, workspace_id, event_id, plan_id, title, content, trigger_context)
+         (id, workspace_id, event_id, group_id, title, content, trigger_context)
        VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       id,
       workspaceId,
       data.event_id ?? null,
-      data.plan_id ?? null,
+      data.group_id ?? null,
       data.title,
       data.content,
       data.trigger_context
@@ -86,7 +86,7 @@ export function hasRecentReactionForEntity(workspaceId: string, entityId: string
     .prepare(
       `SELECT 1 FROM calendar_reactions
        WHERE workspace_id = ?
-         AND (event_id = ? OR plan_id = ?)
+         AND (event_id = ? OR group_id = ?)
          AND created_at > ?
        LIMIT 1`
     )

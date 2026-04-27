@@ -1,4 +1,4 @@
-import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarPlan, CalendarEvent, EventFile, PlanFile, CreatePlanData, UpdatePlanData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry, CalendarReaction } from '../shared/types';
+import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry, CalendarReaction } from '../shared/types';
 
 interface DirEntry {
   name: string;
@@ -486,9 +486,9 @@ declare global {
   }
 
   type CalendarMutationEvent =
-    | { type: 'plan-created';       plan: CalendarPlan }
-    | { type: 'plan-updated';       plan: CalendarPlan }
-    | { type: 'plan-deleted';       planId: string }
+    | { type: 'group-created';      group: CalendarGroup }
+    | { type: 'group-updated';      group: CalendarGroup }
+    | { type: 'group-deleted';      groupId: string }
     | { type: 'event-created';      event: CalendarEvent }
     | { type: 'event-updated';      event: CalendarEvent }
     | { type: 'event-deleted';      eventId: string }
@@ -498,13 +498,13 @@ declare global {
     | { type: 'dependency-deleted'; dependencyId: string };
 
   interface CalendarAPI {
-    listPlans(): Promise<CalendarPlan[]>;
-    createPlan(data: CreatePlanData): Promise<CalendarPlan>;
-    updatePlan(id: string, data: UpdatePlanData): Promise<CalendarPlan | null>;
-    deletePlan(id: string): Promise<void>;
-    getPlanTimeRange(id: string): Promise<{ start_at: string; end_at: string } | null>;
+    listGroups(): Promise<CalendarGroup[]>;
+    createGroup(data: CreateGroupData): Promise<CalendarGroup>;
+    updateGroup(id: string, data: UpdateGroupData): Promise<CalendarGroup | null>;
+    deleteGroup(id: string): Promise<void>;
+    getGroupTimeRange(id: string): Promise<{ start_at: string; end_at: string } | null>;
 
-    listEvents(opts?: { from?: string; to?: string; planId?: string }): Promise<CalendarEvent[]>;
+    listEvents(opts?: { from?: string; to?: string; groupId?: string }): Promise<CalendarEvent[]>;
     createEvent(data: CreateEventData): Promise<CalendarEvent>;
     updateEvent(id: string, data: UpdateEventData): Promise<CalendarEvent | null>;
     deleteEvent(id: string): Promise<void>;
@@ -512,9 +512,9 @@ declare global {
     addEventFile(eventId: string, filePath: string): Promise<EventFile>;
     listEventFiles(eventId: string): Promise<EventFile[]>;
     removeEventFile(id: number): Promise<void>;
-    addPlanFile(planId: string, filePath: string): Promise<PlanFile>;
-    listPlanFiles(planId: string, includeFromEvents?: boolean): Promise<PlanFile[]>;
-    removePlanFile(id: number): Promise<void>;
+    addGroupFile(groupId: string, filePath: string): Promise<GroupFile>;
+    listGroupFiles(groupId: string, includeFromEvents?: boolean): Promise<GroupFile[]>;
+    removeGroupFile(id: number): Promise<void>;
 
     listResources(opts?: ListResourcesOptions): Promise<CalendarResource[]>;
     createResource(data: CreateResourceData): Promise<CalendarResource>;

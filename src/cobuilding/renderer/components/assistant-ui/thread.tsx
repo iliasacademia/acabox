@@ -35,14 +35,30 @@ import {
 } from 'lucide-react';
 import type { FC } from 'react';
 
-export const Thread: FC = () => {
+interface ThreadProps {
+  turnAnchor?: 'top' | 'bottom';
+  autoScroll?: boolean;
+  scrollToBottomOnRunStart?: boolean;
+  scrollToBottomOnThreadSwitch?: boolean;
+  scrollToBottomOnInitialize?: boolean;
+}
+
+export const Thread: FC<ThreadProps> = ({
+  turnAnchor = 'top',
+  autoScroll,
+  scrollToBottomOnRunStart,
+  scrollToBottomOnThreadSwitch = true,
+  scrollToBottomOnInitialize = true,
+}) => {
   return (
     <ThreadPrimitive.Root className="threadRoot">
       <ComposerPrimitive.AttachmentDropzone className="threadDropzone">
         <ThreadPrimitive.Viewport
-          turnAnchor="top"
-          scrollToBottomOnThreadSwitch
-          scrollToBottomOnInitialize
+          turnAnchor={turnAnchor}
+          autoScroll={autoScroll}
+          scrollToBottomOnRunStart={scrollToBottomOnRunStart}
+          scrollToBottomOnThreadSwitch={scrollToBottomOnThreadSwitch}
+          scrollToBottomOnInitialize={scrollToBottomOnInitialize}
           className="threadViewport"
         >
           <div className="threadContent">
