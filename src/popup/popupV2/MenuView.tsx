@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   useLocalRuntime,
   AssistantRuntimeProvider,
@@ -94,11 +94,37 @@ interface WorkspaceSessionsViewProps {
   onNewConversation: () => void;
 }
 
+const SESSIONS_PAGE_SIZE = 20;
+
 export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
   sessions,
   onOpenSession,
   onNewConversation,
 }) => {
+  const [visibleCount, setVisibleCount] = useState(SESSIONS_PAGE_SIZE);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  const effectiveCount = Math.min(visibleCount, sessions.length);
+  const hasMore = effectiveCount < sessions.length;
+
+  useEffect(() => {
+    if (!hasMore) return;
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setVisibleCount((c) => c + SESSIONS_PAGE_SIZE);
+        }
+      },
+      { rootMargin: '120px' },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, effectiveCount]);
+
+  const visibleSessions = sessions.slice(0, effectiveCount);
+
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px' }}>
@@ -129,7 +155,7 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
         </div>
       ) : (
         <div style={styles.feedbackContent}>
-          {sessions.map((session) => (
+          {visibleSessions.map((session) => (
             <button
               key={session.id}
               style={styles.notificationCard}
@@ -149,6 +175,7 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
               </div>
             </button>
           ))}
+          {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
         </div>
       )}
     </>

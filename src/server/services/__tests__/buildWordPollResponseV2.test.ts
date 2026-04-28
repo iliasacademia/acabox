@@ -66,7 +66,10 @@ describe('poll response visibility for workspace mode', () => {
     documentPath: string | null,
     workspaceDir: string | null,
   ): boolean {
-    if (!documentPath) return true; // unsaved docs always show
+    if (!documentPath) {
+      // Unsaved docs: hidden in cobuilding mode, shown in writing-agent mode
+      return !workspaceDir;
+    }
     if (workspaceDir) {
       // In cobuilding mode
       return documentPath.startsWith(workspaceDir + '/');
@@ -95,7 +98,11 @@ describe('poll response visibility for workspace mode', () => {
     )).toBe(true);
   });
 
-  it('shows overlay for unsaved documents', () => {
-    expect(shouldShowOverlay(null, '/Users/user/ws')).toBe(true);
+  it('hides overlay for unsaved documents in cobuilding mode', () => {
+    expect(shouldShowOverlay(null, '/Users/user/ws')).toBe(false);
+  });
+
+  it('shows overlay for unsaved documents in writing-agent mode', () => {
+    expect(shouldShowOverlay(null, null)).toBe(true);
   });
 });

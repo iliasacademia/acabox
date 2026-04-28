@@ -770,7 +770,7 @@ app.whenReady().then(() => {
                       if (!ctx) return userText;
                       let prefix = '';
                       if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
-                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the review-selected-text skill (NOT review-manuscript).\n"""\n${ctx.selectedText}\n"""\n`;
+                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the academic-writing-agent skill scoped to this selected passage.\n"""\n${ctx.selectedText}\n"""\n`;
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
                   );
@@ -826,7 +826,7 @@ app.whenReady().then(() => {
             }
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
-              windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
+              windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
               windowMonitorService.setSessionsProvider(() => {
                 if (!activeWorkspace) return [];
                 return listSessions(activeWorkspace.id).map(s => ({
@@ -974,7 +974,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   if (activeWorkspace) {
     ensureReactionsTask(activeWorkspace.id);
     // Update workspace directory for the Word overlay
-    windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
+    windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
   }
 
   // Restart scheduler so it picks up the new workspace's tasks
