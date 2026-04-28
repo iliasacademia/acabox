@@ -900,7 +900,7 @@ export async function findAndReplaceInWord(
   try {
     const searchExpr = buildAppleScriptString(searchText);
     const replaceExpr = buildAppleScriptString(replacementText);
-    const replaceConst = replaceScope === 'all' ? 'replace all' : 'replace one';
+    const replaceAll = replaceScope === 'all';
 
     const script = `
 tell application "Microsoft Word"
@@ -914,23 +914,33 @@ tell application "Microsoft Word"
     set user name to "Academia Coscientist"
     set user initials to "AC"
     set doc to active document
-    set docRange to create range doc start 0 end (end of content of text object of doc)
-    set myFind to find object of docRange
-    set content of myFind to ${searchExpr}
-    set content of replacement of myFind to ${replaceExpr}
-    set match case of myFind to ${matchCase}
-    set forward of myFind to true
-    set wrap of myFind to find stop
-    set format of myFind to false
-    set wasReplaced to execute find myFind replace ${replaceConst}
+    set replacementText to ${replaceExpr}
+    set replacementsCount to 0
+    set searchStart to 0
+    repeat
+      set docEnd to (end of content of text object of doc)
+      if searchStart is greater than or equal to docEnd then exit repeat
+      set searchRange to create range doc start searchStart end docEnd
+      set myFind to find object of searchRange
+      set content of myFind to ${searchExpr}
+      set match case of myFind to ${matchCase}
+      set forward of myFind to true
+      set wrap of myFind to find stop
+      set format of myFind to false
+      set wasFound to execute find myFind
+      if not wasFound then exit repeat
+      set foundStart to (start of content of searchRange)
+      set foundEnd to (end of content of searchRange)
+      set targetRange to create range doc start foundStart end foundEnd
+      set content of targetRange to replacementText
+      set replacementsCount to replacementsCount + 1
+      set searchStart to foundStart + (length of replacementText)
+      ${replaceAll ? '' : 'exit repeat'}
+    end repeat
     -- Restore original author name
     set user name to origName
     set user initials to origInitials
-    if wasReplaced then
-      return "ok||1"
-    else
-      return "ok||0"
-    end if
+    return "ok||" & replacementsCount
   on error errMsg number errNum
     -- Restore author name even on error
     try

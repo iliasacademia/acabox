@@ -15,6 +15,7 @@ import { createActivityMcpServer } from './mcpServers/activityMcpServer';
 import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
 import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
 import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
+import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
 
 export function getClaudeCliPath(): string {
   if (app.isPackaged) {
@@ -150,6 +151,7 @@ export function createAgentSession(
       const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
       const msWordServer = createMsWordMcpServer();
+      const citeRightServer = createCiteRightMcpServer();
 
       // Read SOUL.md for system prompt customization
       let soulMdContent: string | undefined;
@@ -215,6 +217,7 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
             notification: notificationServer,
             reaction: reactionServer,
             'ms-word': msWordServer,
+            citeright: citeRightServer,
           },
           allowedTools: [
             "Bash",
@@ -242,6 +245,13 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
             "mcp__ms-word__find_and_replace",
             "mcp__ms-word__track_changes_status",
             "mcp__ms-word__set_track_changes",
+            "mcp__citeright__find_references",
+            "mcp__citeright__create_citation_report",
+            "mcp__citeright__get_citation_report",
+            "mcp__citeright__add_claim_to_report",
+            "mcp__citeright__search_citations_for_claim",
+            "mcp__citeright__format_citations",
+            "mcp__citeright__list_citation_reports",
           ],
           hooks: {
             PreToolUse: [{
