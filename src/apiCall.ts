@@ -1,3 +1,4 @@
+import FormData from 'form-data';
 import { APIclient, getCsrfToken } from './apiClient';
 import { defaultLogger as logger } from './utils/logger';
 
@@ -16,6 +17,9 @@ export async function callBackendApi<T = any>(options: BackendApiCallOptions): P
     const headers: Record<string, string> = { ...(extraHeaders || {}) };
     if (method !== 'GET') {
       headers['x-csrf-token'] = await getCsrfToken();
+    }
+    if (data instanceof FormData) {
+      Object.assign(headers, data.getHeaders());
     }
 
     let response;

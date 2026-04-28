@@ -4,6 +4,7 @@ import { checkLogin } from '../../../apiClient';
 import {
   addClaimToReport,
   createCitationReportFromText,
+  findReferencesForFile,
   findReferencesForText,
   formatCitations,
   getCitationReport,
@@ -70,23 +71,36 @@ export function createCiteRightMcpServer() {
     tools: [
       tool(
         'find_references',
-        'Find verified references for a passage or claim. Submits the text to CiteRight, polls until the backend ' +
-        'reports done:true, and returns the report with claims + top_publications populated. Use this as the default ' +
-        'tool when the user asks for references — it handles polling internally so you do not need to call ' +
-        'create_citation_report + get_citation_report yourself. Polling can take several minutes for long passages.',
+        'Find verified references for a passage, claim, or whole document. Submits the input to CiteRight, polls ' +
+        'until the backend reports done:true, and returns the report with claims + top_publications populated. ' +
+        'Pass document_text for selections/excerpts, or file_path (PDF/DOCX, ≤50MB) to upload the original ' +
+        'document — exactly one of the two is required. Use this as the default tool when the user asks for ' +
+        'references; polling can take several minutes for long inputs.',
         {
-          document_text: z.string().min(1).max(500_000)
-            .describe('The passage, claim, or excerpt to find references for. Max 500KB.'),
+          document_text: z.string().min(1).max(500_000).optional()
+            .describe('Passage, claim, or excerpt to find references for. Max 500KB. Use this for selected text.'),
+          file_path: z.string().optional()
+            .describe('Absolute path to a .pdf or .docx file to upload (≤50MB). Prefer this over document_text when ' +
+              'the user wants references for the whole document and the file is on disk.'),
           timeout_seconds: z.number().int().min(10).max(900).optional().default(600)
             .describe('Maximum seconds to wait for the backend to finish ranking (default 600 / 10 min).'),
           poll_interval_seconds: z.number().int().min(1).max(15).optional().default(3)
             .describe('Seconds between polls (default 3).'),
         },
         async (args) => runWhenLoggedIn(async () => {
-          const response = await findReferencesForText(args.document_text, {
+          if (!args.document_text && !args.file_path) {
+            return fail('Either document_text or file_path is required.');
+          }
+          if (args.document_text && args.file_path) {
+            return fail('Pass exactly one of document_text or file_path, not both.');
+          }
+          const pollOptions = {
             timeoutMs: args.timeout_seconds * 1000,
             pollIntervalMs: args.poll_interval_seconds * 1000,
-          });
+          };
+          const response = args.file_path
+            ? await findReferencesForFile(args.file_path, pollOptions)
+            : await findReferencesForText(args.document_text!, pollOptions);
           const done = response.report?.done === true;
           const note = done
             ? ''

@@ -1,3 +1,6 @@
+import fs from 'fs';
+import path from 'path';
+import FormData from 'form-data';
 import { callBackendApi } from '../../../apiCall';
 import type {
   CiteRightWorkInput,
@@ -10,6 +13,13 @@ export const CITERIGHT_CALLER_SOURCE = 'academia-coscientist';
 
 const BASE = 'v0/citeright';
 
+const FILE_CONTENT_TYPES: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+};
+
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
 function withCaller<T extends Record<string, any>>(payload: T): T & { upload_source: string } {
   return { upload_source: CITERIGHT_CALLER_SOURCE, ...payload };
 }
@@ -19,6 +29,32 @@ export async function createCitationReportFromText(documentText: string): Promis
     method: 'POST',
     endpoint: `${BASE}/citation_report`,
     data: withCaller({ document_text: documentText }),
+  });
+}
+
+export async function createCitationReportFromFile(filePath: string): Promise<CitationReportResponse> {
+  const ext = path.extname(filePath).toLowerCase();
+  const contentType = FILE_CONTENT_TYPES[ext];
+  if (!contentType) {
+    throw new Error(`Unsupported file type ${ext} — CiteRight accepts .pdf or .docx only`);
+  }
+  const stat = await fs.promises.stat(filePath);
+  if (stat.size > MAX_UPLOAD_BYTES) {
+    throw new Error(`File too large (${Math.round(stat.size / 1024 / 1024)}MB) — max 50MB`);
+  }
+
+  const form = new FormData();
+  form.append('upload_source', CITERIGHT_CALLER_SOURCE);
+  form.append('document', fs.createReadStream(filePath), {
+    filename: path.basename(filePath),
+    contentType,
+    knownLength: stat.size,
+  });
+
+  return callBackendApi<CitationReportResponse>({
+    method: 'POST',
+    endpoint: `${BASE}/create_report_from_upload`,
+    data: form,
   });
 }
 
@@ -103,6 +139,18 @@ export async function findReferencesForText(
   options: AwaitReportOptions = {},
 ): Promise<CitationReportResponse> {
   const created = await createCitationReportFromText(documentText);
+  const reportId = created.report?.report_id ?? created.report?.id;
+  if (reportId === undefined) {
+    return created;
+  }
+  return awaitCitationReportReady(reportId, options);
+}
+
+export async function findReferencesForFile(
+  filePath: string,
+  options: AwaitReportOptions = {},
+): Promise<CitationReportResponse> {
+  const created = await createCitationReportFromFile(filePath);
   const reportId = created.report?.report_id ?? created.report?.id;
   if (reportId === undefined) {
     return created;
