@@ -75,7 +75,8 @@ export function createCiteRightMcpServer() {
         'tool when the user asks for references — it handles polling internally so you do not need to call ' +
         'create_citation_report + get_citation_report yourself. Polling can take several minutes for long passages.',
         {
-          document_text: z.string().describe('The passage, claim, or excerpt to find references for.'),
+          document_text: z.string().min(1).max(500_000)
+            .describe('The passage, claim, or excerpt to find references for. Max 500KB.'),
           timeout_seconds: z.number().int().min(10).max(900).optional().default(600)
             .describe('Maximum seconds to wait for the backend to finish ranking (default 600 / 10 min).'),
           poll_interval_seconds: z.number().int().min(1).max(15).optional().default(3)
@@ -101,7 +102,8 @@ export function createCiteRightMcpServer() {
         'The backend extracts claims and ranks candidate publications asynchronously — poll get_citation_report ' +
         'until claims contain ranked_publications.',
         {
-          document_text: z.string().describe('The full document or excerpt to analyze for citations.'),
+          document_text: z.string().min(1).max(500_000)
+            .describe('The full document or excerpt to analyze for citations. Max 500KB.'),
         },
         async (args) => runWhenLoggedIn(async () => {
           const response = await createCitationReportFromText(args.document_text);
@@ -127,7 +129,8 @@ export function createCiteRightMcpServer() {
         'which can then be passed to search_citations_for_claim.',
         {
           report_id: z.union([z.string(), z.number()]),
-          text: z.string().describe('The claim or query text to search citations for.'),
+          text: z.string().min(1).max(10_000)
+            .describe('The claim or query text to search citations for. Max 10KB.'),
         },
         async (args) => runWhenLoggedIn(async () => {
           const response = await addClaimToReport(args.report_id, args.text);

@@ -30,7 +30,6 @@ export async function callBackendApi<T = any>(options: BackendApiCallOptions): P
         response = await client.put(endpoint, data, { headers });
         break;
       case 'PATCH':
-        logger.info(`[API] PATCH ${endpoint} with data: ${JSON.stringify(data)}`);
         response = await client.patch(endpoint, data, { headers });
         break;
       case 'DELETE':
