@@ -826,7 +826,7 @@ app.whenReady().then(() => {
             }
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
-              windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
+              windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
               windowMonitorService.setSessionsProvider(() => {
                 if (!activeWorkspace) return [];
                 return listSessions(activeWorkspace.id).map(s => ({
@@ -974,7 +974,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   if (activeWorkspace) {
     ensureReactionsTask(activeWorkspace.id);
     // Update workspace directory for the Word overlay
-    windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
+    windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
   }
 
   // Restart scheduler so it picks up the new workspace's tasks

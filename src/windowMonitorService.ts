@@ -87,7 +87,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
         if (!_contentBounds) return null;
 
         // In cobuilding mode, selection goes to the composer pill — no review button needed
-        if (service.getWorkspaceDirectory()) return null;
+        if (service.getActiveWorkspaceDirectory()) return null;
 
         // Hide review button when review input is open
         if (windowId && service['reviewInputOpen'].has(windowId)) return null;
@@ -1050,11 +1050,17 @@ export class WindowMonitorService {
     return this.reviewPanelV3SelectedText.get(windowId) ?? this.lastSelectedText;
   }
 
-  setWorkspaceDirectory(directory: string | null): void {
+  /**
+   * Sets the directory of the *active* workspace. Multiple workspaces may exist,
+   * but only one is active at a time; this should be called whenever the active
+   * workspace is selected or switched.
+   */
+  setActiveWorkspaceDirectory(directory: string | null): void {
     this.workspaceDirectory = directory;
   }
 
-  getWorkspaceDirectory(): string | null {
+  /** Returns the directory of the currently active workspace, or null if none. */
+  getActiveWorkspaceDirectory(): string | null {
     return this.workspaceDirectory;
   }
 
