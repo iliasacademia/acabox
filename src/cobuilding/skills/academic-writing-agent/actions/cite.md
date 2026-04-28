@@ -20,18 +20,32 @@ When a reference is needed, follow this priority order:
 
 CiteRight runs vector + web search over published literature, ranks candidates with an LLM, and verifies them — so anything it returns is real, not fabricated.
 
-**To find references for a claim or passage** (e.g. the user's selected text or a single claim):
+**Choosing the input.** Before any CiteRight call:
 
-- **Determine the input first.** The decision tree:
-  1. Call `mcp__ms-word__get_selection`. If it returns non-empty text, use it as `document_text` — the user highlighted a passage and wants references for that passage, not the whole paper.
-  2. If the selection is empty, the user wants references for the whole document. Call `mcp__ms-word__get_file_path` to get the active document's path. If it returns a `.docx` or `.pdf` path, pass it as `file_path` to `find_references` — uploading the original file gives the backend better structure for reference extraction than dumped text.
-  3. If no file path is available (e.g. unsaved document), fall back to `mcp__ms-word__get_text` and pass the result as `document_text`.
-- Call `mcp__citeright__find_references` with **exactly one** of `document_text` or `file_path` (never both). The tool submits the input, polls the backend until it reports `done: true`, and returns the report with `claims[*].top_publications` populated. Default timeout is 600 seconds (10 min); CiteRight is async and can take several minutes for long inputs — do not abandon polling early.
-- Read each claim's `top_publications` and present the top results with title, authors, year, and DOI/URL. Each entry also carries a `reasoning` field explaining why CiteRight matched it — surface this when the user asks why a reference was suggested.
-- Note: `top_publications` are CiteRight's *new* citation suggestions for the claim. This is distinct from the paper's existing reference list (which CiteRight may also extract separately) — do not confuse the two.
-- If the response still has `report.done: false` and includes a "backend did not finish within the timeout" note, the backend is taking longer than the timeout window. Call `mcp__citeright__get_citation_report` with the same `report_id` to keep checking — do NOT present partial results as final, and do NOT fall back to unverified LLM-suggested references.
+1. Call `mcp__ms-word__get_selection`. If it returns non-empty text, that's the input — the user highlighted a passage and wants references for that passage, not the whole paper. Use the **short input path** below.
+2. If the selection is empty, the user wants references for the whole document. Call `mcp__ms-word__get_file_path`. If it returns a `.docx` or `.pdf` path, that's the input. Use the **long input path** below.
+3. If no file path is available (unsaved document), fall back to `mcp__ms-word__get_text` and treat that text as a long input.
 
-**Lower-level alternative** (only if you need fine-grained control — e.g. to start a report now and check on it later, or to inspect partial progress): call `mcp__citeright__create_citation_report` to kick off, then `mcp__citeright__get_citation_report` to check the state. Default to `find_references` for normal use.
+### Short input path (selections, single claims)
+
+- Call `mcp__citeright__find_references` with `document_text` set to the selection. The tool blocks until the backend reports `done: true`, then returns the slim report. Selections are fast — usually finishes in well under a minute.
+- Read each claim's `top_publications` and present title, authors, year, DOI/URL, and the `reasoning` field that explains why CiteRight matched it.
+
+### Long input path (whole document, file upload, large text)
+
+These can take 5–10 minutes. **Do not call `find_references` here** — it would block silently for the entire wait and the user won't see progress. Instead, drive the polling loop yourself so progress is visible:
+
+1. Kick off the report: `mcp__citeright__create_citation_report` with `document_text`, OR upload a file via `find_references` with `file_path` and a low `timeout_seconds` (e.g. 5) so it returns the `report_id` quickly without blocking.
+2. Tell the user the report is in flight ("Submitted to CiteRight, report id N, fetching results as they come in…").
+3. Loop: call `mcp__citeright__get_citation_report` with the `report_id`. Between calls, briefly summarize what's new — e.g. "Claim 1 has 5 references so far; claim 2 still searching." Wait roughly 20–30 seconds between polls. Do not poll faster than every ~10 seconds.
+4. Stop polling when `report.done` is `true`. Then present the full set of references organized by claim, same as the short path.
+5. If the user asks you to stop, stop. The report stays available — they can ask later and you can resume polling with the same `report_id`.
+
+**Important constraints for both paths:**
+
+- `top_publications` are CiteRight's *new* citation suggestions for the claim. This is distinct from the paper's existing reference list — do not confuse the two.
+- Never present partial state as final. While `report.done` is `false`, label results as "so far" and keep polling.
+- Never fall back to LLM-fabricated references when CiteRight is still running or returns nothing useful.
 
 **To add a specific manual claim to a report** (when the user gives you an exact sentence to cite):
 
