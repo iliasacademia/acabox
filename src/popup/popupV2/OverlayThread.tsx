@@ -24,6 +24,8 @@ import {
   type CodeHeaderProps,
 } from '@assistant-ui/react-markdown';
 import remarkGfm from 'remark-gfm';
+import DOMPurify from 'dompurify';
+import '../../cobuilding/renderer/components/WritingAgentView.css';
 import { TooltipProvider } from '../../cobuilding/renderer/components/ui/tooltip';
 import { ToolFallback } from '../../cobuilding/renderer/components/assistant-ui/tool-fallback';
 import { ToolGroup } from '../../cobuilding/renderer/components/assistant-ui/tool-group';
@@ -87,7 +89,28 @@ const overlayComponents = memoizeMarkdownComponents({
   CodeHeader: OverlayCodeHeader,
 });
 
+function looksLikeHtml(text: string): boolean {
+  const trimmed = text.trim();
+  return trimmed.startsWith('<') && /<\/?[a-z][\s\S]*>/i.test(trimmed);
+}
+
 const OverlayMarkdownText = memo(() => {
+  const text = useAuiState((s: any) => {
+    const parts = s.message?.parts;
+    if (!parts) return null;
+    const textParts = parts.filter((p: any) => p.type === 'text');
+    return textParts.length > 0 ? textParts[textParts.length - 1]?.text : null;
+  });
+
+  if (text && looksLikeHtml(text)) {
+    return (
+      <div
+        className="writingAgentHtml"
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(text) }}
+      />
+    );
+  }
+
   return (
     <MarkdownTextPrimitive
       remarkPlugins={[remarkGfm]}

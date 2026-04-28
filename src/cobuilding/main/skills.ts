@@ -10,6 +10,7 @@ function getCobuildingSourceDir(): string {
 }
 
 const SKILLS = [
+  'academic-writing-agent',
   'activity-summary',
   'alphafold-database-access',
   'database-lookup',
@@ -27,8 +28,6 @@ const SKILLS = [
   'react-plotly',
   'reaction',
   'reactome-database',
-  'review-manuscript',
-  'review-selected-text',
   'string-database-ppi',
   'xlsx',
 ];
