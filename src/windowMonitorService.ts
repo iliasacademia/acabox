@@ -531,16 +531,17 @@ export class WindowMonitorService {
     const focused = getFocusedWindowInfo(this.state);
     let windowId = focused?.window.id ?? null;
 
-    // In cobuilding mode, keep the overlay visible when Word loses focus
-    // by reusing the last desired state. The overlay drops to normal window level
+    // In cobuilding mode, keep the open chat panel visible when Word loses focus
+    // by reusing its last desired state. Drops to normal window level
     // (background: true) so it sits behind the active app's windows.
+    // The launcher button (button-v2) is intentionally NOT carried over —
+    // it's only meaningful when Word is the focused app.
     if (this.workspaceDirectory && !windowId && this.lastV4FocusedWindowId) {
       const hasOverlay = Object.keys(desiredState).length > 0;
-      if (!hasOverlay && Object.keys(this.lastDesiredState).length > 0) {
+      const lastPopup = this.lastDesiredState['popup-v2'];
+      if (!hasOverlay && lastPopup?.visible) {
         windowId = this.lastV4FocusedWindowId;
-        for (const [key, value] of Object.entries(this.lastDesiredState)) {
-          desiredState[key] = { ...value, background: true };
-        }
+        desiredState['popup-v2'] = { ...lastPopup, background: true };
       }
     }
 
