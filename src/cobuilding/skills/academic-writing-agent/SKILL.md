@@ -26,7 +26,7 @@ Determine what the user wants from their message. Use the first matching rule:
 | Asks to rewrite, improve, expand, shorten, restructure, fix, or edit existing text | **Revise** |
 | Asks a question about their text, requests discussion or opinions, asks "what do you think" | **Feedback** |
 | Asks for evaluation, review, critique of a section or paper, wants systematic assessment | **Review** |
-| Asks about citations, references, or sourcing claims | **Cite** (acknowledge intent; citation skill is not yet available) |
+| Asks about citations, references, or sourcing claims | **Cite** |
 
 Tiebreakers for ambiguous cases:
 - Question about text quality with no scope specified = Feedback
