@@ -16,6 +16,7 @@ import { CheckIcon, CopyIcon } from 'lucide-react';
 
 import { TooltipIconButton } from './tooltip-icon-button';
 import { ApprovalParagraph, ApprovalList } from './approval-buttons';
+import { IPC_CHANNELS } from '../../../../shared/types';
 
 /** Detect if content is HTML (starts with a tag like <article>, <div>, <p>, etc.) */
 function looksLikeHtml(text: string): boolean {
@@ -193,7 +194,7 @@ const defaultComponents = memoizeMarkdownComponents({
       onClick={(e) => {
         e.preventDefault();
         if (href) {
-          (window as any).electronAPI.invoke('shell:openExternal', href);
+          (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, href);
         }
       }}
     >
