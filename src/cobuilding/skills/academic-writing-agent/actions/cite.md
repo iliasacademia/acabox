@@ -47,10 +47,15 @@ These can take 5–10 minutes. **Do not call `find_references` here** — it wou
 - Never present partial state as final. While `report.done` is `false`, label results as "so far" and keep polling.
 - Never fall back to LLM-fabricated references when CiteRight is still running or returns nothing useful.
 
-**Presenting references — always emit DOIs and URLs as markdown links** so the user can click them:
+**Presenting references — every reference must include a clickable link.** The user needs to click through to verify, so this is non-negotiable:
 
-- DOI: format as `[10.xxxx/yyyy](https://doi.org/10.xxxx/yyyy)` — never as plain `DOI: 10.xxxx/yyyy`. The link text should be just the DOI; the href is `https://doi.org/<doi>`.
-- URL: if a publication has a `url` field, format it as `[publication](<url>)` or `[<url>](<url>)`.
+- For **every** publication you present, include either its DOI (as a link) or its URL (as a link). Never present a reference as a plain "Author (Year), Journal" with no link — that forces the user to copy-paste into Google. Pick the most direct link from the data:
+  1. Prefer the publication's `url` field if it's a real article URL (most CiteRight results have `url: "https://doi.org/..."` already — just use it).
+  2. Otherwise build `https://doi.org/<doi>` from the `doi` field.
+  3. If neither exists, fall back to a plain text reference but say so explicitly ("no DOI available").
+- Format the link in markdown so the chat UI renders it as clickable: `[link text](url)`. The link text should be the DOI itself, the journal name, or "DOI" — short and recognizable.
+- Examples (good): `Cao, Short & Yip (2017), *PNAS* — [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114)` or `Herring (1950), *J. Appl. Phys.* ([link](https://doi.org/10.1063/1.1699681))`.
+- Example (bad, do not do this): `Cao, Short & Yip (2017), PNAS – "Understanding..."` with no link.
 - The chat UI opens links in the system's default browser, so this turns each reference into a one-click lookup for the user.
 
 **To add a specific manual claim to a report** (when the user gives you an exact sentence to cite):
