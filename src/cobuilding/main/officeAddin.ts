@@ -6,27 +6,18 @@ import * as crypto from 'crypto';
 import { execSync } from 'child_process';
 import { app, ipcMain } from 'electron';
 import log from 'electron-log';
+import {
+  MANIFEST_NAME, WEF_DIRS, LOGIN_KEYCHAIN,
+  getCertsDir, getCertPath, getKeyPath, getAddinDir,
+} from './officeAddinPaths';
 
-const ADDIN_ID = 'e56ffae3-be6a-463a-a4a2-9ec965f8d2d7';
-const MANIFEST_NAME = `${ADDIN_ID}.manifest.xml`;
 const HTTPS_PORT = 23112;
 
-const WEF_DIRS = {
-  word: path.join(app.getPath('home'), 'Library/Containers/com.microsoft.Word/Data/Documents/wef'),
-  powerpoint: path.join(app.getPath('home'), 'Library/Containers/com.microsoft.Powerpoint/Data/Documents/wef'),
-  excel: path.join(app.getPath('home'), 'Library/Containers/com.microsoft.Excel/Data/Documents/wef'),
-};
-
-const CERTS_DIR = app.isPackaged
-  ? path.join(process.resourcesPath, 'ms_office_addin', '.certs')
-  : path.join(app.getAppPath(), 'ms_office_addin', '.certs');
-const CERT_PATH = path.join(CERTS_DIR, 'localhost.crt');
-const KEY_PATH = path.join(CERTS_DIR, 'localhost.key');
-const LOGIN_KEYCHAIN = path.join(app.getPath('home'), 'Library/Keychains/login.keychain-db');
-
-const ADDIN_DIR = app.isPackaged
-  ? path.join(process.resourcesPath, 'ms_office_addin')
-  : path.join(app.getAppPath(), 'ms_office_addin');
+const PROJECT_ROOT = app.isPackaged ? process.resourcesPath : app.getAppPath();
+const CERTS_DIR = getCertsDir(PROJECT_ROOT);
+const CERT_PATH = getCertPath(PROJECT_ROOT);
+const KEY_PATH = getKeyPath(PROJECT_ROOT);
+const ADDIN_DIR = getAddinDir(PROJECT_ROOT);
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
