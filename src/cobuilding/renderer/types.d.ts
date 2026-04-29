@@ -566,7 +566,9 @@ declare global {
   }
 
   interface OfficeAddinAPI {
-    status(): Promise<{ word: boolean; powerpoint: boolean; excel: boolean; certTrusted: boolean; certExists: boolean }>;
+    status(): Promise<{ word: boolean; powerpoint: boolean; excel: boolean; certTrusted: boolean; certExists: boolean; serverRunning: boolean }>;
+    startServer(): Promise<{ success: boolean; error?: string }>;
+    stopServer(): Promise<{ success: boolean; error?: string }>;
     sideload(): Promise<{ success: boolean; error?: string }>;
     remove(): Promise<{ success: boolean; error?: string }>;
     trustCert(): Promise<{ success: boolean; error?: string }>;

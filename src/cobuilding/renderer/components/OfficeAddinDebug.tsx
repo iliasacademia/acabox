@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 
 export const OfficeAddinDebug: React.FC = () => {
-  const [status, setStatus] = useState<{ word: boolean; powerpoint: boolean; excel: boolean; certTrusted: boolean; certExists: boolean }>({ word: false, powerpoint: false, excel: false, certTrusted: false, certExists: false });
+  const [status, setStatus] = useState<{ word: boolean; powerpoint: boolean; excel: boolean; certTrusted: boolean; certExists: boolean; serverRunning: boolean }>({ word: false, powerpoint: false, excel: false, certTrusted: false, certExists: false, serverRunning: false });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -10,7 +10,7 @@ export const OfficeAddinDebug: React.FC = () => {
       const s = await window.officeAddinAPI.status();
       setStatus(s);
     } catch {
-      setStatus({ word: false, powerpoint: false, excel: false, certTrusted: false, certExists: false });
+      setStatus({ word: false, powerpoint: false, excel: false, certTrusted: false, certExists: false, serverRunning: false });
     }
   }, []);
 
@@ -61,6 +61,45 @@ export const OfficeAddinDebug: React.FC = () => {
   return (
     <div style={{ padding: '12px 16px' }}>
       <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: '#888', marginBottom: 16, letterSpacing: '0.05em' }}>
+        HTTPS Server
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+        <div style={{
+          width: 10, height: 10, borderRadius: '50%',
+          backgroundColor: status.serverRunning ? '#22c55e' : '#ef4444', flexShrink: 0,
+        }} />
+        <span style={{ fontSize: '0.875rem', color: '#333' }}>
+          {status.serverRunning ? 'Running (localhost:23112)' : 'Stopped'}
+        </span>
+      </div>
+
+      <button
+        onClick={async () => {
+          setLoading(true);
+          setMessage(null);
+          try {
+            const result = status.serverRunning
+              ? await window.officeAddinAPI.stopServer()
+              : await window.officeAddinAPI.startServer();
+            setMessage(result.success
+              ? (status.serverRunning ? 'Server stopped.' : 'Server started.')
+              : `Error: ${result.error}`);
+            await fetchStatus();
+          } finally { setLoading(false); }
+        }}
+        disabled={loading}
+        style={{
+          width: '100%', padding: '6px 12px', fontSize: '0.8125rem',
+          border: '1px solid #ddd', borderRadius: 4, background: '#fff',
+          cursor: loading ? 'not-allowed' : 'pointer',
+          color: '#333', opacity: loading ? 0.6 : 1, marginBottom: 8,
+        }}
+      >
+        {loading ? '...' : status.serverRunning ? 'Stop Server' : 'Start Server'}
+      </button>
+
+      <div style={{ fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase', color: '#888', marginTop: 20, marginBottom: 16, letterSpacing: '0.05em' }}>
         Office Add-in
       </div>
 

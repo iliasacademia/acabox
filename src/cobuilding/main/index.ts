@@ -70,7 +70,7 @@ import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { registerNotesHandlers } from './notesHandlers';
 import { AcademiaHttpServer } from '../../server/httpServer';
-import { startHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
+import { setHttpProxyPort, stopHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
 import {
   isConnected as isGoogleCalendarConnected,
   disconnect as disconnectGoogleCalendar,
@@ -822,8 +822,8 @@ app.whenReady().then(async () => {
           const authToken = httpServer.getAuthToken();
           log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
 
-          // Start HTTPS server for Office add-in (serves add-in files + proxies API)
-          startHttpsServer(port);
+          // Store HTTP port so the HTTPS server can proxy to it when started from debug panel
+          setHttpProxyPort(port);
 
           if (baseUrl && authToken) {
             // Share server URL and auth token with the renderer for direct API calls
@@ -2554,6 +2554,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   const steps: [string, () => void][] = [
     ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
+    ['stopHttpsServer', stopHttpsServer],
     ['stopFileMonitor', stopFileMonitor],
     ['stopBrowserMonitor', stopBrowserMonitor],
     ['stopScheduledTasks', stopScheduledTasks],

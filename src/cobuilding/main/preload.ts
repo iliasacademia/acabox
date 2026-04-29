@@ -547,6 +547,8 @@ ipcRenderer.on('anthropic:stream:event', (_event, msg: { streamKey: string; type
 
 contextBridge.exposeInMainWorld('officeAddinAPI', {
   status: () => ipcRenderer.invoke('officeAddin:status'),
+  startServer: () => ipcRenderer.invoke('officeAddin:startServer'),
+  stopServer: () => ipcRenderer.invoke('officeAddin:stopServer'),
   sideload: () => ipcRenderer.invoke('officeAddin:sideload'),
   remove: () => ipcRenderer.invoke('officeAddin:remove'),
   trustCert: () => ipcRenderer.invoke('officeAddin:trustCert'),

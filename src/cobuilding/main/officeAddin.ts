@@ -30,6 +30,9 @@ const PIXEL = Buffer.from(
   'base64',
 );
 
+let httpsServer: https.Server | null = null;
+let httpProxyPort: number | null = null;
+
 // ── Certificate helpers ──
 
 export function ensureCert(): { key: string; cert: string } {
@@ -75,64 +78,72 @@ function trustCert(): void {
 
 // ── HTTPS server ──
 
-export function startHttpsServer(httpPort: number): void {
-  try {
-    const { key, cert } = ensureCert();
+export function setHttpProxyPort(port: number): void {
+  httpProxyPort = port;
+}
 
-    const server = https.createServer({ key, cert }, (req, res) => {
-      const parsed = new URL(req.url || '/', `https://localhost:${HTTPS_PORT}`);
-      const pathname = parsed.pathname === '/' ? '/taskpane.html' : parsed.pathname;
+export function startHttpsServer(): void {
+  if (httpsServer) return;
+  if (!httpProxyPort) {
+    log.error('[HTTPS Server] HTTP proxy port not set. Call setHttpProxyPort() first.');
+    return;
+  }
 
-      if (['/taskpane.html', '/commands.html'].includes(pathname) || pathname.startsWith('/icon-')) {
-        const filePath = path.join(ADDIN_DIR, pathname);
-        const ext = path.extname(filePath);
-        if (ext === '.png' && !fs.existsSync(filePath)) {
-          res.writeHead(200, { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*' });
-          res.end(PIXEL);
-          return;
-        }
-        try {
-          const data = fs.readFileSync(filePath);
-          res.writeHead(200, {
-            'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
-            'Access-Control-Allow-Origin': '*',
-            'Cache-Control': 'no-cache',
-          });
-          res.end(data);
-        } catch {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end('Not Found');
-        }
+  const { key, cert } = ensureCert();
+  const proxyPort = httpProxyPort;
+
+  httpsServer = https.createServer({ key, cert }, (req, res) => {
+    const parsed = new URL(req.url || '/', `https://localhost:${HTTPS_PORT}`);
+    const pathname = parsed.pathname === '/' ? '/taskpane.html' : parsed.pathname;
+
+    if (['/taskpane.html', '/commands.html'].includes(pathname) || pathname.startsWith('/icon-')) {
+      const filePath = path.join(ADDIN_DIR, pathname);
+      const ext = path.extname(filePath);
+      if (ext === '.png' && !fs.existsSync(filePath)) {
+        res.writeHead(200, { 'Content-Type': 'image/png', 'Access-Control-Allow-Origin': '*' });
+        res.end(PIXEL);
         return;
       }
-
-      const proxyReq = http.request(
-        { hostname: '127.0.0.1', port: httpPort, path: req.url, method: req.method, headers: req.headers },
-        (proxyRes) => {
-          res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
-          proxyRes.pipe(res);
-        },
-      );
-      proxyReq.on('error', () => { res.writeHead(502); res.end(); });
-      req.pipe(proxyReq);
-    });
-
-    server.listen(HTTPS_PORT, '127.0.0.1', () => {
-      log.info(`[HTTPS Server] Started on https://localhost:${HTTPS_PORT} (add-in + API proxy)`);
-    });
-
-    // Auto-trust cert
-    if (!isCertTrusted()) {
       try {
-        trustCert();
-        log.info('[HTTPS Server] Certificate trusted in login keychain');
-      } catch (err) {
-        log.warn('[HTTPS Server] Could not auto-trust certificate:', err);
+        const data = fs.readFileSync(filePath);
+        res.writeHead(200, {
+          'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'no-cache',
+        });
+        res.end(data);
+      } catch {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
       }
+      return;
     }
-  } catch (err) {
-    log.error('[HTTPS Server] Failed to start:', err);
-  }
+
+    const proxyReq = http.request(
+      { hostname: '127.0.0.1', port: proxyPort, path: req.url, method: req.method, headers: req.headers },
+      (proxyRes) => {
+        res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+        proxyRes.pipe(res);
+      },
+    );
+    proxyReq.on('error', () => { res.writeHead(502); res.end(); });
+    req.pipe(proxyReq);
+  });
+
+  httpsServer.listen(HTTPS_PORT, '127.0.0.1', () => {
+    log.info(`[HTTPS Server] Started on https://localhost:${HTTPS_PORT} (add-in + API proxy)`);
+  });
+}
+
+export function stopHttpsServer(): void {
+  if (!httpsServer) return;
+  httpsServer.close();
+  httpsServer = null;
+  log.info('[HTTPS Server] Stopped');
+}
+
+export function isHttpsServerRunning(): boolean {
+  return httpsServer !== null;
 }
 
 // ── IPC handlers ──
@@ -144,7 +155,26 @@ export function registerOfficeAddinIpcHandlers(): void {
     excel: fs.existsSync(path.join(WEF_DIRS.excel, MANIFEST_NAME)),
     certTrusted: isCertTrusted(),
     certExists: fs.existsSync(CERT_PATH),
+    serverRunning: isHttpsServerRunning(),
   }));
+
+  ipcMain.handle('officeAddin:startServer', () => {
+    try {
+      startHttpsServer();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle('officeAddin:stopServer', () => {
+    try {
+      stopHttpsServer();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: (err as Error).message };
+    }
+  });
 
   ipcMain.handle('officeAddin:sideload', () => {
     try {
@@ -189,7 +219,6 @@ export function registerOfficeAddinIpcHandlers(): void {
       if (!fs.existsSync(CERT_PATH)) {
         return { success: false, error: 'Certificate not found.' };
       }
-      // Get the SHA-1 hash of our specific cert to delete only that one
       const hashOutput = execSync(
         `openssl x509 -in "${CERT_PATH}" -noout -fingerprint -sha1`,
         { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
