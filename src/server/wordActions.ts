@@ -888,11 +888,33 @@ export interface FindAndReplaceResult {
  * Find and replace text in the active Word document using Word's native
  * find object. Single atomic operation — no keyboard simulation needed.
  */
+// Serialize concurrent applies (e.g. "Approve all" fires N apply-edits in
+// parallel). Word's find object is shared per-document, so interleaved
+// AppleScript calls can clobber each other's search/replacement state.
+let findReplaceQueue: Promise<unknown> = Promise.resolve();
+
 export async function findAndReplaceInWord(
   searchText: string,
   replacementText: string,
   replaceScope: 'first' | 'all' = 'first',
   matchCase = true,
+): Promise<FindAndReplaceResult> {
+  const prev = findReplaceQueue;
+  let release: () => void = () => {};
+  findReplaceQueue = new Promise<void>((r) => { release = r; });
+  await prev.catch(() => {});
+  try {
+    return await runFindAndReplace(searchText, replacementText, replaceScope, matchCase);
+  } finally {
+    release();
+  }
+}
+
+async function runFindAndReplace(
+  searchText: string,
+  replacementText: string,
+  replaceScope: 'first' | 'all',
+  matchCase: boolean,
 ): Promise<FindAndReplaceResult> {
   logger.info(`[WordActions] findAndReplaceInWord scope=${replaceScope} matchCase=${matchCase}`);
 
@@ -914,38 +936,38 @@ tell application "Microsoft Word"
     set user name to "Academia Coscientist"
     set user initials to "AC"
     set doc to active document
-    set replacementText to ${replaceExpr}
-    set replacementsCount to 0
-    set searchStart to 0
-    repeat
-      set docEnd to (end of content of text object of doc)
-      if searchStart is greater than or equal to docEnd then exit repeat
-      set searchRange to create range doc start searchStart end docEnd
-      set myFind to find object of searchRange
-      set content of myFind to ${searchExpr}
-      set match case of myFind to ${matchCase}
-      set forward of myFind to true
-      set wrap of myFind to find stop
-      set format of myFind to false
-      set wasFound to execute find myFind
-      if not wasFound then exit repeat
-      set foundStart to (start of content of searchRange)
-      set foundEnd to (end of content of searchRange)
-      set targetRange to create range doc start foundStart end foundEnd
-      set content of targetRange to replacementText
-      set replacementsCount to replacementsCount + 1
-      set searchStart to foundStart + (length of replacementText)
-      ${replaceAll ? '' : 'exit repeat'}
-    end repeat
-    -- Restore original author name
+    -- Capture user's Track Changes mode and force ON for the apply so the edit
+    -- is recorded as a tracked revision; restored before returning.
+    set origTrack to track revisions of doc
+    set track revisions of doc to true
+    -- Use Word's native find/replace via the replacement object — this is the
+    -- only pattern that handles tracked revisions cleanly. Setting content of
+    -- a found range directly causes range-id failures and can collapse to
+    -- replacing the whole document when revisions shift positions mid-edit.
+    set findObj to find object of (text object of doc)
+    set content of findObj to ${searchExpr}
+    set forward of findObj to true
+    set wrap of findObj to find stop
+    set match case of findObj to ${matchCase}
+    set replObj to replacement of findObj
+    set content of replObj to ${replaceExpr}
+    set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
+    if wasFound then
+      set replacementsCount to 1
+    else
+      set replacementsCount to 0
+    end if
+    -- Restore original author name and Track Changes mode
     set user name to origName
     set user initials to origInitials
+    set track revisions of doc to origTrack
     return "ok||" & replacementsCount
   on error errMsg number errNum
-    -- Restore author name even on error
+    -- Restore author name and Track Changes mode even on error
     try
       set user name to origName
       set user initials to origInitials
+      set track revisions of doc to origTrack
     end try
     return "error||" & errMsg
   end try
