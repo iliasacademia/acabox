@@ -33,4 +33,8 @@ If the revision is substantial (more than a paragraph), show the key changes you
 - If the text has problems beyond what the user asked about, focus on what they requested. You may briefly note other issues but do not rewrite for them uninvited
 - Maintain consistency with the rest of the manuscript
 
+## Track Changes
+
+After generating the revised text, call `mcp__ms-word__set_track_changes` to replace the original passage with the revision as a tracked change. This lets the user accept or reject the change inline rather than copy-pasting from the chat.
+
 <!-- skill-file: actions/revise.md -->

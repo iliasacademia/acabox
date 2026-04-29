@@ -53,11 +53,11 @@ Infer from document context: headers, cursor position, selected text, or explici
 ### Step 3: Compose the Response
 
 After detecting the action and section:
-1. Emit a `<skill-trace>` block (see `format.md`) recording the detected action, section, document maturity, your reasoning, and the list of all skill files loaded (collected from `<!-- skill-file: ... -->` markers at the bottom of each file).
+1. Read `format.md` for HTML output conventions. All responses must follow this format.
 2. Read the section file indicated in the Step 2 table. Skip if the section is General.
 3. Read the action file indicated in the Step 1 table.
-4. Read `format.md` for HTML output conventions. All responses must follow this format.
-5. Apply the base-layer conventions below, the section conventions, and the action process together.
+4. Apply the base-layer conventions below, the section conventions, and the action process together.
+5. Begin the response with a `<div class="skill-trace">` block (see `format.md`) recording the detected action, section, document maturity, your reasoning, and the list of all skill files loaded (collected from `<!-- skill-file: ... -->` markers at the bottom of each file).
 
 ## Persona
 
@@ -71,7 +71,6 @@ Before acting, assess the document's state and adjust expectations:
 |---|---|
 | **Outline/skeleton** | Bullets, headers, TODOs, no prose. Give feedback on the plan, not missing prose. Do not say "write the manuscript" as critique. |
 | **Partial draft** | Some sections written, others stubbed. Review what exists. Note unwritten sections once in aggregate, not individually. |
-| **Proposal** | Planned work, no results yet by design. Focus on rationale, feasibility, methodology. Do not critique absence of results. |
 | **Near-complete manuscript** | All sections have content. Full review/feedback is appropriate. Note that feedback is optional and they could submit as-is. |
 
 ---

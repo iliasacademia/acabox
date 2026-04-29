@@ -6,21 +6,21 @@ All responses must be a single valid HTML fragment. No markdown, no text outside
 
 ### Skill Trace
 
-Every response begins with a `<skill-trace>` block before the `<article>` wrapper. This records which action, section, and document maturity the router detected.
+Every response begins with a `<div class="skill-trace">` block before the `<article>` wrapper. This records which action, section, and document maturity the router detected.
 
 ```html
-<skill-trace>
-  <action>[Draft/Revise/Feedback/Review/Cite]</action>
-  <section>[Results/Methods/Discussion/Introduction/Abstract/Outline/General]</section>
-  <maturity>[Outline/Partial draft/Proposal/Near-complete manuscript]</maturity>
-  <reason>[One sentence: why this action and section were selected.]</reason>
-  <files>[Comma-separated list of all skill files loaded for this response.]</files>
-</skill-trace>
+<div class="skill-trace">
+  <span class="action">[Draft/Revise/Feedback/Review/Cite]</span>
+  <span class="section">[Results/Methods/Discussion/Introduction/Abstract/Outline/General]</span>
+  <span class="maturity">[Outline/Partial draft/Near-complete manuscript]</span>
+  <span class="reason">[One sentence: why this action and section were selected.]</span>
+  <span class="files">[Comma-separated list of all skill files loaded for this response.]</span>
+</div>
 ```
 
-Populate `<files>` by collecting the `<!-- skill-file: ... -->` markers found at the bottom of each loaded skill file.
+Populate the `files` span by collecting the `<!-- skill-file: ... -->` markers found at the bottom of each loaded skill file.
 
-This block is for routing diagnostics and should be hidden by the frontend in production.
+This block is for routing diagnostics. The frontend styles it via the `.skill-trace` CSS class.
 
 ### Wrapper
 
@@ -146,9 +146,9 @@ Notes:
 
 ## Action-Specific Usage
 
-**Draft:** Wrap all generated prose in `<blockquote source="assistant">`. Agent commentary (assumptions, notes) goes in plain `<p>` tags within `framework_to_address`.
+**Draft:** Wrap all generated prose in `<blockquote source="assistant">`. Agent commentary (assumptions, notes) goes in plain `<p>` tags within `framework_to_address`. After generating the response, call `mcp__ms-word__set_track_changes` to insert the drafted text into the document so the user can accept or reject it inline.
 
-**Revise:** Wrap revised text in `<blockquote source="assistant">`. Use `group-id` to pair the original passage with the revision. Change summary goes in `framework_to_address`.
+**Revise:** Wrap revised text in `<blockquote source="assistant">`. Use `group-id` to pair the original passage with the revision. Change summary goes in `framework_to_address`. After generating the response, call `mcp__ms-word__set_track_changes` to apply the revision as a tracked change so the user can accept or reject it inline.
 
 **Feedback:** Use `<blockquote>` or `<q>` to quote the author's text. Use `<q source="assistant">` for any concrete suggested rephrasing. Most of the response is agent commentary in `<p>` tags.
 
