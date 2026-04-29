@@ -26,54 +26,51 @@ function looksLikeHtml(text: string): boolean {
 
 const DOI_RE = /\b10\.\d{4,9}\/[^\s\]<>"'(),]+/g;
 
-function remarkDoiAutolink() {
-  const transformText = (node: any, parent: any) => {
-    const value: string = node.value ?? '';
-    DOI_RE.lastIndex = 0;
-    const matches = [...value.matchAll(DOI_RE)];
-    if (matches.length === 0) return 0;
-    const replacements: any[] = [];
-    let last = 0;
-    for (const m of matches) {
-      const start = m.index ?? 0;
-      if (start > last) replacements.push({ type: 'text', value: value.slice(last, start) });
-      const doi = m[0].replace(/[.,;:]+$/, '');
-      replacements.push({
-        type: 'link',
-        url: `https://doi.org/${doi}`,
-        title: null,
-        children: [{ type: 'text', value: doi }],
-      });
-      last = start + doi.length;
-    }
-    if (last < value.length) replacements.push({ type: 'text', value: value.slice(last) });
-    const idx = parent.children.indexOf(node);
-    parent.children.splice(idx, 1, ...replacements);
-    return replacements.length - 1;
-  };
+function openDoi(url: string) {
+  (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
+}
 
-  const walk = (node: any, parent: any) => {
-    if (!node || typeof node !== 'object') return;
-    if (node.type === 'link' || node.type === 'linkReference') return;
-    if (node.type === 'code' || node.type === 'inlineCode') return;
-    if (node.type === 'text' && parent) {
-      transformText(node, parent);
-      return;
-    }
-    if (Array.isArray(node.children)) {
-      for (let i = 0; i < node.children.length; i++) {
-        const child = node.children[i];
-        if (child.type === 'text' && node) {
-          const advance = transformText(child, node);
-          i += advance;
-        } else {
-          walk(child, node);
-        }
-      }
-    }
-  };
+function autolinkDoisInString(text: string, keyPrefix: string): React.ReactNode {
+  DOI_RE.lastIndex = 0;
+  const matches = [...text.matchAll(DOI_RE)];
+  if (matches.length === 0) return text;
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  matches.forEach((m, i) => {
+    const start = m.index ?? 0;
+    if (start > last) out.push(text.slice(last, start));
+    const doi = m[0].replace(/[.,;:]+$/, '');
+    const url = `https://doi.org/${doi}`;
+    out.push(
+      <a
+        key={`${keyPrefix}-doi-${i}`}
+        href={url}
+        onClick={(e) => { e.preventDefault(); openDoi(url); }}
+      >
+        {doi}
+      </a>,
+    );
+    last = start + doi.length;
+  });
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
 
-  return (tree: any) => walk(tree, null);
+function autolinkChildren(node: React.ReactNode, keyPrefix: string): React.ReactNode {
+  if (typeof node === 'string') return autolinkDoisInString(node, keyPrefix);
+  if (Array.isArray(node)) return node.map((c, i) => autolinkChildren(c, `${keyPrefix}-${i}`));
+  if (React.isValidElement(node)) {
+    if (node.type === 'a' || node.type === 'code' || node.type === 'pre') return node;
+    const props: any = node.props;
+    if (props && props.children !== undefined) {
+      return React.cloneElement(
+        node as any,
+        undefined,
+        autolinkChildren(props.children, `${keyPrefix}-c`),
+      );
+    }
+  }
+  return node;
 }
 
 declare global {
@@ -141,7 +138,7 @@ const MarkdownTextImpl = () => {
 
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm, remarkDoiAutolink]}
+      remarkPlugins={[remarkGfm]}
       className="auiMd"
       components={defaultComponents}
     />
@@ -184,9 +181,20 @@ const useCopyToClipboard = ({
   return { isCopied, copyToClipboard };
 };
 
+const ApprovalParagraphWithLinks = (props: any) => {
+  const linkedChildren = autolinkChildren(props.children, 'p');
+  return <ApprovalParagraph {...props}>{linkedChildren}</ApprovalParagraph>;
+};
+
+const ListItemWithLinks = (props: any) => {
+  const linkedChildren = autolinkChildren(props.children, 'li');
+  return <li {...props}>{linkedChildren}</li>;
+};
+
 const defaultComponents = memoizeMarkdownComponents({
-  p: ApprovalParagraph as any,
+  p: ApprovalParagraphWithLinks as any,
   ul: ApprovalList as any,
+  li: ListItemWithLinks as any,
   a: ({ href, children, ...props }) => (
     <a
       {...props}
