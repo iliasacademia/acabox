@@ -16,9 +16,15 @@ export interface SlimPublication {
   publication_year?: string | number;
   doi?: string;
   url?: string;
+  link_url?: string;
   abstract?: string;
   reasoning?: string;
   source?: string;
+  impact_factor?: number;
+  relevance_score?: number;
+  cited_by_count?: number;
+  is_oa?: boolean;
+  pdf_url?: string;
 }
 
 export interface SlimClaim {
@@ -35,7 +41,7 @@ export interface SlimReport {
   overview_ready?: boolean;
   classify_text_complete?: boolean;
   error?: string | null;
-  message_to_user?: string;
+  public_token?: string;
   claims: SlimClaim[];
   configuration?: CiteRightConfiguration;
 }
@@ -47,15 +53,20 @@ function truncate(text: string | undefined, max: number = MAX_TEXT_LEN): string 
 
 function slimPublication(pub: any): SlimPublication {
   if (pub === null || typeof pub !== 'object') return {};
+  const doi = typeof pub.doi === 'string' && pub.doi.length > 0 ? pub.doi : undefined;
   return {
     work_id: pub.work_id ?? pub.id,
     title: pub.title,
     authors: pub.authors,
     publication: pub.publication ?? pub.venue ?? pub['container-title'],
     publication_year: pub.publication_year ?? pub.year,
-    doi: pub.doi,
+    doi,
     url: pub.url,
+    link_url: doi ? `https://doi.org/${doi}` : undefined,
     abstract: truncate(pub.abstract, 500),
+    cited_by_count: typeof pub.cited_by_count === 'number' ? pub.cited_by_count : undefined,
+    is_oa: typeof pub.is_oa === 'boolean' ? pub.is_oa : undefined,
+    pdf_url: typeof pub.pdf_url === 'string' ? pub.pdf_url : undefined,
   };
 }
 
@@ -66,6 +77,8 @@ function slimSuggestedWork(item: any): SlimPublication {
     ...slimPublication(work),
     reasoning: typeof item.reasoning === 'string' ? truncate(item.reasoning, 500) : undefined,
     source: typeof item.source === 'string' ? item.source : undefined,
+    impact_factor: typeof item.impact_factor === 'number' ? item.impact_factor : undefined,
+    relevance_score: typeof item.relevance_score === 'number' ? item.relevance_score : undefined,
   };
 }
 
@@ -90,7 +103,7 @@ export function summarizeReport(response: CitationReportResponse): SlimReport {
     overview_ready: report.overview_ready,
     classify_text_complete: report.classify_text_complete,
     error: report.error ?? null,
-    message_to_user: report.message_to_user,
+    public_token: typeof report.public_token === 'string' ? report.public_token : undefined,
     claims: claims.slice(0, MAX_CLAIMS).map(slimClaim),
     configuration: report.configuration,
   };

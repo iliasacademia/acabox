@@ -125,6 +125,7 @@ import type { CalendarReactionService } from './calendarReactionService';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
+import { validateExternalUrl } from '../../utils/urlValidation';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -2237,6 +2238,19 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
     throw new Error('Invalid URL');
   }
   await shell.openExternal(url);
+});
+
+ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
+  try {
+    const validation = validateExternalUrl(url);
+    if (!validation.isValid) {
+      return { success: false, error: validation.error };
+    }
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
 });
 
 // Permission IPC handlers (macOS only)

@@ -47,6 +47,45 @@ These can take 5-10 minutes. **Do not call `find_references` here** -- it would 
 - Never present partial state as final. While `report.done` is `false`, label results as "so far" and keep polling.
 - Never fall back to LLM-fabricated references when CiteRight is still running or returns nothing useful.
 
+**Presenting references — show every detail, every reference, every claim.** The user needs the full picture to decide which references to use, so do not compress the response into a terse summary. The full report is what we asked for; surface it.
+
+For **each claim** in the report, show:
+
+- The claim text (as a heading or bold lead-in).
+- **Every** publication in `top_publications` for that claim — do not pick just two or three "highlights". The user wants to see the ranked set CiteRight returned.
+- The claim's `search_status` if it's anything other than complete (e.g. `"timed_out"`, `"died"`, `"unstarted"`) — say so explicitly so the user knows that claim's results are partial or missing.
+
+For **each publication**, show all of these:
+
+- **Full title** (not abbreviated).
+- **Authors** — list them; for long lists, "First Author et al." is acceptable but include the count.
+- **Year** and **journal/publication**.
+- **A clickable link.** Use the publication's `link_url` field directly — it's already a `https://doi.org/...` URL the chat UI can open. If `link_url` is absent (no DOI on this work), say "no DOI available" rather than dropping the entry. Do not use the raw `url` or `doi` fields to build your own link — `link_url` is the only one guaranteed to pass the renderer's whitelist.
+- **Reasoning**: the `reasoning` field explains *why* CiteRight matched this paper to the claim. This is one of the most useful parts of the response — always include it.
+- **Optional metadata** — surface these inline when present (often they're undefined; skip silently when so):
+  - `impact_factor` — journal impact factor. Useful credibility signal: e.g. "*Nature*, IF 50.5".
+  - `relevance_score` — CiteRight's 0–1 confidence in this match. Mention only when it's notably low (< 0.5) or when the user is comparing candidates.
+  - `cited_by_count` — total citation count. Worth showing when high (≥ 100) as an established-paper signal.
+  - `is_oa` — open-access flag. If `true`, mention "open access" so the user knows they can read it without a paywall.
+  - `pdf_url` — direct PDF link when available. Format as a separate `[PDF](pdf_url)` link alongside the DOI link.
+
+After listing references, if `report.public_token` is present, mention once at the end that the user can view the full interactive report on academia.edu (the report is browseable there; the chat shows the agent's selection). Don't try to construct a URL — just mention the report can be opened on academia.edu via the report id `<report_id>` and public token `<public_token>` if asked.
+
+Format the link in markdown so the chat UI renders it as clickable: `[link text](link_url)`. The link text should be the DOI string, the journal name, or "DOI" — short and recognizable.
+
+**Good example** (one publication, fully expanded):
+
+> **Cao, Short & Yip (2017)** — "Understanding the mechanisms of amorphous creep through molecular simulation," *Proceedings of the National Academy of Sciences*. [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114)
+> *Why matched:* Explicitly identifies the microscopic processes of creep as a "standing challenge" and an "open question," supporting the claim that these origins are poorly understood compared to crystalline solids.
+
+**Bad example** (compressed, missing link, missing reasoning — do not do this):
+
+> Cao, Short & Yip (2017), PNAS – "Understanding the mechanisms of amorphous creep through molecular simulation"
+
+The chat UI opens links in the system's default browser, so a fully formatted reference becomes a one-click verification path for the user.
+
+**Do not refer to UI features that don't exist in this chat.** CiteRight's `message_to_user` field and other backend strings sometimes mention things like "click on highlighted claims below" or "explore the full list of candidates for each claim" — these refer to the CiteRight web app, not the cobuilding chat. Do not echo those phrases or paraphrase them. The chat is the only surface here, so if the user wants more detail they ask you, not a UI control. End your response with a concrete next-step offer (e.g. "Want me to insert any of these as citations?" or "Want me to format these in APA?") rather than telling them to click something.
+
 **To add a specific manual claim to a report** (when the user gives you an exact sentence to cite):
 
 - Call `mcp__citeright__add_claim_to_report` with the report id and the claim text. It returns the updated report including the new `claim_id`.

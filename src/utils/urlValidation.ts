@@ -25,12 +25,16 @@ function getAllowedDomainsForEnvironment(isDevMode?: boolean): string[] {
         'www.devdemia.com',
         'api.devdemia.com',
         'docs.google.com',
+        'doi.org',
+        'dx.doi.org',
       ]
     : [
         'academia.edu',
         'www.academia.edu',
         'api.academia.edu',
         'docs.google.com',
+        'doi.org',
+        'dx.doi.org',
       ];
 }
 
