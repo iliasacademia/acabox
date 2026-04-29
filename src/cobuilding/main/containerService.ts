@@ -529,6 +529,35 @@ class CobuildingContainerService {
       log.debug('[ContainerService] Machine not running, starting...');
       await this.spawnAndWait(podmanBin, ['machine', 'start'], env, 'machine start');
     }
+
+    // Verify the API socket is actually responsive. podman machine list
+    // reads the machine config (which has the correct port) but the CLI
+    // connects via the connection config (podman-connections.json) which
+    // can have a stale SSH port after restarts or upgrades.
+    const socketReady = await this.waitForSocket(podmanBin, env, running ? 3 : 10, 2000);
+
+    if (!socketReady) {
+      log.warn('[ContainerService] Podman socket unresponsive, restarting machine to refresh connection config...');
+      onProgress?.('start-machine', 'Podman VM unresponsive, restarting...');
+
+      try {
+        await this.spawnAndWait(podmanBin, ['machine', 'stop'], env, 'machine stop');
+      } catch (stopErr) {
+        log.warn('[ContainerService] Machine stop during recovery failed:', (stopErr as Error).message);
+      }
+
+      onProgress?.('start-machine', 'Restarting Podman VM...');
+      await this.spawnAndWait(podmanBin, ['machine', 'start'], env, 'machine start');
+
+      const readyAfterRestart = await this.waitForSocket(podmanBin, env, 10, 2000);
+      if (!readyAfterRestart) {
+        throw new Error(
+          'Podman VM started but API socket is not responding. ' +
+          'Try resetting the Podman VM in Settings or restarting the application.'
+        );
+      }
+      log.info('[ContainerService] Machine recovered — connection config refreshed by machine start');
+    }
   }
 
   private async isMachineInitialized(podmanBin: string, env: NodeJS.ProcessEnv): Promise<boolean> {
@@ -550,6 +579,26 @@ class CobuildingContainerService {
     } catch {
       return false;
     }
+  }
+
+  private async isSocketResponsive(podmanBin: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+    try {
+      await this.execAsync(podmanBin, ['info', '--format', '{{.Host.RemoteSocket.Exists}}'], env);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async waitForSocket(podmanBin: string, env: NodeJS.ProcessEnv, maxAttempts: number, delayMs: number): Promise<boolean> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (await this.isSocketResponsive(podmanBin, env)) return true;
+      if (attempt < maxAttempts) {
+        log.debug(`[ContainerService] Socket not ready (attempt ${attempt}/${maxAttempts}), retrying in ${delayMs}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+      }
+    }
+    return false;
   }
 
   // ─── Image Management ─────────────────────────────────────────
