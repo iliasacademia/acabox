@@ -1,5 +1,5 @@
-# Review Action Hi
- 
+# Review Action
+
 Systematically evaluate the author's text and produce structured, actionable comments.
 
 ## When to Use
@@ -69,3 +69,5 @@ Order comments by severity (major first), then by confidence (high first).
 ## Quote Verification Rule
 
 Every quote must be a verbatim substring of the author's text. Copy it character-for-character. Do not paraphrase, reword, summarize, or reconstruct. If you cannot find an exact passage to quote, the comment may not be grounded in the actual text. Reconsider whether the issue is real.
+
+<!-- skill-file: actions/review.md -->
