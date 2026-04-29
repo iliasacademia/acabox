@@ -1715,6 +1715,7 @@ const ANTHROPIC_ALLOWED_MODELS = new Set([
   'claude-haiku-4-5-20251001',
   'claude-sonnet-4-6',
   'claude-opus-4-6',
+  'claude-opus-4-7',
 ]);
 
 // Hard limits applied regardless of what the caller sends. The token cap

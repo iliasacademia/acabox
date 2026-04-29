@@ -1,14 +1,12 @@
 
-import { query, createSdkMcpServer, tool, type Query, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput, type SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, tool, type Query, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
-import { app } from 'electron';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import { z } from 'zod';
-import { fork } from 'child_process';
 import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import { createActivityMcpServer } from './mcpServers/activityMcpServer';
@@ -17,12 +15,7 @@ import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
 import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
 import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
 
-export function getClaudeCliPath(): string {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
-  }
-  return path.join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
-}
+
 
 export interface ChatCallbacks {
   onEvent: (msg: ChatStreamMessage) => void;
@@ -168,21 +161,13 @@ export function createAgentSession(
       queryInstance = query({
         prompt: userMessageGenerator(),
         options: {
-          pathToClaudeCodeExecutable: getClaudeCliPath(), spawnClaudeCodeProcess: (options: SpawnOptions) => {
-            const child = fork(getClaudeCliPath(), options.args.slice(1), {
-              cwd: options.cwd,
-              env: options.env,
-              signal: options.signal,
-              silent: true,
-            });
-            child.stderr?.on('data', (data: Buffer) => {
-              for (const line of data.toString().split('\n').filter(Boolean)) {
-                log.debug(`[AgentCLI] ${line}`);
-              }
-            });
-            return child as typeof child & { stdin: NonNullable<typeof child.stdin>; stdout: NonNullable<typeof child.stdout> };
+          stderr: (data: string) => {
+            for (const line of data.split('\n').filter(Boolean)) {
+              log.debug(`[AgentCLI] ${line}`);
+            }
           },
-          model: model || 'claude-opus-4-6',
+          model: model || 'claude-opus-4-7',
+          thinking: { type: 'adaptive' },
           systemPrompt: (() => {
             const docxEditingGuidance = `You are Academia Coscientist, an AI research assistant. Always refer to yourself as "Academia Coscientist" (never "Claude" or "I").
 
