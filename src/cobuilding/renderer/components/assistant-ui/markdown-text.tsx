@@ -16,11 +16,62 @@ import { CheckIcon, CopyIcon } from 'lucide-react';
 
 import { TooltipIconButton } from './tooltip-icon-button';
 import { ApprovalParagraph, ApprovalList } from './approval-buttons';
+import { IPC_CHANNELS } from '../../../../shared/types';
 
 /** Detect if content is HTML (starts with a tag like <article>, <div>, <p>, etc.) */
 function looksLikeHtml(text: string): boolean {
   const trimmed = text.trim();
   return trimmed.startsWith('<') && /<\/?[a-z][\s\S]*>/i.test(trimmed);
+}
+
+/** Auto-link bare DOIs that the agent emits as plain text (e.g. "DOI: 10.x/y"). */
+const DOI_RE = /\b10\.\d{4,9}\/[^\s\]<>"'(),]+/g;
+
+function autolinkDoiText(text: string, keyPrefix: string): React.ReactNode {
+  if (!text.includes('10.') || !text.includes('/')) return text;
+  DOI_RE.lastIndex = 0;
+  const matches = [...text.matchAll(DOI_RE)];
+  if (matches.length === 0) return text;
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  matches.forEach((m, i) => {
+    const start = m.index ?? 0;
+    if (start > last) out.push(text.slice(last, start));
+    const doi = m[0].replace(/[.,;:]+$/, '');
+    const url = `https://doi.org/${doi}`;
+    out.push(
+      <a
+        key={`${keyPrefix}-doi-${i}`}
+        href={url}
+        onClick={(e) => {
+          e.preventDefault();
+          (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
+        }}
+      >
+        {doi}
+      </a>,
+    );
+    last = start + doi.length;
+  });
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+function autolinkChildren(node: React.ReactNode, keyPrefix: string): React.ReactNode {
+  if (typeof node === 'string') return autolinkDoiText(node, keyPrefix);
+  if (Array.isArray(node)) return node.map((c, i) => autolinkChildren(c, `${keyPrefix}-${i}`));
+  if (React.isValidElement(node)) {
+    if (node.type === 'a' || node.type === 'code' || node.type === 'pre') return node;
+    const props: any = node.props;
+    if (props && props.children !== undefined) {
+      return React.cloneElement(
+        node as any,
+        undefined,
+        autolinkChildren(props.children, `${keyPrefix}-c`),
+      );
+    }
+  }
+  return node;
 }
 
 declare global {
@@ -131,9 +182,24 @@ const useCopyToClipboard = ({
   return { isCopied, copyToClipboard };
 };
 
+const ParagraphWithDoiLinks = (props: any) => {
+  const children = autolinkChildren(props.children, 'p');
+  return <ApprovalParagraph {...props}>{children}</ApprovalParagraph>;
+};
+
+const ListItemWithDoiLinks = (props: any) => (
+  <li {...props}>{autolinkChildren(props.children, 'li')}</li>
+);
+
+const TableCellWithDoiLinks = (props: any) => (
+  <td {...props}>{autolinkChildren(props.children, 'td')}</td>
+);
+
 const defaultComponents = memoizeMarkdownComponents({
-  p: ApprovalParagraph as any,
+  p: ParagraphWithDoiLinks as any,
   ul: ApprovalList as any,
+  li: ListItemWithDoiLinks as any,
+  td: TableCellWithDoiLinks as any,
   a: ({ href, children, ...props }) => (
     <a
       {...props}
@@ -141,7 +207,7 @@ const defaultComponents = memoizeMarkdownComponents({
       onClick={(e) => {
         e.preventDefault();
         if (href) {
-          (window as any).electronAPI.invoke('shell:openExternal', href);
+          (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, href);
         }
       }}
     >
