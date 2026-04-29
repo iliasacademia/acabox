@@ -35,7 +35,6 @@ export interface SlimReport {
   overview_ready?: boolean;
   classify_text_complete?: boolean;
   error?: string | null;
-  message_to_user?: string;
   claims: SlimClaim[];
   configuration?: CiteRightConfiguration;
 }
@@ -90,7 +89,6 @@ export function summarizeReport(response: CitationReportResponse): SlimReport {
     overview_ready: report.overview_ready,
     classify_text_complete: report.classify_text_complete,
     error: report.error ?? null,
-    message_to_user: report.message_to_user,
     claims: claims.slice(0, MAX_CLAIMS).map(slimClaim),
     configuration: report.configuration,
   };
