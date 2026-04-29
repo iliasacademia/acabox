@@ -2257,6 +2257,41 @@ ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
   }
 });
 
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_STATUS, async () => {
+  const { getZoteroLocalStatus } = await import('../../zoteroLocalClient');
+  try {
+    const status = await getZoteroLocalStatus();
+    return { success: true, status };
+  } catch (error: any) {
+    return { success: false, error: error?.message ?? String(error), status: 'not-running' };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_ADD_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) {
+    return { success: false, error: 'DOI must be a non-empty string', status: 'not-running' };
+  }
+  const { addDoiToZotero } = await import('../../zoteroLocalClient');
+  return await addDoiToZotero(doi);
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_DOI_METADATA, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) return null;
+  const { getDoiMetadata } = await import('../../zoteroLocalClient');
+  return getDoiMetadata(doi);
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_LIST_ADDED_DOIS, async () => {
+  const { listAddedDois } = await import('../../zoteroLocalClient');
+  return listAddedDois();
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) return null;
+  const { checkDoiInZotero } = await import('../../zoteroLocalClient');
+  return await checkDoiInZotero(doi);
+});
+
 // Permission IPC handlers (macOS only)
 ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
   if (process.platform !== 'darwin') {

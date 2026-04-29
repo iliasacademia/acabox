@@ -32,6 +32,7 @@ import { refreshManuscriptPaths } from './server/services/manuscriptPathsService
 import { podmanService } from './podmanService';
 import { getLocalConversationDb } from './localConversationDb';
 import { LocalAgentService } from './localAgentService';
+import { addDoiToZotero, checkDoiInZotero, getDoiMetadata, getZoteroLocalStatus, listAddedDois } from './zoteroLocalClient';
 
 // Set display name for menu bar (needed in dev mode where the binary is named "Electron")
 app.setName('Writing Agent');
@@ -2274,6 +2275,37 @@ async function waitForZotero(timeoutMs = 3000, intervalMs = 500): Promise<void> 
   }
   // Proceed anyway after timeout — Zotero may still handle it
 }
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_STATUS, async () => {
+  try {
+    const status = await getZoteroLocalStatus();
+    return { success: true, status };
+  } catch (error: any) {
+    logger.error('[Main] Zotero status check failed:', error);
+    return { success: false, error: error?.message ?? String(error), status: 'not-running' };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_ADD_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) {
+    return { success: false, error: 'DOI must be a non-empty string', status: 'not-running' };
+  }
+  return await addDoiToZotero(doi);
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_DOI_METADATA, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) return null;
+  return getDoiMetadata(doi);
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_LIST_ADDED_DOIS, async () => {
+  return listAddedDois();
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) return null;
+  return await checkDoiInZotero(doi);
+});
 
 ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
   try {

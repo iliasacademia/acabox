@@ -167,6 +167,13 @@ export const IPC_CHANNELS = {
   GET_ALL_APPS_MONITOR_ENABLED: "get-all-apps-monitor-enabled",
   SET_ALL_APPS_MONITOR_ENABLED: "set-all-apps-monitor-enabled",
 
+  // Zotero local client (per-reference "Add to Zotero" button)
+  ZOTERO_LOCAL_GET_STATUS: "zotero-local-get-status",
+  ZOTERO_LOCAL_ADD_DOI: "zotero-local-add-doi",
+  ZOTERO_LOCAL_GET_DOI_METADATA: "zotero-local-get-doi-metadata",
+  ZOTERO_LOCAL_LIST_ADDED_DOIS: "zotero-local-list-added-dois",
+  ZOTERO_LOCAL_CHECK_DOI: "zotero-local-check-doi",
+
   // Local Agent
   LOCAL_AGENT_GET_API_KEY: "local-agent-get-api-key",
   LOCAL_AGENT_SET_API_KEY: "local-agent-set-api-key",
