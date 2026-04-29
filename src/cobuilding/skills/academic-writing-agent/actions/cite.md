@@ -47,16 +47,37 @@ These can take 5–10 minutes. **Do not call `find_references` here** — it wou
 - Never present partial state as final. While `report.done` is `false`, label results as "so far" and keep polling.
 - Never fall back to LLM-fabricated references when CiteRight is still running or returns nothing useful.
 
-**Presenting references — every reference must include a clickable link.** The user needs to click through to verify, so this is non-negotiable:
+**Presenting references — show every detail, every reference, every claim.** The user needs the full picture to decide which references to use, so do not compress the response into a terse summary. The full report is what we asked for; surface it.
 
-- For **every** publication you present, include either its DOI (as a link) or its URL (as a link). Never present a reference as a plain "Author (Year), Journal" with no link — that forces the user to copy-paste into Google. Pick the most direct link from the data:
-  1. Prefer the publication's `url` field if it's a real article URL (most CiteRight results have `url: "https://doi.org/..."` already — just use it).
+For **each claim** in the report, show:
+
+- The claim text (as a heading or bold lead-in).
+- **Every** publication in `top_publications` for that claim — do not pick just two or three "highlights". The user wants to see the ranked set CiteRight returned.
+- The claim's `search_status` if it's anything other than complete (e.g. `"timed_out"`, `"died"`, `"unstarted"`) — say so explicitly so the user knows that claim's results are partial or missing.
+
+For **each publication**, show all of these:
+
+- **Full title** (not abbreviated).
+- **Authors** — list them; for long lists, "First Author et al." is acceptable but include the count.
+- **Year** and **journal/publication**.
+- **A clickable link.** This is non-negotiable. Pick the most direct link from the data:
+  1. Prefer the publication's `url` field if present.
   2. Otherwise build `https://doi.org/<doi>` from the `doi` field.
-  3. If neither exists, fall back to a plain text reference but say so explicitly ("no DOI available").
-- Format the link in markdown so the chat UI renders it as clickable: `[link text](url)`. The link text should be the DOI itself, the journal name, or "DOI" — short and recognizable.
-- Examples (good): `Cao, Short & Yip (2017), *PNAS* — [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114)` or `Herring (1950), *J. Appl. Phys.* ([link](https://doi.org/10.1063/1.1699681))`.
-- Example (bad, do not do this): `Cao, Short & Yip (2017), PNAS – "Understanding..."` with no link.
-- The chat UI opens links in the system's default browser, so this turns each reference into a one-click lookup for the user.
+  3. If neither exists, say so explicitly ("no DOI available") rather than dropping the entry.
+- **Reasoning**: the `reasoning` field explains *why* CiteRight matched this paper to the claim. This is one of the most useful parts of the response — always include it.
+
+Format the link in markdown so the chat UI renders it as clickable: `[link text](url)`. The link text should be the DOI string, the journal name, or "DOI" — short and recognizable.
+
+**Good example** (one publication, fully expanded):
+
+> **Cao, Short & Yip (2017)** — "Understanding the mechanisms of amorphous creep through molecular simulation," *Proceedings of the National Academy of Sciences*. [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114)
+> *Why matched:* Explicitly identifies the microscopic processes of creep as a "standing challenge" and an "open question," supporting the claim that these origins are poorly understood compared to crystalline solids.
+
+**Bad example** (compressed, missing link, missing reasoning — do not do this):
+
+> Cao, Short & Yip (2017), PNAS – "Understanding the mechanisms of amorphous creep through molecular simulation"
+
+The chat UI opens links in the system's default browser, so a fully formatted reference becomes a one-click verification path for the user.
 
 **To add a specific manual claim to a report** (when the user gives you an exact sentence to cite):
 
