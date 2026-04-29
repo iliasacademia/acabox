@@ -94,9 +94,35 @@ function slimClaim(claim: CiteRightClaim): SlimClaim {
   };
 }
 
+/**
+ * Process-level cache mapping normalized DOI → SlimPublication. Populated as the agent
+ * pulls citation reports through the MCP tools so the renderer (which only sees rendered
+ * markdown) can recover the structured fields — is_oa, pdf_url, title, authors, year — when
+ * the user clicks a per-reference action like "Add to Zotero".
+ */
+const publicationByDoi = new Map<string, SlimPublication>();
+
+function normalizeDoi(doi: string): string {
+  return doi.trim().replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '').replace(/[.,;:]+$/, '').toLowerCase();
+}
+
+export function getPublicationByDoi(doi: string): SlimPublication | null {
+  return publicationByDoi.get(normalizeDoi(doi)) ?? null;
+}
+
+function indexPublication(pub: SlimPublication): void {
+  if (typeof pub.doi === 'string' && pub.doi.length > 0) {
+    publicationByDoi.set(normalizeDoi(pub.doi), pub);
+  }
+}
+
 export function summarizeReport(response: CitationReportResponse): SlimReport {
   const report = response.report ?? {};
   const claims = Array.isArray(report.claims) ? report.claims : [];
+  const slimClaims = claims.slice(0, MAX_CLAIMS).map(slimClaim);
+  for (const c of slimClaims) {
+    for (const p of c.top_publications) indexPublication(p);
+  }
   return {
     report_id: report.report_id ?? report.id,
     done: report.done,
@@ -104,7 +130,7 @@ export function summarizeReport(response: CitationReportResponse): SlimReport {
     classify_text_complete: report.classify_text_complete,
     error: report.error ?? null,
     public_token: typeof report.public_token === 'string' ? report.public_token : undefined,
-    claims: claims.slice(0, MAX_CLAIMS).map(slimClaim),
+    claims: slimClaims,
     configuration: report.configuration,
   };
 }

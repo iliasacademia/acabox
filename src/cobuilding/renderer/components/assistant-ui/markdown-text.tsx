@@ -12,11 +12,211 @@ import { useAuiState } from '@assistant-ui/react';
 import remarkGfm from 'remark-gfm';
 import DOMPurify from 'dompurify';
 import { type FC, memo, useEffect, useMemo, useState } from 'react';
-import { CheckIcon, CopyIcon } from 'lucide-react';
+import { BookmarkPlusIcon, CheckIcon, CopyIcon, Loader2Icon, XIcon } from 'lucide-react';
 
 import { TooltipIconButton } from './tooltip-icon-button';
 import { ApprovalParagraph, ApprovalList } from './approval-buttons';
 import { IPC_CHANNELS } from '../../../../shared/types';
+
+type ZoteroLocalStatus = 'running' | 'not-running' | 'not-installed';
+
+/**
+ * Tracks DOIs successfully added to local Zotero so the button can flip to
+ * "Open in Zotero". Source of truth lives in the main process (shared across
+ * the desktop chat and the Word overlay) — this is just a renderer-side cache
+ * hydrated from IPC on first use.
+ */
+const addedDoiStore = (() => {
+  const norm = (doi: string) => doi.trim().toLowerCase().replace(/[.,;:]+$/, '');
+  const set = new Set<string>();
+  let inflight: Promise<void> | null = null;
+  let lastHydrated = 0;
+  const HYDRATE_TTL_MS = 30_000;
+  const listeners = new Set<() => void>();
+
+  const hydrate = (force = false): Promise<void> => {
+    if (inflight) return inflight;
+    if (!force && lastHydrated > 0 && Date.now() - lastHydrated < HYDRATE_TTL_MS) {
+      return Promise.resolve();
+    }
+    inflight = (async () => {
+      try {
+        const dois = await (window as any).electronAPI.invoke(IPC_CHANNELS.ZOTERO_LOCAL_LIST_ADDED_DOIS);
+        if (Array.isArray(dois)) {
+          let changed = false;
+          for (const d of dois) {
+            const n = norm(d);
+            if (!set.has(n)) { set.add(n); changed = true; }
+          }
+          if (changed) listeners.forEach(fn => fn());
+        }
+      } catch { /* renderer started before handler registered — fine */ }
+      lastHydrated = Date.now();
+      inflight = null;
+    })();
+    return inflight;
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', () => { hydrate(true); });
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') hydrate(true);
+    });
+  }
+
+  return {
+    has(doi: string): boolean { return set.has(norm(doi)); },
+    add(doi: string): void { set.add(norm(doi)); listeners.forEach(fn => fn()); },
+    subscribe(fn: () => void): () => void {
+      listeners.add(fn);
+      hydrate();
+      return () => { listeners.delete(fn); };
+    },
+  };
+})();
+
+/**
+ * Cross-message Zotero status singleton so every DOI button shares one poll cycle
+ * instead of pinging the connector once per reference.
+ */
+const zoteroStatusStore = (() => {
+  let status: ZoteroLocalStatus | null = null;
+  const listeners = new Set<(s: ZoteroLocalStatus | null) => void>();
+  let inflight: Promise<void> | null = null;
+  let lastFetch = 0;
+  const STALE_MS = 30_000;
+
+  const refresh = (): Promise<void> => {
+    if (inflight) return inflight;
+    inflight = (async () => {
+      try {
+        const r = await (window as any).electronAPI.invoke(IPC_CHANNELS.ZOTERO_LOCAL_GET_STATUS);
+        status = r?.status ?? 'not-running';
+      } catch {
+        status = 'not-running';
+      }
+      lastFetch = Date.now();
+      inflight = null;
+      listeners.forEach(fn => fn(status));
+    })();
+    return inflight;
+  };
+
+  if (typeof window !== 'undefined') {
+    // When the desktop window regains focus, recheck so the button reflects whether
+    // the user has just opened Zotero (instead of waiting for the staleness timer).
+    window.addEventListener('focus', () => { refresh(); });
+    window.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') refresh();
+    });
+  }
+
+  return {
+    subscribe(fn: (s: ZoteroLocalStatus | null) => void): () => void {
+      listeners.add(fn);
+      fn(status);
+      if (status === null || Date.now() - lastFetch > STALE_MS) refresh();
+      return () => listeners.delete(fn);
+    },
+    refresh,
+    get(): ZoteroLocalStatus | null { return status; },
+  };
+})();
+
+const ZoteroAddRefButton: FC<{ doi: string }> = ({ doi }) => {
+  const [status, setStatus] = useState<ZoteroLocalStatus | null>(zoteroStatusStore.get());
+  const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [alreadyAdded, setAlreadyAdded] = useState<boolean>(addedDoiStore.has(doi));
+
+  useEffect(() => zoteroStatusStore.subscribe(setStatus), []);
+  useEffect(() => addedDoiStore.subscribe(() => setAlreadyAdded(addedDoiStore.has(doi))), [doi]);
+
+  // When Zotero is running and we don't already know the DOI is added, ask Zotero
+  // whether it's in the user's library. Lets pre-existing items show "Open in
+  // Zotero" without the user having to click Add first.
+  useEffect(() => {
+    if (status !== 'running' || addedDoiStore.has(doi)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const exists = await (window as any).electronAPI.invoke(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, doi);
+        if (!cancelled && exists === true) addedDoiStore.add(doi);
+      } catch { /* unknown — leave as Add */ }
+    })();
+    return () => { cancelled = true; };
+  }, [doi, status]);
+
+  const handleAdd = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setState('saving');
+    setErrorMsg(null);
+    try {
+      const r = await (window as any).electronAPI.invoke(IPC_CHANNELS.ZOTERO_LOCAL_ADD_DOI, doi);
+      if (r?.success) {
+        addedDoiStore.add(doi);
+        setState('idle');
+        zoteroStatusStore.refresh();
+      } else {
+        setState('error');
+        setErrorMsg(r?.error ?? 'Failed to add ref to Zotero');
+        setTimeout(() => setState('idle'), 5000);
+      }
+    } catch (err: any) {
+      setState('error');
+      setErrorMsg(err?.message ?? 'Unexpected error');
+      setTimeout(() => setState('idle'), 5000);
+    }
+  };
+
+  const handleOpen = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const url = `zotero://search?q=${encodeURIComponent(doi)}`;
+    (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
+  };
+
+  if (alreadyAdded) {
+    return (
+      <button
+        type="button"
+        className="zoteroAddRefBtn zoteroAddRefBtn--added"
+        onClick={handleOpen}
+        title="Open ref in Zotero"
+        aria-label="Open ref in Zotero"
+      >
+        <CheckIcon size={12} />
+      </button>
+    );
+  }
+
+  const disabled = status === 'not-installed' || state === 'saving';
+  const tooltip =
+    status === 'not-installed' ? 'Zotero not installed' :
+    state === 'saving' ? 'Adding ref to Zotero…' :
+    state === 'error' ? (errorMsg ?? 'Failed to add ref') :
+    status === 'not-running' ? 'Open Zotero and add this ref' :
+    'Add ref to Zotero';
+
+  const Icon =
+    state === 'saving' ? Loader2Icon :
+    state === 'error' ? XIcon :
+    BookmarkPlusIcon;
+
+  return (
+    <button
+      type="button"
+      className={`zoteroAddRefBtn zoteroAddRefBtn--${state}${disabled ? ' zoteroAddRefBtn--disabled' : ''}`}
+      onClick={handleAdd}
+      disabled={disabled}
+      title={tooltip}
+      aria-label={tooltip}
+    >
+      <Icon size={12} className={state === 'saving' ? 'zoteroAddRefBtn__spin' : ''} />
+    </button>
+  );
+};
 
 /** Detect if content is HTML (starts with a tag like <article>, <div>, <p>, etc.) */
 function looksLikeHtml(text: string): boolean {
@@ -40,16 +240,18 @@ function autolinkDoiText(text: string, keyPrefix: string): React.ReactNode {
     const doi = m[0].replace(/[.,;:]+$/, '');
     const url = `https://doi.org/${doi}`;
     out.push(
-      <a
-        key={`${keyPrefix}-doi-${i}`}
-        href={url}
-        onClick={(e) => {
-          e.preventDefault();
-          (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
-        }}
-      >
-        {doi}
-      </a>,
+      <span key={`${keyPrefix}-ref-${i}`} className="docRefInline">
+        <a
+          href={url}
+          onClick={(e) => {
+            e.preventDefault();
+            (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
+          }}
+        >
+          {doi}
+        </a>
+        <ZoteroAddRefButton doi={doi} />
+      </span>,
     );
     last = start + doi.length;
   });
@@ -63,6 +265,11 @@ function autolinkChildren(node: React.ReactNode, keyPrefix: string): React.React
   if (React.isValidElement(node)) {
     if (node.type === 'a' || node.type === 'code' || node.type === 'pre') return node;
     const props: any = node.props;
+    // react-markdown maps anchor AST nodes to our `a:` override function, so the
+    // element's `type` is the override (a function), not the string 'a'. Bail on
+    // any element carrying an href so we don't autolink the DOI inside its label
+    // and end up with two buttons stacked next to a single link.
+    if (props && typeof props.href === 'string') return node;
     if (props && props.children !== undefined) {
       return React.cloneElement(
         node as any,
@@ -200,20 +407,34 @@ const defaultComponents = memoizeMarkdownComponents({
   ul: ApprovalList as any,
   li: ListItemWithDoiLinks as any,
   td: TableCellWithDoiLinks as any,
-  a: ({ href, children, ...props }) => (
-    <a
-      {...props}
-      href={href}
-      onClick={(e) => {
-        e.preventDefault();
-        if (href) {
-          (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, href);
-        }
-      }}
-    >
-      {children}
-    </a>
-  ),
+  a: ({ href, children, ...props }) => {
+    const doiFromHref = (() => {
+      if (!href) return null;
+      const m = href.match(/^https?:\/\/(?:dx\.)?doi\.org\/(10\.\d{4,9}\/[^\s?#]+)/i);
+      return m ? m[1] : null;
+    })();
+    const link = (
+      <a
+        {...props}
+        href={href}
+        onClick={(e) => {
+          e.preventDefault();
+          if (href) {
+            (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, href);
+          }
+        }}
+      >
+        {children}
+      </a>
+    );
+    if (!doiFromHref) return link;
+    return (
+      <span className="docRefInline">
+        {link}
+        <ZoteroAddRefButton doi={doiFromHref} />
+      </span>
+    );
+  },
   code: function Code({ className, children, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
     const text = typeof children === 'string' ? children : '';
