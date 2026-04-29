@@ -1,4 +1,4 @@
-# Cite Action
+# Cite Action Hi
 
 Citation and reference assistance. Used directly when the user asks about citations, and invoked as a sub-process by other actions (Draft, Revise, Feedback, Review) when they need to bring in outside knowledge.
 
