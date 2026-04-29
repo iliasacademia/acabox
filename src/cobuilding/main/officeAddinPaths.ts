@@ -12,18 +12,18 @@ export const WEF_DIRS = {
 
 export const LOGIN_KEYCHAIN = path.join(os.homedir(), 'Library/Keychains/login.keychain-db');
 
-export function getCertsDir(projectRoot: string): string {
-  return path.join(projectRoot, 'ms_office_addin', '.certs');
+export function getCertsDir(userDataDir: string): string {
+  return path.join(userDataDir, 'ms-office-addin', 'certs');
 }
 
-export function getCertPath(projectRoot: string): string {
-  return path.join(getCertsDir(projectRoot), 'localhost.crt');
+export function getCertPath(userDataDir: string): string {
+  return path.join(getCertsDir(userDataDir), 'localhost.crt');
 }
 
-export function getKeyPath(projectRoot: string): string {
-  return path.join(getCertsDir(projectRoot), 'localhost.key');
+export function getKeyPath(userDataDir: string): string {
+  return path.join(getCertsDir(userDataDir), 'localhost.key');
 }
 
-export function getAddinDir(projectRoot: string): string {
-  return path.join(projectRoot, 'ms_office_addin');
+export function getAddinDir(appRoot: string): string {
+  return path.join(appRoot, 'ms_office_addin');
 }

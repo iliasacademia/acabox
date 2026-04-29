@@ -13,11 +13,12 @@ import {
 
 const HTTPS_PORT = 23112;
 
-const PROJECT_ROOT = app.isPackaged ? process.resourcesPath : app.getAppPath();
-const CERTS_DIR = getCertsDir(PROJECT_ROOT);
-const CERT_PATH = getCertPath(PROJECT_ROOT);
-const KEY_PATH = getKeyPath(PROJECT_ROOT);
-const ADDIN_DIR = getAddinDir(PROJECT_ROOT);
+const USER_DATA = app.getPath('userData');
+const APP_ROOT = app.isPackaged ? process.resourcesPath : app.getAppPath();
+const CERTS_DIR = getCertsDir(USER_DATA);
+const CERT_PATH = getCertPath(USER_DATA);
+const KEY_PATH = getKeyPath(USER_DATA);
+const ADDIN_DIR = getAddinDir(APP_ROOT);
 
 const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
@@ -188,8 +189,14 @@ export function registerOfficeAddinIpcHandlers(): void {
       if (!fs.existsSync(CERT_PATH)) {
         return { success: false, error: 'Certificate not found.' };
       }
+      // Get the SHA-1 hash of our specific cert to delete only that one
+      const hashOutput = execSync(
+        `openssl x509 -in "${CERT_PATH}" -noout -fingerprint -sha1`,
+        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
+      );
+      const sha1 = hashOutput.replace(/.*=/, '').replace(/:/g, '').trim();
       execSync(
-        `security delete-certificate -c "localhost" -t "${LOGIN_KEYCHAIN}"`,
+        `security delete-certificate -Z "${sha1}" -t "${LOGIN_KEYCHAIN}"`,
         { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
       );
       return { success: true };
