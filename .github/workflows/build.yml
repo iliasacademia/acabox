@@ -338,6 +338,20 @@ jobs:
           DATADOG_SITE: ${{ vars.DATADOG_SITE }}
           ENTRY_POINT: ${{ steps.artifact-name.outputs.entry_point }}
 
+      - name: Verify Claude SDK binary in package
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          APP_PATH=$(find out -name "*.app" -maxdepth 5 -type d | head -1)
+          BINARY="$APP_PATH/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-${{ matrix.arch }}/claude"
+          if [ ! -f "$BINARY" ]; then
+            echo "ERROR: Claude SDK native binary not found"
+            ls -la "$APP_PATH/Contents/Resources/app.asar.unpacked/node_modules/@anthropic-ai/" 2>/dev/null || true
+            exit 1
+          fi
+          test -x "$BINARY" || { echo "ERROR: binary not executable"; exit 1; }
+          echo "Claude SDK binary OK: $(file "$BINARY" | head -1)"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()

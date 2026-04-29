@@ -14,6 +14,7 @@ import { createNotificationMcpServer } from './mcpServers/notificationMcpServer'
 import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
 import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
 import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
+import { resolveClaudeBinary } from './sdkBinarySetup';
 
 
 
@@ -158,9 +159,16 @@ export function createAgentSession(
         // File doesn't exist or can't be read — use default prompt
       }
 
+      const claudeBinaryPath = resolveClaudeBinary();
+      if (!claudeBinaryPath) {
+        emitError('Claude agent binary not found. Please reinstall the application.');
+        return;
+      }
+
       queryInstance = query({
         prompt: userMessageGenerator(),
         options: {
+          pathToClaudeCodeExecutable: claudeBinaryPath,
           stderr: (data: string) => {
             for (const line of data.split('\n').filter(Boolean)) {
               log.debug(`[AgentCLI] ${line}`);
