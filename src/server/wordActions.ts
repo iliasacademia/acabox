@@ -6,6 +6,8 @@
  */
 
 import { execFile, spawn } from 'child_process';
+import { promises as fs } from 'fs';
+import os from 'os';
 import path from 'path';
 import { app } from 'electron';
 import { defaultLogger as logger } from '../utils/logger';
@@ -37,13 +39,19 @@ function escapeAppleScriptString(input: string): string {
 }
 
 /**
- * Build an AppleScript string expression that preserves paragraph breaks.
- * Word uses \r for paragraph separators. This splits on newlines and joins
- * with AppleScript's `return` character via string concatenation.
+ * Strip invisible Unicode artifacts that hitch-hike on text copied out of
+ * PDFs. These bytes render as nothing but cause Word's find object to reject
+ * `set content of replacement` with range-id errors. NFC-normalize so
+ * combining-mark variants don't drift between document text and the agent's
+ * proposed replacement.
  */
-function buildAppleScriptString(input: string): string {
-  const segments = input.split(/\r\n|\r|\n/);
-  return segments.map((s) => '"' + escapeAppleScriptString(s) + '"').join(' & return & ');
+function sanitizePdfArtifacts(input: string): string {
+  return input
+    .normalize('NFC')
+    .replace(/[​-‍⁠﻿]/g, '')   // zero-width chars + BOM
+    .replace(/­/g, '')                         // soft hyphen
+    .replace(/[‪-‮⁦-⁩]/g, '')   // bidi controls
+    .replace(/[︀-️]/g, '');               // variation selectors
 }
 
 const WORD_EXTENSIONS = new Set(['.doc', '.docx', '.docm', '.dotx', '.dotm', '.rtf']);
@@ -919,12 +927,36 @@ async function runFindAndReplace(
   logger.info(`[WordActions] findAndReplaceInWord scope=${replaceScope} matchCase=${matchCase}`);
 
   windowMonitorService.suppressSelectionEvents(true);
-  try {
-    const searchExpr = buildAppleScriptString(searchText);
-    const replaceExpr = buildAppleScriptString(replacementText);
-    const replaceAll = replaceScope === 'all';
 
+  // PDFs paste in invisible artifacts (soft hyphens, zero-width chars, mixed
+  // NFC/NFD). Apply the same scrub to both sides so the search still matches
+  // the document and the replacement is a string Word's find object accepts.
+  const cleanSearch = sanitizePdfArtifacts(searchText);
+  const cleanReplace = sanitizePdfArtifacts(replacementText);
+
+  // Hand the strings to AppleScript via UTF-8 temp files instead of inlining
+  // them in the script source. osascript stdin has murky encoding semantics
+  // (MacRoman vs UTF-8 depending on locale); `read POSIX file ... as «class
+  // utf8»` is unambiguous and avoids the range-id failure mode triggered by
+  // Greek letters and other non-ASCII chars copied out of PDFs.
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'word-fr-'));
+  const searchPath = path.join(tmpDir, 'search.txt');
+  const replacePath = path.join(tmpDir, 'replace.txt');
+  // Word treats CR as the paragraph separator. Normalize line endings so
+  // the file content matches what the find object expects.
+  const toCR = (s: string) => s.replace(/\r\n|\r|\n/g, '\r');
+  await fs.writeFile(searchPath, toCR(cleanSearch), 'utf8');
+  await fs.writeFile(replacePath, toCR(cleanReplace), 'utf8');
+
+  const replaceAll = replaceScope === 'all';
+
+  try {
     const script = `
+set searchPath to POSIX file "${searchPath}"
+set replacePath to POSIX file "${replacePath}"
+set searchText to (read searchPath as «class utf8»)
+set replaceText to (read replacePath as «class utf8»)
+
 tell application "Microsoft Word"
   if (count of documents) is 0 then
     return "error||No document open"
@@ -936,34 +968,60 @@ tell application "Microsoft Word"
     set user name to "Academia Coscientist"
     set user initials to "AC"
     set doc to active document
-    -- Capture user's Track Changes mode and force ON for the apply so the edit
-    -- is recorded as a tracked revision; restored before returning.
     set origTrack to track revisions of doc
     set track revisions of doc to true
-    -- Use Word's native find/replace via the replacement object — this is the
-    -- only pattern that handles tracked revisions cleanly. Setting content of
-    -- a found range directly causes range-id failures and can collapse to
-    -- replacing the whole document when revisions shift positions mid-edit.
-    set findObj to find object of (text object of doc)
-    set content of findObj to ${searchExpr}
+
+    -- Use an explicit docRange so the fallback path can read back the matched
+    -- range (Word repositions explicit ranges on a successful execute find,
+    -- but not the doc's text object directly).
+    set docRange to create range doc start 0 end (end of content of text object of doc)
+    set findObj to find object of docRange
+    -- Reset any leftover state from a prior find on this document.
+    clear formatting findObj
+    set content of findObj to searchText
     set forward of findObj to true
     set wrap of findObj to find stop
     set match case of findObj to ${matchCase}
-    set replObj to replacement of findObj
-    set content of replObj to ${replaceExpr}
-    set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
-    if wasFound then
-      set replacementsCount to 1
-    else
-      set replacementsCount to 0
-    end if
-    -- Restore original author name and Track Changes mode
+
+    set replacementsCount to 0
+    set didFallback to false
+    try
+      -- Primary path: native find+replace. Tracked revisions record cleanly.
+      set replObj to replacement of findObj
+      clear formatting replObj
+      set content of replObj to replaceText
+      set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
+      if wasFound then set replacementsCount to 1
+    on error primaryErr
+      -- Fallback: when Word rejects "set content of replObj" (long strings,
+      -- unusual chars from PDF copy-paste), find the match, select it, then
+      -- type the replacement. "type text" against a selection is recorded as
+      -- a tracked deletion+insertion and bypasses the find replacement slot.
+      set didFallback to true
+      try
+        set content of replObj to ""
+      end try
+      set wasFound to execute find findObj
+      if wasFound then
+        -- After execute find, docRange has been repositioned to the match.
+        set matchStart to start of content of docRange
+        set matchEnd to end of content of docRange
+        set matchRange to create range doc start matchStart end matchEnd
+        select matchRange
+        type text selection text replaceText
+        set replacementsCount to 1
+      end if
+    end try
+
     set user name to origName
     set user initials to origInitials
     set track revisions of doc to origTrack
-    return "ok||" & replacementsCount
+    if didFallback then
+      return "ok||" & replacementsCount & "||fallback"
+    else
+      return "ok||" & replacementsCount
+    end if
   on error errMsg number errNum
-    -- Restore author name and Track Changes mode even on error
     try
       set user name to origName
       set user initials to origInitials
@@ -981,12 +1039,16 @@ end tell`;
     }
 
     const count = parseInt(parts[1] || '0', 10);
+    if (parts[2] === 'fallback') {
+      logger.info('[WordActions] findAndReplaceInWord used select+type fallback');
+    }
     return { success: true, replacementsCount: count };
   } catch (err) {
     const errorMessage = (err as Error).message || 'Unknown error';
     logger.info(`[WordActions] findAndReplaceInWord error: ${errorMessage}`);
     return { success: false, error: errorMessage, replacementsCount: 0 };
   } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
     windowMonitorService.suppressSelectionEvents(false);
   }
 }
