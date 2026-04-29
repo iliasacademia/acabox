@@ -24,13 +24,11 @@ function looksLikeHtml(text: string): boolean {
   return trimmed.startsWith('<') && /<\/?[a-z][\s\S]*>/i.test(trimmed);
 }
 
+/** Auto-link bare DOIs that the agent emits as plain text (e.g. "DOI: 10.x/y"). */
 const DOI_RE = /\b10\.\d{4,9}\/[^\s\]<>"'(),]+/g;
 
-function openDoi(url: string) {
-  (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
-}
-
-function autolinkDoisInString(text: string, keyPrefix: string): React.ReactNode {
+function autolinkDoiText(text: string, keyPrefix: string): React.ReactNode {
+  if (!text.includes('10.') || !text.includes('/')) return text;
   DOI_RE.lastIndex = 0;
   const matches = [...text.matchAll(DOI_RE)];
   if (matches.length === 0) return text;
@@ -45,7 +43,10 @@ function autolinkDoisInString(text: string, keyPrefix: string): React.ReactNode 
       <a
         key={`${keyPrefix}-doi-${i}`}
         href={url}
-        onClick={(e) => { e.preventDefault(); openDoi(url); }}
+        onClick={(e) => {
+          e.preventDefault();
+          (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
+        }}
       >
         {doi}
       </a>,
@@ -57,7 +58,7 @@ function autolinkDoisInString(text: string, keyPrefix: string): React.ReactNode 
 }
 
 function autolinkChildren(node: React.ReactNode, keyPrefix: string): React.ReactNode {
-  if (typeof node === 'string') return autolinkDoisInString(node, keyPrefix);
+  if (typeof node === 'string') return autolinkDoiText(node, keyPrefix);
   if (Array.isArray(node)) return node.map((c, i) => autolinkChildren(c, `${keyPrefix}-${i}`));
   if (React.isValidElement(node)) {
     if (node.type === 'a' || node.type === 'code' || node.type === 'pre') return node;
@@ -181,20 +182,24 @@ const useCopyToClipboard = ({
   return { isCopied, copyToClipboard };
 };
 
-const ApprovalParagraphWithLinks = (props: any) => {
-  const linkedChildren = autolinkChildren(props.children, 'p');
-  return <ApprovalParagraph {...props}>{linkedChildren}</ApprovalParagraph>;
+const ParagraphWithDoiLinks = (props: any) => {
+  const children = autolinkChildren(props.children, 'p');
+  return <ApprovalParagraph {...props}>{children}</ApprovalParagraph>;
 };
 
-const ListItemWithLinks = (props: any) => {
-  const linkedChildren = autolinkChildren(props.children, 'li');
-  return <li {...props}>{linkedChildren}</li>;
-};
+const ListItemWithDoiLinks = (props: any) => (
+  <li {...props}>{autolinkChildren(props.children, 'li')}</li>
+);
+
+const TableCellWithDoiLinks = (props: any) => (
+  <td {...props}>{autolinkChildren(props.children, 'td')}</td>
+);
 
 const defaultComponents = memoizeMarkdownComponents({
-  p: ApprovalParagraphWithLinks as any,
+  p: ParagraphWithDoiLinks as any,
   ul: ApprovalList as any,
-  li: ListItemWithLinks as any,
+  li: ListItemWithDoiLinks as any,
+  td: TableCellWithDoiLinks as any,
   a: ({ href, children, ...props }) => (
     <a
       {...props}

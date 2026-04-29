@@ -60,13 +60,18 @@ For **each publication**, show all of these:
 - **Full title** (not abbreviated).
 - **Authors** — list them; for long lists, "First Author et al." is acceptable but include the count.
 - **Year** and **journal/publication**.
-- **A clickable link.** This is non-negotiable. Pick the most direct link from the data:
-  1. Prefer the publication's `url` field if present.
-  2. Otherwise build `https://doi.org/<doi>` from the `doi` field.
-  3. If neither exists, say so explicitly ("no DOI available") rather than dropping the entry.
+- **A clickable link.** Use the publication's `link_url` field directly — it's already a `https://doi.org/...` URL the chat UI can open. If `link_url` is absent (no DOI on this work), say "no DOI available" rather than dropping the entry. Do not use the raw `url` or `doi` fields to build your own link — `link_url` is the only one guaranteed to pass the renderer's whitelist.
 - **Reasoning**: the `reasoning` field explains *why* CiteRight matched this paper to the claim. This is one of the most useful parts of the response — always include it.
+- **Optional metadata** — surface these inline when present (often they're undefined; skip silently when so):
+  - `impact_factor` — journal impact factor. Useful credibility signal: e.g. "*Nature*, IF 50.5".
+  - `relevance_score` — CiteRight's 0–1 confidence in this match. Mention only when it's notably low (< 0.5) or when the user is comparing candidates.
+  - `cited_by_count` — total citation count. Worth showing when high (≥ 100) as an established-paper signal.
+  - `is_oa` — open-access flag. If `true`, mention "open access" so the user knows they can read it without a paywall.
+  - `pdf_url` — direct PDF link when available. Format as a separate `[PDF](pdf_url)` link alongside the DOI link.
 
-Format the link in markdown so the chat UI renders it as clickable: `[link text](url)`. The link text should be the DOI string, the journal name, or "DOI" — short and recognizable.
+After listing references, if `report.public_token` is present, mention once at the end that the user can view the full interactive report on academia.edu (the report is browseable there; the chat shows the agent's selection). Don't try to construct a URL — just mention the report can be opened on academia.edu via the report id `<report_id>` and public token `<public_token>` if asked.
+
+Format the link in markdown so the chat UI renders it as clickable: `[link text](link_url)`. The link text should be the DOI string, the journal name, or "DOI" — short and recognizable.
 
 **Good example** (one publication, fully expanded):
 

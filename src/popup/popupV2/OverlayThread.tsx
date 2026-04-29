@@ -31,6 +31,7 @@ import { ToolFallback } from '../../cobuilding/renderer/components/assistant-ui/
 import { ToolGroup } from '../../cobuilding/renderer/components/assistant-ui/tool-group';
 import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thinking-indicator';
 import { ApprovalParagraph, ApprovalList, APPROVAL_CHOICES } from '../../cobuilding/renderer/components/assistant-ui/approval-buttons';
+import { navigateToPage, tokenParam } from './shared';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
@@ -67,16 +68,76 @@ const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
 };
 
 
+const DOI_RE = /\b10\.\d{4,9}\/[^\s\]<>"'(),]+/g;
+
+function openOverlayUrl(url: string) {
+  navigateToPage({ page: 'external', url }, tokenParam);
+}
+
+function autolinkDoiText(text: string, keyPrefix: string): React.ReactNode {
+  if (!text.includes('10.') || !text.includes('/')) return text;
+  DOI_RE.lastIndex = 0;
+  const matches = [...text.matchAll(DOI_RE)];
+  if (matches.length === 0) return text;
+  const out: React.ReactNode[] = [];
+  let last = 0;
+  matches.forEach((m, i) => {
+    const start = m.index ?? 0;
+    if (start > last) out.push(text.slice(last, start));
+    const doi = m[0].replace(/[.,;:]+$/, '');
+    const url = `https://doi.org/${doi}`;
+    out.push(
+      <a
+        key={`${keyPrefix}-doi-${i}`}
+        href={url}
+        onClick={(e) => { e.preventDefault(); openOverlayUrl(url); }}
+      >
+        {doi}
+      </a>,
+    );
+    last = start + doi.length;
+  });
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+function autolinkChildren(node: React.ReactNode, keyPrefix: string): React.ReactNode {
+  if (typeof node === 'string') return autolinkDoiText(node, keyPrefix);
+  if (Array.isArray(node)) return node.map((c, i) => autolinkChildren(c, `${keyPrefix}-${i}`));
+  if (React.isValidElement(node)) {
+    if (node.type === 'a' || node.type === 'code' || node.type === 'pre') return node;
+    const props: any = node.props;
+    if (props && props.children !== undefined) {
+      return React.cloneElement(node as any, undefined, autolinkChildren(props.children, `${keyPrefix}-c`));
+    }
+  }
+  return node;
+}
+
+const ParagraphWithDoiLinks = (props: any) => (
+  <ApprovalParagraph {...props}>{autolinkChildren(props.children, 'p')}</ApprovalParagraph>
+);
+
+const ListItemWithDoiLinks = (props: any) => (
+  <li {...props}>{autolinkChildren(props.children, 'li')}</li>
+);
+
+const TableCellWithDoiLinks = (props: any) => (
+  <td {...props}>{autolinkChildren(props.children, 'td')}</td>
+);
+
 const overlayComponents = memoizeMarkdownComponents({
-  p: ApprovalParagraph as any,
+  p: ParagraphWithDoiLinks as any,
   ul: ApprovalList as any,
+  li: ListItemWithDoiLinks as any,
+  td: TableCellWithDoiLinks as any,
   a: ({ href, children, ...props }) => (
     <a
       {...props}
       href={href}
       onClick={(e) => {
         e.preventDefault();
-        if (href) window.open(href, '_blank');
+        if (href) navigateToPage({ page: 'external', url: href }, tokenParam);
       }}
     >
       {children}
