@@ -28,3 +28,5 @@ Prose paragraph(s), ready to insert into the manuscript. No meta-commentary or e
 - **Abstract:** Pull from completed manuscript sections. Compress, don't promise. Follow the background-gap-approach-results-conclusion structure.
 - **Methods:** Write dry, protocol-like text in past tense. Insert [PLACEHOLDER: ...] for missing technical details rather than inventing them.
 - **Introduction:** Build the broad-to-narrow funnel. End with the roadmap paragraph starting "In this [paper/study], ..."
+
+<!-- skill-file: actions/draft.md -->

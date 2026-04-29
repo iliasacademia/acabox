@@ -18,3 +18,5 @@
 5. **Match the Methods structure.** Results should follow the same logical sequence as Methods so readers can trace each analysis to its procedure.
 
 6. **No citations in Results** unless referencing a method, dataset, or tool by name. Results reports your own data, not others' work.
+
+<!-- skill-file: sections/results.md -->

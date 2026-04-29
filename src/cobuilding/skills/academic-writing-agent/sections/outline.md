@@ -15,3 +15,5 @@ The user is working on a structural plan, not prose. Adjust all actions accordin
 5. **Fewer, sharper comments.** An outline review with 2-4 substantive comments is better than 8 variations of "this needs to be written." Avoid the "missing content" genre entirely when content is absent because it hasn't been written yet.
 
 6. **When drafting from an outline:** Generate text that follows the bullet structure as a scaffold but produces real paragraph prose. Maintain the argument sequence the author planned.
+
+<!-- skill-file: sections/outline.md -->

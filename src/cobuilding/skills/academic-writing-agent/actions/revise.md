@@ -32,3 +32,5 @@ If the revision is substantial (more than a paragraph), show the key changes you
 - Do not introduce new claims, data, or citations unless the user explicitly asked for additions
 - If the text has problems beyond what the user asked about, focus on what they requested. You may briefly note other issues but do not rewrite for them uninvited
 - Maintain consistency with the rest of the manuscript
+
+<!-- skill-file: actions/revise.md -->

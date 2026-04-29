@@ -13,3 +13,5 @@
 5. **Final paragraph: paper roadmap.** The last paragraph must begin with "In this [paper/study/review], ..." and briefly summarize what the paper does, its approach, and its structure. This orients the reader for everything that follows.
 
 6. **No results in the Introduction** beyond a brief preview in the roadmap paragraph. Do not front-load findings. The Introduction sets up the question; Results answers it.
+
+<!-- skill-file: sections/introduction.md -->

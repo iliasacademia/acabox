@@ -13,3 +13,5 @@
 5. **End with specific implications, not vague significance.** "This approach could enable single-cell resolution mapping in intact tissue" is useful. "These findings have important implications for the field" is not.
 
 6. **Broad-to-narrow-to-broad structure.** Open by contextualizing the main finding, work through specific interpretations, then close with broader implications or future directions. Mirror the Introduction's funnel in reverse.
+
+<!-- skill-file: sections/discussion.md -->

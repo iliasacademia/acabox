@@ -13,3 +13,5 @@
 5. **Use placeholders for missing information.** When the author hasn't provided enough detail, insert: [PLACEHOLDER: describe what's needed]. Example: "[PLACEHOLDER: specify antibody dilution and incubation time]". This is better than inventing details or leaving a gap.
 
 6. **No figure references in Methods.** Figures belong in Results. Methods describes procedures, not outcomes.
+
+<!-- skill-file: sections/methods.md -->
