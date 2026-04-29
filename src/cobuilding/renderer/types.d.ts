@@ -565,6 +565,15 @@ declare global {
     setCredentials(clientId: string, clientSecret: string): Promise<void>;
   }
 
+  interface OfficeAddinAPI {
+    status(): Promise<{ word: boolean; powerpoint: boolean; excel: boolean; certTrusted: boolean; certExists: boolean }>;
+    sideload(): Promise<{ success: boolean; error?: string }>;
+    remove(): Promise<{ success: boolean; error?: string }>;
+    trustCert(): Promise<{ success: boolean; error?: string }>;
+    removeCert(): Promise<{ success: boolean; error?: string }>;
+    deleteCert(): Promise<{ success: boolean; error?: string }>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     calendarAPI: CalendarAPI;
@@ -590,5 +599,6 @@ declare global {
     writingAgentAPI: WritingAgentAPI;
     miniAppsAPI: MiniAppsAPI;
     notesAPI: NotesAPI;
+    officeAddinAPI: OfficeAddinAPI;
   }
 }

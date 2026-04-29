@@ -545,6 +545,15 @@ ipcRenderer.on('anthropic:stream:event', (_event, msg: { streamKey: string; type
   anthropicStreamHandlers.get(msg.streamKey)?.(msg);
 });
 
+contextBridge.exposeInMainWorld('officeAddinAPI', {
+  status: () => ipcRenderer.invoke('officeAddin:status'),
+  sideload: () => ipcRenderer.invoke('officeAddin:sideload'),
+  remove: () => ipcRenderer.invoke('officeAddin:remove'),
+  trustCert: () => ipcRenderer.invoke('officeAddin:trustCert'),
+  removeCert: () => ipcRenderer.invoke('officeAddin:removeCert'),
+  deleteCert: () => ipcRenderer.invoke('officeAddin:deleteCert'),
+});
+
 contextBridge.exposeInMainWorld('anthropicAPI', {
   complete: (params: unknown) => ipcRenderer.invoke('anthropic:complete', params),
 

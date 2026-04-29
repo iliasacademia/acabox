@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Academia Test Add-in</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 20px;
+      background: #f5f5f5;
+      color: #333;
+    }
+    h1 { font-size: 20px; margin-bottom: 8px; }
+    .card {
+      background: white;
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #888;
+      margin-bottom: 4px;
+    }
+    .value { font-size: 14px; font-weight: 500; }
+    .status { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; }
+    .status.ok { background: #d4edda; color: #155724; }
+    .status.waiting { background: #fff3cd; color: #856404; }
+    .status.error { background: #f8d7da; color: #721c24; }
+    button {
+      width: 100%;
+      padding: 8px 12px;
+      font-size: 13px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: #fff;
+      cursor: pointer;
+      color: #333;
+    }
+    button:hover { background: #f0f0f0; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre {
+      background: #f0f0f0;
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+  <h1>Academia Test Add-in</h1>
+  <p style="color: #888; font-size: 13px; margin-bottom: 16px;">Sideloading validation</p>
+
+  <div class="card">
+    <div class="label">Office.js Status</div>
+    <div class="value"><span id="office-status" class="status waiting">Initializing...</span></div>
+  </div>
+
+  <div class="card">
+    <div class="label">Build Timestamp</div>
+    <div class="value" id="build-time">—</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Current Time (live)</div>
+    <div class="value" id="live-time">—</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Host Application</div>
+    <div class="value" id="host-app">—</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Platform</div>
+    <div class="value" id="platform">—</div>
+  </div>
+
+  <div class="card">
+    <div class="label">Desktop App Health</div>
+    <button id="health-btn" style="margin-bottom: 8px;">Ping /api/health</button>
+    <pre id="health-result" style="display: none;"></pre>
+  </div>
+
+  <script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+  <script>
+    var BUILD_TIMESTAMP = new Date().toISOString();
+
+    document.getElementById('build-time').textContent = BUILD_TIMESTAMP;
+
+    setInterval(function() {
+      document.getElementById('live-time').textContent = new Date().toLocaleTimeString();
+    }, 1000);
+    document.getElementById('live-time').textContent = new Date().toLocaleTimeString();
+
+    Office.onReady(function(info) {
+      var el = document.getElementById('office-status');
+      if (info.host) {
+        el.textContent = 'Connected';
+        el.className = 'status ok';
+        document.getElementById('host-app').textContent = info.host;
+        document.getElementById('platform').textContent = info.platform || 'unknown';
+      } else {
+        el.textContent = 'Loaded (no host)';
+        el.className = 'status ok';
+        document.getElementById('host-app').textContent = 'standalone';
+        document.getElementById('platform').textContent = navigator.platform;
+      }
+    });
+
+    Office.initialize = function() {};
+
+    document.getElementById('health-btn').addEventListener('click', function() {
+      var btn = this;
+      var resultEl = document.getElementById('health-result');
+      btn.disabled = true;
+      btn.textContent = 'Pinging...';
+      resultEl.style.display = 'block';
+      resultEl.textContent = 'Connecting to https://localhost:23112/api/health ...';
+
+      fetch('https://localhost:23112/api/health')
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+          resultEl.textContent = JSON.stringify(data, null, 2);
+          resultEl.style.background = '#d4edda';
+        })
+        .catch(function(err) {
+          resultEl.textContent = 'Error: ' + err.message + '\nName: ' + err.name + '\nType: ' + typeof err;
+          resultEl.style.background = '#f8d7da';
+        })
+        .finally(function() {
+          btn.disabled = false;
+          btn.textContent = 'Ping /api/health';
+        });
+    });
+  </script>
+</body>
+</html>

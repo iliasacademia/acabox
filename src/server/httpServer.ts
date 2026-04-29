@@ -152,6 +152,7 @@ export class AcademiaHttpServer {
     const authMiddleware = createAuthMiddleware(this.tokenManager);
     this.fastify.addHook('preHandler', async (request, reply) => {
       if (request.url.startsWith('/api/') || request.url.startsWith('/proxy-api/') || request.url.startsWith('/bridge')) {
+        if (request.url.startsWith('/api/health')) return;
         await authMiddleware(request, reply);
       }
     });
