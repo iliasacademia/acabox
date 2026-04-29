@@ -47,6 +47,12 @@ These can take 5–10 minutes. **Do not call `find_references` here** — it wou
 - Never present partial state as final. While `report.done` is `false`, label results as "so far" and keep polling.
 - Never fall back to LLM-fabricated references when CiteRight is still running or returns nothing useful.
 
+**Presenting references — always emit DOIs and URLs as markdown links** so the user can click them:
+
+- DOI: format as `[10.xxxx/yyyy](https://doi.org/10.xxxx/yyyy)` — never as plain `DOI: 10.xxxx/yyyy`. The link text should be just the DOI; the href is `https://doi.org/<doi>`.
+- URL: if a publication has a `url` field, format it as `[publication](<url>)` or `[<url>](<url>)`.
+- The chat UI opens links in the system's default browser, so this turns each reference into a one-click lookup for the user.
+
 **To add a specific manual claim to a report** (when the user gives you an exact sentence to cite):
 
 - Call `mcp__citeright__add_claim_to_report` with the report id and the claim text. It returns the updated report including the new `claim_id`.

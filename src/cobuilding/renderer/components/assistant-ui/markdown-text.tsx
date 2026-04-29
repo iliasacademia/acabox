@@ -23,6 +23,58 @@ function looksLikeHtml(text: string): boolean {
   return trimmed.startsWith('<') && /<\/?[a-z][\s\S]*>/i.test(trimmed);
 }
 
+const DOI_RE = /\b10\.\d{4,9}\/[^\s\]<>"'(),]+/g;
+
+function remarkDoiAutolink() {
+  const transformText = (node: any, parent: any) => {
+    const value: string = node.value ?? '';
+    DOI_RE.lastIndex = 0;
+    const matches = [...value.matchAll(DOI_RE)];
+    if (matches.length === 0) return 0;
+    const replacements: any[] = [];
+    let last = 0;
+    for (const m of matches) {
+      const start = m.index ?? 0;
+      if (start > last) replacements.push({ type: 'text', value: value.slice(last, start) });
+      const doi = m[0].replace(/[.,;:]+$/, '');
+      replacements.push({
+        type: 'link',
+        url: `https://doi.org/${doi}`,
+        title: null,
+        children: [{ type: 'text', value: doi }],
+      });
+      last = start + doi.length;
+    }
+    if (last < value.length) replacements.push({ type: 'text', value: value.slice(last) });
+    const idx = parent.children.indexOf(node);
+    parent.children.splice(idx, 1, ...replacements);
+    return replacements.length - 1;
+  };
+
+  const walk = (node: any, parent: any) => {
+    if (!node || typeof node !== 'object') return;
+    if (node.type === 'link' || node.type === 'linkReference') return;
+    if (node.type === 'code' || node.type === 'inlineCode') return;
+    if (node.type === 'text' && parent) {
+      transformText(node, parent);
+      return;
+    }
+    if (Array.isArray(node.children)) {
+      for (let i = 0; i < node.children.length; i++) {
+        const child = node.children[i];
+        if (child.type === 'text' && node) {
+          const advance = transformText(child, node);
+          i += advance;
+        } else {
+          walk(child, node);
+        }
+      }
+    }
+  };
+
+  return (tree: any) => walk(tree, null);
+}
+
 declare global {
   interface WindowEventMap {
     'open-file-tab': CustomEvent<{ filePath: string; lineNumber?: number }>;
@@ -88,7 +140,7 @@ const MarkdownTextImpl = () => {
 
   return (
     <MarkdownTextPrimitive
-      remarkPlugins={[remarkGfm]}
+      remarkPlugins={[remarkGfm, remarkDoiAutolink]}
       className="auiMd"
       components={defaultComponents}
     />
