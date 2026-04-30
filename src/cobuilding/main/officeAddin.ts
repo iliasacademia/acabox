@@ -1,10 +1,11 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
 import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
-import { app, ipcMain } from 'electron';
+import { app, ipcMain, shell } from 'electron';
 import log from 'electron-log';
 import {
   MANIFEST_NAME, WEF_DIRS, LOGIN_KEYCHAIN,
@@ -188,6 +189,20 @@ export function registerOfficeAddinIpcHandlers(): void {
       }
       return { success: true };
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EPERM') {
+        const tmpDir = path.join(os.tmpdir(), 'academia-addin-sideload');
+        fs.mkdirSync(tmpDir, { recursive: true });
+        const stagedManifest = path.join(tmpDir, MANIFEST_NAME);
+        fs.copyFileSync(path.join(ADDIN_DIR, 'manifest-local.xml'), stagedManifest);
+        shell.showItemInFolder(stagedManifest);
+        for (const wefDir of Object.values(WEF_DIRS)) {
+          try {
+            fs.mkdirSync(wefDir, { recursive: true });
+          } catch { /* user will create via Finder if needed */ }
+          shell.openPath(wefDir);
+        }
+        return { success: false, error: `Permission denied. Finder windows have been opened — drag "${MANIFEST_NAME}" into each wef folder, then retry.` };
+      }
       return { success: false, error: (err as Error).message };
     }
   });
@@ -200,6 +215,13 @@ export function registerOfficeAddinIpcHandlers(): void {
       }
       return { success: true };
     } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'EPERM') {
+        for (const wefDir of Object.values(WEF_DIRS)) {
+          const manifestPath = path.join(wefDir, MANIFEST_NAME);
+          if (fs.existsSync(manifestPath)) shell.showItemInFolder(manifestPath);
+        }
+        return { success: false, error: `Permission denied. Finder windows have been opened — delete "${MANIFEST_NAME}" from each wef folder manually.` };
+      }
       return { success: false, error: (err as Error).message };
     }
   });
