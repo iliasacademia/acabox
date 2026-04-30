@@ -41,9 +41,10 @@ type RebuildState =
 interface MiniAppViewerProps {
   dirName: string;
   workspacePath: string;
+  reloadNonce?: number;
 }
 
-export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }) => {
+export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce }) => {
   const [viewingSource, setViewingSource] = useState(false);
   const [rebuildKey, setRebuildKey] = useState(0);
   const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
@@ -105,7 +106,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath }
             />
           ) : (
             <MiniAppContent
-              key={rebuildKey}
+              key={`${rebuildKey}-${reloadNonce ?? 0}`}
               dirName={dirName}
               workspacePath={workspacePath}
             />
