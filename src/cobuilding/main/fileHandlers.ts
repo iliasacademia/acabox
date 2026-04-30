@@ -342,19 +342,8 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     try {
       await fsPromises.mkdir(tmpAppDir, { recursive: true });
 
-      // Copy app contents, excluding input/ and output/ (workspace-specific data)
-      const skip = new Set(['input', 'output']);
-      const entries = await fsPromises.readdir(appDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (skip.has(entry.name)) continue;
-        const src = path.join(appDir, entry.name);
-        const dest = path.join(tmpAppDir, entry.name);
-        if (entry.isDirectory()) {
-          await fsPromises.cp(src, dest, { recursive: true });
-        } else {
-          await fsPromises.copyFile(src, dest);
-        }
-      }
+      // Copy full app contents
+      await fsPromises.cp(appDir, tmpAppDir, { recursive: true });
 
       await new Promise<void>((resolve, reject) => {
         crossZip.zip(tmpAppDir, outZip, (err: Error | null) => {

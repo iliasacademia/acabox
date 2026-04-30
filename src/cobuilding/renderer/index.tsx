@@ -263,7 +263,7 @@ function OpenMiniAppToolUI({
 }: {
   args: { dir_name?: string };
   status: { type: string };
-  onOpen: (dirName: string) => void;
+  onOpen: (dirName: string, opts?: { forceReload?: boolean }) => void;
 }) {
   const openedRef = useRef<string | null>(null);
 
@@ -273,7 +273,7 @@ function OpenMiniAppToolUI({
     if (dirName && status.type === 'running' && dirName !== openedRef.current) {
       openedRef.current = dirName;
       console.debug('[OpenMiniAppToolUI] Opening mini app (running tool call):', dirName);
-      onOpen(dirName);
+      onOpen(dirName, { forceReload: true });
     } else if (dirName && status.type !== 'running') {
       console.debug('[OpenMiniAppToolUI] Skipping open for completed tool call:', dirName, 'status:', status.type);
     }
@@ -282,7 +282,7 @@ function OpenMiniAppToolUI({
   return null;
 }
 
-function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string) => void }) {
+function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string, opts?: { forceReload?: boolean }) => void }) {
   useAssistantToolUI({
     toolName: 'mcp__mini-apps__open_mini_application',
     render: (props: { args: { dir_name?: string }; status: { type: string } }) => (
@@ -398,14 +398,16 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
     return () => window.removeEventListener('open-file-tab', handler);
   }, [workspace.directory_path, handleSelectFile]);
 
-  const handleSelectApp = useCallback((dirName: string) => {
-    console.debug('[handleSelectApp] Opening mini app tab:', dirName);
+  const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean }) => {
+    console.debug('[handleSelectApp] Opening mini app tab:', dirName, opts);
     const tabId = `miniapp::${dirName}`;
     // Only force an iframe reload when the tab doesn't already exist. Re-clicking
     // an already-open mini app should just activate it — remounting the viewer
     // would tear down its kernel connection bookkeeping and the iframe state.
+    // However, when forceReload is set (e.g. agent tool call after a rebuild),
+    // always bump the nonce so the iframe picks up the new bundle.
     const alreadyOpen = tabsRef.current.some((t) => t.id === tabId);
-    if (!alreadyOpen) {
+    if (!alreadyOpen || opts?.forceReload) {
       setMiniAppReloadNonces((prev) => ({ ...prev, [dirName]: (prev[dirName] ?? 0) + 1 }));
     }
     const descriptor: TabDescriptor = {
@@ -689,9 +691,9 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
                           )}
                           {tab.data.kind === 'miniapp' && (
                             <MiniAppViewer
-                              key={miniAppReloadNonces[tab.data.dirName] ?? 0}
                               dirName={tab.data.dirName}
                               workspacePath={workspace.directory_path}
+                              reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
                             />
                           )}
                           {tab.data.kind === 'debug' && (
