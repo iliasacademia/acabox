@@ -906,9 +906,14 @@ class CobuildingContainerService {
         }
       });
 
+      const stderrLines: string[] = [];
+
       proc.stderr?.on('data', (data: Buffer) => {
         const line = data.toString().trim();
-        if (line) log.debug(`[ContainerService] [build stderr] ${line}`);
+        if (line) {
+          log.debug(`[ContainerService] [build stderr] ${line}`);
+          stderrLines.push(line);
+        }
       });
 
       proc.on('close', (code) => {
@@ -916,7 +921,8 @@ class CobuildingContainerService {
           log.debug('[ContainerService] Build completed successfully');
           resolve();
         } else {
-          reject(new Error(`podman build exited with code ${code}`));
+          const lastLines = stderrLines.slice(-5).join('\n');
+          reject(new Error(`podman build exited with code ${code}${lastLines ? ': ' + lastLines : ''}`));
         }
       });
 
