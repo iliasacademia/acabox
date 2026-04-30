@@ -85,6 +85,12 @@
   </div>
 
   <div class="card">
+    <div class="label">Selected Text</div>
+    <button id="selection-btn" style="margin-bottom: 8px;">Get Selection</button>
+    <pre id="selection-result" style="display: none;"></pre>
+  </div>
+
+  <div class="card">
     <div class="label">Desktop App Health</div>
     <button id="health-btn" style="margin-bottom: 8px;">Ping /api/health</button>
     <pre id="health-result" style="display: none;"></pre>
@@ -117,6 +123,23 @@
     });
 
     Office.initialize = function() {};
+
+    document.getElementById('selection-btn').addEventListener('click', function() {
+      var resultEl = document.getElementById('selection-result');
+      resultEl.style.display = 'block';
+      resultEl.style.background = '#f0f0f0';
+      resultEl.textContent = 'Reading selection...';
+      Office.context.document.getSelectedDataAsync(Office.CoercionType.Text, function(result) {
+        if (result.status === Office.AsyncResultStatus.Succeeded) {
+          var text = result.value || '(empty selection)';
+          resultEl.textContent = text;
+          resultEl.style.background = '#d4edda';
+        } else {
+          resultEl.textContent = 'Error: ' + result.error.message;
+          resultEl.style.background = '#f8d7da';
+        }
+      });
+    });
 
     document.getElementById('health-btn').addEventListener('click', function() {
       var btn = this;
