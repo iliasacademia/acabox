@@ -61,6 +61,3 @@ window-monitor/rust/target/
 webview-manager/rust/target/
 
 .vscode/settings.json
-
-# Office add-in generated certs
-ms_office_addin/.certs/
