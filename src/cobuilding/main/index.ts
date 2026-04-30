@@ -778,6 +778,7 @@ app.whenReady().then(async () => {
                       if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the academic-writing-agent skill scoped to this selected passage.\n"""\n${ctx.selectedText}\n"""\n`;
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
+                    ctxDocPath,
                   );
                   registerSession(sessionId, session);
                 }
@@ -835,9 +836,9 @@ app.whenReady().then(async () => {
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
               windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
-              windowMonitorService.setSessionsProvider(() => {
+              windowMonitorService.setSessionsProvider((documentPath) => {
                 if (!activeWorkspace) return [];
-                return listSessions(activeWorkspace.id).map(s => ({
+                return listSessions(activeWorkspace.id, undefined, documentPath).map(s => ({
                   id: s.id,
                   title: s.title,
                   created_at: s.created_at,

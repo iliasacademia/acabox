@@ -9,6 +9,7 @@ import type { FC } from 'react';
 import {
   dateFromSessionStoredAt,
   getSessionCreatedAt,
+  getSessionDocumentPath,
 } from '../../sessionTimestamps';
 
 export const ThreadList: FC = () => {
@@ -63,6 +64,8 @@ const ThreadListItem: FC = () => {
 
   const remoteId = runtime.getState().remoteId;
   const createdAt = getSessionCreatedAt(remoteId);
+  const documentPath = getSessionDocumentPath(remoteId);
+  const documentName = documentPath ? (documentPath.split('/').pop() || documentPath) : null;
 
   const formatCreatedAt = (iso: string) => {
     const date = dateFromSessionStoredAt(iso);
@@ -109,8 +112,15 @@ const ThreadListItem: FC = () => {
     <ThreadListItemPrimitive.Root className="threadListItem">
       <ThreadListItemPrimitive.Trigger className="threadListItemTrigger">
         <span className="threadListItemTitle">
-          <span className="threadListItemTitleText">
-            <ThreadListItemPrimitive.Title fallback="New Chat" />
+          <span className="threadListItemTitleRow">
+            <span className="threadListItemTitleText">
+              <ThreadListItemPrimitive.Title fallback="New Chat" />
+            </span>
+            {documentName ? (
+              <span className="threadListItemDocPill" title={documentPath ?? undefined}>
+                {documentName}
+              </span>
+            ) : null}
           </span>
           {createdAt ? (
             <span className="threadListItemDate">{formatCreatedAt(createdAt)}</span>

@@ -280,7 +280,7 @@ export class WindowMonitorService {
   // Cobuilding workspace directory — when set, documents within this directory
   // are treated as workspace files and the overlay shows workspace sessions.
   private workspaceDirectory: string | null = null;
-  private sessionsProvider: (() => Array<{ id: string; title: string; created_at: string }>) | null = null;
+  private sessionsProvider: ((documentPath?: string) => Array<{ id: string; title: string; created_at: string }>) | null = null;
   // When true, WINDOW_TEXT_SELECTED events are ignored (used to suppress
   // programmatic selections from MCP tools like find_and_replace/select_text).
   private selectionEventsSuppressed = false;
@@ -1065,12 +1065,12 @@ export class WindowMonitorService {
     return this.workspaceDirectory;
   }
 
-  setSessionsProvider(provider: (() => Array<{ id: string; title: string; created_at: string }>) | null): void {
+  setSessionsProvider(provider: ((documentPath?: string) => Array<{ id: string; title: string; created_at: string }>) | null): void {
     this.sessionsProvider = provider;
   }
 
-  getWorkspaceSessions(): Array<{ id: string; title: string; created_at: string }> {
-    return this.sessionsProvider?.() ?? [];
+  getWorkspaceSessions(documentPath?: string): Array<{ id: string; title: string; created_at: string }> {
+    return this.sessionsProvider?.(documentPath) ?? [];
   }
 
   /**

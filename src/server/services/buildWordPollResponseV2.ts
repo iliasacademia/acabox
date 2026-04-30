@@ -78,7 +78,7 @@ export function buildWordPollResponseV2(
   // Check if the document is within the active cobuilding workspace directory
   if (activeWorkspaceDir) {
     if (documentPath.startsWith(activeWorkspaceDir + '/')) {
-      const sessions = windowMonitorService.getWorkspaceSessions();
+      const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
       const selectedTextContent = wid
         ? windowMonitorService.getSelectedTextContent(wid)
         : windowMonitorService.getLastSelectedText();
