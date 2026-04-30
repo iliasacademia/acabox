@@ -70,6 +70,7 @@ import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { registerNotesHandlers } from './notesHandlers';
 import { AcademiaHttpServer } from '../../server/httpServer';
+import { setHttpProxyPort, stopHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
 import {
   isConnected as isGoogleCalendarConnected,
   disconnect as disconnectGoogleCalendar,
@@ -821,6 +822,9 @@ app.whenReady().then(async () => {
           const authToken = httpServer.getAuthToken();
           log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
 
+          // Store HTTP port so the HTTPS server can proxy to it when started from debug panel
+          setHttpProxyPort(port);
+
           if (baseUrl && authToken) {
             // Share server URL and auth token with the renderer for direct API calls
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1425,6 +1429,9 @@ systemLogger.onEntry((entry) => {
     mainWindow.webContents.send('systemLog:entry', entry);
   }
 });
+
+// Office Add-in IPC handlers
+registerOfficeAddinIpcHandlers();
 
 // File Monitor IPC handlers
 ipcMain.handle('fileMonitor:status', () => ({ running: isFileMonitorRunning() }));
@@ -2582,6 +2589,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   const steps: [string, () => void][] = [
     ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
+    ['stopHttpsServer', stopHttpsServer],
     ['stopFileMonitor', stopFileMonitor],
     ['stopBrowserMonitor', stopBrowserMonitor],
     ['stopScheduledTasks', stopScheduledTasks],
