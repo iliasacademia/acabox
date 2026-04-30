@@ -90,7 +90,7 @@ export function getInstallSteps(appsDir: string, dirName: string): InstallStep[]
     steps.push({
       registry: 'pip',
       packages: deps.pipPackages,
-      command: ['/opt/venv/bin/pip', 'install', '--no-input', ...deps.pipPackages],
+      command: ['sh', '-c', 'PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && exec $PIP install --no-input ' + deps.pipPackages.join(' ')],
     });
   }
 
@@ -424,7 +424,7 @@ export function generateDockerfile(merged: MergedEnvironment, baseImage: string)
     lines.push(
       '# --- pip packages ---',
       'COPY requirements.txt /tmp/requirements.txt',
-      'RUN /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements.txt',
+      'RUN PIP=$(command -v /opt/venv/bin/pip || command -v pip3 || echo pip) && $PIP install --no-cache-dir -r /tmp/requirements.txt',
       '',
     );
   }
