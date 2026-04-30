@@ -29,4 +29,8 @@ Prose paragraph(s), ready to insert into the manuscript. No meta-commentary or e
 - **Methods:** Write dry, protocol-like text in past tense. Insert [PLACEHOLDER: ...] for missing technical details rather than inventing them.
 - **Introduction:** Build the broad-to-narrow funnel. End with the roadmap paragraph starting "In this [paper/study], ..."
 
+## Track Changes
+
+After generating the draft text, call `mcp__ms-word__set_track_changes` to insert it directly into the manuscript at the appropriate location. This lets the user accept or reject the insertion inline rather than copy-pasting from the chat.
+
 <!-- skill-file: actions/draft.md -->

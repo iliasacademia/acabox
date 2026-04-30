@@ -942,11 +942,20 @@ async function runFindAndReplace(
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'word-fr-'));
   const searchPath = path.join(tmpDir, 'search.txt');
   const replacePath = path.join(tmpDir, 'replace.txt');
+  const prefixPath = path.join(tmpDir, 'prefix.txt');
   // Word treats CR as the paragraph separator. Normalize line endings so
   // the file content matches what the find object expects.
   const toCR = (s: string) => s.replace(/\r\n|\r|\n/g, '\r');
   await fs.writeFile(searchPath, toCR(cleanSearch), 'utf8');
   await fs.writeFile(replacePath, toCR(cleanReplace), 'utf8');
+  // Prefix for the locate-then-extend fallback: first 80 chars of the search
+  // string with line breaks flattened to spaces. Word's find object rejects
+  // some full-length search strings (range-id failures, ~256-char limit, or
+  // embedded paragraph marks); a short single-line prefix is far more likely
+  // to be accepted.
+  const flatSearch = cleanSearch.replace(/[\r\n]+/g, ' ').trim();
+  const searchPrefix = flatSearch.substring(0, Math.min(flatSearch.length, 80));
+  await fs.writeFile(prefixPath, searchPrefix, 'utf8');
 
   const replaceAll = replaceScope === 'all';
 
@@ -954,8 +963,10 @@ async function runFindAndReplace(
     const script = `
 set searchPath to POSIX file "${searchPath}"
 set replacePath to POSIX file "${replacePath}"
+set prefixPath to POSIX file "${prefixPath}"
 set searchText to (read searchPath as «class utf8»)
 set replaceText to (read replacePath as «class utf8»)
+set searchPrefix to (read prefixPath as «class utf8»)
 
 tell application "Microsoft Word"
   if (count of documents) is 0 then
@@ -971,41 +982,46 @@ tell application "Microsoft Word"
     set origTrack to track revisions of doc
     set track revisions of doc to true
 
-    -- Use an explicit docRange so the fallback path can read back the matched
-    -- range (Word repositions explicit ranges on a successful execute find,
-    -- but not the doc's text object directly).
-    set docRange to create range doc start 0 end (end of content of text object of doc)
-    set findObj to find object of docRange
-    -- Reset any leftover state from a prior find on this document.
-    clear formatting findObj
-    set content of findObj to searchText
-    set forward of findObj to true
-    set wrap of findObj to find stop
-    set match case of findObj to ${matchCase}
-
     set replacementsCount to 0
     set didFallback to false
+
     try
-      -- Primary path: native find+replace. Tracked revisions record cleanly.
+      -- Tier 1: native find/replace with the full search string. Tracked
+      -- revisions record cleanly when this path succeeds.
+      set docRange to create range doc start 0 end (end of content of text object of doc)
+      set findObj to find object of docRange
+      clear formatting findObj
+      set content of findObj to searchText
+      set forward of findObj to true
+      set wrap of findObj to find stop
+      set match case of findObj to ${matchCase}
       set replObj to replacement of findObj
       clear formatting replObj
       set content of replObj to replaceText
       set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
       if wasFound then set replacementsCount to 1
-    on error primaryErr
-      -- Fallback: when Word rejects "set content of replObj" (long strings,
-      -- unusual chars from PDF copy-paste), find the match, select it, then
-      -- type the replacement. "type text" against a selection is recorded as
-      -- a tracked deletion+insertion and bypasses the find replacement slot.
+    on error tier1Err
+      -- Tier 2: locate with a short prefix, extend the matched range to the
+      -- full search length, select it, then type the replacement. Handles
+      -- "Can't set content of find id" failures (Word rejecting the full
+      -- search/replace content because of length, paragraph marks, or other
+      -- find-engine constraints). type text against a selection is still
+      -- recorded as a tracked deletion + insertion.
       set didFallback to true
-      try
-        set content of replObj to ""
-      end try
+      set docRange to create range doc start 0 end (end of content of text object of doc)
+      set findObj to find object of docRange
+      clear formatting findObj
+      set content of findObj to searchPrefix
+      set forward of findObj to true
+      set wrap of findObj to find stop
+      set match case of findObj to ${matchCase}
       set wasFound to execute find findObj
       if wasFound then
-        -- After execute find, docRange has been repositioned to the match.
         set matchStart to start of content of docRange
-        set matchEnd to end of content of docRange
+        set docEnd to end of content of text object of doc
+        set searchLen to length of searchText
+        set matchEnd to matchStart + searchLen
+        if matchEnd > docEnd then set matchEnd to docEnd
         set matchRange to create range doc start matchStart end matchEnd
         select matchRange
         type text selection text replaceText
