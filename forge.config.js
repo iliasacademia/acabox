@@ -104,6 +104,7 @@ const packagerConfig = {
     'src/cobuilding/Dockerfile',
     'src/cobuilding/Dockerfile.base',
     ...(require('fs').existsSync('browser-extension/extension.zip') ? ['browser-extension/extension.zip'] : []),
+    'ms_office_addin',
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {
