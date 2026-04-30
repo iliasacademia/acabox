@@ -54,6 +54,7 @@ interface SessionData {
   id: string;
   title: string;
   source: string | null;
+  document_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -218,6 +219,7 @@ declare global {
     id: string;
     title: string;
     source: string | null;
+    document_path: string | null;
     created_at: string;
     updated_at: string;
   }

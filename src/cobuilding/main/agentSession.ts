@@ -40,6 +40,7 @@ export function createAgentSession(
   onNotificationClick?: (action: NotificationNavigationAction | null) => void,
   model?: string,
   messagePreprocessor?: (text: string) => string,
+  documentPath?: string,
 ): AgentSession {
   const messageQueue = createMessageQueue<UserMessagePayload>();
   const listeners = new Set<Partial<ChatCallbacks>>();
@@ -89,7 +90,7 @@ export function createAgentSession(
     }
   }
 
-  createSession(sessionId, workspace.id, source ?? null);
+  createSession(sessionId, workspace.id, source ?? null, documentPath ?? null);
 
   async function* userMessageGenerator(): AsyncGenerator<SDKUserMessage> {
     for await (const payload of messageQueue) {

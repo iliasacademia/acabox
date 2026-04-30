@@ -240,6 +240,13 @@ const migrations = [
       ALTER TABLE group_files RENAME COLUMN plan_id TO group_id;
     `,
   },
+  {
+    version: 14,
+    sql: `
+      ALTER TABLE sessions ADD COLUMN document_path TEXT DEFAULT NULL;
+      CREATE INDEX idx_sessions_document_path ON sessions(workspace_id, document_path);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {
