@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as https from 'https';
 import * as http from 'http';
 import * as crypto from 'crypto';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 import { app, ipcMain } from 'electron';
 import log from 'electron-log';
 import {
@@ -44,15 +44,16 @@ export function ensureCert(): { key: string; cert: string } {
   const keyPem = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
   let certPem: string;
   try {
-    certPem = execSync(
-      `openssl req -x509 -new -nodes -key /dev/stdin -sha256 -days 365 -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"`,
-      { input: keyPem, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-    );
+    certPem = execFileSync('openssl', [
+      'req', '-x509', '-new', '-nodes', '-key', '/dev/stdin',
+      '-sha256', '-days', '365', '-subj', '/CN=localhost',
+      '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1',
+    ], { input: keyPem, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
   } catch {
-    certPem = execSync(
-      `openssl req -x509 -new -nodes -key /dev/stdin -sha256 -days 365 -subj "/CN=localhost"`,
-      { input: keyPem, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-    );
+    certPem = execFileSync('openssl', [
+      'req', '-x509', '-new', '-nodes', '-key', '/dev/stdin',
+      '-sha256', '-days', '365', '-subj', '/CN=localhost',
+    ], { input: keyPem, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
   }
   fs.writeFileSync(KEY_PATH, keyPem);
   fs.writeFileSync(CERT_PATH, certPem);
@@ -62,7 +63,7 @@ export function ensureCert(): { key: string; cert: string } {
 function isCertTrusted(): boolean {
   try {
     if (!fs.existsSync(CERT_PATH)) return false;
-    execSync(`security verify-cert -c "${CERT_PATH}" 2>&1`, { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
+    execFileSync('security', ['verify-cert', '-c', CERT_PATH], { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] });
     return true;
   } catch {
     return false;
@@ -70,10 +71,9 @@ function isCertTrusted(): boolean {
 }
 
 function trustCert(): void {
-  execSync(
-    `security add-trusted-cert -r trustRoot -k "${LOGIN_KEYCHAIN}" "${CERT_PATH}"`,
-    { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-  );
+  execFileSync('security', ['add-trusted-cert', '-r', 'trustRoot', '-k', LOGIN_KEYCHAIN, CERT_PATH], {
+    encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+  });
 }
 
 // ── HTTPS server ──
@@ -219,15 +219,13 @@ export function registerOfficeAddinIpcHandlers(): void {
       if (!fs.existsSync(CERT_PATH)) {
         return { success: false, error: 'Certificate not found.' };
       }
-      const hashOutput = execSync(
-        `openssl x509 -in "${CERT_PATH}" -noout -fingerprint -sha1`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-      );
+      const hashOutput = execFileSync('openssl', ['x509', '-in', CERT_PATH, '-noout', '-fingerprint', '-sha1'], {
+        encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
       const sha1 = hashOutput.replace(/.*=/, '').replace(/:/g, '').trim();
-      execSync(
-        `security delete-certificate -Z "${sha1}" -t "${LOGIN_KEYCHAIN}"`,
-        { encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] },
-      );
+      execFileSync('security', ['delete-certificate', '-Z', sha1, '-t', LOGIN_KEYCHAIN], {
+        encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'],
+      });
       return { success: true };
     } catch (err) {
       return { success: false, error: (err as Error).message };
