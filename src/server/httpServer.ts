@@ -32,6 +32,7 @@ import { registerReviewPanelV3Routes } from './routes/reviewPanelV3';
 import { registerNavigationRoutes, NavigationHandler } from './routes/navigation';
 import { registerFileDialogRoutes } from './routes/fileDialog';
 import { registerMsWordRoutes } from './routes/msWord';
+import { registerZoteroRoutes } from './routes/zotero';
 import { ServerConfig, HealthResponse } from './types';
 import { TokenManager, createAuthMiddleware } from './middleware/auth';
 import { defaultLogger as logger } from '../utils/logger';
@@ -152,6 +153,7 @@ export class AcademiaHttpServer {
     const authMiddleware = createAuthMiddleware(this.tokenManager);
     this.fastify.addHook('preHandler', async (request, reply) => {
       if (request.url.startsWith('/api/') || request.url.startsWith('/proxy-api/') || request.url.startsWith('/bridge')) {
+        if (request.url.startsWith('/api/health')) return;
         await authMiddleware(request, reply);
       }
     });
@@ -283,6 +285,9 @@ export class AcademiaHttpServer {
 
     // Register MS Word MCP routes
     await registerMsWordRoutes(this.fastify);
+
+    // Register Zotero local-client routes (per-reference "Add to Zotero" from overlay)
+    await registerZoteroRoutes(this.fastify);
 
     // Register any custom routes added via addRouteRegistrar()
     for (const registrar of this.routeRegistrars) {

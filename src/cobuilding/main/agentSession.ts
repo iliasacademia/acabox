@@ -1,27 +1,22 @@
 
-import { query, createSdkMcpServer, tool, type Query, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput, type SpawnOptions } from '@anthropic-ai/claude-agent-sdk';
+import { query, createSdkMcpServer, tool, type Query, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
-import { app } from 'electron';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
 import { z } from 'zod';
-import { fork } from 'child_process';
 import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import { createActivityMcpServer } from './mcpServers/activityMcpServer';
 import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
 import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
 import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
+import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
+import { resolveClaudeBinary } from './sdkBinarySetup';
 
-export function getClaudeCliPath(): string {
-  if (app.isPackaged) {
-    return path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
-  }
-  return path.join(process.cwd(), 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js');
-}
+
 
 export interface ChatCallbacks {
   onEvent: (msg: ChatStreamMessage) => void;
@@ -150,6 +145,7 @@ export function createAgentSession(
       const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
       const msWordServer = createMsWordMcpServer();
+      const citeRightServer = createCiteRightMcpServer();
 
       // Read SOUL.md for system prompt customization
       let soulMdContent: string | undefined;
@@ -163,24 +159,23 @@ export function createAgentSession(
         // File doesn't exist or can't be read — use default prompt
       }
 
+      const claudeBinaryPath = resolveClaudeBinary();
+      if (!claudeBinaryPath) {
+        emitError('Claude agent binary not found. Please reinstall the application.');
+        return;
+      }
+
       queryInstance = query({
         prompt: userMessageGenerator(),
         options: {
-          pathToClaudeCodeExecutable: getClaudeCliPath(), spawnClaudeCodeProcess: (options: SpawnOptions) => {
-            const child = fork(getClaudeCliPath(), options.args.slice(1), {
-              cwd: options.cwd,
-              env: options.env,
-              signal: options.signal,
-              silent: true,
-            });
-            child.stderr?.on('data', (data: Buffer) => {
-              for (const line of data.toString().split('\n').filter(Boolean)) {
-                log.debug(`[AgentCLI] ${line}`);
-              }
-            });
-            return child as typeof child & { stdin: NonNullable<typeof child.stdin>; stdout: NonNullable<typeof child.stdout> };
+          pathToClaudeCodeExecutable: claudeBinaryPath,
+          stderr: (data: string) => {
+            for (const line of data.split('\n').filter(Boolean)) {
+              log.debug(`[AgentCLI] ${line}`);
+            }
           },
-          model: model || 'claude-opus-4-6',
+          model: model || 'claude-opus-4-7',
+          thinking: { type: 'adaptive' },
           systemPrompt: (() => {
             const docxEditingGuidance = `You are Academia Coscientist, an AI research assistant. Always refer to yourself as "Academia Coscientist" (never "Claude" or "I").
 
@@ -215,6 +210,7 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
             notification: notificationServer,
             reaction: reactionServer,
             'ms-word': msWordServer,
+            citeright: citeRightServer,
           },
           allowedTools: [
             "Bash",
@@ -242,6 +238,13 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
             "mcp__ms-word__find_and_replace",
             "mcp__ms-word__track_changes_status",
             "mcp__ms-word__set_track_changes",
+            "mcp__citeright__find_references",
+            "mcp__citeright__create_citation_report",
+            "mcp__citeright__get_citation_report",
+            "mcp__citeright__add_claim_to_report",
+            "mcp__citeright__search_citations_for_claim",
+            "mcp__citeright__format_citations",
+            "mcp__citeright__list_citation_reports",
           ],
           hooks: {
             PreToolUse: [{

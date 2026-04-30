@@ -15,6 +15,7 @@ import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
+import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -69,6 +70,7 @@ import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { registerNotesHandlers } from './notesHandlers';
 import { AcademiaHttpServer } from '../../server/httpServer';
+import { setHttpProxyPort, stopHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
 import {
   isConnected as isGoogleCalendarConnected,
   disconnect as disconnectGoogleCalendar,
@@ -125,6 +127,7 @@ import type { CalendarReactionService } from './calendarReactionService';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
+import { validateExternalUrl } from '../../utils/urlValidation';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -493,8 +496,10 @@ function createMainWindow(): void {
   });
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
+
+  await ensureClaudeBinaryReady();
 
   protocol.handle('local-file', async (request) => {
     const filePath = decodeURIComponent(request.url.slice('local-file://'.length));
@@ -770,7 +775,7 @@ app.whenReady().then(() => {
                       if (!ctx) return userText;
                       let prefix = '';
                       if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
-                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the review-selected-text skill (NOT review-manuscript).\n"""\n${ctx.selectedText}\n"""\n`;
+                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the academic-writing-agent skill scoped to this selected passage.\n"""\n${ctx.selectedText}\n"""\n`;
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
                   );
@@ -817,6 +822,9 @@ app.whenReady().then(() => {
           const authToken = httpServer.getAuthToken();
           log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
 
+          // Store HTTP port so the HTTPS server can proxy to it when started from debug panel
+          setHttpProxyPort(port);
+
           if (baseUrl && authToken) {
             // Share server URL and auth token with the renderer for direct API calls
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -826,7 +834,7 @@ app.whenReady().then(() => {
             }
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
-              windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
+              windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
               windowMonitorService.setSessionsProvider(() => {
                 if (!activeWorkspace) return [];
                 return listSessions(activeWorkspace.id).map(s => ({
@@ -974,7 +982,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   if (activeWorkspace) {
     ensureReactionsTask(activeWorkspace.id);
     // Update workspace directory for the Word overlay
-    windowMonitorService.setWorkspaceDirectory(activeWorkspace.directory_path);
+    windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
   }
 
   // Restart scheduler so it picks up the new workspace's tasks
@@ -1422,6 +1430,9 @@ systemLogger.onEntry((entry) => {
   }
 });
 
+// Office Add-in IPC handlers
+registerOfficeAddinIpcHandlers();
+
 // File Monitor IPC handlers
 ipcMain.handle('fileMonitor:status', () => ({ running: isFileMonitorRunning() }));
 ipcMain.handle('fileMonitor:start', () => { startFileMonitor(); });
@@ -1714,6 +1725,7 @@ const ANTHROPIC_ALLOWED_MODELS = new Set([
   'claude-haiku-4-5-20251001',
   'claude-sonnet-4-6',
   'claude-opus-4-6',
+  'claude-opus-4-7',
 ]);
 
 // Hard limits applied regardless of what the caller sends. The token cap
@@ -2239,6 +2251,54 @@ ipcMain.handle('shell:openExternal', async (_event, url: string) => {
   await shell.openExternal(url);
 });
 
+ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
+  try {
+    const validation = validateExternalUrl(url);
+    if (!validation.isValid) {
+      return { success: false, error: validation.error };
+    }
+    await shell.openExternal(url);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_STATUS, async () => {
+  const { getZoteroLocalStatus } = await import('../../zoteroLocalClient');
+  try {
+    const status = await getZoteroLocalStatus();
+    return { success: true, status };
+  } catch (error: any) {
+    return { success: false, error: error?.message ?? String(error), status: 'not-running' };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_ADD_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) {
+    return { success: false, error: 'DOI must be a non-empty string', status: 'not-running' };
+  }
+  const { addDoiToZotero } = await import('../../zoteroLocalClient');
+  return await addDoiToZotero(doi);
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_DOI_METADATA, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) return null;
+  const { getDoiMetadata } = await import('../../zoteroLocalClient');
+  return getDoiMetadata(doi);
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_LIST_ADDED_DOIS, async () => {
+  const { listAddedDois } = await import('../../zoteroLocalClient');
+  return listAddedDois();
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) return null;
+  const { checkDoiInZotero } = await import('../../zoteroLocalClient');
+  return await checkDoiInZotero(doi);
+});
+
 // Permission IPC handlers (macOS only)
 ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
   if (process.platform !== 'darwin') {
@@ -2529,6 +2589,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
   const steps: [string, () => void][] = [
     ['globalShortcut.unregisterAll', () => globalShortcut.unregisterAll()],
+    ['stopHttpsServer', stopHttpsServer],
     ['stopFileMonitor', stopFileMonitor],
     ['stopBrowserMonitor', stopBrowserMonitor],
     ['stopScheduledTasks', stopScheduledTasks],

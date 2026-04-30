@@ -9,6 +9,7 @@ import { store } from './appStore';
 import AutoLaunch from 'auto-launch';
 import { defaultLogger as logger, getChannelFromVersion } from './utils/logger';
 import { login, logout, checkLogin, APIclient, getCsrfToken } from './apiClient';
+import { callBackendApi } from './apiCall';
 import { clearCachedUserData, fetchAndUpdateCache } from './userDataCache';
 import { uploadFile, searchFiles, getStatus, addFolder, removeFolder, listFiles } from './uploader';
 import { syncService } from './syncService';
@@ -31,6 +32,7 @@ import { refreshManuscriptPaths } from './server/services/manuscriptPathsService
 import { podmanService } from './podmanService';
 import { getLocalConversationDb } from './localConversationDb';
 import { LocalAgentService } from './localAgentService';
+import { addDoiToZotero, checkDoiInZotero, getDoiMetadata, getZoteroLocalStatus, listAddedDois } from './zoteroLocalClient';
 
 // Set display name for menu bar (needed in dev mode where the binary is named "Electron")
 app.setName('Writing Agent');
@@ -1591,79 +1593,13 @@ ipcMain.handle(IPC_CHANNELS.DEBUG_GET_ACTIVE_WATCHERS, async () => {
   }
 });
 
-// Generic API call handler for Projects API
+// Generic API call handler — delegates to shared callBackendApi helper
 ipcMain.handle(IPC_CHANNELS.API_CALL, async (_event, options: { method: string; endpoint: string; data?: any }) => {
-  try {
-    const { method, endpoint, data } = options;
-    const client = await APIclient();
-
-    // Get CSRF token for non-GET requests
-    const headers: any = {};
-    if (method.toUpperCase() !== 'GET') {
-      const csrfToken = await getCsrfToken();
-      headers['x-csrf-token'] = csrfToken;
-    }
-
-    let response;
-    switch (method.toUpperCase()) {
-      case 'GET':
-        response = await client.get(endpoint);
-        break;
-      case 'POST':
-        response = await client.post(endpoint, data, { headers });
-        break;
-      case 'PUT':
-        response = await client.put(endpoint, data, { headers });
-        break;
-      case 'PATCH':
-        logger.info(`[API] PATCH ${endpoint} with data: ${JSON.stringify(data)}`);
-        response = await client.patch(endpoint, data, { headers });
-        break;
-      case 'DELETE':
-        response = await client.delete(endpoint, { headers });
-        break;
-      default:
-        throw new Error(`Unsupported HTTP method: ${method}`);
-    }
-
-    return response.data;
-  } catch (error: any) {
-    const fullUrl = error.config?.baseURL + error.config?.url;
-    logger.error(`[API] ${options.method} ${options.endpoint} failed: ${JSON.stringify({
-      url: fullUrl,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      message: error.message,
-      data: error.response?.data,
-    })}`);
-
-    // Re-throw with response data embedded in error message for IPC serialization
-    // IPC can't serialize custom properties, so we include error details in the message
-    if (error.response) {
-      // Extract backend error message
-      let backendError = null;
-      if (error.response.data?.error) {
-        backendError = error.response.data.error;
-      } else if (error.response.data?.message) {
-        backendError = error.response.data.message;
-      } else if (error.response.data?.errors) {
-        const errors = error.response.data.errors;
-        if (Array.isArray(errors)) {
-          backendError = errors.join(', ');
-        } else if (typeof errors === 'object') {
-          backendError = Object.values(errors).flat().join(', ');
-        }
-      }
-
-      // Create error with backend details in message
-      if (backendError) {
-        throw new Error(`API Error: ${backendError}`);
-      } else {
-        throw new Error(`Request failed with status code ${error.response.status}`);
-      }
-    }
-    throw error;
-  }
+  return callBackendApi({
+    method: options.method.toUpperCase() as any,
+    endpoint: options.endpoint,
+    data: options.data,
+  });
 });
 
 ipcMain.handle(IPC_CHANNELS.SELECT_FOLDER, async (event) => {
@@ -2339,6 +2275,37 @@ async function waitForZotero(timeoutMs = 3000, intervalMs = 500): Promise<void> 
   }
   // Proceed anyway after timeout — Zotero may still handle it
 }
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_STATUS, async () => {
+  try {
+    const status = await getZoteroLocalStatus();
+    return { success: true, status };
+  } catch (error: any) {
+    logger.error('[Main] Zotero status check failed:', error);
+    return { success: false, error: error?.message ?? String(error), status: 'not-running' };
+  }
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_ADD_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) {
+    return { success: false, error: 'DOI must be a non-empty string', status: 'not-running' };
+  }
+  return await addDoiToZotero(doi);
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_GET_DOI_METADATA, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) return null;
+  return getDoiMetadata(doi);
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_LIST_ADDED_DOIS, async () => {
+  return listAddedDois();
+});
+
+ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) return null;
+  return await checkDoiInZotero(doi);
+});
 
 ipcMain.handle(IPC_CHANNELS.OPEN_EXTERNAL_URL, async (_event, url: string) => {
   try {

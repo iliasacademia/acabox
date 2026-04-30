@@ -36,9 +36,29 @@ export function buildWordPollResponseV2(
     : null;
 
   const isDockedActive = windowMonitorService.isDockedActive(wid);
+  // Cobuilding mode is active when a workspace has been selected. The check
+  // below uses the *active* workspace's directory; documents in non-active
+  // workspaces are treated the same as documents outside any workspace.
+  const activeWorkspaceDir = windowMonitorService.getActiveWorkspaceDirectory();
+  const isCobuildingMode = !!activeWorkspaceDir;
 
   // If no document path at all (unsaved file)
   if (!documentPath) {
+    if (isCobuildingMode) {
+      // Cobuilding mode + unsaved doc — hide overlay entirely
+      return {
+        notificationCount: 0,
+        isActive: false,
+        recentReviewNotifications: [],
+        isReviewingSelectedText: false,
+        activeDocumentPath: documentPath,
+        shouldShowButtonV2: false,
+        shouldShowPopupV2: false,
+        shouldShowReviewButton: false,
+        hasSelectedText: false,
+        isDockedActive: false,
+      };
+    }
     return {
       isEnableFeedback: true,
       isUnsavedDocument: true,
@@ -55,10 +75,9 @@ export function buildWordPollResponseV2(
     };
   }
 
-  // Check if the document is within the cobuilding workspace directory
-  const workspaceDir = windowMonitorService.getWorkspaceDirectory();
-  if (workspaceDir) {
-    if (documentPath.startsWith(workspaceDir + '/')) {
+  // Check if the document is within the active cobuilding workspace directory
+  if (activeWorkspaceDir) {
+    if (documentPath.startsWith(activeWorkspaceDir + '/')) {
       const sessions = windowMonitorService.getWorkspaceSessions();
       const selectedTextContent = wid
         ? windowMonitorService.getSelectedTextContent(wid)
@@ -74,7 +93,7 @@ export function buildWordPollResponseV2(
         shouldShowButtonV2,
         shouldShowPopupV2,
         shouldShowReviewButton: false,
-        hasSelectedText: !!selectedTextContent,
+        hasSelectedText: false,
         selectedText: selectedTextContent ?? undefined,
         isDockedActive,
       };

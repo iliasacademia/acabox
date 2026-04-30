@@ -52,10 +52,12 @@ function resolveRuntimeDeps(roots) {
     resolved.add(mod);
 
     const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    if (pkg.dependencies) {
-      for (const dep of Object.keys(pkg.dependencies)) {
-        if (!resolved.has(dep) && !installTimeOnly.has(dep)) {
-          queue.push(dep);
+    for (const depField of ['dependencies', 'optionalDependencies']) {
+      if (pkg[depField]) {
+        for (const dep of Object.keys(pkg[depField])) {
+          if (!resolved.has(dep) && !installTimeOnly.has(dep)) {
+            queue.push(dep);
+          }
         }
       }
     }
@@ -81,7 +83,7 @@ const packagerConfig = {
     },
   ],
   asar: {
-    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/onnxruntime-node/**/*}',
+    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*,**/node_modules/onnxruntime-node/**/*}',
   },
   extraResource: [
     'src/cobuilding/assets/silero_vad.onnx',

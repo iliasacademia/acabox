@@ -202,12 +202,10 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   useEffect(() => {
     let height: number;
 
-    if (activeSession) {
-      // Full conversation view — use a large fixed height
-      height = 500;
-    } else if (isInWorkspace) {
-      height = POPUP_HEIGHT_CONVERSATIONS_BASE;
-      height += workspaceSessions.length * POPUP_HEIGHT_PER_CONVERSATION;
+    if (activeSession || isInWorkspace) {
+      // Cobuilding overlay: always use a fixed height regardless of content.
+      // The list / conversation scrolls internally; the launcher stays visible below.
+      height = 600;
     } else if (isEnableFeedback && isUnsavedDocument) {
       height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
     } else if (isEnableFeedback) {
@@ -425,7 +423,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
   return (
     <div style={styles.container}>
-      <div style={{ ...styles.modal, overflowY: 'auto' }}>
+      <div style={{ ...styles.modal, overflow: 'hidden' }}>
         {/* Draggable title bar */}
         <div
           style={{ ...styles.titleBar, cursor: isTitleBarDragging ? 'grabbing' : 'default' }}
@@ -475,27 +473,29 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           onPointerMove={handleResizePointerMove}
           onPointerUp={handleResizePointerUp}
         />
-        {activeSession
-          ? <WorkspaceConversationView
-              sessionId={activeSession.id}
-              sessionTitle={activeSession.title}
-              documentPath={docPath}
-              selectedText={pollData?.selectedText}
-              onBack={handleBackToSessions}
-            />
-          : isInWorkspace
-          ? <WorkspaceSessionsView
-              sessions={workspaceSessions}
-              onOpenSession={handleOpenSession}
-              onNewConversation={handleNewConversation}
-            />
-          : isEnableFeedback
-          ? <NotLinkedView isUnsavedDocument={isUnsavedDocument} />
-          : <ConversationListView
-              conversations={conversations}
-              isLoading={isLoading}
-              onContinueConversation={handleContinueConversation}
-            />}
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+          {activeSession
+            ? <WorkspaceConversationView
+                sessionId={activeSession.id}
+                sessionTitle={activeSession.title}
+                documentPath={docPath}
+                selectedText={pollData?.selectedText}
+                onBack={handleBackToSessions}
+              />
+            : isInWorkspace
+            ? <WorkspaceSessionsView
+                sessions={workspaceSessions}
+                onOpenSession={handleOpenSession}
+                onNewConversation={handleNewConversation}
+              />
+            : isEnableFeedback
+            ? <NotLinkedView isUnsavedDocument={isUnsavedDocument} />
+            : <ConversationListView
+                conversations={conversations}
+                isLoading={isLoading}
+                onContinueConversation={handleContinueConversation}
+              />}
+        </div>
       </div>
     </div>
   );

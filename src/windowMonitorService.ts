@@ -87,7 +87,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
         if (!_contentBounds) return null;
 
         // In cobuilding mode, selection goes to the composer pill — no review button needed
-        if (service.getWorkspaceDirectory()) return null;
+        if (service.getActiveWorkspaceDirectory()) return null;
 
         // Hide review button when review input is open
         if (windowId && service['reviewInputOpen'].has(windowId)) return null;
@@ -531,16 +531,17 @@ export class WindowMonitorService {
     const focused = getFocusedWindowInfo(this.state);
     let windowId = focused?.window.id ?? null;
 
-    // In cobuilding mode, keep the overlay visible when Word loses focus
-    // by reusing the last desired state. The overlay drops to normal window level
+    // In cobuilding mode, keep the open chat panel visible when Word loses focus
+    // by reusing its last desired state. Drops to normal window level
     // (background: true) so it sits behind the active app's windows.
+    // The launcher button (button-v2) is intentionally NOT carried over —
+    // it's only meaningful when Word is the focused app.
     if (this.workspaceDirectory && !windowId && this.lastV4FocusedWindowId) {
       const hasOverlay = Object.keys(desiredState).length > 0;
-      if (!hasOverlay && Object.keys(this.lastDesiredState).length > 0) {
+      const lastPopup = this.lastDesiredState['popup-v2'];
+      if (!hasOverlay && lastPopup?.visible) {
         windowId = this.lastV4FocusedWindowId;
-        for (const [key, value] of Object.entries(this.lastDesiredState)) {
-          desiredState[key] = { ...value, background: true };
-        }
+        desiredState['popup-v2'] = { ...lastPopup, background: true };
       }
     }
 
@@ -1050,11 +1051,17 @@ export class WindowMonitorService {
     return this.reviewPanelV3SelectedText.get(windowId) ?? this.lastSelectedText;
   }
 
-  setWorkspaceDirectory(directory: string | null): void {
+  /**
+   * Sets the directory of the *active* workspace. Multiple workspaces may exist,
+   * but only one is active at a time; this should be called whenever the active
+   * workspace is selected or switched.
+   */
+  setActiveWorkspaceDirectory(directory: string | null): void {
     this.workspaceDirectory = directory;
   }
 
-  getWorkspaceDirectory(): string | null {
+  /** Returns the directory of the currently active workspace, or null if none. */
+  getActiveWorkspaceDirectory(): string | null {
     return this.workspaceDirectory;
   }
 

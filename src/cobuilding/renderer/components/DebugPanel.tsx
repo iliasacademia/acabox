@@ -8,9 +8,10 @@ import { FileMonitorDebug } from './FileMonitorDebug';
 import { StorageDebug } from './StorageDebug';
 import { TerminalDebug } from './TerminalDebug';
 import { AuthDebug } from './AuthDebug';
+import { OfficeAddinDebug } from './OfficeAddinDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal' | 'auth';
+export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal' | 'auth' | 'office-addin';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'apps', label: 'Logs' },
@@ -22,6 +23,7 @@ const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'file-monitor', label: 'File Monitor' },
   { id: 'storage', label: 'Storage' },
   { id: 'auth', label: 'API Key' },
+  { id: 'office-addin', label: 'Office Add-in' },
 ];
 
 export const DebugSidebar: React.FC<{
@@ -56,6 +58,7 @@ export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ active
       {activeSection === 'file-monitor' && <FileMonitorDebug />}
       {activeSection === 'storage' && <StorageDebug />}
       {activeSection === 'auth' && <AuthDebug />}
+      {activeSection === 'office-addin' && <OfficeAddinDebug />}
     </div>
   );
 };

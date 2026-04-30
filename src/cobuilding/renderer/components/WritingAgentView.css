@@ -274,3 +274,66 @@
   0%, 80%, 100% { transform: scale(0); }
   40% { transform: scale(1); }
 }
+
+/* Inline reference (DOI link + Add to Zotero button) */
+.docRefInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.zoteroAddRefBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  background: #ffffff;
+  color: #6b7280;
+  cursor: pointer;
+  vertical-align: middle;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.zoteroAddRefBtn:hover:not(:disabled) {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.zoteroAddRefBtn--saving {
+  color: #6b7280;
+}
+
+.zoteroAddRefBtn--added {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #16a34a;
+}
+
+.zoteroAddRefBtn--added:hover {
+  background: #dcfce7;
+}
+
+.zoteroAddRefBtn--error {
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+.zoteroAddRefBtn--disabled,
+.zoteroAddRefBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.zoteroAddRefBtn__spin {
+  animation: zoteroAddRefSpin 0.9s linear infinite;
+}
+
+@keyframes zoteroAddRefSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
