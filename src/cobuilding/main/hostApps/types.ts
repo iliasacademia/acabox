@@ -77,6 +77,15 @@ export interface HostApp {
   /** Apply a user-approved find/replace edit. Word: AppleScript. Obsidian: filesystem. */
   applyEdit(params: ApplyEditParams): Promise<ApplyEditResult>;
 
+  /**
+   * Optional SQL-LIKE pattern matching `sessions.document_path` values that
+   * belong to this host. When the active document path can't be resolved
+   * (e.g. Apple Notes with no selection), `buildOverlayPollResponseV2` uses
+   * this to show every chat for the host instead of an empty list.
+   * Word/Obsidian leave it unset — their per-document filter is enough.
+   */
+  sessionDocumentPathLikePattern?: string;
+
   /** Optional pre/post hooks around applyEdit (e.g. Word's selection-event suppression). */
   onApplyEditWillRun?(): void;
   onApplyEditDidRun?(): void;

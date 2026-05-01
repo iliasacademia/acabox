@@ -21,6 +21,7 @@ import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
 import {
   listSessions,
+  listSessionsByDocPathLike,
   getSession,
   createSession,
   updateSessionTitle,
@@ -854,9 +855,12 @@ app.whenReady().then(async () => {
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
               windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
-              windowMonitorService.setSessionsProvider((documentPath) => {
+              windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
                 if (!activeWorkspace) return [];
-                return listSessions(activeWorkspace.id, undefined, documentPath).map(s => ({
+                const rows = documentPathLike !== undefined
+                  ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
+                  : listSessions(activeWorkspace.id, undefined, documentPath);
+                return rows.map(s => ({
                   id: s.id,
                   title: s.title,
                   created_at: s.created_at,

@@ -100,6 +100,10 @@ export const appleNotesHostApp: HostApp = {
 
   allowedTools: APPLE_NOTES_ALLOWED_TOOLS,
   systemPromptAppend: APPLE_NOTES_SYSTEM_PROMPT_APPEND,
+  // Apple Notes doc paths all share the `applenotes://` scheme. When the
+  // active note id isn't yet resolved, the overlay falls back to listing every
+  // chat the user has had on Apple Notes.
+  sessionDocumentPathLikePattern: 'applenotes://%',
 
   messagePrefix({ documentPath, selectedText }) {
     let prefix = '';

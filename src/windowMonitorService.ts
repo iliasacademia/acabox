@@ -303,7 +303,7 @@ export class WindowMonitorService {
   // cached value synchronously to consumers (poll-response builder, etc.).
   private lastAppleNotesPath: string | null = null;
   private appleNotesRefreshInflight = false;
-  private sessionsProvider: ((documentPath?: string) => Array<{ id: string; title: string; created_at: string }>) | null = null;
+  private sessionsProvider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null = null;
   // When true, WINDOW_TEXT_SELECTED events are ignored (used to suppress
   // programmatic selections from MCP tools like find_and_replace/select_text).
   private selectionEventsSuppressed = false;
@@ -1199,12 +1199,16 @@ export class WindowMonitorService {
     return this.workspaceDirectory;
   }
 
-  setSessionsProvider(provider: ((documentPath?: string) => Array<{ id: string; title: string; created_at: string }>) | null): void {
+  setSessionsProvider(provider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null): void {
     this.sessionsProvider = provider;
   }
 
   getWorkspaceSessions(documentPath?: string): Array<{ id: string; title: string; created_at: string }> {
-    return this.sessionsProvider?.(documentPath) ?? [];
+    return this.sessionsProvider?.({ documentPath }) ?? [];
+  }
+
+  getWorkspaceSessionsByDocPathLike(documentPathLike: string): Array<{ id: string; title: string; created_at: string }> {
+    return this.sessionsProvider?.({ documentPathLike }) ?? [];
   }
 
   /**
