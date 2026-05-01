@@ -19,9 +19,15 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [openaiKeyLoaded, setOpenaiKeyLoaded] = useState(false);
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
 
-  // Accessibility permission for Word overlay
+  // Accessibility permission (shared across all overlay integrations)
   const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
   const [requestingPermission, setRequestingPermission] = useState(false);
+
+  // Per-integration enable state (Word, Obsidian, ...).
+  const [wordIntegrationEnabled, setWordIntegrationEnabled] = useState<boolean | null>(null);
+  const [obsidianIntegrationEnabled, setObsidianIntegrationEnabled] = useState<boolean | null>(null);
+  const [integrationToggling, setIntegrationToggling] = useState<'word' | 'obsidian' | null>(null);
+  const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: 'word' | 'obsidian'; displayName: string } | null>(null);
 
   const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
   const [isSwitching, setIsSwitching] = useState<string | null>(null);
@@ -47,6 +53,9 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
       if (result) setAccessibilityGranted(result.hasPermission ?? false);
     }).catch(() => setAccessibilityGranted(false));
+    // Read persisted integration toggles
+    window.electronAPI.invoke('integration:get-enabled', 'word').then((v: boolean) => setWordIntegrationEnabled(!!v)).catch(() => setWordIntegrationEnabled(false));
+    window.electronAPI.invoke('integration:get-enabled', 'obsidian').then((v: boolean) => setObsidianIntegrationEnabled(!!v)).catch(() => setObsidianIntegrationEnabled(false));
   }, []);
 
   useEffect(() => {
@@ -110,6 +119,27 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Failed to create workspace.');
       setIsCreating(false);
+    }
+  };
+
+  const handleToggleIntegration = async (id: 'word' | 'obsidian', displayName: string, currentlyEnabled: boolean | null) => {
+    if (currentlyEnabled === null || integrationToggling !== null) return;
+    setIntegrationToggling(id);
+    setIntegrationPermissionPrompt(null);
+    try {
+      const result: any = await window.electronAPI.invoke(
+        'integration:set-enabled',
+        id,
+        !currentlyEnabled,
+      );
+      if (result?.success === false && result?.error === 'permission_required') {
+        setIntegrationPermissionPrompt({ id, displayName });
+      }
+      // On success the main process is restarting the app — nothing more to do here.
+    } catch (err) {
+      console.error('[WorkspaceSettings] Integration toggle failed:', err);
+    } finally {
+      setIntegrationToggling(null);
     }
   };
 
@@ -269,13 +299,15 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
 
         <div className="wsSettings__divider" />
 
-        {/* Accessibility Permission for Word Overlay */}
+        {/* Integrations — overlay over Word and/or Obsidian */}
         <div className="wsSettings__field">
-          <label className="wsSettings__label">Word Overlay</label>
+          <label className="wsSettings__label">Integrations</label>
           <p className="wsSettings__hint">
-            Accessibility permission is required for the Word overlay to detect the active document and selected text.
+            Show the floating overlay over a host app and let the agent propose edits with Approve/Deny cards. Both integrations require macOS Accessibility permission for Academia.
           </p>
-          <div className="wsSettings__dirRow">
+
+          {/* Accessibility status row */}
+          <div className="wsSettings__dirRow" style={{ marginBottom: 12 }}>
             <span style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -287,7 +319,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
                 {accessibilityGranted === null ? '⏳' : accessibilityGranted ? '✓' : '✗'}
               </span>
               {accessibilityGranted === null
-                ? 'Checking...'
+                ? 'Checking accessibility permission...'
                 : accessibilityGranted
                 ? 'Accessibility permission granted'
                 : 'Accessibility permission not granted'}
@@ -303,6 +335,65 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
               </button>
             )}
           </div>
+
+          {/* Word Integration */}
+          <div className="wsSettings__dirRow" style={{ marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>Word Integration</div>
+              <div style={{ fontSize: 12, color: '#666' }}>
+                {wordIntegrationEnabled
+                  ? 'Overlay appears over Microsoft Word documents. Edits are proposed via Track Changes.'
+                  : 'Show the overlay over Microsoft Word and let the agent propose tracked-change edits.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`gsStep__btn ${wordIntegrationEnabled ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
+              disabled={wordIntegrationEnabled === null || integrationToggling !== null}
+              onClick={() => handleToggleIntegration('word', 'Word', wordIntegrationEnabled)}
+            >
+              {integrationToggling === 'word'
+                ? 'Working...'
+                : wordIntegrationEnabled === null
+                  ? '...'
+                  : wordIntegrationEnabled
+                    ? 'Disable and Restart'
+                    : 'Enable and Restart'}
+            </button>
+          </div>
+
+          {/* Obsidian Integration */}
+          <div className="wsSettings__dirRow" style={{ marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>Obsidian Integration</div>
+              <div style={{ fontSize: 12, color: '#666' }}>
+                {obsidianIntegrationEnabled
+                  ? 'Overlay appears over Obsidian when the active workspace is the vault. Edits go through Approve/Deny cards.'
+                  : 'Show the overlay over Obsidian for any markdown note in the active workspace. The workspace must be your Obsidian vault (folder with .obsidian/ inside).'}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`gsStep__btn ${obsidianIntegrationEnabled ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
+              disabled={obsidianIntegrationEnabled === null || integrationToggling !== null}
+              onClick={() => handleToggleIntegration('obsidian', 'Obsidian', obsidianIntegrationEnabled)}
+            >
+              {integrationToggling === 'obsidian'
+                ? 'Working...'
+                : obsidianIntegrationEnabled === null
+                  ? '...'
+                  : obsidianIntegrationEnabled
+                    ? 'Disable and Restart'
+                    : 'Enable and Restart'}
+            </button>
+          </div>
+
+          {integrationPermissionPrompt && (
+            <div style={{ marginTop: 8, padding: 10, background: 'rgba(204, 41, 54, 0.08)', borderRadius: 6, fontSize: 12, color: '#7a1f29' }}>
+              <strong>Accessibility permission required for {integrationPermissionPrompt.displayName}.</strong>{' '}
+              Academia needs macOS Accessibility permission to position the overlay over {integrationPermissionPrompt.displayName} windows. We've opened System Settings — once you grant Academia access there, return here and click the toggle again.
+            </div>
+          )}
         </div>
 
         {error && <p className="gsStep__error">{error}</p>}

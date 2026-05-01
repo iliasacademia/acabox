@@ -649,19 +649,32 @@ app.whenReady().then(async () => {
               },
             );
 
-            // POST /api/cobuilding/apply-edit — execute a user-approved edit
-            fastify.post<{ Body: { toolCallId: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean } }>(
+            // POST /api/cobuilding/apply-edit — execute a user-approved edit.
+            // Dispatches to the HostApp that owns the document (resolved by
+            // file extension on `document_path`). Falls back to Word for
+            // legacy callers that don't include `document_path`.
+            fastify.post<{ Body: { toolCallId: string; document_path?: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean } }>(
               '/api/cobuilding/apply-edit',
               async (request, reply) => {
                 try {
-                  const { findAndReplaceInWord } = await import('../../server/wordActions');
-                  const { toolCallId, search_text, replacement_text, replace_scope, match_case } = request.body;
-                  const result = await findAndReplaceInWord(
-                    search_text,
-                    replacement_text,
-                    (replace_scope as 'first' | 'all') || 'first',
-                    match_case ?? true,
-                  );
+                  const { findHostAppForDocument } = await import('./hostApps');
+                  const { wordHostApp } = await import('./hostApps/wordHostApp');
+                  const { toolCallId, document_path, search_text, replacement_text, replace_scope, match_case } = request.body;
+                  const host = findHostAppForDocument(document_path) ?? wordHostApp;
+                  host.onApplyEditWillRun?.();
+                  let result;
+                  try {
+                    result = await host.applyEdit({
+                      toolCallId,
+                      document_path,
+                      search_text,
+                      replacement_text,
+                      replace_scope: (replace_scope as 'first' | 'all') || 'first',
+                      match_case: match_case ?? true,
+                    });
+                  } finally {
+                    host.onApplyEditDidRun?.();
+                  }
                   const state = result.success ? 'applied' : 'error';
                   if (toolCallId) editStates.set(toolCallId, state);
                   reply.send(result);
@@ -768,14 +781,19 @@ app.whenReady().then(async () => {
                     undefined,
                     undefined,
                     // messagePreprocessor: inject document/selection context for Claude
-                    // without storing it in the DB message
+                    // without storing it in the DB message. The host app resolved from
+                    // documentPath chooses how to phrase the prefix (Word vs Obsidian).
                     (userText: string) => {
                       const ctx = pendingContext.get(sessionId);
                       pendingContext.delete(sessionId);
                       if (!ctx) return userText;
-                      let prefix = '';
-                      if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
-                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the academic-writing-agent skill scoped to this selected passage.\n"""\n${ctx.selectedText}\n"""\n`;
+                      const { findHostAppForDocument } = require('./hostApps');
+                      const { wordHostApp } = require('./hostApps/wordHostApp');
+                      const host = findHostAppForDocument(ctx.documentPath) ?? wordHostApp;
+                      const prefix = host.messagePrefix({
+                        documentPath: ctx.documentPath,
+                        selectedText: ctx.selectedText,
+                      });
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
                     ctxDocPath,
@@ -1682,13 +1700,25 @@ ipcMain.on('chat:stop', (event, threadId: string) => {
 // Edit state sync (desktop ↔ overlay)
 // =============================================================================
 
-ipcMain.handle('edit-state:apply', async (_event, { toolCallId, search_text, replacement_text, replace_scope, match_case }: any) => {
+ipcMain.handle('edit-state:apply', async (_event, { toolCallId, document_path, search_text, replacement_text, replace_scope, match_case }: any) => {
   try {
-    const { findAndReplaceInWord } = await import('../../server/wordActions');
-    const result = await findAndReplaceInWord(
-      search_text, replacement_text,
-      replace_scope || 'first', match_case ?? true,
-    );
+    const { findHostAppForDocument } = await import('./hostApps');
+    const { wordHostApp } = await import('./hostApps/wordHostApp');
+    const host = findHostAppForDocument(document_path) ?? wordHostApp;
+    host.onApplyEditWillRun?.();
+    let result;
+    try {
+      result = await host.applyEdit({
+        toolCallId,
+        document_path,
+        search_text,
+        replacement_text,
+        replace_scope: (replace_scope as 'first' | 'all') || 'first',
+        match_case: match_case ?? true,
+      });
+    } finally {
+      host.onApplyEditDidRun?.();
+    }
     if (result.success) editStates.set(toolCallId, 'applied');
     else editStates.set(toolCallId, 'error');
     return result;
@@ -2298,6 +2328,64 @@ ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) 
   if (typeof doi !== 'string' || doi.length === 0) return null;
   const { checkDoiInZotero } = await import('../../zoteroLocalClient');
   return await checkDoiInZotero(doi);
+});
+
+// Integration toggles (Word, Obsidian, ...). Backed by electron-store, drive
+// `getRegisteredHostApps()` at startup.
+import { store as appStore } from '../../appStore';
+import { setHostAppRegistrationOverrides, type IntegrationId } from './hostApps';
+
+const INTEGRATION_DEFAULTS: Record<IntegrationId, boolean> = {
+  word: FEATURES.MS_WORD_INTEGRATION_ENABLED,
+  obsidian: FEATURES.OBSIDIAN_INTEGRATION_ENABLED,
+};
+
+function integrationStoreKey(id: IntegrationId): string {
+  return `integration.${id}.enabled`;
+}
+
+function readIntegrationEnabled(id: IntegrationId): boolean {
+  return appStore.get(integrationStoreKey(id), INTEGRATION_DEFAULTS[id]) as boolean;
+}
+
+// Apply persisted toggles to the host-app registry as soon as the module loads
+// — must happen before windowMonitorService.start() consults the registry.
+setHostAppRegistrationOverrides({
+  word: readIntegrationEnabled('word'),
+  obsidian: readIntegrationEnabled('obsidian'),
+});
+
+ipcMain.handle(IPC_CHANNELS.INTEGRATION_GET_ENABLED, async (_event, id: IntegrationId) => {
+  if (id !== 'word' && id !== 'obsidian') return false;
+  return readIntegrationEnabled(id);
+});
+
+ipcMain.handle(IPC_CHANNELS.INTEGRATION_SET_ENABLED, async (_event, id: IntegrationId, enabled: boolean) => {
+  if (id !== 'word' && id !== 'obsidian') {
+    return { success: false, error: 'unknown_integration' };
+  }
+  // Per-integration permission gate. The macOS Accessibility permission is
+  // global to the Academia app, but we surface the request here (with copy
+  // scoped to whichever toggle the user is enabling) rather than at app start.
+  if (enabled && process.platform === 'darwin') {
+    const granted = wordAccessibility.checkPermission();
+    if (!granted) {
+      // Open System Settings — user has to approve there, then come back and toggle again.
+      wordAccessibility.openAccessibilitySettings();
+      return {
+        success: false,
+        error: 'permission_required',
+        integrationId: id,
+      };
+    }
+  }
+  appStore.set(integrationStoreKey(id), enabled);
+  // Restart so the host-app registry, window-monitor processes, and overlay
+  // configs all rehydrate cleanly. This matches how SET_ALL_APPS_MONITOR_ENABLED
+  // already handles its toggle.
+  if (app.isPackaged) app.relaunch();
+  app.quit();
+  return { success: true };
 });
 
 // Permission IPC handlers (macOS only)
