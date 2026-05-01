@@ -35,6 +35,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
   // All-apps monitor feature flag state
   const [allAppsMonitorEnabled, setAllAppsMonitorEnabled] = useState(false);
 
+  // Per-integration enable state (Word, Obsidian, ...).
+  const [wordIntegrationEnabled, setWordIntegrationEnabled] = useState(true);
+  const [obsidianIntegrationEnabled, setObsidianIntegrationEnabled] = useState(false);
+  const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: 'word' | 'obsidian'; displayName: string } | null>(null);
+  const [integrationToggling, setIntegrationToggling] = useState<'word' | 'obsidian' | null>(null);
+
   // Sandbox state
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [sandboxStatus, setSandboxStatus] = useState<string | null>(null);
@@ -72,6 +78,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       getZoteroStatus().then(setZoteroStatus).finally(() => setIsLoadingStatus(false));
       window.electronAPI.invoke(IPC_CHANNELS.GET_ALWAYS_SAVE_BEFORE_REVIEW).then((v: boolean) => setAlwaysSaveBeforeReview(v));
       window.electronAPI.invoke(IPC_CHANNELS.GET_ALL_APPS_MONITOR_ENABLED).then((v: boolean) => setAllAppsMonitorEnabled(v));
+      window.electronAPI.invoke(IPC_CHANNELS.INTEGRATION_GET_ENABLED, 'word').then((v: boolean) => setWordIntegrationEnabled(v));
+      window.electronAPI.invoke(IPC_CHANNELS.INTEGRATION_GET_ENABLED, 'obsidian').then((v: boolean) => setObsidianIntegrationEnabled(v));
+      setIntegrationPermissionPrompt(null);
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_STATUS).then((s: { running: boolean }) => setSandboxRunning(s.running));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_SKIP_CHECKSUM).then((v: boolean) => setSkipChecksum(v));
       window.electronAPI.invoke(IPC_CHANNELS.PODMAN_GET_TRUSTED_DOMAINS).then((d: string[]) => setTrustedDomains(d || []));
@@ -191,6 +200,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
       console.error('[SettingsModal] Zotero disconnect failed:', err);
     } finally {
       setIsDisconnecting(false);
+    }
+  };
+
+  const handleToggleIntegration = async (id: 'word' | 'obsidian', displayName: string, currentlyEnabled: boolean) => {
+    setIntegrationToggling(id);
+    setIntegrationPermissionPrompt(null);
+    try {
+      const result = await window.electronAPI.invoke(
+        IPC_CHANNELS.INTEGRATION_SET_ENABLED,
+        id,
+        !currentlyEnabled,
+      );
+      if (result?.success === false && result?.error === 'permission_required') {
+        // Permission flow: System Settings has been opened by main; tell the user.
+        setIntegrationPermissionPrompt({ id, displayName });
+      }
+      // On success, the main process is restarting the app — nothing more to do here.
+    } catch (err: any) {
+      console.error('[SettingsModal] Integration toggle failed:', err);
+    } finally {
+      setIntegrationToggling(null);
     }
   };
 
@@ -336,6 +366,65 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose, o
           </div>
 
           <div className="settingsSectionLabel">Integrations</div>
+
+          <div className="settingsSection">
+            <div className="settingItem zoteroSettingItem">
+              <div className="settingContent">
+                <div className="settingLabel">Word Integration</div>
+                <div className="settingDescription">
+                  {wordIntegrationEnabled
+                    ? 'Overlay appears over Microsoft Word documents. The agent edits via Track Changes — every change goes through an Approve/Deny card.'
+                    : 'Show the floating overlay over Microsoft Word and let the agent propose tracked-change edits.'}
+                </div>
+              </div>
+              <div className="zoteroAction">
+                <button
+                  className={`zoteroButton ${wordIntegrationEnabled ? 'zoteroButtonDisconnect' : 'zoteroButtonConnect'}`}
+                  onClick={() => handleToggleIntegration('word', 'Word', wordIntegrationEnabled)}
+                  disabled={integrationToggling !== null}
+                >
+                  {integrationToggling === 'word'
+                    ? 'Working...'
+                    : wordIntegrationEnabled
+                      ? 'Disable and Restart'
+                      : 'Enable and Restart'}
+                </button>
+              </div>
+            </div>
+            <div className="settingItem zoteroSettingItem">
+              <div className="settingContent">
+                <div className="settingLabel">Obsidian Integration</div>
+                <div className="settingDescription">
+                  {obsidianIntegrationEnabled
+                    ? 'Overlay appears over Obsidian when the active workspace is the vault. The agent edits markdown notes — every change goes through an Approve/Deny card.'
+                    : 'Show the floating overlay over Obsidian for any markdown note in the active workspace. The workspace must be your Obsidian vault.'}
+                </div>
+              </div>
+              <div className="zoteroAction">
+                <button
+                  className={`zoteroButton ${obsidianIntegrationEnabled ? 'zoteroButtonDisconnect' : 'zoteroButtonConnect'}`}
+                  onClick={() => handleToggleIntegration('obsidian', 'Obsidian', obsidianIntegrationEnabled)}
+                  disabled={integrationToggling !== null}
+                >
+                  {integrationToggling === 'obsidian'
+                    ? 'Working...'
+                    : obsidianIntegrationEnabled
+                      ? 'Disable and Restart'
+                      : 'Enable and Restart'}
+                </button>
+              </div>
+            </div>
+            {integrationPermissionPrompt && (
+              <div className="settingItem zoteroSettingItem" style={{ background: 'rgba(204, 41, 54, 0.08)', borderRadius: 8 }}>
+                <div className="settingContent">
+                  <div className="settingLabel">Accessibility permission required for {integrationPermissionPrompt.displayName}</div>
+                  <div className="settingDescription">
+                    Academia needs macOS Accessibility permission to position the overlay over {integrationPermissionPrompt.displayName} windows. We've opened System Settings — once you grant Academia access there, return here and click the toggle again.
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="settingsSection">
             <div className="settingItem zoteroSettingItem">

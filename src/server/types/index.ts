@@ -120,9 +120,12 @@ export interface WordProjectFileResponse {
 }
 
 /**
- * Response for GET /word/:pid/poll
+ * Poll response for the floating overlay (button + popup) over any registered
+ * host app — Word, Obsidian, etc. Was historically named `WordPollResponse`;
+ * the legacy name is kept as a type alias at the bottom of the interface for
+ * back-compat. Prefer `OverlayPollResponse` in new code.
  */
-export interface WordPollResponse {
+export interface OverlayPollResponse {
   /** Whether this is an "Enable feedback" button (document exists but no project) */
   isEnableFeedback?: boolean;
   /** Whether the document is unsaved (no file path from accessibility API) */
@@ -194,6 +197,9 @@ export interface WordPollResponse {
     forceFullStoryRecording: boolean;
   };
 }
+
+/** Back-compat alias — prefer `OverlayPollResponse`. */
+export type WordPollResponse = OverlayPollResponse;
 
 /**
  * Request body for POST /api/navigate

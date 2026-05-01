@@ -6,17 +6,34 @@ import { obsidianHostApp } from './obsidianHostApp';
 
 export type { HostApp, ApplyEditParams, ApplyEditResult, PreToolUseHook, MessagePrefixContext } from './types';
 
+export type IntegrationId = 'word' | 'obsidian';
+
+/**
+ * Runtime overrides for which host apps are registered. Set at startup by the
+ * main process from the user's Settings (electron-store). When unset for a host,
+ * we fall back to the build-time FEATURES flag.
+ *
+ * This is what makes the Settings "Word Integration" / "Obsidian Integration"
+ * toggles take effect without requiring a code rebuild — flip the value in the
+ * store, restart, and the override drives `getRegisteredHostApps()`.
+ */
+let registrationOverrides: Partial<Record<IntegrationId, boolean>> = {};
+
+export function setHostAppRegistrationOverrides(overrides: Partial<Record<IntegrationId, boolean>>): void {
+  registrationOverrides = { ...overrides };
+}
+
 /**
  * Returns the host apps that are currently registered (active).
  *
- * Today this is gated on the build-time FEATURES flags. When the per-integration
- * Settings toggles land (M2), this function consults the runtime settings store
- * instead so the user can enable/disable each integration without restarting.
+ * Resolution order: runtime overrides (from Settings) > build-time FEATURES flags.
  */
 export function getRegisteredHostApps(): HostApp[] {
   const apps: HostApp[] = [];
-  if (FEATURES.MS_WORD_INTEGRATION_ENABLED) apps.push(wordHostApp);
-  if (FEATURES.OBSIDIAN_INTEGRATION_ENABLED) apps.push(obsidianHostApp);
+  const wordEnabled = registrationOverrides.word ?? FEATURES.MS_WORD_INTEGRATION_ENABLED;
+  const obsidianEnabled = registrationOverrides.obsidian ?? FEATURES.OBSIDIAN_INTEGRATION_ENABLED;
+  if (wordEnabled) apps.push(wordHostApp);
+  if (obsidianEnabled) apps.push(obsidianHostApp);
   return apps;
 }
 

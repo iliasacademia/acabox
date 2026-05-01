@@ -13,7 +13,7 @@
 
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
-import { WordPollResponse } from '../types';
+import { OverlayPollResponse } from '../types';
 import { defaultLogger as logger } from '../../utils/logger';
 import { remoteFeatureFlags, REMOTE_FLAGS } from '../../remoteFeatureFlags';
 
@@ -28,7 +28,7 @@ export function buildWordPollResponseV2(
   wid: string,
   _notificationManager?: any,
   _currentUserId?: () => number | null
-): WordPollResponse {
+): OverlayPollResponse {
   // Compute webview visibility from desired state
   const shouldShowButtonV2 = windowMonitorService.getDesiredWebviewVisibility('button-v2', wid);
   const shouldShowPopupV2 = windowMonitorService.getDesiredWebviewVisibility('popup-v2', wid);

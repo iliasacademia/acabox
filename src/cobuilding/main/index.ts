@@ -2330,6 +2330,64 @@ ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) 
   return await checkDoiInZotero(doi);
 });
 
+// Integration toggles (Word, Obsidian, ...). Backed by electron-store, drive
+// `getRegisteredHostApps()` at startup.
+import { store as appStore } from '../../appStore';
+import { setHostAppRegistrationOverrides, type IntegrationId } from './hostApps';
+
+const INTEGRATION_DEFAULTS: Record<IntegrationId, boolean> = {
+  word: FEATURES.MS_WORD_INTEGRATION_ENABLED,
+  obsidian: FEATURES.OBSIDIAN_INTEGRATION_ENABLED,
+};
+
+function integrationStoreKey(id: IntegrationId): string {
+  return `integration.${id}.enabled`;
+}
+
+function readIntegrationEnabled(id: IntegrationId): boolean {
+  return appStore.get(integrationStoreKey(id), INTEGRATION_DEFAULTS[id]) as boolean;
+}
+
+// Apply persisted toggles to the host-app registry as soon as the module loads
+// — must happen before windowMonitorService.start() consults the registry.
+setHostAppRegistrationOverrides({
+  word: readIntegrationEnabled('word'),
+  obsidian: readIntegrationEnabled('obsidian'),
+});
+
+ipcMain.handle(IPC_CHANNELS.INTEGRATION_GET_ENABLED, async (_event, id: IntegrationId) => {
+  if (id !== 'word' && id !== 'obsidian') return false;
+  return readIntegrationEnabled(id);
+});
+
+ipcMain.handle(IPC_CHANNELS.INTEGRATION_SET_ENABLED, async (_event, id: IntegrationId, enabled: boolean) => {
+  if (id !== 'word' && id !== 'obsidian') {
+    return { success: false, error: 'unknown_integration' };
+  }
+  // Per-integration permission gate. The macOS Accessibility permission is
+  // global to the Academia app, but we surface the request here (with copy
+  // scoped to whichever toggle the user is enabling) rather than at app start.
+  if (enabled && process.platform === 'darwin') {
+    const granted = wordAccessibility.checkPermission();
+    if (!granted) {
+      // Open System Settings — user has to approve there, then come back and toggle again.
+      wordAccessibility.openAccessibilitySettings();
+      return {
+        success: false,
+        error: 'permission_required',
+        integrationId: id,
+      };
+    }
+  }
+  appStore.set(integrationStoreKey(id), enabled);
+  // Restart so the host-app registry, window-monitor processes, and overlay
+  // configs all rehydrate cleanly. This matches how SET_ALL_APPS_MONITOR_ENABLED
+  // already handles its toggle.
+  if (app.isPackaged) app.relaunch();
+  app.quit();
+  return { success: true };
+});
+
 // Permission IPC handlers (macOS only)
 ipcMain.handle(IPC_CHANNELS.CHECK_ACCESSIBILITY_PERMISSION, async () => {
   if (process.platform !== 'darwin') {
