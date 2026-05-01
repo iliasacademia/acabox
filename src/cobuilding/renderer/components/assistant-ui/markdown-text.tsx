@@ -173,8 +173,7 @@ const ZoteroAddRefButton: FC<{ doi: string }> = ({ doi }) => {
   const handleOpen = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const url = `zotero://search?q=${encodeURIComponent(doi)}`;
-    (window as any).electronAPI.invoke(IPC_CHANNELS.OPEN_EXTERNAL_URL, url);
+    (window as any).electronAPI.invoke(IPC_CHANNELS.ZOTERO_OPEN_DOI, doi);
   };
 
   if (alreadyAdded) {
