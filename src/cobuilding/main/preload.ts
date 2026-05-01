@@ -347,6 +347,11 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
     ipcRenderer.on('sessions:titleUpdated', handler);
     return () => { ipcRenderer.removeListener('sessions:titleUpdated', handler); };
   },
+  onSessionsChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('sessions:changed', handler);
+    return () => { ipcRenderer.removeListener('sessions:changed', handler); };
+  },
 });
 
 // Track active stream iterators per threadId to clean up stale ones
