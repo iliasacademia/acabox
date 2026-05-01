@@ -128,7 +128,7 @@ function emitBatch(action: BatchAction) {
 
 // ─── Individual suggestion card ──────────────────────────────────
 
-type CardState = 'pending' | 'applying' | 'applied' | 'denied' | 'error';
+type CardState = 'pending' | 'applying' | 'applied' | 'denied';
 
 const FindAndReplaceSuggestionImpl = ({
   toolCallId,
@@ -197,6 +197,7 @@ const FindAndReplaceSuggestionImpl = ({
 
   const handleApprove = useCallback(async () => {
     if (!parsed) return;
+    setError(null);
     setCardState('applying');
     unregisterPending(toolCallId);
     try {
@@ -205,11 +206,13 @@ const FindAndReplaceSuggestionImpl = ({
         setCardState('applied');
       } else {
         setError(res.error || 'Unknown error');
-        setCardState('error');
+        setCardState('pending');
+        registerPending(toolCallId);
       }
     } catch (err) {
       setError(String(err));
-      setCardState('error');
+      setCardState('pending');
+      registerPending(toolCallId);
     }
   }, [parsed, toolCallId]);
 
@@ -275,18 +278,6 @@ const FindAndReplaceSuggestionImpl = ({
     );
   }
 
-  // --- Error ---
-  if (cardState === 'error') {
-    return (
-      <div className="suggestionCard suggestionCard--error">
-        <div className="suggestionHeader">
-          <XCircleIcon size={14} />
-          <span className="suggestionHeaderText">Failed: {error}</span>
-        </div>
-      </div>
-    );
-  }
-
   // --- Proposal: show diff with approve/deny ---
   if (isProposal && searchText) {
     return (
@@ -311,9 +302,15 @@ const FindAndReplaceSuggestionImpl = ({
             <del className="suggestionDiffDel">{searchText}</del>
             <ins className="suggestionDiffIns">{replacementText}</ins>
           </div>
+          {error && (
+            <div className="suggestionError">
+              <XCircleIcon size={14} />
+              <span>Failed: {error}</span>
+            </div>
+          )}
           <div className="suggestionActions">
             <button className="suggestionBtn suggestionBtn--approve" onClick={handleApprove}>
-              Approve
+              {error ? 'Retry' : 'Approve'}
             </button>
             <button className="suggestionBtn suggestionBtn--deny" onClick={handleDeny}>
               Deny

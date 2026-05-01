@@ -675,8 +675,10 @@ app.whenReady().then(async () => {
                   } finally {
                     host.onApplyEditDidRun?.();
                   }
-                  const state = result.success ? 'applied' : 'error';
-                  if (toolCallId) editStates.set(toolCallId, state);
+                  if (toolCallId) {
+                    if (result.success) editStates.set(toolCallId, 'applied');
+                    else editStates.delete(toolCallId);
+                  }
                   reply.send(result);
                 } catch (err) {
                   reply.code(500).send({ success: false, error: String(err) });
@@ -759,13 +761,14 @@ app.whenReady().then(async () => {
                   }
                   const unsubscribe = existingRunning.addListener({
                     onEvent: (msg) => sendSSE('event', msg),
-                    onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); },
+                    onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); notifySessionsChanged(); },
                     onError: (err) => { sendSSE('error', { error: err }); reply.raw.end(); unsubscribe(); },
                   });
                   existingRunning.sendMessage(displayMessage);
                   return;
                 }
 
+                const isNewSession = !hasSession(sessionId) && !getSession(sessionId);
                 if (!hasSession(sessionId)) {
                   const existingDbSession = getSession(sessionId);
                   const session = createAgentSession(
@@ -801,6 +804,8 @@ app.whenReady().then(async () => {
                   registerSession(sessionId, session);
                 }
 
+                if (isNewSession) notifySessionsChanged();
+
                 const session = getRegisteredSession(sessionId)!;
 
                 // Ensure IPC forwarding to the desktop app BEFORE sending the message,
@@ -819,6 +824,7 @@ app.whenReady().then(async () => {
                     sendSSE('done', {});
                     reply.raw.end();
                     unsubscribe();
+                    notifySessionsChanged();
                   },
                   onError: (err) => {
                     sendSSE('error', { error: err });
@@ -1474,13 +1480,22 @@ ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
 ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
 ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
 
+function notifySessionsChanged() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('sessions:changed');
+  }
+}
+
 // Session IPC handlers
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   if (!activeWorkspace) return [];
   return listSessions(activeWorkspace.id, source);
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
-ipcMain.handle('sessions:rename', (_event, id: string, title: string) => updateSessionTitle(id, title));
+ipcMain.handle('sessions:rename', (_event, id: string, title: string) => {
+  updateSessionTitle(id, title);
+  notifySessionsChanged();
+});
 ipcMain.handle('sessions:delete', (_event, id: string) => {
   deleteSession(id);
   const session = getRegisteredSession(id);
@@ -1488,6 +1503,7 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
     session.destroy();
     unregisterSession(id);
   }
+  notifySessionsChanged();
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
@@ -1509,6 +1525,7 @@ ipcMain.handle('sessions:findForApp', (_event, dirName: string) => {
     JSON.stringify({ text: `This chat is connected to the application "${dirName}".` }),
   );
   updateSessionTitle(sessionId, displayName);
+  notifySessionsChanged();
   return sessionId;
 });
 
@@ -1720,7 +1737,7 @@ ipcMain.handle('edit-state:apply', async (_event, { toolCallId, document_path, s
       host.onApplyEditDidRun?.();
     }
     if (result.success) editStates.set(toolCallId, 'applied');
-    else editStates.set(toolCallId, 'error');
+    else editStates.delete(toolCallId);
     return result;
   } catch (err) {
     return { success: false, error: String(err) };
