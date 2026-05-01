@@ -167,6 +167,21 @@ function applyFindReplace(original: string, search: string, replacement: string,
   return { newContent: result, count: indices.length };
 }
 
+/**
+ * Resolve the active workspace directory by lazy-requiring windowMonitorService
+ * (avoids a circular import). Returns null if no workspace is active or the
+ * service isn't available.
+ */
+function getActiveWorkspaceDir(): string | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { windowMonitorService } = require('../../../windowMonitorService');
+    return windowMonitorService.getActiveWorkspaceDirectory() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function obsidianApplyEdit(params: ApplyEditParams): Promise<ApplyEditResult> {
   const { document_path, search_text, replacement_text, replace_scope, match_case } = params;
   if (!document_path) {
@@ -176,11 +191,37 @@ async function obsidianApplyEdit(params: ApplyEditParams): Promise<ApplyEditResu
     return { success: false, error: 'Obsidian apply-edit only supports markdown files', replacementsCount: 0 };
   }
 
+  // Resolve real paths for both the target and the workspace root, then verify
+  // the target lives inside the workspace. The endpoint takes `document_path`
+  // from the renderer's POST body, so this is the trust boundary that prevents
+  // an attacker (or a buggy proposal payload) from writing to files outside
+  // the active vault.
+  const workspaceDir = getActiveWorkspaceDir();
+  if (!workspaceDir) {
+    return { success: false, error: 'No active workspace — Obsidian edits are not allowed without a workspace', replacementsCount: 0 };
+  }
+
   let realPath: string;
   try {
     realPath = await fs.realpath(document_path);
   } catch (err) {
     return { success: false, error: `Cannot resolve path: ${(err as Error).message}`, replacementsCount: 0 };
+  }
+
+  let realWorkspace: string;
+  try {
+    realWorkspace = await fs.realpath(workspaceDir);
+  } catch (err) {
+    return { success: false, error: `Cannot resolve workspace: ${(err as Error).message}`, replacementsCount: 0 };
+  }
+
+  if (realPath !== realWorkspace && !realPath.startsWith(realWorkspace + path.sep)) {
+    logger.warn(`[ObsidianHostApp] Rejected apply-edit outside workspace: ${realPath} (workspace=${realWorkspace})`);
+    return {
+      success: false,
+      error: 'document_path is outside the active workspace; refusing to write',
+      replacementsCount: 0,
+    };
   }
 
   let mtimeBefore: number;
@@ -312,14 +353,5 @@ export function createObsidianHostApp(deps: {
  * `getActiveWorkspaceDirectory()`.
  */
 export const obsidianHostApp: HostApp = createObsidianHostApp({
-  getActiveNotePath: () => {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const { windowMonitorService } = require('../../../windowMonitorService');
-      const workspaceDir = windowMonitorService.getActiveWorkspaceDirectory();
-      return resolveObsidianDocumentPath(workspaceDir);
-    } catch {
-      return null;
-    }
-  },
+  getActiveNotePath: () => resolveObsidianDocumentPath(getActiveWorkspaceDir()),
 });

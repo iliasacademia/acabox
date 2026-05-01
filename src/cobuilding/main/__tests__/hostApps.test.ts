@@ -162,6 +162,85 @@ describe('resolveObsidianDocumentPath', () => {
   });
 });
 
+describe('obsidianHostApp.applyEdit workspace boundary', () => {
+  let tmpVault: string;
+  let outside: string;
+  let outsideFile: string;
+  let insideFile: string;
+
+  beforeEach(() => {
+    tmpVault = fs.mkdtempSync(path.join(os.tmpdir(), 'obsidian-bound-vault-'));
+    fs.mkdirSync(path.join(tmpVault, '.obsidian'), { recursive: true });
+    insideFile = path.join(tmpVault, 'Inside.md');
+    fs.writeFileSync(insideFile, 'foo bar baz\n');
+
+    outside = fs.mkdtempSync(path.join(os.tmpdir(), 'obsidian-bound-outside-'));
+    outsideFile = path.join(outside, 'Secret.md');
+    fs.writeFileSync(outsideFile, 'secret content\n');
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpVault, { recursive: true, force: true });
+    fs.rmSync(outside, { recursive: true, force: true });
+  });
+
+  /**
+   * Set up a fresh module cache with the mocked workspace directory and return
+   * the obsidianHostApp instance loaded against that mock. We must call applyEdit
+   * before the next test resets modules — otherwise the lazy `require` inside
+   * `getActiveWorkspaceDir` will pick up the wrong mock.
+   */
+  function loadHostAppWithWorkspace(workspaceDir: string | null) {
+    jest.resetModules();
+    jest.doMock('../../../windowMonitorService', () => ({
+      windowMonitorService: {
+        getFocusedWindowId: () => null,
+        getDocumentPathForWindow: () => null,
+        getActiveWorkspaceDirectory: () => workspaceDir,
+        suppressSelectionEvents: () => undefined,
+      },
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    return require('../hostApps/obsidianHostApp').obsidianHostApp;
+  }
+
+  it('rejects writes to a path outside the active workspace', async () => {
+    const app = loadHostAppWithWorkspace(tmpVault);
+    const result = await app.applyEdit({
+      document_path: outsideFile,
+      search_text: 'secret',
+      replacement_text: 'sanitized',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/outside the active workspace/);
+    // File on disk should be unchanged.
+    expect(fs.readFileSync(outsideFile, 'utf-8')).toBe('secret content\n');
+  });
+
+  it('rejects when there is no active workspace', async () => {
+    const app = loadHostAppWithWorkspace(null);
+    const result = await app.applyEdit({
+      document_path: insideFile,
+      search_text: 'foo',
+      replacement_text: 'qux',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/No active workspace/);
+  });
+
+  it('allows writes within the active workspace', async () => {
+    const app = loadHostAppWithWorkspace(tmpVault);
+    const result = await app.applyEdit({
+      document_path: insideFile,
+      search_text: 'foo',
+      replacement_text: 'qux',
+    });
+    expect(result.success).toBe(true);
+    expect(result.replacementsCount).toBe(1);
+    expect(fs.readFileSync(insideFile, 'utf-8')).toBe('qux bar baz\n');
+  });
+});
+
 describe('isObsidianVault', () => {
   let tmp: string;
 
