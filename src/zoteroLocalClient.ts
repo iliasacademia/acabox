@@ -228,9 +228,11 @@ export async function checkDoiInZotero(rawDoi: string): Promise<boolean | null> 
       if (!(await pingConnector())) return null;
 
       const res = await fetchWithTimeout(
-        // qmode=everything searches all indexed fields including the structured DOI
-        // field; titleCreatorYear would miss most DOIs.
-        `${ZOTERO_CONNECTOR_BASE}/api/users/0/items?q=${encodeURIComponent(doi)}&qmode=everything&limit=5&format=json`,
+        // /items/top excludes child attachments/notes/annotations so the
+        // search hits the parent journal article (which carries the DOI
+        // field) instead of an attached PDF whose text happens to mention
+        // the DOI.
+        `${ZOTERO_CONNECTOR_BASE}/api/users/0/items/top?q=${encodeURIComponent(doi)}&qmode=everything&limit=5&format=json`,
         { headers: { 'Accept': 'application/json', 'Zotero-API-Version': '3' } },
         3000,
       );
@@ -594,7 +596,9 @@ export async function searchZoteroLibrary(
   if (opts.itemType) params.set('itemType', opts.itemType);
 
   const res = await fetchWithTimeout(
-    `${ZOTERO_CONNECTOR_BASE}/api/users/0/items?${params.toString()}`,
+    // /items/top — exclude child attachments/notes so search hits parent
+    // bibliographic entries (which carry DOI / publication metadata).
+    `${ZOTERO_CONNECTOR_BASE}/api/users/0/items/top?${params.toString()}`,
     { headers: { 'Accept': 'application/json', 'Zotero-API-Version': '3' } },
     8000,
   );
