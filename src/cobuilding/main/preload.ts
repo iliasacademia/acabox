@@ -526,7 +526,7 @@ contextBridge.exposeInMainWorld('chatAPI', {
 
 // Edit state API — used by suggestion cards in the desktop app
 contextBridge.exposeInMainWorld('editStatesAPI', {
-  applyEdit: (params: { toolCallId: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean }) =>
+  applyEdit: (params: { toolCallId: string; document_path?: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean }) =>
     ipcRenderer.invoke('edit-state:apply', params),
   setState: (toolCallId: string, state: string) =>
     ipcRenderer.invoke('edit-state:set', { toolCallId, state }),

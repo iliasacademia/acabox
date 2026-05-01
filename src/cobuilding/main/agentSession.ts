@@ -12,9 +12,11 @@ import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import { createActivityMcpServer } from './mcpServers/activityMcpServer';
 import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
 import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
-import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
 import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
 import { resolveClaudeBinary } from './sdkBinarySetup';
+import { findHostAppForDocument, getRegisteredHostApps, type HostApp } from './hostApps';
+import { wordHostApp } from './hostApps/wordHostApp';
+import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
 
 
 
@@ -92,6 +94,18 @@ export function createAgentSession(
 
   createSession(sessionId, workspace.id, source ?? null, documentPath ?? null);
 
+  // Resolve which host app this session is acting on. If we have a documentPath
+  // we look it up by extension; otherwise we fall back to Word (preserves the
+  // pre-HostApp behavior where Word was always wired up). If Word isn't a
+  // registered host app (build-time disabled), pick the first registered host.
+  const registered = getRegisteredHostApps();
+  const sessionHostApp: HostApp = (
+    findHostAppForDocument(documentPath)
+    ?? registered.find((h) => h.id === wordHostApp.id)
+    ?? registered[0]
+    ?? wordHostApp
+  );
+
   async function* userMessageGenerator(): AsyncGenerator<SDKUserMessage> {
     for await (const payload of messageQueue) {
       yield {
@@ -104,40 +118,7 @@ export function createAgentSession(
   const state: MessageProcessingState = { currentToolCallId: null, currentBlockIsThinking: false, pendingBashCalls: new Map() };
 
   const workspaceBoundaryHook = createWorkspaceBoundaryHook(workspace.directory_path);
-
-  // Block direct .docx file manipulation — force use of ms-word MCP tools instead
-  const docxProtectionHook = async (input: HookInput): Promise<SyncHookJSONOutput> => {
-    if (input.hook_event_name !== 'PreToolUse') return {};
-    const { tool_name, tool_input } = input;
-    const toolInput = (tool_input ?? {}) as Record<string, unknown>;
-
-    // Check if any path argument targets a .docx file
-    const pathFields = ['file_path', 'path', 'command'];
-    for (const field of pathFields) {
-      const val = toolInput[field];
-      if (typeof val === 'string' && (
-        val.includes('.docx') && (
-          tool_name === 'Bash' ? (val.includes('unzip') || val.includes('zip') || val.includes('docx')) :
-          (tool_name === 'Read' || tool_name === 'Write' || tool_name === 'Edit')
-        )
-      )) {
-        // Allow reading .docx file path for reference, but block XML editing patterns
-        if (tool_name === 'Bash' && (val.includes('unzip') || val.includes('mkdir') || val.includes('zip '))) {
-          return {
-            decision: 'block',
-            reason: 'Do not unpack or modify .docx files directly. Use the ms-word MCP tools (find_and_replace with Track Changes) to edit Word documents.',
-          } as any;
-        }
-        if ((tool_name === 'Edit' || tool_name === 'Write') && (val.includes('document.xml') || val.includes('word/'))) {
-          return {
-            decision: 'block',
-            reason: 'Do not edit .docx XML files directly. Use mcp__ms-word__find_and_replace with Track Changes enabled instead.',
-          } as any;
-        }
-      }
-    }
-    return {};
-  };
+  const hostPreToolHooks = sessionHostApp.preToolHooks ?? [];
 
   (async () => {
     try {
@@ -145,7 +126,7 @@ export function createAgentSession(
       const miniAppServer = createMiniAppMcpServer(workspace.directory_path);
       const notificationServer = createNotificationMcpServer(onNotificationClick);
       const reactionServer = createReactionMcpServer(workspace.id);
-      const msWordServer = createMsWordMcpServer();
+      const hostMcpServer = sessionHostApp.createMcpServer(workspace.directory_path);
       const citeRightServer = createCiteRightMcpServer();
 
       // Read SOUL.md for system prompt customization
@@ -178,22 +159,10 @@ export function createAgentSession(
           model: model || 'claude-opus-4-7',
           thinking: { type: 'adaptive' },
           systemPrompt: (() => {
-            const docxEditingGuidance = `You are Academia Coscientist, an AI research assistant. Always refer to yourself as "Academia Coscientist" (never "Claude" or "I").
-
-When the user wants to make edits or suggestions to a .docx file:
-
-IMPORTANT: NEVER unpack, modify XML, or edit .docx files directly on disk. ALWAYS use the ms-word MCP tools.
-
-1. First call mcp__ms-word__track_changes_status to check if Track Changes is enabled.
-2. If Track Changes is OFF, ask the user to enable it (Review tab → Track Changes in Word) so they can review your edits. You can also call mcp__ms-word__set_track_changes to enable it.
-3. Use mcp__ms-word__get_text to read the document content.
-4. Use mcp__ms-word__find_and_replace to propose edits. Call the tool once per edit. The UI automatically renders a suggestion card with the diff and approve/deny buttons — do NOT describe or preview the edits in your text.
-5. After proposing edits, say something brief like "I've proposed N edits — please review above." The user approves or denies each edit directly in the UI. Approved edits are applied as tracked revisions in Word.
-6. Use mcp__ms-word__save_document to save after editing.
-
-The user sees edits appear live in Word as tracked changes. Do NOT use any other method to edit Word documents.`;
-
-            const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
+            const hostGuidance = [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend]
+              .filter(Boolean)
+              .join('\n\n');
+            const appendParts = [soulMdContent, hostGuidance].filter(Boolean).join('\n\n');
             return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };
           })(),
           ...(sdkSessionId && { resume: sdkSessionId }),
@@ -210,7 +179,7 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
             'mini-apps': miniAppServer,
             notification: notificationServer,
             reaction: reactionServer,
-            'ms-word': msWordServer,
+            [sessionHostApp.mcpServerKey]: hostMcpServer,
             citeright: citeRightServer,
           },
           allowedTools: [
@@ -231,14 +200,7 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
             "mcp__mini-apps__open_mini_application",
             "mcp__notification__show_notification",
             "mcp__reaction__create_reaction_thread",
-            "mcp__ms-word__get_file_path",
-            "mcp__ms-word__get_text",
-            "mcp__ms-word__get_selection",
-            "mcp__ms-word__save_document",
-            "mcp__ms-word__open_document",
-            "mcp__ms-word__find_and_replace",
-            "mcp__ms-word__track_changes_status",
-            "mcp__ms-word__set_track_changes",
+            ...sessionHostApp.allowedTools,
             "mcp__citeright__find_references",
             "mcp__citeright__create_citation_report",
             "mcp__citeright__get_citation_report",
@@ -249,7 +211,7 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
           ],
           hooks: {
             PreToolUse: [{
-              hooks: [workspaceBoundaryHook, docxProtectionHook],
+              hooks: [workspaceBoundaryHook, ...hostPreToolHooks],
             }],
           },
         },

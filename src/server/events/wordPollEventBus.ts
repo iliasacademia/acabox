@@ -1,10 +1,14 @@
 /**
- * Event bus for Word poll state changes.
+ * Event bus for overlay poll state changes (formerly Word-only — now host-agnostic).
  *
  * Emits a 'change' event whenever poll-relevant state mutates
  * (notifications synced, notification status changed, tracked PIDs changed,
- * project file cache changed). The WebSocket handler subscribes to this bus
- * and pushes updated poll responses to connected clients.
+ * project file cache changed, Obsidian workspace.json changed, etc.). The
+ * WebSocket handler subscribes to this bus and pushes updated poll responses
+ * to connected clients.
+ *
+ * `WordPoll*` names are kept as aliases for back-compat; prefer `OverlayPoll*`
+ * in new code.
  */
 
 import { EventEmitter } from 'events';
@@ -21,7 +25,8 @@ export type WordPollChangeReason =
   | 'webview-visibility-changed'
   | 'review-error-changed'
   | 'selected-text-changed'
-  | 'selected-text-cleared';
+  | 'selected-text-cleared'
+  | 'obsidian-active-note-changed';
 
 interface WordPollEvents {
   change: [reason: WordPollChangeReason];
@@ -43,3 +48,8 @@ class WordPollEventBus extends EventEmitter {
 }
 
 export const wordPollEventBus = new WordPollEventBus();
+
+// Host-agnostic aliases. New code should use these names; old call sites keep
+// working through the `wordPollEventBus`/`WordPollChangeReason` exports above.
+export type OverlayPollChangeReason = WordPollChangeReason;
+export const overlayPollEventBus = wordPollEventBus;

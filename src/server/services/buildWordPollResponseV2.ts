@@ -1,8 +1,14 @@
 /**
- * Builds the WordPollResponse for a given window ID (wid).
+ * Builds the overlay poll response for a given window ID (wid).
  *
- * Cobuild version — returns project mapping, visibility, and docking state.
+ * Originally Word-specific; now host-agnostic — works for any HostApp whose
+ * `documentPath` is normalized into the workspace directory. Word path uses
+ * the project-file mapping; non-Word hosts (e.g. Obsidian) skip that lookup.
+ *
  * Conversations are fetched directly by the popup via the proxy API.
+ *
+ * The legacy export name `buildWordPollResponseV2` is kept for back-compat;
+ * `buildOverlayPollResponseV2` is the preferred name for new callers.
  */
 
 import { windowMonitorService } from '../../windowMonitorService';
@@ -44,8 +50,30 @@ export function buildWordPollResponseV2(
 
   // If no document path at all (unsaved file)
   if (!documentPath) {
+    // For Obsidian (and other non-Word hosts), the overlay should still appear
+    // when the user is in cobuilding mode and the workspace is the vault, even
+    // if no specific .md file is currently active. The session list stays empty
+    // because chats are always scoped to a specific document — the user can
+    // start a new chat once they focus a note.
+    const hostAppId = windowMonitorService.getHostAppIdForWindow(wid);
+    if (isCobuildingMode && hostAppId && hostAppId !== 'word') {
+      return {
+        isInWorkspace: true,
+        workspaceSessions: [],
+        notificationCount: 0,
+        isActive: true,
+        recentReviewNotifications: [],
+        isReviewingSelectedText: false,
+        activeDocumentPath: documentPath,
+        shouldShowButtonV2,
+        shouldShowPopupV2,
+        shouldShowReviewButton: false,
+        hasSelectedText: false,
+        isDockedActive,
+      };
+    }
     if (isCobuildingMode) {
-      // Cobuilding mode + unsaved doc — hide overlay entirely
+      // Cobuilding mode + unsaved Word doc — hide overlay entirely.
       return {
         notificationCount: 0,
         isActive: false,
@@ -149,3 +177,6 @@ export function buildWordPollResponseV2(
     isDockedActive,
   };
 }
+
+/** Preferred name for new callers. Host-agnostic alias for buildWordPollResponseV2. */
+export const buildOverlayPollResponseV2 = buildWordPollResponseV2;

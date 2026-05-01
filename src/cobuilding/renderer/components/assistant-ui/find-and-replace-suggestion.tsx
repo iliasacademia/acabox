@@ -13,6 +13,7 @@ import { CheckIcon, LoaderIcon, XCircleIcon, MinusCircleIcon } from 'lucide-reac
 
 interface EditProposal {
   proposed?: boolean;
+  document_path?: string;
   search_text?: string;
   replacement_text?: string;
   replace_scope?: string;
@@ -58,26 +59,22 @@ function authHeaders(): Record<string, string> {
 const hasIPC = typeof (window as any).editStatesAPI !== 'undefined';
 
 async function applyEdit(toolCallId: string, proposal: EditProposal): Promise<{ success: boolean; error?: string; replacementsCount?: number }> {
+  const payload = {
+    toolCallId,
+    document_path: proposal.document_path,
+    search_text: proposal.search_text,
+    replacement_text: proposal.replacement_text,
+    replace_scope: proposal.replace_scope || 'first',
+    match_case: proposal.match_case ?? true,
+  };
   if (hasIPC) {
-    return (window as any).editStatesAPI.applyEdit({
-      toolCallId,
-      search_text: proposal.search_text,
-      replacement_text: proposal.replacement_text,
-      replace_scope: proposal.replace_scope || 'first',
-      match_case: proposal.match_case ?? true,
-    });
+    return (window as any).editStatesAPI.applyEdit(payload);
   }
   const { url } = getServerConfig();
   const res = await fetch(`${url}/api/cobuilding/apply-edit`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({
-      toolCallId,
-      search_text: proposal.search_text,
-      replacement_text: proposal.replacement_text,
-      replace_scope: proposal.replace_scope || 'first',
-      match_case: proposal.match_case ?? true,
-    }),
+    body: JSON.stringify(payload),
   });
   return res.json();
 }
