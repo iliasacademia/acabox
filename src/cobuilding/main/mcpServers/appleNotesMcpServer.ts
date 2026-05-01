@@ -3,6 +3,8 @@ import { z } from 'zod';
 import {
   getActiveNote,
   getNotePlainText,
+  listNotes,
+  searchNotes,
   saveNote,
   openNote,
   noteIdToDocumentPath,
@@ -57,6 +59,40 @@ export function createAppleNotesMcpServer() {
               noteId = active.noteId;
             }
             const result = await getNotePlainText(noteId, args.offset, args.limit);
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+          } catch (err) {
+            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+          }
+        },
+      ),
+
+      tool(
+        'list_notes',
+        'List Apple Notes by most-recently-modified, paginated. Returns id, name, and modification date. Use this to enumerate notes when the user asks about all their notes.',
+        {
+          offset: z.number().optional().describe('Pagination offset (0-based, default 0)'),
+          limit: z.number().optional().describe('Max notes to return (default 50)'),
+        },
+        async (args) => {
+          try {
+            const result = await listNotes(args.offset, args.limit);
+            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+          } catch (err) {
+            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+          }
+        },
+      ),
+
+      tool(
+        'search_notes',
+        "Search Apple Notes for a query string in note titles and bodies. Returns up to `limit` matches with id, name, and modification date. Backed by Apple's native search index — fast even across thousands of notes.",
+        {
+          query: z.string().describe('Text to search for in note titles and bodies'),
+          limit: z.number().optional().describe('Max matches to return (default 50)'),
+        },
+        async (args) => {
+          try {
+            const result = await searchNotes(args.query, args.limit);
             return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
           } catch (err) {
             return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };

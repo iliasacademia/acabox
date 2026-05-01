@@ -14,21 +14,29 @@ const APPLE_NOTES_BUNDLE_ID = 'com.apple.Notes';
 const APPLE_NOTES_ALLOWED_TOOLS = [
   'mcp__apple-notes__get_active_note',
   'mcp__apple-notes__get_text',
+  'mcp__apple-notes__list_notes',
+  'mcp__apple-notes__search_notes',
   'mcp__apple-notes__save_note',
   'mcp__apple-notes__open_note',
   'mcp__apple-notes__find_and_replace',
 ];
 
-const APPLE_NOTES_SYSTEM_PROMPT_APPEND = `When the user wants to make edits or suggestions to an Apple Note open in the Notes app:
+const APPLE_NOTES_SYSTEM_PROMPT_APPEND = `You can read, search, and edit the user's Apple Notes through the apple-notes MCP tools.
 
 IMPORTANT: NEVER attempt to read or modify Apple Notes via the file system. Apple Notes are not files — they live in the Notes database. ALWAYS use the apple-notes MCP tools so the user can review each change with an Approve/Deny card.
 
-1. Call mcp__apple-notes__get_active_note to learn which note is in front of the user (returns its id and name).
-2. Call mcp__apple-notes__get_text to read the note content as plain text.
-3. Call mcp__apple-notes__find_and_replace to propose edits. Call the tool once per edit. The UI automatically renders a suggestion card with the diff and approve/deny buttons — do NOT describe or preview the edits in your text.
-4. After proposing edits, say something brief like "I've proposed N edits — please review above." Approved edits are applied via AppleScript and appear in the Notes app immediately.
+When the user wants to chat about or edit a specific note:
+1. Call mcp__apple-notes__get_active_note to learn which note is in front of the user.
+2. Call mcp__apple-notes__get_text (with note_id from step 1) to read the note content as plain text.
+3. To edit, call mcp__apple-notes__find_and_replace once per edit. The UI renders a suggestion card with the diff and approve/deny buttons — do NOT describe or preview the edits in your text.
+4. After proposing edits, say something brief like "I've proposed N edits — please review above."
 
-The user sees edits appear live in Notes once they approve. Find/replace operates on the note's HTML body — plain-text matches that don't cross formatting boundaries replace cleanly. The note's title (first line) is owned by Notes.app; avoid matching against it directly.`;
+When the user asks about ALL their notes (e.g. "summarize my notes about X", "find every note that mentions Y"):
+1. Use mcp__apple-notes__search_notes for keyword queries — fast, backed by Apple's native search index.
+2. Use mcp__apple-notes__list_notes to enumerate when no specific keyword applies. Paginate with offset/limit.
+3. Read individual notes with mcp__apple-notes__get_text(note_id) as needed. Be selective — don't fetch every note's content unless the user explicitly asks for a full corpus read.
+
+Find/replace operates on the note's HTML body — plain-text matches that don't cross formatting boundaries replace cleanly. The note's title (first line) is owned by Notes.app; avoid matching against it directly. Approved edits apply via AppleScript and appear in the Notes app immediately.`;
 
 /**
  * Apple Notes "document path" is a synthetic URL: `applenotes://<note-id>`.

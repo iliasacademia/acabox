@@ -299,6 +299,160 @@ end tell`;
   }
 }
 
+// ─── Listing and search ────────────────────────────────────────────
+
+export interface NoteSummary {
+  id: string;
+  name: string;
+  modificationDate?: string;
+}
+
+export interface ListNotesResult {
+  success: boolean;
+  error?: string;
+  notes?: NoteSummary[];
+  total?: number;
+  offset?: number;
+  limit?: number;
+  hasMore?: boolean;
+}
+
+const DEFAULT_LIST_LIMIT = 50;
+
+/**
+ * List notes from Apple Notes, paginated. Returns id, name, and modification
+ * date. Sort order is most-recently-modified first.
+ *
+ * For users with many hundreds of notes, callers should respect `hasMore`
+ * and paginate. AppleScript serializes one record at a time so very large
+ * dumps can be slow — the default page size of 50 keeps round-trips snappy.
+ */
+export async function listNotes(offset = 0, limit = DEFAULT_LIST_LIMIT): Promise<ListNotesResult> {
+  try {
+    const startIndex = offset + 1; // AppleScript indexes are 1-based
+    const endIndex = offset + limit;
+    const script = `
+tell application "Notes"
+  set total to count notes
+  set output to ""
+  if total is 0 then
+    return "ok||0||"
+  end if
+  set startI to ${startIndex}
+  set endI to ${endIndex}
+  if endI > total then set endI to total
+  if startI > total then return "ok||" & total & "||"
+  set i to startI
+  repeat while i <= endI
+    set n to note i
+    set noteId to id of n
+    set noteName to name of n
+    set noteMod to modification date of n as string
+    set output to output & noteId & "|F|" & noteName & "|F|" & noteMod & "|R|"
+    set i to i + 1
+  end repeat
+  return "ok||" & total & "||" & output
+end tell`;
+    const result = await runAppleScriptStdin(script);
+    const parts = result.split('||');
+    if (parts[0] !== 'ok') {
+      return { success: false, error: result };
+    }
+    const total = parseInt(parts[1] ?? '0', 10) || 0;
+    const payload = parts.slice(2).join('||');
+    const notes: NoteSummary[] = [];
+    if (payload) {
+      const records = payload.split('|R|').filter(Boolean);
+      for (const r of records) {
+        const fields = r.split('|F|');
+        if (fields.length >= 2) {
+          notes.push({ id: fields[0], name: fields[1], modificationDate: fields[2] });
+        }
+      }
+    }
+    return {
+      success: true,
+      notes,
+      total,
+      offset,
+      limit,
+      hasMore: offset + notes.length < total,
+    };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
+export interface SearchNotesResult {
+  success: boolean;
+  error?: string;
+  query?: string;
+  matches?: NoteSummary[];
+  total?: number;
+  limit?: number;
+  truncated?: boolean;
+}
+
+/**
+ * Search Apple Notes for a query string. Uses AppleScript's `whose body
+ * contains` filter — Apple's index does the heavy lifting, so even with
+ * thousands of notes this returns quickly.
+ */
+export async function searchNotes(query: string, limit = DEFAULT_LIST_LIMIT): Promise<SearchNotesResult> {
+  if (!query || !query.trim()) {
+    return { success: false, error: 'query is empty' };
+  }
+  try {
+    const escaped = escapeAppleScriptString(query);
+    const script = `
+tell application "Notes"
+  set hits to (every note whose body contains "${escaped}" or name contains "${escaped}")
+  set total to count hits
+  set cap to ${limit}
+  if total < cap then set cap to total
+  set output to ""
+  if cap is 0 then
+    return "ok||" & total & "||"
+  end if
+  repeat with i from 1 to cap
+    set n to item i of hits
+    set noteId to id of n
+    set noteName to name of n
+    set noteMod to modification date of n as string
+    set output to output & noteId & "|F|" & noteName & "|F|" & noteMod & "|R|"
+  end repeat
+  return "ok||" & total & "||" & output
+end tell`;
+    const result = await runAppleScriptStdin(script, 30000);
+    const parts = result.split('||');
+    if (parts[0] !== 'ok') {
+      return { success: false, error: result };
+    }
+    const total = parseInt(parts[1] ?? '0', 10) || 0;
+    const payload = parts.slice(2).join('||');
+    const matches: NoteSummary[] = [];
+    if (payload) {
+      const records = payload.split('|R|').filter(Boolean);
+      for (const r of records) {
+        const fields = r.split('|F|');
+        if (fields.length >= 2) {
+          matches.push({ id: fields[0], name: fields[1], modificationDate: fields[2] });
+        }
+      }
+    }
+    return {
+      success: true,
+      query,
+      matches,
+      total,
+      limit,
+      truncated: matches.length < total,
+    };
+  } catch (err) {
+    return { success: false, error: (err as Error).message };
+  }
+}
+
 /**
  * Apple Notes saves automatically — this is a no-op exposed for parity with
  * Word's `save_document` so the agent's mental model stays consistent.

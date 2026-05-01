@@ -118,6 +118,12 @@ export function getToolLabel(
       return 'Getting active note';
     case 'mcp__apple-notes__get_text':
       return 'Reading note';
+    case 'mcp__apple-notes__list_notes':
+      return 'Listing notes';
+    case 'mcp__apple-notes__search_notes': {
+      const q = resolved?.query as string | undefined;
+      return q ? `Searching notes: ${truncate(q)}` : 'Searching notes';
+    }
     case 'mcp__apple-notes__save_note':
       return 'Saving note';
     case 'mcp__apple-notes__open_note':
