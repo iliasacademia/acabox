@@ -287,7 +287,8 @@ const ToolFallbackImpl: ToolCallMessagePartComponent = (props: any) => {
   // Delegate to suggestion card for find_and_replace proposals from any host app.
   if (
     toolName === 'mcp__ms-word__find_and_replace' ||
-    toolName === 'mcp__obsidian__find_and_replace'
+    toolName === 'mcp__obsidian__find_and_replace' ||
+    toolName === 'mcp__apple-notes__find_and_replace'
   ) {
     return <FindAndReplaceSuggestion {...props} />;
   }

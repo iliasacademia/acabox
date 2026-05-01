@@ -114,6 +114,16 @@ export function getToolLabel(
     }
     case 'mcp__obsidian__find_and_replace':
       return 'Proposing edit';
+    case 'mcp__apple-notes__get_active_note':
+      return 'Getting active note';
+    case 'mcp__apple-notes__get_text':
+      return 'Reading note';
+    case 'mcp__apple-notes__save_note':
+      return 'Saving note';
+    case 'mcp__apple-notes__open_note':
+      return 'Opening note';
+    case 'mcp__apple-notes__find_and_replace':
+      return 'Proposing edit';
     case 'mcp__mini-apps__open_mini_application': {
       const dirName = resolved?.dir_name as string | undefined;
       return dirName ? `Opening app: ${dirName}` : 'Opening app';

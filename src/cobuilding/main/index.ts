@@ -2338,6 +2338,7 @@ import { setHostAppRegistrationOverrides, type IntegrationId } from './hostApps'
 const INTEGRATION_DEFAULTS: Record<IntegrationId, boolean> = {
   word: FEATURES.MS_WORD_INTEGRATION_ENABLED,
   obsidian: FEATURES.OBSIDIAN_INTEGRATION_ENABLED,
+  'apple-notes': FEATURES.APPLE_NOTES_INTEGRATION_ENABLED,
 };
 
 function integrationStoreKey(id: IntegrationId): string {
@@ -2353,15 +2354,18 @@ function readIntegrationEnabled(id: IntegrationId): boolean {
 setHostAppRegistrationOverrides({
   word: readIntegrationEnabled('word'),
   obsidian: readIntegrationEnabled('obsidian'),
+  'apple-notes': readIntegrationEnabled('apple-notes'),
 });
 
+const KNOWN_INTEGRATION_IDS: ReadonlySet<IntegrationId> = new Set(['word', 'obsidian', 'apple-notes']);
+
 ipcMain.handle(IPC_CHANNELS.INTEGRATION_GET_ENABLED, async (_event, id: IntegrationId) => {
-  if (id !== 'word' && id !== 'obsidian') return false;
+  if (!KNOWN_INTEGRATION_IDS.has(id)) return false;
   return readIntegrationEnabled(id);
 });
 
 ipcMain.handle(IPC_CHANNELS.INTEGRATION_SET_ENABLED, async (_event, id: IntegrationId, enabled: boolean) => {
-  if (id !== 'word' && id !== 'obsidian') {
+  if (!KNOWN_INTEGRATION_IDS.has(id)) {
     return { success: false, error: 'unknown_integration' };
   }
   // Per-integration permission gate. The macOS Accessibility permission is

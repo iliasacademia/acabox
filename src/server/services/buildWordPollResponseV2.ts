@@ -103,6 +103,29 @@ export function buildWordPollResponseV2(
     };
   }
 
+  // Synthetic-scheme document paths (e.g. `applenotes://<id>`) come from hosts
+  // whose documents don't live in the workspace folder (Apple Notes is in the
+  // OS database, not on disk). Treat them like an in-workspace doc for overlay
+  // purposes: show the overlay, scope sessions to the synthetic id.
+  const isSyntheticDocPath = /^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://');
+  if (isCobuildingMode && isSyntheticDocPath) {
+    const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
+    return {
+      isInWorkspace: true,
+      workspaceSessions: sessions,
+      notificationCount: 0,
+      isActive: true,
+      recentReviewNotifications: [],
+      isReviewingSelectedText: false,
+      activeDocumentPath: documentPath,
+      shouldShowButtonV2,
+      shouldShowPopupV2,
+      shouldShowReviewButton: false,
+      hasSelectedText: false,
+      isDockedActive,
+    };
+  }
+
   // Check if the document is within the active cobuilding workspace directory
   if (activeWorkspaceDir) {
     if (documentPath.startsWith(activeWorkspaceDir + '/')) {
