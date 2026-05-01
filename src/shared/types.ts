@@ -175,6 +175,7 @@ export const IPC_CHANNELS = {
   ZOTERO_LOCAL_GET_DOI_METADATA: "zotero-local-get-doi-metadata",
   ZOTERO_LOCAL_LIST_ADDED_DOIS: "zotero-local-list-added-dois",
   ZOTERO_LOCAL_CHECK_DOI: "zotero-local-check-doi",
+  ZOTERO_OPEN_DOI: "zotero-open-doi",
 
   // Local Agent
   LOCAL_AGENT_GET_API_KEY: "local-agent-get-api-key",

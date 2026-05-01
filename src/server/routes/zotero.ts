@@ -5,7 +5,14 @@
  * IPC handlers use.
  */
 import { FastifyInstance } from 'fastify';
-import { addDoiToZotero, checkDoiInZotero, getDoiMetadata, getZoteroLocalStatus, listAddedDois } from '../../zoteroLocalClient';
+import {
+  addDoiToZotero,
+  checkDoiInZotero,
+  getDoiMetadata,
+  getZoteroLocalStatus,
+  listAddedDois,
+  openZoteroForDoi,
+} from '../../zoteroLocalClient';
 
 export async function registerZoteroRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.get('/api/zotero/status', async (_request, reply) => {
@@ -51,6 +58,25 @@ export async function registerZoteroRoutes(fastify: FastifyInstance): Promise<vo
   fastify.get('/api/zotero/added-dois', async (_request, reply) => {
     reply.send({ dois: listAddedDois() });
   });
+
+  // Resolve and open the best Zotero URL for a DOI (key-based when known,
+  // search fallback otherwise) without triggering the macOS Zotero prompt.
+  fastify.get<{ Querystring: { doi: string } }>(
+    '/api/zotero/open',
+    async (request, reply) => {
+      const doi = request.query.doi;
+      if (typeof doi !== 'string' || doi.length === 0) {
+        reply.code(400).send({ success: false, error: 'doi is required' });
+        return;
+      }
+      try {
+        await openZoteroForDoi(doi);
+        reply.send({ success: true });
+      } catch (err: any) {
+        reply.code(500).send({ success: false, error: err?.message ?? String(err) });
+      }
+    },
+  );
 
   fastify.get<{ Querystring: { doi: string } }>(
     '/api/zotero/check-doi',

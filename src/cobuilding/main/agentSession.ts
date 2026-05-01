@@ -13,6 +13,7 @@ import { createActivityMcpServer } from './mcpServers/activityMcpServer';
 import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
 import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
 import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
+import { createZoteroMcpServer } from './mcpServers/zoteroMcpServer';
 import { resolveClaudeBinary } from './sdkBinarySetup';
 import { findHostAppForDocument, getRegisteredHostApps, type HostApp } from './hostApps';
 import { wordHostApp } from './hostApps/wordHostApp';
@@ -128,6 +129,7 @@ export function createAgentSession(
       const reactionServer = createReactionMcpServer(workspace.id);
       const hostMcpServer = sessionHostApp.createMcpServer(workspace.directory_path);
       const citeRightServer = createCiteRightMcpServer();
+      const zoteroServer = createZoteroMcpServer();
 
       // Read SOUL.md for system prompt customization
       let soulMdContent: string | undefined;
@@ -181,6 +183,7 @@ export function createAgentSession(
             reaction: reactionServer,
             [sessionHostApp.mcpServerKey]: hostMcpServer,
             citeright: citeRightServer,
+            zotero: zoteroServer,
           },
           allowedTools: [
             "Bash",
@@ -208,6 +211,10 @@ export function createAgentSession(
             "mcp__citeright__search_citations_for_claim",
             "mcp__citeright__format_citations",
             "mcp__citeright__list_citation_reports",
+            "mcp__zotero__status",
+            "mcp__zotero__search_library",
+            "mcp__zotero__get_item",
+            "mcp__zotero__add_doi",
           ],
           hooks: {
             PreToolUse: [{

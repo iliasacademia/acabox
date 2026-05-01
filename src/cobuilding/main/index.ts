@@ -2347,6 +2347,17 @@ ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) 
   return await checkDoiInZotero(doi);
 });
 
+// Open a Zotero item by DOI — uses the key when known so Zotero jumps
+// straight to the item instead of opening the search panel.
+ipcMain.handle(IPC_CHANNELS.ZOTERO_OPEN_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) {
+    return { success: false, error: 'doi is required' };
+  }
+  const { openZoteroForDoi } = await import('../../zoteroLocalClient');
+  await openZoteroForDoi(doi);
+  return { success: true };
+});
+
 // Integration toggles (Word, Obsidian, ...). Backed by electron-store, drive
 // `getRegisteredHostApps()` at startup.
 import { store as appStore } from '../../appStore';

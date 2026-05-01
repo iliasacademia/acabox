@@ -73,6 +73,58 @@ function markDoiAdded(doi: string): void {
   if (set.size !== before) persistAddedDois();
 }
 
+function markDoisAdded(dois: string[]): void {
+  const set = getAddedDoisSet();
+  const before = set.size;
+  for (const d of dois) {
+    const n = normalizeDoi(d);
+    if (n) set.add(n);
+  }
+  if (set.size !== before) persistAddedDois();
+}
+
+// DOI → Zotero open info, populated as the agent's MCP tools surface items.
+// Lets `openZoteroForDoi` jump straight to a specific item via
+// `zotero://select/...` instead of `zotero://search?q=...` (which only opens
+// Zotero's search panel).
+interface DoiOpenInfo { key: string; libraryId?: number; libraryType?: string }
+const doiOpenInfo = new Map<string, DoiOpenInfo>();
+
+function recordOpenInfo(item: ZoteroSlimItem): void {
+  if (!item.DOI || !item.key) return;
+  doiOpenInfo.set(normalizeDoi(item.DOI), {
+    key: item.key,
+    libraryId: item.libraryId,
+    libraryType: item.libraryType,
+  });
+}
+
+function buildZoteroOpenUrl(rawDoi: string): string {
+  const info = doiOpenInfo.get(normalizeDoi(rawDoi));
+  if (info?.key) {
+    if (info.libraryType === 'group' && info.libraryId) {
+      return `zotero://select/groups/${info.libraryId}/items/${info.key}`;
+    }
+    return `zotero://select/library/items/${info.key}`;
+  }
+  return `zotero://search?q=${encodeURIComponent(rawDoi)}`;
+}
+
+// Open a Zotero item by DOI. Shells out to the OS launcher directly to avoid
+// the "Allow this site to open zotero…" prompt that `shell.openExternal` /
+// browser-based URL launches trigger on macOS.
+export async function openZoteroForDoi(rawDoi: string): Promise<void> {
+  const url = buildZoteroOpenUrl(rawDoi);
+  const { spawn } = await import('child_process');
+  if (process.platform === 'darwin') {
+    spawn('open', [url], { detached: true, stdio: 'ignore' }).unref();
+  } else if (process.platform === 'win32') {
+    spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    spawn('xdg-open', [url], { detached: true, stdio: 'ignore' }).unref();
+  }
+}
+
 const ZOTERO_CONNECTOR_BASE = 'http://127.0.0.1:23119';
 const PING_TIMEOUT_MS = 1500;
 const LAUNCH_WAIT_MS = 12000;
@@ -449,4 +501,135 @@ export function getDoiMetadata(rawDoi: string): DoiMetadata | null {
     isOpenAccess: pub.is_oa,
     pdfUrl: pub.pdf_url,
   };
+}
+
+// =============================================================================
+// Library search — talks to Zotero 7's local web API at /api/users/0/items.
+// Read-only; the user must have extensions.zotero.httpServer.enabled = true.
+// =============================================================================
+
+export interface ZoteroSlimItem {
+  key: string;
+  itemType: string;
+  title?: string;
+  creators?: Array<{ firstName?: string; lastName?: string; name?: string; creatorType?: string }>;
+  date?: string;
+  DOI?: string;
+  url?: string;
+  publicationTitle?: string;
+  publisher?: string;
+  abstractNote?: string;
+  tags?: string[];
+  libraryId?: number;
+  libraryType?: string;
+}
+
+export type ZoteroQMode = 'titleCreatorYear' | 'everything' | 'regex';
+
+export interface SearchZoteroOptions {
+  limit?: number;
+  qmode?: ZoteroQMode;
+  itemType?: string;
+}
+
+interface RawZoteroItem {
+  key: string;
+  library?: { type?: string; id?: number };
+  data?: {
+    key?: string;
+    itemType?: string;
+    title?: string;
+    creators?: Array<{ firstName?: string; lastName?: string; name?: string; creatorType?: string }>;
+    date?: string;
+    DOI?: string;
+    doi?: string;
+    url?: string;
+    publicationTitle?: string;
+    publisher?: string;
+    abstractNote?: string;
+    tags?: Array<{ tag?: string }>;
+    extra?: string;
+  };
+}
+
+function slimItem(raw: RawZoteroItem): ZoteroSlimItem {
+  const data = raw.data ?? {};
+  const tags = Array.isArray(data.tags)
+    ? data.tags.map((t) => t?.tag).filter((t): t is string => typeof t === 'string')
+    : undefined;
+  return {
+    key: raw.key,
+    itemType: data.itemType ?? 'unknown',
+    title: data.title || undefined,
+    creators: Array.isArray(data.creators) && data.creators.length > 0 ? data.creators : undefined,
+    date: data.date || undefined,
+    DOI: data.DOI || data.doi || undefined,
+    url: data.url || undefined,
+    publicationTitle: data.publicationTitle || undefined,
+    publisher: data.publisher || undefined,
+    abstractNote: data.abstractNote || undefined,
+    tags: tags && tags.length > 0 ? tags : undefined,
+    libraryId: raw.library?.id,
+    libraryType: raw.library?.type,
+  };
+}
+
+export async function searchZoteroLibrary(
+  query: string,
+  opts: SearchZoteroOptions = {},
+): Promise<ZoteroSlimItem[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  if (!(await pingConnector())) {
+    throw new Error('Zotero local API is not reachable. Is Zotero running?');
+  }
+  const limit = Math.max(1, Math.min(50, opts.limit ?? 10));
+  const qmode = opts.qmode ?? 'titleCreatorYear';
+  const params = new URLSearchParams({
+    q: trimmed,
+    qmode,
+    limit: String(limit),
+    format: 'json',
+  });
+  if (opts.itemType) params.set('itemType', opts.itemType);
+
+  const res = await fetchWithTimeout(
+    `${ZOTERO_CONNECTOR_BASE}/api/users/0/items?${params.toString()}`,
+    { headers: { 'Accept': 'application/json', 'Zotero-API-Version': '3' } },
+    8000,
+  );
+  if (!res.ok) {
+    if (res.status === 404 || res.status === 401 || res.status === 403) {
+      throw new Error(
+        'Zotero local web API is not enabled. In Zotero, open Edit → Settings → Advanced → Config Editor and set extensions.zotero.httpServer.enabled to true, then restart Zotero.',
+      );
+    }
+    throw new Error(`Zotero local API returned ${res.status}`);
+  }
+  const items = (await res.json()) as RawZoteroItem[];
+  if (!Array.isArray(items)) return [];
+  const slim = items.map(slimItem);
+  for (const item of slim) recordOpenInfo(item);
+  markDoisAdded(slim.map((i) => i.DOI).filter((d): d is string => typeof d === 'string'));
+  return slim;
+}
+
+export async function getZoteroItem(key: string): Promise<ZoteroSlimItem | null> {
+  const trimmed = key.trim();
+  if (!trimmed) return null;
+  if (!(await pingConnector())) {
+    throw new Error('Zotero local API is not reachable. Is Zotero running?');
+  }
+  const res = await fetchWithTimeout(
+    `${ZOTERO_CONNECTOR_BASE}/api/users/0/items/${encodeURIComponent(trimmed)}?format=json`,
+    { headers: { 'Accept': 'application/json', 'Zotero-API-Version': '3' } },
+    8000,
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`Zotero local API returned ${res.status}`);
+  const raw = (await res.json()) as RawZoteroItem;
+  const slim = slimItem(raw);
+  recordOpenInfo(slim);
+  if (slim.DOI) markDoisAdded([slim.DOI]);
+  return slim;
 }
