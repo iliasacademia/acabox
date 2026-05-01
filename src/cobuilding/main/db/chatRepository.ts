@@ -45,6 +45,21 @@ export function listSessions(workspaceId: string, source?: string, documentPath?
   return getDatabase().prepare(sql).all(...params) as Session[];
 }
 
+/**
+ * Variant of listSessions that filters `document_path` against a SQL LIKE
+ * pattern instead of an exact match. Used by hosts whose document_path
+ * shares a stable prefix (e.g. Apple Notes' `applenotes://%`) so the overlay
+ * can show all chats for the host when the active document isn't pinned yet.
+ */
+export function listSessionsByDocPathLike(workspaceId: string, source: string | undefined, documentPathLike: string): Session[] {
+  const sourceClause = source !== undefined ? 'source = ?' : 'source IS NULL';
+  const sql = `SELECT * FROM sessions WHERE workspace_id = ? AND ${sourceClause} AND document_path LIKE ? ORDER BY updated_at DESC`;
+  const params: unknown[] = [workspaceId];
+  if (source !== undefined) params.push(source);
+  params.push(documentPathLike);
+  return getDatabase().prepare(sql).all(...params) as Session[];
+}
+
 export function updateSessionTitle(id: string, title: string): void {
   getDatabase()
     .prepare(

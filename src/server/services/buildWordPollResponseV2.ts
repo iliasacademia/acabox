@@ -12,6 +12,7 @@
  */
 
 import { windowMonitorService } from '../../windowMonitorService';
+import { getRegisteredHostApps } from '../../cobuilding/main/hostApps';
 import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
 import { OverlayPollResponse } from '../types';
 import { defaultLogger as logger } from '../../utils/logger';
@@ -52,14 +53,20 @@ export function buildWordPollResponseV2(
   if (!documentPath) {
     // For Obsidian (and other non-Word hosts), the overlay should still appear
     // when the user is in cobuilding mode and the workspace is the vault, even
-    // if no specific .md file is currently active. The session list stays empty
-    // because chats are always scoped to a specific document — the user can
-    // start a new chat once they focus a note.
+    // if no specific .md file is currently active. When the host has declared
+    // a `sessionDocumentPathLikePattern` (Apple Notes does), fall back to
+    // listing every chat tied to that host so the user can pick from previous
+    // conversations even before the active document resolves.
     const hostAppId = windowMonitorService.getHostAppIdForWindow(wid);
     if (isCobuildingMode && hostAppId && hostAppId !== 'word') {
+      const host = getRegisteredHostApps().find((h) => h.id === hostAppId);
+      const fallbackPattern = host?.sessionDocumentPathLikePattern;
+      const sessions = fallbackPattern
+        ? windowMonitorService.getWorkspaceSessionsByDocPathLike(fallbackPattern)
+        : [];
       return {
         isInWorkspace: true,
-        workspaceSessions: [],
+        workspaceSessions: sessions,
         notificationCount: 0,
         isActive: true,
         recentReviewNotifications: [],
@@ -96,6 +103,29 @@ export function buildWordPollResponseV2(
       isReviewingSelectedText: false,
       activeDocumentPath: documentPath,
       shouldShowButtonV2: true,
+      shouldShowPopupV2,
+      shouldShowReviewButton: false,
+      hasSelectedText: false,
+      isDockedActive,
+    };
+  }
+
+  // Synthetic-scheme document paths (e.g. `applenotes://<id>`) come from hosts
+  // whose documents don't live in the workspace folder (Apple Notes is in the
+  // OS database, not on disk). Treat them like an in-workspace doc for overlay
+  // purposes: show the overlay, scope sessions to the synthetic id.
+  const isSyntheticDocPath = /^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://');
+  if (isCobuildingMode && isSyntheticDocPath) {
+    const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
+    return {
+      isInWorkspace: true,
+      workspaceSessions: sessions,
+      notificationCount: 0,
+      isActive: true,
+      recentReviewNotifications: [],
+      isReviewingSelectedText: false,
+      activeDocumentPath: documentPath,
+      shouldShowButtonV2,
       shouldShowPopupV2,
       shouldShowReviewButton: false,
       hasSelectedText: false,

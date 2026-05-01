@@ -273,6 +273,7 @@ describe('findHostAppForDocument', () => {
         FEATURES: {
           MS_WORD_INTEGRATION_ENABLED: true,
           OBSIDIAN_INTEGRATION_ENABLED: true,
+          APPLE_NOTES_INTEGRATION_ENABLED: false,
           MS_WORD_V2_ENABLED: true,
           ONBOARDING_V2_ENABLED: false,
           ONBOARDING_V3_ENABLED: false,
@@ -296,6 +297,7 @@ describe('findHostAppForDocument', () => {
         FEATURES: {
           MS_WORD_INTEGRATION_ENABLED: true,
           OBSIDIAN_INTEGRATION_ENABLED: false,
+          APPLE_NOTES_INTEGRATION_ENABLED: false,
           MS_WORD_V2_ENABLED: true,
           ONBOARDING_V2_ENABLED: false,
           ONBOARDING_V3_ENABLED: false,
@@ -308,5 +310,139 @@ describe('findHostAppForDocument', () => {
       expect(findHostAppForDocument('/x/y.md')).toBeNull();
       expect(findHostAppForDocument('/x/y.docx')?.id).toBe('word');
     });
+  });
+
+  it('routes applenotes:// scheme to apple-notes when registered', () => {
+    jest.isolateModules(() => {
+      jest.doMock('../../../shared/types', () => ({
+        FEATURES: {
+          MS_WORD_INTEGRATION_ENABLED: true,
+          OBSIDIAN_INTEGRATION_ENABLED: false,
+          APPLE_NOTES_INTEGRATION_ENABLED: true,
+          MS_WORD_V2_ENABLED: true,
+          ONBOARDING_V2_ENABLED: false,
+          ONBOARDING_V3_ENABLED: false,
+          SESSION_CAPTURE_ENABLED: false,
+          SELECTION_REVIEW_V2_ENABLED: false,
+        },
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { findHostAppForDocument } = require('../hostApps');
+      expect(findHostAppForDocument('applenotes://x-coredata://store-uuid/ICNote/p123')?.id).toBe('apple-notes');
+      expect(findHostAppForDocument('applenotes://anything-here')?.id).toBe('apple-notes');
+    });
+  });
+
+  it('returns null for applenotes:// when apple-notes is not registered', () => {
+    jest.isolateModules(() => {
+      jest.doMock('../../../shared/types', () => ({
+        FEATURES: {
+          MS_WORD_INTEGRATION_ENABLED: true,
+          OBSIDIAN_INTEGRATION_ENABLED: false,
+          APPLE_NOTES_INTEGRATION_ENABLED: false,
+          MS_WORD_V2_ENABLED: true,
+          ONBOARDING_V2_ENABLED: false,
+          ONBOARDING_V3_ENABLED: false,
+          SESSION_CAPTURE_ENABLED: false,
+          SELECTION_REVIEW_V2_ENABLED: false,
+        },
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { findHostAppForDocument } = require('../hostApps');
+      expect(findHostAppForDocument('applenotes://x-coredata://store-uuid/ICNote/p123')).toBeNull();
+    });
+  });
+});
+
+describe('appleNotesActions: synthetic path scheme', () => {
+  it('round-trips noteId through documentPath', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { noteIdToDocumentPath, documentPathToNoteId } = require('../../../server/appleNotesActions');
+    const id = 'x-coredata://0AEF0372-E676-4E46-BCBC-2724318A01F5/ICNote/p334';
+    const path = noteIdToDocumentPath(id);
+    expect(path).toBe(`applenotes://${id}`);
+    expect(documentPathToNoteId(path)).toBe(id);
+  });
+
+  it('rejects non-applenotes paths', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { documentPathToNoteId } = require('../../../server/appleNotesActions');
+    expect(documentPathToNoteId('/Users/x/file.md')).toBeNull();
+    expect(documentPathToNoteId('file:///Users/x/file.docx')).toBeNull();
+    expect(documentPathToNoteId(null)).toBeNull();
+    expect(documentPathToNoteId(undefined)).toBeNull();
+  });
+
+  it('validates note id shape', () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { isValidNoteId } = require('../../../server/appleNotesActions');
+    expect(isValidNoteId('x-coredata://0AEF0372/ICNote/p334')).toBe(true);
+    expect(isValidNoteId('x-coredata:///ICNote/p334')).toBe(false);
+    expect(isValidNoteId('x-coredata://0AEF/ICOther/p1')).toBe(false);
+    expect(isValidNoteId('not a real id')).toBe(false);
+    expect(isValidNoteId(null)).toBe(false);
+  });
+});
+
+describe('appleNotesHostApp.applyEdit boundary', () => {
+  // Mock the AppleScript layer so we don't hit osascript in tests.
+  beforeEach(() => {
+    jest.resetModules();
+    jest.doMock('../../../server/appleNotesActions', () => {
+      const actual = jest.requireActual('../../../server/appleNotesActions');
+      return {
+        ...actual,
+        findAndReplaceInNote: jest.fn(async () => ({ success: true, replacementsCount: 1 })),
+      };
+    });
+  });
+
+  it('rejects when document_path is missing', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { appleNotesHostApp } = require('../hostApps/appleNotesHostApp');
+    const result = await appleNotesHostApp.applyEdit({
+      search_text: 'foo',
+      replacement_text: 'bar',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/document_path/);
+  });
+
+  it('rejects when document_path uses the wrong scheme', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { appleNotesHostApp } = require('../hostApps/appleNotesHostApp');
+    const result = await appleNotesHostApp.applyEdit({
+      document_path: '/Users/x/file.md',
+      search_text: 'foo',
+      replacement_text: 'bar',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/applenotes:/);
+  });
+
+  it('rejects when the note id is malformed', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { appleNotesHostApp } = require('../hostApps/appleNotesHostApp');
+    const result = await appleNotesHostApp.applyEdit({
+      document_path: 'applenotes://not a real id',
+      search_text: 'foo',
+      replacement_text: 'bar',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/Invalid Apple Notes id/);
+  });
+
+  it('forwards a well-formed apply-edit to findAndReplaceInNote', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { appleNotesHostApp } = require('../hostApps/appleNotesHostApp');
+    const result = await appleNotesHostApp.applyEdit({
+      document_path: 'applenotes://x-coredata://store-uuid/ICNote/p1',
+      search_text: 'foo',
+      replacement_text: 'bar',
+      replace_scope: 'all',
+      match_case: false,
+    });
+    expect(result.success).toBe(true);
+    expect(result.replacementsCount).toBe(1);
   });
 });

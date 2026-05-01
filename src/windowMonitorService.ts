@@ -297,7 +297,13 @@ export class WindowMonitorService {
   // and trigger an overlay state push when it changes.
   private obsidianWorkspaceWatcher: FSWatcher | null = null;
   private obsidianWorkspaceWatchDebounce: ReturnType<typeof setTimeout> | null = null;
-  private sessionsProvider: ((documentPath?: string) => Array<{ id: string; title: string; created_at: string }>) | null = null;
+  // Cache of the currently active Apple Note's synthetic path. Apple Notes
+  // doesn't expose AXDocument and the lookup requires an AppleScript round
+  // trip, so we refresh the cache async on focus events and surface the
+  // cached value synchronously to consumers (poll-response builder, etc.).
+  private lastAppleNotesPath: string | null = null;
+  private appleNotesRefreshInflight = false;
+  private sessionsProvider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null = null;
   // When true, WINDOW_TEXT_SELECTED events are ignored (used to suppress
   // programmatic selections from MCP tools like find_and_replace/select_text).
   private selectionEventsSuppressed = false;
@@ -908,8 +914,15 @@ export class WindowMonitorService {
           // Route through the host app that owns this window's bundle id, if any.
           // Word: returns window.documentPath as-is (today's behavior).
           // Obsidian: reads .obsidian/workspace.json against the workspace dir.
+          // Apple Notes: returns the async-refreshed cache from this service.
           const host = findHostAppByBundleId(app.identifier);
           if (host) {
+            if (host.id === 'apple-notes') {
+              // Kick off an async refresh so the next poll sees the latest
+              // selection, then return whatever the cache currently holds.
+              void this.refreshAppleNotesPath();
+              return this.lastAppleNotesPath;
+            }
             const resolved = host.resolveDocumentPath(window, this.workspaceDirectory);
             if (resolved?.startsWith('file://')) {
               return decodeURIComponent(resolved.slice(7));
@@ -925,6 +938,30 @@ export class WindowMonitorService {
       }
     }
     return null;
+  }
+
+  /**
+   * Async refresh of the cached Apple-Notes active-note path. Idempotent /
+   * de-duped via the inflight flag — multiple back-to-back calls during a
+   * burst of poll requests collapse into one AppleScript round-trip.
+   * On change, emits a poll event so the popup re-fetches.
+   */
+  private async refreshAppleNotesPath(): Promise<void> {
+    if (this.appleNotesRefreshInflight) return;
+    this.appleNotesRefreshInflight = true;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { resolveActiveAppleNotePath } = require('./cobuilding/main/hostApps/appleNotesHostApp');
+      const next: string | null = await resolveActiveAppleNotePath();
+      if (next !== this.lastAppleNotesPath) {
+        this.lastAppleNotesPath = next;
+        wordPollEventBus.emit('change', 'window-document-path-changed');
+      }
+    } catch {
+      // ignore — Apple Events errors fall through; cache stays stale.
+    } finally {
+      this.appleNotesRefreshInflight = false;
+    }
   }
 
   /** Return the HostApp id that owns the given window's bundle, or null. */
@@ -1162,12 +1199,16 @@ export class WindowMonitorService {
     return this.workspaceDirectory;
   }
 
-  setSessionsProvider(provider: ((documentPath?: string) => Array<{ id: string; title: string; created_at: string }>) | null): void {
+  setSessionsProvider(provider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null): void {
     this.sessionsProvider = provider;
   }
 
   getWorkspaceSessions(documentPath?: string): Array<{ id: string; title: string; created_at: string }> {
-    return this.sessionsProvider?.(documentPath) ?? [];
+    return this.sessionsProvider?.({ documentPath }) ?? [];
+  }
+
+  getWorkspaceSessionsByDocPathLike(documentPathLike: string): Array<{ id: string; title: string; created_at: string }> {
+    return this.sessionsProvider?.({ documentPathLike }) ?? [];
   }
 
   /**

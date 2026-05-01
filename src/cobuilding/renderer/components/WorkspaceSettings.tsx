@@ -23,11 +23,13 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
   const [requestingPermission, setRequestingPermission] = useState(false);
 
-  // Per-integration enable state (Word, Obsidian, ...).
+  // Per-integration enable state (Word, Obsidian, Apple Notes, ...).
+  type IntegrationId = 'word' | 'obsidian' | 'apple-notes';
   const [wordIntegrationEnabled, setWordIntegrationEnabled] = useState<boolean | null>(null);
   const [obsidianIntegrationEnabled, setObsidianIntegrationEnabled] = useState<boolean | null>(null);
-  const [integrationToggling, setIntegrationToggling] = useState<'word' | 'obsidian' | null>(null);
-  const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: 'word' | 'obsidian'; displayName: string } | null>(null);
+  const [appleNotesIntegrationEnabled, setAppleNotesIntegrationEnabled] = useState<boolean | null>(null);
+  const [integrationToggling, setIntegrationToggling] = useState<IntegrationId | null>(null);
+  const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: IntegrationId; displayName: string } | null>(null);
 
   const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
   const [isSwitching, setIsSwitching] = useState<string | null>(null);
@@ -56,6 +58,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     // Read persisted integration toggles
     window.electronAPI.invoke('integration:get-enabled', 'word').then((v: boolean) => setWordIntegrationEnabled(!!v)).catch(() => setWordIntegrationEnabled(false));
     window.electronAPI.invoke('integration:get-enabled', 'obsidian').then((v: boolean) => setObsidianIntegrationEnabled(!!v)).catch(() => setObsidianIntegrationEnabled(false));
+    window.electronAPI.invoke('integration:get-enabled', 'apple-notes').then((v: boolean) => setAppleNotesIntegrationEnabled(!!v)).catch(() => setAppleNotesIntegrationEnabled(false));
   }, []);
 
   useEffect(() => {
@@ -122,7 +125,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     }
   };
 
-  const handleToggleIntegration = async (id: 'word' | 'obsidian', displayName: string, currentlyEnabled: boolean | null) => {
+  const handleToggleIntegration = async (id: IntegrationId, displayName: string, currentlyEnabled: boolean | null) => {
     if (currentlyEnabled === null || integrationToggling !== null) return;
     setIntegrationToggling(id);
     setIntegrationPermissionPrompt(null);
@@ -383,6 +386,32 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
                 : obsidianIntegrationEnabled === null
                   ? '...'
                   : obsidianIntegrationEnabled
+                    ? 'Disable and Restart'
+                    : 'Enable and Restart'}
+            </button>
+          </div>
+
+          {/* Apple Notes Integration */}
+          <div className="wsSettings__dirRow" style={{ marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>Apple Notes Integration</div>
+              <div style={{ fontSize: 12, color: '#666' }}>
+                {appleNotesIntegrationEnabled
+                  ? 'Overlay appears over Apple Notes for the focused note. Edits go through Approve/Deny cards and apply via AppleScript.'
+                  : 'Show the overlay over Apple Notes. Notes are not files — chats are tied to the active note via its Notes id, independent of the workspace.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`gsStep__btn ${appleNotesIntegrationEnabled ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
+              disabled={appleNotesIntegrationEnabled === null || integrationToggling !== null}
+              onClick={() => handleToggleIntegration('apple-notes', 'Apple Notes', appleNotesIntegrationEnabled)}
+            >
+              {integrationToggling === 'apple-notes'
+                ? 'Working...'
+                : appleNotesIntegrationEnabled === null
+                  ? '...'
+                  : appleNotesIntegrationEnabled
                     ? 'Disable and Restart'
                     : 'Enable and Restart'}
             </button>

@@ -21,6 +21,7 @@ import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
 import {
   listSessions,
+  listSessionsByDocPathLike,
   getSession,
   createSession,
   updateSessionTitle,
@@ -860,9 +861,12 @@ app.whenReady().then(async () => {
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
               windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
-              windowMonitorService.setSessionsProvider((documentPath) => {
+              windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
                 if (!activeWorkspace) return [];
-                return listSessions(activeWorkspace.id, undefined, documentPath).map(s => ({
+                const rows = documentPathLike !== undefined
+                  ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
+                  : listSessions(activeWorkspace.id, undefined, documentPath);
+                return rows.map(s => ({
                   id: s.id,
                   title: s.title,
                   created_at: s.created_at,
@@ -2355,6 +2359,7 @@ import { setHostAppRegistrationOverrides, type IntegrationId } from './hostApps'
 const INTEGRATION_DEFAULTS: Record<IntegrationId, boolean> = {
   word: FEATURES.MS_WORD_INTEGRATION_ENABLED,
   obsidian: FEATURES.OBSIDIAN_INTEGRATION_ENABLED,
+  'apple-notes': FEATURES.APPLE_NOTES_INTEGRATION_ENABLED,
 };
 
 function integrationStoreKey(id: IntegrationId): string {
@@ -2370,15 +2375,18 @@ function readIntegrationEnabled(id: IntegrationId): boolean {
 setHostAppRegistrationOverrides({
   word: readIntegrationEnabled('word'),
   obsidian: readIntegrationEnabled('obsidian'),
+  'apple-notes': readIntegrationEnabled('apple-notes'),
 });
 
+const KNOWN_INTEGRATION_IDS: ReadonlySet<IntegrationId> = new Set(['word', 'obsidian', 'apple-notes']);
+
 ipcMain.handle(IPC_CHANNELS.INTEGRATION_GET_ENABLED, async (_event, id: IntegrationId) => {
-  if (id !== 'word' && id !== 'obsidian') return false;
+  if (!KNOWN_INTEGRATION_IDS.has(id)) return false;
   return readIntegrationEnabled(id);
 });
 
 ipcMain.handle(IPC_CHANNELS.INTEGRATION_SET_ENABLED, async (_event, id: IntegrationId, enabled: boolean) => {
-  if (id !== 'word' && id !== 'obsidian') {
+  if (!KNOWN_INTEGRATION_IDS.has(id)) {
     return { success: false, error: 'unknown_integration' };
   }
   // Per-integration permission gate. The macOS Accessibility permission is
