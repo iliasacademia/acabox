@@ -104,54 +104,64 @@ If the response says \`truncated: false\`, you have the entire saved document �
               };
             }
 
-            // Prefer the OAuth-backed Docs API when the user has connected it
-            // — it handles multi-tab and download-restricted docs that the
-            // extension's export-endpoint hack can't read. Fall back to the
-            // extension when not connected (Phase A behavior).
-            let fullText = '';
-            let extensionReason: string | undefined;
-            if (isGoogleDocsApiConnected()) {
-              const info = await resolveActiveGoogleDocInfo();
-              const docId = info ? documentPathToGoogleDocId(info.documentPath) : null;
-              if (docId) {
-                const apiResult = await getDocTextViaApi(docId);
-                if (apiResult.success && apiResult.data) {
-                  fullText = apiResult.data.text;
-                } else if (apiResult.authExpired) {
-                  return {
-                    content: [
-                      { type: 'text' as const, text: JSON.stringify({ success: false, error: apiResult.error, reason: 'auth-expired' }) },
-                    ],
-                  };
-                } else if (apiResult.error) {
-                  // Surface the API error but try the extension fallback first.
-                  extensionReason = apiResult.error;
-                }
-              }
-            }
-            if (!fullText) {
-              const docTextResult = await browserExtensionServer.getActiveGoogleDocText(4000);
-              fullText = docTextResult?.text ?? '';
-              if (!fullText) extensionReason = docTextResult?.reason ?? extensionReason;
-            }
-            const docTextResult = { text: fullText, reason: extensionReason } as { text: string; reason?: string };
-            if (!fullText) {
-              const reason = docTextResult.reason;
-              let error: string;
-              if (reason === 'multi-tab') {
-                error = 'This is a multi-tab Google Doc (Document Tabs feature). Google\'s legacy plain-text export endpoint does not yet serve multi-tab docs — full-document reads on these require the upcoming OAuth + Docs API integration. For now you can still read the user\'s current selection by calling get_text with selection_only=true. Tell the user that whole-doc reads on tabbed Google Docs aren\'t supported yet, and ask them to highlight the passage they want you to work on.';
-              } else if (reason === 'download-restricted') {
-                error = 'Google returned 403/404 on the doc\'s plain-text export. The doc owner has likely disabled downloads (Drive: "Disable options to download, print, and copy for commenters and viewers"), or you do not have download permission. Full-doc reads aren\'t possible while that setting is on. You can still read the user\'s current selection via get_text with selection_only=true.';
-              } else if (reason && reason.startsWith('export-status-')) {
-                error = `Google's export endpoint returned ${reason.slice('export-status-'.length)} for this doc. Full-doc reads aren't possible right now. Use get_text with selection_only=true to work with the user's current selection.`;
-              } else {
-                error = "Could not read the Google Doc. The extension hasn't returned any text yet — usually because the doc tab was just reloaded and the content script isn't attached, or the extension isn't connected. Ask the user to focus the Doc tab in Chrome and try again. Selection reads (selection_only=true) usually work even when full-doc reads don't.";
-              }
+            // Full-doc reads go through the OAuth-backed Docs API. If the user
+            // hasn't connected, surface a clear "connect Google" message — we
+            // no longer fall back to the legacy /export?format=txt endpoint
+            // (it can't serve multi-tab or download-restricted docs anyway).
+            if (!isGoogleDocsApiConnected()) {
               return {
                 content: [
                   {
                     type: 'text' as const,
-                    text: JSON.stringify({ success: false, error, reason: reason ?? null }),
+                    text: JSON.stringify({
+                      success: false,
+                      error: 'Full-document reads require connecting Google in Settings → Google Docs Integration. Until then, ask the user to highlight the passage they want you to work on and call get_text with selection_only=true — selection still works without OAuth.',
+                      reason: 'oauth-required',
+                    }),
+                  },
+                ],
+              };
+            }
+            const info = await resolveActiveGoogleDocInfo();
+            const docId = info ? documentPathToGoogleDocId(info.documentPath) : null;
+            if (!docId) {
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      success: false,
+                      error: 'No active Google Doc — either the browser extension is not connected, or the focused Chrome tab is not a Google Doc. Ask the user to focus the Doc tab and try again.',
+                    }),
+                  },
+                ],
+              };
+            }
+            const apiResult = await getDocTextViaApi(docId);
+            if (!apiResult.success || !apiResult.data) {
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      success: false,
+                      error: apiResult.error ?? 'Docs API call failed',
+                      reason: apiResult.authExpired ? 'auth-expired' : undefined,
+                    }),
+                  },
+                ],
+              };
+            }
+            const fullText = apiResult.data.text;
+            if (!fullText) {
+              return {
+                content: [
+                  {
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      success: false,
+                      error: 'The Docs API returned an empty body for this document. The doc may be empty.',
+                    }),
                   },
                 ],
               };

@@ -20,7 +20,7 @@ When the user wants to chat about or edit their active Google Doc:
 3. To suggest an edit, call mcp__google-docs__find_and_replace once per edit. The Academia overlay panel (where you and the user are chatting) renders a styled suggestion card with an Apply button right below your tool call. The card lives in the overlay, NOT inside Google Docs. Tell the user "I've proposed N edit(s) — click Apply on the card above" — do NOT describe the edits in your text.
 
 Important caveats:
-- Body text is sourced from the official Google Docs API when the user has connected their Google account (Settings → Connect Google), and from Google Docs' plain-text export endpoint via the browser extension when they haven't. The API path handles multi-tab Google Docs, headers, and download-restricted docs that the export endpoint can't read.
+- Body text is sourced from the official Google Docs API once the user has connected their Google account (Settings → Connect Google). Without that connection, full-doc reads are not available — selection reads (selection_only=true) still work because they come from the browser extension. If get_text returns reason="oauth-required", tell the user to connect Google in Settings.
 - Apply on find_and_replace works through the Docs API once the user has connected Google. When not connected, Apply is disabled and the user has to copy the suggested replacement into the doc manually.
 - Comments are NOT included in the body read. Selection is always live and reflects the user's current highlight.
 - This integration only supports Google Chrome with the Academia browser extension connected. If get_active_doc returns no document, tell the user to switch to a Google Doc tab in Chrome.`;

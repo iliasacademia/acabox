@@ -19,32 +19,13 @@ export interface ActiveGoogleDocResult {
   selectedText: string | null;
 }
 
-export interface ActiveGoogleDocTextResult {
-  /** Plain-text rendering of the active Google Doc. Empty when the extension couldn't read the doc. */
-  text: string;
-  /**
-   * Optional structured reason the read failed (only set when `text` is empty).
-   * Known values: `"multi-tab"` — the doc uses Google Docs Tabs and the legacy
-   * export endpoint doesn't serve it; `"download-restricted"` — owner disabled
-   * downloads (export returned 403/404); `"export-status-<code>"` — other
-   * non-OK HTTP status; `"unknown"` — fallbacks also returned nothing.
-   */
-  reason?: string;
-}
-
 interface PendingActiveGoogleDoc {
   kind: 'active-google-doc';
   resolve: (result: ActiveGoogleDocResult | null) => void;
   timer: ReturnType<typeof setTimeout>;
 }
 
-interface PendingActiveGoogleDocText {
-  kind: 'active-google-doc-text';
-  resolve: (result: ActiveGoogleDocTextResult | null) => void;
-  timer: ReturnType<typeof setTimeout>;
-}
-
-type PendingRequest = PendingSelection | PendingActiveGoogleDoc | PendingActiveGoogleDocText;
+type PendingRequest = PendingSelection | PendingActiveGoogleDoc;
 
 class BrowserExtensionWs {
   private connection: WebSocket | null = null;
@@ -78,15 +59,6 @@ class BrowserExtensionWs {
             documentPath: typeof msg.documentPath === 'string' ? msg.documentPath : null,
             title: typeof msg.title === 'string' ? msg.title : null,
             selectedText: typeof msg.selectedText === 'string' ? msg.selectedText : null,
-          });
-          return;
-        }
-        if (msg.type === 'active-google-doc-text-result' && pending.kind === 'active-google-doc-text') {
-          clearTimeout(pending.timer);
-          this.pendingRequests.delete(msg.id);
-          pending.resolve({
-            text: typeof msg.text === 'string' ? msg.text : '',
-            reason: typeof msg.reason === 'string' ? msg.reason : undefined,
           });
           return;
         }
@@ -162,30 +134,6 @@ class BrowserExtensionWs {
       this.pendingRequests.set(id, { kind: 'active-google-doc', resolve, timer });
 
       this.connection!.send(JSON.stringify({ type: 'get-active-google-doc', id }));
-    });
-  }
-
-  /**
-   * Fetch the full plain-text body of the active Google Doc. Bridges to the
-   * extension's content script which forces a REQUEST_TEXT refresh on the
-   * MAIN-world canvas-interception bridge before returning the cached text.
-   */
-  getActiveGoogleDocText(timeoutMs = 4000): Promise<ActiveGoogleDocTextResult | null> {
-    if (!this.isConnected()) {
-      return Promise.resolve(null);
-    }
-
-    const id = randomUUID();
-
-    return new Promise<ActiveGoogleDocTextResult | null>((resolve) => {
-      const timer = setTimeout(() => {
-        this.pendingRequests.delete(id);
-        resolve(null);
-      }, timeoutMs);
-
-      this.pendingRequests.set(id, { kind: 'active-google-doc-text', resolve, timer });
-
-      this.connection!.send(JSON.stringify({ type: 'get-active-google-doc-text', id }));
     });
   }
 
