@@ -337,6 +337,13 @@ jobs:
           DATADOG_CLIENT_TOKEN: ${{ vars.DATADOG_CLIENT_TOKEN }}
           DATADOG_SITE: ${{ vars.DATADOG_SITE }}
           ENTRY_POINT: ${{ steps.artifact-name.outputs.entry_point }}
+          # Google Docs OAuth credentials (Phase C2). Baked into the main bundle
+          # at build time by webpack.DefinePlugin. When unset the build still
+          # succeeds — the Settings panel just shows "not configured" and the
+          # Google Docs Connect button stays disabled. Production releases must
+          # set these as repository secrets.
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
 
       - name: Verify Claude SDK binary in package
         if: matrix.platform == 'darwin'
