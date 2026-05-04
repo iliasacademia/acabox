@@ -27,3 +27,16 @@ try {
   console.error('Failed to build Rust file-monitor-mac:', error.message);
   process.exit(1);
 }
+
+// Build the agent server bundle (runs inside the container)
+try {
+  console.log('Building agent-server bundle...');
+  execSync('npx webpack --config webpack.agent-server.config.js', {
+    cwd: path.join(__dirname, '..'),
+    stdio: 'inherit',
+  });
+  console.log('Agent-server bundle built successfully.');
+} catch (error) {
+  console.error('Failed to build agent-server bundle:', error.message);
+  process.exit(1);
+}
