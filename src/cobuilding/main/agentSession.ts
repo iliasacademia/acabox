@@ -129,22 +129,45 @@ export function createAgentSession(
   // ─── Agent Server Communication ───────────────────────────────
 
   // Wait for the agent server to be ready before connecting.
-  // If the container is still starting, the spinner shows "Agent initializing..."
-  // and the message is sent automatically once ready.
+  // Emits status updates so the spinner shows the right label:
+  //   "Installing software..." — container image is being built/pulled
+  //   "Agent initializing..."  — container is running, agent server starting up
   async function waitForAgent(): Promise<string> {
+    let lastStatus = '';
     while (!stopped) {
+      const isRunning = containerService.isRunning();
       const port = containerService.getAgentPort();
-      if (port && containerService.isRunning()) {
-        // Verify the agent server is actually responding, not just the port allocated
+
+      // Determine the right status label
+      let status = '';
+      if (!isRunning) {
+        status = 'Installing software...';
+      } else if (!port) {
+        status = 'Agent initializing...';
+      }
+
+      if (port && isRunning) {
+        // Container is up and port assigned — check if agent server is healthy
         try {
           const res = await httpGet(`http://localhost:${port}/health`);
           if (res.includes('"ok"')) {
+            if (lastStatus) {
+              emitEvent({ type: 'status', status: '' } as ChatStreamMessage);
+            }
             return `http://localhost:${port}`;
           }
         } catch {
-          // Not ready yet
+          // Agent server not responding yet
         }
+        status = 'Agent initializing...';
       }
+
+      // Update status label if it changed
+      if (status !== lastStatus) {
+        emitEvent({ type: 'status', status } as ChatStreamMessage);
+        lastStatus = status;
+      }
+
       await new Promise(r => setTimeout(r, 1000));
     }
     throw new Error('Session stopped while waiting for agent');
@@ -167,13 +190,8 @@ export function createAgentSession(
 
   (async () => {
     try {
-      // Wait for the agent server to be ready (polls until container is running)
-      const port = containerService.getAgentPort();
-      if (!port || !containerService.isRunning()) {
-        emitEvent({ type: 'status', status: 'Agent initializing...' } as ChatStreamMessage);
-      }
+      // Wait for the agent server to be ready (emits status updates automatically)
       agentBaseUrl = await waitForAgent();
-      emitEvent({ type: 'status', status: '' } as ChatStreamMessage); // clear the label
 
       // Create session on the agent server
       const createBody = JSON.stringify({
