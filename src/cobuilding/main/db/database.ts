@@ -247,6 +247,13 @@ const migrations = [
       CREATE INDEX idx_sessions_document_path ON sessions(workspace_id, document_path);
     `,
   },
+  {
+    version: 15,
+    sql: `
+      ALTER TABLE sessions ADD COLUMN app_dir_name TEXT DEFAULT NULL;
+      CREATE INDEX idx_sessions_app_dir ON sessions(workspace_id, app_dir_name);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {
