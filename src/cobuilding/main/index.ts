@@ -1250,13 +1250,11 @@ ipcMain.handle('container:start', async () => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('container:progress', { stage, message, percent });
   });
   await startAgentInfrastructure(activeWorkspace.directory_path);
-  // Mark all existing apps as having their deps ready (baked into the image at startup)
-  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
-  for (const app of discoverApps(appsDir)) {
-    ensuredApps.add(app);
-  }
-  // Start watching for new app folders / dep file changes
-  backgroundBuilder.startWatching(activeWorkspace.directory_path);
+  // Start watching and ensure deps for all existing apps in the background.
+  // Apps are marked ready as their deps are verified/installed.
+  backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+    ensuredApps.add(appName);
+  });
 });
 
 ipcMain.handle('container:stop', async () => {
@@ -1344,10 +1342,9 @@ ipcMain.handle('container:ensureSetup', async () => {
   if (activeWorkspace) {
     await containerService.start(activeWorkspace.directory_path, progressCallback);
     await startAgentInfrastructure(activeWorkspace.directory_path);
-    for (const app of discoverApps(path.join(activeWorkspace.directory_path, '.applications'))) {
-      ensuredApps.add(app);
-    }
-    backgroundBuilder.startWatching(activeWorkspace.directory_path);
+    backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+      ensuredApps.add(appName);
+    });
   }
 });
 
@@ -1393,6 +1390,16 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   if (!containerService.isRunning()) throw new Error('Container is not running');
   if (ensuredApps.has(dirName)) {
     return { installed: [] };
+  }
+
+  // If a background install is already in progress for this app, wait for it
+  // instead of starting a conflicting parallel install (avoids dpkg lock issues).
+  const pending = backgroundBuilder.getPendingInstall(dirName);
+  if (pending) {
+    log.debug(`[ensureAppDeps] Waiting for background install of ${dirName} to finish`);
+    await pending;
+    ensuredApps.add(dirName);
+    return { installed: ['(completed by background installer)'] };
   }
 
   const appsDir = path.join(activeWorkspace.directory_path, '.applications');

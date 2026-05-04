@@ -295,6 +295,8 @@ Per-registry files — the single source of truth for each registry. Do not writ
 
 **apt and manual are elevated-risk** — apt requires root, manual runs arbitrary shell. Verify with the user before running either.
 
+**apt binaries may not be on PATH.** Debian puts some packages in `/usr/games/` or other non-standard locations. After installing an apt package, run `which <binary>` or `dpkg -L <package> | grep bin` to find the full path, and always use the **full path** (e.g., `/usr/games/cowsay`) in `containerAPI.exec()` calls and scripts. Do not assume the binary name alone will resolve.
+
 ### Writing a manual install script
 
 Use `manual` when no standard package manager can install what you need (binary releases, conda, building from source).
