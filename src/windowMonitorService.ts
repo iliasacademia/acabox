@@ -309,6 +309,10 @@ export class WindowMonitorService {
   private selectionEventsSuppressed = false;
 
   start(baseUrl: string, authToken: string, allAppsEnabled: boolean = false): void {
+    if (process.platform !== 'darwin') {
+      logger.info('[WindowMonitorService] Not available on this platform, skipping');
+      return;
+    }
     this.baseUrl = baseUrl;
     this.authToken = authToken;
     this.allAppsEnabled = allAppsEnabled;

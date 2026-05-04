@@ -498,7 +498,9 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
+  if (process.platform === 'darwin') {
+    systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
+  }
 
   await ensureClaudeBinaryReady();
 

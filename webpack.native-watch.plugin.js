@@ -19,6 +19,10 @@ class NativeWatchPlugin {
       return;
     }
 
+    if (process.platform !== 'darwin') {
+      return;
+    }
+
     compiler.hooks.afterEmit.tapAsync('NativeWatchPlugin', (compilation, callback) => {
       if (!this.watcher) {
         this.startWatching();
