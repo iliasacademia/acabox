@@ -120,6 +120,8 @@ interface AuthAPI {
   logout(): Promise<{ success: boolean; error?: string }>;
   getApiKey(): Promise<{ apiKey: string | null }>;
   refetchApiKey(): Promise<{ success: boolean; keyIdentifier?: string; error?: string }>;
+  isDev: boolean;
+  setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
   onDeepLinkCallback(
     callback: (data: { verificationCode: string; deviceId: string }) => void
   ): () => void;

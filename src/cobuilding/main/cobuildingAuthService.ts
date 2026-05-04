@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import { APIclient, BASE_URL } from '../../apiClient';
+import { APIclient } from '../../apiClient';
 import { defaultLogger as logger } from '../../utils/logger';
 import { generateDeviceId } from '../../auth/qrAuthService';
 import type { QRAuthResult, QRAuthSession } from '../../auth/qrAuthService';
@@ -11,12 +11,11 @@ export interface CobuildingApiKeyResult {
   keyIdentifier: string;
 }
 
-const WEB_URL = BASE_URL.replace('api.', '').replace(/\/$/, '');
-
-export async function createCobuildingAuthSession(): Promise<QRAuthSession> {
+export async function createCobuildingAuthSession(apiBaseUrl: string): Promise<QRAuthSession> {
   try {
     const deviceId = generateDeviceId();
-    const authorizationURL = `${WEB_URL}/cobuilding/desktop/authorize?device_id=${deviceId}`;
+    const webUrl = apiBaseUrl.replace('api.', '').replace(/\/$/, '');
+    const authorizationURL = `${webUrl}/cobuilding/desktop/authorize?device_id=${deviceId}`;
 
     const qrCodeDataURL = await QRCode.toDataURL(authorizationURL, {
       errorCorrectionLevel: 'M',
