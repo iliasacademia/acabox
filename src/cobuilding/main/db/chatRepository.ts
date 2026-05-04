@@ -114,7 +114,9 @@ export function getMessages(sessionId: string): Message[] {
 export function findSessionForApp(workspaceId: string, dirName: string): string | undefined {
   const db = getDatabase();
 
-  const marker = `connected to the application "${dirName}"`;
+  // The marker text is stored inside JSON.stringify output, so quotes around
+  // the dirName are escaped as \" in the stored content. Match accordingly.
+  const marker = `connected to the application \\"${dirName}\\"`;
   const row = db.prepare(`
     SELECT m.session_id, m.id as message_id
     FROM messages m
