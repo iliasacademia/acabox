@@ -452,12 +452,12 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
         includePartialMessages: true,
         cwd: '/data',
         env: {
+          // Inherit the container's full environment (PATH, NODE_PATH, VIRTUAL_ENV, etc.)
+          // so the subprocess can find system binaries (ls, grep, python3, etc.)
+          ...process.env,
           ANTHROPIC_API_KEY: config.anthropicApiKey,
           MINI_APP_WORKSPACE_DIR: '/data',
           COBUILDING_INSIDE_CONTAINER: '1',
-          // Store SDK sessions on the workspace mount so they persist
-          // across container restarts. Scoped to Claude config only —
-          // doesn't affect npm, tools, or other HOME-dependent behavior.
           CLAUDE_CONFIG_DIR: '/data/.academia/claude-config',
         },
         settingSources: config.settingSources as any[],
