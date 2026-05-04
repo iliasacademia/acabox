@@ -1194,8 +1194,80 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
   log.info(`[MCP] Registered host MCP handlers: ${Object.keys(handlers).join(', ')}`);
 }
 
+/**
+ * TODO: Remove this migration once most users have updated past this version.
+ * Added: 2026-05-04. Safe to remove after ~2026-08-01.
+ *
+ * One-time migration: copy SDK session JSONL files from the bundled podman's
+ * HOME directory to the container's CLAUDE_CONFIG_DIR on the workspace mount.
+ * The old architecture stored sessions at ~/.cobuild-podman[-dev]/.claude/projects/
+ * because the SDK inherited HOME from the bundled podman environment.
+ */
+function migrateHostSessionsToContainer(workspacePath: string): void {
+  const markerPath = path.join(workspacePath, '.academia', 'claude-config', '.sessions-migrated');
+  if (fs.existsSync(markerPath)) return;
+
+  const os = require('os');
+  // The bundled podman sets HOME to ~/.cobuild-podman (prod) or ~/.cobuild-podman-dev (dev).
+  // The SDK stored sessions there under .claude/projects/{sanitized-workspace-path}/.
+  const suffix = app.isPackaged ? '' : '-dev';
+  const podmanHome = path.join(os.homedir(), `.cobuild-podman${suffix}`);
+  const hostProjectsDir = path.join(podmanHome, '.claude', 'projects');
+  const containerProjectsDir = path.join(workspacePath, '.academia', 'claude-config', 'projects', '-data');
+
+  if (!fs.existsSync(hostProjectsDir)) {
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    fs.writeFileSync(markerPath, new Date().toISOString());
+    return;
+  }
+
+  let copied = 0;
+  try {
+    fs.mkdirSync(containerProjectsDir, { recursive: true });
+
+    // Scan all project directories — the workspace path may have changed over
+    // time, so copy sessions from all projects (not just the current one).
+    for (const projectDir of fs.readdirSync(hostProjectsDir)) {
+      const projectPath = path.join(hostProjectsDir, projectDir);
+      if (!fs.statSync(projectPath).isDirectory()) continue;
+
+      for (const file of fs.readdirSync(projectPath)) {
+        if (!file.endsWith('.jsonl')) continue;
+        const src = path.join(projectPath, file);
+        const dest = path.join(containerProjectsDir, file);
+        if (fs.existsSync(dest)) continue;
+
+        fs.copyFileSync(src, dest);
+        copied++;
+
+        // Copy subagent directories
+        const sessionId = file.replace('.jsonl', '');
+        const subagentDir = path.join(projectPath, sessionId, 'subagents');
+        if (fs.existsSync(subagentDir)) {
+          const destSubDir = path.join(containerProjectsDir, sessionId, 'subagents');
+          fs.mkdirSync(destSubDir, { recursive: true });
+          for (const sub of fs.readdirSync(subagentDir)) {
+            fs.copyFileSync(path.join(subagentDir, sub), path.join(destSubDir, sub));
+          }
+        }
+      }
+    }
+  } catch (err) {
+    log.warn(`[SessionMigration] Error: ${(err as Error).message}`);
+  }
+
+  fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+  fs.writeFileSync(markerPath, new Date().toISOString());
+  if (copied > 0) {
+    log.info(`[SessionMigration] Migrated ${copied} session files from ${podmanHome} to container config`);
+  }
+}
+
 async function startAgentInfrastructure(workspacePath: string): Promise<void> {
   if (!activeWorkspace) return;
+
+  // 0. One-time migration of session files from bundled podman HOME
+  migrateHostSessionsToContainer(workspacePath);
 
   // 1. Copy agent server bundle and claude binary to workspace
   await containerService.ensureAgentFilesInWorkspace(workspacePath);

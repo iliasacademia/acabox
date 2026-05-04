@@ -193,7 +193,10 @@ export function createAgentSession(
       // Wait for the agent server to be ready (emits status updates automatically)
       agentBaseUrl = await waitForAgent();
 
-      // Create session on the agent server
+      // Create session on the agent server.
+      // Sessions are persisted via a custom sessionStore that writes JSONL files
+      // to /data/.academia/sessions/ on the workspace mount. This enables full
+      // resume — the agent retains context across app restarts.
       const createBody = JSON.stringify({
         sessionId,
         resumeSessionId: sdkSessionId,

@@ -34,6 +34,7 @@ import { readFileSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -429,48 +430,82 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
     console.error(`[AgentServer] Binary NOT found: ${e.message}`);
   }
 
+  async function startQuery(resume?: string): Promise<void> {
+    state.running = true;
+    console.log(`[AgentServer] Starting query() with model=${config.model}${resume ? `, resuming ${resume}` : ''}`);
+
+    // Create a fresh generator each time — if we're retrying after a failed
+    // resume, the previous generator was consumed by the failed query.
+    const queryInstance = query({
+      prompt: userMessageGenerator(messageQueue),
+      options: {
+        pathToClaudeCodeExecutable: config.claudeBinaryPath,
+        stderr: (data: string) => {
+          for (const line of data.split('\n').filter(Boolean)) {
+            console.log(`[AgentServer:stderr] ${line}`);
+          }
+        },
+        model: config.model,
+        thinking: { type: 'adaptive' },
+        systemPrompt: buildSystemPrompt(config) as any,
+        ...(resume && { resume }),
+        includePartialMessages: true,
+        cwd: '/data',
+        env: {
+          ANTHROPIC_API_KEY: config.anthropicApiKey,
+          MINI_APP_WORKSPACE_DIR: '/data',
+          COBUILDING_INSIDE_CONTAINER: '1',
+          // Store SDK sessions on the workspace mount so they persist
+          // across container restarts. Scoped to Claude config only —
+          // doesn't affect npm, tools, or other HOME-dependent behavior.
+          CLAUDE_CONFIG_DIR: '/data/.academia/claude-config',
+        },
+        settingSources: config.settingSources as any[],
+        mcpServers: mcpRelayServers as any,
+        allowedTools: config.allowedTools,
+        hooks: {
+          PreToolUse: [{ hooks: [docxProtectionHook] }],
+        },
+      },
+    });
+
+    state.queryInstance = queryInstance;
+
+    for await (const message of queryInstance) {
+      broadcastSSE(state, 'message', message);
+    }
+
+    broadcastSSE(state, 'done', {});
+  }
+
   (async () => {
     try {
-      state.running = true;
-      console.log(`[AgentServer] Starting query() with model=${config.model}`);
-
-      const queryInstance = query({
-        prompt: userMessageGenerator(messageQueue),
-        options: {
-          pathToClaudeCodeExecutable: config.claudeBinaryPath,
-          stderr: (data: string) => {
-            for (const line of data.split('\n').filter(Boolean)) {
-              console.log(`[AgentServer:stderr] ${line}`);
+      // Check if the session exists in CLAUDE_CONFIG_DIR before attempting resume.
+      // This avoids consuming the user's message in a doomed query() that fails
+      // on "No conversation found" and can't be retried (message already consumed).
+      let validResume = resumeSessionId;
+      if (validResume) {
+        const { existsSync: fileExists, readdirSync: readDir } = require('fs');
+        const configDir = '/data/.academia/claude-config';
+        // SDK stores sessions in {CLAUDE_CONFIG_DIR}/projects/{projectKey}/{sessionId}.jsonl
+        let found = false;
+        const projectsDir = `${configDir}/projects`;
+        if (fileExists(projectsDir)) {
+          try {
+            for (const proj of readDir(projectsDir)) {
+              if (fileExists(`${projectsDir}/${proj}/${validResume}.jsonl`)) {
+                found = true;
+                break;
+              }
             }
-          },
-          model: config.model,
-          thinking: { type: 'adaptive' },
-          systemPrompt: buildSystemPrompt(config) as any,
-          ...(resumeSessionId && { resume: resumeSessionId }),
-          includePartialMessages: true,
-          cwd: '/data',
-          env: {
-            ANTHROPIC_API_KEY: config.anthropicApiKey,
-            MINI_APP_WORKSPACE_DIR: '/data',
-            COBUILDING_INSIDE_CONTAINER: '1',
-          },
-          settingSources: config.settingSources as any[],
-          mcpServers: mcpRelayServers as any,
-          allowedTools: config.allowedTools,
-          hooks: {
-            PreToolUse: [{ hooks: [docxProtectionHook] }],
-          },
-          persistSession: false,
-        },
-      });
-
-      state.queryInstance = queryInstance;
-
-      for await (const message of queryInstance) {
-        broadcastSSE(state, 'message', message);
+          } catch { /* ignore */ }
+        }
+        if (!found) {
+          console.log(`[AgentServer] Session ${validResume} not found in config dir, starting fresh`);
+          validResume = undefined;
+        }
       }
-
-      broadcastSSE(state, 'done', {});
+      await startQuery(validResume);
     } catch (err: unknown) {
       if (state.stopped) {
         broadcastSSE(state, 'done', {});
@@ -662,6 +697,11 @@ function startServer(config: AgentConfig): void {
 // ---------------------------------------------------------------------------
 // Entry Point
 // ---------------------------------------------------------------------------
+
+// Set CLAUDE_CONFIG_DIR at the process level so the SDK parent process
+// (which handles session load/resume) uses the persistent workspace mount.
+// The subprocess also receives it via the query() env option.
+process.env.CLAUDE_CONFIG_DIR = '/data/.academia/claude-config';
 
 const config = loadConfig();
 startServer(config);
