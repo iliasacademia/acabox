@@ -1,11 +1,10 @@
 
-import { createSdkMcpServer, tool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
 import * as fs from 'fs';
 import path from 'path';
 import log from 'electron-log';
-import { z } from 'zod';
 import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import http from 'http';
@@ -71,10 +70,10 @@ export function createAgentSession(
 ): AgentSession {
   const listeners = new Set<Partial<ChatCallbacks>>();
   let running = true;
-  let stopped = false;
   let agentSessionId: string | null = null;
   let sseRequest: http.ClientRequest | null = null;
   const pendingMessages: Array<{ text: string; attachments?: IPCAttachment[] }> = [];
+  const sessionState = { stopped: false }; // object so connectSSE sees mutations by reference
 
   // Register the initial callbacks as the first listener
   listeners.add(callbacks);
@@ -134,7 +133,7 @@ export function createAgentSession(
   //   "Agent initializing..."  — container is running, agent server starting up
   async function waitForAgent(): Promise<string> {
     let lastStatus = '';
-    while (!stopped) {
+    while (!sessionState.stopped) {
       const isRunning = containerService.isRunning();
       const port = containerService.getAgentPort();
 
@@ -222,11 +221,11 @@ export function createAgentSession(
 
       // Connect to SSE event stream
       const eventUrl = `${agentBaseUrl}/sessions/${agentSessionId}/events`;
-      await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, stopped, (req) => {
+      await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, sessionState, (req) => {
         sseRequest = req;
       }, agentBaseUrl, agentSessionId!);
     } catch (err: unknown) {
-      if (stopped) {
+      if (sessionState.stopped) {
         emitDone();
       } else {
         const errorMessage = err instanceof Error ? err.message : String(err);
@@ -277,7 +276,7 @@ export function createAgentSession(
     },
 
     destroy() {
-      stopped = true;
+      sessionState.stopped = true;
       clearInterval(heartbeatTimer);
       if (sseRequest) {
         sseRequest.destroy();
@@ -348,7 +347,7 @@ async function connectSSE(
   emitEvent: (msg: ChatStreamMessage) => void,
   emitDone: () => void,
   emitError: (error: string) => void,
-  stopped: boolean,
+  sessionState: { stopped: boolean },
   onRequest: (req: http.ClientRequest) => void,
   agentBaseUrl: string,
   agentSessionId: string,
@@ -456,48 +455,18 @@ async function connectSSE(
 
       res.on('end', () => resolve());
       res.on('error', (err) => {
-        if (!stopped) reject(err);
+        if (!sessionState.stopped) reject(err);
         else resolve();
       });
     });
 
     req.on('error', (err) => {
-      if (!stopped) reject(err);
+      if (!sessionState.stopped) reject(err);
       else resolve();
     });
 
     onRequest(req);
     req.end();
-  });
-}
-
-// ─── Mini-App MCP Server ─────────────────────────────────────────
-
-export function createMiniAppMcpServer(workspaceDir: string) {
-  return createSdkMcpServer({
-    name: 'mini-apps',
-    tools: [
-      tool(
-        'open_mini_application',
-        'Open an existing mini-application in the UI. The mini-application will take over the center content area and the chat will move to the right sidebar.',
-        {
-          dir_name: z.string().describe('The directory name of the mini-application (the lowerCamelCase name under .applications/)'),
-        },
-        async (args) => {
-          const appDir = path.join(workspaceDir, '.applications', args.dir_name);
-          const exists = await fs.promises.access(appDir).then(() => true, () => false);
-          if (!exists) {
-            return {
-              content: [{ type: 'text' as const, text: `Mini-application directory not found: .applications/${args.dir_name}` }],
-              isError: true,
-            };
-          }
-          return {
-            content: [{ type: 'text' as const, text: `Opened mini-application: ${args.dir_name}` }],
-          };
-        },
-      ),
-    ],
   });
 }
 

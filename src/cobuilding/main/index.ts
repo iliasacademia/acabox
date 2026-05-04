@@ -1030,32 +1030,9 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
 
 // ─── Agent Server & MCP Management ──────────────────────────────
 
-import { createActivityMcpServer } from './mcpServers/activityMcpServer';
-import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
-import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
-import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
-import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
-
 function registerHostMcpServers(workspace: { id: string; directory_path: string }, onNotificationClick?: (action: any) => void) {
-  // Create the host-side MCP servers and extract their tool handlers.
-  // These handlers run on the host and are called by the MCP relay when
-  // the in-container agent invokes an MCP tool.
-
-  // We call the existing factory functions to get the SDK configs,
-  // then extract the tool handlers from the underlying McpServer instances.
-  // Instead, we directly expose handler maps that agentSession.ts can call.
-
-  const activityServer = createActivityMcpServer();
-  const notificationServer = createNotificationMcpServer(onNotificationClick);
-  const reactionServer = createReactionMcpServer(workspace.id);
-  const msWordServer = createMsWordMcpServer();
-  const citeRightServer = createCiteRightMcpServer();
-
-  // Extract tool handlers from each SDK MCP server config.
-  // createSdkMcpServer wraps tool definitions; the tool() helper's 4th arg is the handler.
-  // We re-create the handler maps by calling the factory functions and re-extracting.
-  // Simpler approach: just define the dispatch map directly from the imported functions.
-
+  // Handler maps for MCP tool calls relayed from the in-container agent.
+  // Each handler matches the tool's original implementation on the host side.
   const { queryActivity } = require('./activityQuery');
   const { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument, getTrackChangesStatus, setTrackChanges } = require('../../server/wordActions');
   const { checkLogin } = require('../../apiClient');

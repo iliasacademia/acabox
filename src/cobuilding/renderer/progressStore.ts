@@ -85,6 +85,7 @@ export function setSubagentDone(parentToolCallId: string, status: 'completed' | 
 }
 
 export function setProcessingLabel(label: string | null): void {
+  if (processingLabel === label) return;
   processingLabel = label;
   notify();
 }
