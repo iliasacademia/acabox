@@ -284,8 +284,12 @@ function SubagentStatusLine({ parentToolCallId }: { parentToolCallId: string }) 
 const ToolFallbackImpl: ToolCallMessagePartComponent = (props: any) => {
   const { toolName, toolCallId, args, argsText, result, status } = props;
 
-  // Delegate to suggestion card for find_and_replace tool calls
-  if (toolName === 'mcp__ms-word__find_and_replace') {
+  // Delegate to suggestion card for find_and_replace proposals from any host app.
+  if (
+    toolName === 'mcp__ms-word__find_and_replace' ||
+    toolName === 'mcp__obsidian__find_and_replace' ||
+    toolName === 'mcp__apple-notes__find_and_replace'
+  ) {
     return <FindAndReplaceSuggestion {...props} />;
   }
 

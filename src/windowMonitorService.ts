@@ -1,6 +1,6 @@
 import { ChildProcess, execFile, spawn } from 'child_process';
 import { app, screen } from 'electron';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, watch, FSWatcher } from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import { defaultLogger as logger } from './utils/logger';
@@ -19,6 +19,7 @@ import {
 } from './windowMonitor/computeWebviewState';
 import { remoteFeatureFlags, REMOTE_FLAGS } from './remoteFeatureFlags';
 import { logToWindowMonitorDb } from './windowMonitorDb';
+import { getRegisteredHostApps, findHostAppByBundleId } from './cobuilding/main/hostApps';
 
 const BUTTON_WIDTH = 330;
 const BUTTON_HEIGHT = 50;
@@ -49,11 +50,20 @@ const DEBUG_CONTENT_BOUNDS_OVERLAY = process.env.DEBUG_CONTENT_BOUNDS_OVERLAY ==
 const DEBUG_SELECTION_BOUNDS_OVERLAY = process.env.DEBUG_SELECTION_BOUNDS_OVERLAY === '1';
 
 function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
+  // The button + popup overlay should appear over any host app that's
+  // registered (today: Word and Obsidian). Compute the bundle-id set once.
+  const hostBundleIds = new Set(getRegisteredHostApps().map((h) => h.bundleId));
+  const isHostApp = (id: string) => hostBundleIds.has(id);
+  // One-shot diagnostic so the log shows which hosts are participating.
+  if (!(getWebviewConfigs as any).__loggedHosts) {
+    logger.info('[WindowMonitorService] Overlay registered for host bundle ids:', Array.from(hostBundleIds));
+    (getWebviewConfigs as any).__loggedHosts = true;
+  }
   const configs: WebviewTypeConfig[] = [
     {
       keyPrefix: 'button-v2',
       pathSuffix: '/ui/popup/academiaNotificationsButtonV2/',
-      forApp: 'com.microsoft.Word',
+      forApp: isHostApp,
       computeFrame: (bounds: WindowBounds, screenHeight: number) => {
         const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
         return {
@@ -67,7 +77,7 @@ function getWebviewConfigs(service: WindowMonitorService): WebviewTypeConfig[] {
     {
       keyPrefix: 'popup-v2',
       pathSuffix: '/ui/popup/academiaNotificationsV2/',
-      forApp: 'com.microsoft.Word',
+      forApp: isHostApp,
       computeFrame: (bounds: WindowBounds, screenHeight: number) => {
         const cocoaBottomOfWindow = screenHeight - (bounds.y + bounds.height);
         const buttonTopEdge = cocoaBottomOfWindow + BUTTON_BOTTOM_MARGIN + BUTTON_HEIGHT;
@@ -245,7 +255,9 @@ function getWindowDocumentPathMap(state: SystemState): Map<string, string | null
 }
 
 export class WindowMonitorService {
-  private windowMonitorProcess: ChildProcess | null = null;
+  // Keyed by host-app id (e.g. 'word', 'obsidian') or the literal 'all-apps'
+  // when allAppsEnabled mode is active. One window-monitor process per entry.
+  private windowMonitorProcesses: Map<string, ChildProcess> = new Map();
   private webviewManagerProcess: ChildProcess | null = null;
   private state: SystemState = createInitialState();
   private popupToggledOpen: Set<string> = new Set();
@@ -280,39 +292,108 @@ export class WindowMonitorService {
   // Cobuilding workspace directory — when set, documents within this directory
   // are treated as workspace files and the overlay shows workspace sessions.
   private workspaceDirectory: string | null = null;
-  private sessionsProvider: (() => Array<{ id: string; title: string; created_at: string }>) | null = null;
+  // Watcher for `.obsidian/workspace.json` — Obsidian doesn't expose
+  // active-document changes through AX, so we observe its layout file directly
+  // and trigger an overlay state push when it changes.
+  private obsidianWorkspaceWatcher: FSWatcher | null = null;
+  private obsidianWorkspaceWatchDebounce: ReturnType<typeof setTimeout> | null = null;
+  // Cache of the currently active Apple Note's synthetic path. Apple Notes
+  // doesn't expose AXDocument and the lookup requires an AppleScript round
+  // trip, so we refresh the cache async on focus events and surface the
+  // cached value synchronously to consumers (poll-response builder, etc.).
+  private lastAppleNotesPath: string | null = null;
+  private appleNotesRefreshInflight = false;
+  private sessionsProvider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null = null;
   // When true, WINDOW_TEXT_SELECTED events are ignored (used to suppress
   // programmatic selections from MCP tools like find_and_replace/select_text).
   private selectionEventsSuppressed = false;
 
   start(baseUrl: string, authToken: string, allAppsEnabled: boolean = false): void {
+    if (process.platform !== 'darwin') {
+      logger.info('[WindowMonitorService] Not available on this platform, skipping');
+      return;
+    }
     this.baseUrl = baseUrl;
     this.authToken = authToken;
     this.allAppsEnabled = allAppsEnabled;
     const wmBin = getWindowMonitorBinPath();
     const wvBin = getWebviewManagerBinPath();
 
-    logger.info('[WindowMonitorService] Starting window-monitor:', wmBin);
     logger.info('[WindowMonitorService] Starting webview-manager:', wvBin);
 
-    // Spawn window-monitor
-    const wmArgs = allAppsEnabled
-      ? ['--track-text-selection', '--track-document-text']
-      : ['--bundle-id', 'com.microsoft.Word', '--track-text-selection', '--track-document-text', '--content-area-role', 'AXSplitGroup'];
-    logger.info('[WindowMonitorService] Spawn args:', wmArgs);
-    this.windowMonitorProcess = spawn(wmBin, wmArgs, {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    // Spawn webview-manager
+    // Spawn webview-manager (single instance, shared across all monitors)
     this.webviewManagerProcess = spawn(wvBin, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
+    // Spawn one window-monitor per registered host app (or a single all-apps
+    // monitor when in review-button-v3 mode). When only Word is registered,
+    // this is byte-identical to the prior single-process behavior.
+    if (allAppsEnabled) {
+      this.spawnWindowMonitor('all-apps', wmBin, ['--track-text-selection', '--track-document-text']);
+    } else {
+      const hosts = getRegisteredHostApps();
+      if (hosts.length === 0) {
+        logger.warn('[WindowMonitorService] No host apps registered — overlay will not appear over any app');
+      }
+      for (const host of hosts) {
+        this.spawnWindowMonitor(host.id, wmBin, host.windowMonitorArgs());
+      }
+    }
+
+    // Handle webview-manager stdout (responses)
+    if (this.webviewManagerProcess.stdout) {
+      const wvRl = readline.createInterface({ input: this.webviewManagerProcess.stdout });
+      wvRl.on('line', (line) => {
+        logger.debug('[WindowMonitorService] webview-manager response:', line);
+      });
+    }
+
+    // Handle webview-manager stderr
+    this.webviewManagerProcess.stderr?.on('data', (data: Buffer) => {
+      logger.error('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
+    });
+
+    this.webviewManagerProcess.on('error', (err) => {
+      logger.error('[WindowMonitorService] webview-manager error:', err.message);
+    });
+
+    this.webviewManagerProcess.on('exit', (code, signal) => {
+      logger.info('[WindowMonitorService] webview-manager exited', { code, signal });
+      this.webviewManagerProcess = null;
+    });
+  }
+
+  private spawnWindowMonitor(processKey: string, wmBin: string, wmArgs: string[]): void {
+    logger.info(`[WindowMonitorService] Starting window-monitor for ${processKey}:`, wmBin);
+    logger.info(`[WindowMonitorService] Spawn args (${processKey}):`, wmArgs);
+    const proc = spawn(wmBin, wmArgs, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    this.windowMonitorProcesses.set(processKey, proc);
+
     // Handle window-monitor stdout: line-delimited JSON events
-    const rl = readline.createInterface({ input: this.windowMonitorProcess.stdout! });
+    const rl = readline.createInterface({ input: proc.stdout! });
     rl.on('line', (line) => {
-      let event: WindowMonitorEvent;
+      this.handleWindowMonitorLine(line);
+    });
+
+    proc.stderr?.on('data', (data: Buffer) => {
+      logger.error(`[WindowMonitorService] window-monitor (${processKey}) stderr:`, data.toString().trimEnd());
+    });
+
+    proc.on('error', (err) => {
+      logger.error(`[WindowMonitorService] window-monitor (${processKey}) error:`, err.message);
+    });
+
+    proc.on('exit', (code, signal) => {
+      logger.info(`[WindowMonitorService] window-monitor (${processKey}) exited`, { code, signal });
+      this.windowMonitorProcesses.delete(processKey);
+    });
+  }
+
+  private handleWindowMonitorLine(line: string): void {
+    let event: WindowMonitorEvent;
       try {
         event = JSON.parse(line);
       } catch {
@@ -482,44 +563,6 @@ export class WindowMonitorService {
       }
 
       this.pushWebviewState();
-    });
-
-    // Handle window-monitor stderr
-    this.windowMonitorProcess.stderr?.on('data', (data: Buffer) => {
-      logger.error('[WindowMonitorService] window-monitor stderr:', data.toString().trimEnd());
-    });
-
-    // Handle webview-manager stdout (responses)
-    if (this.webviewManagerProcess.stdout) {
-      const wvRl = readline.createInterface({ input: this.webviewManagerProcess.stdout });
-      wvRl.on('line', (line) => {
-        logger.debug('[WindowMonitorService] webview-manager response:', line);
-      });
-    }
-
-    // Handle webview-manager stderr
-    this.webviewManagerProcess.stderr?.on('data', (data: Buffer) => {
-      logger.error('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
-    });
-
-    // Handle process exit events
-    this.windowMonitorProcess.on('error', (err) => {
-      logger.error('[WindowMonitorService] window-monitor error:', err.message);
-    });
-
-    this.windowMonitorProcess.on('exit', (code, signal) => {
-      logger.info('[WindowMonitorService] window-monitor exited', { code, signal });
-      this.windowMonitorProcess = null;
-    });
-
-    this.webviewManagerProcess.on('error', (err) => {
-      logger.error('[WindowMonitorService] webview-manager error:', err.message);
-    });
-
-    this.webviewManagerProcess.on('exit', (code, signal) => {
-      logger.info('[WindowMonitorService] webview-manager exited', { code, signal });
-      this.webviewManagerProcess = null;
-    });
   }
 
   private pushWebviewState(): void {
@@ -872,10 +915,65 @@ export class WindowMonitorService {
     for (const app of this.state.apps) {
       for (const window of app.windows) {
         if (window.id === windowId) {
+          // Route through the host app that owns this window's bundle id, if any.
+          // Word: returns window.documentPath as-is (today's behavior).
+          // Obsidian: reads .obsidian/workspace.json against the workspace dir.
+          // Apple Notes: returns the async-refreshed cache from this service.
+          const host = findHostAppByBundleId(app.identifier);
+          if (host) {
+            if (host.id === 'apple-notes') {
+              // Kick off an async refresh so the next poll sees the latest
+              // selection, then return whatever the cache currently holds.
+              void this.refreshAppleNotesPath();
+              return this.lastAppleNotesPath;
+            }
+            const resolved = host.resolveDocumentPath(window, this.workspaceDirectory);
+            if (resolved?.startsWith('file://')) {
+              return decodeURIComponent(resolved.slice(7));
+            }
+            return resolved;
+          }
+          // No host registered for this app — fall back to legacy behavior.
           if (window.documentPath?.startsWith('file://')) {
             return decodeURIComponent(window.documentPath.slice(7));
           }
           return window.documentPath;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Async refresh of the cached Apple-Notes active-note path. Idempotent /
+   * de-duped via the inflight flag — multiple back-to-back calls during a
+   * burst of poll requests collapse into one AppleScript round-trip.
+   * On change, emits a poll event so the popup re-fetches.
+   */
+  private async refreshAppleNotesPath(): Promise<void> {
+    if (this.appleNotesRefreshInflight) return;
+    this.appleNotesRefreshInflight = true;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { resolveActiveAppleNotePath } = require('./cobuilding/main/hostApps/appleNotesHostApp');
+      const next: string | null = await resolveActiveAppleNotePath();
+      if (next !== this.lastAppleNotesPath) {
+        this.lastAppleNotesPath = next;
+        wordPollEventBus.emit('change', 'window-document-path-changed');
+      }
+    } catch {
+      // ignore — Apple Events errors fall through; cache stays stale.
+    } finally {
+      this.appleNotesRefreshInflight = false;
+    }
+  }
+
+  /** Return the HostApp id that owns the given window's bundle, or null. */
+  getHostAppIdForWindow(windowId: string): string | null {
+    for (const app of this.state.apps) {
+      for (const window of app.windows) {
+        if (window.id === windowId) {
+          return findHostAppByBundleId(app.identifier)?.id ?? null;
         }
       }
     }
@@ -1058,6 +1156,46 @@ export class WindowMonitorService {
    */
   setActiveWorkspaceDirectory(directory: string | null): void {
     this.workspaceDirectory = directory;
+    this.refreshObsidianWorkspaceWatcher();
+  }
+
+  /**
+   * Start (or restart) the watcher on `.obsidian/workspace.json` for the active
+   * workspace. Obsidian writes this file whenever the user switches notes,
+   * splits panes, or otherwise changes their layout — observing it lets us
+   * react to active-note changes without any AX or polling-based detection.
+   */
+  private refreshObsidianWorkspaceWatcher(): void {
+    if (this.obsidianWorkspaceWatcher) {
+      this.obsidianWorkspaceWatcher.close();
+      this.obsidianWorkspaceWatcher = null;
+    }
+    if (this.obsidianWorkspaceWatchDebounce) {
+      clearTimeout(this.obsidianWorkspaceWatchDebounce);
+      this.obsidianWorkspaceWatchDebounce = null;
+    }
+    const dir = this.workspaceDirectory;
+    if (!dir) return;
+    const wsPath = path.join(dir, '.obsidian', 'workspace.json');
+    if (!existsSync(wsPath)) return;
+    try {
+      this.obsidianWorkspaceWatcher = watch(wsPath, () => {
+        // Obsidian rewrites workspace.json multiple times per layout change;
+        // debounce so we only push state once per burst.
+        if (this.obsidianWorkspaceWatchDebounce) {
+          clearTimeout(this.obsidianWorkspaceWatchDebounce);
+        }
+        this.obsidianWorkspaceWatchDebounce = setTimeout(() => {
+          this.obsidianWorkspaceWatchDebounce = null;
+          logger.info('[WindowMonitorService] Obsidian workspace.json changed — refreshing overlay state');
+          this.pushWebviewState();
+          wordPollEventBus.emit('change', 'obsidian-active-note-changed');
+        }, 150);
+      });
+      logger.info(`[WindowMonitorService] Watching Obsidian workspace.json at ${wsPath}`);
+    } catch (err) {
+      logger.warn(`[WindowMonitorService] Failed to watch ${wsPath}: ${(err as Error).message}`);
+    }
   }
 
   /** Returns the directory of the currently active workspace, or null if none. */
@@ -1065,12 +1203,16 @@ export class WindowMonitorService {
     return this.workspaceDirectory;
   }
 
-  setSessionsProvider(provider: (() => Array<{ id: string; title: string; created_at: string }>) | null): void {
+  setSessionsProvider(provider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null): void {
     this.sessionsProvider = provider;
   }
 
-  getWorkspaceSessions(): Array<{ id: string; title: string; created_at: string }> {
-    return this.sessionsProvider?.() ?? [];
+  getWorkspaceSessions(documentPath?: string): Array<{ id: string; title: string; created_at: string }> {
+    return this.sessionsProvider?.({ documentPath }) ?? [];
+  }
+
+  getWorkspaceSessionsByDocPathLike(documentPathLike: string): Array<{ id: string; title: string; created_at: string }> {
+    return this.sessionsProvider?.({ documentPathLike }) ?? [];
   }
 
   /**
@@ -1083,11 +1225,11 @@ export class WindowMonitorService {
   }
 
   stop(): void {
-    if (this.windowMonitorProcess) {
-      logger.info('[WindowMonitorService] Stopping window-monitor');
-      this.windowMonitorProcess.kill();
-      this.windowMonitorProcess = null;
+    for (const [key, proc] of this.windowMonitorProcesses) {
+      logger.info(`[WindowMonitorService] Stopping window-monitor (${key})`);
+      proc.kill();
     }
+    this.windowMonitorProcesses.clear();
     if (this.webviewManagerProcess) {
       logger.info('[WindowMonitorService] Stopping webview-manager');
       this.webviewManagerProcess.kill();
@@ -1114,6 +1256,14 @@ export class WindowMonitorService {
     this.reviewInputOpen.clear();
     this.reviewErrorMessages.clear();
     this.pendingAutoOpenPaths.clear();
+    if (this.obsidianWorkspaceWatcher) {
+      this.obsidianWorkspaceWatcher.close();
+      this.obsidianWorkspaceWatcher = null;
+    }
+    if (this.obsidianWorkspaceWatchDebounce) {
+      clearTimeout(this.obsidianWorkspaceWatchDebounce);
+      this.obsidianWorkspaceWatchDebounce = null;
+    }
   }
 
   restart(): void {

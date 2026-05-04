@@ -349,6 +349,28 @@ body.cobuild-resizing webview {
   white-space: nowrap;
 }
 
+.threadListItemTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.threadListItemDocPill {
+  flex-shrink: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
 .threadListItemDate {
   margin-top: 2px;
   font-size: calc(0.6875rem + 1px);
@@ -596,6 +618,31 @@ body.cobuild-resizing webview {
   min-width: 0;
   height: 100%;
   background: #fff;
+}
+
+.threadDocumentHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-bottom: 1px solid #e5e5e5;
+  background: #fafafa;
+  font-size: 13px;
+  color: #555;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.threadDocumentHeaderIcon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.threadDocumentHeaderName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .threadDropzone {
@@ -4108,6 +4155,23 @@ body.cobuild-resizing webview {
   gap: 8px;
   margin-top: 10px;
   flex-wrap: wrap;
+}
+
+.suggestionError {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
+  font-size: 12px;
+  font-family: 'DM Sans', sans-serif;
+}
+
+.suggestionError svg {
+  flex-shrink: 0;
 }
 
 .suggestionBtn {

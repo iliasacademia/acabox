@@ -1,5 +1,5 @@
 import type { RemoteThreadListAdapter } from '@assistant-ui/react';
-import { replaceSessionTimestampsFromList, setSessionCreatedAt } from './sessionTimestamps';
+import { replaceSessionTimestampsFromList, setSessionCreatedAt, setSessionDocumentPath } from './sessionTimestamps';
 
 export const sessionListAdapter: RemoteThreadListAdapter = {
   async list() {
@@ -39,6 +39,7 @@ export const sessionListAdapter: RemoteThreadListAdapter = {
     const session = await window.sessionsAPI.get(threadId);
     if (session) {
       setSessionCreatedAt(session.id, session.created_at);
+      setSessionDocumentPath(session.id, session.document_path ?? null);
     }
     return {
       status: 'regular' as const,

@@ -125,6 +125,17 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const effectiveWid = getV4FocusedWid();
   const docPath = pollData?.activeDocumentPath ?? null;
 
+  // When the active document changes (user switched notes in Obsidian, or
+  // switched Word documents), close any open conversation and return to the
+  // session list. The previous chat is scoped to its original document and
+  // shouldn't keep accepting messages in the context of a different file.
+  useEffect(() => {
+    const prev = prevDocPathRef.current;
+    if (prev !== null && prev !== docPath) {
+      setActiveSession(null);
+    }
+  }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Restore per-document dock preference whenever the active document changes.
   useEffect(() => {
     if (!docPath) return;

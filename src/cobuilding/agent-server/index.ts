@@ -297,6 +297,23 @@ function createMcpRelayServers(state: SessionState) {
         ),
       ],
     }),
+
+    zotero: createSdkMcpServer({
+      name: 'zotero',
+      tools: [
+        tool('status', 'Check whether the local Zotero desktop client is running and reachable.', {}, relay('zotero', 'status')),
+        tool('search_library', 'Search the user\'s local Zotero library by query string.', {
+          query: z.string().describe('Search query'),
+          limit: z.number().optional().default(10).describe('Max results to return'),
+        }, relay('zotero', 'search_library')),
+        tool('get_item', 'Get a specific item from the Zotero library by key.', {
+          key: z.string().describe('Zotero item key'),
+        }, relay('zotero', 'get_item')),
+        tool('add_doi', 'Add a publication to the Zotero library by DOI.', {
+          doi: z.string().describe('DOI of the publication to add'),
+        }, relay('zotero', 'add_doi')),
+      ],
+    }),
   };
 }
 

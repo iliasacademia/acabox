@@ -21,6 +21,7 @@ import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
 import {
   listSessions,
+  listSessionsByDocPathLike,
   getSession,
   createSession,
   updateSessionTitle,
@@ -497,7 +498,9 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(async () => {
-  systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
+  if (process.platform === 'darwin') {
+    systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
+  }
 
   await ensureClaudeBinaryReady();
 
@@ -649,21 +652,36 @@ app.whenReady().then(async () => {
               },
             );
 
-            // POST /api/cobuilding/apply-edit — execute a user-approved edit
-            fastify.post<{ Body: { toolCallId: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean } }>(
+            // POST /api/cobuilding/apply-edit — execute a user-approved edit.
+            // Dispatches to the HostApp that owns the document (resolved by
+            // file extension on `document_path`). Falls back to Word for
+            // legacy callers that don't include `document_path`.
+            fastify.post<{ Body: { toolCallId: string; document_path?: string; search_text: string; replacement_text: string; replace_scope?: string; match_case?: boolean } }>(
               '/api/cobuilding/apply-edit',
               async (request, reply) => {
                 try {
-                  const { findAndReplaceInWord } = await import('../../server/wordActions');
-                  const { toolCallId, search_text, replacement_text, replace_scope, match_case } = request.body;
-                  const result = await findAndReplaceInWord(
-                    search_text,
-                    replacement_text,
-                    (replace_scope as 'first' | 'all') || 'first',
-                    match_case ?? true,
-                  );
-                  const state = result.success ? 'applied' : 'error';
-                  if (toolCallId) editStates.set(toolCallId, state);
+                  const { findHostAppForDocument } = await import('./hostApps');
+                  const { wordHostApp } = await import('./hostApps/wordHostApp');
+                  const { toolCallId, document_path, search_text, replacement_text, replace_scope, match_case } = request.body;
+                  const host = findHostAppForDocument(document_path) ?? wordHostApp;
+                  host.onApplyEditWillRun?.();
+                  let result;
+                  try {
+                    result = await host.applyEdit({
+                      toolCallId,
+                      document_path,
+                      search_text,
+                      replacement_text,
+                      replace_scope: (replace_scope as 'first' | 'all') || 'first',
+                      match_case: match_case ?? true,
+                    });
+                  } finally {
+                    host.onApplyEditDidRun?.();
+                  }
+                  if (toolCallId) {
+                    if (result.success) editStates.set(toolCallId, 'applied');
+                    else editStates.delete(toolCallId);
+                  }
                   reply.send(result);
                 } catch (err) {
                   reply.code(500).send({ success: false, error: String(err) });
@@ -746,13 +764,14 @@ app.whenReady().then(async () => {
                   }
                   const unsubscribe = existingRunning.addListener({
                     onEvent: (msg) => sendSSE('event', msg),
-                    onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); },
+                    onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); notifySessionsChanged(); },
                     onError: (err) => { sendSSE('error', { error: err }); reply.raw.end(); unsubscribe(); },
                   });
                   existingRunning.sendMessage(displayMessage);
                   return;
                 }
 
+                const isNewSession = !hasSession(sessionId) && !getSession(sessionId);
                 if (!hasSession(sessionId)) {
                   const existingDbSession = getSession(sessionId);
                   const session = createAgentSession(
@@ -768,19 +787,27 @@ app.whenReady().then(async () => {
                     undefined,
                     undefined,
                     // messagePreprocessor: inject document/selection context for Claude
-                    // without storing it in the DB message
+                    // without storing it in the DB message. The host app resolved from
+                    // documentPath chooses how to phrase the prefix (Word vs Obsidian).
                     (userText: string) => {
                       const ctx = pendingContext.get(sessionId);
                       pendingContext.delete(sessionId);
                       if (!ctx) return userText;
-                      let prefix = '';
-                      if (ctx.documentPath) prefix += `Active Word document: ${ctx.documentPath}\n`;
-                      if (ctx.selectedText) prefix += `The user has selected the following text in the document. Act ONLY on this selected text, not the entire document. If the user asks for a review or feedback, use the academic-writing-agent skill scoped to this selected passage.\n"""\n${ctx.selectedText}\n"""\n`;
+                      const { findHostAppForDocument } = require('./hostApps');
+                      const { wordHostApp } = require('./hostApps/wordHostApp');
+                      const host = findHostAppForDocument(ctx.documentPath) ?? wordHostApp;
+                      const prefix = host.messagePrefix({
+                        documentPath: ctx.documentPath,
+                        selectedText: ctx.selectedText,
+                      });
                       return prefix ? `${prefix}\n${userText}` : userText;
                     },
+                    ctxDocPath,
                   );
                   registerSession(sessionId, session);
                 }
+
+                if (isNewSession) notifySessionsChanged();
 
                 const session = getRegisteredSession(sessionId)!;
 
@@ -800,6 +827,7 @@ app.whenReady().then(async () => {
                     sendSSE('done', {});
                     reply.raw.end();
                     unsubscribe();
+                    notifySessionsChanged();
                   },
                   onError: (err) => {
                     sendSSE('error', { error: err });
@@ -835,9 +863,12 @@ app.whenReady().then(async () => {
             // Set workspace directory so the overlay knows which docs are in the workspace
             if (activeWorkspace) {
               windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
-              windowMonitorService.setSessionsProvider(() => {
+              windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
                 if (!activeWorkspace) return [];
-                return listSessions(activeWorkspace.id).map(s => ({
+                const rows = documentPathLike !== undefined
+                  ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
+                  : listSessions(activeWorkspace.id, undefined, documentPath);
+                return rows.map(s => ({
                   id: s.id,
                   title: s.title,
                   created_at: s.created_at,
@@ -1129,6 +1160,34 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
         return ok(`Opened mini-application: ${args.dir_name}`);
       },
     },
+
+    zotero: {
+      status: async () => {
+        try {
+          const { getZoteroLocalStatus } = require('../../zoteroLocalClient');
+          const status = await getZoteroLocalStatus();
+          return ok(JSON.stringify({ status }));
+        } catch (e: any) { return fail(`Zotero status check failed: ${e.message}`); }
+      },
+      search_library: async (args: any) => {
+        try {
+          const { searchZoteroLibrary } = require('../../zoteroLocalClient');
+          return ok(JSON.stringify(await searchZoteroLibrary(args.query, args.limit)));
+        } catch (e: any) { return fail(`Zotero search failed: ${e.message}`); }
+      },
+      get_item: async (args: any) => {
+        try {
+          const { getZoteroItem } = require('../../zoteroLocalClient');
+          return ok(JSON.stringify(await getZoteroItem(args.key)));
+        } catch (e: any) { return fail(`Zotero get_item failed: ${e.message}`); }
+      },
+      add_doi: async (args: any) => {
+        try {
+          const { addDoiToZotero } = require('../../zoteroLocalClient');
+          return ok(JSON.stringify(await addDoiToZotero(args.doi)));
+        } catch (e: any) { return fail(`Zotero add_doi failed: ${e.message}`); }
+      },
+    },
   };
 
   (globalThis as any).__hostMcpServers = handlers;
@@ -1168,6 +1227,8 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'mcp__citeright__get_citation_report', 'mcp__citeright__add_claim_to_report',
       'mcp__citeright__search_citations_for_claim', 'mcp__citeright__format_citations',
       'mcp__citeright__list_citation_reports',
+      'mcp__zotero__status', 'mcp__zotero__search_library',
+      'mcp__zotero__get_item', 'mcp__zotero__add_doi',
     ],
     settingSources: ['project'],
   };
@@ -1642,13 +1703,22 @@ ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
 ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
 ipcMain.handle('observations:getSessionFiles', () => getAllSessionFiles());
 
+function notifySessionsChanged() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('sessions:changed');
+  }
+}
+
 // Session IPC handlers
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   if (!activeWorkspace) return [];
   return listSessions(activeWorkspace.id, source);
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
-ipcMain.handle('sessions:rename', (_event, id: string, title: string) => updateSessionTitle(id, title));
+ipcMain.handle('sessions:rename', (_event, id: string, title: string) => {
+  updateSessionTitle(id, title);
+  notifySessionsChanged();
+});
 ipcMain.handle('sessions:delete', (_event, id: string) => {
   deleteSession(id);
   const session = getRegisteredSession(id);
@@ -1656,6 +1726,7 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
     session.destroy();
     unregisterSession(id);
   }
+  notifySessionsChanged();
 });
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
@@ -1677,6 +1748,7 @@ ipcMain.handle('sessions:findForApp', (_event, dirName: string) => {
     JSON.stringify({ text: `This chat is connected to the application "${dirName}".` }),
   );
   updateSessionTitle(sessionId, displayName);
+  notifySessionsChanged();
   return sessionId;
 });
 
@@ -1868,15 +1940,27 @@ ipcMain.on('chat:stop', (event, threadId: string) => {
 // Edit state sync (desktop ↔ overlay)
 // =============================================================================
 
-ipcMain.handle('edit-state:apply', async (_event, { toolCallId, search_text, replacement_text, replace_scope, match_case }: any) => {
+ipcMain.handle('edit-state:apply', async (_event, { toolCallId, document_path, search_text, replacement_text, replace_scope, match_case }: any) => {
   try {
-    const { findAndReplaceInWord } = await import('../../server/wordActions');
-    const result = await findAndReplaceInWord(
-      search_text, replacement_text,
-      replace_scope || 'first', match_case ?? true,
-    );
+    const { findHostAppForDocument } = await import('./hostApps');
+    const { wordHostApp } = await import('./hostApps/wordHostApp');
+    const host = findHostAppForDocument(document_path) ?? wordHostApp;
+    host.onApplyEditWillRun?.();
+    let result;
+    try {
+      result = await host.applyEdit({
+        toolCallId,
+        document_path,
+        search_text,
+        replacement_text,
+        replace_scope: (replace_scope as 'first' | 'all') || 'first',
+        match_case: match_case ?? true,
+      });
+    } finally {
+      host.onApplyEditDidRun?.();
+    }
     if (result.success) editStates.set(toolCallId, 'applied');
-    else editStates.set(toolCallId, 'error');
+    else editStates.delete(toolCallId);
     return result;
   } catch (err) {
     return { success: false, error: String(err) };
@@ -2484,6 +2568,79 @@ ipcMain.handle(IPC_CHANNELS.ZOTERO_LOCAL_CHECK_DOI, async (_event, doi: string) 
   if (typeof doi !== 'string' || doi.length === 0) return null;
   const { checkDoiInZotero } = await import('../../zoteroLocalClient');
   return await checkDoiInZotero(doi);
+});
+
+// Open a Zotero item by DOI — uses the key when known so Zotero jumps
+// straight to the item instead of opening the search panel.
+ipcMain.handle(IPC_CHANNELS.ZOTERO_OPEN_DOI, async (_event, doi: string) => {
+  if (typeof doi !== 'string' || doi.length === 0) {
+    return { success: false, error: 'doi is required' };
+  }
+  const { openZoteroForDoi } = await import('../../zoteroLocalClient');
+  await openZoteroForDoi(doi);
+  return { success: true };
+});
+
+// Integration toggles (Word, Obsidian, ...). Backed by electron-store, drive
+// `getRegisteredHostApps()` at startup.
+import { store as appStore } from '../../appStore';
+import { setHostAppRegistrationOverrides, type IntegrationId } from './hostApps';
+
+const INTEGRATION_DEFAULTS: Record<IntegrationId, boolean> = {
+  word: FEATURES.MS_WORD_INTEGRATION_ENABLED,
+  obsidian: FEATURES.OBSIDIAN_INTEGRATION_ENABLED,
+  'apple-notes': FEATURES.APPLE_NOTES_INTEGRATION_ENABLED,
+};
+
+function integrationStoreKey(id: IntegrationId): string {
+  return `integration.${id}.enabled`;
+}
+
+function readIntegrationEnabled(id: IntegrationId): boolean {
+  return appStore.get(integrationStoreKey(id), INTEGRATION_DEFAULTS[id]) as boolean;
+}
+
+// Apply persisted toggles to the host-app registry as soon as the module loads
+// — must happen before windowMonitorService.start() consults the registry.
+setHostAppRegistrationOverrides({
+  word: readIntegrationEnabled('word'),
+  obsidian: readIntegrationEnabled('obsidian'),
+  'apple-notes': readIntegrationEnabled('apple-notes'),
+});
+
+const KNOWN_INTEGRATION_IDS: ReadonlySet<IntegrationId> = new Set(['word', 'obsidian', 'apple-notes']);
+
+ipcMain.handle(IPC_CHANNELS.INTEGRATION_GET_ENABLED, async (_event, id: IntegrationId) => {
+  if (!KNOWN_INTEGRATION_IDS.has(id)) return false;
+  return readIntegrationEnabled(id);
+});
+
+ipcMain.handle(IPC_CHANNELS.INTEGRATION_SET_ENABLED, async (_event, id: IntegrationId, enabled: boolean) => {
+  if (!KNOWN_INTEGRATION_IDS.has(id)) {
+    return { success: false, error: 'unknown_integration' };
+  }
+  // Per-integration permission gate. The macOS Accessibility permission is
+  // global to the Academia app, but we surface the request here (with copy
+  // scoped to whichever toggle the user is enabling) rather than at app start.
+  if (enabled && process.platform === 'darwin') {
+    const granted = wordAccessibility.checkPermission();
+    if (!granted) {
+      // Open System Settings — user has to approve there, then come back and toggle again.
+      wordAccessibility.openAccessibilitySettings();
+      return {
+        success: false,
+        error: 'permission_required',
+        integrationId: id,
+      };
+    }
+  }
+  appStore.set(integrationStoreKey(id), enabled);
+  // Restart so the host-app registry, window-monitor processes, and overlay
+  // configs all rehydrate cleanly. This matches how SET_ALL_APPS_MONITOR_ENABLED
+  // already handles its toggle.
+  if (app.isPackaged) app.relaunch();
+  app.quit();
+  return { success: true };
 });
 
 // Permission IPC handlers (macOS only)

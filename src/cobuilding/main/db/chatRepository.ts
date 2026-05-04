@@ -5,6 +5,7 @@ export interface Session {
   sdk_session_id: string | null;
   title: string;
   source: string | null;
+  document_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -17,10 +18,15 @@ export interface Message {
   created_at: string;
 }
 
-export function createSession(id: string, workspaceId: string, source: string | null = null): void {
+export function createSession(
+  id: string,
+  workspaceId: string,
+  source: string | null = null,
+  documentPath: string | null = null,
+): void {
   getDatabase()
-    .prepare('INSERT OR IGNORE INTO sessions (id, workspace_id, source) VALUES (?, ?, ?)')
-    .run(id, workspaceId, source);
+    .prepare('INSERT OR IGNORE INTO sessions (id, workspace_id, source, document_path) VALUES (?, ?, ?, ?)')
+    .run(id, workspaceId, source, documentPath);
 }
 
 export function getSession(id: string): Session | undefined {
@@ -29,15 +35,29 @@ export function getSession(id: string): Session | undefined {
     .get(id) as Session | undefined;
 }
 
-export function listSessions(workspaceId: string, source?: string): Session[] {
-  if (source !== undefined) {
-    return getDatabase()
-      .prepare('SELECT * FROM sessions WHERE workspace_id = ? AND source = ? ORDER BY updated_at DESC')
-      .all(workspaceId, source) as Session[];
-  }
-  return getDatabase()
-    .prepare('SELECT * FROM sessions WHERE workspace_id = ? AND source IS NULL ORDER BY updated_at DESC')
-    .all(workspaceId) as Session[];
+export function listSessions(workspaceId: string, source?: string, documentPath?: string): Session[] {
+  const sourceClause = source !== undefined ? 'source = ?' : 'source IS NULL';
+  const docClause = documentPath !== undefined ? ' AND document_path = ?' : '';
+  const sql = `SELECT * FROM sessions WHERE workspace_id = ? AND ${sourceClause}${docClause} ORDER BY updated_at DESC`;
+  const params: unknown[] = [workspaceId];
+  if (source !== undefined) params.push(source);
+  if (documentPath !== undefined) params.push(documentPath);
+  return getDatabase().prepare(sql).all(...params) as Session[];
+}
+
+/**
+ * Variant of listSessions that filters `document_path` against a SQL LIKE
+ * pattern instead of an exact match. Used by hosts whose document_path
+ * shares a stable prefix (e.g. Apple Notes' `applenotes://%`) so the overlay
+ * can show all chats for the host when the active document isn't pinned yet.
+ */
+export function listSessionsByDocPathLike(workspaceId: string, source: string | undefined, documentPathLike: string): Session[] {
+  const sourceClause = source !== undefined ? 'source = ?' : 'source IS NULL';
+  const sql = `SELECT * FROM sessions WHERE workspace_id = ? AND ${sourceClause} AND document_path LIKE ? ORDER BY updated_at DESC`;
+  const params: unknown[] = [workspaceId];
+  if (source !== undefined) params.push(source);
+  params.push(documentPathLike);
+  return getDatabase().prepare(sql).all(...params) as Session[];
 }
 
 export function updateSessionTitle(id: string, title: string): void {

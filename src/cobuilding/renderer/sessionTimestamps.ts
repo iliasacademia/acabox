@@ -15,21 +15,33 @@ export function dateFromSessionStoredAt(stored: string): Date {
 }
 
 const createdAtByRemoteId = new Map<string, string>();
+const documentPathByRemoteId = new Map<string, string | null>();
 
 export function getSessionCreatedAt(remoteId: string | undefined): string | undefined {
   if (!remoteId) return undefined;
   return createdAtByRemoteId.get(remoteId);
 }
 
+export function getSessionDocumentPath(remoteId: string | undefined): string | null | undefined {
+  if (!remoteId) return undefined;
+  return documentPathByRemoteId.get(remoteId);
+}
+
 export function replaceSessionTimestampsFromList(
-  sessions: readonly { id: string; created_at: string }[],
+  sessions: readonly { id: string; created_at: string; document_path?: string | null }[],
 ): void {
   createdAtByRemoteId.clear();
+  documentPathByRemoteId.clear();
   for (const s of sessions) {
     createdAtByRemoteId.set(s.id, s.created_at);
+    documentPathByRemoteId.set(s.id, s.document_path ?? null);
   }
 }
 
 export function setSessionCreatedAt(remoteId: string, createdAt: string): void {
   createdAtByRemoteId.set(remoteId, createdAt);
+}
+
+export function setSessionDocumentPath(remoteId: string, documentPath: string | null): void {
+  documentPathByRemoteId.set(remoteId, documentPath);
 }

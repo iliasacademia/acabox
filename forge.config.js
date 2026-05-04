@@ -7,7 +7,11 @@ const { execSync } = require('child_process');
 
 function isPortInUse(port) {
   try {
-    execSync(`lsof -i :${port} -sTCP:LISTEN`, { stdio: 'ignore' });
+    if (os.platform() === 'win32') {
+      execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, { stdio: 'ignore' });
+    } else {
+      execSync(`lsof -i :${port} -sTCP:LISTEN`, { stdio: 'ignore' });
+    }
     return true;
   } catch {
     return false;
@@ -104,6 +108,7 @@ const packagerConfig = {
     'src/cobuilding/Dockerfile',
     'src/cobuilding/Dockerfile.base',
     ...(require('fs').existsSync('browser-extension/extension.zip') ? ['browser-extension/extension.zip'] : []),
+    'ms_office_addin',
   ],
   ...(platform === 'darwin' ? {
     extendInfo: {

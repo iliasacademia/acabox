@@ -100,6 +100,36 @@ export function getToolLabel(
       return 'Applying formatting';
     case 'mcp__ms-word__delete_selection':
       return 'Deleting selection';
+    case 'mcp__obsidian__get_active_note':
+      return 'Getting active note';
+    case 'mcp__obsidian__get_text': {
+      const fp = resolved?.path as string | undefined;
+      return fp ? `Reading note: ${basename(fp)}` : 'Reading note';
+    }
+    case 'mcp__obsidian__list_notes':
+      return 'Listing notes';
+    case 'mcp__obsidian__open_note': {
+      const fp = resolved?.path as string | undefined;
+      return fp ? `Opening note: ${basename(fp)}` : 'Opening note';
+    }
+    case 'mcp__obsidian__find_and_replace':
+      return 'Proposing edit';
+    case 'mcp__apple-notes__get_active_note':
+      return 'Getting active note';
+    case 'mcp__apple-notes__get_text':
+      return 'Reading note';
+    case 'mcp__apple-notes__list_notes':
+      return 'Listing notes';
+    case 'mcp__apple-notes__search_notes': {
+      const q = resolved?.query as string | undefined;
+      return q ? `Searching notes: ${truncate(q)}` : 'Searching notes';
+    }
+    case 'mcp__apple-notes__save_note':
+      return 'Saving note';
+    case 'mcp__apple-notes__open_note':
+      return 'Opening note';
+    case 'mcp__apple-notes__find_and_replace':
+      return 'Proposing edit';
     case 'mcp__mini-apps__open_mini_application': {
       const dirName = resolved?.dir_name as string | undefined;
       return dirName ? `Opening app: ${dirName}` : 'Opening app';

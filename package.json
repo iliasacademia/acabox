@@ -15,7 +15,7 @@
     "download-browser-extension": "bash scripts/download-browser-extension.sh",
     "prestart": "npm run build:native && npm run build:popup",
     "start": "dotenv -e .env.local -- cross-env NODE_ENV=development electron-forge start",
-    "prestart:cobuilding": "cd src/cobuilding/rust/file-monitor-mac && cargo build",
+    "prestart:cobuilding": "node scripts/build-cobuilding-prestart.js",
     "start:cobuilding": "dotenv -e .env.local -- cross-env NODE_ENV=development ENTRY_POINT=cobuilding electron-forge start",
     "build:cobuilding:rust": "node scripts/build-cobuilding-rust.js",
     "cleanup": "./cleanup.sh",

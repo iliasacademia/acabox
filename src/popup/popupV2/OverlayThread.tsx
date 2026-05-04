@@ -170,6 +170,13 @@ const overlayAddedDoiStore = (() => {
     window.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') hydrate(true);
     });
+    // Re-hydrate periodically so DOIs the agent's MCP search just marked
+    // appear as "Open in Zotero" without waiting for a focus change.
+    setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        hydrate(true);
+      }
+    }, 5000);
   }
 
   return {
@@ -240,7 +247,11 @@ const ZoteroAddRefButton: React.FC<{ doi: string }> = ({ doi }) => {
   const handleOpen = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    openOverlayUrl(`zotero://search?q=${encodeURIComponent(doi)}`);
+    // Server resolves DOI → best Zotero URL (uses item key when known) and
+    // launches it via the OS opener directly — no "Allow this site…" prompt.
+    fetch(`${window.location.origin}/api/zotero/open?doi=${encodeURIComponent(doi)}`, {
+      headers: authHeaders(),
+    }).catch(() => { /* best-effort */ });
   };
 
   if (added) {

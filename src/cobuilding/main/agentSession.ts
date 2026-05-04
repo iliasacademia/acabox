@@ -9,6 +9,9 @@ import { z } from 'zod';
 import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
 import http from 'http';
+import { findHostAppForDocument, getRegisteredHostApps, type HostApp } from './hostApps';
+import { wordHostApp } from './hostApps/wordHostApp';
+import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
 
 // ─── MCP Relay Dispatch ──────────────────────────────────────────
 // Maps MCP tool calls from the in-container agent to host-side MCP server handlers.
@@ -64,6 +67,7 @@ export function createAgentSession(
   onNotificationClick?: (action: NotificationNavigationAction | null) => void,
   model?: string,
   messagePreprocessor?: (text: string) => string,
+  documentPath?: string,
 ): AgentSession {
   const listeners = new Set<Partial<ChatCallbacks>>();
   let running = true;
@@ -106,14 +110,26 @@ export function createAgentSession(
     }
   }
 
-  createSession(sessionId, workspace.id, source ?? null);
+  createSession(sessionId, workspace.id, source ?? null, documentPath ?? null);
+
+  // Resolve which host app this session is acting on. If we have a documentPath
+  // we look it up by extension; otherwise we fall back to Word (preserves the
+  // pre-HostApp behavior where Word was always wired up). If Word isn't a
+  // registered host app (build-time disabled), pick the first registered host.
+  const registered = getRegisteredHostApps();
+  const sessionHostApp: HostApp = (
+    findHostAppForDocument(documentPath)
+    ?? registered.find((h) => h.id === wordHostApp.id)
+    ?? registered[0]
+    ?? wordHostApp
+  );
 
   const state: MessageProcessingState = { currentToolCallId: null, currentBlockIsThinking: false, pendingBashCalls: new Map() };
 
   // ─── Agent Server Communication ───────────────────────────────
 
   // Wait for the agent server to be ready before connecting.
-  // If the container is still starting, the spinner shows "Processing..."
+  // If the container is still starting, the spinner shows "Agent initializing..."
   // and the message is sent automatically once ready.
   async function waitForAgent(): Promise<string> {
     while (!stopped) {
@@ -136,11 +152,6 @@ export function createAgentSession(
 
   let agentBaseUrl: string;
 
-  // Build agent config for the session
-  const mcpProxy = (globalThis as any).__mcpHttpProxy;
-  const hostGatewayIp = containerService.getHostGatewayIp() ?? '127.0.0.1';
-  const mcpServerUrls = mcpProxy?.getMcpServerUrls?.(hostGatewayIp) ?? {};
-
   // Read SOUL.md
   let soulMdContent: string | undefined;
   try {
@@ -149,20 +160,10 @@ export function createAgentSession(
     if (content) soulMdContent = content;
   } catch { /* doesn't exist */ }
 
-  const docxEditingGuidance = `You are Academia Coscientist, an AI research assistant. Always refer to yourself as "Academia Coscientist" (never "Claude" or "I").
-
-When the user wants to make edits or suggestions to a .docx file:
-
-IMPORTANT: NEVER unpack, modify XML, or edit .docx files directly on disk. ALWAYS use the ms-word MCP tools.
-
-1. First call mcp__ms-word__track_changes_status to check if Track Changes is enabled.
-2. If Track Changes is OFF, ask the user to enable it (Review tab → Track Changes in Word) so they can review your edits. You can also call mcp__ms-word__set_track_changes to enable it.
-3. Use mcp__ms-word__get_text to read the document content.
-4. Use mcp__ms-word__find_and_replace to propose edits. Call the tool once per edit. The UI automatically renders a suggestion card with the diff and approve/deny buttons — do NOT describe or preview the edits in your text.
-5. After proposing edits, say something brief like "I've proposed N edits — please review above." The user approves or denies each edit directly in the UI. Approved edits are applied as tracked revisions in Word.
-6. Use mcp__ms-word__save_document to save after editing.
-
-The user sees edits appear live in Word as tracked changes. Do NOT use any other method to edit Word documents.`;
+  // Build system prompt using the host app's guidance (replaces hardcoded docx guidance)
+  const hostGuidance = [IDENTITY_PREAMBLE, sessionHostApp.systemPromptAppend]
+    .filter(Boolean)
+    .join('\n\n');
 
   (async () => {
     try {
@@ -180,7 +181,7 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
         resumeSessionId: sdkSessionId,
         model: model || undefined,
         soulMd: soulMdContent,
-        docxGuidance: docxEditingGuidance,
+        hostGuidance,
       });
 
       const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
@@ -273,18 +274,6 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
     get isRunning() {
       return running;
     },
-  };
-}
-
-function createNoopSession(
-  listeners: Set<Partial<ChatCallbacks>>,
-  heartbeatTimer: ReturnType<typeof setInterval>,
-): AgentSession {
-  return {
-    sendMessage() {},
-    destroy() { clearInterval(heartbeatTimer); },
-    addListener(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
-    get isRunning() { return false; },
   };
 }
 

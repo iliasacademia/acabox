@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { MarkdownText } from './markdown-text';
 import { ToolFallback } from './tool-fallback';
 import { ToolGroup } from './tool-group';
@@ -27,6 +27,7 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
+  FileTextIcon,
   LoaderIcon,
   PaperclipIcon,
   PencilIcon,
@@ -53,6 +54,7 @@ export const Thread: FC<ThreadProps> = ({
 }) => {
   return (
     <ThreadPrimitive.Root className="threadRoot">
+      <ThreadDocumentHeader />
       <ComposerPrimitive.AttachmentDropzone className="threadDropzone">
         <ThreadPrimitive.Viewport
           turnAnchor={turnAnchor}
@@ -79,6 +81,31 @@ export const Thread: FC<ThreadProps> = ({
         </ThreadPrimitive.Viewport>
       </ComposerPrimitive.AttachmentDropzone>
     </ThreadPrimitive.Root>
+  );
+};
+
+const ThreadDocumentHeader: FC = () => {
+  const remoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  const [documentPath, setDocumentPath] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!remoteId) { setDocumentPath(null); return; }
+    let cancelled = false;
+    window.sessionsAPI.get(remoteId).then((session) => {
+      if (cancelled) return;
+      setDocumentPath(session?.document_path ?? null);
+    }).catch(() => { if (!cancelled) setDocumentPath(null); });
+    return () => { cancelled = true; };
+  }, [remoteId]);
+
+  if (!documentPath) return null;
+  const filename = documentPath.split('/').pop() || documentPath;
+
+  return (
+    <div className="threadDocumentHeader" title={documentPath}>
+      <FileTextIcon className="threadDocumentHeaderIcon" />
+      <span className="threadDocumentHeaderName">{filename}</span>
+    </div>
   );
 };
 

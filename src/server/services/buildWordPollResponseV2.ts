@@ -1,13 +1,20 @@
 /**
- * Builds the WordPollResponse for a given window ID (wid).
+ * Builds the overlay poll response for a given window ID (wid).
  *
- * Cobuild version — returns project mapping, visibility, and docking state.
+ * Originally Word-specific; now host-agnostic — works for any HostApp whose
+ * `documentPath` is normalized into the workspace directory. Word path uses
+ * the project-file mapping; non-Word hosts (e.g. Obsidian) skip that lookup.
+ *
  * Conversations are fetched directly by the popup via the proxy API.
+ *
+ * The legacy export name `buildWordPollResponseV2` is kept for back-compat;
+ * `buildOverlayPollResponseV2` is the preferred name for new callers.
  */
 
 import { windowMonitorService } from '../../windowMonitorService';
+import { getRegisteredHostApps } from '../../cobuilding/main/hostApps';
 import { wordIntegrationDataStoreV2 } from '../../wordIntegrationDataStoreV2';
-import { WordPollResponse } from '../types';
+import { OverlayPollResponse } from '../types';
 import { defaultLogger as logger } from '../../utils/logger';
 import { remoteFeatureFlags, REMOTE_FLAGS } from '../../remoteFeatureFlags';
 
@@ -22,7 +29,7 @@ export function buildWordPollResponseV2(
   wid: string,
   _notificationManager?: any,
   _currentUserId?: () => number | null
-): WordPollResponse {
+): OverlayPollResponse {
   // Compute webview visibility from desired state
   const shouldShowButtonV2 = windowMonitorService.getDesiredWebviewVisibility('button-v2', wid);
   const shouldShowPopupV2 = windowMonitorService.getDesiredWebviewVisibility('popup-v2', wid);
@@ -44,8 +51,36 @@ export function buildWordPollResponseV2(
 
   // If no document path at all (unsaved file)
   if (!documentPath) {
+    // For Obsidian (and other non-Word hosts), the overlay should still appear
+    // when the user is in cobuilding mode and the workspace is the vault, even
+    // if no specific .md file is currently active. When the host has declared
+    // a `sessionDocumentPathLikePattern` (Apple Notes does), fall back to
+    // listing every chat tied to that host so the user can pick from previous
+    // conversations even before the active document resolves.
+    const hostAppId = windowMonitorService.getHostAppIdForWindow(wid);
+    if (isCobuildingMode && hostAppId && hostAppId !== 'word') {
+      const host = getRegisteredHostApps().find((h) => h.id === hostAppId);
+      const fallbackPattern = host?.sessionDocumentPathLikePattern;
+      const sessions = fallbackPattern
+        ? windowMonitorService.getWorkspaceSessionsByDocPathLike(fallbackPattern)
+        : [];
+      return {
+        isInWorkspace: true,
+        workspaceSessions: sessions,
+        notificationCount: 0,
+        isActive: true,
+        recentReviewNotifications: [],
+        isReviewingSelectedText: false,
+        activeDocumentPath: documentPath,
+        shouldShowButtonV2,
+        shouldShowPopupV2,
+        shouldShowReviewButton: false,
+        hasSelectedText: false,
+        isDockedActive,
+      };
+    }
     if (isCobuildingMode) {
-      // Cobuilding mode + unsaved doc — hide overlay entirely
+      // Cobuilding mode + unsaved Word doc — hide overlay entirely.
       return {
         notificationCount: 0,
         isActive: false,
@@ -75,10 +110,33 @@ export function buildWordPollResponseV2(
     };
   }
 
+  // Synthetic-scheme document paths (e.g. `applenotes://<id>`) come from hosts
+  // whose documents don't live in the workspace folder (Apple Notes is in the
+  // OS database, not on disk). Treat them like an in-workspace doc for overlay
+  // purposes: show the overlay, scope sessions to the synthetic id.
+  const isSyntheticDocPath = /^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://');
+  if (isCobuildingMode && isSyntheticDocPath) {
+    const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
+    return {
+      isInWorkspace: true,
+      workspaceSessions: sessions,
+      notificationCount: 0,
+      isActive: true,
+      recentReviewNotifications: [],
+      isReviewingSelectedText: false,
+      activeDocumentPath: documentPath,
+      shouldShowButtonV2,
+      shouldShowPopupV2,
+      shouldShowReviewButton: false,
+      hasSelectedText: false,
+      isDockedActive,
+    };
+  }
+
   // Check if the document is within the active cobuilding workspace directory
   if (activeWorkspaceDir) {
     if (documentPath.startsWith(activeWorkspaceDir + '/')) {
-      const sessions = windowMonitorService.getWorkspaceSessions();
+      const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
       const selectedTextContent = wid
         ? windowMonitorService.getSelectedTextContent(wid)
         : windowMonitorService.getLastSelectedText();
@@ -149,3 +207,6 @@ export function buildWordPollResponseV2(
     isDockedActive,
   };
 }
+
+/** Preferred name for new callers. Host-agnostic alias for buildWordPollResponseV2. */
+export const buildOverlayPollResponseV2 = buildWordPollResponseV2;

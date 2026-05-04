@@ -186,6 +186,40 @@ function SessionTitleUpdater() {
   return null;
 }
 
+/**
+ * Refresh the thread list when main broadcasts `sessions:changed`
+ * (e.g. overlay creates a chat or sends a message that re-sorts).
+ *
+ * assistant-ui's RemoteThreadListAdapter caches its `list()` result in
+ * a private `_loadThreadsPromise` and exposes no public refresh API.
+ * We clear that cache and re-trigger the internal load so new/renamed
+ * threads merge in and `threadIds` re-sorts — without remounting the
+ * runtime or interrupting an active conversation.
+ */
+function SessionsListRefresher() {
+  const runtime = useAssistantRuntime();
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      const core: any = (runtime as any)?._core?.threads;
+      if (!core) return;
+      core._loadThreadsPromise = null;
+      core.__internal_load?.();
+    };
+    const unsubscribe = window.sessionsAPI.onSessionsChanged(() => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(refresh, 500);
+    });
+    return () => {
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [runtime]);
+
+  return null;
+}
+
 /** When the user picks a different thread, deactivate tabs so chat is shown.
  *  Suppressed when the switch is app-initiated (e.g. opening a miniapp tab). */
 function ShowChatOnThreadSelect({ onShowChat, suppressRef }: { onShowChat: () => void; suppressRef: React.RefObject<boolean> }) {
@@ -496,6 +530,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionTitleUpdater />
+      <SessionsListRefresher />
       <SessionSubscriber />
       <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} suppressRef={suppressThreadDeactivateRef} />
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />

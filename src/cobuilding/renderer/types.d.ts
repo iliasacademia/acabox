@@ -54,6 +54,7 @@ interface SessionData {
   id: string;
   title: string;
   source: string | null;
+  document_path: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -74,6 +75,7 @@ interface SessionsAPI {
   listMessages(sessionId: string): Promise<MessageData[]>;
   findForApp(dirName: string): Promise<string | null>;
   onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
+  onSessionsChanged(callback: () => void): () => void;
 }
 
 interface ContainerAPI {
@@ -218,6 +220,7 @@ declare global {
     id: string;
     title: string;
     source: string | null;
+    document_path: string | null;
     created_at: string;
     updated_at: string;
   }
@@ -238,6 +241,7 @@ declare global {
     listMessages(sessionId: string): Promise<MessageData[]>;
     findForApp(dirName: string): Promise<string | null>;
     onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
+    onSessionsChanged(callback: () => void): () => void;
   }
 
   interface ContainerAPI {
