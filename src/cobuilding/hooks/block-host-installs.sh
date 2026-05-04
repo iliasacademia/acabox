@@ -1,16 +1,13 @@
 #!/usr/bin/env bash
 # block-host-installs.sh — PreToolUse hook for the Bash tool.
 #
-# Blocks ALL direct package-manager install invocations, whether on the host
-# or routed through `podman exec` / `bash -c` / etc. The install wrapper
+# Blocks ALL direct package-manager install invocations. The install wrapper
 # (.applications/install) is the only sanctioned path: it runs the live
-# install inside the container AND records the dependency in the app's
-# per-registry file.
+# install AND records the dependency in the app's per-registry file so it
+# persists across container rebuilds and travels with the app.
 #
-# The wrapper itself runs `podman exec <container> pip install ...` as a
-# child process — those calls do NOT go through the agent's Bash tool, so
-# they aren't intercepted by this hook. Only commands the agent types into
-# the Bash tool are scanned.
+# Only commands the agent types into the Bash tool are scanned. The wrapper's
+# internal install calls do not go through the agent's Bash tool.
 
 set -euo pipefail
 
@@ -51,12 +48,12 @@ done
 
 if [ -n "$blocked_pattern" ]; then
   cat >&2 <<EOF
-Direct package installation is not allowed — even via podman exec.
+Direct package installation is not allowed.
 
 Detected in command:
   $command
 
-To install software into the cobuilding container, use the install wrapper:
+Use the install wrapper to ensure dependencies are tracked:
 
   .applications/install pip <package> --app <app_dir_name>
   .applications/install npm <package> --app <app_dir_name>
@@ -64,12 +61,12 @@ To install software into the cobuilding container, use the install wrapper:
   .applications/install apt <package> --app <app_dir_name>
   .applications/install manual .applications/<app>/setup/<script>.sh --app <app_dir_name>
 
-The wrapper installs into the running container AND records the dependency in
-the app's per-registry file (requirements.txt, package.json, r-packages.txt,
+The wrapper installs the package AND records the dependency in the app's
+per-registry file (requirements.txt, package.json, r-packages.txt,
 apt-packages.txt, or setup/*.sh) so it persists across container rebuilds and
-travels when the app folder is shared. Running pip/npm/apt/Rscript directly —
-even through podman exec — does the live install but does not update the
-dependency file, so the install is silently lost on rebuild or share.
+travels when the app folder is shared. Running pip/npm/apt/Rscript directly
+does the live install but does not update the dependency file, so the install
+is silently lost on rebuild or share.
 
 For downloading DATA (model weights, datasets, etc.) into the app folder, use
 curl or wget to write directly into .applications/<app_dir_name>/. Those are

@@ -16,13 +16,13 @@ license: See source repo K-Dense-AI/scientific-agent-skills
 All script execution must go through the Podman container. For curl-based API calls:
 
 ```bash
-podman exec cobuilding-container curl -s "https://api.example.org/..." | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
+curl -s "https://api.example.org/..." | python3 -c "import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))"
 ```
 
 For Python scripts, write the script to the workspace (relative path) then execute:
 
 ```bash
-podman exec cobuilding-container python3 ./script.py
+python3 ./script.py
 ```
 
 `requests` and `pandas` are pre-installed in the container — no pip install needed.
@@ -31,20 +31,20 @@ podman exec cobuilding-container python3 ./script.py
 
 1. **Understand the query** — determine what data is needed (compound, gene, pathway, variant, economic indicator, etc.)
 2. **Select database(s)** — use the selection guide below; multiple databases often give better coverage
-3. **Make API calls** — use WebFetch (Claude Code native) for GET endpoints; use `podman exec cobuilding-container curl` for POST-only APIs (Open Targets, gnomAD, GDC/TCGA, RummaGEO)
+3. **Make API calls** — use WebFetch (Claude Code native) for GET endpoints; use `curl` for POST-only APIs (Open Targets, gnomAD, GDC/TCGA, RummaGEO)
 4. **Return results** — provide parsed output and document which databases were queried
 
 ## POST-only APIs (must use curl via podman exec)
 
 ```bash
 # Open Targets GraphQL
-podman exec cobuilding-container curl -s -X POST \
+curl -s -X POST \
   -H "Content-Type: application/json" \
   -d '{"query": "{ target(ensemblId: \"ENSG00000141736\") { approvedName } }"}' \
   https://api.platform.opentargets.org/api/v4/graphql
 
 # gnomAD GraphQL
-podman exec cobuilding-container curl -s -X POST \
+curl -s -X POST \
   -H "Content-Type: application/json" \
   -d '{"query": "{ gene(gene_symbol: \"BRCA1\", reference_genome: GRCh38) { gene_id } }"}' \
   https://gnomad.broadinstitute.org/api

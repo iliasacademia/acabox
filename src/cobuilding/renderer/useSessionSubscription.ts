@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useThreadRuntime, useAuiState } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream } from '../shared/types';
 import type { ThreadAssistantMessagePart, ToolCallMessagePart } from '@assistant-ui/react';
-import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone } from './progressStore';
+import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel } from './progressStore';
 import { setTasks, tryUpdateTasksFromArgs, clearTasks } from './taskStore';
 
 const IDLE_TIMEOUT_MS = 60_000;
@@ -195,6 +195,9 @@ function responseBuilder() {
         if (msg.toolName === 'TodoWrite' && Array.isArray(msg.args?.todos)) {
           setTasks(msg.args.todos as any);
         }
+        return;
+      case 'status':
+        setProcessingLabel((msg as any).status || null);
         return;
       case 'tool-result': {
         clearToolProgress(msg.toolCallId);

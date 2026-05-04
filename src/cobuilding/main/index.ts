@@ -1028,6 +1028,292 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   return activeWorkspace ?? null;
 });
 
+// ─── Agent Server & MCP Management ──────────────────────────────
+
+import { createActivityMcpServer } from './mcpServers/activityMcpServer';
+import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
+import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
+import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
+import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
+
+function registerHostMcpServers(workspace: { id: string; directory_path: string }, onNotificationClick?: (action: any) => void) {
+  // Create the host-side MCP servers and extract their tool handlers.
+  // These handlers run on the host and are called by the MCP relay when
+  // the in-container agent invokes an MCP tool.
+
+  // We call the existing factory functions to get the SDK configs,
+  // then extract the tool handlers from the underlying McpServer instances.
+  // Instead, we directly expose handler maps that agentSession.ts can call.
+
+  const activityServer = createActivityMcpServer();
+  const notificationServer = createNotificationMcpServer(onNotificationClick);
+  const reactionServer = createReactionMcpServer(workspace.id);
+  const msWordServer = createMsWordMcpServer();
+  const citeRightServer = createCiteRightMcpServer();
+
+  // Extract tool handlers from each SDK MCP server config.
+  // createSdkMcpServer wraps tool definitions; the tool() helper's 4th arg is the handler.
+  // We re-create the handler maps by calling the factory functions and re-extracting.
+  // Simpler approach: just define the dispatch map directly from the imported functions.
+
+  const { queryActivity } = require('./activityQuery');
+  const { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument, getTrackChangesStatus, setTrackChanges } = require('../../server/wordActions');
+  const { checkLogin } = require('../../apiClient');
+  const { findReferencesForFile, findReferencesForText, createCitationReportFromText, getCitationReport, addClaimToReport, searchCitationsForClaim, formatCitations, listCitationReports } = require('./citeright/citeRightClient');
+  const { summarizeReport } = require('./citeright/reportSummary');
+  const { createSession: createDbSession, insertMessage: insertDbMessage, updateSessionTitle } = require('./db/chatRepository');
+  const { randomUUID } = require('crypto');
+
+  // Build handler maps — each handler matches the signature used by the host MCP servers
+  const ok = (text: string) => ({ content: [{ type: 'text' as const, text }] });
+  const fail = (text: string) => ({ content: [{ type: 'text' as const, text }], isError: true });
+
+  const handlers: Record<string, Record<string, (args: any) => Promise<any>>> = {
+    activity: {
+      query_activity: async (args: any) => {
+        const result = queryActivity(args);
+        if ('error' in result) return fail(result.error);
+        const browserCount = result.browser_sessions
+          ? result.browser_sessions.reduce((sum: number, group: any) => sum + (group.sessions as unknown[]).length, 0) : 0;
+        const fileCount = result.file_sessions?.length || 0;
+        const notesCount = result.notes_sessions?.length || 0;
+        const header = `Activity from ${result.query.since} to ${result.query.until}\nBrowser sessions: ${browserCount} | File sessions: ${fileCount} | Notes sessions: ${notesCount}\n`;
+        return ok(header + '\n' + JSON.stringify(result, null, 2));
+      },
+    },
+
+    notification: {
+      show_notification: async (args: any) => {
+        try {
+          const { Notification } = require('electron');
+          const notification = new Notification({ title: args.title, body: args.body });
+          notification.show();
+          return ok('Notification shown successfully.');
+        } catch (err: any) {
+          return fail(`Failed to show notification: ${err.message}`);
+        }
+      },
+    },
+
+    reaction: {
+      create_reaction_thread: async (args: any) => {
+        try {
+          const sessionId = randomUUID();
+          createDbSession(sessionId, workspace.id, 'reactions');
+          insertDbMessage(sessionId, 'assistant', JSON.stringify([{ type: 'text', text: args.message }]));
+          updateSessionTitle(sessionId, args.title);
+          return ok(`Reaction thread created: ${args.title} (id: ${sessionId})`);
+        } catch (err: any) {
+          return fail(`Failed to create reaction thread: ${err.message}`);
+        }
+      },
+    },
+
+    'ms-word': {
+      get_file_path: async () => { try { return ok(JSON.stringify(await getWordFilePath())); } catch (e: any) { return fail(String(e)); } },
+      get_text: async (args: any) => { try { return ok(JSON.stringify(await getWordText(args.offset, args.limit))); } catch (e: any) { return fail(String(e)); } },
+      get_selection: async () => { try { return ok(JSON.stringify(await getWordSelection())); } catch (e: any) { return fail(String(e)); } },
+      save_document: async () => { try { return ok(JSON.stringify(await saveWordDocument())); } catch (e: any) { return fail(String(e)); } },
+      open_document: async (args: any) => { try { return ok(JSON.stringify(await openWordDocument(args.path))); } catch (e: any) { return fail(String(e)); } },
+      find_and_replace: async (args: any) => ok(JSON.stringify({ proposed: true, ...args })),
+      track_changes_status: async () => { try { return ok(JSON.stringify(await getTrackChangesStatus())); } catch (e: any) { return fail(String(e)); } },
+      set_track_changes: async (args: any) => { try { return ok(JSON.stringify(await setTrackChanges(args.enabled))); } catch (e: any) { return fail(String(e)); } },
+    },
+
+    citeright: {
+      find_references: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
+        const pollOptions = { timeoutMs: (args.timeout_seconds ?? 600) * 1000, pollIntervalMs: (args.poll_interval_seconds ?? 3) * 1000 };
+        const response = args.file_path ? await findReferencesForFile(args.file_path, pollOptions) : await findReferencesForText(args.document_text, pollOptions);
+        return ok(JSON.stringify(summarizeReport(response)));
+      },
+      create_citation_report: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(summarizeReport(await createCitationReportFromText(args.document_text))));
+      },
+      get_citation_report: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(summarizeReport(await getCitationReport(args.report_id))));
+      },
+      add_claim_to_report: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(summarizeReport(await addClaimToReport(args.report_id, args.text))));
+      },
+      search_citations_for_claim: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(summarizeReport(await searchCitationsForClaim(args.report_id, args.claim_id))));
+      },
+      format_citations: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await formatCitations(args.works)));
+      },
+      list_citation_reports: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('CiteRight requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await listCitationReports(args.page, args.per_page)));
+      },
+    },
+
+    'mini-apps': {
+      open_mini_application: async (args: any) => {
+        const appDir = path.join(workspace.directory_path, '.applications', args.dir_name);
+        const exists = await fs.promises.access(appDir).then(() => true, () => false);
+        if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
+        return ok(`Opened mini-application: ${args.dir_name}`);
+      },
+    },
+
+    zotero: {
+      status: async () => {
+        try {
+          const { getZoteroLocalStatus } = require('../../zoteroLocalClient');
+          const status = await getZoteroLocalStatus();
+          return ok(JSON.stringify({ status }));
+        } catch (e: any) { return fail(`Zotero status check failed: ${e.message}`); }
+      },
+      search_library: async (args: any) => {
+        try {
+          const { searchZoteroLibrary } = require('../../zoteroLocalClient');
+          return ok(JSON.stringify(await searchZoteroLibrary(args.query, args.limit)));
+        } catch (e: any) { return fail(`Zotero search failed: ${e.message}`); }
+      },
+      get_item: async (args: any) => {
+        try {
+          const { getZoteroItem } = require('../../zoteroLocalClient');
+          return ok(JSON.stringify(await getZoteroItem(args.key)));
+        } catch (e: any) { return fail(`Zotero get_item failed: ${e.message}`); }
+      },
+      add_doi: async (args: any) => {
+        try {
+          const { addDoiToZotero } = require('../../zoteroLocalClient');
+          return ok(JSON.stringify(await addDoiToZotero(args.doi)));
+        } catch (e: any) { return fail(`Zotero add_doi failed: ${e.message}`); }
+      },
+    },
+  };
+
+  (globalThis as any).__hostMcpServers = handlers;
+  log.info(`[MCP] Registered host MCP handlers: ${Object.keys(handlers).join(', ')}`);
+}
+
+/**
+ * TODO: Remove this migration once most users have updated past this version.
+ * Added: 2026-05-04. Safe to remove after ~2026-08-01.
+ *
+ * One-time migration: copy SDK session JSONL files from the bundled podman's
+ * HOME directory to the container's CLAUDE_CONFIG_DIR on the workspace mount.
+ * The old architecture stored sessions at ~/.cobuild-podman[-dev]/.claude/projects/
+ * because the SDK inherited HOME from the bundled podman environment.
+ */
+function migrateHostSessionsToContainer(workspacePath: string): void {
+  const markerPath = path.join(workspacePath, '.academia', 'claude-config', '.sessions-migrated');
+  if (fs.existsSync(markerPath)) return;
+
+  const os = require('os');
+  // The bundled podman sets HOME to ~/.cobuild-podman (prod) or ~/.cobuild-podman-dev (dev).
+  // The SDK stored sessions there under .claude/projects/{sanitized-workspace-path}/.
+  const suffix = app.isPackaged ? '' : '-dev';
+  const podmanHome = path.join(os.homedir(), `.cobuild-podman${suffix}`);
+  const hostProjectsDir = path.join(podmanHome, '.claude', 'projects');
+  const containerProjectsDir = path.join(workspacePath, '.academia', 'claude-config', 'projects', '-data');
+
+  if (!fs.existsSync(hostProjectsDir)) {
+    fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+    fs.writeFileSync(markerPath, new Date().toISOString());
+    return;
+  }
+
+  let copied = 0;
+  try {
+    fs.mkdirSync(containerProjectsDir, { recursive: true });
+
+    // Scan all project directories — the workspace path may have changed over
+    // time, so copy sessions from all projects (not just the current one).
+    for (const projectDir of fs.readdirSync(hostProjectsDir)) {
+      const projectPath = path.join(hostProjectsDir, projectDir);
+      if (!fs.statSync(projectPath).isDirectory()) continue;
+
+      for (const file of fs.readdirSync(projectPath)) {
+        if (!file.endsWith('.jsonl')) continue;
+        const src = path.join(projectPath, file);
+        const dest = path.join(containerProjectsDir, file);
+        if (fs.existsSync(dest)) continue;
+
+        fs.copyFileSync(src, dest);
+        copied++;
+
+        // Copy subagent directories
+        const sessionId = file.replace('.jsonl', '');
+        const subagentDir = path.join(projectPath, sessionId, 'subagents');
+        if (fs.existsSync(subagentDir)) {
+          const destSubDir = path.join(containerProjectsDir, sessionId, 'subagents');
+          fs.mkdirSync(destSubDir, { recursive: true });
+          for (const sub of fs.readdirSync(subagentDir)) {
+            fs.copyFileSync(path.join(subagentDir, sub), path.join(destSubDir, sub));
+          }
+        }
+      }
+    }
+  } catch (err) {
+    log.warn(`[SessionMigration] Error: ${(err as Error).message}`);
+  }
+
+  fs.mkdirSync(path.dirname(markerPath), { recursive: true });
+  fs.writeFileSync(markerPath, new Date().toISOString());
+  if (copied > 0) {
+    log.info(`[SessionMigration] Migrated ${copied} session files from ${podmanHome} to container config`);
+  }
+}
+
+async function startAgentInfrastructure(workspacePath: string): Promise<void> {
+  if (!activeWorkspace) return;
+
+  // 0. One-time migration of session files from bundled podman HOME
+  migrateHostSessionsToContainer(workspacePath);
+
+  // 1. Copy agent server bundle and claude binary to workspace
+  await containerService.ensureAgentFilesInWorkspace(workspacePath);
+
+  // 2. Register host MCP server handlers for the SSE relay
+  registerHostMcpServers(activeWorkspace);
+
+  // 3. Write agent config and start the agent server inside the container
+  const agentConfig = {
+    port: 8080,
+    claudeBinaryPath: '/data/.academia/claude',
+    mcpServers: {},  // MCP tools are relayed via SSE, not direct HTTP
+    anthropicApiKey: activeWorkspace.api_key,
+    model: 'claude-opus-4-7',
+    systemPrompt: { type: 'preset', preset: 'claude_code' },
+    allowedTools: [
+      'Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'Agent',
+      'NotebookEdit', 'WebSearch', 'Skill', 'TodoWrite',
+      'EnterPlanMode', 'ExitPlanMode',
+      'mcp__activity__query_activity',
+      'mcp__mini-apps__open_mini_application',
+      'mcp__notification__show_notification',
+      'mcp__reaction__create_reaction_thread',
+      'mcp__ms-word__get_file_path', 'mcp__ms-word__get_text',
+      'mcp__ms-word__get_selection', 'mcp__ms-word__save_document',
+      'mcp__ms-word__open_document', 'mcp__ms-word__find_and_replace',
+      'mcp__ms-word__track_changes_status', 'mcp__ms-word__set_track_changes',
+      'mcp__citeright__find_references', 'mcp__citeright__create_citation_report',
+      'mcp__citeright__get_citation_report', 'mcp__citeright__add_claim_to_report',
+      'mcp__citeright__search_citations_for_claim', 'mcp__citeright__format_citations',
+      'mcp__citeright__list_citation_reports',
+      'mcp__zotero__status', 'mcp__zotero__search_library',
+      'mcp__zotero__get_item', 'mcp__zotero__add_doi',
+    ],
+    settingSources: ['project'],
+  };
+
+  await containerService.startAgentServer(JSON.stringify(agentConfig, null, 2), workspacePath);
+}
+
+async function stopAgentInfrastructure(): Promise<void> {
+  await containerService.stopAgentServer();
+  (globalThis as any).__hostMcpServers = null;
+}
+
 // Container IPC handlers
 ipcMain.handle('container:start', async () => {
   if (!activeWorkspace) {
@@ -1036,18 +1322,18 @@ ipcMain.handle('container:start', async () => {
   await containerService.start(activeWorkspace.directory_path, (stage, message, percent) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('container:progress', { stage, message, percent });
   });
-  // Mark all existing apps as having their deps ready (baked into the image at startup)
-  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
-  for (const app of discoverApps(appsDir)) {
-    ensuredApps.add(app);
-  }
-  // Start watching for new app folders / dep file changes
-  backgroundBuilder.startWatching(activeWorkspace.directory_path);
+  await startAgentInfrastructure(activeWorkspace.directory_path);
+  // Start watching and ensure deps for all existing apps in the background.
+  // Apps are marked ready as their deps are verified/installed.
+  backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+    ensuredApps.add(appName);
+  });
 });
 
-ipcMain.handle('container:stop', () => {
+ipcMain.handle('container:stop', async () => {
   backgroundBuilder.stopWatching();
   ensuredApps.clear();
+  await stopAgentInfrastructure();
   containerService.stop();
 });
 
@@ -1128,10 +1414,10 @@ ipcMain.handle('container:ensureSetup', async () => {
   await containerService.ensureSetup(progressCallback, activeWorkspace?.directory_path);
   if (activeWorkspace) {
     await containerService.start(activeWorkspace.directory_path, progressCallback);
-      for (const app of discoverApps(path.join(activeWorkspace.directory_path, '.applications'))) {
-      ensuredApps.add(app);
-    }
-    backgroundBuilder.startWatching(activeWorkspace.directory_path);
+    await startAgentInfrastructure(activeWorkspace.directory_path);
+    backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+      ensuredApps.add(appName);
+    });
   }
 });
 
@@ -1177,6 +1463,16 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   if (!containerService.isRunning()) throw new Error('Container is not running');
   if (ensuredApps.has(dirName)) {
     return { installed: [] };
+  }
+
+  // If a background install is already in progress for this app, wait for it
+  // instead of starting a conflicting parallel install (avoids dpkg lock issues).
+  const pending = backgroundBuilder.getPendingInstall(dirName);
+  if (pending) {
+    log.debug(`[ensureAppDeps] Waiting for background install of ${dirName} to finish`);
+    await pending;
+    ensuredApps.add(dirName);
+    return { installed: ['(completed by background installer)'] };
   }
 
   const appsDir = path.join(activeWorkspace.directory_path, '.applications');

@@ -6,7 +6,8 @@
   "description": "Demo Academia Electron App",
   "main": ".webpack/main",
   "scripts": {
-    "build": "npm run build:native && npm run build:popup",
+    "build": "npm run build:native && npm run build:popup && npm run build:agent-server",
+    "build:agent-server": "webpack --config webpack.agent-server.config.js",
     "build:native": "node scripts/build-native-safe.js",
     "build:popup": "webpack --config webpack.popup.config.js",
     "build:popup:watch": "webpack --config webpack.popup.config.js --watch",
@@ -44,7 +45,7 @@
     "reset-permissions": "tccutil reset All com.electron.academia-electron",
     "fresh-install": "rm -rf /Applications/academia-electron.app; tccutil reset All com.electron.academia-electron; rm -rf ~/Library/Preferences/com.electron.academia-electron* ~/Library/Application\\ Support/academia-electron ~/Library/Application\\ Support/com.electron.academia-electron* ~/Library/Caches/com.electron.academia-electron ~/Library/Logs/academia-electron out/",
     "check:native-deps": "node scripts/check-native-deps.js",
-    "postinstall": "electron-rebuild -f -w better-sqlite3"
+    "postinstall": "electron-rebuild -f -w better-sqlite3 && bash scripts/ensure-linux-claude-binary.sh"
   },
   "author": "Academia.edu",
   "license": "UNLICENSED",

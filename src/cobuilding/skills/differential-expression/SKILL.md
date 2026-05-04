@@ -19,13 +19,13 @@ This skill runs a pre-built R script that performs differential expression analy
 ## How to run
 
 ```bash
-podman exec cobuilding-container Rscript .claude/skills/differential-expression/scripts/differential_expression_cli.R <args>
+Rscript .claude/skills/differential-expression/scripts/differential_expression_cli.R <args>
 ```
 
 For example, if the user's counts file is at `./raw_counts.csv` and coldata is at `./sample_annotations.csv`:
 
 ```bash
-podman exec cobuilding-container Rscript .claude/skills/differential-expression/scripts/differential_expression_cli.R \
+Rscript .claude/skills/differential-expression/scripts/differential_expression_cli.R \
   --counts_file ./raw_counts.csv \
   --coldata_file ./sample_annotations.csv \
   --design_variable group \

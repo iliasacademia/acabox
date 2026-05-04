@@ -13,5 +13,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", ".webpack", "src/cobuilding/skills/manage-mini-application/assets", "src/cobuilding/skills/react-plotly"]
+  "exclude": ["node_modules", "dist", ".webpack", "src/cobuilding/skills/manage-mini-application/assets", "src/cobuilding/skills/react-plotly", "src/cobuilding/mini-apps"]
 }

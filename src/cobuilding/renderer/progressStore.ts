@@ -17,6 +17,7 @@ export interface SubagentProgress {
 
 let toolProgress = new Map<string, ToolProgressEntry>();
 let subagentProgress = new Map<string, SubagentProgress>();
+let processingLabel: string | null = null;
 
 const listeners = new Set<() => void>();
 
@@ -83,9 +84,23 @@ export function setSubagentDone(parentToolCallId: string, status: 'completed' | 
   notify();
 }
 
+export function setProcessingLabel(label: string | null): void {
+  processingLabel = label;
+  notify();
+}
+
+function getProcessingLabelSnapshot(): string | null {
+  return processingLabel;
+}
+
+export function useProcessingLabel(): string | null {
+  return useSyncExternalStore(subscribe, getProcessingLabelSnapshot);
+}
+
 export function resetProgress(): void {
   toolProgress = new Map();
   subagentProgress = new Map();
+  processingLabel = null;
   notify();
 }
 

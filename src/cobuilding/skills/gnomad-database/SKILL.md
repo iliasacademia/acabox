@@ -18,13 +18,13 @@ gnomAD uses GraphQL (POST-only). Use `podman exec` with curl or Python:
 
 ```bash
 # curl approach
-podman exec cobuilding-container curl -s -X POST \
+curl -s -X POST \
   -H "Content-Type: application/json" \
   -d '{"query": "{ gene(gene_symbol: \"BRCA1\", reference_genome: GRCh38) { gnomad_constraint { pLI } } }"}' \
   https://gnomad.broadinstitute.org/api
 
 # Python approach — write script to workspace then run
-podman exec cobuilding-container python3 ./gnomad_query.py
+python3 ./gnomad_query.py
 ```
 
 `requests` and `pandas` are pre-installed in the container.

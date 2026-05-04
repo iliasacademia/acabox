@@ -16,7 +16,7 @@ source: jaechang-hits/SciAgent-Skills
 `requests`, `pandas`, and `rcsb-api` are pre-installed in the container. Write scripts to the workspace and execute via:
 
 ```bash
-podman exec cobuilding-container python3 ./pdb_query.py
+python3 ./pdb_query.py
 ```
 
 All output files should be written to relative paths within the workspace (e.g. `./pdb_output/`).

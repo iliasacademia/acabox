@@ -325,7 +325,11 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
       }
       window.containerAPI.ensureAppDeps(dirName)
         .then(() => { if (!cancelled) setDepsReady(true); })
-        .catch(() => { if (!cancelled) setDepsReady(true); });
+        .catch((err) => {
+          console.error(`[MiniAppViewer] Failed to install deps for ${dirName}:`, err);
+          // Don't set depsReady on failure — keep showing the installing indicator.
+          // The user can retry by closing and reopening the app.
+        });
     });
 
     return () => { cancelled = true; };

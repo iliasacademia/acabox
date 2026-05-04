@@ -25,7 +25,7 @@ Each mini-app lives under `.applications/<lowerCamelCaseName>`. The agent writes
 ### Step 1: Scaffold the directory
 
 ```bash
-podman exec cobuilding-container node \
+node \
   .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
   --name "<display name>" \
   [--template "<template name>"]
@@ -227,7 +227,7 @@ If your app does no kernel computation (everything happens in the React side), d
 ### Step 4: Build the bundle
 
 ```bash
-podman exec cobuilding-container esbuild \
+esbuild \
   .applications/<dir_name>/src/index.tsx \
   --bundle \
   --outfile=.applications/<dir_name>/dist/bundle.js \
@@ -294,6 +294,8 @@ Per-registry files — the single source of truth for each registry. Do not writ
 **npm in cobuild is always global.** Even with a per-app `package.json`, there is no local `node_modules` — packages go into the container's global `node_modules` (alongside `react`, `react-plotly.js`, etc.) and esbuild resolves them via `NODE_PATH`. Treat `package.json` here as a declarative manifest, not a real npm project.
 
 **apt and manual are elevated-risk** — apt requires root, manual runs arbitrary shell. Verify with the user before running either.
+
+**apt binaries may not be on PATH.** Debian puts some packages in `/usr/games/` or other non-standard locations. After installing an apt package, run `which <binary>` or `dpkg -L <package> | grep bin` to find the full path, and always use the **full path** (e.g., `/usr/games/cowsay`) in `containerAPI.exec()` calls and scripts. Do not assume the binary name alone will resolve.
 
 ### Writing a manual install script
 

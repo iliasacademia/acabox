@@ -17,7 +17,7 @@ source: jaechang-hits/SciAgent-Skills
 `GEOparse`, `requests`, and `pandas` are pre-installed in the container. Write scripts to the workspace and execute via:
 
 ```bash
-podman exec cobuilding-container python3 ./geo_query.py
+python3 ./geo_query.py
 ```
 
 All output files should be written to relative paths within the workspace (e.g. `./geo_output/`).

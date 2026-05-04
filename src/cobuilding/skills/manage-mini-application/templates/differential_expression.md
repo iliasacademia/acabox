@@ -111,7 +111,7 @@ The template `App.tsx` (copied from `.applications/_templates/differentialExpres
 
 1. Run the manage script with the template:
 ```bash
-podman exec cobuilding-container node \
+node \
   .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
   --name "DE: Treatment vs Control" \
   --template "differentialExpression"
@@ -121,7 +121,7 @@ podman exec cobuilding-container node \
 
 3. Build the bundle:
 ```bash
-podman exec cobuilding-container esbuild \
+esbuild \
   .applications/<dir_name>/src/index.tsx \
   --bundle \
   --outfile=.applications/<dir_name>/dist/bundle.js \

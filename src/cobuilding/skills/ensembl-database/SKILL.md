@@ -16,13 +16,13 @@ source: jaechang-hits/SciAgent-Skills
 `requests` is pre-installed in the container. Write Python scripts to the workspace and run via:
 
 ```bash
-podman exec cobuilding-container python3 ./ensembl_query.py
+python3 ./ensembl_query.py
 ```
 
 Or inline for simple queries:
 
 ```bash
-podman exec cobuilding-container python3 -c "
+python3 -c "
 import requests
 BASE = 'https://rest.ensembl.org'
 r = requests.get(f'{BASE}/lookup/symbol/homo_sapiens/BRCA1',

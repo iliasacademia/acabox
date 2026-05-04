@@ -20,7 +20,7 @@ import log from 'electron-log';
 import type { BrowserWindow } from 'electron';
 import { containerService } from './containerService';
 import type { CommandLogEntry } from './commandLogger';
-import { installDepsInContainer } from './environmentGenerator';
+import { installDepsInContainer, getInstallSteps } from './environmentGenerator';
 
 const DEBOUNCE_MS = 5_000;
 
@@ -39,6 +39,9 @@ export class BackgroundBuilder {
   // Track known app directories so we can detect new ones
   private knownApps = new Set<string>();
 
+  // Track in-progress dep installs so ensureAppDeps can wait instead of conflicting
+  private pendingInstalls = new Map<string, Promise<void>>();
+
   /** Current build state for the debug panel. */
   getState(): BuildState {
     return this.state;
@@ -55,8 +58,11 @@ export class BackgroundBuilder {
   /**
    * Watch .applications/ for new app folders or dep file changes.
    * Call after container start; call stopWatching() before switching workspace.
+   *
+   * @param onAppReady - called when an app's deps have been verified/installed,
+   *   so the app can be marked as ready (skipping future ensureAppDeps checks).
    */
-  startWatching(workspacePath: string): void {
+  startWatching(workspacePath: string, onAppReady?: (dirName: string) => void): void {
     this.stopWatching();
 
     const appsDir = path.join(workspacePath, '.applications');
@@ -67,6 +73,21 @@ export class BackgroundBuilder {
     for (const entry of fs.readdirSync(appsDir, { withFileTypes: true })) {
       if (entry.isDirectory() && !entry.name.startsWith('_')) {
         this.knownApps.add(entry.name);
+      }
+    }
+
+    // Ensure deps for all existing apps in the background.
+    // Idempotent — already-installed packages are fast no-ops.
+    // This handles the case where the image was rebuilt and deps are missing.
+    if (containerService.isRunning()) {
+      for (const appName of this.knownApps) {
+        if (getInstallSteps(appsDir, appName).length > 0) {
+          this.installAppDepsLive(appsDir, appName).then(() => {
+            onAppReady?.(appName);
+          });
+        } else {
+          onAppReady?.(appName);
+        }
       }
     }
 
@@ -128,16 +149,33 @@ export class BackgroundBuilder {
     this.stopWatching();
   }
 
+  /**
+   * If a background dep install is in progress for this app, returns a
+   * promise that resolves when it finishes. Returns null if no install
+   * is in progress.
+   */
+  getPendingInstall(dirName: string): Promise<void> | null {
+    return this.pendingInstalls.get(dirName) ?? null;
+  }
+
   // ─── Live Dep Install for New Apps ───────────────────────────
 
   private async installAppDepsLive(appsDir: string, dirName: string): Promise<void> {
     if (!containerService.isRunning()) return;
-    try {
-      const results = await installDepsInContainer(appsDir, dirName, (cmd) => containerService.exec(cmd));
-      if (results.length > 0) log.info(`[BackgroundBuilder] Live deps installed for ${dirName}: ${results.join(', ')}`);
-    } catch (err) {
-      log.warn(`[BackgroundBuilder] Failed to install deps for ${dirName}: ${(err as Error).message}`);
-    }
+
+    const installPromise = (async () => {
+      try {
+        const results = await installDepsInContainer(appsDir, dirName, (cmd) => containerService.exec(cmd));
+        if (results.length > 0) log.info(`[BackgroundBuilder] Live deps installed for ${dirName}: ${results.join(', ')}`);
+      } catch (err) {
+        log.warn(`[BackgroundBuilder] Failed to install deps for ${dirName}: ${(err as Error).message}`);
+      } finally {
+        this.pendingInstalls.delete(dirName);
+      }
+    })();
+
+    this.pendingInstalls.set(dirName, installPromise);
+    return installPromise;
   }
 
   // ─── Detection ───────────────────────────────────────────────

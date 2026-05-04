@@ -52,7 +52,7 @@ Every run must produce exactly **two gates**: a parent scatter gate and a child 
 ## Step 1: Inspect FCS files
 
 ```bash
-podman exec cobuilding-container python \
+python \
   .claude/skills/flow-cytometry/scripts/inspect_fcs.py \
   --fcs_files ./data/sample1.fcs ./data/sample2.fcs \
   --outdir ./$OUTDIR
@@ -89,7 +89,7 @@ Scatter/forward scatter channels (FSC-*, SSC-*) should be `null`. All subsequent
 ## Step 3: Preprocess
 
 ```bash
-podman exec cobuilding-container python \
+python \
   .claude/skills/flow-cytometry/scripts/preprocess.py \
   --inspect_file ./$OUTDIR/run_data/inspect_results.json \
   --workdir ./$OUTDIR/work \
@@ -113,7 +113,7 @@ podman exec cobuilding-container python \
 ## Step 4: Scatter plot
 
 ```bash
-podman exec cobuilding-container python \
+python \
   .claude/skills/flow-cytometry/scripts/plot_scatter.py \
   --workdir ./$OUTDIR/work \
   --outdir ./$OUTDIR/plots \
@@ -148,7 +148,7 @@ The agent must run `auto_gate.py` **twice** to produce two gates:
 Gate on FSC-A / SSC-A to define the main cell population.
 
 ```bash
-podman exec cobuilding-container python \
+python \
   .claude/skills/flow-cytometry/scripts/auto_gate.py \
   --workdir ./$OUTDIR/work \
   --outdir ./$OUTDIR/run_data \
@@ -163,7 +163,7 @@ Read `run_data/gate_proposal.json`, then create `run_data/gates.json` containing
 Gate on a fluorescence channel pair within the parent gate from 5a. Choose the two most relevant fluorescence channels from the panel (e.g., the first two markers).
 
 ```bash
-podman exec cobuilding-container python \
+python \
   .claude/skills/flow-cytometry/scripts/auto_gate.py \
   --workdir ./$OUTDIR/work \
   --outdir ./$OUTDIR/run_data \
@@ -202,7 +202,7 @@ After both invocations, `run_data/gates.json` should contain an array of two gat
 ## Step 6: Apply gates
 
 ```bash
-podman exec cobuilding-container python \
+python \
   .claude/skills/flow-cytometry/scripts/apply_gates.py \
   --workdir ./$OUTDIR/work \
   --outdir ./$OUTDIR \
@@ -241,7 +241,7 @@ podman exec cobuilding-container python \
 ## Step 7: Summarize
 
 ```bash
-podman exec cobuilding-container python \
+python \
   .claude/skills/flow-cytometry/scripts/summarize.py \
   --outdir ./$OUTDIR \
   --gates_file ./$OUTDIR/run_data/gates.json \

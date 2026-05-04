@@ -61,3 +61,6 @@ window-monitor/rust/target/
 webview-manager/rust/target/
 
 .vscode/settings.json
+
+# Symlink to local mini-apps directory
+src/cobuilding/mini-apps

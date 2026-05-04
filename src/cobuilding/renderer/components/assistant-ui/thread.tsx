@@ -6,6 +6,7 @@ import { TodoWrite } from './todo-write';
 import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
 import { ModelSelector } from '../ModelSelector';
+import { useProcessingLabel } from '../../progressStore';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { Button } from '../ui/button';
 import {
@@ -280,11 +281,12 @@ const ProcessingIndicator: FC = () => {
     // If the last part is still actively streaming/executing, another indicator is visible
     return parts[parts.length - 1].status?.type !== 'running';
   });
+  const customLabel = useProcessingLabel();
   if (!show) return null;
   return (
     <div className="processingIndicator">
       <LoaderIcon className="processingIndicatorIcon" />
-      <span className="processingIndicatorLabel">Processing</span>
+      <span className="processingIndicatorLabel">{customLabel || 'Processing'}</span>
     </div>
   );
 };

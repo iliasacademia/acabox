@@ -16,13 +16,13 @@ source: jaechang-hits/SciAgent-Skills
 Open Targets uses GraphQL (POST-only). Write scripts to the workspace and execute via:
 
 ```bash
-podman exec cobuilding-container python3 ./opentargets_query.py
+python3 ./opentargets_query.py
 ```
 
 Or for quick one-off queries:
 
 ```bash
-podman exec cobuilding-container curl -s -X POST \
+curl -s -X POST \
   -H "Content-Type: application/json" \
   -d '{"query": "{ target(ensemblId: \"ENSG00000141736\") { approvedName } }"}' \
   https://api.platform.opentargets.org/api/v4/graphql

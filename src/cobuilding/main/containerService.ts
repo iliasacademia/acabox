@@ -14,7 +14,32 @@ import {
 import { commandLogger, parseAppDirFromArgs, type CommandSource } from './commandLogger';
 import { generateEnvironment } from './environmentGenerator';
 
+import * as net from 'net';
+import * as http from 'http';
+
 const execFileAsync = promisify(execFile);
+
+/** Find a free TCP port in the given range by attempting to bind. */
+function findFreePort(start: number, end: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    let port = start;
+    const tryNext = () => {
+      if (port > end) {
+        reject(new Error(`No free port in range ${start}-${end}`));
+        return;
+      }
+      const server = net.createServer();
+      server.listen(port, '0.0.0.0', () => {
+        server.close(() => resolve(port));
+      });
+      server.on('error', () => {
+        port++;
+        tryNext();
+      });
+    };
+    tryNext();
+  });
+}
 
 const GHCR_BASE_IMAGE = 'ghcr.io/academia-edu/cobuilding-base:latest';
 const LOCAL_BASE_IMAGE = 'cobuilding-base:local';
@@ -88,6 +113,7 @@ class CobuildingContainerService {
   private logTailInterval: ReturnType<typeof setInterval> | null = null;
   private lastLogTime: string = new Date().toISOString();
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
+  private agentPort: number | null = null;
 
   // ─── Public API ─────────────────────────────────────────────────
 
@@ -121,14 +147,30 @@ class CobuildingContainerService {
       // Remove any stale container from a previous crash
       await this.removeStaleContainer(podmanBin);
 
-      // Generate environment from workspace deps and build if needed.
-      // ensureImageBuilt only emits a 'build' event when it actually rebuilds —
-      // don't emit one speculatively here, or the SetupBanner flashes when the
-      // image is already up to date.
-      await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
+      // Start the container from whatever image is available — either the full
+      // image (with workspace deps baked in) or just the base image. The agent
+      // becomes available immediately. If the full image isn't up to date, it
+      // builds in the background for next restart.
+      const imageUpToDate = await this.isImageUpToDate(podmanBin, workspacePath);
+      const hasFullImage = await this.imageExists(podmanBin, IMAGE_NAME);
 
-      // Start the container in detached mode
-      await this.runContainer(podmanBin, workspacePath);
+      if (imageUpToDate) {
+        // Full image is current — start directly
+        await this.runContainer(podmanBin, workspacePath);
+      } else if (hasFullImage) {
+        // Full image exists but is stale — start from it now, rebuild in background
+        log.info('[ContainerService] Starting from existing image, rebuilding in background');
+        await this.runContainer(podmanBin, workspacePath);
+        this.ensureImageBuilt(podmanBin, undefined, workspacePath).catch((err) => {
+          log.warn(`[ContainerService] Background image build failed: ${(err as Error).message}`);
+        });
+      } else {
+        // No full image — build a minimal one from the base image, then start
+        log.info('[ContainerService] Building initial container image...');
+        onProgress?.('build', 'Building container image...');
+        await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
+        await this.runContainer(podmanBin, workspacePath);
+      }
 
       log.debug('[ContainerService] Container started successfully');
       onProgress?.('ready', 'Container ready');
@@ -362,6 +404,137 @@ class CobuildingContainerService {
     return this.getExecEnv();
   }
 
+  getAgentPort(): number | null {
+    return this.agentPort;
+  }
+
+  /**
+   * Copy the agent server bundle and Linux claude binary to the workspace mount.
+   * The binary is only re-copied when its size changes (new SDK version).
+   */
+  async ensureAgentFilesInWorkspace(workspacePath: string): Promise<void> {
+    const agentDir = path.join(workspacePath, '.academia');
+    fs.mkdirSync(agentDir, { recursive: true });
+
+    // Copy agent server bundle (small, always copy to pick up code changes)
+    const bundleSrc = app.isPackaged
+      ? path.join(process.resourcesPath, 'agent-server.js')
+      : path.join(app.getAppPath(), 'dist', 'agent-server.js');
+    if (fs.existsSync(bundleSrc)) {
+      fs.copyFileSync(bundleSrc, path.join(agentDir, 'agent-server.js'));
+      log.debug('[ContainerService] Copied agent-server.js to workspace');
+    } else {
+      log.warn(`[ContainerService] Agent server bundle not found at ${bundleSrc}`);
+    }
+
+    // Copy Linux claude binary — skip if already present and same size (version match)
+    const { resolveLinuxClaudeBinary } = await import('./sdkBinarySetup');
+    const binarySrc = resolveLinuxClaudeBinary();
+    if (binarySrc) {
+      const binaryDest = path.join(agentDir, 'claude');
+      const srcStat = fs.statSync(binarySrc);
+      let destStat: fs.Stats | null = null;
+      try { destStat = fs.statSync(binaryDest); } catch { /* does not exist */ }
+
+      if (!destStat || destStat.size !== srcStat.size) {
+        fs.copyFileSync(binarySrc, binaryDest);
+        fs.chmodSync(binaryDest, 0o755);
+        log.info(`[ContainerService] Copied claude binary (${Math.round(srcStat.size / 1e6)}MB)`);
+      } else {
+        log.debug('[ContainerService] Claude binary already up to date, skipping copy');
+      }
+    } else {
+      log.warn('[ContainerService] Linux claude binary not found in node_modules');
+    }
+  }
+
+  /**
+   * Start the agent server process inside the container.
+   * Waits for the health endpoint to respond before returning.
+   */
+  async startAgentServer(configJson: string, workspacePath: string): Promise<void> {
+    // Kill any existing agent server first
+    await this.stopAgentServer();
+
+    // Write config to workspace
+    const configPath = path.join(workspacePath, '.academia', 'agent.json');
+    fs.writeFileSync(configPath, configJson, 'utf-8');
+
+    // Start the server inside the container (non-detached so we can capture output)
+    const podmanBin = this.getPodmanBin();
+    const env = this.getExecEnv();
+    const proc = spawn(podmanBin, [
+      'exec',
+      '-e', 'COBUILDING_INSIDE_CONTAINER=1',
+      CONTAINER_NAME,
+      'node', '/data/.academia/agent-server.js',
+    ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+
+    // Log stdout/stderr from the agent server
+    proc.stdout?.on('data', (data: Buffer) => {
+      for (const line of data.toString().split('\n').filter(Boolean)) {
+        log.info(`[AgentServer] ${line}`);
+      }
+    });
+    proc.stderr?.on('data', (data: Buffer) => {
+      for (const line of data.toString().split('\n').filter(Boolean)) {
+        log.error(`[AgentServer] ${line}`);
+      }
+    });
+    proc.on('exit', (code, signal) => {
+      log.warn(`[AgentServer] Process exited (code=${code}, signal=${signal})`);
+    });
+
+    // Wait for the health endpoint to respond (up to 10 seconds)
+    const agentPort = this.agentPort;
+    if (!agentPort) {
+      log.error('[ContainerService] No agent port assigned');
+      return;
+    }
+
+    const startTime = Date.now();
+    const timeoutMs = 10_000;
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const response = await new Promise<string>((resolve, reject) => {
+          const req = http.request({
+            hostname: 'localhost',
+            port: agentPort,
+            path: '/health',
+            method: 'GET',
+            timeout: 2000,
+          }, (res) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c: Buffer) => chunks.push(c));
+            res.on('end', () => resolve(Buffer.concat(chunks).toString()));
+          });
+          req.on('error', reject);
+          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+          req.end();
+        });
+        log.info(`[ContainerService] Agent server healthy: ${response.trim()}`);
+        return;
+      } catch {
+        // Not ready yet, wait and retry
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    log.error('[ContainerService] Agent server failed to become healthy within 10s');
+  }
+
+  /**
+   * Stop the agent server process inside the container.
+   */
+  async stopAgentServer(): Promise<void> {
+    try {
+      await this.exec(['pkill', '-f', 'agent-server.js']);
+    } catch {
+      // Process may not be running
+    }
+    log.debug('[ContainerService] Agent server stopped');
+  }
+
   writeStartContainerScript(workspaceDir: string): void {
     const academiaDir = path.join(workspaceDir, '.academia');
     fs.mkdirSync(academiaDir, { recursive: true });
@@ -454,8 +627,11 @@ class CobuildingContainerService {
         await this.ensureMachineRunning(podmanBin, onProgress);
       }
 
-      // Step 3: Generate environment and build image if needed (hash comparison is internal)
-      await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
+      // Step 3: Ensure the base image is available (pull or local build).
+      // The full image build (with workspace deps) is deferred to start() —
+      // the container can run from the base image immediately and deps install
+      // live when apps are opened, so the agent is available without waiting.
+      await this.ensureBaseImage(podmanBin, onProgress);
     } catch (error) {
       log.error('[ContainerService] ensureSetup error:', (error as Error).message);
       throw error;
@@ -692,14 +868,15 @@ class CobuildingContainerService {
         return parsed.config.digest;
       }
 
-      // Manifest list — return the amd64 entry's digest
+      // Manifest list — return the entry matching the host architecture
       if (parsed.manifests) {
-        const amd64 = parsed.manifests.find(
+        const targetArch = process.arch === 'arm64' ? 'arm64' : 'amd64';
+        const match = parsed.manifests.find(
           (m: { platform?: { architecture?: string; os?: string } }) =>
-            m.platform?.architecture === 'amd64' && m.platform?.os === 'linux'
+            m.platform?.architecture === targetArch && m.platform?.os === 'linux'
         );
-        if (amd64?.digest) {
-          return amd64.digest;
+        if (match?.digest) {
+          return match.digest;
         }
       }
     } catch (error) {
@@ -721,14 +898,15 @@ class CobuildingContainerService {
         return parsed.layers.length;
       }
 
-      // Manifest list — find the amd64 entry and fetch its manifest
+      // Manifest list — find the entry matching host architecture and fetch its manifest
       if (parsed.manifests) {
-        const amd64 = parsed.manifests.find(
+        const targetArch = process.arch === 'arm64' ? 'arm64' : 'amd64';
+        const archMatch = parsed.manifests.find(
           (m: { platform?: { architecture?: string; os?: string } }) =>
-            m.platform?.architecture === 'amd64' && m.platform?.os === 'linux'
+            m.platform?.architecture === targetArch && m.platform?.os === 'linux'
         );
-        if (amd64?.digest) {
-          const imageRef = GHCR_BASE_IMAGE.replace(/:([^@]+)$/, `@${amd64.digest}`);
+        if (archMatch?.digest) {
+          const imageRef = GHCR_BASE_IMAGE.replace(/:([^@]+)$/, `@${archMatch.digest}`);
           const { stdout: imageManifest } = await this.execAsync(podmanBin, [
             'manifest', 'inspect', imageRef,
           ], this.getExecEnv());
@@ -752,7 +930,8 @@ class CobuildingContainerService {
     onProgress?: ProgressCallback,
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      const proc = spawn(podmanBin, ['pull', '--platform', 'linux/amd64', image], {
+      const platform = process.arch === 'arm64' ? 'linux/arm64' : 'linux/amd64';
+      const proc = spawn(podmanBin, ['pull', '--platform', platform, image], {
         env: this.getExecEnv(),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -806,6 +985,43 @@ class CobuildingContainerService {
         reject(new Error(`Failed to pull base image: ${error.message}`));
       });
     });
+  }
+
+  /** Check if the container image is up to date without building. */
+  private async isImageUpToDate(podmanBin: string, workspacePath?: string): Promise<boolean> {
+    const imageSource = readImageSource();
+    const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+    let currentHash: string;
+    if (workspacePath) {
+      const result = generateEnvironment(workspacePath, baseImage);
+      currentHash = result.hash;
+    } else {
+      currentHash = this.getDockerfileHash();
+    }
+    const imageHash = await this.getImageHash(podmanBin);
+    return imageHash === currentHash;
+  }
+
+  /** Check if a named image exists in the local store. */
+  private async imageExists(podmanBin: string, imageName: string): Promise<boolean> {
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'image', 'inspect', '--format', '{{.Id}}', imageName,
+      ], this.getExecEnv());
+      return stdout.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Ensure the base image is available (pull from registry or build locally). */
+  private async ensureBaseImage(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
+    const imageSource = readImageSource();
+    if (imageSource === 'registry') {
+      await this.ensureBaseImagePulled(podmanBin, onProgress);
+    } else {
+      await this.buildBaseImageLocally(podmanBin, onProgress);
+    }
   }
 
   private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback, workspacePath?: string): Promise<void> {
@@ -957,14 +1173,30 @@ class CobuildingContainerService {
     }
   }
 
+  private hostGatewayIp: string | null = null;
+
+  /**
+   * Get the IP address the container can use to reach the host.
+   * Detected after container start by querying the default gateway from inside.
+   */
+  getHostGatewayIp(): string | null {
+    return this.hostGatewayIp;
+  }
+
   private async runContainer(podmanBin: string, workspacePath: string): Promise<void> {
     const env = this.getExecEnv();
     const mountPath = toMountPath(workspacePath);
+
+    // Find a free host port for the agent server (container exposes 8080)
+    const agentHostPort = await findFreePort(23300, 23320);
+    this.agentPort = agentHostPort;
+
     const args = [
       'run', '-d',
       '--replace',
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data`,
+      '-p', `${agentHostPort}:8080`,
       IMAGE_NAME,
       'sleep', 'infinity',
     ];
@@ -983,6 +1215,32 @@ class CobuildingContainerService {
       log.debug(`[ContainerService] Container /data mount source: ${mountSource.trim()}`);
     } catch (err) {
       log.warn(`[ContainerService] Could not verify mount: ${(err as Error).message}`);
+    }
+
+    // Detect the host IP so the container can reach host services (MCP proxy).
+    // On macOS, podman runs containers inside a VM. The container network gateway
+    // (10.88.0.x) only reaches the VM, not the macOS host. We need the VM's own
+    // gateway, which IS the macOS host (typically 192.168.127.1 for gvproxy).
+    try {
+      if (process.platform === 'darwin' || process.platform === 'win32') {
+        // Query the VM's default route to find the real host IP
+        const { stdout: vmRoute } = await this.execAsync(podmanBin, [
+          'machine', 'ssh', '--', 'ip', 'route', 'show', 'default',
+        ], env);
+        // Output: "default via 192.168.127.1 dev enp0s1 ..."
+        const match = vmRoute.match(/default via ([\d.]+)/);
+        this.hostGatewayIp = match?.[1] || null;
+      } else {
+        // On Linux, containers can reach the host directly via the container gateway
+        const { stdout: gatewayIp } = await this.execAsync(podmanBin, [
+          'inspect', '--format', '{{.NetworkSettings.Gateway}}', CONTAINER_NAME,
+        ], env);
+        this.hostGatewayIp = gatewayIp.trim() || null;
+      }
+      log.info(`[ContainerService] Host gateway IP: ${this.hostGatewayIp}`);
+    } catch (err) {
+      log.warn(`[ContainerService] Could not detect gateway IP: ${(err as Error).message}`);
+      this.hostGatewayIp = null;
     }
 
     this.containerStarted = true;
