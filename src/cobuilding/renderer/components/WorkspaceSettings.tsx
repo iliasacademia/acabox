@@ -6,9 +6,10 @@ interface WorkspaceSettingsProps {
   workspace: Workspace;
   onClose: () => void;
   onSaved: (ws: Workspace) => void;
+  onLogout: () => void;
 }
 
-const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved }) => {
+const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout }) => {
   const [name, setName] = useState(workspace.name);
   const [directoryPath, setDirectoryPath] = useState(workspace.directory_path);
   const [error, setError] = useState<string | null>(null);
@@ -30,6 +31,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [appleNotesIntegrationEnabled, setAppleNotesIntegrationEnabled] = useState<boolean | null>(null);
   const [integrationToggling, setIntegrationToggling] = useState<IntegrationId | null>(null);
   const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: IntegrationId; displayName: string } | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
   const [isSwitching, setIsSwitching] = useState<string | null>(null);
@@ -433,6 +435,27 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
           </button>
           <button type="button" className="gsStep__btn gsStep__btn--primary" disabled={!canSave} onClick={handleSave}>
             {isSaving ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+
+        <div className="wsSettings__divider" />
+
+        <div className="wsSettings__field">
+          <button
+            type="button"
+            className="gsStep__btn gsStep__btn--secondary"
+            disabled={isLoggingOut}
+            onClick={async () => {
+              setIsLoggingOut(true);
+              const result = await window.authAPI.logout();
+              if (result.success) {
+                onLogout();
+              } else {
+                setIsLoggingOut(false);
+              }
+            }}
+          >
+            {isLoggingOut ? 'Logging out...' : 'Log Out'}
           </button>
         </div>
       </div>

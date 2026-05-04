@@ -15,6 +15,13 @@ export const isDev = !app.isPackaged;
 export const DEFAULT_URL = isDev ? 'https://api.devdemia.com/' : 'https://api.academia.edu/';
 export const BASE_URL = process.env.ACADEMIA_API_URL || DEFAULT_URL;
 
+let currentBaseUrl = BASE_URL;
+
+export function setBaseUrl(url: string): void {
+  currentBaseUrl = url;
+  apiClient = null;
+}
+
 let apiClient: AxiosInstance | null = null;
 
 // Helper to sanitize data for logging (avoid circular refs and non-serializable objects)
@@ -108,15 +115,16 @@ export const APIclient = async (enableLogging = true): Promise<AxiosInstance> =>
   }
   axiosCookieJarSupport(axios);
   // Use encrypted cookie store instead of plaintext FileCookieStore
-  const cookieFileName = app.isPackaged ? 'backendCookies.encrypted' : 'backendCookies.dev.encrypted';
+  const isDevEndpoint = currentBaseUrl.includes('devdemia');
+  const cookieFileName = app.isPackaged ? 'backendCookies.encrypted' : (isDevEndpoint ? 'backendCookies.dev.encrypted' : 'backendCookies.prod.encrypted');
   const cookieStore = new EncryptedCookieStore(path.join(app.getPath('userData'), cookieFileName));
   const cookieJar = new CookieJar(cookieStore);
   const agentArgs = {
     cookies: { jar: cookieJar },
-    rejectUnauthorized: !BASE_URL.includes('devdemia'),
+    rejectUnauthorized: !isDevEndpoint,
   };
   apiClient = axios.create({
-    baseURL: BASE_URL,
+    baseURL: currentBaseUrl,
     withCredentials: false,
     httpsAgent: new HttpsCookieAgent(agentArgs),
     httpAgent: new HttpCookieAgent(agentArgs),

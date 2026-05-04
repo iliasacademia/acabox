@@ -64,7 +64,7 @@ import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } fro
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { BackgroundBuilder } from './backgroundBuilder';
 import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer, installDepsStreaming } from './environmentGenerator';
-import { checkLogin, getCurrentUser, logout } from '../../apiClient';
+import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode, fetchCobuildingApiKey } from './cobuildingAuthService';
 import { updateApiKey } from './db/workspaceRepository';
@@ -372,6 +372,7 @@ function handleNotificationNavigation(action: NotificationNavigationAction | nul
 let activeWorkspace: Workspace | null = null;
 
 let cachedApiKey: string | null = null;
+let activeApiBaseUrl: string = BASE_URL;
 
 let calendarReactionSvc: CalendarReactionService | null = null;
 
@@ -2363,7 +2364,7 @@ ipcMain.handle('auth:checkLogin', async () => {
 
 ipcMain.handle('auth:startQRAuth', async () => {
   try {
-    const session = await createCobuildingAuthSession();
+    const session = await createCobuildingAuthSession(activeApiBaseUrl);
     return {
       success: true,
       deviceId: session.deviceId,
@@ -2429,6 +2430,17 @@ ipcMain.handle('auth:logout', async () => {
     log.error('[Auth] logout error:', error);
     return { success: false, error: error.message };
   }
+});
+
+ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
+  if (app.isPackaged) {
+    return { success: false, error: 'Endpoint switching is not available in packaged builds' };
+  }
+  const url = endpoint === 'production' ? 'https://api.academia.edu/' : 'https://api.devdemia.com/';
+  activeApiBaseUrl = url;
+  setBaseUrl(url);
+  log.info(`[Auth] Switched API endpoint to ${endpoint} (${url})`);
+  return { success: true, endpoint };
 });
 
 // Scheduled Tasks IPC handlers

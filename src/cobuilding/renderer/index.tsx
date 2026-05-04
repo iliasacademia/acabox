@@ -328,7 +328,7 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string, opts?: { for
 }
 
 
-function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void }) {
+function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void; onLogout: () => void }) {
   useEffect(() => {
     trackEvent('Cobuilding Session');
   }, []);
@@ -765,6 +765,7 @@ function ChatView({ workspace, onWorkspaceUpdated }: { workspace: Workspace; onW
               onWorkspaceUpdated(ws);
               setShowSettings(false);
             }}
+            onLogout={onLogout}
           />
         )}
       </TooltipProvider>
@@ -822,7 +823,7 @@ function App() {
     );
   }
 
-  return <ChatView workspace={workspace} onWorkspaceUpdated={setWorkspace} />;
+  return <ChatView workspace={workspace} onWorkspaceUpdated={setWorkspace} onLogout={() => setIsLoggedIn(false)} />;
 }
 
 // Wrap ResizeObserver callbacks in requestAnimationFrame so they never fire
