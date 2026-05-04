@@ -1,6 +1,5 @@
 
-import { query, createSdkMcpServer, tool, type Query, type SDKUserMessage, type SDKMessage, type HookInput, type SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
-import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages/messages';
+import { createSdkMcpServer, tool, type SDKMessage } from '@anthropic-ai/claude-agent-sdk';
 import type { ChatStreamMessage, IPCAttachment, Workspace, NotificationNavigationAction } from '../shared/types';
 import { createSession, setSdkSessionId, insertMessage } from './db/chatRepository';
 import * as fs from 'fs';
@@ -9,12 +8,37 @@ import log from 'electron-log';
 import { z } from 'zod';
 import { containerService } from './containerService';
 import { commandLogger, parseAppDirFromArgs } from './commandLogger';
-import { createActivityMcpServer } from './mcpServers/activityMcpServer';
-import { createNotificationMcpServer } from './mcpServers/notificationMcpServer';
-import { createReactionMcpServer } from './mcpServers/reactionMcpServer';
-import { createMsWordMcpServer } from './mcpServers/msWordMcpServer';
-import { createCiteRightMcpServer } from './mcpServers/citeRightMcpServer';
-import { resolveClaudeBinary } from './sdkBinarySetup';
+import http from 'http';
+
+// ─── MCP Relay Dispatch ──────────────────────────────────────────
+// Maps MCP tool calls from the in-container agent to host-side MCP server handlers.
+// The host MCP servers are stored on globalThis by startAgentInfrastructure().
+
+type ToolResult = { content: Array<{ type: 'text'; text: string }>; isError?: boolean };
+
+async function handleMcpRelay(serverName: string, toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
+  const mcpServers = (globalThis as any).__hostMcpServers as Record<string, any> | undefined;
+  if (!mcpServers) {
+    return { content: [{ type: 'text', text: 'Host MCP servers not available.' }], isError: true };
+  }
+
+  const serverHandler = mcpServers[serverName];
+  if (!serverHandler) {
+    return { content: [{ type: 'text', text: `Unknown MCP server: ${serverName}` }], isError: true };
+  }
+
+  const toolHandler = serverHandler[toolName];
+  if (!toolHandler) {
+    return { content: [{ type: 'text', text: `Unknown tool: ${serverName}/${toolName}` }], isError: true };
+  }
+
+  try {
+    return await toolHandler(args);
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { content: [{ type: 'text', text: `MCP call failed: ${msg}` }], isError: true };
+  }
+}
 
 
 
@@ -41,18 +65,17 @@ export function createAgentSession(
   model?: string,
   messagePreprocessor?: (text: string) => string,
 ): AgentSession {
-  const messageQueue = createMessageQueue<UserMessagePayload>();
   const listeners = new Set<Partial<ChatCallbacks>>();
   let running = true;
-  let queryInstance: Query | null = null;
   let stopped = false;
+  let agentSessionId: string | null = null;
+  let sseRequest: http.ClientRequest | null = null;
+  const pendingMessages: Array<{ text: string; attachments?: IPCAttachment[] }> = [];
 
   // Register the initial callbacks as the first listener
   listeners.add(callbacks);
 
   function emitEvent(msg: ChatStreamMessage) {
-    // Mark as running when real (non-heartbeat) events arrive — this re-enables
-    // the heartbeat after a turn boundary (emitDone sets running = false).
     if (msg.type !== 'heartbeat') {
       running = true;
     }
@@ -61,8 +84,6 @@ export function createAgentSession(
     }
   }
 
-  // Heartbeat: emit periodic signals so the renderer knows the agent is alive.
-  // This prevents the renderer's idle timeout from disconnecting during long operations.
   const HEARTBEAT_INTERVAL_MS = 15_000;
   const heartbeatTimer = setInterval(() => {
     if (running) {
@@ -72,10 +93,6 @@ export function createAgentSession(
 
   function emitDone() {
     running = false;
-    // Note: heartbeat timer is NOT cleared here because emitDone fires after each
-    // conversation turn, not at session end. The timer is self-guarded (checks `running`),
-    // and `running` is set back to true when the next turn starts processing events.
-    // Timer is only cleared in destroy() (session teardown) and emitError() (terminal).
     for (const listener of [...listeners]) {
       listener.onDone?.();
     }
@@ -91,93 +108,48 @@ export function createAgentSession(
 
   createSession(sessionId, workspace.id, source ?? null);
 
-  async function* userMessageGenerator(): AsyncGenerator<SDKUserMessage> {
-    for await (const payload of messageQueue) {
-      yield {
-        type: 'user',
-        message: { role: 'user', content: buildContentBlocks(payload) },
-      } as SDKUserMessage;
-    }
-  }
-
   const state: MessageProcessingState = { currentToolCallId: null, currentBlockIsThinking: false, pendingBashCalls: new Map() };
 
-  const workspaceBoundaryHook = createWorkspaceBoundaryHook(workspace.directory_path);
+  // ─── Agent Server Communication ───────────────────────────────
 
-  // Block direct .docx file manipulation — force use of ms-word MCP tools instead
-  const docxProtectionHook = async (input: HookInput): Promise<SyncHookJSONOutput> => {
-    if (input.hook_event_name !== 'PreToolUse') return {};
-    const { tool_name, tool_input } = input;
-    const toolInput = (tool_input ?? {}) as Record<string, unknown>;
-
-    // Check if any path argument targets a .docx file
-    const pathFields = ['file_path', 'path', 'command'];
-    for (const field of pathFields) {
-      const val = toolInput[field];
-      if (typeof val === 'string' && (
-        val.includes('.docx') && (
-          tool_name === 'Bash' ? (val.includes('unzip') || val.includes('zip') || val.includes('docx')) :
-          (tool_name === 'Read' || tool_name === 'Write' || tool_name === 'Edit')
-        )
-      )) {
-        // Allow reading .docx file path for reference, but block XML editing patterns
-        if (tool_name === 'Bash' && (val.includes('unzip') || val.includes('mkdir') || val.includes('zip '))) {
-          return {
-            decision: 'block',
-            reason: 'Do not unpack or modify .docx files directly. Use the ms-word MCP tools (find_and_replace with Track Changes) to edit Word documents.',
-          } as any;
-        }
-        if ((tool_name === 'Edit' || tool_name === 'Write') && (val.includes('document.xml') || val.includes('word/'))) {
-          return {
-            decision: 'block',
-            reason: 'Do not edit .docx XML files directly. Use mcp__ms-word__find_and_replace with Track Changes enabled instead.',
-          } as any;
+  // Wait for the agent server to be ready before connecting.
+  // If the container is still starting, the spinner shows "Processing..."
+  // and the message is sent automatically once ready.
+  async function waitForAgent(): Promise<string> {
+    while (!stopped) {
+      const port = containerService.getAgentPort();
+      if (port && containerService.isRunning()) {
+        // Verify the agent server is actually responding, not just the port allocated
+        try {
+          const res = await httpGet(`http://localhost:${port}/health`);
+          if (res.includes('"ok"')) {
+            return `http://localhost:${port}`;
+          }
+        } catch {
+          // Not ready yet
         }
       }
+      await new Promise(r => setTimeout(r, 1000));
     }
-    return {};
-  };
+    throw new Error('Session stopped while waiting for agent');
+  }
 
-  (async () => {
-    try {
-      const activityMcpServer = createActivityMcpServer();
-      const miniAppServer = createMiniAppMcpServer(workspace.directory_path);
-      const notificationServer = createNotificationMcpServer(onNotificationClick);
-      const reactionServer = createReactionMcpServer(workspace.id);
-      const msWordServer = createMsWordMcpServer();
-      const citeRightServer = createCiteRightMcpServer();
+  let agentBaseUrl: string;
 
-      // Read SOUL.md for system prompt customization
-      let soulMdContent: string | undefined;
-      try {
-        const soulPath = path.join(workspace.directory_path, '.academia', 'SOUL.md');
-        const content = fs.readFileSync(soulPath, 'utf-8').trim();
-        if (content) {
-          soulMdContent = content;
-        }
-      } catch {
-        // File doesn't exist or can't be read — use default prompt
-      }
+  // Build agent config for the session
+  const mcpProxy = (globalThis as any).__mcpHttpProxy;
+  const hostGatewayIp = containerService.getHostGatewayIp() ?? '127.0.0.1';
+  const mcpServerUrls = mcpProxy?.getMcpServerUrls?.(hostGatewayIp) ?? {};
 
-      const claudeBinaryPath = resolveClaudeBinary();
-      if (!claudeBinaryPath) {
-        emitError('Claude agent binary not found. Please reinstall the application.');
-        return;
-      }
+  // Read SOUL.md
+  let soulMdContent: string | undefined;
+  try {
+    const soulPath = path.join(workspace.directory_path, '.academia', 'SOUL.md');
+    const content = fs.readFileSync(soulPath, 'utf-8').trim();
+    if (content) soulMdContent = content;
+  } catch { /* doesn't exist */ }
 
-      queryInstance = query({
-        prompt: userMessageGenerator(),
-        options: {
-          pathToClaudeCodeExecutable: claudeBinaryPath,
-          stderr: (data: string) => {
-            for (const line of data.split('\n').filter(Boolean)) {
-              log.debug(`[AgentCLI] ${line}`);
-            }
-          },
-          model: model || 'claude-opus-4-7',
-          thinking: { type: 'adaptive' },
-          systemPrompt: (() => {
-            const docxEditingGuidance = `You are Academia Coscientist, an AI research assistant. Always refer to yourself as "Academia Coscientist" (never "Claude" or "I").
+  const docxEditingGuidance = `You are Academia Coscientist, an AI research assistant. Always refer to yourself as "Academia Coscientist" (never "Claude" or "I").
 
 When the user wants to make edits or suggestions to a .docx file:
 
@@ -192,104 +164,44 @@ IMPORTANT: NEVER unpack, modify XML, or edit .docx files directly on disk. ALWAY
 
 The user sees edits appear live in Word as tracked changes. Do NOT use any other method to edit Word documents.`;
 
-            const appendParts = [soulMdContent, docxEditingGuidance].filter(Boolean).join('\n\n');
-            return { type: 'preset' as const, preset: 'claude_code' as const, append: appendParts };
-          })(),
-          ...(sdkSessionId && { resume: sdkSessionId }),
-          includePartialMessages: true,
-          cwd: workspace.directory_path,
-          env: {
-            ...containerService.getPodmanEnv(),
-            ANTHROPIC_API_KEY: workspace.api_key,
-            MINI_APP_WORKSPACE_DIR: workspace.directory_path,
-          },
-          settingSources: ['project'],
-          mcpServers: {
-            activity: activityMcpServer,
-            'mini-apps': miniAppServer,
-            notification: notificationServer,
-            reaction: reactionServer,
-            'ms-word': msWordServer,
-            citeright: citeRightServer,
-          },
-          allowedTools: [
-            "Bash",
-            "Read",
-            "Write",
-            "Edit",
-            "Glob",
-            "Grep",
-            "Agent",
-            "NotebookEdit",
-            "WebSearch",
-            "Skill",
-            "TodoWrite",
-            "EnterPlanMode",
-            "ExitPlanMode",
-            "mcp__activity__query_activity",
-            "mcp__mini-apps__open_mini_application",
-            "mcp__notification__show_notification",
-            "mcp__reaction__create_reaction_thread",
-            "mcp__ms-word__get_file_path",
-            "mcp__ms-word__get_text",
-            "mcp__ms-word__get_selection",
-            "mcp__ms-word__save_document",
-            "mcp__ms-word__open_document",
-            "mcp__ms-word__find_and_replace",
-            "mcp__ms-word__track_changes_status",
-            "mcp__ms-word__set_track_changes",
-            "mcp__citeright__find_references",
-            "mcp__citeright__create_citation_report",
-            "mcp__citeright__get_citation_report",
-            "mcp__citeright__add_claim_to_report",
-            "mcp__citeright__search_citations_for_claim",
-            "mcp__citeright__format_citations",
-            "mcp__citeright__list_citation_reports",
-          ],
-          hooks: {
-            PreToolUse: [{
-              hooks: [workspaceBoundaryHook, docxProtectionHook],
-            }],
-          },
-        },
+  (async () => {
+    try {
+      // Wait for the agent server to be ready (polls until container is running)
+      const port = containerService.getAgentPort();
+      if (!port || !containerService.isRunning()) {
+        emitEvent({ type: 'status', status: 'Agent initializing...' } as ChatStreamMessage);
+      }
+      agentBaseUrl = await waitForAgent();
+      emitEvent({ type: 'status', status: '' } as ChatStreamMessage); // clear the label
+
+      // Create session on the agent server
+      const createBody = JSON.stringify({
+        sessionId,
+        resumeSessionId: sdkSessionId,
+        model: model || undefined,
+        soulMd: soulMdContent,
+        docxGuidance: docxEditingGuidance,
       });
 
-      for await (const message of queryInstance) {
-        processQueryMessage(message, state, emitEvent);
+      const createRes = await httpPost(`${agentBaseUrl}/sessions`, createBody);
+      const createData = JSON.parse(createRes);
+      agentSessionId = createData.sessionId;
+      log.debug(`[AgentSession] Session created: ${agentSessionId}`);
 
-        if (message.type === 'system') {
-          setSdkSessionId(sessionId, message.session_id);
-        }
-
-        if (message.type === 'assistant') {
-          insertMessage(sessionId, 'assistant', JSON.stringify(message.message.content));
-        }
-
-        if (message.type === 'user') {
-          const content = message.message.content;
-          if (Array.isArray(content)) {
-            const hasToolResults = content.some(
-              (block) => typeof block !== 'string' && block.type === 'tool_result',
-            );
-            if (hasToolResults) {
-              insertMessage(sessionId, 'tool_result', JSON.stringify(content));
-            }
-          }
-        }
-
-        if (message.type === 'result') {
-          insertMessage(
-            sessionId,
-            'result',
-            JSON.stringify({
-              subtype: message.subtype,
-              result: message.subtype === 'success' ? message.result : undefined,
-              is_error: message.is_error,
-            }),
-          );
-          emitDone();
-        }
+      // Flush any messages that arrived before the session was ready
+      for (const pending of pendingMessages) {
+        httpPost(
+          `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
+          JSON.stringify({ text: pending.text, attachments: pending.attachments }),
+        ).catch((err) => log.error('[AgentSession] Failed to send pending message:', err));
       }
+      pendingMessages.length = 0;
+
+      // Connect to SSE event stream
+      const eventUrl = `${agentBaseUrl}/sessions/${agentSessionId}/events`;
+      await connectSSE(eventUrl, state, sessionId, emitEvent, emitDone, emitError, stopped, (req) => {
+        sseRequest = req;
+      }, agentBaseUrl, agentSessionId!);
     } catch (err: unknown) {
       if (stopped) {
         emitDone();
@@ -298,7 +210,6 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
         emitError(errorMessage);
       }
     } finally {
-      queryInstance = null;
       if (running) {
         emitDone();
       }
@@ -319,18 +230,39 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
         };
       });
       insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }));
+
       const processedText = messagePreprocessor ? messagePreprocessor(userMessage) : userMessage;
-      messageQueue.push({ text: processedText, attachments });
+
+      // Translate file attachment paths from host to container
+      const translatedAttachments = attachments?.map((att) => {
+        if (att.type === 'file_reference' && att.filePath?.startsWith(workspace.directory_path)) {
+          return { ...att, filePath: '/data' + att.filePath.slice(workspace.directory_path.length) };
+        }
+        return att;
+      });
+
+      if (agentSessionId) {
+        httpPost(
+          `${agentBaseUrl}/sessions/${agentSessionId}/messages`,
+          JSON.stringify({ text: processedText, attachments: translatedAttachments }),
+        ).catch((err) => log.error('[AgentSession] Failed to send message:', err));
+      } else {
+        // Session not ready yet — queue the message for delivery after creation
+        log.debug('[AgentSession] Session not ready, queuing message');
+        pendingMessages.push({ text: processedText, attachments: translatedAttachments });
+      }
     },
 
     destroy() {
       stopped = true;
       clearInterval(heartbeatTimer);
-      if (queryInstance) {
-        queryInstance.close();
-        queryInstance = null;
+      if (sseRequest) {
+        sseRequest.destroy();
+        sseRequest = null;
       }
-      messageQueue.done();
+      if (agentSessionId) {
+        httpPost(`${agentBaseUrl}/sessions/${agentSessionId}/stop`, '{}').catch(() => {});
+      }
     },
 
     addListener(cb: Partial<ChatCallbacks>): () => void {
@@ -344,72 +276,193 @@ The user sees edits appear live in Word as tracked changes. Do NOT use any other
   };
 }
 
-type UserMessagePayload = {
-  text: string;
-  attachments?: IPCAttachment[];
-};
+function createNoopSession(
+  listeners: Set<Partial<ChatCallbacks>>,
+  heartbeatTimer: ReturnType<typeof setInterval>,
+): AgentSession {
+  return {
+    sendMessage() {},
+    destroy() { clearInterval(heartbeatTimer); },
+    addListener(cb) { listeners.add(cb); return () => { listeners.delete(cb); }; },
+    get isRunning() { return false; },
+  };
+}
 
-function buildContentBlocks(payload: UserMessagePayload): string | ContentBlockParam[] {
-  const { text, attachments } = payload;
+// ─── HTTP Helpers ───────────────────────────────────────────────
 
-  if (!attachments || attachments.length === 0) {
-    return text;
-  }
+function httpGet(url: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: 'GET',
+      timeout: 3000,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+    req.end();
+  });
+}
 
-  const blocks: ContentBlockParam[] = [];
+function httpPost(url: string, body: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (c: Buffer) => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+    });
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
 
-  for (const attachment of attachments) {
-    if (attachment.type === 'image') {
-      blocks.push({
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: attachment.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
-          data: attachment.data,
-        },
+async function connectSSE(
+  url: string,
+  state: MessageProcessingState,
+  sessionId: string,
+  emitEvent: (msg: ChatStreamMessage) => void,
+  emitDone: () => void,
+  emitError: (error: string) => void,
+  stopped: boolean,
+  onRequest: (req: http.ClientRequest) => void,
+  agentBaseUrl: string,
+  agentSessionId: string,
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = http.request({
+      hostname: parsed.hostname,
+      port: parsed.port,
+      path: parsed.pathname,
+      method: 'GET',
+      headers: { Accept: 'text/event-stream' },
+    }, (res) => {
+      let buffer = '';
+
+      res.on('data', (chunk: Buffer) => {
+        buffer += chunk.toString('utf-8');
+
+        // Parse SSE events from buffer
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+          const lines = part.split('\n');
+          let eventType = '';
+          let data = '';
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              eventType = line.slice(7);
+            } else if (line.startsWith('data: ')) {
+              data = line.slice(6);
+            }
+          }
+
+          if (!eventType || !data) continue;
+
+          if (eventType === 'message') {
+            try {
+              const message = JSON.parse(data) as SDKMessage;
+              processQueryMessage(message, state, emitEvent);
+
+              if (message.type === 'system') {
+                setSdkSessionId(sessionId, (message as any).session_id);
+              }
+              if (message.type === 'assistant' && (message as any).message?.content) {
+                insertMessage(sessionId, 'assistant', JSON.stringify((message as any).message.content));
+              }
+              if (message.type === 'user' && (message as any).message?.content) {
+                const content = (message as any).message.content;
+                if (Array.isArray(content)) {
+                  const hasToolResults = content.some((b: any) => typeof b !== 'string' && b.type === 'tool_result');
+                  if (hasToolResults) {
+                    insertMessage(sessionId, 'tool_result', JSON.stringify(content));
+                  }
+                }
+              }
+              if (message.type === 'result') {
+                insertMessage(sessionId, 'result', JSON.stringify({
+                  subtype: (message as any).subtype,
+                  result: (message as any).subtype === 'success' ? (message as any).result : undefined,
+                  is_error: (message as any).is_error,
+                }));
+                emitDone();
+              }
+            } catch (err) {
+              log.error('[AgentSession] Failed to parse SSE message:', err);
+            }
+          } else if (eventType === 'mcp-call') {
+            // MCP tool call relay: dispatch to host MCP server and POST result back
+            try {
+              const mcpCall = JSON.parse(data);
+              const { callId, serverName, toolName, args } = mcpCall;
+              log.debug(`[AgentSession] MCP relay: ${serverName}/${toolName} (callId=${callId})`);
+
+              handleMcpRelay(serverName, toolName, args).then((result) => {
+                httpPost(
+                  `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`,
+                  JSON.stringify({ callId, result }),
+                ).catch((err) => log.error('[AgentSession] Failed to POST mcp-result:', err));
+              }).catch((err) => {
+                const errorMsg = err instanceof Error ? err.message : String(err);
+                httpPost(
+                  `${agentBaseUrl}/sessions/${agentSessionId}/mcp-result`,
+                  JSON.stringify({ callId, error: errorMsg }),
+                ).catch((err2) => log.error('[AgentSession] Failed to POST mcp-result error:', err2));
+              });
+            } catch (err) {
+              log.error('[AgentSession] Failed to parse mcp-call event:', err);
+            }
+          } else if (eventType === 'done') {
+            emitDone();
+            resolve();
+          } else if (eventType === 'error') {
+            try {
+              const errData = JSON.parse(data);
+              emitError(errData.error || 'Unknown agent error');
+            } catch {
+              emitError('Unknown agent error');
+            }
+            resolve();
+          }
+        }
       });
-    } else if (attachment.type === 'document') {
-      if (attachment.mediaType === 'application/pdf') {
-        blocks.push({
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: attachment.data,
-          },
-          title: attachment.title ?? null,
-        });
-      } else {
-        // Text-based documents: decode base64 to string
-        const textContent = Buffer.from(attachment.data, 'base64').toString('utf-8');
-        blocks.push({
-          type: 'document',
-          source: {
-            type: 'text',
-            media_type: 'text/plain',
-            data: textContent,
-          },
-          title: attachment.title ?? null,
-        });
-      }
-    } else if (attachment.type === 'file_reference') {
-      blocks.push({
-        type: 'text',
-        text: `[Attached file: ${attachment.filePath}]\nThis file has been placed in the workspace. You may need to preprocess it before use (e.g., use podman to convert an Excel file to CSV).`,
+
+      res.on('end', () => resolve());
+      res.on('error', (err) => {
+        if (!stopped) reject(err);
+        else resolve();
       });
-    }
-  }
+    });
 
-  if (text) {
-    blocks.push({ type: 'text', text });
-  }
+    req.on('error', (err) => {
+      if (!stopped) reject(err);
+      else resolve();
+    });
 
-  return blocks;
+    onRequest(req);
+    req.end();
+  });
 }
 
 // ─── Mini-App MCP Server ─────────────────────────────────────────
 
-function createMiniAppMcpServer(workspaceDir: string) {
+export function createMiniAppMcpServer(workspaceDir: string) {
   return createSdkMcpServer({
     name: 'mini-apps',
     tools: [
@@ -424,122 +477,17 @@ function createMiniAppMcpServer(workspaceDir: string) {
           const exists = await fs.promises.access(appDir).then(() => true, () => false);
           if (!exists) {
             return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: `Mini-application directory not found: .applications/${args.dir_name}`,
-                },
-              ],
+              content: [{ type: 'text' as const, text: `Mini-application directory not found: .applications/${args.dir_name}` }],
               isError: true,
             };
           }
           return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `Opened mini-application: ${args.dir_name}`,
-              },
-            ],
+            content: [{ type: 'text' as const, text: `Opened mini-application: ${args.dir_name}` }],
           };
         },
       ),
     ],
   });
-}
-
-// ─── Workspace Boundary Hook ──────────────────────────────────────
-
-function isWithinWorkspace(filePath: string, workspaceDir: string): boolean {
-  const resolved = path.resolve(workspaceDir, filePath);
-  return resolved === workspaceDir || resolved.startsWith(workspaceDir + path.sep);
-}
-
-function extractPathsFromToolInput(toolName: string, toolInput: Record<string, unknown>): string[] {
-  const paths: string[] = [];
-
-  switch (toolName) {
-    case 'Read':
-    case 'Write':
-    case 'Edit':
-      if (typeof toolInput.file_path === 'string') {
-        paths.push(toolInput.file_path);
-      }
-      break;
-
-    case 'Glob':
-    case 'Grep':
-      if (typeof toolInput.path === 'string') {
-        paths.push(toolInput.path);
-      }
-      break;
-
-    case 'NotebookEdit':
-      if (typeof toolInput.notebook_path === 'string') {
-        paths.push(toolInput.notebook_path);
-      }
-      break;
-
-    case 'Bash': {
-      if (typeof toolInput.command === 'string') {
-        const cmd = toolInput.command;
-        // Skip path validation for podman exec commands — paths after the
-        // container name are container-internal (e.g. /data/...) and the
-        // container's volume mount already restricts access to the workspace.
-        const shellCmd = cmd.replace(/^.*?&&\s*/, '');
-        if (/^\s*podman\s+exec\b/.test(shellCmd)) {
-          break;
-        }
-        // Extract absolute paths from the command string
-        // 1. Quoted paths (double or single quotes)
-        const quotedPathPattern = /["'](\/[^"']+)["']/g;
-        let match;
-        while ((match = quotedPathPattern.exec(cmd)) !== null) {
-          paths.push(match[1]);
-        }
-        // 2. Unquoted paths (may contain escaped spaces)
-        const unquotedPathPattern = /(?:^|\s|=)(\/([\w.\-]|\\ )+(?:\/([\w.\-]|\\ )+)*)/g;
-        while ((match = unquotedPathPattern.exec(cmd)) !== null) {
-          // Unescape backslash-spaces to get the real path
-          paths.push(match[1].replace(/\\ /g, ' '));
-        }
-      }
-      break;
-    }
-  }
-
-  return paths;
-}
-
-function createWorkspaceBoundaryHook(workspaceDir: string) {
-  const resolvedWorkspace = path.resolve(workspaceDir);
-
-  return async (input: HookInput, _toolUseID: string | undefined, _options: { signal: AbortSignal }): Promise<SyncHookJSONOutput> => {
-    if (input.hook_event_name !== 'PreToolUse') {
-      return {};
-    }
-
-    const { tool_name, tool_input } = input;
-
-    // Tools without filesystem access are always allowed
-    const fsTools = ['Read', 'Write', 'Edit', 'Glob', 'Grep', 'NotebookEdit', 'Bash'];
-    if (!fsTools.includes(tool_name)) {
-      return {};
-    }
-
-    const paths = extractPathsFromToolInput(tool_name, (tool_input ?? {}) as Record<string, unknown>);
-
-    for (const p of paths) {
-      if (!isWithinWorkspace(p, resolvedWorkspace)) {
-        log.warn(`[WorkspaceBoundary] Blocked ${tool_name}: path "${p}" is outside workspace "${resolvedWorkspace}"`);
-        return {
-          decision: 'block',
-          reason: `Path "${p}" is outside the workspace directory. All file operations must stay within "${resolvedWorkspace}".`,
-        };
-      }
-    }
-
-    return {};
-  };
 }
 
 // ─── Message Processing ───────────────────────────────────────────
@@ -556,7 +504,7 @@ function processQueryMessage(
   onEvent: (msg: ChatStreamMessage) => void,
 ): void {
   if (message.type === 'stream_event') {
-    const event = message.event;
+    const event = (message as any).event;
 
     if (event.type === 'content_block_start') {
       if (event.content_block.type === 'tool_use') {
@@ -571,10 +519,7 @@ function processQueryMessage(
       }
     } else if (event.type === 'content_block_delta') {
       if (event.delta.type === 'text_delta') {
-        onEvent({
-          type: 'text-delta',
-          text: event.delta.text,
-        });
+        onEvent({ type: 'text-delta', text: event.delta.text });
       } else if (event.delta.type === 'input_json_delta') {
         onEvent({
           type: 'tool-call-args-delta',
@@ -592,10 +537,7 @@ function processQueryMessage(
         onEvent({ type: 'thinking-end' });
         state.currentBlockIsThinking = false;
       } else if (state.currentToolCallId) {
-        onEvent({
-          type: 'tool-call-end',
-          toolCallId: state.currentToolCallId,
-        });
+        onEvent({ type: 'tool-call-end', toolCallId: state.currentToolCallId });
         state.currentToolCallId = null;
       }
     }
@@ -604,9 +546,9 @@ function processQueryMessage(
   if (message.type === 'tool_progress') {
     onEvent({
       type: 'tool-progress',
-      toolCallId: message.tool_use_id,
-      toolName: message.tool_name,
-      elapsedSeconds: message.elapsed_time_seconds,
+      toolCallId: (message as any).tool_use_id,
+      toolName: (message as any).tool_name,
+      elapsedSeconds: (message as any).elapsed_time_seconds,
     });
   }
 
@@ -640,8 +582,8 @@ function processQueryMessage(
     }
   }
 
-  if (message.type === 'assistant' && message.message?.content) {
-    for (const block of message.message.content) {
+  if (message.type === 'assistant' && (message as any).message?.content) {
+    for (const block of (message as any).message.content) {
       if (block.type === 'text') {
         onEvent({ type: 'text', text: block.text });
       } else if (block.type === 'tool_use') {
@@ -662,8 +604,8 @@ function processQueryMessage(
     }
   }
 
-  if (message.type === 'user' && message.message?.content) {
-    const content = message.message.content;
+  if (message.type === 'user' && (message as any).message?.content) {
+    const content = (message as any).message.content;
     if (Array.isArray(content)) {
       for (const block of content) {
         if (typeof block !== 'string' && block.type === 'tool_result') {
@@ -701,61 +643,4 @@ function extractToolResultText(content: unknown): string {
       .join('\n');
   }
   return '';
-}
-
-interface MessageQueue<T> {
-  push(item: T): void;
-  done(): void;
-  [Symbol.asyncIterator](): AsyncIterator<T>;
-}
-
-function createMessageQueue<T>(): MessageQueue<T> {
-  const pending: T[] = [];
-  let resolve: (() => void) | null = null;
-  let isDone = false;
-
-  return {
-    push(item: T) {
-      pending.push(item);
-      if (resolve) {
-        const r = resolve;
-        resolve = null;
-        r();
-      }
-    },
-
-    done() {
-      isDone = true;
-      if (resolve) {
-        const r = resolve;
-        resolve = null;
-        r();
-      }
-    },
-
-    [Symbol.asyncIterator]() {
-      return {
-        next(): Promise<IteratorResult<T>> {
-          if (pending.length > 0) {
-            return Promise.resolve({ value: pending.shift()!, done: false });
-          }
-          if (isDone) {
-            return Promise.resolve({
-              value: undefined as unknown as T,
-              done: true,
-            });
-          }
-          return new Promise<IteratorResult<T>>((r) => {
-            resolve = () => {
-              if (pending.length > 0) {
-                r({ value: pending.shift()!, done: false });
-              } else {
-                r({ value: undefined as unknown as T, done: true });
-              }
-            };
-          });
-        },
-      };
-    },
-  };
 }

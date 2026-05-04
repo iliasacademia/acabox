@@ -16,7 +16,7 @@ source: jaechang-hits/SciAgent-Skills
 `requests` and `pandas` are pre-installed in the container. Write scripts to the workspace and execute via:
 
 ```bash
-podman exec cobuilding-container python3 ./reactome_query.py
+python3 ./reactome_query.py
 ```
 
 All output files should be written to relative paths within the workspace (e.g. `./reactome_output/`).

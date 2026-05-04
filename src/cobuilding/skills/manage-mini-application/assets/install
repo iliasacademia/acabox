@@ -46,6 +46,17 @@
 set -euo pipefail
 
 CONTAINER="${COBUILDING_CONTAINER:-cobuilding-container}"
+IN_CONTAINER="${COBUILDING_INSIDE_CONTAINER:-}"
+
+# When the agent runs inside the container, execute commands directly.
+# When on the host, route through podman exec.
+run_in_container() {
+  if [ "$IN_CONTAINER" = "1" ]; then
+    "$@"
+  else
+    podman exec "$CONTAINER" "$@"
+  fi
+}
 
 usage() {
   sed -n '2,46p' "$0" | sed 's/^# \{0,1\}//'
@@ -118,7 +129,11 @@ fi
 # ---------------------------------------------------------------------------
 
 # Ensure the container is up. Fail loudly with a clear recovery hint.
+# When running inside the container, this check is unnecessary.
 ensure_container() {
+  if [ "$IN_CONTAINER" = "1" ]; then
+    return 0
+  fi
   if ! podman container exists "$CONTAINER" 2>/dev/null; then
     err "container '$CONTAINER' is not running. Start it with: .academia/start-container"
     exit 1
@@ -193,7 +208,7 @@ parse_npm_spec() {
 # Query the resolved installed version of a global npm package.
 npm_installed_version() {
   local name="$1"
-  podman exec "$CONTAINER" npm list -g --depth=0 --json "$name" 2>/dev/null \
+  run_in_container npm list -g --depth=0 --json "$name" 2>/dev/null \
     | jq -r --arg n "$name" '.dependencies[$n].version // empty'
 }
 
@@ -250,7 +265,7 @@ ensure_container
 case "$MANAGER" in
   pip)
     echo "install: pip install ${PACKAGES[*]} (in $CONTAINER)"
-    podman exec "$CONTAINER" /opt/venv/bin/pip install --no-input "${PACKAGES[@]}"
+    run_in_container /opt/venv/bin/pip install --no-input "${PACKAGES[@]}"
     sync_to_jupyter /opt/venv/bin/pip install --no-input "${PACKAGES[@]}"
     record_pip "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/requirements.txt"
@@ -258,7 +273,7 @@ case "$MANAGER" in
 
   npm)
     echo "install: npm install -g ${PACKAGES[*]} (in $CONTAINER)"
-    podman exec "$CONTAINER" npm install -g "${PACKAGES[@]}"
+    run_in_container npm install -g "${PACKAGES[@]}"
     sync_to_jupyter npm install -g "${PACKAGES[@]}"
     record_npm "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/package.json"
@@ -268,7 +283,7 @@ case "$MANAGER" in
     echo "install: R install.packages(${PACKAGES[*]}) (in $CONTAINER)"
     # Build a vector literal: c("pkg1", "pkg2")
     printf -v RVEC 'c(%s)' "$(printf '"%s",' "${PACKAGES[@]}" | sed 's/,$//')"
-    podman exec "$CONTAINER" Rscript -e "install.packages($RVEC, repos='https://cloud.r-project.org')"
+    run_in_container Rscript -e "install.packages($RVEC, repos='https://cloud.r-project.org')"
     sync_to_jupyter Rscript -e "install.packages($RVEC, repos='https://cloud.r-project.org')"
     record_r "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/r-packages.txt"
@@ -277,7 +292,7 @@ case "$MANAGER" in
   apt)
     echo "install: apt-get install ${PACKAGES[*]} (in $CONTAINER)"
     echo "install: NOTE — apt installs require root and can affect system libraries." >&2
-    podman exec "$CONTAINER" bash -lc "apt-get update && apt-get install -y ${PACKAGES[*]}"
+    run_in_container bash -lc "apt-get update && apt-get install -y ${PACKAGES[*]}"
     sync_to_jupyter bash -lc "apt-get update && apt-get install -y ${PACKAGES[*]}"
     record_apt "${PACKAGES[@]}"
     echo "install: recorded in $APP_DIR/apt-packages.txt"
@@ -304,7 +319,7 @@ case "$MANAGER" in
     fi
     echo "install: running manual script $SCRIPT_PATH (in $CONTAINER)"
     echo "install: NOTE — manual scripts must check-then-install (detect if already present and exit 0); they are re-run when the image is rebuilt." >&2
-    podman exec "$CONTAINER" bash "$SCRIPT_PATH"
+    run_in_container bash "$SCRIPT_PATH"
     sync_to_jupyter bash "$SCRIPT_PATH"
     echo "install: recorded by presence of $SCRIPT_PATH"
     ;;

@@ -25,7 +25,7 @@ Each mini-app lives under `.applications/<lowerCamelCaseName>`. The agent writes
 ### Step 1: Scaffold the directory
 
 ```bash
-podman exec cobuilding-container node \
+node \
   .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
   --name "<display name>" \
   [--template "<template name>"]
@@ -227,7 +227,7 @@ If your app does no kernel computation (everything happens in the React side), d
 ### Step 4: Build the bundle
 
 ```bash
-podman exec cobuilding-container esbuild \
+esbuild \
   .applications/<dir_name>/src/index.tsx \
   --bundle \
   --outfile=.applications/<dir_name>/dist/bundle.js \
