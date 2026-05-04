@@ -3,20 +3,22 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { shell, app, safeStorage } from 'electron';
 import { OAuth2Client } from 'google-auth-library';
-import { getStoredCredentials } from './googleCalendarService';
 
 /**
  * OAuth + Docs API client for Phase C2 Google Docs integration.
  *
- * Mirrors `googleCalendarService` (loopback OAuth, tokens on disk in userData).
- * Deliberately requests the *only* Docs scope — no Drive, no Sheets, no other
- * Google products. The single granted capability is read+write on Google Docs
- * documents the user opens with the Academia overlay.
+ * Loopback OAuth flow with refresh tokens encrypted at rest via Electron
+ * `safeStorage` (OS keychain). Deliberately requests the *only* Docs scope
+ * — no Drive, no Sheets, no other Google products. The single granted
+ * capability is read+write on Google Docs documents the user opens with
+ * the Academia overlay.
  *
- * OAuth credentials (client id + secret) are shared with the Google Calendar
- * service so the user configures them once. The OAuth consent screen on
- * Google's side still has to authorize the `documents` scope on the same
- * OAuth client; users adding Docs after Calendar may need to re-grant.
+ * OAuth client id + secret come from `process.env.GOOGLE_CLIENT_ID` and
+ * `process.env.GOOGLE_CLIENT_SECRET`. In production those are baked into
+ * the main bundle at build time via `webpack.DefinePlugin` (see
+ * `webpack.main.config.js`). In dev, set them in the shell before launching
+ * the app. No user-facing input form — credentials never live in plain
+ * settings JSON.
  */
 
 const SCOPES = ['https://www.googleapis.com/auth/documents'];
@@ -78,29 +80,16 @@ function deleteTokens(): void {
 }
 
 function makeOAuth2Client(redirectUri: string): OAuth2Client {
-  const { clientId: storedId, clientSecret: storedSecret } = getStoredCredentials();
-  const clientId = process.env.GOOGLE_CLIENT_ID ?? storedId;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? storedSecret;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    throw new Error('Google OAuth credentials not configured. Set them in Settings → Google Calendar (shared client).');
+    throw new Error('Google OAuth credentials not configured. In production this means GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET were not set when the build was made; in dev set them in your shell before launching.');
   }
   return new OAuth2Client(clientId, clientSecret, redirectUri);
 }
 
 export function hasCredentials(): boolean {
-  return getCredentialsSource() !== 'none';
-}
-
-/**
- * Where the OAuth credentials currently come from. Drives whether the
- * Settings UI should hide the user-paste form (production / env-baked builds
- * shouldn't expose it) and whether a "Clear credentials" affordance applies.
- */
-export function getCredentialsSource(): 'env' | 'stored' | 'none' {
-  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) return 'env';
-  const { clientId, clientSecret } = getStoredCredentials();
-  if (clientId && clientSecret) return 'stored';
-  return 'none';
+  return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 }
 
 export function isConnected(): boolean {

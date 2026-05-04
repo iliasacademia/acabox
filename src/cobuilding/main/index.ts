@@ -85,7 +85,6 @@ import {
   disconnect as disconnectGoogleDocs,
   startOAuthFlow as startGoogleDocsOAuth,
   hasCredentials as googleDocsHasCredentials,
-  getCredentialsSource as googleDocsCredentialsSource,
 } from './googleDocsService';
 import {
   listGroups,
@@ -2722,8 +2721,6 @@ ipcMain.handle('googleDocs:status', () => {
   return {
     connected: isGoogleDocsConnected(),
     hasCredentials: googleDocsHasCredentials(),
-    credentialsSource: googleDocsCredentialsSource(),
-    isPackaged: app.isPackaged,
   };
 });
 
