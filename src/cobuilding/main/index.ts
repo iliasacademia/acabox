@@ -81,6 +81,13 @@ import {
   setStoredCredentials as setGoogleCalendarCredentials,
 } from './googleCalendarService';
 import {
+  isConnected as isGoogleDocsConnected,
+  disconnect as disconnectGoogleDocs,
+  startOAuthFlow as startGoogleDocsOAuth,
+  hasCredentials as googleDocsHasCredentials,
+  getCredentialsSource as googleDocsCredentialsSource,
+} from './googleDocsService';
+import {
   listGroups,
   createGroup,
   updateGroup,
@@ -791,9 +798,8 @@ app.whenReady().then(async () => {
                       const ctx = pendingContext.get(sessionId);
                       pendingContext.delete(sessionId);
                       if (!ctx) return userText;
-                      const { findHostAppForDocument } = require('./hostApps');
-                      const { wordHostApp } = require('./hostApps/wordHostApp');
-                      const host = findHostAppForDocument(ctx.documentPath) ?? wordHostApp;
+                      const { resolveSessionHostApp } = require('./agentSession');
+                      const host = resolveSessionHostApp(ctx.documentPath);
                       const prefix = host.messagePrefix({
                         documentPath: ctx.documentPath,
                         selectedText: ctx.selectedText,
@@ -2371,6 +2377,7 @@ const INTEGRATION_DEFAULTS: Record<IntegrationId, boolean> = {
   word: FEATURES.MS_WORD_INTEGRATION_ENABLED,
   obsidian: FEATURES.OBSIDIAN_INTEGRATION_ENABLED,
   'apple-notes': FEATURES.APPLE_NOTES_INTEGRATION_ENABLED,
+  'google-docs': FEATURES.GOOGLE_DOCS_INTEGRATION_ENABLED,
 };
 
 function integrationStoreKey(id: IntegrationId): string {
@@ -2387,9 +2394,10 @@ setHostAppRegistrationOverrides({
   word: readIntegrationEnabled('word'),
   obsidian: readIntegrationEnabled('obsidian'),
   'apple-notes': readIntegrationEnabled('apple-notes'),
+  'google-docs': readIntegrationEnabled('google-docs'),
 });
 
-const KNOWN_INTEGRATION_IDS: ReadonlySet<IntegrationId> = new Set(['word', 'obsidian', 'apple-notes']);
+const KNOWN_INTEGRATION_IDS: ReadonlySet<IntegrationId> = new Set(['word', 'obsidian', 'apple-notes', 'google-docs']);
 
 ipcMain.handle(IPC_CHANNELS.INTEGRATION_GET_ENABLED, async (_event, id: IntegrationId) => {
   if (!KNOWN_INTEGRATION_IDS.has(id)) return false;
@@ -2703,6 +2711,34 @@ ipcMain.handle('googleCalendar:disconnect', () => {
 
 ipcMain.handle('googleCalendar:fetchEvents', async (_event, from: string, to: string) => {
   return fetchGoogleCalendarEvents({ from, to });
+});
+
+// ---- Google Docs IPC handlers (Phase C2 OAuth + Docs API) ----
+// Reuses the OAuth client id/secret stored in cobuilding-settings.json (same
+// as Google Calendar). Tokens are stored separately in google-docs-tokens.json
+// because the granted scopes differ.
+
+ipcMain.handle('googleDocs:status', () => {
+  return {
+    connected: isGoogleDocsConnected(),
+    hasCredentials: googleDocsHasCredentials(),
+    credentialsSource: googleDocsCredentialsSource(),
+    isPackaged: app.isPackaged,
+  };
+});
+
+ipcMain.handle('googleDocs:connect', async () => {
+  try {
+    await startGoogleDocsOAuth();
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message ?? String(err) };
+  }
+});
+
+ipcMain.handle('googleDocs:disconnect', () => {
+  disconnectGoogleDocs();
+  return { success: true };
 });
 
 app.on('window-all-closed', () => {

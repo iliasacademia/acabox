@@ -81,6 +81,12 @@ export interface WordPollResponse {
   isActive: boolean;
   recentReviewNotifications?: NotificationData[];
   activeDocumentPath?: string | null;
+  /**
+   * Server-supplied human-readable name for the active document. For
+   * synthetic-scheme hosts (`gdocs://<id>`, `applenotes://<id>`) the path is
+   * opaque, so the renderer should prefer this over deriving from the path.
+   */
+  activeDocumentDisplayName?: string | null;
   isReviewingSelectedText?: boolean;
   reviewType?: 'full-paper' | 'selected-text' | 'review-changes';
   selectedTextReviewStartedAt?: number;

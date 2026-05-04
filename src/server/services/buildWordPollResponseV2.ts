@@ -58,6 +58,25 @@ export function buildWordPollResponseV2(
     // listing every chat tied to that host so the user can pick from previous
     // conversations even before the active document resolves.
     const hostAppId = windowMonitorService.getHostAppIdForWindow(wid);
+    // Google Docs is doc-rooted — we explicitly do NOT show the overlay over a
+    // Chrome window that isn't on a Google Doc tab. The host has no
+    // `sessionDocumentPathLikePattern` for that reason; without an active
+    // gdocs:// path resolved by the extension, hide the overlay entirely so
+    // the user doesn't see Academia floating over Twitter / Reddit / Github.
+    if (hostAppId === 'google-docs') {
+      return {
+        notificationCount: 0,
+        isActive: false,
+        recentReviewNotifications: [],
+        isReviewingSelectedText: false,
+        activeDocumentPath: documentPath,
+        shouldShowButtonV2: false,
+        shouldShowPopupV2: false,
+        shouldShowReviewButton: false,
+        hasSelectedText: false,
+        isDockedActive: false,
+      };
+    }
     if (isCobuildingMode && hostAppId && hostAppId !== 'word') {
       const host = getRegisteredHostApps().find((h) => h.id === hostAppId);
       const fallbackPattern = host?.sessionDocumentPathLikePattern;
@@ -110,13 +129,23 @@ export function buildWordPollResponseV2(
     };
   }
 
-  // Synthetic-scheme document paths (e.g. `applenotes://<id>`) come from hosts
-  // whose documents don't live in the workspace folder (Apple Notes is in the
-  // OS database, not on disk). Treat them like an in-workspace doc for overlay
-  // purposes: show the overlay, scope sessions to the synthetic id.
+  // Synthetic-scheme document paths (e.g. `applenotes://<id>`, `gdocs://<id>`)
+  // come from hosts whose documents don't live in the workspace folder (Apple
+  // Notes is in the OS database, Google Docs is in the cloud). Treat them like
+  // an in-workspace doc for overlay purposes: show the overlay, scope sessions
+  // to the synthetic id, surface the host-supplied display title and any
+  // selection text the host has captured (canvas-interception for Docs, AX for
+  // Apple Notes when applicable).
   const isSyntheticDocPath = /^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://');
   if (isCobuildingMode && isSyntheticDocPath) {
     const sessions = windowMonitorService.getWorkspaceSessions(documentPath);
+    let displayName: string | null = null;
+    let selectedTextOut: string | undefined;
+    if (documentPath.startsWith('gdocs://')) {
+      displayName = windowMonitorService.getGoogleDocsTitle();
+      const sel = windowMonitorService.getGoogleDocsSelectedText();
+      if (sel) selectedTextOut = sel;
+    }
     return {
       isInWorkspace: true,
       workspaceSessions: sessions,
@@ -125,10 +154,12 @@ export function buildWordPollResponseV2(
       recentReviewNotifications: [],
       isReviewingSelectedText: false,
       activeDocumentPath: documentPath,
+      activeDocumentDisplayName: displayName,
       shouldShowButtonV2,
       shouldShowPopupV2,
       shouldShowReviewButton: false,
-      hasSelectedText: false,
+      hasSelectedText: !!selectedTextOut,
+      selectedText: selectedTextOut,
       isDockedActive,
     };
   }

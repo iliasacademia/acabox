@@ -4,10 +4,11 @@ import type { HostApp } from './types';
 import { wordHostApp } from './wordHostApp';
 import { obsidianHostApp } from './obsidianHostApp';
 import { appleNotesHostApp } from './appleNotesHostApp';
+import { googleDocsHostApp } from './googleDocsHostApp';
 
 export type { HostApp, ApplyEditParams, ApplyEditResult, PreToolUseHook, MessagePrefixContext } from './types';
 
-export type IntegrationId = 'word' | 'obsidian' | 'apple-notes';
+export type IntegrationId = 'word' | 'obsidian' | 'apple-notes' | 'google-docs';
 
 /**
  * Runtime overrides for which host apps are registered. Set at startup by the
@@ -34,9 +35,11 @@ export function getRegisteredHostApps(): HostApp[] {
   const wordEnabled = registrationOverrides.word ?? FEATURES.MS_WORD_INTEGRATION_ENABLED;
   const obsidianEnabled = registrationOverrides.obsidian ?? FEATURES.OBSIDIAN_INTEGRATION_ENABLED;
   const appleNotesEnabled = registrationOverrides['apple-notes'] ?? FEATURES.APPLE_NOTES_INTEGRATION_ENABLED;
+  const googleDocsEnabled = registrationOverrides['google-docs'] ?? FEATURES.GOOGLE_DOCS_INTEGRATION_ENABLED;
   if (wordEnabled) apps.push(wordHostApp);
   if (obsidianEnabled) apps.push(obsidianHostApp);
   if (appleNotesEnabled) apps.push(appleNotesHostApp);
+  if (googleDocsEnabled) apps.push(googleDocsHostApp);
   return apps;
 }
 
@@ -55,6 +58,9 @@ export function findHostAppForDocument(documentPath: string | null | undefined):
     const hosts = getRegisteredHostApps();
     if (scheme === 'applenotes') {
       return hosts.find((h) => h.id === 'apple-notes') ?? null;
+    }
+    if (scheme === 'gdocs') {
+      return hosts.find((h) => h.id === 'google-docs') ?? null;
     }
     // file:// falls through to extension matching after the scheme is stripped.
     if (scheme !== 'file') return null;

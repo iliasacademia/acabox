@@ -1,0 +1,325 @@
+import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
+import { shell, app, safeStorage } from 'electron';
+import { OAuth2Client } from 'google-auth-library';
+import { getStoredCredentials } from './googleCalendarService';
+
+/**
+ * OAuth + Docs API client for Phase C2 Google Docs integration.
+ *
+ * Mirrors `googleCalendarService` (loopback OAuth, tokens on disk in userData).
+ * Deliberately requests the *only* Docs scope — no Drive, no Sheets, no other
+ * Google products. The single granted capability is read+write on Google Docs
+ * documents the user opens with the Academia overlay.
+ *
+ * OAuth credentials (client id + secret) are shared with the Google Calendar
+ * service so the user configures them once. The OAuth consent screen on
+ * Google's side still has to authorize the `documents` scope on the same
+ * OAuth client; users adding Docs after Calendar may need to re-grant.
+ */
+
+const SCOPES = ['https://www.googleapis.com/auth/documents'];
+
+export interface DocsApiResult<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  /** When true, the caller should redirect the user to reconnect (refresh token revoked). */
+  authExpired?: boolean;
+}
+
+function getTokensPath(): string {
+  return path.join(app.getPath('userData'), 'google-docs-tokens.json');
+}
+
+/**
+ * Read OAuth tokens from disk. Tokens are encrypted with Electron `safeStorage`
+ * (OS keychain) when available, with a graceful fallback to plain JSON for:
+ *   - dev environments where keychain integration isn't set up
+ *   - tokens written by older builds before encryption was added
+ * Decryption errors fall back to JSON parse so a re-encryption can happen on
+ * the next write.
+ */
+function readTokens(): Record<string, unknown> | null {
+  let raw: Buffer;
+  try {
+    raw = fs.readFileSync(getTokensPath());
+  } catch {
+    return null;
+  }
+  if (safeStorage.isEncryptionAvailable()) {
+    try {
+      const decoded = safeStorage.decryptString(raw);
+      return JSON.parse(decoded);
+    } catch {
+      // Fall through to plain-text path — likely a legacy file written before
+      // encryption was added. Re-encryption happens on the next writeTokens.
+    }
+  }
+  try {
+    return JSON.parse(raw.toString('utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+function writeTokens(tokens: Record<string, unknown>): void {
+  const json = JSON.stringify(tokens);
+  if (safeStorage.isEncryptionAvailable()) {
+    fs.writeFileSync(getTokensPath(), safeStorage.encryptString(json));
+  } else {
+    fs.writeFileSync(getTokensPath(), json, 'utf-8');
+  }
+}
+
+function deleteTokens(): void {
+  try { fs.unlinkSync(getTokensPath()); } catch { /* ignore */ }
+}
+
+function makeOAuth2Client(redirectUri: string): OAuth2Client {
+  const { clientId: storedId, clientSecret: storedSecret } = getStoredCredentials();
+  const clientId = process.env.GOOGLE_CLIENT_ID ?? storedId;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET ?? storedSecret;
+  if (!clientId || !clientSecret) {
+    throw new Error('Google OAuth credentials not configured. Set them in Settings → Google Calendar (shared client).');
+  }
+  return new OAuth2Client(clientId, clientSecret, redirectUri);
+}
+
+export function hasCredentials(): boolean {
+  return getCredentialsSource() !== 'none';
+}
+
+/**
+ * Where the OAuth credentials currently come from. Drives whether the
+ * Settings UI should hide the user-paste form (production / env-baked builds
+ * shouldn't expose it) and whether a "Clear credentials" affordance applies.
+ */
+export function getCredentialsSource(): 'env' | 'stored' | 'none' {
+  if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) return 'env';
+  const { clientId, clientSecret } = getStoredCredentials();
+  if (clientId && clientSecret) return 'stored';
+  return 'none';
+}
+
+export function isConnected(): boolean {
+  return readTokens() !== null;
+}
+
+export function disconnect(): void {
+  deleteTokens();
+}
+
+export async function startOAuthFlow(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const server = http.createServer();
+
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as { port: number };
+      const redirectUri = `http://127.0.0.1:${addr.port}`;
+      let oauth2Client: OAuth2Client;
+      try {
+        oauth2Client = makeOAuth2Client(redirectUri);
+      } catch (err) {
+        server.close();
+        reject(err);
+        return;
+      }
+
+      const authUrl = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: SCOPES,
+        prompt: 'consent',
+      });
+
+      shell.openExternal(authUrl);
+
+      const timeout = setTimeout(() => {
+        server.close();
+        reject(new Error('Google Docs auth timed out after 5 minutes'));
+      }, 5 * 60 * 1000);
+
+      server.on('request', async (req, res) => {
+        const url = new URL(req.url!, redirectUri);
+        const code = url.searchParams.get('code');
+        const error = url.searchParams.get('error');
+
+        const html = (msg: string) =>
+          `<html><body style="font-family:sans-serif;padding:40px"><h2>${msg}</h2><p>You can close this tab.</p></body></html>`;
+
+        res.writeHead(200, { 'Content-Type': 'text/html' });
+
+        if (error) {
+          res.end(html('Authorization cancelled.'));
+          clearTimeout(timeout);
+          server.close();
+          reject(new Error(`Google OAuth error: ${error}`));
+          return;
+        }
+
+        if (!code) {
+          res.end(html('No authorization code received.'));
+          clearTimeout(timeout);
+          server.close();
+          reject(new Error('No authorization code received'));
+          return;
+        }
+
+        try {
+          const { tokens } = await oauth2Client.getToken(code);
+          writeTokens(tokens as Record<string, unknown>);
+          res.end(html('Connected to Google Docs! You can return to Academia.'));
+          clearTimeout(timeout);
+          server.close();
+          resolve();
+        } catch (err) {
+          res.end(html('Error connecting to Google Docs.'));
+          clearTimeout(timeout);
+          server.close();
+          reject(err);
+        }
+      });
+    });
+
+    server.on('error', (err) => reject(err));
+  });
+}
+
+/**
+ * Get an authenticated OAuth2Client for API calls. Auto-refreshes when the
+ * access token expires. Returns null when there are no stored tokens (user
+ * hasn't connected) or the refresh token has been revoked.
+ */
+async function getAuthedClient(): Promise<OAuth2Client | null> {
+  const tokens = readTokens();
+  if (!tokens) return null;
+  let oauth2Client: OAuth2Client;
+  try {
+    oauth2Client = makeOAuth2Client('http://127.0.0.1');
+  } catch {
+    return null;
+  }
+  oauth2Client.setCredentials(tokens);
+  // Persist refreshed tokens back to disk so we don't re-prompt every restart.
+  oauth2Client.on('tokens', (newTokens) => {
+    const current = readTokens() ?? {};
+    writeTokens({ ...current, ...newTokens });
+  });
+  return oauth2Client;
+}
+
+/**
+ * Walk a Docs API `documents.get` response and concatenate every text run into
+ * a single plain-text string. Handles top-level body, table cells, and the
+ * multi-tab structure (`tabs[]` with optional `childTabs`). Tabs are separated
+ * by their title for readability.
+ */
+function extractPlainText(doc: any): string {
+  const parts: string[] = [];
+
+  function walkBody(body: any): void {
+    if (!body?.content) return;
+    for (const elem of body.content) {
+      if (elem.paragraph?.elements) {
+        for (const pe of elem.paragraph.elements) {
+          if (pe.textRun?.content) parts.push(pe.textRun.content);
+        }
+      } else if (elem.table?.tableRows) {
+        for (const row of elem.table.tableRows) {
+          for (const cell of row.tableCells || []) {
+            walkBody({ content: cell.content });
+          }
+        }
+      }
+    }
+  }
+
+  function walkTab(tab: any, depth: number): void {
+    const title = tab?.tabProperties?.title;
+    if (title) parts.push(`\n${'#'.repeat(Math.min(depth + 1, 6))} ${title}\n`);
+    walkBody(tab?.documentTab?.body);
+    for (const child of tab?.childTabs ?? []) walkTab(child, depth + 1);
+  }
+
+  if (Array.isArray(doc?.tabs) && doc.tabs.length > 0) {
+    for (const tab of doc.tabs) walkTab(tab, 0);
+  } else {
+    walkBody(doc?.body);
+  }
+  return parts.join('').replace(/\n{3,}/g, '\n\n');
+}
+
+/**
+ * Read the full text of a Google Doc by id. Includes content from all tabs
+ * when the doc uses the Document Tabs feature.
+ */
+export async function getDocText(documentId: string): Promise<DocsApiResult<{ text: string; title: string }>> {
+  const client = await getAuthedClient();
+  if (!client) return { success: false, error: 'Not connected to Google Docs' };
+
+  const url = `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}?includeTabsContent=true`;
+  try {
+    const resp = await client.request<any>({ url, method: 'GET' });
+    const text = extractPlainText(resp.data);
+    const title = (resp.data?.title as string | undefined) ?? '';
+    return { success: true, data: { text, title } };
+  } catch (err: any) {
+    const status = err?.response?.status ?? err?.code;
+    if (status === 401) {
+      return { success: false, error: 'Google session expired. Please reconnect in Settings.', authExpired: true };
+    }
+    if (status === 403) {
+      return { success: false, error: 'Google denied access. Either the doc is restricted or the OAuth scope is missing.' };
+    }
+    if (status === 404) {
+      return { success: false, error: 'Document not found. The id may be wrong, or you may not have access to this doc.' };
+    }
+    return { success: false, error: `Docs API error${status ? ' ' + status : ''}: ${err?.message ?? String(err)}` };
+  }
+}
+
+/**
+ * Apply find-and-replace to a doc using `documents.batchUpdate`. Always uses
+ * `replaceAllText` (Docs API doesn't have a "first-occurrence-only" mode);
+ * when the caller asks for `first` we still call replaceAllText but the agent
+ * is responsible for picking a search string unique enough to match once.
+ */
+export async function findAndReplace(
+  documentId: string,
+  searchText: string,
+  replaceText: string,
+  matchCase: boolean,
+): Promise<DocsApiResult<{ replacementsCount: number }>> {
+  const client = await getAuthedClient();
+  if (!client) return { success: false, error: 'Not connected to Google Docs' };
+
+  const url = `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}:batchUpdate`;
+  const body = {
+    requests: [
+      {
+        replaceAllText: {
+          containsText: { text: searchText, matchCase },
+          replaceText,
+        },
+      },
+    ],
+  };
+  try {
+    const resp = await client.request<any>({ url, method: 'POST', data: body });
+    const occurrences = resp.data?.replies?.[0]?.replaceAllText?.occurrencesChanged ?? 0;
+    return { success: true, data: { replacementsCount: occurrences } };
+  } catch (err: any) {
+    const status = err?.response?.status ?? err?.code;
+    if (status === 401) {
+      return { success: false, error: 'Google session expired. Please reconnect in Settings.', authExpired: true };
+    }
+    if (status === 403) {
+      return { success: false, error: 'You do not have edit access to this document.' };
+    }
+    if (status === 404) {
+      return { success: false, error: 'Document not found.' };
+    }
+    return { success: false, error: `Docs API error${status ? ' ' + status : ''}: ${err?.message ?? String(err)}` };
+  }
+}

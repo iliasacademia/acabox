@@ -23,11 +23,25 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
   const [requestingPermission, setRequestingPermission] = useState(false);
 
-  // Per-integration enable state (Word, Obsidian, Apple Notes, ...).
-  type IntegrationId = 'word' | 'obsidian' | 'apple-notes';
+  // Per-integration enable state (Word, Obsidian, Apple Notes, Google Docs, ...).
+  type IntegrationId = 'word' | 'obsidian' | 'apple-notes' | 'google-docs';
   const [wordIntegrationEnabled, setWordIntegrationEnabled] = useState<boolean | null>(null);
   const [obsidianIntegrationEnabled, setObsidianIntegrationEnabled] = useState<boolean | null>(null);
   const [appleNotesIntegrationEnabled, setAppleNotesIntegrationEnabled] = useState<boolean | null>(null);
+  const [googleDocsIntegrationEnabled, setGoogleDocsIntegrationEnabled] = useState<boolean | null>(null);
+  // Google Docs OAuth (Phase C2) — separate from the host-app integration toggle.
+  const [googleDocsApiConnected, setGoogleDocsApiConnected] = useState<boolean | null>(null);
+  const [googleDocsApiHasCreds, setGoogleDocsApiHasCreds] = useState<boolean>(false);
+  // 'env' = baked into the build (production), 'stored' = user-pasted in dev,
+  // 'none' = not configured. The paste form only appears when source==='none'
+  // AND the app is unpackaged (dev). Production builds without baked credentials
+  // surface a clear "missing credentials" message instead.
+  const [googleDocsCredsSource, setGoogleDocsCredsSource] = useState<'env' | 'stored' | 'none'>('none');
+  const [googleDocsIsPackaged, setGoogleDocsIsPackaged] = useState<boolean>(true);
+  const [googleDocsApiBusy, setGoogleDocsApiBusy] = useState<boolean>(false);
+  const [googleDocsApiError, setGoogleDocsApiError] = useState<string | null>(null);
+  const [googleCredsInput, setGoogleCredsInput] = useState<{ clientId: string; clientSecret: string }>({ clientId: '', clientSecret: '' });
+  const [googleCredsBusy, setGoogleCredsBusy] = useState<boolean>(false);
   const [integrationToggling, setIntegrationToggling] = useState<IntegrationId | null>(null);
   const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: IntegrationId; displayName: string } | null>(null);
 
@@ -59,7 +73,76 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     window.electronAPI.invoke('integration:get-enabled', 'word').then((v: boolean) => setWordIntegrationEnabled(!!v)).catch(() => setWordIntegrationEnabled(false));
     window.electronAPI.invoke('integration:get-enabled', 'obsidian').then((v: boolean) => setObsidianIntegrationEnabled(!!v)).catch(() => setObsidianIntegrationEnabled(false));
     window.electronAPI.invoke('integration:get-enabled', 'apple-notes').then((v: boolean) => setAppleNotesIntegrationEnabled(!!v)).catch(() => setAppleNotesIntegrationEnabled(false));
+    window.electronAPI.invoke('integration:get-enabled', 'google-docs').then((v: boolean) => setGoogleDocsIntegrationEnabled(!!v)).catch(() => setGoogleDocsIntegrationEnabled(false));
+    refreshGoogleDocsApiStatus();
   }, []);
+
+  const refreshGoogleDocsApiStatus = () => {
+    const api = (window as any).googleDocsAPI;
+    if (!api?.status) { setGoogleDocsApiConnected(false); setGoogleDocsApiHasCreds(false); return; }
+    api.status().then((r: { connected: boolean; hasCredentials: boolean; credentialsSource?: 'env' | 'stored' | 'none'; isPackaged?: boolean }) => {
+      setGoogleDocsApiConnected(!!r?.connected);
+      setGoogleDocsApiHasCreds(!!r?.hasCredentials);
+      setGoogleDocsCredsSource(r?.credentialsSource ?? 'none');
+      setGoogleDocsIsPackaged(!!r?.isPackaged);
+    }).catch(() => { setGoogleDocsApiConnected(false); });
+  };
+
+  const handleConnectGoogleDocs = async () => {
+    setGoogleDocsApiBusy(true);
+    setGoogleDocsApiError(null);
+    try {
+      const result: any = await (window as any).googleDocsAPI.connect();
+      if (result?.success === false) {
+        setGoogleDocsApiError(result.error ?? 'Could not connect to Google Docs.');
+      }
+    } catch (err: any) {
+      setGoogleDocsApiError(err?.message ?? 'Could not connect to Google Docs.');
+    } finally {
+      setGoogleDocsApiBusy(false);
+      refreshGoogleDocsApiStatus();
+    }
+  };
+
+  const handleSaveGoogleCreds = async () => {
+    const clientId = googleCredsInput.clientId.trim();
+    const clientSecret = googleCredsInput.clientSecret.trim();
+    if (!clientId || !clientSecret) return;
+    setGoogleCredsBusy(true);
+    try {
+      await (window as any).googleCalendarAPI.setCredentials(clientId, clientSecret);
+      setGoogleCredsInput({ clientId: '', clientSecret: '' });
+      refreshGoogleDocsApiStatus();
+    } finally {
+      setGoogleCredsBusy(false);
+    }
+  };
+
+  const handleClearGoogleCreds = async () => {
+    setGoogleCredsBusy(true);
+    setGoogleDocsApiError(null);
+    try {
+      // Disconnect any existing Docs OAuth tokens first so the user has to
+      // reconnect against whichever client they paste next.
+      try { await (window as any).googleDocsAPI.disconnect(); } catch { /* ignore */ }
+      // Empty strings cause hasCredentials() to return false — same effect as deleting the keys.
+      await (window as any).googleCalendarAPI.setCredentials('', '');
+      refreshGoogleDocsApiStatus();
+    } finally {
+      setGoogleCredsBusy(false);
+    }
+  };
+
+  const handleDisconnectGoogleDocs = async () => {
+    setGoogleDocsApiBusy(true);
+    try {
+      await (window as any).googleDocsAPI.disconnect();
+    } finally {
+      setGoogleDocsApiBusy(false);
+      setGoogleDocsApiError(null);
+      refreshGoogleDocsApiStatus();
+    }
+  };
 
   useEffect(() => {
     if (newDirectoryOverridden || !newName.trim()) return;
@@ -416,6 +499,114 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
                     : 'Enable and Restart'}
             </button>
           </div>
+
+          {/* Google Docs Integration */}
+          <div className="wsSettings__dirRow" style={{ marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 2 }}>Google Docs Integration</div>
+              <div style={{ fontSize: 12, color: '#666' }}>
+                {googleDocsIntegrationEnabled
+                  ? 'Overlay appears over Chrome when the focused tab is a Google Doc. Selection text and the doc id come from the Academia browser extension. Edit suggestions show as cards but Apply is disabled until OAuth + Docs API ships.'
+                  : 'Show the overlay over Chrome when you are on a Google Doc. Requires the Academia browser extension to be installed and connected. Phase A is read-only (selection) plus suggestion cards — automatic editing arrives with the upcoming Google Docs API integration.'}
+              </div>
+            </div>
+            <button
+              type="button"
+              className={`gsStep__btn ${googleDocsIntegrationEnabled ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
+              disabled={googleDocsIntegrationEnabled === null || integrationToggling !== null}
+              onClick={() => handleToggleIntegration('google-docs', 'Google Docs', googleDocsIntegrationEnabled)}
+            >
+              {integrationToggling === 'google-docs'
+                ? 'Working...'
+                : googleDocsIntegrationEnabled === null
+                  ? '...'
+                  : googleDocsIntegrationEnabled
+                    ? 'Disable and Restart'
+                    : 'Enable and Restart'}
+            </button>
+          </div>
+
+          {/* Google Docs API (OAuth, Phase C2) — only shown when the integration is on. */}
+          {googleDocsIntegrationEnabled && (
+            <>
+              <div className="wsSettings__dirRow" style={{ marginBottom: 8, marginLeft: 16, paddingLeft: 12, borderLeft: '2px solid #e5e5ea' }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 2 }}>Connect Google account (full doc reads + apply edits)</div>
+                  <div style={{ fontSize: 12, color: '#666' }}>
+                    {googleDocsApiConnected
+                      ? 'Connected. Academia can read multi-tab Google Docs (including download-restricted ones) via the official Docs API, and Apply on suggestion cards now writes the edit directly. Scope: google-docs only — no Drive, Sheets, Gmail, or Calendar access.'
+                      : googleDocsApiHasCreds
+                        ? 'Sign in with Google to grant access to your Docs only. The requested scope is google-docs only — no Drive, Sheets, Gmail, or Calendar access.'
+                        : googleDocsIsPackaged
+                          ? 'Google Docs API isn\'t configured in this build — the OAuth client wasn\'t baked in at build time. Reach out to support if you\'re seeing this on a release build.'
+                          : 'No OAuth credentials configured for development. Either set GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET as env vars before launching the dev app, or paste credentials below.'}
+                  </div>
+                  {googleDocsApiError && (
+                    <div style={{ fontSize: 12, color: '#7a1f29', marginTop: 4 }}>{googleDocsApiError}</div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className={`gsStep__btn ${googleDocsApiConnected ? 'gsStep__btn--secondary' : 'gsStep__btn--primary'}`}
+                    disabled={googleDocsApiBusy || googleDocsApiConnected === null || (!googleDocsApiHasCreds && !googleDocsApiConnected)}
+                    onClick={googleDocsApiConnected ? handleDisconnectGoogleDocs : handleConnectGoogleDocs}
+                  >
+                    {googleDocsApiBusy ? 'Working...' : googleDocsApiConnected ? 'Disconnect' : 'Connect Google'}
+                  </button>
+                  {/* Clear button only when credentials came from a user-paste (stored) — never for env-baked production credentials. */}
+                  {googleDocsCredsSource === 'stored' && (
+                    <button
+                      type="button"
+                      onClick={handleClearGoogleCreds}
+                      disabled={googleCredsBusy}
+                      style={{ background: 'none', border: 'none', padding: 0, color: '#7a1f29', fontSize: 11, cursor: 'pointer', textDecoration: 'underline' }}
+                    >
+                      {googleCredsBusy ? 'Clearing...' : 'Clear credentials'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              {/* Paste form: dev-only, and only when no credentials are configured at all. Hidden in packaged builds and when env vars supply credentials. */}
+              {!googleDocsIsPackaged && googleDocsCredsSource === 'none' && !googleDocsApiConnected && (
+                <div style={{ marginBottom: 12, marginLeft: 16, paddingLeft: 12, borderLeft: '2px solid #e5e5ea' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 240px', minWidth: 200 }}>
+                      <label style={{ fontSize: 11, color: '#666', marginBottom: 2 }}>Client ID (dev)</label>
+                      <input
+                        type="text"
+                        value={googleCredsInput.clientId}
+                        onChange={(e) => setGoogleCredsInput((p) => ({ ...p, clientId: e.target.value }))}
+                        placeholder="123-abc.apps.googleusercontent.com"
+                        style={{ fontSize: 12, padding: '6px 8px', border: '1px solid #d0d0d6', borderRadius: 4 }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 240px', minWidth: 200 }}>
+                      <label style={{ fontSize: 11, color: '#666', marginBottom: 2 }}>Client Secret (dev)</label>
+                      <input
+                        type="password"
+                        value={googleCredsInput.clientSecret}
+                        onChange={(e) => setGoogleCredsInput((p) => ({ ...p, clientSecret: e.target.value }))}
+                        placeholder="GOCSPX-..."
+                        style={{ fontSize: 12, padding: '6px 8px', border: '1px solid #d0d0d6', borderRadius: 4 }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      className="gsStep__btn gsStep__btn--primary"
+                      disabled={googleCredsBusy || !googleCredsInput.clientId.trim() || !googleCredsInput.clientSecret.trim()}
+                      onClick={handleSaveGoogleCreds}
+                    >
+                      {googleCredsBusy ? 'Saving...' : 'Save credentials'}
+                    </button>
+                  </div>
+                  <div style={{ fontSize: 11, color: '#666', marginTop: 6 }}>
+                    Dev-only: paste OAuth Desktop client credentials, or set GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET env vars. In production, credentials are baked into the build — this form is hidden.
+                  </div>
+                </div>
+              )}
+            </>
+          )}
 
           {integrationPermissionPrompt && (
             <div style={{ marginTop: 8, padding: 10, background: 'rgba(204, 41, 54, 0.08)', borderRadius: 6, fontSize: 12, color: '#7a1f29' }}>

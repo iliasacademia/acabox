@@ -90,17 +90,41 @@ export const ConversationListView: React.FC<ConversationListViewProps> = ({
 
 interface WorkspaceSessionsViewProps {
   sessions: Array<{ id: string; title: string; created_at: string }>;
+  /** Active document path. Used as a fallback when the server didn't supply a display name (file-based hosts derive basename client-side). */
+  documentPath?: string | null;
+  /** Server-supplied display name — preferred when set (synthetic-scheme hosts where the path is opaque). */
+  documentDisplayName?: string | null;
   onOpenSession: (session: { id: string; title: string; created_at: string }) => void;
   onNewConversation: () => void;
+}
+
+/**
+ * Derive a human-readable label for the active document. Prefers the server-
+ * supplied display name (Google Docs title, Apple Note name, ...) and falls
+ * back to the basename of a real file path (Word .docx, Obsidian .md). Returns
+ * null when there's nothing meaningful to show (synthetic path with no title,
+ * empty path, etc.).
+ */
+function effectiveDocDisplayName(documentDisplayName?: string | null, documentPath?: string | null): string | null {
+  if (documentDisplayName && documentDisplayName.trim()) return documentDisplayName.trim();
+  if (!documentPath) return null;
+  // Synthetic schemes (gdocs://, applenotes://) are opaque without the server hint — nothing to derive.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(documentPath) && !documentPath.startsWith('file://')) return null;
+  const cleaned = documentPath.startsWith('file://') ? decodeURIComponent(documentPath.slice(7)) : documentPath;
+  const lastSlash = Math.max(cleaned.lastIndexOf('/'), cleaned.lastIndexOf('\\'));
+  return cleaned.slice(lastSlash + 1) || null;
 }
 
 const SESSIONS_PAGE_SIZE = 20;
 
 export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
   sessions,
+  documentPath,
+  documentDisplayName,
   onOpenSession,
   onNewConversation,
 }) => {
+  const displayName = effectiveDocDisplayName(documentDisplayName, documentPath);
   const [visibleCount, setVisibleCount] = useState(SESSIONS_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -127,6 +151,14 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
 
   return (
     <>
+      {displayName && (
+        <div
+          style={{ ...styles.notificationDate, paddingBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          title={displayName}
+        >
+          {displayName}
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px' }}>
         <span style={styles.sectionHeaderText}>Conversations</span>
         <button
@@ -188,6 +220,8 @@ interface WorkspaceConversationViewProps {
   sessionId: string;
   sessionTitle: string;
   documentPath?: string | null;
+  /** Server-supplied display name for the active doc — used in the header for synthetic-scheme hosts. */
+  documentDisplayName?: string | null;
   selectedText?: string | null;
   onBack: () => void;
 }
@@ -196,9 +230,11 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
   sessionId,
   sessionTitle,
   documentPath,
+  documentDisplayName,
   selectedText: selectedTextProp,
   onBack,
 }) => {
+  const displayName = effectiveDocDisplayName(documentDisplayName, documentPath);
   // Local selected text state — syncs from prop, can be dismissed with X
   const [localSelectedText, setLocalSelectedText] = useState<string | null>(selectedTextProp ?? null);
   const [selectionDismissed, setSelectionDismissed] = useState(false);
@@ -231,14 +267,24 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Header with back button */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', paddingBottom: '8px', flexShrink: 0 }}>
-        <button onClick={onBack} style={styles.backButton} aria-label="Back">
-          <ArrowBackIcon />
-        </button>
-        <span style={styles.sectionHeaderText}>
-          {sessionTitle || 'Conversation'}
-        </span>
+      {/* Header with back button + optional doc-context line */}
+      <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: '8px', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <button onClick={onBack} style={styles.backButton} aria-label="Back">
+            <ArrowBackIcon />
+          </button>
+          <span style={{ ...styles.sectionHeaderText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }} title={sessionTitle || 'Conversation'}>
+            {sessionTitle || 'Conversation'}
+          </span>
+        </div>
+        {displayName && (
+          <div
+            style={{ ...styles.notificationDate, paddingLeft: '32px', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            title={displayName}
+          >
+            {displayName}
+          </div>
+        )}
       </div>
 
       {/* Chat — uses the same Thread component as the desktop app */}

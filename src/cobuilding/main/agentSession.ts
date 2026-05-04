@@ -18,6 +18,39 @@ import { resolveClaudeBinary } from './sdkBinarySetup';
 import { findHostAppForDocument, getRegisteredHostApps, type HostApp } from './hostApps';
 import { wordHostApp } from './hostApps/wordHostApp';
 import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
+import { windowMonitorService } from '../../windowMonitorService';
+
+/**
+ * Resolve which HostApp this session/turn is acting on. Resolution order:
+ *
+ *   1. The document path's own scheme/extension (Apple Notes' `applenotes://`,
+ *      Google Docs' `gdocs://`, Word's `.docx`, Obsidian's `.md`, ...).
+ *   2. The focused window's bundle id, looked up via windowMonitorService —
+ *      covers the case where the overlay is up over Chrome but the browser
+ *      extension hasn't reported a Google Docs URL yet (so the agent still
+ *      binds to the google-docs host instead of falling back to Word).
+ *   3. The pre-HostApp default: Word, then the first registered host, then the
+ *      hardcoded wordHostApp module (so non-Word builds with no registered
+ *      hosts at all still get *something* — should never happen in practice).
+ */
+export function resolveSessionHostApp(documentPath: string | null | undefined): HostApp {
+  const registered = getRegisteredHostApps();
+  const fromDoc = findHostAppForDocument(documentPath ?? null);
+  if (fromDoc) return fromDoc;
+  try {
+    const focusedId = windowMonitorService.getFocusedWindowId();
+    if (focusedId) {
+      const hostId = windowMonitorService.getHostAppIdForWindow(focusedId);
+      if (hostId) {
+        const fromWindow = registered.find((h) => h.id === hostId);
+        if (fromWindow) return fromWindow;
+      }
+    }
+  } catch {
+    // windowMonitorService unavailable (scheduled tasks, tests) — fall through.
+  }
+  return registered.find((h) => h.id === wordHostApp.id) ?? registered[0] ?? wordHostApp;
+}
 
 
 
@@ -95,17 +128,10 @@ export function createAgentSession(
 
   createSession(sessionId, workspace.id, source ?? null, documentPath ?? null);
 
-  // Resolve which host app this session is acting on. If we have a documentPath
-  // we look it up by extension; otherwise we fall back to Word (preserves the
-  // pre-HostApp behavior where Word was always wired up). If Word isn't a
-  // registered host app (build-time disabled), pick the first registered host.
-  const registered = getRegisteredHostApps();
-  const sessionHostApp: HostApp = (
-    findHostAppForDocument(documentPath)
-    ?? registered.find((h) => h.id === wordHostApp.id)
-    ?? registered[0]
-    ?? wordHostApp
-  );
+  // Resolve which host app this session is acting on. See resolveSessionHostApp
+  // for the resolution order — document path first, focused-window bundle id
+  // as a backstop, then Word fallback.
+  const sessionHostApp: HostApp = resolveSessionHostApp(documentPath);
 
   async function* userMessageGenerator(): AsyncGenerator<SDKUserMessage> {
     for await (const payload of messageQueue) {

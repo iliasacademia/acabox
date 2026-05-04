@@ -40,6 +40,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // Cobuilding workspace state
   const [isInWorkspace, setIsInWorkspace] = useState(false);
   const [workspaceSessions, setWorkspaceSessions] = useState<Array<{ id: string; title: string; created_at: string }>>([]);
+  // Display name for the active document, server-supplied for synthetic-scheme
+  // hosts (`gdocs://`, `applenotes://`) where the path itself is opaque.
+  const [activeDocumentDisplayName, setActiveDocumentDisplayName] = useState<string | null>(null);
   const [activeSession, setActiveSessionRaw] = useState<{ id: string; title: string } | null>(() => {
     try {
       const saved = localStorage.getItem('overlay_active_session');
@@ -170,6 +173,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setIsUnsavedDocument(pollData.isUnsavedDocument ?? false);
     setIsInWorkspace(pollData.isInWorkspace ?? false);
     setWorkspaceSessions(pollData.workspaceSessions ?? []);
+    setActiveDocumentDisplayName(pollData.activeDocumentDisplayName ?? null);
 
     if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback && !pollData.isInWorkspace) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup. Active path: ${pollData.activeDocumentPath || 'none'}`);
@@ -490,12 +494,15 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 sessionId={activeSession.id}
                 sessionTitle={activeSession.title}
                 documentPath={docPath}
+                documentDisplayName={activeDocumentDisplayName}
                 selectedText={pollData?.selectedText}
                 onBack={handleBackToSessions}
               />
             : isInWorkspace
             ? <WorkspaceSessionsView
                 sessions={workspaceSessions}
+                documentPath={docPath}
+                documentDisplayName={activeDocumentDisplayName}
                 onOpenSession={handleOpenSession}
                 onNewConversation={handleNewConversation}
               />
