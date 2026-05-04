@@ -162,10 +162,11 @@ export function createAgentSession(
         status = 'Agent initializing...';
       }
 
-      // Update status label if it changed
-      if (status !== lastStatus) {
+      // Emit status on every iteration — the forwarding listener may not be
+      // attached on the first iteration (race between session creation and
+      // IPC forwarding setup), so we keep re-emitting until the agent is ready.
+      if (status) {
         emitEvent({ type: 'status', status } as ChatStreamMessage);
-        lastStatus = status;
       }
 
       await new Promise(r => setTimeout(r, 1000));

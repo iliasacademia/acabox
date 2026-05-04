@@ -147,14 +147,30 @@ class CobuildingContainerService {
       // Remove any stale container from a previous crash
       await this.removeStaleContainer(podmanBin);
 
-      // Generate environment from workspace deps and build if needed.
-      // ensureImageBuilt only emits a 'build' event when it actually rebuilds —
-      // don't emit one speculatively here, or the SetupBanner flashes when the
-      // image is already up to date.
-      await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
+      // Start the container from whatever image is available — either the full
+      // image (with workspace deps baked in) or just the base image. The agent
+      // becomes available immediately. If the full image isn't up to date, it
+      // builds in the background for next restart.
+      const imageUpToDate = await this.isImageUpToDate(podmanBin, workspacePath);
+      const hasFullImage = await this.imageExists(podmanBin, IMAGE_NAME);
 
-      // Start the container in detached mode
-      await this.runContainer(podmanBin, workspacePath);
+      if (imageUpToDate) {
+        // Full image is current — start directly
+        await this.runContainer(podmanBin, workspacePath);
+      } else if (hasFullImage) {
+        // Full image exists but is stale — start from it now, rebuild in background
+        log.info('[ContainerService] Starting from existing image, rebuilding in background');
+        await this.runContainer(podmanBin, workspacePath);
+        this.ensureImageBuilt(podmanBin, undefined, workspacePath).catch((err) => {
+          log.warn(`[ContainerService] Background image build failed: ${(err as Error).message}`);
+        });
+      } else {
+        // No full image — build a minimal one from the base image, then start
+        log.info('[ContainerService] Building initial container image...');
+        onProgress?.('build', 'Building container image...');
+        await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
+        await this.runContainer(podmanBin, workspacePath);
+      }
 
       log.debug('[ContainerService] Container started successfully');
       onProgress?.('ready', 'Container ready');
@@ -611,8 +627,11 @@ class CobuildingContainerService {
         await this.ensureMachineRunning(podmanBin, onProgress);
       }
 
-      // Step 3: Generate environment and build image if needed (hash comparison is internal)
-      await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
+      // Step 3: Ensure the base image is available (pull or local build).
+      // The full image build (with workspace deps) is deferred to start() —
+      // the container can run from the base image immediately and deps install
+      // live when apps are opened, so the agent is available without waiting.
+      await this.ensureBaseImage(podmanBin, onProgress);
     } catch (error) {
       log.error('[ContainerService] ensureSetup error:', (error as Error).message);
       throw error;
@@ -966,6 +985,43 @@ class CobuildingContainerService {
         reject(new Error(`Failed to pull base image: ${error.message}`));
       });
     });
+  }
+
+  /** Check if the container image is up to date without building. */
+  private async isImageUpToDate(podmanBin: string, workspacePath?: string): Promise<boolean> {
+    const imageSource = readImageSource();
+    const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+    let currentHash: string;
+    if (workspacePath) {
+      const result = generateEnvironment(workspacePath, baseImage);
+      currentHash = result.hash;
+    } else {
+      currentHash = this.getDockerfileHash();
+    }
+    const imageHash = await this.getImageHash(podmanBin);
+    return imageHash === currentHash;
+  }
+
+  /** Check if a named image exists in the local store. */
+  private async imageExists(podmanBin: string, imageName: string): Promise<boolean> {
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'image', 'inspect', '--format', '{{.Id}}', imageName,
+      ], this.getExecEnv());
+      return stdout.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Ensure the base image is available (pull from registry or build locally). */
+  private async ensureBaseImage(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
+    const imageSource = readImageSource();
+    if (imageSource === 'registry') {
+      await this.ensureBaseImagePulled(podmanBin, onProgress);
+    } else {
+      await this.buildBaseImageLocally(podmanBin, onProgress);
+    }
   }
 
   private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback, workspacePath?: string): Promise<void> {
