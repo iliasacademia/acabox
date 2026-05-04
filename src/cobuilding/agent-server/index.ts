@@ -30,7 +30,7 @@ import {
   type SyncHookJSONOutput,
 } from '@anthropic-ai/claude-agent-sdk';
 import { createServer, type IncomingMessage, type ServerResponse } from 'http';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync, readdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 
@@ -418,17 +418,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
 
   console.log(`[AgentServer] Creating session ${sessionId}`);
 
-  // Create MCP relay servers (tool handlers broadcast via SSE and wait for result)
   const mcpRelayServers = createMcpRelayServers(state);
-
-  // Diagnostic: check binary
-  try {
-    const { statSync } = require('fs');
-    const binaryStat = statSync(config.claudeBinaryPath);
-    console.log(`[AgentServer] Binary exists: size=${binaryStat.size}, mode=${binaryStat.mode.toString(8)}`);
-  } catch (e: any) {
-    console.error(`[AgentServer] Binary NOT found: ${e.message}`);
-  }
 
   async function startQuery(resume?: string): Promise<void> {
     state.running = true;
@@ -485,7 +475,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
       // on "No conversation found" and can't be retried (message already consumed).
       let validResume = resumeSessionId;
       if (validResume) {
-        const { existsSync: fileExists, readdirSync: readDir } = require('fs');
+        const fileExists = existsSync, readDir = readdirSync;
         const configDir = '/data/.academia/claude-config';
         // SDK stores sessions in {CLAUDE_CONFIG_DIR}/projects/{projectKey}/{sessionId}.jsonl
         let found = false;
@@ -529,7 +519,10 @@ function broadcastSSE(state: SessionState, event: string, data: unknown): void {
   }
 
   if (state.sseClients.size === 0) {
-    state.bufferedEvents.push({ event, data });
+    // Cap buffer to prevent unbounded growth if SSE client is slow to connect
+    if (state.bufferedEvents.length < 500) {
+      state.bufferedEvents.push({ event, data });
+    }
     return;
   }
 
