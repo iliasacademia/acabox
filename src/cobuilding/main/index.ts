@@ -1296,9 +1296,10 @@ ipcMain.handle('container:start', async () => {
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  await containerService.start(activeWorkspace.directory_path, (stage, message, percent) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('container:progress', { stage, message, percent });
-  });
+  // Don't pass progress callback to start() — the SetupBanner is driven by
+  // ensureSetup's setup:progress events only. start() may do a background
+  // image rebuild which shouldn't re-show the banner.
+  await containerService.start(activeWorkspace.directory_path);
   await startAgentInfrastructure(activeWorkspace.directory_path);
   // Start watching and ensure deps for all existing apps in the background.
   // Apps are marked ready as their deps are verified/installed.
@@ -1390,7 +1391,7 @@ ipcMain.handle('container:ensureSetup', async () => {
   };
   await containerService.ensureSetup(progressCallback, activeWorkspace?.directory_path);
   if (activeWorkspace) {
-    await containerService.start(activeWorkspace.directory_path, progressCallback);
+    await containerService.start(activeWorkspace.directory_path);
     await startAgentInfrastructure(activeWorkspace.directory_path);
     backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
       ensuredApps.add(appName);

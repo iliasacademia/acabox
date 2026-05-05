@@ -1,221 +1,126 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { setSetupState } from '../setupStore';
 import './SetupBanner.css';
 
-type SetupPhase = 'idle' | 'install-podman' | 'build-image' | 'done' | 'error';
+/**
+ * Manages the initial environment setup (podman + base image download).
+ * Updates the setupStore so other components (Composer, empty state) show
+ * the appropriate blocking UI with progress. Only renders a visible banner
+ * for errors.
+ */
 
-const PHASE_TITLES: Record<SetupPhase, string> = {
-  'idle': 'Checking setup...',
-  'install-podman': 'Installing Podman...',
-  'build-image': 'Installing scientific software (this may take a while)...',
-  'done': 'Setup complete',
-  'error': 'Setup failed',
-};
-
-// Download is 0-75%, post-download setup (machine init/start) is 75-100%
-const DOWNLOAD_WEIGHT = 0.75;
-// Estimated time for post-download setup (machine init ~30s + start ~10s)
-const POST_DOWNLOAD_ESTIMATED_MS = 60_000;
-
-const BUILD_ESTIMATED_MS = 15 * 60 * 1000; // 15 minutes
+// Asymptotic progress timer for phases without real progress events
+function createAsymptoticTimer(
+  estimatedMs: number,
+  basePercent: number,
+  getMessage: () => string,
+): { stop: () => void } {
+  const start = Date.now();
+  const interval = setInterval(() => {
+    const elapsed = Date.now() - start;
+    const progress = 1 - Math.exp(-elapsed / estimatedMs);
+    const pct = Math.min(99, Math.round(basePercent + progress * (100 - basePercent)));
+    setSetupState('downloading', getMessage(), pct);
+  }, 500);
+  return { stop: () => clearInterval(interval) };
+}
 
 export const SetupBanner: React.FC = () => {
-  const [phase, setPhase] = useState<SetupPhase>('idle');
-  const [percent, setPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [visible, setVisible] = useState(true);
-  const [statusText, setStatusText] = useState<string | null>(null);
   const startedRef = useRef(false);
-  const didWorkRef = useRef(false);
-  const completedRef = useRef(false);
-  const buildStartRef = useRef<number | null>(null);
-  const buildTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const postDownloadStartRef = useRef<number | null>(null);
-  const postDownloadTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timerRef = useRef<{ stop: () => void } | null>(null);
 
-  const startPostDownloadTimer = () => {
-    postDownloadStartRef.current = Date.now();
-    postDownloadTimerRef.current = setInterval(() => {
-      if (!postDownloadStartRef.current) return;
-      const elapsed = Date.now() - postDownloadStartRef.current;
-      // Asymptotic progress from 75% to 99% — always moving, never stuck
-      const remaining = 1 - DOWNLOAD_WEIGHT; // 0.25
-      const progress = remaining * (1 - Math.exp(-elapsed / POST_DOWNLOAD_ESTIMATED_MS));
-      setPercent(Math.min(99, Math.round((DOWNLOAD_WEIGHT + progress) * 100)));
-    }, 500);
+  const stopTimer = () => {
+    timerRef.current?.stop();
+    timerRef.current = null;
   };
 
-  const stopPostDownloadTimer = () => {
-    if (postDownloadTimerRef.current) {
-      clearInterval(postDownloadTimerRef.current);
-      postDownloadTimerRef.current = null;
-    }
-    postDownloadStartRef.current = null;
-  };
-
-  const startBuildTimer = () => {
-    buildStartRef.current = Date.now();
-    setPercent(0);
-    buildTimerRef.current = setInterval(() => {
-      if (!buildStartRef.current) return;
-      const elapsed = Date.now() - buildStartRef.current;
-      const pct = Math.min(99, Math.round((elapsed / BUILD_ESTIMATED_MS) * 100));
-      setPercent(pct);
-    }, 1000);
-  };
-
-  const stopBuildTimer = () => {
-    if (buildTimerRef.current) {
-      clearInterval(buildTimerRef.current);
-      buildTimerRef.current = null;
-    }
-    buildStartRef.current = null;
-  };
-
-  const handleProgress = (progress: { stage: string; message: string }) => {
+  const handleProgress = (progress: { stage: string; message: string; percent?: number }) => {
     const { stage, message } = progress;
 
     if (stage === 'install-podman' || stage === 'download') {
-      didWorkRef.current = true;
-      setVisible(true);
-      setPhase('install-podman');
-      setStatusText('Downloading Podman...');
+      stopTimer();
+      setSetupState('downloading', 'Downloading Podman...', 0);
     } else if (stage === 'download-percent') {
-      // Download maps to 0-75% of the install-podman phase
       const raw = Math.min(100, parseInt(message, 10) || 0);
-      setPercent(Math.round(raw * DOWNLOAD_WEIGHT));
+      setSetupState('downloading', 'Downloading Podman...', raw);
     } else if (stage === 'install-podman-done') {
-      // Download done — start the post-download timer for the remaining 25%
-      setPercent(Math.round(DOWNLOAD_WEIGHT * 100));
-      setStatusText('Setting up Podman...');
-      startPostDownloadTimer();
+      stopTimer();
+      timerRef.current = createAsymptoticTimer(60_000, 0, () => 'Setting up Podman...');
     } else if (stage === 'init') {
-      // VM init alone shouldn't bring the banner up — only update text if a real
-      // download/build already opened the banner.
-      if (!didWorkRef.current) return;
-      setPhase('install-podman');
-      setStatusText('Initializing Podman VM...');
+      setSetupState('downloading', 'Initializing Podman VM...');
     } else if (stage === 'start-machine') {
-      // VM start alone shouldn't bring the banner up — only update text if a real
-      // download/build already opened the banner.
-      if (!didWorkRef.current) return;
-      setPhase('install-podman');
-      setStatusText('Starting Podman VM...');
-    } else if (stage === 'build-image' || stage === 'build' || stage === 'pull') {
-      stopPostDownloadTimer();
-      didWorkRef.current = true;
-      setVisible(true);
-      setStatusText(null);
-      setPhase((prev) => {
-        if (prev !== 'build-image') {
-          startBuildTimer();
-        }
-        return 'build-image';
-      });
-    } else if (stage === 'build-image-done') {
-      stopBuildTimer();
-      setPercent(100);
+      setSetupState('downloading', 'Starting Podman VM...');
+    } else if (stage === 'pull') {
+      stopTimer();
+      setSetupState('downloading', 'Downloading base image...', 0);
+      // Base image pull doesn't give granular progress — use asymptotic timer
+      timerRef.current = createAsymptoticTimer(120_000, 0, () => 'Downloading base image...');
     } else if (stage === 'setup-done' || stage === 'ready') {
-      // setup-done (from ensureSetup) and ready (from start) both arrive in one
-      // launch — only the first one should drive the UI to its final state, or
-      // the second event would tear down the "Setup complete" display early.
-      if (completedRef.current) return;
-      completedRef.current = true;
-      stopPostDownloadTimer();
-      stopBuildTimer();
-      if (didWorkRef.current) {
-        setPhase('done');
-        setPercent(100);
-        setTimeout(() => setVisible(false), 2000);
-      } else {
-        setVisible(false);
-      }
-      didWorkRef.current = false;
-      setStatusText(null);
-      return;
+      // Base image is ready — unblock the UI. The container will start and
+      // the agent's waitForAgent() handles its own "Agent initializing..."
+      // spinner independently. App-specific deps install in the background.
+      stopTimer();
+      setSetupState('ready');
     }
   };
 
   useEffect(() => {
     const cleanupSetup = window.containerAPI.onSetupProgress(handleProgress);
     const cleanupProgress = window.containerAPI.onProgress(handleProgress);
-
-    return () => {
-      cleanupSetup();
-      cleanupProgress();
-      stopBuildTimer();
-      stopPostDownloadTimer();
-    };
+    return () => { cleanupSetup(); cleanupProgress(); stopTimer(); };
   }, []);
 
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
 
+    // Don't set 'downloading' here — only progress events should trigger
+    // the blocking indicator. If the base image is already cached,
+    // ensureSetup resolves immediately with no progress events → no flash.
     window.containerAPI.ensureSetup()
       .then(() => {
-        // setup-done event will handle the transition
+        // setup-done event already set 'ready' — this is a no-op fallback
+        stopTimer();
+        setSetupState('ready');
       })
       .catch((err) => {
-        stopBuildTimer();
-        setPhase('error');
-        setError(err instanceof Error ? err.message : String(err));
+        stopTimer();
+        const msg = err instanceof Error ? err.message : String(err);
+        setSetupState('error', msg);
+        setError(msg);
       });
   }, []);
 
-  if (!visible) return null;
-  if (phase === 'idle') return null;
+  if (!error) return null;
 
-  if (phase === 'done') {
-    return (
-      <div className="setupBanner setupBanner--done">
-        <span className="setupBanner__title">Setup complete</span>
-      </div>
-    );
-  }
-  if (phase === 'error') {
-    const isPermissionError = error?.includes('blocked') || error?.includes('Gatekeeper') || error?.includes('quarantine');
+  const isPermissionError = error.includes('blocked') || error.includes('Gatekeeper') || error.includes('quarantine');
 
-    const handleRetry = async () => {
-      setPhase('idle');
-      setError(null);
-      setPercent(0);
-      didWorkRef.current = false;
-      completedRef.current = false;
-      try {
-        await window.containerAPI.deleteBinaries();
-        await window.containerAPI.ensureSetup();
-      } catch (err) {
-        stopBuildTimer();
-        setPhase('error');
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    };
-
-    return (
-      <div className="setupBanner setupBanner--error">
-        <span className="setupBanner__title">Setup error</span>
-        <span className="setupBanner__detail">
-          {error}
-          {isPermissionError && (
-            <> You may also need to allow this in System Settings &gt; Privacy &amp; Security.</>
-          )}
-          {' '}<button className="setupBanner__retryBtn" onClick={handleRetry}>Retry</button>
-        </span>
-      </div>
-    );
-  }
-
-  const title = statusText || PHASE_TITLES[phase];
+  const handleRetry = async () => {
+    setError(null);
+    setSetupState('downloading', 'Retrying setup...', 0);
+    try {
+      await window.containerAPI.deleteBinaries();
+      await window.containerAPI.ensureSetup();
+      setSetupState('ready');
+    } catch (err) {
+      stopTimer();
+      const msg = err instanceof Error ? err.message : String(err);
+      setSetupState('error', msg);
+      setError(msg);
+    }
+  };
 
   return (
-    <div className="setupBanner">
-      <span className="setupBanner__title">{title}</span>
-      <div className="setupBanner__progressTrack">
-        <div
-          className="setupBanner__progressBar"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+    <div className="setupBanner setupBanner--error">
+      <span className="setupBanner__title">Setup error</span>
+      <span className="setupBanner__detail">
+        {error}
+        {isPermissionError && (
+          <> You may also need to allow this in System Settings &gt; Privacy &amp; Security.</>
+        )}
+        {' '}<button className="setupBanner__retryBtn" onClick={handleRetry}>Retry</button>
+      </span>
     </div>
   );
 };
