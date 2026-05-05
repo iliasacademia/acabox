@@ -15,12 +15,14 @@ interface ProgressItem {
 
 const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip }) => {
   const [items, setItems] = useState<ProgressItem[]>([]);
+  const [fileActivities, setFileActivities] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef(Date.now());
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  const fileListRef = useRef<HTMLDivElement>(null);
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
 
@@ -53,6 +55,11 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
           const updated = prev.map((item) => ({ ...item, completed: true }));
           return [...updated, { text: event.text, completed: false }];
         });
+      } else if (event.type === 'file_activity') {
+        setFileActivities((prev) => {
+          const next = [...prev, event.path];
+          return next.length > 200 ? next.slice(-200) : next;
+        });
       } else if (event.type === 'complete') {
         setItems((prev) => prev.map((item) => ({ ...item, completed: true })));
         setProgress(100);
@@ -73,6 +80,13 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
     });
   }, [startProgressTimer, stopProgressTimer]);
 
+  // Auto-scroll file activity list to bottom
+  useEffect(() => {
+    if (fileListRef.current) {
+      fileListRef.current.scrollTop = fileListRef.current.scrollHeight;
+    }
+  }, [fileActivities]);
+
   // Start scan on mount
   useEffect(() => {
     startScan();
@@ -85,6 +99,7 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
   const handleRetry = () => {
     setError(null);
     setItems([]);
+    setFileActivities([]);
     setProgress(0);
     setDone(false);
     startScan();
@@ -97,54 +112,70 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
         <span className="wsSetup__brandLabel">SETUP</span>
       </div>
 
-      <div className="wsSetup__inner">
-        <p className="wsSetup__stepIndicator">STEP 2 OF 5 &middot; READING YOUR WORK</p>
+      <div className="wsSetup__inner scanProgress__layout">
+        <div className="scanProgress__top">
+          <p className="wsSetup__stepIndicator">STEP 2 OF 5 &middot; READING YOUR WORK</p>
 
-        <h1 className="wsSetup__title">Give me a minute to read everything</h1>
+          <h1 className="wsSetup__title">Give me a minute to read everything</h1>
 
-        <div className="wsSetup__progressBar">
-          <div
-            className="wsSetup__progressFill"
-            style={{ width: `${progress}%` }}
-          />
+          <div className="wsSetup__progressBar">
+            <div
+              className="wsSetup__progressFill"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+
+          <ul className="wsSetup__progressList">
+            {items.map((item, index) => (
+              <li key={index} className="wsSetup__progressItem">
+                {item.completed ? (
+                  <span className="wsSetup__checkIcon">
+                    <CheckIcon />
+                  </span>
+                ) : (
+                  <span className="wsSetup__spinnerIcon" />
+                )}
+                <span>{item.text}</span>
+              </li>
+            ))}
+          </ul>
+
+          {error && (
+            <>
+              <div className="wsSetup__errorBox">
+                Something went wrong while scanning your workspace: {error}
+              </div>
+              <div className="wsSetup__errorActions">
+                <button type="button" className="wsSetup__retryBtn" onClick={handleRetry}>
+                  Retry
+                </button>
+                <button type="button" className="wsSetup__skipBtn" onClick={onSkip}>
+                  Skip for now
+                </button>
+              </div>
+            </>
+          )}
+
+          {!error && !done && items.length === 0 && (
+            <p className="wsSetup__subtitle" style={{ marginTop: 0 }}>
+              Scanning your workspace to learn about your research...
+            </p>
+          )}
         </div>
 
-        <ul className="wsSetup__progressList">
-          {items.map((item, index) => (
-            <li key={index} className="wsSetup__progressItem">
-              {item.completed ? (
-                <span className="wsSetup__checkIcon">
-                  <CheckIcon />
-                </span>
-              ) : (
-                <span className="wsSetup__spinnerIcon" />
-              )}
-              <span>{item.text}</span>
-            </li>
-          ))}
-        </ul>
-
-        {error && (
-          <>
-            <div className="wsSetup__errorBox">
-              Something went wrong while scanning your workspace: {error}
-            </div>
-            <div className="wsSetup__errorActions">
-              <button type="button" className="wsSetup__retryBtn" onClick={handleRetry}>
-                Retry
-              </button>
-              <button type="button" className="wsSetup__skipBtn" onClick={onSkip}>
-                Skip for now
-              </button>
-            </div>
-          </>
-        )}
-
-        {!error && !done && items.length === 0 && (
-          <p className="wsSetup__subtitle" style={{ marginTop: 0 }}>
-            Scanning your workspace to learn about your research...
-          </p>
-        )}
+        <div className="scanProgress__bottom">
+          <div
+            className={`wsSetup__fileActivity ${fileActivities.length > 0 ? 'wsSetup__fileActivity--visible' : ''}`}
+            ref={fileListRef}
+          >
+            {fileActivities.map((path, i) => (
+              <div key={i} className="wsSetup__fileActivityItem">
+                <span className="wsSetup__fileActivityDot" />
+                <span className="wsSetup__fileActivityPath">{path}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );

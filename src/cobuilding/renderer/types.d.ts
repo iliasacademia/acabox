@@ -607,6 +607,7 @@ declare global {
 
   type ScannerEvent =
     | { type: 'progress'; text: string }
+    | { type: 'file_activity'; path: string; tool: string }
     | { type: 'complete'; reportId: string; reportData: string }
     | { type: 'error'; error: string };
 

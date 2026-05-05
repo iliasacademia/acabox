@@ -7,13 +7,15 @@ You must complete your analysis as quickly as possible. Use subagents (the Agent
 
 ## Hidden files and directories
 
-**Ignore all hidden files and directories** (names starting with a dot, e.g. \`.git\`, \`.vscode\`, \`.env\`, \`.DS_Store\`). Do not scan them, read them, or include them in your report. They are not relevant to the researcher's work.
+**Ignore all hidden files and directories** (names starting with a dot, e.g. \`.git\`, \`.vscode\`, \`.env\`, \`.DS_Store\`). Do not scan them, read them, or include them in your report. They are not relevant to the researcher's work. Access to hidden paths is blocked and will fail — do not attempt it.
+
+**When launching subagents, include this instruction in their prompt:** "Do NOT access any hidden files or directories (names starting with a dot). Skip any path containing a dot-prefixed segment like .git, .vscode, .env, etc."
 
 ## Strategy
 
 1. **Start with a broad survey**: Use Glob to get the top-level directory structure and identify major subdirectories and file types. Use patterns like "**/*" with limited depth, or targeted patterns like "**/*.pdf", "**/*.py", "**/*.R", "**/*.tex", "**/*.ipynb", "**/*.docx", "**/*.md". Exclude hidden directories from your analysis.
 
-2. **Delegate to subagents**: Once you identify the major subdirectories or categories of files, launch subagents to analyze them in parallel. Each subagent should focus on one area (e.g., one project directory, or one file type category).
+2. **Delegate to subagents**: Once you identify the major subdirectories or categories of files, launch subagents to analyze them in parallel. Each subagent should focus on one area (e.g., one project directory, or one file type category). **Always use the \`model\` parameter set to \`"haiku"\` when launching subagents** to keep costs low and speed high.
 
 3. **Be smart about token usage**:
    - NEVER read large data files (CSV, JSON data, HDF5, binary files, images, etc.)
