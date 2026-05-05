@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { CodeIcon, DownloadIcon, FolderIcon, MonitorIcon, RefreshCwIcon } from 'lucide-react';
+import { ArrowLeftIcon, CodeIcon, DownloadIcon, FolderIcon, MonitorIcon, RefreshCwIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
 import { useKernel, type KernelStatus } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
@@ -43,9 +43,10 @@ interface MiniAppViewerProps {
   dirName: string;
   workspacePath: string;
   reloadNonce?: number;
+  onBack?: () => void;
 }
 
-export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce }) => {
+export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce, onBack }) => {
   const [viewingSource, setViewingSource] = useState(false);
   const [rebuildKey, setRebuildKey] = useState(0);
   const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
@@ -96,6 +97,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         onRebuild={handleRebuild}
         onShowInFinder={handleShowInFinder}
         rebuildState={rebuildState}
+        onBack={onBack}
       />
       <div className="miniAppBody">
         <ContainerGate dirName={dirName}>
@@ -125,7 +127,8 @@ const MiniAppHeader: FC<{
   onRebuild: () => void;
   onShowInFinder: () => void;
   rebuildState: RebuildState;
-}> = ({ dirName, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState }) => {
+  onBack?: () => void;
+}> = ({ dirName, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, onBack }) => {
   const handleExport = useCallback(async () => {
     await window.miniAppsAPI.exportApp(dirName);
   }, [dirName]);
@@ -134,49 +137,60 @@ const MiniAppHeader: FC<{
 
   return (
     <div className="miniAppHeader">
-      <button
-        className="miniAppHeaderClose"
-        onClick={handleExport}
-        title="Export application"
-      >
-        <DownloadIcon style={{ width: 16, height: 16 }} />
-        Download
-      </button>
-      <button
-        className="miniAppHeaderClose"
-        onClick={onRebuild}
-        disabled={isBuilding}
-        title="Rebuild and reload the app"
-      >
-        <RefreshCwIcon style={{ width: 16, height: 16 }} />
-        {isBuilding ? 'Rebuilding…' : 'Rebuild'}
-      </button>
-      <button
-        className="miniAppHeaderClose"
-        onClick={onShowInFinder}
-        title="Show app folder in Finder"
-      >
-        <FolderIcon style={{ width: 16, height: 16 }} />
-        Show in Finder
-      </button>
-      <KernelStatusIndicator dirName={dirName} />
-      <div className="miniAppHeaderViewToggle">
-        <button
-          className={`miniAppHeaderViewBtn${!viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
-          onClick={() => viewingSource && onToggleSource()}
-          title="View app"
-        >
-          <MonitorIcon style={{ width: 14, height: 14 }} />
-          App
+      {onBack && (
+        <button className="toolDetailBackBtn" onClick={onBack}>
+          <ArrowLeftIcon style={{ width: 14, height: 14 }} />
+          Back to tools
         </button>
-        <button
-          className={`miniAppHeaderViewBtn${viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
-          onClick={() => !viewingSource && onToggleSource()}
-          title="View source"
-        >
-          <CodeIcon style={{ width: 14, height: 14 }} />
-          Code
-        </button>
+      )}
+      <div className="miniAppHeader__right">
+        <div className="miniAppHeaderIconBtn__wrapper">
+          <button
+            className="miniAppHeaderIconBtn"
+            onClick={handleExport}
+          >
+            <DownloadIcon style={{ width: 16, height: 16 }} />
+          </button>
+          <span className="miniAppHeaderIconBtn__tooltip">Download</span>
+        </div>
+        <div className="miniAppHeaderIconBtn__wrapper">
+          <button
+            className="miniAppHeaderIconBtn"
+            onClick={onRebuild}
+            disabled={isBuilding}
+          >
+            <RefreshCwIcon style={{ width: 16, height: 16, animation: isBuilding ? 'spin 0.8s linear infinite' : 'none' }} />
+          </button>
+          <span className="miniAppHeaderIconBtn__tooltip">Rebuild</span>
+        </div>
+        <div className="miniAppHeaderIconBtn__wrapper">
+          <button
+            className="miniAppHeaderIconBtn"
+            onClick={onShowInFinder}
+          >
+            <FolderIcon style={{ width: 16, height: 16 }} />
+          </button>
+          <span className="miniAppHeaderIconBtn__tooltip">Show in Finder</span>
+        </div>
+        <KernelStatusIndicator dirName={dirName} />
+        <div className="miniAppHeaderViewToggle">
+          <button
+            className={`miniAppHeaderViewBtn${!viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
+            onClick={() => viewingSource && onToggleSource()}
+            title="View tool"
+          >
+            <MonitorIcon style={{ width: 14, height: 14 }} />
+            Tool
+          </button>
+          <button
+            className={`miniAppHeaderViewBtn${viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
+            onClick={() => !viewingSource && onToggleSource()}
+            title="View source"
+          >
+            <CodeIcon style={{ width: 14, height: 14 }} />
+            Code
+          </button>
+        </div>
       </div>
     </div>
   );

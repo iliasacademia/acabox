@@ -49,7 +49,7 @@ body,
   align-items: center;
   padding: 20px 40px;
   background: #faf8f5;
-  border-bottom: 1px solid #e5e2dd;
+  border-bottom: 1px solid rgb(232, 226, 214);
   flex-shrink: 0;
   gap: 32px;
   -webkit-app-region: drag;
@@ -176,7 +176,7 @@ body,
 .panelHandle {
   flex-shrink: 0;
   width: 1px;
-  background: #e0e0e0;
+  background: rgb(232, 226, 214);
   position: relative;
   outline: none;
   /* Expand the hit target without changing layout width via a pseudo-element. */
@@ -195,7 +195,7 @@ body,
 
 .panelHandle[data-resize-handle-state="hover"],
 .panelHandle[data-resize-handle-state="drag"] {
-  background: #444444;
+  background: rgb(180, 174, 162);
 }
 
 /* While dragging, neutralize iframes/webviews so they don't capture
@@ -3463,9 +3463,17 @@ body.cobuild-resizing webview {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-bottom: 1px solid #e5e5e5;
-  background: #fafafa;
+  padding: 8px 12px 8px 40px;
+  border-bottom: 1px solid #e5e2dd;
+  background: rgb(244, 241, 235);
+  flex-shrink: 0;
+}
+
+.miniAppHeader__right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .miniAppHeaderKernelStatus {
@@ -3554,10 +3562,148 @@ body.cobuild-resizing webview {
   color: #3730a3;
 }
 
+.miniAppHeaderIconBtn__wrapper {
+  position: relative;
+}
+
+.miniAppHeaderIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 28px;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: #8a8379;
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+.miniAppHeaderIconBtn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.07);
+  color: #3d3832;
+}
+
+.miniAppHeaderIconBtn:disabled {
+  color: #c5bfb6;
+  cursor: default;
+}
+
+.miniAppHeaderIconBtn--active {
+  color: #3d3832;
+  background: rgba(0, 0, 0, 0.07);
+}
+
+/* Panel border collapse/expand buttons */
+
+.panelBorder {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.panelBorder > .panelHandle {
+  height: 100%;
+}
+
+.panelCollapseBtn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 40px;
+  border: 1px solid #e5e2dd;
+  border-radius: 4px;
+  background: #fff;
+  cursor: pointer;
+  z-index: 3;
+  opacity: 0;
+  transition: opacity 0.15s;
+  padding: 0;
+}
+
+.panelCollapseBtn::after {
+  content: '\203A';
+  display: block;
+  font-size: 16px;
+  line-height: 1;
+  color: #9c958b;
+}
+
+.panelBorder:hover .panelCollapseBtn {
+  opacity: 1;
+}
+
+.panelCollapseBtn:hover {
+  border-color: #ccc;
+  background: #faf8f5;
+}
+
+.panelCollapseBtn:hover::after {
+  color: #5c5549;
+}
+
+.panelExpandBtn {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 20px;
+  height: 40px;
+  border: 1px solid #e5e2dd;
+  border-right: none;
+  border-radius: 4px 0 0 4px;
+  background: #fff;
+  cursor: pointer;
+  z-index: 2;
+  padding: 0;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.panelExpandBtn::after {
+  content: '\2039';
+  display: block;
+  font-size: 16px;
+  line-height: 1;
+  color: #9c958b;
+}
+
+.panelExpandBtn:hover {
+  border-color: #ccc;
+  background: #faf8f5;
+}
+
+.panelExpandBtn:hover::after {
+  color: #5c5549;
+}
+
+.miniAppHeaderIconBtn__tooltip {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: #3d3832;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.miniAppHeaderIconBtn__wrapper:hover .miniAppHeaderIconBtn__tooltip {
+  display: block;
+}
+
 .miniAppHeaderViewToggle {
   display: inline-flex;
   align-items: center;
-  background: #e8e8e8;
+  background: #ece8e1;
   border-radius: 7px;
   padding: 2px;
   gap: 1px;
@@ -3937,6 +4083,474 @@ body.cobuild-resizing webview {
   margin-bottom: 8px;
 }
 
+
+/* ============================================================
+   Tools Page (Listing View)
+   ============================================================ */
+
+.toolsPage {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #faf8f5;
+  min-height: 0;
+}
+
+.toolsPage__scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 36px 64px 120px;
+  max-width: 1060px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Page header */
+
+.toolsPage__header {
+  margin-bottom: 32px;
+}
+
+.toolsPage__stats {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  color: #b5aea4;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.toolsPage__title {
+  font-family: 'Gupter', serif;
+  font-size: 2rem;
+  font-weight: 500;
+  color: #141413;
+  letter-spacing: -0.3px;
+  margin-bottom: 8px;
+}
+
+.toolsPage__subtitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  color: #7a746a;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+/* Filter pills */
+
+.toolsPage__filters {
+  display: flex;
+  gap: 10px;
+}
+
+.toolsPage__filterPill {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #8a8379;
+  background: transparent;
+  border: 1.5px solid #d5d0c8;
+  border-radius: 999px;
+  padding: 8px 22px;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.toolsPage__filterPill:hover {
+  border-color: #b5aea4;
+  color: #5c5549;
+}
+
+.toolsPage__filterPill--active {
+  background: #2c2925;
+  color: #fff;
+  border-color: #2c2925;
+}
+
+.toolsPage__filterPill--active:hover {
+  background: #2c2925;
+  border-color: #2c2925;
+}
+
+/* Sections */
+
+.toolsSection {
+  margin-bottom: 36px;
+}
+
+.toolsSection__heading {
+  font-family: 'Gupter', serif;
+  font-size: 1.375rem;
+  font-weight: 500;
+  color: #141413;
+  letter-spacing: -0.2px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.toolsSection__count {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: #b5aea4;
+}
+
+.toolsSection__meta {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: #b5aea4;
+}
+
+/* Tool card container — white background, no border-radius */
+
+.toolsCard {
+  background: #fff;
+  border: 1px solid #e5e2dd;
+}
+
+.toolsCard--spaced {
+  margin-bottom: 12px;
+}
+
+.toolsSection__empty {
+  padding: 24px;
+  font-size: 0.875rem;
+  color: #b5aea4;
+}
+
+/* Tool row */
+
+.toolRow {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 20px 24px;
+}
+
+.toolRow--bordered {
+  border-top: 1px solid #eee;
+}
+
+.toolRow--tall {
+  align-items: flex-start;
+}
+
+.toolRow__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 0;
+  background: rgb(244, 241, 235);
+  color: #7A4419;
+  flex-shrink: 0;
+}
+
+.toolRow__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.toolRow__header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.toolRow__name {
+  font-family: 'Gupter', serif;
+  font-size: 1.1875rem;
+  font-weight: 500;
+  color: #1a1816;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+
+.toolRow__name:hover {
+  text-decoration: underline;
+}
+
+.toolRow__tag {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.toolRow__tag--plain {
+  color: #b5aea4;
+}
+
+.toolRow__tag--prebuilt {
+  color: #6b5e3f;
+  background: #ece4d4;
+  border-radius: 3px;
+  padding: 3px 8px;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.toolRow__description {
+  font-size: 0.8125rem;
+  color: #7a746a;
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.toolRow__status {
+  font-size: 0.75rem;
+  color: #b5aea4;
+  margin-top: 2px;
+  font-style: italic;
+}
+
+/* Actions */
+
+.toolRow__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.toolRow__actions--stacked {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Primary button — black bg, white text (View, Run, Build it) */
+
+.toolRow__primaryBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #fff;
+  background: #1a1816;
+  border: 1px solid #1a1816;
+  padding: 7px 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s;
+}
+
+.toolRow__primaryBtn:hover {
+  background: #333;
+}
+
+/* Secondary button — white bg, border (Skip, Uninstall) */
+
+.toolRow__secondaryBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: #5c5549;
+  background: #fff;
+  border: 1px solid #d5d0ca;
+  padding: 7px 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s;
+}
+
+.toolRow__secondaryBtn:hover {
+  background: #faf8f5;
+}
+
+/* Outline button — white bg, dark border (Install) */
+
+.toolRow__outlineBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #1a1816;
+  background: #fff;
+  border: 1px solid #3d3832;
+  padding: 7px 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.15s;
+}
+
+.toolRow__outlineBtn:hover {
+  background: #faf8f5;
+}
+
+/* Settings text-button */
+
+.toolRow__settingsBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: #5c5549;
+  background: none;
+  border: 1px solid #d5d0ca;
+  padding: 7px 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.toolRow__settingsBtn:hover {
+  color: #1a1816;
+  border-color: #aaa;
+}
+
+.toolRow__settingsPanel {
+  padding: 12px 24px 16px;
+  border-top: 1px solid #ece8e1;
+  background: #faf8f5;
+}
+
+.toolRow__deleteBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #5c5549;
+  background: none;
+  border: 1px solid #d5d0ca;
+  border-radius: 0;
+  padding: 7px 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.toolRow__deleteBtn:hover:not(:disabled) {
+  background: #f0ede8;
+  color: #3d3832;
+  border-color: #b5aea4;
+}
+
+.toolRow__deleteBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Confirmation modal */
+
+.toolsConfirmOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+}
+
+.toolsConfirmModal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px 28px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+}
+
+.toolsConfirmModal__title {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0 0 8px;
+}
+
+.toolsConfirmModal__message {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+  margin: 0 0 20px;
+}
+
+.toolsConfirmModal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Footer actions */
+
+.toolsPage__footer {
+  margin-top: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.toolsPage__addBtn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  border: 1.5px dashed #d5d0c8;
+  background: transparent;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  color: #b5aea4;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+}
+
+.toolsPage__addBtn:hover {
+  background: rgba(255, 255, 255, 0.5);
+  border-color: #bbb5ab;
+}
+
+/* Tool detail view — back button inside MiniAppHeader */
+
+.toolDetailBackBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: #9c958b;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-left: -8px;
+  transition: color 0.15s;
+  white-space: nowrap;
+}
+
+.toolDetailBackBtn:hover {
+  color: #5c5549;
+}
+
+.toolDetailContent {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 
 /* ============================================================
    Log Viewer (Debug → Logs)
