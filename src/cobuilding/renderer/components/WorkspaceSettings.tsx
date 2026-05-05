@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { Workspace } from '../../shared/types';
 import './WorkspaceSettings.css';
+import './shared-forms.css';
 
 interface WorkspaceSettingsProps {
   workspace: Workspace;

@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import dockIcon from '../../../assets/icons/dock-icon.png';
 import './AcademiaLogin.css';
 
 interface AcademiaLoginProps {
   onSuccess: () => void;
+  onBack?: () => void;
 }
 
 type QRAuthStatus = 'initializing' | 'waiting' | 'verifying' | 'authorized' | 'error';
 
-const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess }) => {
+const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess, onBack }) => {
   const [qrCodeDataURL, setQrCodeDataURL] = useState<string>('');
   const [authorizationURL, setAuthorizationURL] = useState<string>('');
   const [deviceId, setDeviceId] = useState<string>('');
@@ -120,9 +120,17 @@ const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess }) => {
 
   return (
     <div className="academiaLogin">
+      <div className="academiaLogin__branding">
+        {onBack && (
+          <button className="academiaLogin__backBtn" onClick={onBack}>
+            &larr;
+          </button>
+        )}
+        <span className="academiaLogin__brandName">Co-scientist</span>
+        <span className="academiaLogin__brandLabel">SETUP</span>
+      </div>
       <div className="academiaLogin__inner">
         <div className="academiaLogin__header">
-          <img src={dockIcon} className="academiaLogin__logo" alt="Academia Coscientist" />
           <h1 className="academiaLogin__title">Connect your Academia account</h1>
           <p className="academiaLogin__subtitle">
             Sign in to link this app to your Academia.edu account

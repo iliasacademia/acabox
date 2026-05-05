@@ -1,19 +1,65 @@
 .academiaLogin {
   position: fixed;
   inset: 0;
-  background: #f8f9fb;
+  background: #faf8f5;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   overflow-y: auto;
   z-index: 100;
-  padding: 40px 20px 60px;
+  padding: 80px 20px 60px;
   -webkit-app-region: no-drag;
 }
 
 .academiaLogin__inner {
   width: 100%;
   max-width: 560px;
+}
+
+.academiaLogin__branding {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5e2dd;
+}
+
+.academiaLogin__brandName {
+  font-family: 'Gupter', serif;
+  font-size: 20px;
+  font-weight: 500;
+  color: #141413;
+}
+
+.academiaLogin__brandLabel {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #9ca3af;
+}
+
+.academiaLogin__backBtn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin: -4px 0;
+  border-radius: 6px;
+  line-height: 1;
+  transition: color 0.15s, background 0.15s;
+}
+
+.academiaLogin__backBtn:hover {
+  color: #141413;
+  background: rgba(20, 20, 19, 0.06);
 }
 
 .academiaLogin__header {
@@ -25,18 +71,11 @@
   text-align: center;
 }
 
-.academiaLogin__logo {
-  width: 52px;
-  height: 52px;
-  border-radius: 12px;
-  margin-bottom: 4px;
-}
-
 .academiaLogin__title {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 24px;
-  font-weight: 700;
-  color: #111827;
+  font-family: 'Gupter', serif;
+  font-size: 28px;
+  font-weight: 400;
+  color: #141413;
   margin: 0;
 }
 
@@ -100,7 +139,7 @@
 
 .academiaLogin__spinner {
   border: 3px solid #e5e7eb;
-  border-top: 3px solid #0645b1;
+  border-top: 3px solid #141413;
   border-radius: 50%;
   width: 32px;
   height: 32px;
@@ -203,7 +242,7 @@
   font-size: 12px;
   font-weight: 600;
   padding: 5px 10px;
-  background: #0645b1;
+  background: #141413;
   color: #ffffff;
   border: none;
   border-radius: 6px;
@@ -214,7 +253,7 @@
 }
 
 .academiaLogin__copyBtn:hover {
-  background: #0537a0;
+  background: #2a2a29;
 }
 
 .academiaLogin__codeSection {
@@ -249,8 +288,8 @@
 }
 
 .academiaLogin__codeInput:focus {
-  border-color: #0645b1;
-  box-shadow: 0 0 0 3px rgba(6, 69, 177, 0.07);
+  border-color: #141413;
+  box-shadow: 0 0 0 3px rgba(20, 20, 19, 0.07);
 }
 
 .academiaLogin__codeInput:disabled {
@@ -269,7 +308,7 @@
   font-size: 14px;
   font-weight: 600;
   padding: 10px 20px;
-  background: #0645b1;
+  background: #141413;
   color: #ffffff;
   border: none;
   border-radius: 8px;
@@ -279,7 +318,7 @@
 }
 
 .academiaLogin__verifyBtn:hover:not(:disabled) {
-  background: #0537a0;
+  background: #2a2a29;
 }
 
 .academiaLogin__verifyBtn:disabled {
@@ -368,7 +407,7 @@
   font-size: 13px;
   font-weight: 600;
   padding: 8px 16px;
-  background: #0645b1;
+  background: #141413;
   color: #ffffff;
   border: none;
   border-radius: 7px;
@@ -377,7 +416,7 @@
 }
 
 .academiaLogin__retryBtn:hover {
-  background: #0537a0;
+  background: #2a2a29;
 }
 
 .academiaLogin__errorState {

@@ -1,277 +1,288 @@
-/*
- * Workspace Onboarding — reuses .gettingStarted / .gsStep class names
- * from the Writing Agent onboarding for visual consistency.
- * Only additions here are form input styles not present in the original.
- */
-
-.gettingStarted {
+/* Full-screen layout */
+.wsSetup {
   position: fixed;
   inset: 0;
-  background: #f8f9fb;
+  background: #faf8f5;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   overflow-y: auto;
   z-index: 100;
-  padding: 40px 20px 60px;
+  padding: 80px 20px 60px;
   -webkit-app-region: no-drag;
 }
 
-.gettingStarted__inner {
+.wsSetup__inner {
   width: 100%;
-  max-width: 520px;
+  max-width: 560px;
 }
 
-.gettingStarted__header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 40px;
-  text-align: center;
-}
-
-.gettingStarted__logo {
-  width: 52px;
-  height: 52px;
-  border-radius: 12px;
-  margin-bottom: 4px;
-}
-
-.gettingStarted__title {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 24px;
-  font-weight: 700;
-  color: #111827;
-  margin: 0;
-}
-
-.gettingStarted__subtitle {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 15px;
-  color: #6b7280;
-  margin: 0;
-}
-
-.gettingStarted__steps {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-}
-
-.gettingStarted__connector {
-  width: 2px;
-  height: 20px;
-  background: #e5e7eb;
-  margin: 0 0 0 23px;
-  flex-shrink: 0;
-}
-
-/* Step card */
-.gsStep {
-  display: flex;
-  gap: 16px;
-  background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 12px;
-  padding: 20px;
-  transition: border-color 0.2s, opacity 0.3s;
-}
-
-.gsStep--active {
-  border-color: #0645b1;
-  box-shadow: 0 0 0 3px rgba(6, 69, 177, 0.07);
-}
-
-.gsStep--done {
-  opacity: 0.55;
-  border-color: #e5e7eb;
-  box-shadow: none;
-}
-
-.gsStep--disabled {
-  opacity: 0.45;
-  border-color: #e5e7eb;
-}
-
-.gsStep--cta.gsStep--active {
-  border-color: #0645b1;
-  box-shadow: 0 0 0 3px rgba(6, 69, 177, 0.07);
-}
-
-/* Indicator */
-.gsStep__indicator {
-  flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+/* Branding bar */
+.wsSetup__branding {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 12px;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5e2dd;
+}
+
+.wsSetup__brandName {
+  font-family: 'Gupter', serif;
+  font-size: 20px;
+  font-weight: 500;
+  color: #141413;
+}
+
+.wsSetup__brandLabel {
   font-family: 'DM Sans', sans-serif;
-  font-weight: 700;
-  font-size: 14px;
-}
-
-.gsStep--active .gsStep__indicator,
-.gsStep--cta.gsStep--active .gsStep__indicator {
-  background: #0645b1;
-  color: #ffffff;
-}
-
-.gsStep--done .gsStep__indicator {
-  background: #d1fae5;
-  color: #059669;
-}
-
-.gsStep--disabled .gsStep__indicator {
-  background: #f3f4f6;
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
   color: #9ca3af;
 }
 
-.gsStep__num {
+.wsSetup__backBtn {
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin: -4px 0;
+  border-radius: 6px;
   line-height: 1;
+  transition: color 0.15s, background 0.15s;
 }
 
-.gsStep__check {
+.wsSetup__backBtn:hover {
+  color: #141413;
+  background: rgba(20, 20, 19, 0.06);
+}
+
+/* Step indicator */
+.wsSetup__stepIndicator {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #9ca3af;
+  margin: 0 0 16px;
+}
+
+/* Header */
+.wsSetup__title {
+  font-family: 'Gupter', serif;
+  font-size: 28px;
+  font-weight: 400;
+  color: #141413;
+  margin: 0 0 8px;
+  line-height: 1.2;
+}
+
+.wsSetup__subtitle {
+  font-family: 'DM Sans', sans-serif;
   font-size: 15px;
-  line-height: 1;
+  color: #6b7280;
+  margin: 0 0 24px;
+  line-height: 1.5;
 }
 
-/* Step body */
-.gsStep__body {
+/* Info banner */
+.wsSetup__infoBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #f8f9fb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.wsSetup__infoIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #9ca3af;
+}
+
+/* Source cards container */
+.wsSetup__sources {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+/* Source card */
+.wsSource {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: #ffffff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 18px 20px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.wsSource:hover:not(.wsSource--disabled) {
+  border-color: #d1d5db;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.wsSource--selected {
+  border-color: #141413;
+  box-shadow: 0 0 0 3px rgba(20, 20, 19, 0.07);
+}
+
+.wsSource--selected:hover {
+  border-color: #141413;
+}
+
+.wsSource--disabled {
+  opacity: 0.7;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Source icon */
+.wsSource__icon {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f3f4f6;
+  border-radius: 8px;
+  margin-top: 1px;
+  color: #6b7280;
+}
+
+/* Source body */
+.wsSource__body {
   flex: 1;
   min-width: 0;
 }
 
-.gsStep__title {
+.wsSource__titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.wsSource__title {
   font-family: 'DM Sans', sans-serif;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
   color: #111827;
-  margin: 0 0 4px;
+  margin: 0;
   line-height: 1.3;
 }
 
-.gsStep__desc {
+.wsSource__badge {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #8b7355;
+  background: #f5f0e8;
+  padding: 2px 7px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+
+.wsSource__desc {
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   color: #6b7280;
-  margin: 0 0 12px;
+  margin: 0;
   line-height: 1.5;
 }
 
-.gsStep__body > .gsStep__desc:last-child,
-.gsStep--done .gsStep__desc {
-  margin-bottom: 0;
-}
-
-/* Buttons */
-.gsStep__btn {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
-  font-weight: 600;
-  border: none;
-  border-radius: 7px;
-  padding: 7px 14px;
-  cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
-  white-space: nowrap;
-}
-
-.gsStep__btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.gsStep__btn--primary {
-  background: #0645b1;
-  color: #ffffff;
-}
-
-.gsStep__btn--primary:hover:not(:disabled) {
-  background: #0537a0;
-}
-
-.gsStep__btn--secondary {
-  background: #f3f4f6;
-  color: #374151;
-}
-
-.gsStep__btn--secondary:hover:not(:disabled) {
-  background: #e5e7eb;
-}
-
-.gsStep__btn--large {
-  font-size: 14px;
-  padding: 10px 24px;
-  border-radius: 8px;
-}
-
-.gsStep__btn--ghost {
-  background: transparent;
-  color: #6b7280;
-  padding: 0;
-  font-size: 12px;
-}
-
-.gsStep__btn--ghost:hover:not(:disabled) {
-  color: #374151;
-}
-
-.gsStep__dirInfo {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.gsStep__dirInfo .gsStep__hint {
-  margin: 0;
-}
-
-.gsStep__hint {
+.wsSource__hint {
   font-family: 'DM Sans', sans-serif;
   font-size: 12px;
+  font-style: italic;
   color: #9ca3af;
-  margin: 8px 0 0;
+  margin: 4px 0 0;
 }
 
-.gsStep__error {
+/* Selected state — path display */
+.wsSource__path {
+  font-family: 'SF Mono', 'Menlo', monospace;
+  font-size: 12px;
+  color: #374151;
+  margin: 2px 0 0;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.wsSource__change {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #6b7280;
+  margin-top: 4px;
+  display: inline-block;
+}
+
+.wsSource__change:hover {
+  color: #374151;
+}
+
+/* Error */
+.wsSetup__error {
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   color: #dc2626;
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   line-height: 1.5;
 }
 
-/* Form inputs (addition for workspace onboarding) */
-.gsStep__input {
-  width: 100%;
+/* Continue button */
+.wsSetup__continueBtn {
   font-family: 'DM Sans', sans-serif;
-  font-size: 14px;
-  color: #111827;
-  background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 7px;
-  padding: 8px 12px;
-  outline: none;
-  transition: border-color 0.15s;
-  box-sizing: border-box;
-  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+  background: #c4b5a0;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 28px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.gsStep__input:focus {
-  border-color: #0645b1;
-  box-shadow: 0 0 0 3px rgba(6, 69, 177, 0.07);
+.wsSetup__continueBtn:hover:not(:disabled) {
+  background: #b5a691;
 }
 
-.gsStep__input::placeholder {
-  color: #9ca3af;
-}
-
-.gsStep__input:disabled {
-  opacity: 0.5;
-  background: #f9fafb;
+.wsSetup__continueBtn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
+}
+
+.wsSetup__arrow {
+  font-size: 16px;
+  line-height: 1;
 }

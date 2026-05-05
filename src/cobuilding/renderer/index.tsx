@@ -39,6 +39,7 @@ import { useSessionSubscription } from './useSessionSubscription';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
+import WelcomeScreen from './components/WelcomeScreen';
 import { SetupBanner } from './components/SetupBanner';
 import { TaskPanel } from './components/TaskPanel';
 import { TabBar } from './tabs/TabBar';
@@ -773,57 +774,84 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
   );
 }
 
+type OnboardingStep = 'loading' | 'welcome' | 'login' | 'workspace' | 'ready';
+
 function App() {
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
-  const [workspace, setWorkspace] = useState<Workspace | null | undefined>(undefined);
+  const [step, setStep] = useState<OnboardingStep>('loading');
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
   useEffect(() => {
     window.authAPI.checkLogin().then((result: any) => {
       const { loggedIn, user, appInfo } = result;
       initFullStory(appInfo?.isPackaged);
-      setIsLoggedIn(loggedIn);
-      if (loggedIn) {
-        if (user?.id) {
-          identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
-        }
-        window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
+
+      if (!loggedIn) {
+        setStep('welcome');
+        return;
       }
+
+      if (user?.id) {
+        identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
+      }
+
+      window.workspacesAPI.getActive().then((ws) => {
+        if (ws) {
+          setWorkspace(ws);
+          setStep('ready');
+        } else {
+          setStep('workspace');
+        }
+      });
     });
   }, []);
 
-  // Loading
-  if (isLoggedIn === null) return null;
+  switch (step) {
+    case 'loading':
+      return null;
 
-  if (!isLoggedIn) {
-    return (
-      <AcademiaLogin
-        onSuccess={() => {
-          setIsLoggedIn(true);
-          window.authAPI.checkLogin().then((result: any) => {
-            const { user, appInfo } = result;
-            if (user?.id) {
-              identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
-            }
-          });
-          window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
-        }}
-      />
-    );
+    case 'welcome':
+      return <WelcomeScreen onGetStarted={() => setStep('login')} />;
+
+    case 'login':
+      return (
+        <AcademiaLogin
+          onBack={() => setStep('welcome')}
+          onSuccess={() => {
+            window.authAPI.checkLogin().then((result: any) => {
+              const { user, appInfo } = result;
+              if (user?.id) {
+                identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
+              }
+            });
+            setStep('workspace');
+          }}
+        />
+      );
+
+    case 'workspace':
+      return (
+        <WorkspaceOnboarding
+          onBack={() => setStep('login')}
+          onComplete={() => {
+            window.workspacesAPI.getActive().then((ws) => {
+              if (ws) {
+                setWorkspace(ws);
+                setStep('ready');
+              }
+            });
+          }}
+        />
+      );
+
+    case 'ready':
+      return (
+        <ChatView
+          workspace={workspace!}
+          onWorkspaceUpdated={setWorkspace}
+          onLogout={() => setStep('welcome')}
+        />
+      );
   }
-
-  if (workspace === undefined) return null;
-
-  if (workspace === null) {
-    return (
-      <WorkspaceOnboarding
-        onComplete={() => {
-          window.workspacesAPI.getActive().then((ws) => setWorkspace(ws ?? null));
-        }}
-      />
-    );
-  }
-
-  return <ChatView workspace={workspace} onWorkspaceUpdated={setWorkspace} onLogout={() => setIsLoggedIn(false)} />;
 }
 
 // Wrap ResizeObserver callbacks in requestAnimationFrame so they never fire

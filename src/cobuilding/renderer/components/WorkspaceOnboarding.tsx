@@ -1,59 +1,32 @@
-import React, { useState, useEffect } from 'react';
-import dockIcon from '../../../assets/icons/dock-icon.png';
+import React, { useState } from 'react';
 import './WorkspaceOnboarding.css';
+import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon } from 'lucide-react';
 
 interface WorkspaceOnboardingProps {
   onComplete: () => void;
+  onBack?: () => void;
 }
 
-const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete }) => {
-  const [name, setName] = useState('My Workspace');
-  const [directoryPath, setDirectoryPath] = useState('');
-  const [directoryOverridden, setDirectoryOverridden] = useState(false);
+const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, onBack }) => {
+  const [directoryPath, setDirectoryPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [focusedStep, setFocusedStep] = useState<number | null>(1);
 
-  const hasName = name.trim().length > 0;
-  const canSubmit = hasName && directoryPath && !isCreating;
-
-  // Auto-compute default directory path from workspace name (unless user overrode it)
-  useEffect(() => {
-    if (directoryOverridden) return;
-    if (!hasName) {
-      setDirectoryPath('');
-      return;
-    }
-    window.workspacesAPI.getDefaultDirectory(name.trim()).then(setDirectoryPath);
-  }, [name, hasName, directoryOverridden]);
-
-  const handleChangeDirectory = async () => {
+  const handleSelectFolder = async () => {
     const selected = await window.workspacesAPI.selectDirectory();
     if (selected) {
       setDirectoryPath(selected);
-      setDirectoryOverridden(true);
       setError(null);
     }
   };
 
-  const stepState = (step: number, isDone: boolean, isEnabled: boolean) => {
-    if (focusedStep === step) return 'gsStep--active';
-    if (isDone) return 'gsStep--done';
-    if (isEnabled) return 'gsStep--active';
-    return 'gsStep--disabled';
-  };
-
-  const handleSubmit = async () => {
-    if (!canSubmit) return;
-
+  const handleContinue = async () => {
+    if (!directoryPath || isCreating) return;
     setError(null);
     setIsCreating(true);
-
     try {
-      await window.workspacesAPI.create({
-        name: name.trim(),
-        directoryPath,
-      });
+      const name = directoryPath.split('/').filter(Boolean).pop() || 'My Workspace';
+      await window.workspacesAPI.create({ name, directoryPath });
       onComplete();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create workspace.';
@@ -63,88 +36,86 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete })
   };
 
   return (
-    <div className="gettingStarted">
-      <div className="gettingStarted__inner">
-        <div className="gettingStarted__header">
-          <img src={dockIcon} className="gettingStarted__logo" alt="Academia Coscientist" />
-          <h1 className="gettingStarted__title">Welcome to Academia Coscientist</h1>
-          <p className="gettingStarted__subtitle">Complete these steps to get started</p>
+    <div className="wsSetup">
+      <div className="wsSetup__branding">
+        {onBack && (
+          <button className="wsSetup__backBtn" onClick={onBack}>
+            &larr;
+          </button>
+        )}
+        <span className="wsSetup__brandName">Co-scientist</span>
+        <span className="wsSetup__brandLabel">SETUP</span>
+      </div>
+
+      <div className="wsSetup__inner">
+        <p className="wsSetup__stepIndicator">STEP 1 OF 5 &middot; POINT ME AT YOUR WORK</p>
+
+        <h1 className="wsSetup__title">Where does your research live?</h1>
+        <p className="wsSetup__subtitle">Connect at least one source so I can read your work.</p>
+
+        <div className="wsSetup__infoBanner">
+          <InfoIcon className="wsSetup__infoIcon" />
+          <span>I only read &mdash; I never write to your files unless you ask me to.</span>
         </div>
 
-        <div className="gettingStarted__steps">
-          {/* Step 1: Workspace Name */}
-          <div className={`gsStep ${stepState(1, hasName, true)}`}>
-            <div className="gsStep__indicator">
-              {hasName && focusedStep !== 1 ? (
-                <span className="gsStep__check">✓</span>
-              ) : (
-                <span className="gsStep__num">1</span>
-              )}
-            </div>
-            <div className="gsStep__body">
-              <h3 className="gsStep__title">Name your workspace</h3>
-              <p className="gsStep__desc">
-                {hasName && focusedStep !== 1 ? `Workspace: ${name}` : 'Give your workspace a name.'}
-              </p>
-              <input
-                type="text"
-                className="gsStep__input"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onFocus={() => setFocusedStep(1)}
-                onBlur={() => setFocusedStep(null)}
-                placeholder="My Workspace"
-              />
-              {hasName && directoryPath && (
-                <div className="gsStep__dirInfo">
-                  <p className="gsStep__hint">
-                    Workspace directory: {directoryPath}
-                  </p>
-                  <button
-                    type="button"
-                    className="gsStep__btn gsStep__btn--ghost"
-                    onClick={handleChangeDirectory}
-                  >
-                    Change
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="gettingStarted__connector" />
-
-          {/* Step 2: Create */}
-          <div className={`gsStep gsStep--cta ${canSubmit ? 'gsStep--active' : 'gsStep--disabled'}`}>
-            <div className="gsStep__indicator">
-              <span className="gsStep__num">2</span>
-            </div>
-            <div className="gsStep__body">
-              <h3 className="gsStep__title">Create your workspace</h3>
-              {isCreating ? (
-                <p className="gsStep__desc">Setting up your workspace...</p>
+        <div className="wsSetup__sources">
+          {/* Folders on your computer — functional */}
+          <button
+            type="button"
+            className={`wsSource${directoryPath ? ' wsSource--selected' : ''}`}
+            onClick={handleSelectFolder}
+          >
+            <span className="wsSource__icon"><FolderOpenIcon size={18} /></span>
+            <div className="wsSource__body">
+              <div className="wsSource__titleRow">
+                <h3 className="wsSource__title">Folders on your computer</h3>
+                <span className="wsSource__badge">RECOMMENDED</span>
+              </div>
+              {directoryPath ? (
+                <>
+                  <p className="wsSource__path">{directoryPath}</p>
+                  <span className="wsSource__change">Change</span>
+                </>
               ) : (
                 <>
-                  <p className="gsStep__desc">
-                    The agent will have full read/write access to the workspace directory.
-                  </p>
-                  {error && <p className="gsStep__error">{error}</p>}
-                  <button
-                    type="button"
-                    className="gsStep__btn gsStep__btn--primary gsStep__btn--large"
-                    disabled={!canSubmit}
-                    onClick={handleSubmit}
-                  >
-                    {error ? 'Try Again' : 'Create Workspace'}
-                  </button>
-                  {!canSubmit && !isCreating && (
-                    <p className="gsStep__hint">Complete step 1 to continue.</p>
-                  )}
+                  <p className="wsSource__desc">Point me at the folders where your research lives.</p>
+                  <p className="wsSource__hint">Most researchers start here</p>
                 </>
               )}
             </div>
+          </button>
+
+          {/* Cloud document services — placeholder */}
+          <div className="wsSource wsSource--disabled">
+            <span className="wsSource__icon"><CloudIcon size={18} /></span>
+            <div className="wsSource__body">
+              <h3 className="wsSource__title">Cloud document services</h3>
+              <p className="wsSource__desc">Google Drive, Google Docs, OneDrive, Dropbox.</p>
+              <p className="wsSource__hint">Optional</p>
+            </div>
+          </div>
+
+          {/* Reference manager — placeholder */}
+          <div className="wsSource wsSource--disabled">
+            <span className="wsSource__icon"><LayoutGridIcon size={18} /></span>
+            <div className="wsSource__body">
+              <h3 className="wsSource__title">Reference manager</h3>
+              <p className="wsSource__desc">Zotero, Mendeley, or EndNote.</p>
+              <p className="wsSource__hint">Optional &middot; highly recommended</p>
+            </div>
           </div>
         </div>
+
+        {error && <p className="wsSetup__error">{error}</p>}
+
+        <button
+          type="button"
+          className="wsSetup__continueBtn"
+          disabled={!directoryPath || isCreating}
+          onClick={handleContinue}
+        >
+          {isCreating ? 'Setting up...' : <>Continue <span className="wsSetup__arrow">&rarr;</span></>}
+        </button>
       </div>
     </div>
   );

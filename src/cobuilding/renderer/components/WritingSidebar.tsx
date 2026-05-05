@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import './shared-forms.css';
 import { useAssistantRuntime } from '@assistant-ui/react';
 import {
   ChevronRightIcon,

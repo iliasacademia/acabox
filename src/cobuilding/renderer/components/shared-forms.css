@@ -1,0 +1,94 @@
+/* Shared form controls used across settings, sidebar, and onboarding components */
+
+/* Buttons */
+.gsStep__btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  border: none;
+  border-radius: 7px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.gsStep__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.gsStep__btn--primary {
+  background: #141413;
+  color: #ffffff;
+}
+
+.gsStep__btn--primary:hover:not(:disabled) {
+  background: #2a2a29;
+}
+
+.gsStep__btn--secondary {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.gsStep__btn--secondary:hover:not(:disabled) {
+  background: #e5e7eb;
+}
+
+.gsStep__btn--large {
+  font-size: 14px;
+  padding: 10px 24px;
+  border-radius: 8px;
+}
+
+.gsStep__btn--ghost {
+  background: transparent;
+  color: #6b7280;
+  padding: 0;
+  font-size: 12px;
+}
+
+.gsStep__btn--ghost:hover:not(:disabled) {
+  color: #374151;
+}
+
+/* Inputs */
+.gsStep__input {
+  width: 100%;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #111827;
+  background: #ffffff;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  margin-top: 4px;
+}
+
+.gsStep__input:focus {
+  border-color: #141413;
+  box-shadow: 0 0 0 3px rgba(20, 20, 19, 0.07);
+}
+
+.gsStep__input::placeholder {
+  color: #9ca3af;
+}
+
+.gsStep__input:disabled {
+  opacity: 0.5;
+  background: #f9fafb;
+  cursor: not-allowed;
+}
+
+/* Errors */
+.gsStep__error {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #dc2626;
+  margin: 0 0 12px;
+  line-height: 1.5;
+}
