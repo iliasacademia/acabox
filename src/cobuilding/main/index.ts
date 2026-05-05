@@ -1040,6 +1040,7 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
   // Each handler matches the tool's original implementation on the host side.
   const { queryActivity } = require('./activityQuery');
   const { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument, getTrackChangesStatus, setTrackChanges } = require('../../server/wordActions');
+  const { googleDocsGetActiveDoc, googleDocsGetText, googleDocsFindAndReplace } = require('./mcpServers/googleDocsMcpServer');
   const { checkLogin } = require('../../apiClient');
   const { findReferencesForFile, findReferencesForText, createCitationReportFromText, getCitationReport, addClaimToReport, searchCitationsForClaim, formatCitations, listCitationReports } = require('./citeright/citeRightClient');
   const { summarizeReport } = require('./citeright/reportSummary');
@@ -1089,6 +1090,12 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
           return fail(`Failed to create reaction thread: ${err.message}`);
         }
       },
+    },
+
+    'google-docs': {
+      get_active_doc: googleDocsGetActiveDoc,
+      get_text: googleDocsGetText,
+      find_and_replace: googleDocsFindAndReplace,
     },
 
     'ms-word': {
@@ -1284,6 +1291,8 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'mcp__citeright__list_citation_reports',
       'mcp__zotero__status', 'mcp__zotero__search_library',
       'mcp__zotero__get_item', 'mcp__zotero__add_doi',
+      'mcp__google-docs__get_active_doc', 'mcp__google-docs__get_text',
+      'mcp__google-docs__find_and_replace',
     ],
     settingSources: ['project'],
   };
