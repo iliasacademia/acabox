@@ -37,6 +37,8 @@ import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { createAttachmentAdapter } from './attachmentAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
+import ScanningProgress from './components/ScanningProgress';
+import ScanResultsReview from './components/ScanResultsReview';
 import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -774,11 +776,12 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
   );
 }
 
-type OnboardingStep = 'loading' | 'welcome' | 'login' | 'workspace' | 'ready';
+type OnboardingStep = 'loading' | 'welcome' | 'login' | 'workspace' | 'scanning' | 'review' | 'ready';
 
 function App() {
   const [step, setStep] = useState<OnboardingStep>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [scanReportId, setScanReportId] = useState<string | null>(null);
 
   useEffect(() => {
     window.authAPI.checkLogin().then((result: any) => {
@@ -836,10 +839,29 @@ function App() {
             window.workspacesAPI.getActive().then((ws) => {
               if (ws) {
                 setWorkspace(ws);
-                setStep('ready');
+                setStep('scanning');
               }
             });
           }}
+        />
+      );
+
+    case 'scanning':
+      return (
+        <ScanningProgress
+          onComplete={(reportId) => {
+            setScanReportId(reportId);
+            setStep('review');
+          }}
+          onSkip={() => setStep('ready')}
+        />
+      );
+
+    case 'review':
+      return (
+        <ScanResultsReview
+          reportId={scanReportId!}
+          onComplete={() => setStep('ready')}
         />
       );
 

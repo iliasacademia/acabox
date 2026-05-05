@@ -1,0 +1,133 @@
+/* Review screen inner — wider than the default wsSetup__inner */
+.wsSetup__reviewInner {
+  width: 100%;
+  max-width: 680px;
+}
+
+/* Section card */
+.wsReview__section {
+  background: #f5f0e8;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin-bottom: 16px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.wsReview__sectionHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.wsReview__sectionLabel {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: #8b7355;
+}
+
+.wsReview__editBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #8b7355;
+  background: none;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.wsReview__editBtn:hover {
+  background: rgba(139, 115, 85, 0.1);
+  color: #6b5a3e;
+}
+
+/* Section text content */
+.wsReview__text {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.65;
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+/* Textarea for editing */
+.wsReview__textarea {
+  width: 100%;
+  min-height: 120px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #374151;
+  line-height: 1.65;
+  background: #ffffff;
+  border: 1.5px solid #d1c9b8;
+  border-radius: 8px;
+  padding: 12px 14px;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.wsReview__textarea:focus {
+  border-color: #8b7355;
+}
+
+/* Edit actions */
+.wsReview__editActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  justify-content: flex-end;
+}
+
+.wsReview__saveBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  background: #8b7355;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.wsReview__saveBtn:hover {
+  background: #7a6549;
+}
+
+.wsReview__cancelBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  background: none;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  padding: 6px 16px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.wsReview__cancelBtn:hover {
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+/* Taller textarea for working-on list editing */
+.wsReview__textarea--tall {
+  min-height: 200px;
+}
+

@@ -582,6 +582,37 @@ declare global {
     deleteCert(): Promise<{ success: boolean; error?: string }>;
   }
 
+  interface WorkspaceReport {
+    id: string;
+    workspace_id: string;
+    report_type: string;
+    report_data: string;
+    in_depth_report: string | null;
+    about_you_summary: string | null;
+    what_youre_working_on_summary: string | null;
+    what_youre_working_on: string | null;
+    status: 'pending' | 'running' | 'completed' | 'failed';
+    error: string | null;
+    created_at: string;
+    completed_at: string | null;
+  }
+
+  interface ReportsAPI {
+    getLatest(reportType: string): Promise<WorkspaceReport | null>;
+    get(reportId: string): Promise<WorkspaceReport | null>;
+    update(reportId: string, reportData: string): Promise<void>;
+  }
+
+  type ScannerEvent =
+    | { type: 'progress'; text: string }
+    | { type: 'complete'; reportId: string; reportData: string }
+    | { type: 'error'; error: string };
+
+  interface ScannerAPI {
+    start(): Promise<void>;
+    onEvent(callback: (event: ScannerEvent) => void): () => void;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     calendarAPI: CalendarAPI;
@@ -608,5 +639,7 @@ declare global {
     miniAppsAPI: MiniAppsAPI;
     notesAPI: NotesAPI;
     officeAddinAPI: OfficeAddinAPI;
+    reportsAPI: ReportsAPI;
+    scannerAPI: ScannerAPI;
   }
 }

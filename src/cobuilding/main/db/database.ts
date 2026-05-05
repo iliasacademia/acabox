@@ -254,6 +254,27 @@ const migrations = [
       CREATE INDEX idx_sessions_app_dir ON sessions(workspace_id, app_dir_name);
     `,
   },
+  {
+    version: 16,
+    sql: `
+      CREATE TABLE workspace_reports (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        report_type TEXT NOT NULL DEFAULT 'directory_scan',
+        report_data TEXT NOT NULL DEFAULT '{}',
+        in_depth_report TEXT,
+        about_you_summary TEXT,
+        what_youre_working_on_summary TEXT,
+        what_youre_working_on TEXT,
+        status TEXT NOT NULL DEFAULT 'pending'
+          CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+        error TEXT,
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        completed_at TEXT
+      );
+      CREATE INDEX idx_workspace_reports_workspace ON workspace_reports(workspace_id);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

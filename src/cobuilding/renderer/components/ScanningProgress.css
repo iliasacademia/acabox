@@ -1,0 +1,137 @@
+/* Progress bar */
+.wsSetup__progressBar {
+  width: 100%;
+  height: 4px;
+  background: #e5e2dd;
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 24px 0 32px;
+}
+
+.wsSetup__progressFill {
+  height: 100%;
+  background: #8b7355;
+  border-radius: 2px;
+  transition: width 0.5s ease-out;
+}
+
+/* Progress items list */
+.wsSetup__progressList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.wsSetup__progressItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #141413;
+  line-height: 1.4;
+  animation: scanItemFadeIn 0.3s ease-out;
+}
+
+@keyframes scanItemFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Checkmark icon */
+.wsSetup__checkIcon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #5b8a5e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wsSetup__checkIcon svg {
+  width: 12px;
+  height: 12px;
+  color: #ffffff;
+}
+
+/* Spinner icon for active item */
+.wsSetup__spinnerIcon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #e5e2dd;
+  border-top-color: #8b7355;
+  border-radius: 50%;
+  animation: scanSpin 0.8s linear infinite;
+}
+
+@keyframes scanSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Error state */
+.wsSetup__errorBox {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-top: 24px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  color: #991b1b;
+  line-height: 1.5;
+}
+
+.wsSetup__errorActions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.wsSetup__retryBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  background: #c4b5a0;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.wsSetup__retryBtn:hover {
+  background: #b5a691;
+}
+
+.wsSetup__skipBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  background: none;
+  color: #6b7280;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 20px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.wsSetup__skipBtn:hover {
+  color: #374151;
+  border-color: #d1d5db;
+}

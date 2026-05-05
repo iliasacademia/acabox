@@ -343,6 +343,24 @@ contextBridge.exposeInMainWorld('notesAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('reportsAPI', {
+  getLatest: (reportType: string) => ipcRenderer.invoke('reports:getLatest', reportType),
+  get: (reportId: string) => ipcRenderer.invoke('reports:get', reportId),
+  update: (reportId: string, reportData: string) =>
+    ipcRenderer.invoke('reports:update', reportId, reportData),
+});
+
+contextBridge.exposeInMainWorld('scannerAPI', {
+  start: () => ipcRenderer.invoke('scanner:start'),
+  onEvent: (callback: (event: any) => void) => {
+    const handler = (_event: unknown, data: any) => callback(data);
+    ipcRenderer.on('scanner:event', handler);
+    return () => {
+      ipcRenderer.removeListener('scanner:event', handler);
+    };
+  },
+});
+
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),

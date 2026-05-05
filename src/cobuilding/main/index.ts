@@ -16,6 +16,8 @@ import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
+import { scanWorkspaceDirectory } from './directoryScanner';
+import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -951,6 +953,7 @@ ipcMain.handle(
 
     const id = randomUUID();
     createWorkspace(id, name, directoryPath, apiKey);
+    touchWorkspace(id);
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
@@ -958,6 +961,8 @@ ipcMain.handle(
       scheduler.stop();
       scheduler.start();
       calendarReactionSvc?.setWorkspace(activeWorkspace.id, activeWorkspace.api_key);
+
+      // Directory scan is triggered separately via scanner:start IPC
     }
     return activeWorkspace ?? null;
   },
@@ -1031,6 +1036,61 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   containerService.writeStartContainerScript(target.directory_path);
 
   return activeWorkspace ?? null;
+});
+
+// ─── Reports IPC ──────────────────────────────────────────────────
+
+ipcMain.handle('reports:getLatest', (_event, reportType: string) => {
+  if (!activeWorkspace) return null;
+  return getLatestReport(activeWorkspace.id, reportType);
+});
+
+ipcMain.handle('reports:get', (_event, reportId: string) => {
+  return getReport(reportId);
+});
+
+ipcMain.handle('reports:update', (_event, reportId: string, reportData: string) => {
+  updateReportData(reportId, reportData);
+});
+
+// ─── Directory Scanner IPC ──────────────────────────────────────
+
+let scannerRunning = false;
+
+ipcMain.handle('scanner:start', () => {
+  if (!activeWorkspace) {
+    throw new Error('No active workspace');
+  }
+  const apiKey = activeWorkspace.api_key;
+  if (!apiKey) {
+    throw new Error('No API key available');
+  }
+  if (scannerRunning) {
+    log.warn('[scanner:start] Scan already in progress — ignoring duplicate request');
+    return;
+  }
+  scannerRunning = true;
+
+  scanWorkspaceDirectory({
+    workspaceId: activeWorkspace.id,
+    directoryPath: activeWorkspace.directory_path,
+    apiKey,
+    onMessage: (event) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('scanner:event', event);
+      }
+    },
+  }).catch((err) => {
+    log.error('[scanner:start] Scan failed:', err);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('scanner:event', {
+        type: 'error',
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }).finally(() => {
+    scannerRunning = false;
+  });
 });
 
 // ─── Agent Server & MCP Management ──────────────────────────────
@@ -2407,6 +2467,8 @@ ipcMain.handle('auth:refetchApiKey', async () => {
 
 ipcMain.handle('auth:logout', async () => {
   try {
+    activeWorkspace = null;
+    cachedApiKey = null;
     const result = await logout();
     return result;
   } catch (error: any) {
