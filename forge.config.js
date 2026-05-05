@@ -109,7 +109,7 @@ const packagerConfig = {
         // all of these because they're reached only via dynamic ESM imports
         // at runtime, not webpack's static analysis. Whack-a-mole until we
         // have a full list — adding deps as the runtime errors surface.
-        const must = ['data-uri-to-buffer', 'formdata-polyfill', 'fetch-blob', 'web-streams-polyfill'];
+        const must = ['data-uri-to-buffer', 'formdata-polyfill', 'fetch-blob', 'web-streams-polyfill', 'node-domexception'];
         for (const pkg of must) {
           const src = path.join(__dirname, 'node_modules', pkg);
           const dest = path.join(buildPath, 'node_modules', pkg);
