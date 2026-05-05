@@ -118,8 +118,10 @@ interface AuthAPI {
     code: string
   ): Promise<{ success: boolean; authorized?: boolean; userId?: number; error?: string }>;
   logout(): Promise<{ success: boolean; error?: string }>;
-  getApiKey(): Promise<{ apiKey: string | null }>;
+  getApiKey(): Promise<{ apiKey: string | null; baseURL?: string; provider?: string }>;
   refetchApiKey(): Promise<{ success: boolean; keyIdentifier?: string; error?: string }>;
+  getApiProvider(): Promise<{ provider: string }>;
+  setApiProvider(provider: string, customKey?: string, customBaseURL?: string): Promise<{ success: boolean; error?: string }>;
   isDev: boolean;
   setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
   onDeepLinkCallback(

@@ -197,9 +197,10 @@ Upcoming events: ${JSON.stringify(events.map(e => ({ id: e.id, name: e.name, sta
 async function generateReactions(
   bundle: CalendarEditBundle,
   workspaceId: string,
-  apiKey: string
+  apiKey: string,
+  baseURL?: string,
 ): Promise<void> {
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic({ apiKey, baseURL });
   const systemPrompt = buildSystemPrompt(bundle, workspaceId);
 
   const messages: Anthropic.MessageParam[] = [
@@ -306,7 +307,7 @@ async function generateReactions(
 
 export interface CalendarReactionService {
   recordMutation(mutation: PendingMutation): void;
-  setWorkspace(workspaceId: string, apiKey: string): void;
+  setWorkspace(workspaceId: string, apiKey: string, baseURL?: string): void;
   destroy(): void;
 }
 
@@ -317,6 +318,7 @@ export function createCalendarReactionService(
   let timer: ReturnType<typeof setTimeout> | null = null;
   let workspaceId: string | null = null;
   let apiKey: string | null = null;
+  let apiBaseURL: string | undefined = undefined;
 
   function flush() {
     if (pending.length === 0) return;
@@ -343,7 +345,7 @@ export function createCalendarReactionService(
       triggeredAt: new Date().toISOString(),
     };
 
-    generateReactions(bundle, workspaceId, apiKey)
+    generateReactions(bundle, workspaceId, apiKey, apiBaseURL)
       .then(() => onReactionsGenerated())
       .catch(err => log.error('[CalendarReactions] Generation failed', err));
   }
@@ -355,9 +357,10 @@ export function createCalendarReactionService(
       timer = setTimeout(flush, DEBOUNCE_MS);
     },
 
-    setWorkspace(wsId: string, key: string) {
+    setWorkspace(wsId: string, key: string, baseURL?: string) {
       workspaceId = wsId;
       apiKey = key;
+      apiBaseURL = baseURL;
     },
 
     destroy() {

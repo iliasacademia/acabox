@@ -76,14 +76,15 @@ function sessionIdForDay(dayFile: string): string {
   return `notes-assistant-${dayFile}`;
 }
 
-// Cache the Anthropic client, invalidating when the API key changes
 let cachedClient: Anthropic | null = null;
 let cachedApiKey: string | null = null;
+let cachedBaseURL: string | undefined = undefined;
 
-function getClient(apiKey: string): Anthropic {
-  if (cachedClient && cachedApiKey === apiKey) return cachedClient;
-  cachedClient = new Anthropic({ apiKey });
+function getClient(apiKey: string, baseURL?: string): Anthropic {
+  if (cachedClient && cachedApiKey === apiKey && cachedBaseURL === baseURL) return cachedClient;
+  cachedClient = new Anthropic({ apiKey, baseURL });
   cachedApiKey = apiKey;
+  cachedBaseURL = baseURL;
   return cachedClient;
 }
 
@@ -145,6 +146,7 @@ export async function analyzeTranscription(
   workspaceId: string,
   sender: Electron.WebContents,
   waitForWrite?: Promise<void>,
+  baseURL?: string,
 ): Promise<void> {
   return enqueueAnalysis(dayFile, async () => {
     // Notify renderer that analysis is starting
@@ -175,7 +177,7 @@ export async function analyzeTranscription(
       const userMessage = buildUserMessage(notesContent, transcribedText, conversationHistory);
 
       // Call Claude
-      const client = getClient(apiKey);
+      const client = getClient(apiKey, baseURL);
       const response = await client.messages.create({
         model: 'claude-haiku-4-5-20251001',
         max_tokens: 1024,

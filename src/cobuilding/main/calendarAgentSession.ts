@@ -573,6 +573,8 @@ export function createCalendarAgentSession(
   workspaceDir: string,
   callbacks: ChatCallbacks,
   onMutation: (mutation: CalendarMutationEvent) => void,
+  apiBaseURL?: string,
+  refreshCredentials?: () => Promise<{ apiKey: string; baseURL?: string }>,
 ): AgentSession {
   const listeners = new Set<Partial<ChatCallbacks>>();
   listeners.add(callbacks);
@@ -615,23 +617,39 @@ export function createCalendarAgentSession(
 
     history.push({ role: 'user', content: userText });
 
-    const client = new Anthropic({ apiKey });
+    let currentApiKey = apiKey;
+    let currentBaseURL = apiBaseURL;
+    let client = new Anthropic({ apiKey: currentApiKey, baseURL: currentBaseURL });
     const systemPrompt = buildSystemPrompt();
+    let authRetried = false;
 
     try {
       while (true) {
         if (stopped) { emitDone(); return; }
 
-        const stream = client.messages.stream(
-          {
-            model: 'claude-sonnet-4-6',
-            max_tokens: 8192,
-            system: systemPrompt,
-            tools: CALENDAR_TOOLS,
-            messages: history,
-          },
-          { signal: abortController.signal },
-        );
+        const streamParams = {
+          model: 'claude-sonnet-4-6' as const,
+          max_tokens: 8192,
+          system: systemPrompt,
+          tools: CALENDAR_TOOLS,
+          messages: history,
+        };
+
+        let stream: ReturnType<typeof client.messages.stream>;
+        try {
+          stream = client.messages.stream(streamParams, { signal: abortController.signal });
+        } catch (err: unknown) {
+          const status = (err as any)?.status;
+          if (!authRetried && (status === 401 || status === 403) && refreshCredentials) {
+            authRetried = true;
+            log.info('[CalendarAgent] Auth error on stream create, refreshing credentials');
+            const fresh = await refreshCredentials();
+            client = new Anthropic({ apiKey: fresh.apiKey, baseURL: fresh.baseURL });
+            stream = client.messages.stream(streamParams, { signal: abortController.signal });
+          } else {
+            throw err;
+          }
+        }
 
         let currentToolCallId: string | null = null;
 
@@ -730,7 +748,6 @@ export function createCalendarAgentSession(
         return;
       }
       const message = err instanceof Error ? err.message : String(err);
-      // Ignore abort errors — they are intentional
       if (message.toLowerCase().includes('aborted') || message.toLowerCase().includes('abort')) {
         emitDone();
         return;
