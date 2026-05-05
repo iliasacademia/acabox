@@ -402,29 +402,6 @@ declare global {
   interface SettingsAPI {
     getMaxAttachmentSizeMB(): Promise<number>;
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
-    getOpenAIKey(): Promise<string | null>;
-    setOpenAIKey(key: string): Promise<void>;
-  }
-
-  interface NotesAssistantMessage {
-    dayFile: string;
-    request: string;
-    response: string;
-  }
-
-  interface NotesAPI {
-    listDays(): Promise<string[]>;
-    readDay(day: string): Promise<string>;
-    sendAudioChunk(chunkBase64: string, dayFile: string): void;
-    stopRecording(): void;
-    onTranscription(callback: (data: { text: string; dayFile: string }) => void): () => void;
-    onTranscriptionError(callback: (error: string) => void): () => void;
-    onSpeechDetected(callback: (active: boolean) => void): () => void;
-    onTranscribingChange(callback: (active: boolean) => void): () => void;
-    getAssistantMessages(dayFile: string): Promise<Array<{ id: number; session_id: string; type: string; content: string; created_at: string }>>;
-    onAssistantMessage(callback: (data: NotesAssistantMessage) => void): () => void;
-    onAssistantAnalyzing(callback: (data: { dayFile: string; analyzing: boolean }) => void): () => void;
-    onAssistantError(callback: (data: { dayFile: string; error: string }) => void): () => void;
   }
 
   interface MiniAppsAPI {
@@ -639,7 +616,6 @@ declare global {
     debugAPI: DebugAPI;
     writingAgentAPI: WritingAgentAPI;
     miniAppsAPI: MiniAppsAPI;
-    notesAPI: NotesAPI;
     officeAddinAPI: OfficeAddinAPI;
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;

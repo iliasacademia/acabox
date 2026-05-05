@@ -17,24 +17,17 @@ export interface ActivityQueryParams {
   until?: string;
   period?: 'today' | 'last_2h' | 'last_24h' | 'this_week';
   search?: string;
-  source?: string; // Comma-separated: 'browser', 'file', 'notes', 'all', or combos like 'browser,notes'
-}
-
-export interface NotesSession {
-  file_path: string;
-  date: string;
-  time_blocks: string[];
+  source?: string; // Comma-separated: 'browser', 'file', 'all', or combos like 'browser,file'
 }
 
 export interface ActivityQueryResult {
   query: { since: string; until: string; timezone: string };
   browser_sessions?: { domain: string; sessions: unknown[] }[];
   file_sessions?: unknown[];
-  notes_sessions?: NotesSession[];
 }
 
 function parseSources(source?: string): Set<string> {
-  if (!source || source === 'all') return new Set(['browser', 'file', 'notes']);
+  if (!source || source === 'all') return new Set(['browser', 'file']);
   return new Set(source.split(',').map(s => s.trim()));
 }
 
@@ -148,66 +141,5 @@ export function queryActivity(params: ActivityQueryParams): ActivityQueryResult 
     });
   }
 
-  if (sources.has('notes')) {
-    const workspacePath = getWorkspacePath();
-    if (workspacePath) {
-      result.notes_sessions = queryNotesSessions(workspacePath, since, until);
-    } else {
-      result.notes_sessions = [];
-    }
-  }
-
   return result;
-}
-
-function queryNotesSessions(workspacePath: string, sinceUtc: string, untilUtc: string): NotesSession[] {
-  const notesDir = path.join(workspacePath, '.notes');
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(notesDir).filter(e => e.endsWith('.md'));
-  } catch {
-    return [];
-  }
-
-  const sinceLocal = DateTime.fromISO(sinceUtc, { zone: 'utc' }).toLocal();
-  const untilLocal = DateTime.fromISO(untilUtc, { zone: 'utc' }).toLocal();
-  const sinceDate = sinceLocal.toFormat('yyyy-MM-dd');
-  const untilDate = untilLocal.toFormat('yyyy-MM-dd');
-
-  const sessions: NotesSession[] = [];
-
-  for (const entry of entries) {
-    const date = entry.replace(/\.md$/, '');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-    if (date < sinceDate || date > untilDate) continue;
-
-    const filePath = path.join(notesDir, entry);
-    let content: string;
-    try {
-      content = fs.readFileSync(filePath, 'utf-8');
-    } catch {
-      continue;
-    }
-
-    // Parse ## HH:MM headings
-    const matches = [...content.matchAll(/^## (\d{2}:\d{2})$/gm)];
-    const timeBlocks: string[] = [];
-    for (const match of matches) {
-      const blockTime = match[1];
-      const blockDt = DateTime.fromISO(`${date}T${blockTime}`, { zone: 'local' });
-      if (blockDt >= sinceLocal && blockDt <= untilLocal) {
-        timeBlocks.push(blockTime);
-      }
-    }
-
-    if (timeBlocks.length > 0) {
-      sessions.push({
-        file_path: `.notes/${entry}`,
-        date,
-        time_blocks: timeBlocks,
-      });
-    }
-  }
-
-  return sessions;
 }

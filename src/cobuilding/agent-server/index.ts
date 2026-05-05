@@ -177,13 +177,13 @@ function createMcpRelayServers(state: SessionState) {
       name: 'activity',
       tools: [
         tool('query_activity',
-          'Query the user\'s recent activity — browser pages visited, files edited/viewed, and dictated notes. Returns raw session data for a time range.',
+          'Query the user\'s recent activity — browser pages visited and files edited/viewed. Returns raw session data for a time range.',
           {
             period: z.enum(['today', 'last_2h', 'last_24h', 'this_week']).optional().describe('Convenience shorthand for common time ranges. Ignored if "since" is provided.'),
             since: z.string().optional().describe('ISO timestamp for custom range start. Overrides "period".'),
             until: z.string().optional().describe('ISO timestamp for custom range end. Defaults to now.'),
             search: z.string().optional().describe('Filter results by title or URL/path content.'),
-            source: z.string().optional().describe('Which sources to include: "browser", "file", "notes", or "all". Comma-separated. Defaults to "all".'),
+            source: z.string().optional().describe('Which sources to include: "browser", "file", or "all". Comma-separated. Defaults to "all".'),
           },
           relay('activity', 'query_activity'),
         ),

@@ -72,7 +72,6 @@ import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuild
 import { fetchGatewayCredentials, getAnthropicConfig, setRefreshCallback, destroyTokenManager, type AnthropicConfig } from './cobuildingTokenManager';
 import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
-import { registerNotesHandlers } from './notesHandlers';
 import { AcademiaHttpServer } from '../../server/httpServer';
 import { setHttpProxyPort, stopHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
 import {
@@ -191,8 +190,8 @@ function clearReactionUserInstructions(): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
-type ReactionSource = 'browser' | 'file' | 'notes';
-const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['browser', 'file', 'notes'];
+type ReactionSource = 'browser' | 'file';
+const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['browser', 'file'];
 
 function getReactionSources(): ReactionSource[] {
   try {
@@ -214,7 +213,7 @@ function setReactionSources(sources: ReactionSource[]): void {
 }
 
 function buildReactionsPrompt(sources: ReactionSource[]): string {
-  const sourceFilter = sources.length === 3 ? 'all' : sources.join(',');
+  const sourceFilter = sources.length === 2 ? 'all' : sources.join(',');
   return 'Complete ALL of the following steps in order:\n' +
     '\n' +
     '1. Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. ' +
@@ -299,25 +298,6 @@ function getCustomAnthropicBaseURL(): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function getOpenAIKey(): string | null {
-  try {
-    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.openaiApiKey ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function setOpenAIKey(key: string): void {
-  const settingsPath = getSettingsPath();
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch { }
-  data.openaiApiKey = key;
-  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 // Configure electron-log for cobuilding — write to userData so dev/prod logs are separated
@@ -635,13 +615,6 @@ app.whenReady().then(async () => {
     createMainWindow();
 
     registerFileHandlers(() => activeWorkspace?.directory_path ?? null, () => mainWindow);
-    registerNotesHandlers(
-      () => activeWorkspace?.directory_path ?? null,
-      () => activeWorkspace?.api_key ?? null,
-      () => activeWorkspace?.id ?? null,
-      getOpenAIKey,
-      () => cachedBaseURL ?? null,
-    );
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
     initSessionFiles(() => activeWorkspace?.directory_path ?? null);
@@ -1204,8 +1177,7 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
         const browserCount = result.browser_sessions
           ? result.browser_sessions.reduce((sum: number, group: any) => sum + (group.sessions as unknown[]).length, 0) : 0;
         const fileCount = result.file_sessions?.length || 0;
-        const notesCount = result.notes_sessions?.length || 0;
-        const header = `Activity from ${result.query.since} to ${result.query.until}\nBrowser sessions: ${browserCount} | File sessions: ${fileCount} | Notes sessions: ${notesCount}\n`;
+        const header = `Activity from ${result.query.since} to ${result.query.until}\nBrowser sessions: ${browserCount} | File sessions: ${fileCount}\n`;
         return ok(header + '\n' + JSON.stringify(result, null, 2));
       },
     },
@@ -1531,14 +1503,6 @@ ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
 
 ipcMain.handle('settings:setMaxAttachmentSizeMB', (_event, sizeMB: number) => {
   setMaxAttachmentSizeMB(sizeMB);
-});
-
-ipcMain.handle('settings:getOpenAIKey', () => {
-  return getOpenAIKey();
-});
-
-ipcMain.handle('settings:setOpenAIKey', (_event, key: string) => {
-  setOpenAIKey(key);
 });
 
 ipcMain.handle('container:getBundledStatus', () => {
@@ -1992,50 +1956,6 @@ ipcMain.handle('sessions:findForApp', (_event, dirName: string) => {
   return sessionId;
 });
 
-function buildNotesConversationHistory(sessionId: string): string {
-  const messages = getMessages(sessionId);
-  if (messages.length === 0) return '';
-
-  const lines: string[] = [];
-  let i = 0;
-  while (i < messages.length) {
-    if (messages[i].type !== 'user') { i++; continue; }
-    const userMsg = messages[i];
-    i++;
-
-    // Collect all consecutive assistant/tool_result rows until the next user row
-    const assistantTexts: string[] = [];
-    while (i < messages.length && messages[i].type !== 'user') {
-      if (messages[i].type === 'assistant') {
-        try {
-          const parsed = JSON.parse(messages[i].content);
-          if (Array.isArray(parsed)) {
-            for (const block of parsed) {
-              if (block.type === 'text') assistantTexts.push(block.text);
-            }
-          } else if (parsed.text) {
-            assistantTexts.push(parsed.text);
-          }
-        } catch {
-          // Skip malformed
-        }
-      }
-      i++;
-    }
-
-    if (assistantTexts.length > 0) {
-      try {
-        const request = JSON.parse(userMsg.content).text;
-        lines.push(`- User: "${request}"`);
-        lines.push(`  Assistant: "${assistantTexts.join('\n')}"`);
-      } catch {
-        // Skip malformed
-      }
-    }
-  }
-  return lines.join('\n');
-}
-
 async function generateSessionTitle(sessionId: string, firstMessage: string, apiKey: string, baseURL?: string): Promise<void> {
   try {
     const client = new Anthropic({ apiKey, baseURL });
@@ -2074,7 +1994,6 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
     return;
   }
 
-  const isNotesSession = threadId.startsWith('notes-assistant-');
   const isCalendarSession = threadId === 'calendar-assistant';
   let isFirstMessage = false;
 
@@ -2107,27 +2026,6 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
         unregisterSession(threadId);
       });
     } else {
-      let messagePreprocessor: ((text: string) => string) | undefined;
-      if (isNotesSession && !existingDbSession?.sdk_session_id) {
-        // Only inject history on the first SDK turn for this session.
-        // Subsequent turns resume the SDK session which already has context.
-        const dayFile = threadId.replace('notes-assistant-', '');
-        const notesFilePath = `.notes/${dayFile}.md`;
-        let injected = false;
-        messagePreprocessor = (userText: string) => {
-          if (injected) return userText;
-          injected = true;
-          const history = buildNotesConversationHistory(threadId);
-          let enriched = '';
-          if (history) {
-            enriched += `## Background Context\n\nHere is the conversation history from this notes session (the user is dictating notes via speech-to-text, and some of these are automated request/response pairs detected by an assistant):\n\n${history}\n\n`;
-          }
-          enriched += `## Important\n\nThe user's dictation notes for today are stored in the file at: ${notesFilePath}\nPlease make sure to read this file to understand the full context of their notes before responding.\n\n`;
-          enriched += `## User's Request\n\n${userText}`;
-          return enriched;
-        };
-      }
-
       const session = createAgentSession(
         threadId,
         {
@@ -2137,10 +2035,9 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
         },
         activeWorkspace,
         existingDbSession?.sdk_session_id ?? undefined,
-        isNotesSession ? 'notes-assistant' : undefined,
+        undefined,
         handleNotificationNavigation,
         model,
-        messagePreprocessor,
       );
 
       registerSession(threadId, session);
@@ -2155,7 +2052,7 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
   ensureForwarding(threadId, event.sender);
   getRegisteredSession(threadId)!.sendMessage(text, attachments);
 
-  if (isFirstMessage && !isNotesSession && !isCalendarSession && activeWorkspace.api_key) {
+  if (isFirstMessage && !isCalendarSession && activeWorkspace.api_key) {
     generateSessionTitle(threadId, text, activeWorkspace.api_key, cachedBaseURL);
   }
 });
