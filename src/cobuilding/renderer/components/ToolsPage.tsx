@@ -7,12 +7,10 @@ interface MiniAppEntry {
   dirName: string;
 }
 
-// --- Stub data (to be replaced with real data later) ---
-
-interface PersonalizedStub {
+interface SuggestedMiniApp {
   name: string;
-  timeEstimate: string;
-  description: string;
+  why_im_suggesting_this: string;
+  details_on_what_to_build: string;
 }
 
 interface AvailableStub {
@@ -22,27 +20,12 @@ interface AvailableStub {
   preBuilt?: boolean;
 }
 
-const PERSONALIZED_TOOLS_STUB: PersonalizedStub[] = [
-  {
-    name: 'Wound closure quantification pipeline',
-    timeEstimate: '~45 MIN PER IMAGE SET',
-    description: 'Automatically processes time-lapse scratch assay images and produces closure curves, summary statistics, and figures in your style.',
-  },
-  {
-    name: 'Protocol templater',
-    timeEstimate: '~30 MIN PER NEW PROTOCOL',
-    description: 'Generates new protocol drafts in your lab\u2019s standard format from a brief description.',
-  },
-];
-
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   { name: 'Peer Review Assistant', description: 'Manuscript review with structured feedback', tag: 'ON-DEMAND', preBuilt: true },
   { name: 'Literature Synthesis', description: 'Build a structured review across many papers', tag: 'ON-DEMAND', preBuilt: true },
   { name: 'Wound healing weekly', description: 'New papers \u00b7 weekly digest \u00b7 5 journals', tag: 'SCHEDULED' },
   { name: 'YAP/TAZ flag-watcher', description: 'Daily \u00b7 flags papers that contradict your work', tag: 'SCHEDULED' },
 ];
-
-// --- End stub data ---
 
 export function ToolsPage({
   workspacePath,
@@ -56,6 +39,7 @@ export function ToolsPage({
   const [apps, setApps] = useState<MiniAppEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
+  const [suggestedApps, setSuggestedApps] = useState<SuggestedMiniApp[]>([]);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
 
@@ -85,6 +69,18 @@ export function ToolsPage({
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    window.reportsAPI.getLatest('directory_scan').then((report) => {
+      if (!report?.suggested_mini_apps) return;
+      try {
+        const parsed = JSON.parse(report.suggested_mini_apps);
+        if (Array.isArray(parsed)) setSuggestedApps(parsed);
+      } catch {
+        // ignore malformed JSON
+      }
+    });
+  }, []);
 
   const handleAddTool = useCallback(() => {
     assistantRuntime.switchToNewThread();
@@ -123,6 +119,31 @@ export function ToolsPage({
     }
   }, [refresh, onSelectApp]);
 
+  const handleBuildSuggested = useCallback((tool: SuggestedMiniApp) => {
+    assistantRuntime.switchToNewThread();
+    setTimeout(() => {
+      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.details_on_what_to_build}`);
+      onSwitchToChat();
+      setTimeout(() => {
+        const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
+        if (input) {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+        const shell = document.querySelector('.composerShell');
+        if (shell) {
+          shell.classList.remove('composerShell--highlight');
+          void (shell as HTMLElement).offsetWidth;
+          shell.classList.add('composerShell--highlight');
+        }
+      }, 0);
+    }, 0);
+  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
+
+  const handleDismissSuggested = useCallback((tool: SuggestedMiniApp) => {
+    setSuggestedApps((prev) => prev.filter((t) => t.name !== tool.name));
+  }, []);
+
   const handleStubAction = useCallback(() => {
     alert('This is a placeholder for now.');
   }, []);
@@ -147,7 +168,7 @@ export function ToolsPage({
   }, [workspacePath, refresh]);
 
   const installedCount = apps.length;
-  const suggestedCount = PERSONALIZED_TOOLS_STUB.length;
+  const suggestedCount = suggestedApps.length;
   const availableCount = AVAILABLE_TOOLS_STUB.length;
 
   return (
@@ -232,40 +253,41 @@ export function ToolsPage({
           </div>
         </section>
 
-        {/* Personalized tools (stub — to be replaced later) */}
-        <section className="toolsSection">
-          <h2 className="toolsSection__heading">
-            Personalized tools I can build for you
-            <span className="toolsSection__count">{suggestedCount}</span>
-            <span className="toolsSection__meta">&middot; based on patterns I noticed in your work</span>
-          </h2>
-          {PERSONALIZED_TOOLS_STUB.map((tool) => (
-            <div key={tool.name} className="toolsCard toolsCard--spaced">
-              <div className="toolRow toolRow--tall">
-                <div className="toolRow__icon">
-                  <LayoutGridIcon style={{ width: 18, height: 18 }} />
-                </div>
-                <div className="toolRow__info">
-                  <div className="toolRow__header">
-                    <button className="toolRow__name" onClick={handleStubAction}>
-                      {tool.name}
-                    </button>
-                    <span className="toolRow__tag toolRow__tag--plain">{tool.timeEstimate}</span>
+        {/* Personalized tools from directory scan */}
+        {suggestedApps.length > 0 && (
+          <section className="toolsSection">
+            <h2 className="toolsSection__heading">
+              Personalized tools I can build for you
+              <span className="toolsSection__count">{suggestedCount}</span>
+              <span className="toolsSection__meta">&middot; based on patterns I noticed in your work</span>
+            </h2>
+            {suggestedApps.map((tool) => (
+              <div key={tool.name} className="toolsCard toolsCard--spaced">
+                <div className="toolRow toolRow--tall">
+                  <div className="toolRow__icon">
+                    <LayoutGridIcon style={{ width: 18, height: 18 }} />
                   </div>
-                  <div className="toolRow__description">{tool.description}</div>
-                </div>
-                <div className="toolRow__actions toolRow__actions--stacked">
-                  <button className="toolRow__primaryBtn" onClick={handleStubAction}>
-                    Build it
-                  </button>
-                  <button className="toolRow__secondaryBtn" onClick={handleStubAction}>
-                    Skip
-                  </button>
+                  <div className="toolRow__info">
+                    <div className="toolRow__header">
+                      <button className="toolRow__name" onClick={() => handleBuildSuggested(tool)}>
+                        {tool.name}
+                      </button>
+                    </div>
+                    <div className="toolRow__description">{tool.why_im_suggesting_this}</div>
+                  </div>
+                  <div className="toolRow__actions toolRow__actions--stacked">
+                    <button className="toolRow__primaryBtn" onClick={() => handleBuildSuggested(tool)}>
+                      Build it
+                    </button>
+                    <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(tool)}>
+                      Skip
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </section>
+            ))}
+          </section>
+        )}
 
         {/* Available tools (stub — to be replaced later) */}
         <section className="toolsSection">

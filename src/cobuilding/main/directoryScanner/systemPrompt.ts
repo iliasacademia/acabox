@@ -56,7 +56,9 @@ Produce a JSON report following the output schema with three fields:
 
 2. **what_youre_working_on_summary**: A 2-4 paragraph summary of what the researcher is currently working on. Describe their active projects, recent focus areas, and what they seem to be in the middle of. Written in second person ("You have been...") so it reads naturally when shown to the researcher.
 
-3. **what_youre_working_on**: A list of specific files the researcher has been actively working on recently (based on modification times). For each file, include the relative path and a short description of what the user might want to do next with it (e.g. "Continue drafting the methods section", "Review and address referee comments", "Debug the data loading step"). Focus on the most recently modified and most important files.`;
+3. **what_youre_working_on**: A list of specific files the researcher has been actively working on recently (based on modification times). For each file, include the relative path and a short description of what the user might want to do next with it (e.g. "Continue drafting the methods section", "Review and address referee comments", "Debug the data loading step"). Focus on the most recently modified and most important files.
+
+4. **suggested_mini_apps**: A list of 2-5 simple mini-apps that would be useful for this researcher. Each suggestion should be a quick-to-build data analysis tool tailored to their specific files and workflows. Good examples: a CSV column explorer for their tabular data, a batch file renamer for their image sets, a simple plot generator for their experimental results, a data format converter, or a basic statistical summary dashboard. Each suggestion needs a name, why you're suggesting it (tied to what you found in their directory), and brief details on what to build. Keep suggestions practical and achievable — focus on tools that load a file, do one thing well, and show the result.`;
 }
 
 export function buildScannerPrompt(directoryPath: string): string {
@@ -69,6 +71,7 @@ Start by surveying the top-level structure with Glob, then delegate analysis of 
 - What projects they have and what each contains
 - What tools, languages, and frameworks they use
 - Which specific files have been modified most recently and what the researcher likely wants to do next with each one
+- What simple data analysis tools or utilities would help this researcher based on their file types and workflows
 
 Work as quickly as possible. Launch multiple subagents in parallel to analyze different parts of the directory simultaneously.`;
 }

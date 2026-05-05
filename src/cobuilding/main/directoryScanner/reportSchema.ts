@@ -27,6 +27,28 @@ export const REPORT_JSON_SCHEMA = {
       },
       description: 'A list of files the researcher is currently working on (based on recent modification times), each with a suggested next action. Focus on the most recently modified and most important files.',
     },
+    suggested_mini_apps: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Short display name for the suggested mini-app (e.g. "CSV Column Explorer", "PCA Visualizer").',
+          },
+          why_im_suggesting_this: {
+            type: 'string',
+            description: 'A 1-2 sentence explanation of why this app would be useful for this specific researcher, based on their files and workflow.',
+          },
+          details_on_what_to_build: {
+            type: 'string',
+            description: 'A concise description of what the app should do — inputs, outputs, and key functionality. Keep it focused on simple, quick-to-build data analysis tools.',
+          },
+        },
+        required: ['name', 'why_im_suggesting_this', 'details_on_what_to_build'],
+      },
+      description: 'A list of 2-5 suggested mini-apps the co-scientist could build for this researcher. Focus on simple data analysis tools that could be built quickly — things like file format converters, data visualizers, simple statistical analysis dashboards, or data cleaning utilities.',
+    },
   },
-  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on'],
+  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on', 'suggested_mini_apps'],
 };
