@@ -48,5 +48,28 @@ module.exports = {
       ].join('\n'),
       raw: true,
     }),
+    // Bake build-time credentials into the main bundle so packaged production
+    // builds don't depend on the user's shell environment. Set GOOGLE_CLIENT_ID
+    // and GOOGLE_CLIENT_SECRET before running `npm run make` (e.g. in CI:
+    // `GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... npm run make`). When unset
+    // at build time, the bundle ships without credentials and the Settings UI
+    // surfaces a "not configured" message — the production build is still
+    // valid for users who don't enable Google Docs integration.
+    (() => {
+      const hasGoogleClientId = !!process.env.GOOGLE_CLIENT_ID;
+      const hasGoogleClientSecret = !!process.env.GOOGLE_CLIENT_SECRET;
+      // Single log line at the start of the main build so CI logs make it
+      // obvious whether the secrets were piped through. No values printed.
+      console.log(
+        `[webpack.main] Google Docs OAuth credentials: GOOGLE_CLIENT_ID=${hasGoogleClientId ? 'set' : 'UNSET'}, GOOGLE_CLIENT_SECRET=${hasGoogleClientSecret ? 'set' : 'UNSET'}` +
+          (hasGoogleClientId !== hasGoogleClientSecret
+            ? ' — WARNING: only one of the two is set, OAuth will fail at runtime'
+            : ''),
+      );
+      return new webpack.DefinePlugin({
+        'process.env.GOOGLE_CLIENT_ID': JSON.stringify(process.env.GOOGLE_CLIENT_ID || ''),
+        'process.env.GOOGLE_CLIENT_SECRET': JSON.stringify(process.env.GOOGLE_CLIENT_SECRET || ''),
+      });
+    })(),
   ],
 };

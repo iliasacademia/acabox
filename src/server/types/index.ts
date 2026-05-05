@@ -164,6 +164,14 @@ export interface OverlayPollResponse {
   reviewErrorMessage?: string;
   /** Active document path (if available) */
   activeDocumentPath?: string | null;
+  /**
+   * Human-readable name for the active document. For file-based hosts the
+   * renderer can derive this from `activeDocumentPath` (basename), but for
+   * synthetic-scheme hosts (e.g. `gdocs://<id>`) the path is opaque, so the
+   * server supplies the actual title (Google Doc title, Apple Note name, ...).
+   * When set, the renderer should prefer this over deriving from the path.
+   */
+  activeDocumentDisplayName?: string | null;
   /** Whether button-v2 webview is visible (from webview manager desired state) */
   shouldShowButtonV2?: boolean;
   /** Whether popup-v2 webview is visible (from webview manager desired state) */

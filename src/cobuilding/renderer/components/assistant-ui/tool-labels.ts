@@ -130,6 +130,14 @@ export function getToolLabel(
       return 'Opening note';
     case 'mcp__apple-notes__find_and_replace':
       return 'Proposing edit';
+    case 'mcp__google-docs__get_active_doc':
+      return 'Getting active Google Doc';
+    case 'mcp__google-docs__get_text': {
+      const selectionOnly = resolved?.selection_only as boolean | undefined;
+      return selectionOnly ? 'Reading selection' : 'Reading Google Doc';
+    }
+    case 'mcp__google-docs__find_and_replace':
+      return 'Proposing edit';
     case 'mcp__mini-apps__open_mini_application': {
       const dirName = resolved?.dir_name as string | undefined;
       return dirName ? `Opening app: ${dirName}` : 'Opening app';
