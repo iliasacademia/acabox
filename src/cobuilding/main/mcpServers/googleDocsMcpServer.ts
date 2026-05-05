@@ -25,6 +25,178 @@ const DEFAULT_GET_TEXT_LIMIT = 200_000;
  *   which returns a Phase-C2 not-yet error until the OAuth + Docs API
  *   integration ships.
  */
+export async function googleDocsGetActiveDoc(_args: any = {}) {
+  try {
+    const info = await resolveActiveGoogleDocInfo();
+    if (!info) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: false,
+              error: 'No active Google Doc — either the browser extension is not connected, or the focused Chrome tab is not a Google Doc.',
+            }),
+          },
+        ],
+      };
+    }
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            success: true,
+            documentPath: info.documentPath,
+            title: info.title,
+            url: info.url,
+          }),
+        },
+      ],
+    };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+  }
+}
+
+export async function googleDocsGetText(args: { selection_only?: boolean; offset?: number; limit?: number } = {}) {
+  try {
+    if (args.selection_only) {
+      const text = await browserExtensionServer.getSelection(1500);
+      if (!text) {
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                success: false,
+                error: 'No text selected in the active tab. Ask the user to highlight the passage they want you to work on.',
+              }),
+            },
+          ],
+        };
+      }
+      return {
+        content: [
+          { type: 'text' as const, text: JSON.stringify({ success: true, text, selection: true }) },
+        ],
+      };
+    }
+
+    if (!isGoogleDocsApiConnected()) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: false,
+              error: 'Full-document reads require connecting Google in Settings → Google Docs Integration. Until then, ask the user to highlight the passage they want you to work on and call get_text with selection_only=true — selection still works without OAuth.',
+              reason: 'oauth-required',
+            }),
+          },
+        ],
+      };
+    }
+    const info = await resolveActiveGoogleDocInfo();
+    const docId = info ? documentPathToGoogleDocId(info.documentPath) : null;
+    if (!docId) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: false,
+              error: 'No active Google Doc — either the browser extension is not connected, or the focused Chrome tab is not a Google Doc. Ask the user to focus the Doc tab and try again.',
+            }),
+          },
+        ],
+      };
+    }
+    const apiResult = await getDocTextViaApi(docId);
+    if (!apiResult.success || !apiResult.data) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: false,
+              error: apiResult.error ?? 'Docs API call failed',
+              reason: apiResult.authExpired ? 'auth-expired' : undefined,
+            }),
+          },
+        ],
+      };
+    }
+    const fullText = apiResult.data.text;
+    if (!fullText) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              success: false,
+              error: 'The Docs API returned an empty body for this document. The doc may be empty.',
+            }),
+          },
+        ],
+      };
+    }
+    const offset = Math.max(0, args.offset ?? 0);
+    const limit = Math.max(1, args.limit ?? DEFAULT_GET_TEXT_LIMIT);
+    const slice = fullText.substring(offset, offset + limit);
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            success: true,
+            text: slice,
+            offset,
+            limit,
+            totalLength: fullText.length,
+            truncated: offset + limit < fullText.length,
+          }),
+        },
+      ],
+    };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+  }
+}
+
+export async function googleDocsFindAndReplace(args: { search_text: string; replacement_text: string; replace_scope?: 'first' | 'all'; match_case?: boolean }) {
+  const info = await resolveActiveGoogleDocInfo();
+  if (!info) {
+    return {
+      isError: true,
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            success: false,
+            error: 'No active Google Doc — cannot propose an edit without knowing which doc to scope the suggestion to.',
+          }),
+        },
+      ],
+    };
+  }
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          proposed: true,
+          document_path: info.documentPath,
+          search_text: args.search_text,
+          replacement_text: args.replacement_text,
+          replace_scope: args.replace_scope ?? 'first',
+          match_case: args.match_case ?? true,
+        }),
+      },
+    ],
+  };
+}
+
 export function createGoogleDocsMcpServer() {
   return createSdkMcpServer({
     name: 'google-docs',
@@ -33,39 +205,7 @@ export function createGoogleDocsMcpServer() {
         'get_active_doc',
         "Get the document path, URL, and display title of the Google Doc currently open in the user's focused Chrome tab. Returns success=false when no Google Doc is active or the Academia browser extension is not connected.",
         {},
-        async () => {
-          try {
-            const info = await resolveActiveGoogleDocInfo();
-            if (!info) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      success: false,
-                      error: 'No active Google Doc — either the browser extension is not connected, or the focused Chrome tab is not a Google Doc.',
-                    }),
-                  },
-                ],
-              };
-            }
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({
-                    success: true,
-                    documentPath: info.documentPath,
-                    title: info.title,
-                    url: info.url,
-                  }),
-                },
-              ],
-            };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
+        googleDocsGetActiveDoc,
       ),
 
       tool(
@@ -80,114 +220,7 @@ If the response says \`truncated: false\`, you have the entire saved document �
           offset: z.number().optional().describe('Character offset to start reading from (0-based, default 0). Ignored when selection_only=true.'),
           limit: z.number().optional().describe(`Max characters to return (default ${DEFAULT_GET_TEXT_LIMIT}). Ignored when selection_only=true.`),
         },
-        async (args) => {
-          try {
-            if (args.selection_only) {
-              const text = await browserExtensionServer.getSelection(1500);
-              if (!text) {
-                return {
-                  content: [
-                    {
-                      type: 'text' as const,
-                      text: JSON.stringify({
-                        success: false,
-                        error: 'No text selected in the active tab. Ask the user to highlight the passage they want you to work on.',
-                      }),
-                    },
-                  ],
-                };
-              }
-              return {
-                content: [
-                  { type: 'text' as const, text: JSON.stringify({ success: true, text, selection: true }) },
-                ],
-              };
-            }
-
-            // Full-doc reads go through the OAuth-backed Docs API. If the user
-            // hasn't connected, surface a clear "connect Google" message — we
-            // no longer fall back to the legacy /export?format=txt endpoint
-            // (it can't serve multi-tab or download-restricted docs anyway).
-            if (!isGoogleDocsApiConnected()) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      success: false,
-                      error: 'Full-document reads require connecting Google in Settings → Google Docs Integration. Until then, ask the user to highlight the passage they want you to work on and call get_text with selection_only=true — selection still works without OAuth.',
-                      reason: 'oauth-required',
-                    }),
-                  },
-                ],
-              };
-            }
-            const info = await resolveActiveGoogleDocInfo();
-            const docId = info ? documentPathToGoogleDocId(info.documentPath) : null;
-            if (!docId) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      success: false,
-                      error: 'No active Google Doc — either the browser extension is not connected, or the focused Chrome tab is not a Google Doc. Ask the user to focus the Doc tab and try again.',
-                    }),
-                  },
-                ],
-              };
-            }
-            const apiResult = await getDocTextViaApi(docId);
-            if (!apiResult.success || !apiResult.data) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      success: false,
-                      error: apiResult.error ?? 'Docs API call failed',
-                      reason: apiResult.authExpired ? 'auth-expired' : undefined,
-                    }),
-                  },
-                ],
-              };
-            }
-            const fullText = apiResult.data.text;
-            if (!fullText) {
-              return {
-                content: [
-                  {
-                    type: 'text' as const,
-                    text: JSON.stringify({
-                      success: false,
-                      error: 'The Docs API returned an empty body for this document. The doc may be empty.',
-                    }),
-                  },
-                ],
-              };
-            }
-            const offset = Math.max(0, args.offset ?? 0);
-            const limit = Math.max(1, args.limit ?? DEFAULT_GET_TEXT_LIMIT);
-            const slice = fullText.substring(offset, offset + limit);
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({
-                    success: true,
-                    text: slice,
-                    offset,
-                    limit,
-                    totalLength: fullText.length,
-                    truncated: offset + limit < fullText.length,
-                  }),
-                },
-              ],
-            };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
+        googleDocsGetText,
       ),
 
       tool(
@@ -199,38 +232,7 @@ If the response says \`truncated: false\`, you have the entire saved document �
           replace_scope: z.enum(['first', 'all']).default('first').describe('"first" replaces only the first occurrence, "all" replaces every occurrence'),
           match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
         },
-        async (args) => {
-          const info = await resolveActiveGoogleDocInfo();
-          if (!info) {
-            return {
-              isError: true,
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({
-                    success: false,
-                    error: 'No active Google Doc — cannot propose an edit without knowing which doc to scope the suggestion to.',
-                  }),
-                },
-              ],
-            };
-          }
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  proposed: true,
-                  document_path: info.documentPath,
-                  search_text: args.search_text,
-                  replacement_text: args.replacement_text,
-                  replace_scope: args.replace_scope,
-                  match_case: args.match_case,
-                }),
-              },
-            ],
-          };
-        },
+        googleDocsFindAndReplace,
       ),
     ],
   });

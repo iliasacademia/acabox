@@ -18,7 +18,119 @@ import {
  * the Word/Obsidian flows use. The renderer's apply-edit POST routes to
  * `appleNotesHostApp.applyEdit()` based on the proposal's `document_path`,
  * which uses the synthetic `applenotes://<note-id>` scheme.
+ *
+ * The tool handler bodies are exported as standalone functions so the
+ * in-container agent's SSE relay (registerHostMcpServers in cobuilding/main/index.ts)
+ * can call them without going through the SDK server. Keeps the SDK server and
+ * the relay in lock-step.
  */
+
+async function resolveNoteId(explicitId?: string): Promise<{ noteId: string } | { error: string }> {
+  if (explicitId) return { noteId: explicitId };
+  const active = await getActiveNote();
+  if (!active.success || !active.noteId) return { error: 'No active note' };
+  return { noteId: active.noteId };
+}
+
+export async function appleNotesGetActiveNote(_args: any = {}) {
+  try {
+    const result = await getActiveNote();
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+  }
+}
+
+export async function appleNotesGetText(args: { note_id?: string; offset?: number; limit?: number } = {}) {
+  try {
+    const resolved = await resolveNoteId(args.note_id);
+    if ('error' in resolved) {
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: resolved.error }) }],
+      };
+    }
+    const result = await getNotePlainText(resolved.noteId, args.offset, args.limit);
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+  }
+}
+
+export async function appleNotesListNotes(args: { offset?: number; limit?: number } = {}) {
+  try {
+    const result = await listNotes(args.offset, args.limit);
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+  }
+}
+
+export async function appleNotesSearchNotes(args: { query: string; limit?: number }) {
+  try {
+    const result = await searchNotes(args.query, args.limit);
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+  }
+}
+
+export async function appleNotesSaveNote(args: { note_id?: string } = {}) {
+  try {
+    const resolved = await resolveNoteId(args.note_id);
+    if ('error' in resolved) {
+      return {
+        isError: true,
+        content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: resolved.error }) }],
+      };
+    }
+    const result = await saveNote(resolved.noteId);
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+  }
+}
+
+export async function appleNotesOpenNote(args: { note_id: string }) {
+  try {
+    const result = await openNote(args.note_id);
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+  } catch (err) {
+    return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
+  }
+}
+
+export async function appleNotesFindAndReplace(args: {
+  search_text: string;
+  replacement_text: string;
+  replace_scope?: 'first' | 'all';
+  match_case?: boolean;
+  note_id?: string;
+}) {
+  const resolved = await resolveNoteId(args.note_id);
+  if ('error' in resolved) {
+    return {
+      isError: true,
+      content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: resolved.error }) }],
+    };
+  }
+  return {
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify({
+          proposed: true,
+          document_path: noteIdToDocumentPath(resolved.noteId),
+          search_text: args.search_text,
+          replacement_text: args.replacement_text,
+          replace_scope: args.replace_scope ?? 'first',
+          match_case: args.match_case ?? true,
+        }),
+      },
+    ],
+  };
+}
+
 export function createAppleNotesMcpServer() {
   return createSdkMcpServer({
     name: 'apple-notes',
@@ -27,14 +139,7 @@ export function createAppleNotesMcpServer() {
         'get_active_note',
         'Get the id and name of the currently selected note in Apple Notes. Returns null when no note is selected (e.g. user is on a folder view).',
         {},
-        async () => {
-          try {
-            const result = await getActiveNote();
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
+        appleNotesGetActiveNote,
       ),
 
       tool(
@@ -45,25 +150,7 @@ export function createAppleNotesMcpServer() {
           offset: z.number().optional().describe('Character offset to start reading from (0-based, default 0)'),
           limit: z.number().optional().describe('Max characters to return (default 8000)'),
         },
-        async (args) => {
-          try {
-            let noteId = args.note_id;
-            if (!noteId) {
-              const active = await getActiveNote();
-              if (!active.success || !active.noteId) {
-                return {
-                  isError: true,
-                  content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'No active note' }) }],
-                };
-              }
-              noteId = active.noteId;
-            }
-            const result = await getNotePlainText(noteId, args.offset, args.limit);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
+        appleNotesGetText,
       ),
 
       tool(
@@ -73,14 +160,7 @@ export function createAppleNotesMcpServer() {
           offset: z.number().optional().describe('Pagination offset (0-based, default 0)'),
           limit: z.number().optional().describe('Max notes to return (default 50)'),
         },
-        async (args) => {
-          try {
-            const result = await listNotes(args.offset, args.limit);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
+        appleNotesListNotes,
       ),
 
       tool(
@@ -90,14 +170,7 @@ export function createAppleNotesMcpServer() {
           query: z.string().describe('Text to search for in note titles and bodies'),
           limit: z.number().optional().describe('Max matches to return (default 50)'),
         },
-        async (args) => {
-          try {
-            const result = await searchNotes(args.query, args.limit);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
+        appleNotesSearchNotes,
       ),
 
       tool(
@@ -106,25 +179,7 @@ export function createAppleNotesMcpServer() {
         {
           note_id: z.string().optional().describe('Apple Notes id. Defaults to the active note.'),
         },
-        async (args) => {
-          try {
-            let noteId = args.note_id;
-            if (!noteId) {
-              const active = await getActiveNote();
-              if (!active.success || !active.noteId) {
-                return {
-                  isError: true,
-                  content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'No active note' }) }],
-                };
-              }
-              noteId = active.noteId;
-            }
-            const result = await saveNote(noteId);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
+        appleNotesSaveNote,
       ),
 
       tool(
@@ -133,14 +188,7 @@ export function createAppleNotesMcpServer() {
         {
           note_id: z.string().describe('Apple Notes id (x-coredata://...).'),
         },
-        async (args) => {
-          try {
-            const result = await openNote(args.note_id);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
+        appleNotesOpenNote,
       ),
 
       tool(
@@ -155,38 +203,7 @@ Call this tool once per edit. Do NOT describe the edits in your text — the UI 
           match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
           note_id: z.string().optional().describe('Apple Notes id. Defaults to the active note.'),
         },
-        async (args) => {
-          let noteId = args.note_id;
-          if (!noteId) {
-            const active = await getActiveNote();
-            if (!active.success || !active.noteId) {
-              return {
-                isError: true,
-                content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'No active note' }) }],
-              };
-            }
-            noteId = active.noteId;
-          }
-          // Always return the proposal — never execute directly.
-          // The UI renders a suggestion card with approve/deny buttons.
-          // Approved edits are executed via /api/cobuilding/apply-edit which
-          // dispatches to appleNotesHostApp.applyEdit().
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  proposed: true,
-                  document_path: noteIdToDocumentPath(noteId),
-                  search_text: args.search_text,
-                  replacement_text: args.replacement_text,
-                  replace_scope: args.replace_scope,
-                  match_case: args.match_case,
-                }),
-              },
-            ],
-          };
-        },
+        appleNotesFindAndReplace,
       ),
     ],
   });
