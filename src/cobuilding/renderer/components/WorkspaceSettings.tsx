@@ -18,9 +18,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [isSaving, setIsSaving] = useState(false);
   const [soulContent, setSoulContent] = useState('');
   const [soulLoaded, setSoulLoaded] = useState(false);
-  const [openaiKey, setOpenaiKey] = useState('');
-  const [openaiKeyLoaded, setOpenaiKeyLoaded] = useState(false);
-  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
 
   // Accessibility permission (shared across all overlay integrations)
   const [accessibilityGranted, setAccessibilityGranted] = useState<boolean | null>(null);
@@ -58,10 +55,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     window.soulPromptAPI.get().then(({ content }) => {
       setSoulContent(content);
       setSoulLoaded(true);
-    });
-    window.settingsAPI.getOpenAIKey().then((key) => {
-      setOpenaiKey(key ?? '');
-      setOpenaiKeyLoaded(true);
     });
     window.workspacesAPI.list().then(setAllWorkspaces);
     // Check accessibility permission
@@ -133,9 +126,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     setIsSaving(true);
     try {
       await window.soulPromptAPI.set(soulContent);
-      if (openaiKeyLoaded) {
-        await window.settingsAPI.setOpenAIKey(openaiKey);
-      }
       const updated = await window.workspacesAPI.update({ name: name.trim(), directoryPath });
       onSaved(updated);
     } catch (err) {
@@ -324,31 +314,6 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
             rows={6}
             disabled={!soulLoaded}
           />
-        </div>
-
-        <div className="wsSettings__field">
-          <label className="wsSettings__label">OpenAI API Key</label>
-          <p className="wsSettings__hint">
-            Required for speech-to-text notes. Get a key from platform.openai.com.
-          </p>
-          <div className="wsSettings__dirRow">
-            <input
-              type={showOpenaiKey ? 'text' : 'password'}
-              className="gsStep__input"
-              value={openaiKey}
-              onChange={(e) => setOpenaiKey(e.target.value)}
-              placeholder="sk-..."
-              disabled={!openaiKeyLoaded}
-              style={{ flex: 1 }}
-            />
-            <button
-              type="button"
-              className="gsStep__btn gsStep__btn--ghost"
-              onClick={() => setShowOpenaiKey((v) => !v)}
-            >
-              {showOpenaiKey ? 'Hide' : 'Show'}
-            </button>
-          </div>
         </div>
 
         <div className="wsSettings__divider" />

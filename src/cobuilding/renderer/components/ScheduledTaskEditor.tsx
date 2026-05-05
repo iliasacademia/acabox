@@ -207,7 +207,6 @@ export function ScheduledTaskEditor({
               {[
                 { key: 'browser', label: 'Browser activity' },
                 { key: 'file', label: 'File activity' },
-                { key: 'notes', label: 'Notes' },
               ].map(({ key, label }) => (
                 <label key={key} className="scheduledTaskEditor__sourceLabel">
                   <input
