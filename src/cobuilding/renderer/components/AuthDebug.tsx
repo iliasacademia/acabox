@@ -7,6 +7,7 @@ export const AuthDebug: React.FC = () => {
   const [baseURL, setBaseURL] = useState<string | null>(null);
   const [provider, setProvider] = useState<Provider>('cloudflare');
   const [customKey, setCustomKey] = useState('');
+  const [customBaseURL, setCustomBaseURL] = useState('');
   const [refetching, setRefetching] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [result, setResult] = useState<{ success: boolean; keyIdentifier?: string; error?: string } | null>(null);
@@ -68,11 +69,12 @@ export const AuthDebug: React.FC = () => {
     setSwitching(true);
     setResult(null);
     try {
-      const res = await window.authAPI.setApiProvider('custom', customKey.trim());
+      const res = await window.authAPI.setApiProvider('custom', customKey.trim(), customBaseURL.trim() || undefined);
       if (res.success) {
         setCurrentKey(customKey.trim());
-        setBaseURL(null);
+        setBaseURL(customBaseURL.trim() || null);
         setCustomKey('');
+        setCustomBaseURL('');
         setResult({ success: true });
       } else {
         setResult({ success: false, error: res.error });
@@ -109,24 +111,46 @@ export const AuthDebug: React.FC = () => {
       </div>
 
       {provider === 'custom' && (
-        <div className="debugSection__infoRow" style={{ alignItems: 'flex-start' }}>
-          <span className="debugSection__infoLabel">API Key:</span>
-          <span className="debugSection__infoValue" style={{ display: 'flex', gap: '8px' }}>
-            <input
-              type="password"
-              value={customKey}
-              onChange={(e) => setCustomKey(e.target.value)}
-              placeholder="sk-ant-..."
-              style={{
-                flex: 1,
-                padding: '4px 8px',
-                borderRadius: '4px',
-                border: '1px solid var(--border-color, #555)',
-                fontFamily: 'monospace',
-                fontSize: '12px',
-                minWidth: '200px',
-              }}
-            />
+        <>
+          <div className="debugSection__infoRow">
+            <span className="debugSection__infoLabel">API Key:</span>
+            <span className="debugSection__infoValue">
+              <input
+                type="password"
+                value={customKey}
+                onChange={(e) => setCustomKey(e.target.value)}
+                placeholder="sk-ant-..."
+                style={{
+                  width: '100%',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-color, #555)',
+                  fontFamily: 'monospace',
+                  fontSize: '12px',
+                }}
+              />
+            </span>
+          </div>
+          <div className="debugSection__infoRow">
+            <span className="debugSection__infoLabel">Base URL:</span>
+            <span className="debugSection__infoValue">
+              <input
+                type="text"
+                value={customBaseURL}
+                onChange={(e) => setCustomBaseURL(e.target.value)}
+                placeholder="https://api.anthropic.com (default if blank)"
+                style={{
+                  width: '100%',
+                  padding: '4px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-color, #555)',
+                  fontFamily: 'monospace',
+                  fontSize: '12px',
+                }}
+              />
+            </span>
+          </div>
+          <div className="debugSection__actions">
             <button
               className="debugSection__btn"
               onClick={handleSaveCustomKey}
@@ -134,8 +158,8 @@ export const AuthDebug: React.FC = () => {
             >
               {switching ? 'Saving...' : 'Save'}
             </button>
-          </span>
-        </div>
+          </div>
+        </>
       )}
 
       <div className="debugSection__infoRow">

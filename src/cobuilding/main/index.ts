@@ -281,14 +281,24 @@ function getCustomAnthropicKey(): string | null {
   }
 }
 
-function setCustomAnthropicKey(key: string): void {
+function setCustomAnthropicKey(key: string, baseURL?: string): void {
   const settingsPath = getSettingsPath();
   let data: Record<string, unknown> = {};
   try {
     data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
   } catch { }
   data.customAnthropicApiKey = key;
+  data.customAnthropicBaseURL = baseURL || null;
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function getCustomAnthropicBaseURL(): string | undefined {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.customAnthropicBaseURL || undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function getOpenAIKey(): string | null {
@@ -2462,7 +2472,7 @@ ipcMain.handle('auth:checkLogin', async () => {
       const customKey = getCustomAnthropicKey();
       if (customKey) {
         cachedApiKey = customKey;
-        cachedBaseURL = undefined;
+        cachedBaseURL = getCustomAnthropicBaseURL();
       }
     }
     const appInfo = {
@@ -2528,7 +2538,7 @@ ipcMain.handle('auth:getApiProvider', () => {
   return { provider: getApiProvider() };
 });
 
-ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey?: string) => {
+ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey?: string, customBaseURL?: string) => {
   if (provider !== 'cloudflare' && provider !== 'anthropic' && provider !== 'custom') {
     return { success: false, error: 'Invalid provider' };
   }
@@ -2537,9 +2547,10 @@ ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey
 
   if (provider === 'custom') {
     if (!customKey) return { success: false, error: 'API key is required for custom mode' };
-    setCustomAnthropicKey(customKey);
+    const baseURL = customBaseURL?.trim() || undefined;
+    setCustomAnthropicKey(customKey, baseURL);
     cachedApiKey = customKey;
-    cachedBaseURL = undefined;
+    cachedBaseURL = baseURL;
     destroyTokenManager();
     if (activeWorkspace) {
       updateApiKey(activeWorkspace.id, customKey);
