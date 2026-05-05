@@ -91,6 +91,17 @@ const packagerConfig = {
   },
   extraResource: [
     'dist/agent-server.js',
+    // Linux claude binary for the container — resolved dynamically by arch.
+    // Fetched by scripts/ensure-linux-claude-binary.sh during npm install.
+    ...(() => {
+      const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+      const glibc = `node_modules/@anthropic-ai/claude-agent-sdk-linux-${arch}/claude`;
+      if (fs.existsSync(glibc)) return [glibc];
+      const musl = `node_modules/@anthropic-ai/claude-agent-sdk-linux-${arch}-musl/claude`;
+      if (fs.existsSync(musl)) return [musl];
+      console.warn('[forge.config] Linux claude binary not found — run npm install first');
+      return [];
+    })(),
     'src/cobuilding/assets/silero_vad.onnx',
     ...(platform === 'darwin' ? [
       'src/applescripts',

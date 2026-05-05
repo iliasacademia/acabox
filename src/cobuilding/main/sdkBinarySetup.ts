@@ -44,16 +44,23 @@ export function resolveLinuxClaudeBinary(): string | null {
   // Prefer glibc (non-musl) since the container is Ubuntu-based.
   // Musl binaries fail with ENOENT because /lib/ld-musl-*.so.1 doesn't exist.
   const containerArch = process.arch === 'arm64' ? 'arm64' : 'x64';
+
+  if (app.isPackaged) {
+    // In packaged app, the binary is in Resources/ (added via extraResource in forge.config.js)
+    const resourcePath = path.join(process.resourcesPath, 'claude');
+    if (fs.existsSync(resourcePath)) {
+      return resourcePath;
+    }
+  }
+
+  // In dev, the binary is in node_modules (fetched by postinstall script)
   const candidates = [
     `@anthropic-ai/claude-agent-sdk-linux-${containerArch}`,
     `@anthropic-ai/claude-agent-sdk-linux-${containerArch}-musl`,
   ];
 
   for (const pkg of candidates) {
-    const binaryPath = app.isPackaged
-      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', pkg, 'claude')
-      : path.join(app.getAppPath(), 'node_modules', pkg, 'claude');
-
+    const binaryPath = path.join(app.getAppPath(), 'node_modules', pkg, 'claude');
     if (fs.existsSync(binaryPath)) {
       return binaryPath;
     }
