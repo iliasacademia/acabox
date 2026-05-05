@@ -87,7 +87,12 @@ const packagerConfig = {
     },
   ],
   asar: {
-    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*,**/node_modules/onnxruntime-node/**/*}',
+    // ESM packages (`node-fetch@3`, `data-uri-to-buffer@4`) and `gaxios` need
+    // to live as real files outside the asar — Node's ESM resolver doesn't
+    // handle the asar virtual fs cleanly for `import 'data-uri-to-buffer'`
+    // within `node-fetch/src/index.js`. Without this, Connect Google fails at
+    // runtime with "Cannot find package .../data-uri-to-buffer/index.js".
+    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*,**/node_modules/onnxruntime-node/**/*,**/node_modules/data-uri-to-buffer/**/*,**/node_modules/node-fetch/**/*,**/node_modules/gaxios/**/*}',
   },
   extraResource: [
     'dist/agent-server.js',
