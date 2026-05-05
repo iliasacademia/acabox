@@ -61,8 +61,144 @@ export interface ObsidianMcpServerDeps {
   getActiveNotePath: () => string | null;
 }
 
-export function createObsidianMcpServer(deps: ObsidianMcpServerDeps) {
+/**
+ * Build the per-deps tool handler map. Used by both the SDK MCP server (below)
+ * and the in-container agent's SSE relay (registerHostMcpServers in
+ * cobuilding/main/index.ts) so the two paths can't drift.
+ */
+export function createObsidianHandlers(deps: ObsidianMcpServerDeps) {
   const { workspaceDir, getActiveNotePath } = deps;
+
+  return {
+    get_active_note: async (_args: any = {}) => {
+      const active = getActiveNotePath();
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({ success: true, path: active }),
+          },
+        ],
+      };
+    },
+
+    get_text: async (args: { path?: string; offset?: number; limit?: number } = {}) => {
+      try {
+        const target = args.path ?? getActiveNotePath();
+        if (!target) {
+          return {
+            isError: true,
+            content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'No active note' }) }],
+          };
+        }
+        if (!(await isWithinRoot(target, workspaceDir))) {
+          return {
+            isError: true,
+            content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'Path is outside the workspace/vault' }) }],
+          };
+        }
+        const content = await fs.readFile(target, 'utf-8');
+        const offset = args.offset ?? 0;
+        const limit = args.limit ?? DEFAULT_GET_TEXT_LIMIT;
+        const sliced = content.substring(offset, offset + limit);
+        const hasMore = offset + limit < content.length;
+        return {
+          content: [
+            {
+              type: 'text' as const,
+              text: JSON.stringify({
+                success: true,
+                path: target,
+                totalLength: content.length,
+                offset,
+                limit,
+                content: sliced,
+                hasMore,
+              }),
+            },
+          ],
+        };
+      } catch (err) {
+        return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: String(err) }) }] };
+      }
+    },
+
+    list_notes: async (args: { subdir?: string } = {}) => {
+      try {
+        const root = args.subdir ? path.join(workspaceDir, args.subdir) : workspaceDir;
+        if (!(await isWithinRoot(root, workspaceDir))) {
+          return {
+            isError: true,
+            content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'subdir is outside the workspace/vault' }) }],
+          };
+        }
+        const matches = await walkRelative(
+          root,
+          (rel) => rel.toLowerCase().endsWith('.md'),
+          (relDir) => !relDir.startsWith('.obsidian') && !relDir.split('/').some((s) => s.startsWith('.')),
+        );
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ success: true, count: matches.length, notes: matches }) }],
+        };
+      } catch (err) {
+        return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: String(err) }) }] };
+      }
+    },
+
+    open_note: async (args: { path: string }) => {
+      try {
+        if (!(await isWithinRoot(args.path, workspaceDir))) {
+          return {
+            isError: true,
+            content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'Path is outside the workspace/vault' }) }],
+          };
+        }
+        const vaultName = path.basename(workspaceDir);
+        const relFile = path.relative(workspaceDir, args.path).replace(/\\/g, '/').replace(/\.md$/, '');
+        const url = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(relFile)}`;
+        await shell.openExternal(url);
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ success: true, url }) }] };
+      } catch (err) {
+        logger.error('[Obsidian MCP] open_note error:', err);
+        return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: String(err) }) }] };
+      }
+    },
+
+    find_and_replace: async (args: {
+      search_text: string;
+      replacement_text: string;
+      replace_scope?: 'first' | 'all';
+      match_case?: boolean;
+      path?: string;
+    }) => {
+      const target = args.path ?? getActiveNotePath();
+      if (!target) {
+        return {
+          isError: true,
+          content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'No active note' }) }],
+        };
+      }
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              proposed: true,
+              document_path: target,
+              search_text: args.search_text,
+              replacement_text: args.replacement_text,
+              replace_scope: args.replace_scope ?? 'first',
+              match_case: args.match_case ?? true,
+            }),
+          },
+        ],
+      };
+    },
+  };
+}
+
+export function createObsidianMcpServer(deps: ObsidianMcpServerDeps) {
+  const handlers = createObsidianHandlers(deps);
 
   return createSdkMcpServer({
     name: 'obsidian',
@@ -71,17 +207,7 @@ export function createObsidianMcpServer(deps: ObsidianMcpServerDeps) {
         'get_active_note',
         'Get the path of the currently active note in Obsidian. Returns null if no markdown note is active (e.g. user is on a canvas, image preview, or untitled buffer).',
         {},
-        async () => {
-          const active = getActiveNotePath();
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({ success: true, path: active }),
-              },
-            ],
-          };
-        },
+        handlers.get_active_note,
       ),
 
       tool(
@@ -92,46 +218,7 @@ export function createObsidianMcpServer(deps: ObsidianMcpServerDeps) {
           offset: z.number().optional().describe('Character offset to start reading from (0-based, default 0)'),
           limit: z.number().optional().describe('Max characters to return (default 8000)'),
         },
-        async (args) => {
-          try {
-            const target = args.path ?? getActiveNotePath();
-            if (!target) {
-              return {
-                isError: true,
-                content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'No active note' }) }],
-              };
-            }
-            if (!(await isWithinRoot(target, workspaceDir))) {
-              return {
-                isError: true,
-                content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'Path is outside the workspace/vault' }) }],
-              };
-            }
-            const content = await fs.readFile(target, 'utf-8');
-            const offset = args.offset ?? 0;
-            const limit = args.limit ?? DEFAULT_GET_TEXT_LIMIT;
-            const sliced = content.substring(offset, offset + limit);
-            const hasMore = offset + limit < content.length;
-            return {
-              content: [
-                {
-                  type: 'text' as const,
-                  text: JSON.stringify({
-                    success: true,
-                    path: target,
-                    totalLength: content.length,
-                    offset,
-                    limit,
-                    content: sliced,
-                    hasMore,
-                  }),
-                },
-              ],
-            };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: String(err) }) }] };
-          }
-        },
+        handlers.get_text,
       ),
 
       tool(
@@ -140,27 +227,7 @@ export function createObsidianMcpServer(deps: ObsidianMcpServerDeps) {
         {
           subdir: z.string().optional().describe('Optional subdirectory under the vault root to list (e.g. "daily").'),
         },
-        async (args) => {
-          try {
-            const root = args.subdir ? path.join(workspaceDir, args.subdir) : workspaceDir;
-            if (!(await isWithinRoot(root, workspaceDir))) {
-              return {
-                isError: true,
-                content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'subdir is outside the workspace/vault' }) }],
-              };
-            }
-            const matches = await walkRelative(
-              root,
-              (rel) => rel.toLowerCase().endsWith('.md'),
-              (relDir) => !relDir.startsWith('.obsidian') && !relDir.split('/').some((s) => s.startsWith('.')),
-            );
-            return {
-              content: [{ type: 'text' as const, text: JSON.stringify({ success: true, count: matches.length, notes: matches }) }],
-            };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: String(err) }) }] };
-          }
-        },
+        handlers.list_notes,
       ),
 
       tool(
@@ -169,24 +236,7 @@ export function createObsidianMcpServer(deps: ObsidianMcpServerDeps) {
         {
           path: z.string().describe('Absolute path to the .md file inside the vault.'),
         },
-        async (args) => {
-          try {
-            if (!(await isWithinRoot(args.path, workspaceDir))) {
-              return {
-                isError: true,
-                content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'Path is outside the workspace/vault' }) }],
-              };
-            }
-            const vaultName = path.basename(workspaceDir);
-            const relFile = path.relative(workspaceDir, args.path).replace(/\\/g, '/').replace(/\.md$/, '');
-            const url = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(relFile)}`;
-            await shell.openExternal(url);
-            return { content: [{ type: 'text' as const, text: JSON.stringify({ success: true, url }) }] };
-          } catch (err) {
-            logger.error('[Obsidian MCP] open_note error:', err);
-            return { isError: true, content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: String(err) }) }] };
-          }
-        },
+        handlers.open_note,
       ),
 
       tool(
@@ -201,34 +251,7 @@ Call this tool once per edit. Do NOT describe the edits in your text — the UI 
           match_case: z.boolean().default(true).describe('Whether the search is case-sensitive'),
           path: z.string().optional().describe('Absolute path to the .md file. Defaults to the active note.'),
         },
-        async (args) => {
-          const target = args.path ?? getActiveNotePath();
-          if (!target) {
-            return {
-              isError: true,
-              content: [{ type: 'text' as const, text: JSON.stringify({ success: false, error: 'No active note' }) }],
-            };
-          }
-          // Always return the proposal — never execute directly.
-          // The UI renders a suggestion card with approve/deny buttons.
-          // Approved edits are executed via /api/cobuilding/apply-edit which
-          // dispatches to the obsidian HostApp.applyEdit().
-          return {
-            content: [
-              {
-                type: 'text' as const,
-                text: JSON.stringify({
-                  proposed: true,
-                  document_path: target,
-                  search_text: args.search_text,
-                  replacement_text: args.replacement_text,
-                  replace_scope: args.replace_scope,
-                  match_case: args.match_case,
-                }),
-              },
-            ],
-          };
-        },
+        handlers.find_and_replace,
       ),
     ],
   });

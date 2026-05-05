@@ -1041,6 +1041,17 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
   const { queryActivity } = require('./activityQuery');
   const { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument, getTrackChangesStatus, setTrackChanges } = require('../../server/wordActions');
   const { googleDocsGetActiveDoc, googleDocsGetText, googleDocsFindAndReplace } = require('./mcpServers/googleDocsMcpServer');
+  const {
+    appleNotesGetActiveNote,
+    appleNotesGetText,
+    appleNotesListNotes,
+    appleNotesSearchNotes,
+    appleNotesSaveNote,
+    appleNotesOpenNote,
+    appleNotesFindAndReplace,
+  } = require('./mcpServers/appleNotesMcpServer');
+  const { createObsidianHandlers } = require('./mcpServers/obsidianMcpServer');
+  const { resolveObsidianDocumentPath } = require('./hostApps/obsidianHostApp');
   const { checkLogin } = require('../../apiClient');
   const { findReferencesForFile, findReferencesForText, createCitationReportFromText, getCitationReport, addClaimToReport, searchCitationsForClaim, formatCitations, listCitationReports } = require('./citeright/citeRightClient');
   const { summarizeReport } = require('./citeright/reportSummary');
@@ -1097,6 +1108,21 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
       get_text: googleDocsGetText,
       find_and_replace: googleDocsFindAndReplace,
     },
+
+    'apple-notes': {
+      get_active_note: appleNotesGetActiveNote,
+      get_text: appleNotesGetText,
+      list_notes: appleNotesListNotes,
+      search_notes: appleNotesSearchNotes,
+      save_note: appleNotesSaveNote,
+      open_note: appleNotesOpenNote,
+      find_and_replace: appleNotesFindAndReplace,
+    },
+
+    obsidian: createObsidianHandlers({
+      workspaceDir: workspace.directory_path,
+      getActiveNotePath: () => resolveObsidianDocumentPath(workspace.directory_path),
+    }),
 
     'ms-word': {
       get_file_path: async () => { try { return ok(JSON.stringify(await getWordFilePath())); } catch (e: any) { return fail(String(e)); } },
@@ -1293,6 +1319,13 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'mcp__zotero__get_item', 'mcp__zotero__add_doi',
       'mcp__google-docs__get_active_doc', 'mcp__google-docs__get_text',
       'mcp__google-docs__find_and_replace',
+      'mcp__apple-notes__get_active_note', 'mcp__apple-notes__get_text',
+      'mcp__apple-notes__list_notes', 'mcp__apple-notes__search_notes',
+      'mcp__apple-notes__save_note', 'mcp__apple-notes__open_note',
+      'mcp__apple-notes__find_and_replace',
+      'mcp__obsidian__get_active_note', 'mcp__obsidian__get_text',
+      'mcp__obsidian__list_notes', 'mcp__obsidian__open_note',
+      'mcp__obsidian__find_and_replace',
     ],
     settingSources: ['project'],
   };
