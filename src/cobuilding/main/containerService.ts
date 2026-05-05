@@ -151,8 +151,9 @@ class CobuildingContainerService {
       // image (with workspace deps baked in) or just the base image. The agent
       // becomes available immediately. If the full image isn't up to date, it
       // builds in the background for next restart.
-      const imageUpToDate = await this.isImageUpToDate(podmanBin, workspacePath);
       const hasFullImage = await this.imageExists(podmanBin, IMAGE_NAME);
+      // Only check hash if the image exists with correct architecture
+      const imageUpToDate = hasFullImage && await this.isImageUpToDate(podmanBin, workspacePath);
       log.info(`[ContainerService] Image state: upToDate=${imageUpToDate}, hasFullImage=${hasFullImage}`);
 
       if (imageUpToDate) {
