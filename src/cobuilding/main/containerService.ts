@@ -153,6 +153,7 @@ class CobuildingContainerService {
       // builds in the background for next restart.
       const imageUpToDate = await this.isImageUpToDate(podmanBin, workspacePath);
       const hasFullImage = await this.imageExists(podmanBin, IMAGE_NAME);
+      log.info(`[ContainerService] Image state: upToDate=${imageUpToDate}, hasFullImage=${hasFullImage}`);
 
       if (imageUpToDate) {
         // Full image is current — start directly
@@ -435,6 +436,7 @@ class CobuildingContainerService {
     // Copy Linux claude binary — skip if already present and same size (version match)
     const { resolveLinuxClaudeBinary } = await import('./sdkBinarySetup');
     const binarySrc = resolveLinuxClaudeBinary();
+    log.debug(`[ContainerService] Linux binary resolved: ${binarySrc ?? 'NOT FOUND'}`);
     if (binarySrc) {
       const binaryDest = path.join(agentDir, 'claude');
       const srcStat = fs.statSync(binarySrc);
@@ -1007,13 +1009,21 @@ class CobuildingContainerService {
     return imageHash === currentHash;
   }
 
-  /** Check if a named image exists in the local store. */
+  /** Check if a named image exists in the local store with the correct architecture. */
   private async imageExists(podmanBin: string, imageName: string): Promise<boolean> {
     try {
       const { stdout } = await this.execAsync(podmanBin, [
-        'image', 'inspect', '--format', '{{.Id}}', imageName,
+        'image', 'inspect', '--format', '{{.Id}} {{.Architecture}}', imageName,
       ], this.getExecEnv());
-      return stdout.trim().length > 0;
+      const parts = stdout.trim().split(' ');
+      if (parts.length < 2 || !parts[0]) return false;
+      const imageArch = parts[1];
+      const hostArch = process.arch === 'arm64' ? 'arm64' : 'amd64';
+      if (imageArch !== hostArch) {
+        log.warn(`[ContainerService] Image ${imageName} has wrong architecture (${imageArch}, need ${hostArch})`);
+        return false;
+      }
+      return true;
     } catch {
       return false;
     }
