@@ -255,10 +255,10 @@ export type ApiProvider = 'cloudflare' | 'anthropic' | 'custom';
 function getApiProvider(): ApiProvider {
   try {
     const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    if (data.apiProvider === 'anthropic' || data.apiProvider === 'custom') return data.apiProvider;
-    return 'cloudflare';
+    if (data.apiProvider === 'cloudflare' || data.apiProvider === 'anthropic' || data.apiProvider === 'custom') return data.apiProvider;
+    return 'anthropic';
   } catch {
-    return 'cloudflare';
+    return 'anthropic';
   }
 }
 
