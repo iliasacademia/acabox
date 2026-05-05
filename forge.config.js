@@ -85,6 +85,14 @@ const packagerConfig = {
   // this, ESM resolution from inside the asar can chase symlinks out of the
   // .app and fail (observed with `data-uri-to-buffer` via gaxios/node-fetch).
   derefSymlinks: true,
+  // Keep all of node_modules in the .app. The default electron-packager
+  // walker drops packages that nothing statically imports — which silently
+  // breaks `data-uri-to-buffer` (referenced only at runtime by node-fetch
+  // inside gaxios) and any other package reached through dynamic ESM
+  // resolution. Disabling prune adds ~20MB to the DMG but eliminates a
+  // whole class of "missing module" runtime errors we'd otherwise hunt
+  // down case-by-case.
+  prune: false,
   protocols: [
     {
       name: 'Writing Agent',
