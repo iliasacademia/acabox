@@ -44,6 +44,7 @@ interface AgentConfig {
   claudeBinaryPath: string;
   mcpServers: Record<string, { type: 'http'; url: string }>;
   anthropicApiKey: string;
+  anthropicBaseURL?: string;
   model: string;
   systemPrompt: unknown;
   allowedTools: string[];
@@ -446,6 +447,7 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           // so the subprocess can find system binaries (ls, grep, python3, etc.)
           ...process.env,
           ANTHROPIC_API_KEY: config.anthropicApiKey,
+          ...(config.anthropicBaseURL ? { ANTHROPIC_BASE_URL: config.anthropicBaseURL } : {}),
           MINI_APP_WORKSPACE_DIR: '/data',
           COBUILDING_INSIDE_CONTAINER: '1',
           CLAUDE_CONFIG_DIR: '/data/.academia/claude-config',
