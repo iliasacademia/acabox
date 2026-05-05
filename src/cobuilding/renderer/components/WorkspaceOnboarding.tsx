@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import './WorkspaceOnboarding.css';
 import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon } from 'lucide-react';
 
@@ -11,6 +11,14 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
   const [directoryPath, setDirectoryPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+
+  useEffect(() => {
+    window.workspacesAPI.getActive().then((ws) => {
+      if (ws) {
+        setDirectoryPath(ws.directory_path);
+      }
+    });
+  }, []);
 
   const handleSelectFolder = async () => {
     const selected = await window.workspacesAPI.selectDirectory();

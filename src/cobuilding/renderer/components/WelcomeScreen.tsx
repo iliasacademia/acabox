@@ -3,9 +3,10 @@ import './WelcomeScreen.css';
 
 interface WelcomeScreenProps {
   onGetStarted: () => void;
+  onSkipSetup?: () => void;
 }
 
-const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted }) => {
+const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted, onSkipSetup }) => {
   return (
     <div className="welcomeScreen">
       <div className="welcomeScreen__branding">
@@ -25,6 +26,11 @@ const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onGetStarted }) => {
         <button className="welcomeScreen__cta" onClick={onGetStarted}>
           Get started <span className="welcomeScreen__arrow">&rarr;</span>
         </button>
+        {onSkipSetup && (
+          <button className="welcomeScreen__skipBtn" onClick={onSkipSetup}>
+            Skip Setup
+          </button>
+        )}
       </div>
     </div>
   );

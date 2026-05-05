@@ -798,6 +798,7 @@ function App() {
   const [step, setStep] = useState<OnboardingStep>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [scanReportId, setScanReportId] = useState<string | null>(null);
+  const [canSkipSetup, setCanSkipSetup] = useState(false);
 
   useEffect(() => {
     window.authAPI.checkLogin().then((result: any) => {
@@ -805,7 +806,13 @@ function App() {
       initFullStory(appInfo?.isPackaged);
 
       if (!loggedIn) {
-        setStep('welcome');
+        window.workspacesAPI.getActive().then((ws) => {
+          if (ws) {
+            setWorkspace(ws);
+            setCanSkipSetup(true);
+          }
+          setStep('welcome');
+        });
         return;
       }
 
@@ -829,7 +836,12 @@ function App() {
       return null;
 
     case 'welcome':
-      return <WelcomeScreen onGetStarted={() => setStep('login')} />;
+      return (
+        <WelcomeScreen
+          onGetStarted={() => setStep('login')}
+          onSkipSetup={canSkipSetup ? () => setStep('ready') : undefined}
+        />
+      );
 
     case 'login':
       return (
