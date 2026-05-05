@@ -18,6 +18,7 @@ import { FileViewer } from './components/FileViewer';
 import { NotebookViewer } from './components/notebook';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
+import { ToolsPage } from './components/ToolsPage';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useTasks } from './taskStore';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -359,6 +360,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('home');
   const [chatViewMode, setChatViewMode] = useState<'list' | 'detail'>('list');
+  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail'>('listing');
+  const [toolChatOpen, setToolChatOpen] = useState(true);
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
     return (saved as DebugSection) || 'apps';
@@ -456,6 +459,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
   const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean }) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName, opts);
     setSidebarTab('tools');
+    setToolsViewMode('detail');
     const tabId = `miniapp::${dirName}`;
     // Only force an iframe reload when the tab doesn't already exist. Re-clicking
     // an already-open mini app should just activate it — remounting the viewer
@@ -489,14 +493,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
 
   const handleToolsClick = useCallback(() => {
     setSidebarTab('tools');
-    // Activate the most recently opened miniapp tab, or auto-open the first app
-    const miniappTab = [...tabs].reverse().find((t) => t.kind === 'miniapp');
-    if (miniappTab) {
-      activateTab(miniappTab.id);
-    } else {
-      setAutoSelectFirstApp(true);
-    }
-  }, [tabs, activateTab]);
+    setToolsViewMode('listing');
+  }, []);
 
   // Suppress ShowChatOnThreadSelect when switching threads for a miniapp
   const suppressThreadDeactivateRef = useRef(false);
@@ -568,13 +566,13 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
             </nav>
             <div className="topNavBar__right">
               <button
-                className={`topNavTab topNavTab--secondary${sidebarTab === 'debug' ? ' topNavTab--active' : ''}`}
+                className={`topNavTab${sidebarTab === 'debug' ? ' topNavTab--active' : ''}`}
                 onClick={() => setSidebarTab('debug')}
               >
                 Debug
               </button>
               <button
-                className={`topNavTab topNavTab--secondary${sidebarTab === 'settings' ? ' topNavTab--active' : ''}`}
+                className={`topNavTab${sidebarTab === 'settings' ? ' topNavTab--active' : ''}`}
                 onClick={() => setSidebarTab('settings')}
               >
                 Settings
@@ -590,68 +588,76 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
             </div>
 
             {/* Tools tab */}
-            <div style={{ display: sidebarTab === 'tools' ? 'flex' : 'none', flex: 1 }}>
-              <PanelGroup direction="horizontal" autoSaveId="cobuild.toolsLayout" className="appPanelGroup">
-                <Panel id="toolsSidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
-                  <div className="sidebarPanel">
-                    <div className="sidebarContent">
-                      <MiniAppsTab
-                        workspacePath={workspace.directory_path}
-                        onSelectApp={handleSelectApp}
-                        onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
-                        onNewApplication={() => { setSidebarTab('chats'); }}
-                        activeAppDirName={activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : undefined}
-                        autoSelectFirst={autoSelectFirstApp}
-                        onAutoSelectDone={() => setAutoSelectFirstApp(false)}
+            <div style={{ display: sidebarTab === 'tools' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
+              {toolsViewMode === 'detail' && activeTab?.kind === 'miniapp' ? (
+                <div className="toolDetailContent">
+                  {toolChatOpen ? (
+                    <PanelGroup direction="horizontal" autoSaveId="cobuild.toolDetailLayout" className="appPanelGroup">
+                      <Panel id="toolDetailMain" order={1} defaultSize={65} minSize={30}>
+                        <div className="mainPanel">
+                          <div className="tabPanelsContainer">
+                            {tabs.filter(t => t.kind === 'miniapp').map((tab) => (
+                              <div key={tab.id} className="tabPanel" style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}>
+                                {tab.data.kind === 'miniapp' && (
+                                  <MiniAppViewer
+                                    dirName={tab.data.dirName}
+                                    workspacePath={workspace.directory_path}
+                                    reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
+                                    onBack={() => setToolsViewMode('listing')}
+                                  />
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </Panel>
+                      <div className="panelBorder">
+                        <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                        <button
+                          className="panelCollapseBtn"
+                          onClick={() => setToolChatOpen(false)}
+                          title="Close chat panel"
+                        />
+                      </div>
+                      <Panel id="toolDetailChat" order={2} defaultSize={35} minSize={18} maxSize={50}>
+                        <div className="chatSidePanel">
+                          <Thread />
+                        </div>
+                      </Panel>
+                    </PanelGroup>
+                  ) : (
+                    <div style={{ flex: 1, display: 'flex', position: 'relative' }}>
+                      <div className="mainPanel" style={{ flex: 1 }}>
+                        <div className="tabPanelsContainer">
+                          {tabs.filter(t => t.kind === 'miniapp').map((tab) => (
+                            <div key={tab.id} className="tabPanel" style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}>
+                              {tab.data.kind === 'miniapp' && (
+                                <MiniAppViewer
+                                  dirName={tab.data.dirName}
+                                  workspacePath={workspace.directory_path}
+                                  reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
+                                  onBack={() => setToolsViewMode('listing')}
+                                />
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        className="panelExpandBtn"
+                        onClick={() => setToolChatOpen(true)}
+                        title="Open chat panel"
                       />
                     </div>
-                  </div>
-                </Panel>
-                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                <Panel id="toolsMain" order={2} defaultSize={54} minSize={30}>
-                  <div className="mainPanel">
-                    <TabBar
-                      tabs={tabs.filter(t => t.kind === 'miniapp')}
-                      activeTabId={activeTabId}
-                      dirtyTabIds={dirtyTabIds}
-                      hasLiveKernel={hasLiveKernel}
-                      onActivate={activateTab}
-                      onClose={closeTab}
-                      onPin={pinTab}
-                      onShowChat={deactivateAllTabs}
-                      homeLabel="Tools"
-                    />
-                    <div className="tabPanelsContainer">
-                      <div className="tabPanel" style={{ display: !activeTabId || !tabs.find(t => t.id === activeTabId && t.kind === 'miniapp') ? 'flex' : 'none' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '0.875rem' }}>
-                          Select a tool from the sidebar
-                        </div>
-                      </div>
-                      {tabs.filter(t => t.kind === 'miniapp').map((tab) => (
-                        <div key={tab.id} className="tabPanel" style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}>
-                          {tab.data.kind === 'miniapp' && (
-                            <MiniAppViewer
-                              dirName={tab.data.dirName}
-                              workspacePath={workspace.directory_path}
-                              reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </Panel>
-                {showChatSidePanel && (
-                  <>
-                    <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                    <Panel id="toolsChatSide" order={3} defaultSize={28} minSize={18} maxSize={50}>
-                      <div className="chatSidePanel">
-                        <Thread />
-                      </div>
-                    </Panel>
-                  </>
-                )}
-              </PanelGroup>
+                  )}
+                </div>
+              ) : (
+                <ToolsPage
+                  workspacePath={workspace.directory_path}
+                  onSelectApp={handleSelectApp}
+                  onSwitchToChat={() => setSidebarTab('chats')}
+                />
+              )}
             </div>
 
             {/* Files tab */}
@@ -772,10 +778,10 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
               />
             </div>
           </div>
-          {/* Global composer — shown on all pages except settings, debug, active miniapp */}
+          {/* Global composer — shown on all pages except settings, debug, tool detail view */}
           {sidebarTab !== 'settings' &&
            sidebarTab !== 'debug' &&
-           !(sidebarTab === 'tools' && activeTab?.kind === 'miniapp') && (
+           !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') && (
             <GlobalComposer
               isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
               onNavigateToChat={() => {

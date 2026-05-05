@@ -61,7 +61,7 @@ const ComposerBody: FC = () => {
       <ComposerPrimitive.Attachments components={composerAttachmentComponents} />
       <div className="composerShell">
         <ComposerPrimitive.Input
-          placeholder="Send a message..."
+          placeholder="Ask, draft, analyze, or just say what you're working on..."
           className="composerInput"
           rows={1}
           autoFocus={false}
