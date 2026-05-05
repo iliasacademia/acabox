@@ -121,7 +121,7 @@ interface AuthAPI {
   getApiKey(): Promise<{ apiKey: string | null; baseURL?: string; provider?: string }>;
   refetchApiKey(): Promise<{ success: boolean; keyIdentifier?: string; error?: string }>;
   getApiProvider(): Promise<{ provider: string }>;
-  setApiProvider(provider: string): Promise<{ success: boolean; error?: string }>;
+  setApiProvider(provider: string, customKey?: string): Promise<{ success: boolean; error?: string }>;
   isDev: boolean;
   setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
   onDeepLinkCallback(

@@ -250,12 +250,13 @@ function setMaxAttachmentSizeMB(sizeMB: number): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
-export type ApiProvider = 'cloudflare' | 'anthropic';
+export type ApiProvider = 'cloudflare' | 'anthropic' | 'custom';
 
 function getApiProvider(): ApiProvider {
   try {
     const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.apiProvider === 'anthropic' ? 'anthropic' : 'cloudflare';
+    if (data.apiProvider === 'anthropic' || data.apiProvider === 'custom') return data.apiProvider;
+    return 'cloudflare';
   } catch {
     return 'cloudflare';
   }
@@ -268,6 +269,25 @@ function setApiProvider(provider: ApiProvider): void {
     data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
   } catch { }
   data.apiProvider = provider;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function getCustomAnthropicKey(): string | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.customAnthropicApiKey ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function setCustomAnthropicKey(key: string): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.customAnthropicApiKey = key;
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
@@ -2429,7 +2449,7 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
 ipcMain.handle('auth:checkLogin', async () => {
   try {
     const loggedIn = await checkLogin();
-    if (loggedIn) {
+    if (loggedIn && getApiProvider() !== 'custom') {
       fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(({ apiKey, baseURL }) => {
         cachedApiKey = apiKey;
         cachedBaseURL = baseURL;
@@ -2438,6 +2458,12 @@ ipcMain.handle('auth:checkLogin', async () => {
           activeWorkspace = { ...activeWorkspace, api_key: apiKey };
         }
       }).catch((err) => log.warn('[Auth] fetchGatewayCredentials error:', err));
+    } else if (loggedIn && getApiProvider() === 'custom') {
+      const customKey = getCustomAnthropicKey();
+      if (customKey) {
+        cachedApiKey = customKey;
+        cachedBaseURL = undefined;
+      }
     }
     const appInfo = {
       deviceId: getDeviceId(),
@@ -2502,12 +2528,27 @@ ipcMain.handle('auth:getApiProvider', () => {
   return { provider: getApiProvider() };
 });
 
-ipcMain.handle('auth:setApiProvider', async (_event, provider: string) => {
-  if (provider !== 'cloudflare' && provider !== 'anthropic') {
+ipcMain.handle('auth:setApiProvider', async (_event, provider: string, customKey?: string) => {
+  if (provider !== 'cloudflare' && provider !== 'anthropic' && provider !== 'custom') {
     return { success: false, error: 'Invalid provider' };
   }
-  setApiProvider(provider);
+  setApiProvider(provider as ApiProvider);
   log.info(`[Auth] API provider set to: ${provider}`);
+
+  if (provider === 'custom') {
+    if (!customKey) return { success: false, error: 'API key is required for custom mode' };
+    setCustomAnthropicKey(customKey);
+    cachedApiKey = customKey;
+    cachedBaseURL = undefined;
+    destroyTokenManager();
+    if (activeWorkspace) {
+      updateApiKey(activeWorkspace.id, customKey);
+      activeWorkspace = { ...activeWorkspace, api_key: customKey };
+    }
+    log.info('[Auth] Using custom Anthropic API key');
+    return { success: true };
+  }
+
   try {
     const result = await fetchGatewayCredentials(provider === 'cloudflare');
     cachedApiKey = result.apiKey;

@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
 
+type Provider = 'cloudflare' | 'anthropic' | 'custom';
+
 export const AuthDebug: React.FC = () => {
   const [currentKey, setCurrentKey] = useState<string | null>(null);
   const [baseURL, setBaseURL] = useState<string | null>(null);
-  const [provider, setProvider] = useState<'cloudflare' | 'anthropic'>('cloudflare');
+  const [provider, setProvider] = useState<Provider>('cloudflare');
+  const [customKey, setCustomKey] = useState('');
   const [refetching, setRefetching] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [result, setResult] = useState<{ success: boolean; keyIdentifier?: string; error?: string } | null>(null);
@@ -34,7 +37,12 @@ export const AuthDebug: React.FC = () => {
     }
   };
 
-  const handleProviderChange = async (newProvider: 'cloudflare' | 'anthropic') => {
+  const handleProviderChange = async (newProvider: Provider) => {
+    if (newProvider === 'custom') {
+      setProvider(newProvider);
+      setResult(null);
+      return;
+    }
     setSwitching(true);
     setResult(null);
     try {
@@ -44,6 +52,27 @@ export const AuthDebug: React.FC = () => {
         const { apiKey, baseURL: url } = await window.authAPI.getApiKey();
         setCurrentKey(apiKey);
         setBaseURL(url ?? null);
+        setResult({ success: true });
+      } else {
+        setResult({ success: false, error: res.error });
+      }
+    } catch (err) {
+      setResult({ success: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const handleSaveCustomKey = async () => {
+    if (!customKey.trim()) return;
+    setSwitching(true);
+    setResult(null);
+    try {
+      const res = await window.authAPI.setApiProvider('custom', customKey.trim());
+      if (res.success) {
+        setCurrentKey(customKey.trim());
+        setBaseURL(null);
+        setCustomKey('');
         setResult({ success: true });
       } else {
         setResult({ success: false, error: res.error });
@@ -68,15 +97,46 @@ export const AuthDebug: React.FC = () => {
         <span className="debugSection__infoValue">
           <select
             value={provider}
-            onChange={(e) => handleProviderChange(e.target.value as 'cloudflare' | 'anthropic')}
+            onChange={(e) => handleProviderChange(e.target.value as Provider)}
             disabled={switching}
             style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color, #555)' }}
           >
             <option value="cloudflare">Cloudflare AI Gateway</option>
             <option value="anthropic">Anthropic API (direct)</option>
+            <option value="custom">Custom API Key</option>
           </select>
         </span>
       </div>
+
+      {provider === 'custom' && (
+        <div className="debugSection__infoRow" style={{ alignItems: 'flex-start' }}>
+          <span className="debugSection__infoLabel">API Key:</span>
+          <span className="debugSection__infoValue" style={{ display: 'flex', gap: '8px' }}>
+            <input
+              type="password"
+              value={customKey}
+              onChange={(e) => setCustomKey(e.target.value)}
+              placeholder="sk-ant-..."
+              style={{
+                flex: 1,
+                padding: '4px 8px',
+                borderRadius: '4px',
+                border: '1px solid var(--border-color, #555)',
+                fontFamily: 'monospace',
+                fontSize: '12px',
+                minWidth: '200px',
+              }}
+            />
+            <button
+              className="debugSection__btn"
+              onClick={handleSaveCustomKey}
+              disabled={switching || !customKey.trim()}
+            >
+              {switching ? 'Saving...' : 'Save'}
+            </button>
+          </span>
+        </div>
+      )}
 
       <div className="debugSection__infoRow">
         <span className="debugSection__infoLabel">Current Key:</span>
@@ -90,19 +150,21 @@ export const AuthDebug: React.FC = () => {
         </div>
       )}
 
-      <div className="debugSection__actions">
-        <button
-          className="debugSection__btn"
-          onClick={handleRefetch}
-          disabled={refetching || switching}
-        >
-          {refetching ? 'Refetching...' : 'Refetch API Key'}
-        </button>
-      </div>
+      {provider !== 'custom' && (
+        <div className="debugSection__actions">
+          <button
+            className="debugSection__btn"
+            onClick={handleRefetch}
+            disabled={refetching || switching}
+          >
+            {refetching ? 'Refetching...' : 'Refetch API Key'}
+          </button>
+        </div>
+      )}
 
       {result?.success && (
         <div className="debugSection__progress">
-          {switching ? 'Provider switched successfully' : `API key refetched successfully${result.keyIdentifier ? ` (identifier: ${result.keyIdentifier})` : ''}`}
+          Provider updated successfully
         </div>
       )}
       {result && !result.success && (

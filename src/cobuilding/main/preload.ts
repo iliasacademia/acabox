@@ -19,7 +19,7 @@ contextBridge.exposeInMainWorld('authAPI', {
   getApiKey: () => ipcRenderer.invoke('auth:getApiKey'),
   refetchApiKey: () => ipcRenderer.invoke('auth:refetchApiKey'),
   getApiProvider: () => ipcRenderer.invoke('auth:getApiProvider'),
-  setApiProvider: (provider: string) => ipcRenderer.invoke('auth:setApiProvider', provider),
+  setApiProvider: (provider: string, customKey?: string) => ipcRenderer.invoke('auth:setApiProvider', provider, customKey),
   isDev: process.env.NODE_ENV === 'development',
   setEndpoint: (endpoint: string) => ipcRenderer.invoke('auth:setEndpoint', endpoint),
   onDeepLinkCallback: (
