@@ -319,6 +319,7 @@ describe('findHostAppForDocument', () => {
           MS_WORD_INTEGRATION_ENABLED: true,
           OBSIDIAN_INTEGRATION_ENABLED: false,
           APPLE_NOTES_INTEGRATION_ENABLED: true,
+          GOOGLE_DOCS_INTEGRATION_ENABLED: false,
           MS_WORD_V2_ENABLED: true,
           ONBOARDING_V2_ENABLED: false,
           ONBOARDING_V3_ENABLED: false,
@@ -340,6 +341,7 @@ describe('findHostAppForDocument', () => {
           MS_WORD_INTEGRATION_ENABLED: true,
           OBSIDIAN_INTEGRATION_ENABLED: false,
           APPLE_NOTES_INTEGRATION_ENABLED: false,
+          GOOGLE_DOCS_INTEGRATION_ENABLED: false,
           MS_WORD_V2_ENABLED: true,
           ONBOARDING_V2_ENABLED: false,
           ONBOARDING_V3_ENABLED: false,
@@ -351,6 +353,156 @@ describe('findHostAppForDocument', () => {
       const { findHostAppForDocument } = require('../hostApps');
       expect(findHostAppForDocument('applenotes://x-coredata://store-uuid/ICNote/p123')).toBeNull();
     });
+  });
+
+  it('routes gdocs:// scheme to google-docs when registered', () => {
+    jest.isolateModules(() => {
+      jest.doMock('../../../shared/types', () => ({
+        FEATURES: {
+          MS_WORD_INTEGRATION_ENABLED: true,
+          OBSIDIAN_INTEGRATION_ENABLED: false,
+          APPLE_NOTES_INTEGRATION_ENABLED: false,
+          GOOGLE_DOCS_INTEGRATION_ENABLED: true,
+          MS_WORD_V2_ENABLED: true,
+          ONBOARDING_V2_ENABLED: false,
+          ONBOARDING_V3_ENABLED: false,
+          SESSION_CAPTURE_ENABLED: false,
+          SELECTION_REVIEW_V2_ENABLED: false,
+        },
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { findHostAppForDocument } = require('../hostApps');
+      expect(findHostAppForDocument('gdocs://1A2B3C_dEfGh-iJkLmNoP')?.id).toBe('google-docs');
+    });
+  });
+
+  it('returns null for gdocs:// when google-docs is not registered', () => {
+    jest.isolateModules(() => {
+      jest.doMock('../../../shared/types', () => ({
+        FEATURES: {
+          MS_WORD_INTEGRATION_ENABLED: true,
+          OBSIDIAN_INTEGRATION_ENABLED: false,
+          APPLE_NOTES_INTEGRATION_ENABLED: false,
+          GOOGLE_DOCS_INTEGRATION_ENABLED: false,
+          MS_WORD_V2_ENABLED: true,
+          ONBOARDING_V2_ENABLED: false,
+          ONBOARDING_V3_ENABLED: false,
+          SESSION_CAPTURE_ENABLED: false,
+          SELECTION_REVIEW_V2_ENABLED: false,
+        },
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { findHostAppForDocument } = require('../hostApps');
+      expect(findHostAppForDocument('gdocs://1A2B3C')).toBeNull();
+    });
+  });
+});
+
+describe('googleDocsHostApp: URL parsing', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const {
+    googleDocsUrlToDocumentPath,
+    documentPathToGoogleDocId,
+  } = require('../hostApps/googleDocsHostApp');
+
+  it('parses the standard /edit URL into gdocs://<id>', () => {
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/document/d/1A2B3C_dEfGh-iJkLmNoP/edit'))
+      .toBe('gdocs://1A2B3C_dEfGh-iJkLmNoP');
+  });
+
+  it('handles preview, view, copy, and trailing-query variants the same way', () => {
+    const expected = 'gdocs://1A2B3C_dEfGh-iJkLmNoP';
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/document/d/1A2B3C_dEfGh-iJkLmNoP/preview')).toBe(expected);
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/document/d/1A2B3C_dEfGh-iJkLmNoP/view?usp=sharing')).toBe(expected);
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/document/d/1A2B3C_dEfGh-iJkLmNoP/copy')).toBe(expected);
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/document/d/1A2B3C_dEfGh-iJkLmNoP?tab=foo')).toBe(expected);
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/document/d/1A2B3C_dEfGh-iJkLmNoP')).toBe(expected);
+  });
+
+  it('round-trips the doc id', () => {
+    const id = 'aBcDeF_GhIjK-12345';
+    const path = googleDocsUrlToDocumentPath(`https://docs.google.com/document/d/${id}/edit`);
+    expect(path).toBe(`gdocs://${id}`);
+    expect(documentPathToGoogleDocId(path)).toBe(id);
+  });
+
+  it('returns null for non-Docs Google URLs', () => {
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/spreadsheets/d/abc123/edit')).toBeNull();
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/presentation/d/abc123/edit')).toBeNull();
+    expect(googleDocsUrlToDocumentPath('https://docs.google.com/forms/d/abc123/edit')).toBeNull();
+    expect(googleDocsUrlToDocumentPath('https://drive.google.com/file/d/abc123/view')).toBeNull();
+  });
+
+  it('returns null for non-Google URLs and empty input', () => {
+    expect(googleDocsUrlToDocumentPath('https://example.com/document/d/abc123/edit')).toBeNull();
+    expect(googleDocsUrlToDocumentPath('about:blank')).toBeNull();
+    expect(googleDocsUrlToDocumentPath('')).toBeNull();
+    expect(googleDocsUrlToDocumentPath(null)).toBeNull();
+    expect(googleDocsUrlToDocumentPath(undefined)).toBeNull();
+  });
+
+  it('documentPathToGoogleDocId rejects malformed paths', () => {
+    expect(documentPathToGoogleDocId('gdocs://has spaces')).toBeNull();
+    expect(documentPathToGoogleDocId('gdocs://abc/extra')).toBeNull();
+    expect(documentPathToGoogleDocId('applenotes://x')).toBeNull();
+    expect(documentPathToGoogleDocId('/local/file.md')).toBeNull();
+    expect(documentPathToGoogleDocId(null)).toBeNull();
+    expect(documentPathToGoogleDocId(undefined)).toBeNull();
+  });
+});
+
+describe('googleDocsHostApp.applyEdit', () => {
+  it('returns a "connect Google" error when the user has not connected the Docs API', async () => {
+    jest.resetModules();
+    jest.doMock('../googleDocsService', () => ({
+      isConnected: () => false,
+      findAndReplace: jest.fn(),
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { googleDocsHostApp } = require('../hostApps/googleDocsHostApp');
+    const result = await googleDocsHostApp.applyEdit({
+      document_path: 'gdocs://abc123',
+      search_text: 'foo',
+      replacement_text: 'bar',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/connect your Google account/i);
+    expect(result.replacementsCount).toBe(0);
+  });
+
+  it('forwards a well-formed apply-edit through the Docs API when connected', async () => {
+    jest.resetModules();
+    jest.doMock('../googleDocsService', () => ({
+      isConnected: () => true,
+      findAndReplace: jest.fn(async () => ({ success: true, data: { replacementsCount: 3 } })),
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { googleDocsHostApp } = require('../hostApps/googleDocsHostApp');
+    const result = await googleDocsHostApp.applyEdit({
+      document_path: 'gdocs://abc123',
+      search_text: 'foo',
+      replacement_text: 'bar',
+      match_case: true,
+    });
+    expect(result.success).toBe(true);
+    expect(result.replacementsCount).toBe(3);
+  });
+
+  it('rejects when document_path is not a gdocs:// scheme', async () => {
+    jest.resetModules();
+    jest.doMock('../googleDocsService', () => ({
+      isConnected: () => true,
+      findAndReplace: jest.fn(async () => ({ success: true, data: { replacementsCount: 1 } })),
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { googleDocsHostApp } = require('../hostApps/googleDocsHostApp');
+    const result = await googleDocsHostApp.applyEdit({
+      document_path: '/Users/x/file.md',
+      search_text: 'foo',
+      replacement_text: 'bar',
+    });
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/gdocs:/i);
   });
 });
 

@@ -31,7 +31,7 @@ export interface MessagePrefixContext {
 
 export interface HostApp {
   /** Stable identifier for this host app. */
-  id: 'word' | 'obsidian' | 'apple-notes';
+  id: 'word' | 'obsidian' | 'apple-notes' | 'google-docs';
 
   /** macOS bundle ID — used by window-monitor and to match window events. */
   bundleId: string;

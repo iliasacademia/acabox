@@ -251,6 +251,12 @@ contextBridge.exposeInMainWorld('googleCalendarAPI', {
   setCredentials: (clientId: string, clientSecret: string) => ipcRenderer.invoke('googleCalendar:setCredentials', clientId, clientSecret),
 });
 
+contextBridge.exposeInMainWorld('googleDocsAPI', {
+  status: () => ipcRenderer.invoke('googleDocs:status'),
+  connect: () => ipcRenderer.invoke('googleDocs:connect'),
+  disconnect: () => ipcRenderer.invoke('googleDocs:disconnect'),
+});
+
 contextBridge.exposeInMainWorld('scheduledTasksAPI', {
   list: () => ipcRenderer.invoke('scheduledTasks:list'),
   get: (id: string) => ipcRenderer.invoke('scheduledTasks:get', id),

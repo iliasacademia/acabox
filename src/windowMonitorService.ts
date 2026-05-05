@@ -303,6 +303,14 @@ export class WindowMonitorService {
   // cached value synchronously to consumers (poll-response builder, etc.).
   private lastAppleNotesPath: string | null = null;
   private appleNotesRefreshInflight = false;
+  // Cache of the currently active Google Doc's synthetic path + display title +
+  // selection. Chrome doesn't expose tab URL or in-doc selection through AX, so
+  // we ask the connected browser extension on every poll-driven refresh and
+  // surface the cached values synchronously. Same pattern as Apple Notes.
+  private lastGoogleDocsPath: string | null = null;
+  private lastGoogleDocsTitle: string | null = null;
+  private lastGoogleDocsSelectedText: string | null = null;
+  private googleDocsRefreshInflight = false;
   private sessionsProvider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null = null;
   // When true, WINDOW_TEXT_SELECTED events are ignored (used to suppress
   // programmatic selections from MCP tools like find_and_replace/select_text).
@@ -927,6 +935,13 @@ export class WindowMonitorService {
               void this.refreshAppleNotesPath();
               return this.lastAppleNotesPath;
             }
+            if (host.id === 'google-docs') {
+              // Same pattern as Apple Notes — Chrome's tab URL only comes from
+              // the browser extension, so we refresh async and surface the
+              // cached `gdocs://<id>` path synchronously.
+              void this.refreshGoogleDocsPath();
+              return this.lastGoogleDocsPath;
+            }
             const resolved = host.resolveDocumentPath(window, this.workspaceDirectory);
             if (resolved?.startsWith('file://')) {
               return decodeURIComponent(resolved.slice(7));
@@ -966,6 +981,53 @@ export class WindowMonitorService {
     } finally {
       this.appleNotesRefreshInflight = false;
     }
+  }
+
+  /**
+   * Async refresh of the cached Google Docs active-tab path. Mirrors
+   * `refreshAppleNotesPath` — dedupe via inflight flag, emit a poll event on
+   * change. Source of truth is the connected browser extension; when the
+   * extension is disconnected or the active tab is not a Google Doc, the
+   * cached value is null and the overlay falls back to the
+   * `sessionDocumentPathLikePattern` listing.
+   */
+  private async refreshGoogleDocsPath(): Promise<void> {
+    if (this.googleDocsRefreshInflight) return;
+    this.googleDocsRefreshInflight = true;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { resolveActiveGoogleDocInfo } = require('./cobuilding/main/hostApps/googleDocsHostApp');
+      const info: { documentPath: string; title: string | null; selectedText: string | null } | null = await resolveActiveGoogleDocInfo();
+      const nextPath = info?.documentPath ?? null;
+      const nextTitle = info?.title ?? null;
+      const nextSelection = info?.selectedText ?? null;
+      const pathChanged = nextPath !== this.lastGoogleDocsPath;
+      const titleChanged = nextTitle !== this.lastGoogleDocsTitle;
+      const selectionChanged = nextSelection !== this.lastGoogleDocsSelectedText;
+      this.lastGoogleDocsPath = nextPath;
+      this.lastGoogleDocsTitle = nextTitle;
+      this.lastGoogleDocsSelectedText = nextSelection;
+      if (pathChanged || titleChanged) {
+        wordPollEventBus.emit('change', 'window-document-path-changed');
+      }
+      if (selectionChanged) {
+        wordPollEventBus.emit('change', 'selected-text-changed');
+      }
+    } catch {
+      // ignore — extension may be disconnected / mid-handshake; cache stays stale.
+    } finally {
+      this.googleDocsRefreshInflight = false;
+    }
+  }
+
+  /** Latest cached display title for the active Google Doc, or null when unknown. */
+  getGoogleDocsTitle(): string | null {
+    return this.lastGoogleDocsTitle;
+  }
+
+  /** Latest cached selected text inside the active Google Doc, or null when nothing is selected. */
+  getGoogleDocsSelectedText(): string | null {
+    return this.lastGoogleDocsSelectedText;
   }
 
   /** Return the HostApp id that owns the given window's bundle, or null. */
@@ -1256,6 +1318,10 @@ export class WindowMonitorService {
     this.reviewInputOpen.clear();
     this.reviewErrorMessages.clear();
     this.pendingAutoOpenPaths.clear();
+    this.lastAppleNotesPath = null;
+    this.lastGoogleDocsPath = null;
+    this.lastGoogleDocsTitle = null;
+    this.lastGoogleDocsSelectedText = null;
     if (this.obsidianWorkspaceWatcher) {
       this.obsidianWorkspaceWatcher.close();
       this.obsidianWorkspaceWatcher = null;

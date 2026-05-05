@@ -201,6 +201,7 @@ export const FEATURES: {
   MS_WORD_V2_ENABLED: boolean;
   OBSIDIAN_INTEGRATION_ENABLED: boolean;
   APPLE_NOTES_INTEGRATION_ENABLED: boolean;
+  GOOGLE_DOCS_INTEGRATION_ENABLED: boolean;
   ONBOARDING_V2_ENABLED: boolean;
   ONBOARDING_V3_ENABLED: boolean;
   SESSION_CAPTURE_ENABLED: boolean;
@@ -210,6 +211,7 @@ export const FEATURES: {
   MS_WORD_V2_ENABLED: true, // V2: new implementation
   OBSIDIAN_INTEGRATION_ENABLED: false, // Build-time default; runtime enable lives in user settings (Settings → Obsidian Integration)
   APPLE_NOTES_INTEGRATION_ENABLED: false, // Build-time default; runtime enable lives in user settings (Settings → Apple Notes Integration)
+  GOOGLE_DOCS_INTEGRATION_ENABLED: false, // Build-time default; runtime enable lives in user settings (Settings → Google Docs Integration). Routes the overlay over Chrome when the active tab is a Google Doc.
   ONBOARDING_V2_ENABLED: true, // V2 onboarding: single-file picker flow
   ONBOARDING_V3_ENABLED: true, // V3 onboarding: guided setup flow with steps
   SESSION_CAPTURE_ENABLED: true, // Toggle local activity session tracking
