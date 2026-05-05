@@ -4,6 +4,7 @@ import { useComposerRuntime } from '@assistant-ui/react';
 import { useKernel, type KernelStatus } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
+import { useSetupState } from '../setupStore';
 
 interface RequestFixError {
   kind: string;
@@ -251,7 +252,10 @@ const InstallingView: FC<{ message: string; installStatus?: InstallStatus | null
 const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dirName, children }) => {
   const [containerReady, setContainerReady] = useState<boolean | null>(null);
   const [depsReady, setDepsReady] = useState<boolean | null>(null);
-  const [statusMessage, setStatusMessage] = useState('Waiting for container...');
+  const setup = useSetupState();
+  const statusMessage = (setup.state === 'downloading' || setup.state === 'pending')
+    ? (setup.message || 'Setting up environment...')
+    : 'Waiting for container...';
   const [installStatus, setInstallStatus] = useState<InstallStatus | null>(null);
 
   // Check container status
@@ -271,17 +275,11 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
       window.containerAPI.onProgress((progress) => {
         if (progress.stage === 'ready') {
           setContainerReady(true);
-        } else if (progress.stage === 'build' || progress.stage === 'pull' || progress.stage === 'build-image') {
-          setStatusMessage('Installing software...');
-        } else if (progress.stage === 'init' || progress.stage === 'start-machine') {
-          setStatusMessage('Starting container runtime...');
         }
       }),
       window.containerAPI.onSetupProgress((progress) => {
         if (progress.stage === 'setup-done' || progress.stage === 'ready') {
           setContainerReady(true);
-        } else if (progress.stage === 'build-image' || progress.stage === 'build' || progress.stage === 'pull') {
-          setStatusMessage('Installing software...');
         }
       }),
     ];

@@ -132,8 +132,13 @@ export function createAgentSession(
   //   "Installing software..." — container image is being built/pulled
   //   "Agent initializing..."  — container is running, agent server starting up
   async function waitForAgent(): Promise<string> {
+    const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+    const startTime = Date.now();
     let lastStatus = '';
     while (!sessionState.stopped) {
+      if (Date.now() - startTime > TIMEOUT_MS) {
+        throw new Error('Agent failed to start. Please check that the container is running in the Debug panel.');
+      }
       const isRunning = containerService.isRunning();
       const port = containerService.getAgentPort();
 

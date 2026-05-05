@@ -90,6 +90,7 @@ const packagerConfig = {
     unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*,**/node_modules/onnxruntime-node/**/*}',
   },
   extraResource: [
+    'dist/agent-server.js',
     'src/cobuilding/assets/silero_vad.onnx',
     ...(platform === 'darwin' ? [
       'src/applescripts',

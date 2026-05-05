@@ -972,6 +972,86 @@ body.cobuild-resizing webview {
   width: 100%;
 }
 
+/* ─── Composer setup indicator (replaces input during download) ─── */
+
+.composerSetupBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 24px;
+}
+
+.composerSetupHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.composerSetupIcon {
+  width: 18px;
+  height: 18px;
+  color: #888;
+  animation: spin 1.5s linear infinite;
+  flex-shrink: 0;
+}
+
+.composerSetupText {
+  color: #888;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.composerSetupProgress {
+  width: 100%;
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.composerSetupProgressBar {
+  height: 100%;
+  background: #888;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+/* ─── Centered setup indicator (ThreadWelcome / empty state) ─── */
+
+.setupCenterBlock {
+  text-align: center;
+  max-width: 320px;
+}
+
+.setupCenterTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #666;
+  margin: 0 0 12px;
+}
+
+.setupCenterProgress {
+  width: 100%;
+  height: 4px;
+  background: #e0e0e0;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.setupCenterProgressBar {
+  height: 100%;
+  background: #888;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+
+.setupCenterSubtitle {
+  font-size: 13px;
+  color: #999;
+  margin: 0;
+}
+
 .composerShell {
   display: flex;
   flex-direction: column;

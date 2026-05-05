@@ -165,11 +165,16 @@ class CobuildingContainerService {
           log.warn(`[ContainerService] Background image build failed: ${(err as Error).message}`);
         });
       } else {
-        // No full image — build a minimal one from the base image, then start
-        log.info('[ContainerService] Building initial container image...');
-        onProgress?.('build', 'Building container image...');
-        await this.ensureImageBuilt(podmanBin, onProgress, workspacePath);
-        await this.runContainer(podmanBin, workspacePath);
+        // No full image — start from the base image immediately so the agent
+        // is available. Build the full image (with workspace deps) in the
+        // background for next restart. App deps install live via backgroundBuilder.
+        const imageSource = readImageSource();
+        const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+        log.info(`[ContainerService] Starting from base image (${baseImage}), building full image in background`);
+        await this.runContainer(podmanBin, workspacePath, baseImage);
+        this.ensureImageBuilt(podmanBin, undefined, workspacePath).catch((err) => {
+          log.warn(`[ContainerService] Background image build failed: ${(err as Error).message}`);
+        });
       }
 
       log.debug('[ContainerService] Container started successfully');
@@ -1183,7 +1188,7 @@ class CobuildingContainerService {
     return this.hostGatewayIp;
   }
 
-  private async runContainer(podmanBin: string, workspacePath: string): Promise<void> {
+  private async runContainer(podmanBin: string, workspacePath: string, imageName?: string): Promise<void> {
     const env = this.getExecEnv();
     const mountPath = toMountPath(workspacePath);
 
@@ -1191,13 +1196,14 @@ class CobuildingContainerService {
     const agentHostPort = await findFreePort(23300, 23320);
     this.agentPort = agentHostPort;
 
+    const useImage = imageName || IMAGE_NAME;
     const args = [
       'run', '-d',
       '--replace',
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data`,
       '-p', `${agentHostPort}:8080`,
-      IMAGE_NAME,
+      useImage,
       'sleep', 'infinity',
     ];
 

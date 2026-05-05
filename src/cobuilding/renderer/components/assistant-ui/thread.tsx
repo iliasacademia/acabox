@@ -7,6 +7,7 @@ import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
 import { ModelSelector } from '../ModelSelector';
 import { useProcessingLabel } from '../../progressStore';
+import { useSetupState } from '../../setupStore';
 import { TooltipIconButton } from './tooltip-icon-button';
 import { Button } from '../ui/button';
 import {
@@ -132,6 +133,24 @@ const ThreadScrollToBottom: FC = () => {
 };
 
 const ThreadWelcome: FC = () => {
+  const setup = useSetupState();
+
+  if (setup.state === 'downloading') {
+    return (
+      <div className="threadWelcome">
+        <div className="threadWelcomeCenter">
+          <div className="setupCenterBlock">
+            <h1 className="setupCenterTitle">{setup.message || 'Setting up environment...'}</h1>
+            <div className="setupCenterProgress">
+              <div className="setupCenterProgressBar" style={{ width: `${setup.percent}%` }} />
+            </div>
+            <p className="setupCenterSubtitle">This may take a few minutes on first launch.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="threadWelcome">
       <div className="threadWelcomeCenter">
@@ -187,6 +206,30 @@ const ComposerDocumentAttachment: FC = () => {
 };
 
 const Composer: FC = () => {
+  const setup = useSetupState();
+  const isEmpty = useAuiState((s: any) => s.thread.isEmpty);
+
+  // When the thread is empty, the centered ThreadWelcome handles the setup
+  // indicator — don't duplicate it in the composer. For existing threads,
+  // replace the input with the setup indicator.
+  if ((setup.state === 'downloading') && !isEmpty) {
+    return (
+      <div className="composerRoot">
+        <div className="composerSetupBlock">
+          <span className="composerSetupText">{setup.message || 'Setting up environment...'}</span>
+          <div className="composerSetupProgress">
+            <div className="composerSetupProgressBar" style={{ width: `${setup.percent}%` }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Empty thread + setup in progress — centered indicator handles it, hide composer entirely
+  if ((setup.state === 'downloading') && isEmpty) {
+    return null;
+  }
+
   return (
     <ComposerPrimitive.Root className="composerRoot">
       <ComposerPrimitive.Attachments
