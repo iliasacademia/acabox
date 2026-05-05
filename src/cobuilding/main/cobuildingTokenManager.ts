@@ -43,14 +43,15 @@ export async function fetchGatewayCredentials(): Promise<AnthropicConfig & { key
       expiresAt: new Date(expires_at),
     };
     scheduleRefresh();
-    log.debug(`[TokenManager] Cloudflare gateway token fetched (expires: ${expires_at})`);
-    return { apiKey: token, baseURL: `${gateway_endpoint}/anthropic`, keyIdentifier: key_identifier };
+    const baseURL = `${gateway_endpoint}/anthropic`;
+    log.info(`[TokenManager] Using Cloudflare AI Gateway: ${baseURL} (expires: ${expires_at})`);
+    return { apiKey: token, baseURL, keyIdentifier: key_identifier };
   }
 
   if (!api_key) throw new Error('No api_key in response');
   cachedToken = null;
   cancelRefresh();
-  log.debug(`[TokenManager] Anthropic API key fetched (identifier: ${key_identifier})`);
+  log.info(`[TokenManager] Using Anthropic API directly: https://api.anthropic.com (identifier: ${key_identifier})`);
   return { apiKey: api_key, keyIdentifier: key_identifier };
 }
 
