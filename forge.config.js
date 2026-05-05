@@ -80,6 +80,11 @@ const platform = os.platform();
 const packagerConfig = {
   icon: './src/assets/icons/dock-icon',
   appBundleId: 'com.electron.academia-electron',
+  // Resolve symlinks when copying node_modules so the packaged .app contains
+  // real files, not symlinks back to the developer's source repo. Without
+  // this, ESM resolution from inside the asar can chase symlinks out of the
+  // .app and fail (observed with `data-uri-to-buffer` via gaxios/node-fetch).
+  derefSymlinks: true,
   protocols: [
     {
       name: 'Writing Agent',
