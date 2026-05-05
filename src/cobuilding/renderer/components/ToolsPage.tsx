@@ -172,15 +172,15 @@ export function ToolsPage({
   const availableCount = AVAILABLE_TOOLS_STUB.length;
 
   return (
-    <div className="toolsPage">
-      <div className="toolsPage__scroll">
+    <div className="pageShell">
+      <div className="pageShell__inner">
         {/* Page header */}
-        <div className="toolsPage__header">
-          <div className="toolsPage__stats">
+        <div className="pageShell__headerBlock">
+          <div className="pageShell__stats">
             {installedCount} INSTALLED &middot; {suggestedCount} SUGGESTED &middot; {availableCount} AVAILABLE
           </div>
-          <h1 className="toolsPage__title">Tools</h1>
-          <p className="toolsPage__subtitle">
+          <h1 className="pageShell__title">Tools</h1>
+          <p className="pageShell__subtitle">
             Things the workspace can do for you &mdash; on-demand or in the background. Install or uninstall any of these.
           </p>
           {/* Filter pills (stub — to be replaced later) */}

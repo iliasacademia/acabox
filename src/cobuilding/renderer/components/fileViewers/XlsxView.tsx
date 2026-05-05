@@ -126,9 +126,6 @@ const SheetTable: FC<{ sheet: ParsedSheet }> = ({ sheet }) => {
 
   return (
     <>
-      <div className="csvViewMeta">
-        {sheet.rows.length.toLocaleString()} rows · {sheet.columns.length} columns
-      </div>
       <div ref={scrollRef} className="csvViewScroll">
         <table className="csvViewTable">
           <thead>
