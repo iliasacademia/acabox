@@ -39,19 +39,69 @@ function escapeAppleScriptString(input: string): string {
 }
 
 /**
- * Strip invisible Unicode artifacts that hitch-hike on text copied out of
- * PDFs. These bytes render as nothing but cause Word's find object to reject
- * `set content of replacement` with range-id errors. NFC-normalize so
- * combining-mark variants don't drift between document text and the agent's
- * proposed replacement.
+ * Mapping for typographic ligatures (U+FB00..FB06) that PDFs frequently
+ * paste in. Word stores plain "ff"/"fi" in the underlying text and only
+ * renders the ligature glyph at draw time, so a search string containing
+ * the ligature character cannot match against doc text containing the
+ * decomposed form. Expanding fixes the common case.
+ */
+const LIGATURE_EXPANSION: Record<string, string> = {
+  'ﬀ': 'ff',
+  'ﬁ': 'fi',
+  'ﬂ': 'fl',
+  'ﬃ': 'ffi',
+  'ﬄ': 'ffl',
+  'ﬅ': 'ſt',
+  'ﬆ': 'st',
+};
+
+/**
+ * Strip invisible Unicode artifacts and normalize "fancy" typographic
+ * variants that hitch-hike on text copied out of PDFs. These cause Word's
+ * find object to either reject `set content of replacement` with range-id
+ * errors, or to silently miss matches because the search string contains
+ * a Unicode glyph the doc represents as ASCII.
+ *
+ * NFC-normalizes first so combining-mark variants don't drift between
+ * document text and the agent's proposed replacement, then:
+ *   - removes zero-width chars, soft hyphens, bidi controls, variation selectors
+ *   - expands ff/fi/fl ligatures to plain ASCII
+ *   - normalizes smart quotes (curly → straight)
+ *   - normalizes en/em dashes and minus sign to ASCII hyphen-minus
+ *   - normalizes non-breaking space to regular space
+ *
+ * The two-pass `findAndReplaceInWord` flow tries the sanitized version
+ * first (this catches the common case of search-has-ligature, doc-has-plain)
+ * and falls back to the un-sanitized original if that misses (catches
+ * doc-has-fancy, search-has-fancy where the chars match exactly).
  */
 function sanitizePdfArtifacts(input: string): string {
   return input
     .normalize('NFC')
-    .replace(/[​-‍⁠﻿]/g, '')   // zero-width chars + BOM
-    .replace(/­/g, '')                         // soft hyphen
-    .replace(/[‪-‮⁦-⁩]/g, '')   // bidi controls
-    .replace(/[︀-️]/g, '');               // variation selectors
+    .replace(/[​-‍⁠﻿]/g, '')                    // zero-width chars + BOM
+    .replace(/­/g, '')                                          // soft hyphen
+    .replace(/[‪-‮⁦-⁩]/g, '')                    // bidi controls
+    .replace(/[︀-️]/g, '')                                  // variation selectors
+    .replace(/[ﬀ-ﬆ]/g, (c) => LIGATURE_EXPANSION[c] ?? c)  // ligatures
+    .replace(/[“”]/g, '"')                              // smart double quotes
+    .replace(/[‘’]/g, "'")                              // smart single quotes
+    .replace(/[–—−]/g, '-')                        // en-dash, em-dash, minus
+    .replace(/ /g, ' ');                                     // non-breaking space
+}
+
+/**
+ * Inspect text for the kinds of "fancy" characters that frequently break
+ * Word's find. Returns a human-readable list of what was found, used to
+ * make no-match errors more actionable for the user.
+ */
+function describeSuspiciousChars(input: string): string[] {
+  const labels: string[] = [];
+  if (/[ﬀ-ﬆ]/.test(input)) labels.push('ff/fi/fl ligature');
+  if (/[“”‘’]/.test(input)) labels.push('smart quote');
+  if (/[–—−]/.test(input)) labels.push('en/em dash');
+  if (/ /.test(input)) labels.push('non-breaking space');
+  if (/­/.test(input)) labels.push('soft hyphen');
+  return labels;
 }
 
 const WORD_EXTENSIONS = new Set(['.doc', '.docx', '.docm', '.dotx', '.dotm', '.rtf']);
@@ -928,9 +978,12 @@ async function runFindAndReplace(
 
   windowMonitorService.suppressSelectionEvents(true);
 
-  // PDFs paste in invisible artifacts (soft hyphens, zero-width chars, mixed
-  // NFC/NFD). Apply the same scrub to both sides so the search still matches
-  // the document and the replacement is a string Word's find object accepts.
+  // PDFs paste in invisible artifacts plus "fancy" typography (ligatures,
+  // smart quotes, dashes). Sanitize both sides so the search/replace strings
+  // are something Word's find object can match. We also write the
+  // un-sanitized search text to a separate file so the AppleScript can
+  // retry with the original if the sanitized pass misses (handles the
+  // doc-has-fancy, search-has-fancy case where the chars match exactly).
   const cleanSearch = sanitizePdfArtifacts(searchText);
   const cleanReplace = sanitizePdfArtifacts(replacementText);
 
@@ -942,20 +995,25 @@ async function runFindAndReplace(
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'word-fr-'));
   const searchPath = path.join(tmpDir, 'search.txt');
   const replacePath = path.join(tmpDir, 'replace.txt');
+  const originalSearchPath = path.join(tmpDir, 'search-original.txt');
   // Word treats CR as the paragraph separator. Normalize line endings so
   // the file content matches what the find object expects.
   const toCR = (s: string) => s.replace(/\r\n|\r|\n/g, '\r');
   await fs.writeFile(searchPath, toCR(cleanSearch), 'utf8');
   await fs.writeFile(replacePath, toCR(cleanReplace), 'utf8');
+  await fs.writeFile(originalSearchPath, toCR(searchText), 'utf8');
 
   const replaceAll = replaceScope === 'all';
+  const sanitizeChangedSearch = cleanSearch !== searchText;
 
   try {
     const script = `
 set searchPath to POSIX file "${searchPath}"
 set replacePath to POSIX file "${replacePath}"
+set originalSearchPath to POSIX file "${originalSearchPath}"
 set searchText to (read searchPath as «class utf8»)
 set replaceText to (read replacePath as «class utf8»)
+set originalSearchText to (read originalSearchPath as «class utf8»)
 
 tell application "Microsoft Word"
   if (count of documents) is 0 then
@@ -972,12 +1030,14 @@ tell application "Microsoft Word"
     set track revisions of doc to true
 
     set replacementsCount to 0
+    set usedOriginal to false
 
     try
-      -- Word's native find/replace with the full search string. Tracked
-      -- revisions record cleanly when this path succeeds — Word's own
-      -- engine handles position, so the replacement always lands at the
-      -- match (no risk of writing in the wrong place).
+      -- Pass 1: sanitized search string (ligatures expanded, smart
+      -- quotes/dashes normalized to ASCII). Catches the common case
+      -- where the agent's search came from a PDF and contains glyphs
+      -- the doc represents in plain ASCII. Word's own engine handles
+      -- position, so on match the replacement always lands correctly.
       set docRange to create range doc start 0 end (end of content of text object of doc)
       set findObj to find object of docRange
       clear formatting findObj
@@ -989,7 +1049,28 @@ tell application "Microsoft Word"
       clear formatting replObj
       set content of replObj to replaceText
       set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
-      if wasFound then set replacementsCount to 1
+      if wasFound then
+        set replacementsCount to 1
+      else if ${sanitizeChangedSearch ? 'true' : 'false'} then
+        -- Pass 2: un-sanitized original. Catches the inverse case
+        -- where both the doc and the search contain matching fancy
+        -- chars and our sanitization moved them apart.
+        set docRange to create range doc start 0 end (end of content of text object of doc)
+        set findObj to find object of docRange
+        clear formatting findObj
+        set content of findObj to originalSearchText
+        set forward of findObj to true
+        set wrap of findObj to find stop
+        set match case of findObj to ${matchCase}
+        set replObj to replacement of findObj
+        clear formatting replObj
+        set content of replObj to replaceText
+        set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
+        if wasFound then
+          set replacementsCount to 1
+          set usedOriginal to true
+        end if
+      end if
     on error tier1Err
       -- Word's find rejected the inputs (long search strings, paragraph
       -- marks, citation field codes, or PDF/clipboard artifacts that
@@ -1008,7 +1089,11 @@ tell application "Microsoft Word"
     set user name to origName
     set user initials to origInitials
     set track revisions of doc to origTrack
-    return "ok||" & replacementsCount
+    if usedOriginal then
+      return "ok||" & replacementsCount & "||original"
+    else
+      return "ok||" & replacementsCount
+    end if
   on error errMsg number errNum
     try
       set user name to origName
@@ -1027,17 +1112,35 @@ end tell`;
     }
 
     const count = parseInt(parts[1] || '0', 10);
+    if (parts[2] === 'original') {
+      logger.info('[WordActions] findAndReplaceInWord: matched on un-sanitized fallback (doc has fancy chars matching original search)');
+    }
     if (count === 0) {
-      // Word's find didn't match (or threw on the inputs). We don't try a
-      // positional fallback any more — earlier prefix-extend attempts wrote
-      // the replacement at the wrong location too often to justify keeping.
-      // Surface as a hard failure; the renderer keeps the suggestion card
-      // visible with the diff and a Retry/Deny pair, so the user can hand-
-      // apply the change if they want to.
-      logger.info('[WordActions] findAndReplaceInWord: no match found in document');
+      // Both passes (sanitized + original) missed. We don't try a positional
+      // fallback — earlier prefix-extend attempts wrote the replacement at
+      // the wrong location too often to justify keeping. Surface as a hard
+      // failure with a reason that's actually accurate about *why* this
+      // particular search likely failed. The renderer keeps the suggestion
+      // card visible with the diff and a Retry/Deny pair so the user can
+      // hand-apply the change.
+      logger.info(`[WordActions] findAndReplaceInWord: no match found (search length=${searchText.length})`);
+      const suspicious = describeSuspiciousChars(searchText);
+      // Word's find object has a content-length limit (historically ~255
+      // chars; modern Word-for-Mac is more permissive but unreliable on
+      // long passages with mixed punctuation/parentheses). If the search
+      // looks long, that's almost certainly why this miss happened.
+      const isLongSearch = searchText.length > 255;
+      let reason: string;
+      if (isLongSearch) {
+        reason = ` The search text is ${searchText.length} characters — Word's find engine has trouble matching passages this long, especially ones with mixed punctuation or parentheses. Ask the agent to split this into smaller, sentence-level edits, or copy the proposed text from the diff above and paste it in manually.`;
+      } else if (suspicious.length) {
+        reason = ` The search text contains ${suspicious.join(', ')} which Word's find can't always match against the doc's representation of the same character.`;
+      } else {
+        reason = ' The exact passage may have been edited since the agent proposed this change, or the surrounding paragraph contains track-change markup that breaks Word\'s find. Try clicking Retry, or copy from the diff and apply manually.';
+      }
       return {
         success: false,
-        error: 'Could not find the search text in the document. The text may have been edited, or may contain special characters (smart quotes, soft hyphens, ff-ligatures from a PDF copy) that Word\'s find engine cannot match.',
+        error: `Could not find the search text in the document.${reason}`,
         replacementsCount: 0,
       };
     }
