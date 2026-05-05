@@ -570,6 +570,7 @@ declare global {
     about_you_summary: string | null;
     what_youre_working_on_summary: string | null;
     what_youre_working_on: string | null;
+    suggested_mini_apps: string | null;
     status: 'pending' | 'running' | 'completed' | 'failed';
     error: string | null;
     created_at: string;

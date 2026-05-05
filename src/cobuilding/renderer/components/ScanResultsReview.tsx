@@ -15,6 +15,7 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
   const [loading, setLoading] = useState(true);
   const [aboutText, setAboutText] = useState('');
   const [workingOnText, setWorkingOnText] = useState('');
+  const [existingReportData, setExistingReportData] = useState<Record<string, unknown>>({});
   const [editingSection, setEditingSection] = useState<'about' | 'working_on' | null>(null);
   const [editBuffer, setEditBuffer] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -24,6 +25,11 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
       if (report) {
         setAboutText(report.about_you_summary ?? '');
         setWorkingOnText(report.what_youre_working_on_summary ?? '');
+        try {
+          setExistingReportData(JSON.parse(report.report_data));
+        } catch {
+          // ignore
+        }
       }
       setLoading(false);
     });
@@ -52,6 +58,7 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
     setIsSaving(true);
     try {
       await window.reportsAPI.update(reportId, JSON.stringify({
+        ...existingReportData,
         about_you_summary: aboutText,
         what_youre_working_on_summary: workingOnText,
       }));
@@ -71,10 +78,6 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
       </div>
 
       <div className="wsSetup__inner wsSetup__reviewInner">
-        <p className="wsSetup__stepIndicator">
-          STEP 3 OF 5 &middot; HERE&rsquo;S WHAT I LEARNED
-        </p>
-
         <h1 className="wsSetup__title">
           Does this match how you&rsquo;d describe your work?
         </h1>

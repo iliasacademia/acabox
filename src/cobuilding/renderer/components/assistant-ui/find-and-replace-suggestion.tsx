@@ -126,6 +126,45 @@ function emitBatch(action: BatchAction) {
   batchListeners.forEach(l => l(action));
 }
 
+// ─── Module-level overlap-retry registry ─────────────────────────
+// When one apply succeeds, sibling cards that previously failed and whose
+// search text overlaps with the just-applied edit auto-retry once. Common
+// cause for the original failure: the prior apply left track-change markup
+// in the same paragraph, which breaks Word's find for sibling edits in
+// that area. After the first apply lands, Word's revision state has
+// settled and the second attempt often goes through.
+
+type AppliedEvent = {
+  toolCallId: string;
+  searchText: string;
+  replacementText: string;
+};
+type AppliedListener = (e: AppliedEvent) => void;
+
+const appliedListeners = new Set<AppliedListener>();
+/** Per-card auto-retry budget. Capped at 1 so we never loop indefinitely. */
+const overlapRetriesUsed = new Map<string, number>();
+
+function emitApplied(e: AppliedEvent) {
+  appliedListeners.forEach(l => l(e));
+}
+
+/**
+ * Heuristic substring overlap. Returns true when the two strings share a
+ * common substring of at least `minLen` chars (case-insensitive). Used to
+ * decide whether the just-applied edit modified a region this card was
+ * searching against — i.e. whether retrying makes sense.
+ */
+function shareSubstring(a: string, b: string, minLen = 20): boolean {
+  if (!a || !b || a.length < minLen || b.length < minLen) return false;
+  const aLower = a.toLowerCase();
+  const bLower = b.toLowerCase();
+  for (let i = 0; i + minLen <= aLower.length; i++) {
+    if (bLower.includes(aLower.substring(i, i + minLen))) return true;
+  }
+  return false;
+}
+
 // ─── Individual suggestion card ──────────────────────────────────
 
 type CardState = 'pending' | 'applying' | 'applied' | 'denied';
@@ -195,6 +234,28 @@ const FindAndReplaceSuggestionImpl = ({
     return () => { batchListeners.delete(listener); };
   }, [isProposal, cardState]);
 
+  // Listen for sibling-apply success. If our search text overlaps with a
+  // just-applied sibling and we previously failed, retry once — Word's
+  // find may have stabilized after the prior edit landed.
+  useEffect(() => {
+    if (!isProposal || !parsed) return;
+    const listener: AppliedListener = (e) => {
+      if (e.toolCallId === toolCallId) return; // never react to our own apply
+      if (cardState !== 'pending' || !error) return; // only retry prior failures
+      const thisSearch = parsed.search_text || '';
+      const overlaps =
+        shareSubstring(thisSearch, e.searchText) ||
+        shareSubstring(thisSearch, e.replacementText);
+      if (!overlaps) return;
+      if ((overlapRetriesUsed.get(toolCallId) ?? 0) >= 1) return;
+      overlapRetriesUsed.set(toolCallId, 1);
+      // Small delay to let Word settle its revision state before retrying.
+      setTimeout(() => handleApproveRef.current?.(), 250);
+    };
+    appliedListeners.add(listener);
+    return () => { appliedListeners.delete(listener); };
+  }, [isProposal, parsed, toolCallId, cardState, error]);
+
   const handleApprove = useCallback(async () => {
     if (!parsed) return;
     setError(null);
@@ -204,6 +265,13 @@ const FindAndReplaceSuggestionImpl = ({
       const res = await applyEdit(toolCallId, parsed);
       if (res.success) {
         setCardState('applied');
+        // Broadcast to sibling cards so any that failed in the same
+        // paragraph can auto-retry now that this revision has landed.
+        emitApplied({
+          toolCallId,
+          searchText: parsed.search_text || '',
+          replacementText: parsed.replacement_text || '',
+        });
       } else {
         setError(res.error || 'Unknown error');
         setCardState('pending');
