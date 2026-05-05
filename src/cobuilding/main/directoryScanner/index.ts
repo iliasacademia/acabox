@@ -145,7 +145,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
       options: {
         abortController,
         pathToClaudeCodeExecutable: claudeBinaryPath,
-        model: 'claude-sonnet-4-6',
+        model: 'claude-haiku-4-5-20251001',
         systemPrompt: buildScannerSystemPrompt(),
         tools: ['Read', 'Glob', 'Grep', 'Agent'],
         allowedTools: ['Read', 'Glob', 'Grep', 'Agent'],
@@ -177,8 +177,6 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
 
     for await (const message of scanQuery) {
       const msg = message as SDKMessage & Record<string, unknown>;
-
-      log.debug(`[DirectoryScanner] SDK message: type=${msg.type}${(msg as any).subtype ? ` subtype=${(msg as any).subtype}` : ''}`, JSON.stringify(msg).slice(0, 500));
 
       // Forward progress events to the renderer
       if (onMessage) {

@@ -1,10 +1,6 @@
 export const REPORT_JSON_SCHEMA = {
   type: 'object' as const,
   properties: {
-    in_depth_report: {
-      type: 'string',
-      description: 'A very detailed description of everything found in the directory: the researcher\'s identity, their research areas, projects, file organization, tools and languages used, datasets, publications, and any other notable observations. Be thorough and specific.',
-    },
     about_you_summary: {
       type: 'string',
       description: 'A concise summary of the researcher (2-4 paragraphs). Covers who they are, what field(s) they work in, their key research interests, and what characterizes their work. Written in second person ("You are...") so it reads naturally when shown to the researcher.',
@@ -32,5 +28,5 @@ export const REPORT_JSON_SCHEMA = {
       description: 'A list of files the researcher is currently working on (based on recent modification times), each with a suggested next action. Focus on the most recently modified and most important files.',
     },
   },
-  required: ['in_depth_report', 'about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on'],
+  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on'],
 };

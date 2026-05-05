@@ -286,3 +286,14 @@
   font-size: 16px;
   line-height: 1;
 }
+
+/* Hide branding bar on small screens to reclaim vertical space */
+@media (max-height: 700px) {
+  .wsSetup__branding {
+    display: none;
+  }
+
+  .wsSetup {
+    padding-top: 20px;
+  }
+}

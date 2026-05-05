@@ -71,10 +71,6 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
       </div>
 
       <div className="wsSetup__inner wsSetup__reviewInner">
-        <p className="wsSetup__stepIndicator">
-          STEP 3 OF 5 &middot; HERE&rsquo;S WHAT I LEARNED
-        </p>
-
         <h1 className="wsSetup__title">
           Does this match how you&rsquo;d describe your work?
         </h1>

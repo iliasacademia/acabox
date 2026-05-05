@@ -114,8 +114,6 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
 
       <div className="wsSetup__inner scanProgress__layout">
         <div className="scanProgress__top">
-          <p className="wsSetup__stepIndicator">STEP 2 OF 5 &middot; READING YOUR WORK</p>
-
           <h1 className="wsSetup__title">Give me a minute to read everything</h1>
 
           <div className="wsSetup__progressBar">
