@@ -12,6 +12,7 @@ export function registerNotesHandlers(
   getAnthropicApiKey: () => string | null,
   getWorkspaceId: () => string | null,
   getOpenAIKey: () => string | null,
+  getAnthropicBaseURL?: () => string | null,
 ): void {
   // One segmenter per renderer session; keyed by WebContents id
   const segmenters = new Map<number, { segmenter: SpeechSegmenter; dayFileRef: { current: string } }>();
@@ -114,7 +115,7 @@ export function registerNotesHandlers(
       const anthropicKey = getAnthropicApiKey();
       const workspaceId = getWorkspaceId();
       if (anthropicKey && workspaceId && wp) {
-        analyzeTranscription(dayFile, text, wp, anthropicKey, workspaceId, sender, writePromise)
+        analyzeTranscription(dayFile, text, wp, anthropicKey, workspaceId, sender, writePromise, getAnthropicBaseURL?.() ?? undefined)
           .catch(err => log.warn('[NotesAssistant] Analysis failed:', err));
       }
     } catch (err: unknown) {
