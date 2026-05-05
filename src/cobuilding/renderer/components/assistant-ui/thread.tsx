@@ -5,6 +5,7 @@ import { ToolGroup } from './tool-group';
 import { TodoWrite } from './todo-write';
 import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
+import { composerAttachmentComponents } from './composer-attachments';
 import { ModelSelector } from '../ModelSelector';
 import { useProcessingLabel } from '../../progressStore';
 import { useSetupState } from '../../setupStore';
@@ -23,7 +24,7 @@ import {
 } from '@assistant-ui/react';
 import {
   ArrowDownIcon,
-  ArrowUpIcon,
+  SendIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
@@ -34,7 +35,6 @@ import {
   PencilIcon,
   RefreshCwIcon,
   SquareIcon,
-  XIcon,
 } from 'lucide-react';
 import type { FC } from 'react';
 
@@ -44,6 +44,7 @@ interface ThreadProps {
   scrollToBottomOnRunStart?: boolean;
   scrollToBottomOnThreadSwitch?: boolean;
   scrollToBottomOnInitialize?: boolean;
+  hideComposer?: boolean;
 }
 
 export const Thread: FC<ThreadProps> = ({
@@ -52,35 +53,44 @@ export const Thread: FC<ThreadProps> = ({
   scrollToBottomOnRunStart,
   scrollToBottomOnThreadSwitch = true,
   scrollToBottomOnInitialize = true,
+  hideComposer,
 }) => {
+  const viewport = (
+    <ThreadPrimitive.Viewport
+      turnAnchor={turnAnchor}
+      autoScroll={autoScroll}
+      scrollToBottomOnRunStart={scrollToBottomOnRunStart}
+      scrollToBottomOnThreadSwitch={scrollToBottomOnThreadSwitch}
+      scrollToBottomOnInitialize={scrollToBottomOnInitialize}
+      className="threadViewport"
+    >
+      <div className={`threadContent${hideComposer ? ' threadContent--withGlobalComposer' : ''}`}>
+        <AuiIf condition={(s: any) => s.thread.isEmpty}>
+          <ThreadWelcome />
+        </AuiIf>
+
+        <ThreadPrimitive.Messages>
+          {() => <ThreadMessage />}
+        </ThreadPrimitive.Messages>
+      </div>
+
+      {!hideComposer && (
+        <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
+          <ThreadScrollToBottom />
+          <Composer />
+        </ThreadPrimitive.ViewportFooter>
+      )}
+    </ThreadPrimitive.Viewport>
+  );
+
   return (
     <ThreadPrimitive.Root className="threadRoot">
       <ThreadDocumentHeader />
-      <ComposerPrimitive.AttachmentDropzone className="threadDropzone">
-        <ThreadPrimitive.Viewport
-          turnAnchor={turnAnchor}
-          autoScroll={autoScroll}
-          scrollToBottomOnRunStart={scrollToBottomOnRunStart}
-          scrollToBottomOnThreadSwitch={scrollToBottomOnThreadSwitch}
-          scrollToBottomOnInitialize={scrollToBottomOnInitialize}
-          className="threadViewport"
-        >
-          <div className="threadContent">
-            <AuiIf condition={(s: any) => s.thread.isEmpty}>
-              <ThreadWelcome />
-            </AuiIf>
-
-            <ThreadPrimitive.Messages>
-              {() => <ThreadMessage />}
-            </ThreadPrimitive.Messages>
-          </div>
-
-          <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
-            <ThreadScrollToBottom />
-            <Composer />
-          </ThreadPrimitive.ViewportFooter>
-        </ThreadPrimitive.Viewport>
-      </ComposerPrimitive.AttachmentDropzone>
+      {hideComposer ? viewport : (
+        <ComposerPrimitive.AttachmentDropzone className="threadDropzone">
+          {viewport}
+        </ComposerPrimitive.AttachmentDropzone>
+      )}
     </ThreadPrimitive.Root>
   );
 };
@@ -165,45 +175,6 @@ const ThreadWelcome: FC = () => {
   );
 };
 
-const ComposerImageAttachment: FC = () => {
-  const attachment = useAuiState((s: any) => s.attachment);
-  const imageSrc = attachment?.content?.find((p: any) => p.type === 'image')?.image
-    ?? (attachment?.file ? URL.createObjectURL(attachment.file) : undefined);
-  return (
-    <AttachmentPrimitive.Root className="composerImageAttachment">
-      {imageSrc && <img src={imageSrc} alt={attachment?.name} className="composerImagePreview" />}
-      <AttachmentPrimitive.Remove asChild>
-        <TooltipIconButton
-          tooltip="Remove"
-          variant="ghost"
-          size="icon"
-          className="composerImageRemove"
-        >
-          <XIcon />
-        </TooltipIconButton>
-      </AttachmentPrimitive.Remove>
-    </AttachmentPrimitive.Root>
-  );
-};
-
-const ComposerDocumentAttachment: FC = () => {
-  return (
-    <AttachmentPrimitive.Root className="composerAttachmentItem">
-      <AttachmentPrimitive.unstable_Thumb className="composerAttachmentThumb" />
-      <span className="composerAttachmentName"><AttachmentPrimitive.Name /></span>
-      <AttachmentPrimitive.Remove asChild>
-        <TooltipIconButton
-          tooltip="Remove"
-          variant="ghost"
-          size="icon"
-          className="composerAttachmentRemove"
-        >
-          <XIcon />
-        </TooltipIconButton>
-      </AttachmentPrimitive.Remove>
-    </AttachmentPrimitive.Root>
-  );
-};
 
 const Composer: FC = () => {
   const setup = useSetupState();
@@ -232,14 +203,7 @@ const Composer: FC = () => {
 
   return (
     <ComposerPrimitive.Root className="composerRoot">
-      <ComposerPrimitive.Attachments
-        components={{
-          Image: ComposerImageAttachment,
-          Document: ComposerDocumentAttachment,
-          File: ComposerDocumentAttachment,
-          Attachment: ComposerDocumentAttachment,
-        }}
-      />
+      <ComposerPrimitive.Attachments components={composerAttachmentComponents} />
       <div className="composerShell">
         <ComposerPrimitive.Input
           placeholder="Send a message..."
@@ -283,7 +247,7 @@ const ComposerAction: FC = () => {
             className="composerSend"
             aria-label="Send message"
           >
-            <ArrowUpIcon className="composerSendIcon" />
+            <SendIcon className="composerSendIcon" />
           </TooltipIconButton>
         </ComposerPrimitive.Send>
       </AuiIf>

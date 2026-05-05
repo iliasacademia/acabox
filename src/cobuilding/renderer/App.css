@@ -47,8 +47,7 @@ body,
 .topNavBar {
   display: flex;
   align-items: center;
-  height: 48px;
-  padding: 0 20px;
+  padding: 20px 40px;
   background: #faf8f5;
   border-bottom: 1px solid #e5e2dd;
   flex-shrink: 0;
@@ -63,7 +62,7 @@ body,
 .topNavBar__brandName {
   font-family: 'Gupter', serif;
   font-size: 24px;
-  font-weight: 400;
+  font-weight: 500;
   color: #141413;
   letter-spacing: -0.3px;
 }
@@ -85,7 +84,7 @@ body,
   background: none;
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   color: #9c958b;
   cursor: pointer;
   transition: color 0.15s;
@@ -99,7 +98,7 @@ body,
 
 .topNavTab--active {
   color: #3d3832;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .topNavTab--active::after {
@@ -111,6 +110,28 @@ body,
   height: 2px;
   background: #3d3832;
   border-radius: 1px;
+}
+
+.topNavBar__right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 100%;
+  margin-left: auto;
+  -webkit-app-region: no-drag;
+}
+
+.topNavTab--secondary {
+  font-size: 13px;
+  color: #b5aea4;
+}
+
+.topNavTab--secondary:hover {
+  color: #9c958b;
+}
+
+.topNavTab--secondary.topNavTab--active {
+  color: #5c5549;
 }
 
 /* --- Content Area --- */
@@ -469,6 +490,445 @@ body.cobuild-resizing webview {
   color: #333;
 }
 
+/* ============================================================
+   Chat List (full-page redesign)
+   ============================================================ */
+
+.chatListRoot {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #faf8f5;
+}
+
+.chatListScroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.chatListInner {
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 40px 48px 140px;
+}
+
+/* --- Page header --- */
+
+.chatListPageHeader {
+  margin-bottom: 32px;
+}
+
+.chatListBreadcrumb {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #9c958b;
+  margin-bottom: 8px;
+}
+
+.chatListTitle {
+  font-family: 'Gupter', serif;
+  font-size: 36px;
+  font-weight: 400;
+  color: #141413;
+  margin: 0 0 10px;
+  letter-spacing: -0.3px;
+}
+
+.chatListDescription {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #9c958b;
+  margin: 0;
+  max-width: 520px;
+}
+
+/* --- Search row --- */
+
+.chatListSearchRow {
+  margin-bottom: 24px;
+}
+
+.chatListSearchBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid #ddd8d0;
+  background: #fff;
+  transition: border-color 0.15s;
+}
+
+.chatListSearchBox:focus-within {
+  border-color: #9c958b;
+}
+
+.chatListSearchIcon {
+  width: 16px;
+  height: 16px;
+  color: #b5aea4;
+  flex-shrink: 0;
+}
+
+.chatListSearchInput {
+  flex: 1;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  font-family: inherit;
+  background: transparent;
+  color: #333;
+}
+
+.chatListSearchInput::placeholder {
+  color: #b5aea4;
+}
+
+/* --- List items --- */
+
+.chatListItems {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chatListItem {
+  display: flex;
+  align-items: flex-start;
+  padding: 16px 20px;
+  background: #fff;
+  border: 1px solid #e5e2dd;
+  transition: background-color 0.15s;
+}
+
+.chatListItem:hover {
+  background: #fdfcfb;
+}
+
+.chatListItem[data-active] {
+  background: #f5f3f0;
+  border-color: #c4bfb6;
+}
+
+.chatListItemTrigger {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+
+.chatListItemMeta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-left: 12px;
+}
+
+.chatListItemTitle {
+  flex: 1;
+  font-weight: 500;
+  font-size: 15px;
+  color: #141413;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.chatListItemDate {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: #b5aea4;
+  white-space: nowrap;
+}
+
+.chatListItemPreview {
+  font-size: 13px;
+  color: #9c958b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.5;
+}
+
+.chatListItemRenameInput {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 14px;
+  font-family: inherit;
+  font-size: 15px;
+  border: 1px solid #ddd8d0;
+  outline: none;
+  background: #fff;
+  color: #333;
+}
+
+.searchHighlight {
+  background: transparent;
+  font-weight: 700;
+  color: inherit;
+}
+
+/* --- Three-dots menu button --- */
+
+.chatListItemMenuBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: #b5aea4;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.chatListItemMenuBtn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #5c5549;
+}
+
+/* Force visible when the dropdown is open */
+.chatListItemMenuBtn[data-state="open"] {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.06);
+  color: #5c5549;
+}
+
+/* --- Dropdown menu --- */
+
+.chatListDropdown {
+  min-width: 160px;
+  background: #fff;
+  border: 1px solid #e5e2dd;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  z-index: 100;
+  animation: chatListDropdownIn 0.12s ease-out;
+}
+
+@keyframes chatListDropdownIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.chatListDropdownItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #333;
+  cursor: pointer;
+  outline: none;
+  transition: background-color 0.1s;
+}
+
+.chatListDropdownItem:hover,
+.chatListDropdownItem[data-highlighted] {
+  background: #f5f3f0;
+}
+
+.chatListDropdownItem--danger {
+  color: #c33;
+}
+
+.chatListDropdownItem--danger:hover,
+.chatListDropdownItem--danger[data-highlighted] {
+  background: rgba(204, 51, 51, 0.08);
+}
+
+/* --- Modal overlay & content --- */
+
+.chatListModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 200;
+  animation: chatListOverlayIn 0.15s ease-out;
+}
+
+@keyframes chatListOverlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.chatListModal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 90%;
+  max-width: 420px;
+  background: #fff;
+  border: 1px solid #e5e2dd;
+  padding: 24px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  z-index: 201;
+  animation: chatListModalIn 0.15s ease-out;
+}
+
+@keyframes chatListModalIn {
+  from { opacity: 0; transform: translate(-50%, -48%); }
+  to   { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+.chatListModalTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #141413;
+  margin: 0 0 6px;
+}
+
+.chatListModalDesc {
+  font-size: 13px;
+  color: #9c958b;
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.chatListModalInput {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid #ddd8d0;
+  outline: none;
+  background: #fff;
+  color: #333;
+  margin-bottom: 20px;
+  transition: border-color 0.15s;
+}
+
+.chatListModalInput:focus {
+  border-color: #9c958b;
+}
+
+.chatListModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chatListModalBtn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.chatListModalBtn--secondary {
+  background: #fff;
+  border-color: #ddd8d0;
+  color: #5c5549;
+}
+
+.chatListModalBtn--secondary:hover {
+  background: #f5f3f0;
+}
+
+.chatListModalBtn--primary {
+  background: #3d3832;
+  color: #fff;
+  border-color: #3d3832;
+}
+
+.chatListModalBtn--primary:hover {
+  background: #2a2520;
+}
+
+.chatListModalBtn--danger {
+  background: #c33;
+  color: #fff;
+  border-color: #c33;
+}
+
+.chatListModalBtn--danger:hover {
+  background: #a32;
+}
+
+/* ============================================================
+   Chat Detail Header (Back to chats)
+   ============================================================ */
+
+.chatDetailHeader {
+  display: flex;
+  align-items: center;
+  padding: 8px 40px;
+  background: rgb(244, 241, 235);
+  border-bottom: 1px solid #e5e2dd;
+  flex-shrink: 0;
+}
+
+.chatDetailContent {
+  background: #faf8f5;
+}
+
+.chatDetailBackBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  color: #9c958b;
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-left: -8px;
+  transition: color 0.15s;
+}
+
+.chatDetailBackBtn:hover {
+  color: #5c5549;
+}
+
+/* ============================================================
+   Global Composer (fixed at bottom)
+   ============================================================ */
+
+.globalComposer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: center;
+  padding: 0 24px 24px;
+  pointer-events: none;
+  background: linear-gradient(transparent, rgba(250, 248, 245, 0.95) 40%);
+}
+
+.globalComposerInner {
+  width: 100%;
+  max-width: 640px;
+  pointer-events: auto;
+}
+
+/* The global composer shell gets a subtle shadow for floating appearance */
+.globalComposer .composerShell {
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08);
+}
+
 /* --- Reactions section headers --- */
 
 .reactionsSectionHeader {
@@ -717,6 +1177,27 @@ body.cobuild-resizing webview {
   display: flex;
   flex-direction: column;
   flex-grow: 1;
+}
+
+.threadContent--withGlobalComposer {
+  padding-bottom: 100px;
+}
+
+/* The assistant-ui library injects inline min-height on messages for its
+   "turn anchor" scroll-lock feature. This creates huge whitespace gaps
+   when the composer is external. Override it. */
+.threadContent--withGlobalComposer .assistantMessage,
+.threadContent--withGlobalComposer .userMessage {
+  min-height: 0 !important;
+}
+
+.threadContent--withGlobalComposer .threadWelcome {
+  flex-grow: 0;
+}
+
+.threadContent--withGlobalComposer .threadWelcomeCenter {
+  flex-grow: 0;
+  min-height: 200px;
 }
 
 .threadViewportFooter {
@@ -1098,29 +1579,27 @@ body.cobuild-resizing webview {
 .composerShell {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  border-radius: 24px;
-  border: 1px solid #e0e0e0;
+  gap: 0;
+  border: 1px solid #ddd8d0;
   background: #fff;
-  padding: 10px;
-  transition: box-shadow 0.15s, border-color 0.15s;
+  padding: 8px;
+  transition: border-color 0.15s;
 }
 
 .composerToolbar {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
 }
 
 .composerShell:focus-within {
-  border-color: rgba(6, 69, 177, 0.5);
-  box-shadow: 0 0 0 2px rgba(6, 69, 177, 0.15);
+  border-color: #9c958b;
 }
 
 @keyframes composerHighlight {
-  0%   { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.45), 0 0 16px rgba(59, 130, 246, 0.25); border-color: rgba(59, 130, 246, 0.7); }
-  100% { box-shadow: 0 0 0 2px rgba(6, 69, 177, 0.15); border-color: rgba(6, 69, 177, 0.5); }
+  0%   { border-color: #5c5549; }
+  100% { border-color: #9c958b; }
 }
 
 .composerShell--highlight {
@@ -1129,13 +1608,13 @@ body.cobuild-resizing webview {
 
 .composerInput {
   max-height: 336px;
-  min-height: 40px;
+  min-height: 32px;
   field-sizing: content;
   width: 100%;
   resize: none;
   background: transparent;
-  padding: 4px 7px;
-  font-size: 0.875rem;
+  padding: 4px 4px;
+  font-size: 14px;
   outline: none;
   border: none;
   font-family: inherit;
@@ -1144,7 +1623,7 @@ body.cobuild-resizing webview {
 }
 
 .composerInput::placeholder {
-  color: #999;
+  color: #b5aea4;
 }
 
 .composerImageAttachment {
@@ -1180,41 +1659,41 @@ body.cobuild-resizing webview {
 
 .composerAttach {
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  color: #666;
+  width: 30px;
+  height: 30px;
+  color: #9c958b;
 }
 
 .composerAttach:hover {
-  color: #333;
-  background: #f0f0f0;
+  color: #5c5549;
+  background: #f5f3f0;
 }
 
 .composerAttachIcon {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
-.modelSelectorTrigger {
+.selectTrigger.modelSelectorTrigger {
   flex-shrink: 0;
   margin-left: auto;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: 0;
   padding: 4px 6px;
-  font-size: 12px;
-  color: #666;
+  font-size: 11px;
+  color: #9c958b;
   gap: 3px;
   cursor: pointer;
   line-height: 1.3;
   white-space: nowrap;
-  transition: background 0.15s, color 0.15s;
+  transition: color 0.15s;
+  box-shadow: none;
 }
 
-.modelSelectorTrigger:hover {
-  background: rgba(0, 0, 0, 0.05);
-  color: #333;
+.selectTrigger.modelSelectorTrigger:hover {
+  color: #5c5549;
+  border: none;
 }
 
 .modelSelectorTrigger:focus-visible {
@@ -1475,17 +1954,23 @@ body.cobuild-resizing webview {
 .composerSend {
   width: 32px;
   height: 32px;
-  border-radius: 50%;
+  border-radius: 0;
+  background: #141413;
+  color: #fff;
+}
+
+.composerSend:hover {
+  background: #3d3832;
 }
 
 .composerSendIcon {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .composerCancel {
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
 }
 
