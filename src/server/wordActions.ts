@@ -942,20 +942,11 @@ async function runFindAndReplace(
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'word-fr-'));
   const searchPath = path.join(tmpDir, 'search.txt');
   const replacePath = path.join(tmpDir, 'replace.txt');
-  const prefixPath = path.join(tmpDir, 'prefix.txt');
   // Word treats CR as the paragraph separator. Normalize line endings so
   // the file content matches what the find object expects.
   const toCR = (s: string) => s.replace(/\r\n|\r|\n/g, '\r');
   await fs.writeFile(searchPath, toCR(cleanSearch), 'utf8');
   await fs.writeFile(replacePath, toCR(cleanReplace), 'utf8');
-  // Prefix for the locate-then-extend fallback: first 80 chars of the search
-  // string with line breaks flattened to spaces. Word's find object rejects
-  // some full-length search strings (range-id failures, ~256-char limit, or
-  // embedded paragraph marks); a short single-line prefix is far more likely
-  // to be accepted.
-  const flatSearch = cleanSearch.replace(/[\r\n]+/g, ' ').trim();
-  const searchPrefix = flatSearch.substring(0, Math.min(flatSearch.length, 80));
-  await fs.writeFile(prefixPath, searchPrefix, 'utf8');
 
   const replaceAll = replaceScope === 'all';
 
@@ -963,10 +954,8 @@ async function runFindAndReplace(
     const script = `
 set searchPath to POSIX file "${searchPath}"
 set replacePath to POSIX file "${replacePath}"
-set prefixPath to POSIX file "${prefixPath}"
 set searchText to (read searchPath as «class utf8»)
 set replaceText to (read replacePath as «class utf8»)
-set searchPrefix to (read prefixPath as «class utf8»)
 
 tell application "Microsoft Word"
   if (count of documents) is 0 then
@@ -983,11 +972,12 @@ tell application "Microsoft Word"
     set track revisions of doc to true
 
     set replacementsCount to 0
-    set didFallback to false
 
     try
-      -- Tier 1: native find/replace with the full search string. Tracked
-      -- revisions record cleanly when this path succeeds.
+      -- Word's native find/replace with the full search string. Tracked
+      -- revisions record cleanly when this path succeeds — Word's own
+      -- engine handles position, so the replacement always lands at the
+      -- match (no risk of writing in the wrong place).
       set docRange to create range doc start 0 end (end of content of text object of doc)
       set findObj to find object of docRange
       clear formatting findObj
@@ -1001,42 +991,24 @@ tell application "Microsoft Word"
       set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
       if wasFound then set replacementsCount to 1
     on error tier1Err
-      -- Tier 2: locate with a short prefix, extend the matched range to the
-      -- full search length, select it, then type the replacement. Handles
-      -- "Can't set content of find id" failures (Word rejecting the full
-      -- search/replace content because of length, paragraph marks, or other
-      -- find-engine constraints). type text against a selection is still
-      -- recorded as a tracked deletion + insertion.
-      set didFallback to true
-      set docRange to create range doc start 0 end (end of content of text object of doc)
-      set findObj to find object of docRange
-      clear formatting findObj
-      set content of findObj to searchPrefix
-      set forward of findObj to true
-      set wrap of findObj to find stop
-      set match case of findObj to ${matchCase}
-      set wasFound to execute find findObj
-      if wasFound then
-        set matchStart to start of content of docRange
-        set docEnd to end of content of text object of doc
-        set searchLen to length of searchText
-        set matchEnd to matchStart + searchLen
-        if matchEnd > docEnd then set matchEnd to docEnd
-        set matchRange to create range doc start matchStart end matchEnd
-        select matchRange
-        type text selection text replaceText
-        set replacementsCount to 1
-      end if
+      -- Word's find rejected the inputs (long search strings, paragraph
+      -- marks, citation field codes, or PDF/clipboard artifacts that
+      -- survive sanitizePdfArtifacts). We deliberately do NOT attempt a
+      -- positional fallback here — earlier prefix-extend implementations
+      -- landed the replacement at the wrong location because AppleScript's
+      -- find binding doesn't reliably mutate the search range. A clean
+      -- failure that the user can copy/paste from the diff is safer than
+      -- a destructive guess. The TS wrapper converts replacementsCount=0
+      -- into success=false with a friendly "Could not find the search
+      -- text…" message; the renderer keeps the suggestion card visible
+      -- with a Retry button.
+      log "[wordActions] Word find errored, returning no-match: " & tier1Err
     end try
 
     set user name to origName
     set user initials to origInitials
     set track revisions of doc to origTrack
-    if didFallback then
-      return "ok||" & replacementsCount & "||fallback"
-    else
-      return "ok||" & replacementsCount
-    end if
+    return "ok||" & replacementsCount
   on error errMsg number errNum
     try
       set user name to origName
@@ -1055,8 +1027,19 @@ end tell`;
     }
 
     const count = parseInt(parts[1] || '0', 10);
-    if (parts[2] === 'fallback') {
-      logger.info('[WordActions] findAndReplaceInWord used select+type fallback');
+    if (count === 0) {
+      // Word's find didn't match (or threw on the inputs). We don't try a
+      // positional fallback any more — earlier prefix-extend attempts wrote
+      // the replacement at the wrong location too often to justify keeping.
+      // Surface as a hard failure; the renderer keeps the suggestion card
+      // visible with the diff and a Retry/Deny pair, so the user can hand-
+      // apply the change if they want to.
+      logger.info('[WordActions] findAndReplaceInWord: no match found in document');
+      return {
+        success: false,
+        error: 'Could not find the search text in the document. The text may have been edited, or may contain special characters (smart quotes, soft hyphens, ff-ligatures from a PDF copy) that Word\'s find engine cannot match.',
+        replacementsCount: 0,
+      };
     }
     return { success: true, replacementsCount: count };
   } catch (err) {
