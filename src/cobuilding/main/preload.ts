@@ -232,23 +232,6 @@ contextBridge.exposeInMainWorld('calendarAPI', {
     return () => { ipcRenderer.removeListener('calendar:mutation', handler); };
   },
 
-  listReactions: (opts?: unknown) => ipcRenderer.invoke('calendar:listReactions', opts),
-  getReactionCount: () => ipcRenderer.invoke('calendar:getReactionCount'),
-  updateReactionStatus: (id: string, status: string) => ipcRenderer.invoke('calendar:updateReactionStatus', id, status),
-  deleteReaction: (id: string) => ipcRenderer.invoke('calendar:deleteReaction', id),
-  onReactionsUpdated: (callback: () => void): (() => void) => {
-    const handler = () => callback();
-    ipcRenderer.on('calendar:reactionsUpdated', handler);
-    return () => { ipcRenderer.removeListener('calendar:reactionsUpdated', handler); };
-  },
-});
-
-contextBridge.exposeInMainWorld('googleCalendarAPI', {
-  status: () => ipcRenderer.invoke('googleCalendar:status'),
-  connect: () => ipcRenderer.invoke('googleCalendar:connect'),
-  disconnect: () => ipcRenderer.invoke('googleCalendar:disconnect'),
-  fetchEvents: (from: string, to: string) => ipcRenderer.invoke('googleCalendar:fetchEvents', from, to),
-  setCredentials: (clientId: string, clientSecret: string) => ipcRenderer.invoke('googleCalendar:setCredentials', clientId, clientSecret),
 });
 
 contextBridge.exposeInMainWorld('googleDocsAPI', {

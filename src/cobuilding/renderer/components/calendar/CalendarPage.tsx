@@ -3,18 +3,9 @@ import { RRule } from 'rrule';
 import './CalendarPage.css';
 import { CalendarChat } from './CalendarChat';
 import { CalendarSidebar } from './CalendarSidebar';
-import { CalendarReactionsInbox } from './CalendarReactionsInbox';
 import { EventEditPopover } from './EventEditPopover';
-import { GcalEventPopover } from './GcalEventPopover';
-import { nextAutoColor, AUTO_COLORS } from '../calendarColors';
+import { nextAutoColor, AUTO_COLORS } from './calendarColors';
 import type { CalendarGroup, CalendarEvent, UpdateEventData, EventDependency, CascadeUpdate } from '../../shared/types';
-
-const GCAL_COLORS: Record<string, string> = {
-  '1': '#a4bdfc', '2': '#7ae7bf', '3': '#dbadff', '4': '#ff887c',
-  '5': '#fbd75b', '6': '#ffb878', '7': '#46d6db', '8': '#e1e1e1',
-  '9': '#5484ed', '10': '#51b749', '11': '#dc2127',
-};
-const DEFAULT_GCAL_COLOR = '#4285f4';
 
 const MIN_PANEL_WIDTH = 15;
 
@@ -59,10 +50,6 @@ function formatWeekRange(weekStart: Date): string {
 
 function formatMonthYear(date: Date): string {
   return `${FULL_MONTHS[date.getMonth()]} ${date.getFullYear()}`;
-}
-
-function gcalEventColor(ev: GoogleCalendarEvent): string {
-  return ev.colorId ? (GCAL_COLORS[ev.colorId] ?? DEFAULT_GCAL_COLOR) : DEFAULT_GCAL_COLOR;
 }
 
 function eventTimeOffsetAndHeight(start: Date, end: Date, hourHeight: number): { top: number; height: number } {
@@ -221,16 +208,14 @@ function expandRecurringEvent(ev: CalendarEvent, from: Date, to: Date): Calendar
   }));
 }
 
-function WeekView({ weekStart, today, googleEvents, localEvents, allEvents, dependencies, onSelectionCommit, onEventClick, onGcalEventClick, onEventDrop, onDependencyCreate, blocked, touchedEntities }: {
+function WeekView({ weekStart, today, localEvents, allEvents, dependencies, onSelectionCommit, onEventClick, onEventDrop, onDependencyCreate, blocked, touchedEntities }: {
   weekStart: Date;
   today: Date;
-  googleEvents: GoogleCalendarEvent[];
   localEvents: CalendarEvent[];
   allEvents: CalendarEvent[];
   dependencies: EventDependency[];
   onSelectionCommit: SelectionCommitFn;
   onEventClick: EventClickFn;
-  onGcalEventClick: (ev: GoogleCalendarEvent, x: number, y: number) => void;
   onEventDrop: EventDropFn;
   onDependencyCreate: (predecessorId: string, successorId: string) => void;
   blocked: React.MutableRefObject<boolean>;
@@ -295,17 +280,6 @@ function WeekView({ weekStart, today, googleEvents, localEvents, allEvents, depe
     ro.observe(body);
     return () => ro.disconnect();
   }, []);
-
-  const eventsByDay = useMemo(() => {
-    const map: GoogleCalendarEvent[][] = days.map(() => []);
-    for (const ev of googleEvents) {
-      if (!ev.start.dateTime) continue;
-      const evStart = new Date(ev.start.dateTime);
-      const dayIdx = days.findIndex(d => isSameDay(d, evStart));
-      if (dayIdx !== -1) map[dayIdx].push(ev);
-    }
-    return map;
-  }, [googleEvents, weekStart.getTime()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Include multi-day events in all columns they overlap; apply resize/cascade previews
   const localByDay = useMemo(() => {
@@ -617,31 +591,6 @@ function WeekView({ weekStart, today, googleEvents, localEvents, allEvents, depe
               {overlay && (
                 <div className="weekDraftOverlay" style={{ top: overlay.top, height: overlay.height }} />
               )}
-              {/* Google Calendar events */}
-              {eventsByDay[i].map(ev => {
-                const start = new Date(ev.start.dateTime!);
-                const end = new Date(ev.end.dateTime!);
-                const { top, height } = eventTimeOffsetAndHeight(start, end, hourHeight);
-                const color = gcalEventColor(ev);
-                return (
-                  <div
-                    key={ev.id}
-                    className="gcalEvent"
-                    style={{ top, height, backgroundColor: color + '33', borderLeft: `3px solid ${color}`, cursor: 'pointer' }}
-                    title={ev.summary ?? ''}
-                    onMouseDown={e => e.stopPropagation()}
-                    onClick={e => { e.stopPropagation(); onGcalEventClick(ev, e.clientX, e.clientY); }}
-                  >
-                    <span className="gcalEventTitle">{ev.summary}</span>
-                    {height >= 36 && (
-                      <span className="gcalEventTime">
-                        {start.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}
-                      </span>
-                    )}
-                    <span className="gcalImportBadge" title="From Google Calendar">G</span>
-                  </div>
-                );
-              })}
               {/* Active local events */}
               {activeEvents.map(ev => {
                 const isMoving = moveDrag?.event.id === ev.id;
@@ -934,14 +883,12 @@ function WeekView({ weekStart, today, googleEvents, localEvents, allEvents, depe
   );
 }
 
-function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCommit, onEventClick, onGcalEventClick, onEventDrop, onMoreClick, blocked, touchedEntities }: {
+function MonthView({ anchorDate, today, localEvents, onSelectionCommit, onEventClick, onEventDrop, onMoreClick, blocked, touchedEntities }: {
   anchorDate: Date;
   today: Date;
-  googleEvents: GoogleCalendarEvent[];
   localEvents: CalendarEvent[];
   onSelectionCommit: SelectionCommitFn;
   onEventClick: EventClickFn;
-  onGcalEventClick: (ev: GoogleCalendarEvent, x: number, y: number) => void;
   onEventDrop: EventDropFn;
   onMoreClick: (date: Date) => void;
   blocked: React.MutableRefObject<boolean>;
@@ -1056,18 +1003,6 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }
-
-  const eventsByDate = useMemo(() => {
-    const map = new Map<string, GoogleCalendarEvent[]>();
-    for (const ev of googleEvents) {
-      const dt = ev.start.dateTime ?? ev.start.date;
-      if (!dt) continue;
-      const key = dt.slice(0, 10);
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(ev);
-    }
-    return map;
-  }, [googleEvents]);
 
   function dateKey(d: Date) {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -1214,7 +1149,6 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
           const isCurrent = date.getMonth() === anchorDate.getMonth();
           const isToday = isSameDay(date, today);
           const isDraft = inDraftRange(date);
-          const dayEvents = eventsByDate.get(dateKey(date)) ?? [];
           const dayLocal = localByDate.get(dateKey(date)) ?? [];
           const dayLocalSingle = dayLocal.filter(ev => !isMultiDayEvent(ev));
           const row = Math.floor(i / 7);
@@ -1239,18 +1173,6 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
                 {date.getDate()}
               </span>
               <div className="monthCellEvents" style={{ marginTop: nLanes === 0 ? 3 : nLanes * MONTH_BAR_STRIDE + 2 }}>
-                {dayEvents.slice(0, 3).map(ev => (
-                  <div
-                    key={ev.id}
-                    className="monthGcalEvent"
-                    style={{ backgroundColor: gcalEventColor(ev), cursor: 'pointer' }}
-                    title={ev.summary ?? ''}
-                    onMouseDown={e => e.stopPropagation()}
-                    onClick={e => { e.stopPropagation(); onGcalEventClick(ev, e.clientX, e.clientY); }}
-                  >
-                    <span className="monthGcalImportDot">G</span>{ev.summary}
-                  </div>
-                ))}
                 {dayLocalSingle.map(ev => {
                   const color = ev.color ?? AUTO_COLORS[0];
                   const isBg = ev.status !== 'active';
@@ -1298,13 +1220,6 @@ function MonthView({ anchorDate, today, googleEvents, localEvents, onSelectionCo
                     </div>
                   );
                 })()}
-                {dayEvents.length > 3 && (
-                  <button
-                    className="monthGcalMore"
-                    onMouseDown={e => e.stopPropagation()}
-                    onClick={e => { e.stopPropagation(); onMoreClick(date); }}
-                  >+{dayEvents.length - 3} more</button>
-                )}
               </div>
             </div>
           );
@@ -1363,28 +1278,14 @@ export function CalendarPage() {
     const v = parseFloat(localStorage.getItem('cal_rightWidth') ?? '');
     return isFinite(v) ? v : 20;
   });
-  const [leftTopHeight, setLeftTopHeight] = useState(() => {
-    const v = parseFloat(localStorage.getItem('cal_leftTopHeight') ?? '');
-    return isFinite(v) ? v : 50;
-  });
   const leftWidthRef = useRef(leftWidth);
   const rightWidthRef = useRef(rightWidth);
-  const leftTopHeightRef = useRef(leftTopHeight);
   leftWidthRef.current = leftWidth;
   rightWidthRef.current = rightWidth;
-  leftTopHeightRef.current = leftTopHeight;
 
   const [view, setView] = useState<'week' | 'month'>('week');
   const [anchorDate, setAnchorDate] = useState(() => new Date());
   const today = useMemo(() => new Date(), []);
-
-  const [gcalConnected, setGcalConnected] = useState(false);
-  const [gcalHasCredentials, setGcalHasCredentials] = useState(false);
-  const [gcalConnecting, setGcalConnecting] = useState(false);
-  const [gcalEnabled, setGcalEnabled] = useState(true);
-  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
-  const [credentialInput, setCredentialInput] = useState({ clientId: '', clientSecret: '' });
-  const [showCredentialForm, setShowCredentialForm] = useState(false);
 
   const [groups, setGroups] = useState<CalendarGroup[]>([]);
   const [localEvents, setLocalEvents] = useState<CalendarEvent[]>([]);
@@ -1392,7 +1293,6 @@ export function CalendarPage() {
   const [dependencies, setDependencies] = useState<EventDependency[]>([]);
   const [touchedEntities, setTouchedEntities] = useState<Map<string, 'create' | 'edit' | 'delete'>>(new Map());
   const [editingEvent, setEditingEvent] = useState<EditingEvent | null>(null);
-  const [gcalPopoverEvent, setGcalPopoverEvent] = useState<{ event: GoogleCalendarEvent; anchorX: number; anchorY: number } | null>(null);
 
   const editingSnapshotRef = useRef<CalendarEvent | null>(null);
   const newEventIdRef = useRef<string | null>(null);
@@ -1411,10 +1311,6 @@ export function CalendarPage() {
   }, [view, weekStart.getTime(), anchorDate.getFullYear(), anchorDate.getMonth()]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    window.googleCalendarAPI.status().then(({ connected, hasCredentials }) => {
-      setGcalConnected(connected);
-      setGcalHasCredentials(hasCredentials);
-    });
     window.calendarAPI.listGroups().then(setGroups);
     window.calendarAPI.listDependencies().then(setDependencies);
   }, []);
@@ -1510,38 +1406,6 @@ export function CalendarPage() {
     return unsubscribe;
   }, [applyTouch]);
 
-  useEffect(() => {
-    if (!gcalConnected) return;
-    window.googleCalendarAPI.fetchEvents(viewRange[0], viewRange[1])
-      .then(setGoogleEvents)
-      .catch(() => setGoogleEvents([]));
-  }, [gcalConnected, viewRange[0], viewRange[1]]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  async function handleGcalConnect() {
-    setGcalConnecting(true);
-    try {
-      await window.googleCalendarAPI.connect();
-      setGcalConnected(true);
-    } finally {
-      setGcalConnecting(false);
-    }
-  }
-
-  async function handleGcalDisconnect() {
-    await window.googleCalendarAPI.disconnect();
-    setGcalConnected(false);
-    setGoogleEvents([]);
-  }
-
-  async function handleSaveCredentials() {
-    const { clientId, clientSecret } = credentialInput;
-    if (!clientId.trim() || !clientSecret.trim()) return;
-    await window.googleCalendarAPI.setCredentials(clientId.trim(), clientSecret.trim());
-    setGcalHasCredentials(true);
-    setShowCredentialForm(false);
-    setCredentialInput({ clientId: '', clientSecret: '' });
-  }
-
   function navigate(dir: -1 | 1) {
     setAnchorDate(prev => {
       if (view === 'week') return addDays(prev, dir * 7);
@@ -1593,35 +1457,9 @@ export function CalendarPage() {
     document.addEventListener('mouseup', onMouseUp);
   }, []);
 
-  const startVerticalResize = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'row-resize';
-    const startY = e.clientY;
-    const startTop = leftTopHeightRef.current;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      if (!leftPanelRef.current) return;
-      const panelHeight = leftPanelRef.current.offsetHeight;
-      const deltaPct = ((moveEvent.clientY - startY) / panelHeight) * 100;
-      setLeftTopHeight(Math.max(15, Math.min(85, startTop + deltaPct)));
-    };
-
-    const onMouseUp = () => {
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      localStorage.setItem('cal_leftTopHeight', String(leftTopHeightRef.current));
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  }, []);
-
   // Block drag when any popover is open
   const popoverOpenRef = useRef(false);
-  popoverOpenRef.current = editingEvent !== null || gcalPopoverEvent !== null;
+  popoverOpenRef.current = editingEvent !== null;
 
   const groupsRef = useRef(groups);
   groupsRef.current = groups;
@@ -1739,58 +1577,52 @@ export function CalendarPage() {
   return (
     <div className="calendarPage" ref={containerRef}>
       <div className="calendarPanel" style={{ width: `${leftWidth}%` }} ref={leftPanelRef}>
-        <div className="calendarPanelSectionTop" style={{ flex: leftTopHeight }}>
-          <CalendarSidebar
-            groups={groups}
-            allEvents={allEvents}
-            dependencies={dependencies}
-            onEventClick={(event, anchorX, anchorY) => {
-              editingSnapshotRef.current = event;
-              setEditingEvent({ event, anchorX, anchorY });
-            }}
-            onReassign={async (eventId, newGroupId) => {
-              const groupColor = newGroupId ? groups.find(g => g.id === newGroupId)?.color : undefined;
-              const updates = { group_id: newGroupId, ...(groupColor ? { color: groupColor } : {}) };
-              const updated = await window.calendarAPI.updateEvent(eventId, updates);
-              if (updated) {
-                setAllEvents(prev => prev.map(e => e.id === eventId ? updated : e));
-                setLocalEvents(prev => prev.map(e => e.id === eventId ? updated : e));
-              }
-            }}
-            onDeleteGroup={async (groupId, deleteEvents) => {
-              if (deleteEvents) {
-                const toDelete = allEvents.filter(e => e.group_id === groupId);
-                await Promise.all(toDelete.map(e => window.calendarAPI.deleteEvent(e.id)));
-                setAllEvents(prev => prev.filter(e => e.group_id !== groupId));
-                setLocalEvents(prev => prev.filter(e => e.group_id !== groupId));
-              } else {
-                const groupEventIds = new Set(allEvents.filter(e => e.group_id === groupId).map(e => e.id));
-                await Promise.all([...groupEventIds].map(id => window.calendarAPI.updateEvent(id, { group_id: null })));
-                setAllEvents(prev => prev.map(e => groupEventIds.has(e.id) ? { ...e, group_id: null } : e));
-                setLocalEvents(prev => prev.map(e => groupEventIds.has(e.id) ? { ...e, group_id: null } : e));
-              }
-              await window.calendarAPI.deleteGroup(groupId);
-              setGroups(prev => prev.filter(g => g.id !== groupId));
-            }}
-            onCreateGroup={async (name, color) => {
-              const group = await window.calendarAPI.createGroup({ name, color });
-              setGroups(prev => [...prev, group]);
-            }}
-            onRenameGroup={async (groupId, newName) => {
-              const updated = await window.calendarAPI.updateGroup(groupId, { name: newName });
-              if (updated) setGroups(prev => prev.map(g => g.id === groupId ? updated : g));
-            }}
-            onGroupCreated={group => setGroups(prev => [...prev, group])}
-            onEventCreated={event => {
-              setAllEvents(prev => [...prev, event]);
-              setLocalEvents(prev => [...prev, event]);
-            }}
-          />
-        </div>
-        <div className="calendarPanelVerticalHandle" onMouseDown={startVerticalResize} />
-        <div className="calendarPanelSectionBottom" style={{ flex: 100 - leftTopHeight }}>
-          <CalendarReactionsInbox allEvents={allEvents} groups={groups} />
-        </div>
+        <CalendarSidebar
+          groups={groups}
+          allEvents={allEvents}
+          dependencies={dependencies}
+          onEventClick={(event, anchorX, anchorY) => {
+            editingSnapshotRef.current = event;
+            setEditingEvent({ event, anchorX, anchorY });
+          }}
+          onReassign={async (eventId, newGroupId) => {
+            const groupColor = newGroupId ? groups.find(g => g.id === newGroupId)?.color : undefined;
+            const updates = { group_id: newGroupId, ...(groupColor ? { color: groupColor } : {}) };
+            const updated = await window.calendarAPI.updateEvent(eventId, updates);
+            if (updated) {
+              setAllEvents(prev => prev.map(e => e.id === eventId ? updated : e));
+              setLocalEvents(prev => prev.map(e => e.id === eventId ? updated : e));
+            }
+          }}
+          onDeleteGroup={async (groupId, deleteEvents) => {
+            if (deleteEvents) {
+              const toDelete = allEvents.filter(e => e.group_id === groupId);
+              await Promise.all(toDelete.map(e => window.calendarAPI.deleteEvent(e.id)));
+              setAllEvents(prev => prev.filter(e => e.group_id !== groupId));
+              setLocalEvents(prev => prev.filter(e => e.group_id !== groupId));
+            } else {
+              const groupEventIds = new Set(allEvents.filter(e => e.group_id === groupId).map(e => e.id));
+              await Promise.all([...groupEventIds].map(id => window.calendarAPI.updateEvent(id, { group_id: null })));
+              setAllEvents(prev => prev.map(e => groupEventIds.has(e.id) ? { ...e, group_id: null } : e));
+              setLocalEvents(prev => prev.map(e => groupEventIds.has(e.id) ? { ...e, group_id: null } : e));
+            }
+            await window.calendarAPI.deleteGroup(groupId);
+            setGroups(prev => prev.filter(g => g.id !== groupId));
+          }}
+          onCreateGroup={async (name, color) => {
+            const group = await window.calendarAPI.createGroup({ name, color });
+            setGroups(prev => [...prev, group]);
+          }}
+          onRenameGroup={async (groupId, newName) => {
+            const updated = await window.calendarAPI.updateGroup(groupId, { name: newName });
+            if (updated) setGroups(prev => prev.map(g => g.id === groupId ? updated : g));
+          }}
+          onGroupCreated={group => setGroups(prev => [...prev, group])}
+          onEventCreated={event => {
+            setAllEvents(prev => [...prev, event]);
+            setLocalEvents(prev => [...prev, event]);
+          }}
+        />
       </div>
       <div className="calendarResizeHandle" onMouseDown={startResize('left')} />
       <div className="calendarContainer" style={{ flex: 1, minWidth: 0 }}>
@@ -1843,13 +1675,11 @@ export function CalendarPage() {
           ? <WeekView
               weekStart={weekStart}
               today={today}
-              googleEvents={gcalEnabled ? googleEvents : []}
               localEvents={expandedLocalEvents}
               allEvents={allEvents}
               dependencies={dependencies}
               onSelectionCommit={handleSelectionCommit}
               onEventClick={handleEventClick}
-              onGcalEventClick={(ev, x, y) => setGcalPopoverEvent({ event: ev, anchorX: x, anchorY: y })}
               onEventDrop={handleEventDrop}
               onDependencyCreate={handleDependencyCreate}
               blocked={popoverOpenRef}
@@ -1858,11 +1688,9 @@ export function CalendarPage() {
           : <MonthView
               anchorDate={anchorDate}
               today={today}
-              googleEvents={gcalEnabled ? googleEvents : []}
               localEvents={expandedLocalEvents}
               onSelectionCommit={handleSelectionCommit}
               onEventClick={handleEventClick}
-              onGcalEventClick={(ev, x, y) => setGcalPopoverEvent({ event: ev, anchorX: x, anchorY: y })}
               onEventDrop={handleEventDrop}
               onMoreClick={date => { setAnchorDate(date); setView('week'); }}
               blocked={popoverOpenRef}
@@ -1870,73 +1698,6 @@ export function CalendarPage() {
             />
         }
 
-        {gcalConnected ? (
-          <div className="gcalBar gcalBarConnected">
-            <span className="gcalBarDot" style={gcalEnabled ? {} : { backgroundColor: '#C8C4BC' }} />
-            <span className="gcalBarLabel">
-              Google Calendar {gcalEnabled ? 'connected' : 'hidden'}
-            </span>
-            <button
-              className="gcalBarButton"
-              onClick={() => setGcalEnabled(e => !e)}
-            >
-              {gcalEnabled ? 'Hide' : 'Show'}
-            </button>
-            <button className="gcalBarButton" onClick={handleGcalDisconnect}>Disconnect</button>
-          </div>
-        ) : showCredentialForm ? (
-          <div className="gcalBar gcalCredentialForm">
-            <input
-              className="gcalCredentialInput"
-              placeholder="Client ID"
-              value={credentialInput.clientId}
-              onChange={e => setCredentialInput(p => ({ ...p, clientId: e.target.value }))}
-            />
-            <input
-              className="gcalCredentialInput"
-              placeholder="Client Secret"
-              type="password"
-              value={credentialInput.clientSecret}
-              onChange={e => setCredentialInput(p => ({ ...p, clientSecret: e.target.value }))}
-              onKeyDown={e => e.key === 'Enter' && handleSaveCredentials()}
-            />
-            <button className="gcalBarButton gcalBarButtonPrimary" onClick={handleSaveCredentials}>
-              Save
-            </button>
-            <button className="gcalBarButton" onClick={() => setShowCredentialForm(false)}>
-              Cancel
-            </button>
-          </div>
-        ) : (
-          <div className="gcalBar">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg" className="gcalBarIcon">
-              <rect x="1" y="2" width="12" height="11" rx="1.5" stroke="#9B9B96" strokeWidth="1.2" />
-              <path d="M1 5h12" stroke="#9B9B96" strokeWidth="1.2" />
-              <path d="M4 1v2M10 1v2" stroke="#9B9B96" strokeWidth="1.2" strokeLinecap="round" />
-            </svg>
-            {gcalHasCredentials ? (
-              <>
-                <button
-                  className="gcalBarButton gcalBarButtonPrimary"
-                  onClick={handleGcalConnect}
-                  disabled={gcalConnecting}
-                >
-                  {gcalConnecting ? 'Opening browser…' : 'Connect Google Calendar'}
-                </button>
-                <button className="gcalBarButton" onClick={() => setShowCredentialForm(true)}>
-                  Edit credentials
-                </button>
-              </>
-            ) : (
-              <button
-                className="gcalBarButton gcalBarButtonPrimary"
-                onClick={() => setShowCredentialForm(true)}
-              >
-                Set up Google Calendar
-              </button>
-            )}
-          </div>
-        )}
       </div>
       <div className="calendarResizeHandle" onMouseDown={startResize('right')} />
       <div className="calendarChat" style={{ width: `${rightWidth}%` }}>
@@ -1957,14 +1718,6 @@ export function CalendarPage() {
           onStatusChange={handleStatusPreview}
           onColorChange={handleColorPreview}
           onDependencyDelete={handleDependencyDelete}
-        />
-      )}
-      {gcalPopoverEvent && (
-        <GcalEventPopover
-          event={gcalPopoverEvent.event}
-          anchorX={gcalPopoverEvent.anchorX}
-          anchorY={gcalPopoverEvent.anchorY}
-          onClose={() => setGcalPopoverEvent(null)}
         />
       )}
     </div>

@@ -115,7 +115,6 @@
     "@fastify/static": "^8.3.0",
     "@fastify/websocket": "^11.2.0",
     "@fullstory/browser": "^2.0.6",
-    "@googleapis/calendar": "^14.2.0",
     "@jupyterlab/services": "^7.5.6",
     "@loglayer/transport-electron-log": "^2.1.13",
     "@loglayer/transport-http": "^1.1.8",

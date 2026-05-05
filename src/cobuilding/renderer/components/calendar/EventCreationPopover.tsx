@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './EventCreationPopover.css';
-import { PLAN_COLORS, nextAutoColor } from '../calendarColors';
+import { PLAN_COLORS, nextAutoColor } from './calendarColors';
 import type { CalendarGroup } from '../../shared/types';
 
 interface Props {
