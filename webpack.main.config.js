@@ -23,6 +23,14 @@ module.exports = {
       'onnxruntime-node': 'commonjs2 onnxruntime-node',
       '@googleapis/calendar': 'commonjs2 @googleapis/calendar',
       'google-auth-library': 'commonjs2 google-auth-library',
+      // gaxios → node-fetch → data-uri-to-buffer chain. plugin-webpack's
+      // transitive prune walker doesn't reach data-uri-to-buffer through the
+      // google-auth-library external (probably because it lives in nested
+      // node_modules), so listing each one explicitly forces them to be
+      // copied into the packaged .app.
+      'gaxios': 'commonjs2 gaxios',
+      'node-fetch': 'commonjs2 node-fetch',
+      'data-uri-to-buffer': 'commonjs2 data-uri-to-buffer',
     },
     // Mark all .node files as external (native modules)
     function ({ request }, callback) {

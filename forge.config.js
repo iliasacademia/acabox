@@ -80,6 +80,50 @@ const platform = os.platform();
 const packagerConfig = {
   icon: './src/assets/icons/dock-icon',
   appBundleId: 'com.electron.academia-electron',
+  // Resolve symlinks when copying node_modules so the packaged .app contains
+  // real files, not symlinks back to the developer's source repo. Without
+  // this, ESM resolution from inside the asar can chase symlinks out of the
+  // .app and fail (observed with `data-uri-to-buffer` via gaxios/node-fetch).
+  derefSymlinks: true,
+  // Keep all of node_modules in the .app. The default electron-packager
+  // walker drops packages that nothing statically imports — which silently
+  // breaks `data-uri-to-buffer` (referenced only at runtime by node-fetch
+  // inside gaxios) and any other package reached through dynamic ESM
+  // resolution. Disabling prune adds ~20MB to the DMG but eliminates a
+  // whole class of "missing module" runtime errors we'd otherwise hunt
+  // down case-by-case.
+  prune: false,
+  // Belt-and-suspenders: even with prune: false and the explicit webpack
+  // external entry, @electron-forge/plugin-webpack runs its own prune step
+  // that drops packages it doesn't see referenced in webpack stats. ESM-only
+  // packages like data-uri-to-buffer@4 (used at runtime by node-fetch via
+  // dynamic import) slip through every signal we have. This hook
+  // unconditionally copies the package into the .app's node_modules after
+  // packagerConfig and plugin-webpack are done. Idempotent.
+  afterCopy: [
+    (buildPath, _electronVersion, _platform, _arch, callback) => {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        // node-fetch@3's full ESM transitive chain. plugin-webpack drops
+        // all of these because they're reached only via dynamic ESM imports
+        // at runtime, not webpack's static analysis. Whack-a-mole until we
+        // have a full list — adding deps as the runtime errors surface.
+        const must = ['data-uri-to-buffer', 'formdata-polyfill', 'fetch-blob', 'web-streams-polyfill', 'node-domexception'];
+        for (const pkg of must) {
+          const src = path.join(__dirname, 'node_modules', pkg);
+          const dest = path.join(buildPath, 'node_modules', pkg);
+          if (fs.existsSync(dest)) continue;
+          if (!fs.existsSync(src)) continue;
+          fs.cpSync(src, dest, { recursive: true, dereference: true });
+          console.log(`[forge.afterCopy] Copied ${pkg} into packaged .app`);
+        }
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  ],
   protocols: [
     {
       name: 'Writing Agent',
@@ -87,7 +131,12 @@ const packagerConfig = {
     },
   ],
   asar: {
-    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*,**/node_modules/onnxruntime-node/**/*}',
+    // ESM packages (`node-fetch@3`, `data-uri-to-buffer@4`) and `gaxios` need
+    // to live as real files outside the asar — Node's ESM resolver doesn't
+    // handle the asar virtual fs cleanly for `import 'data-uri-to-buffer'`
+    // within `node-fetch/src/index.js`. Without this, Connect Google fails at
+    // runtime with "Cannot find package .../data-uri-to-buffer/index.js".
+    unpack: '{**/node_modules/tesseract.js/**/*,**/node_modules/canvas/**/*,**/node_modules/better-sqlite3/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk/**/*,**/node_modules/@anthropic-ai/claude-agent-sdk-*/**/*,**/node_modules/onnxruntime-node/**/*,**/node_modules/data-uri-to-buffer/**/*,**/node_modules/node-fetch/**/*,**/node_modules/gaxios/**/*}',
   },
   extraResource: [
     'dist/agent-server.js',

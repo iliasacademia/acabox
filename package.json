@@ -132,6 +132,7 @@
     "codemirror": "^6.0.2",
     "codemirror-lang-r": "^0.1.1",
     "cron-parser": "^5.5.0",
+    "data-uri-to-buffer": "^4.0.1",
     "diff": "^8.0.4",
     "electron-log": "^5.4.3",
     "electron-squirrel-startup": "^1.0.1",
