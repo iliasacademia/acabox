@@ -199,6 +199,32 @@ async function getAuthedClient(): Promise<OAuth2Client | null> {
 }
 
 /**
+ * Render a single ParagraphElement as plain text. Smart chips (dates, people,
+ * calendar events, file references) come back as `richLink` / `person` —
+ * dropping them entirely loses doc structure (e.g. `"May 4, 2026 | 📅 Writing
+ * Agent Standup"` becomes `"  |  "` if only `textRun` is read), so each chip
+ * type emits the best available label.
+ */
+function renderParagraphElement(pe: any): string {
+  if (pe?.textRun?.content) return pe.textRun.content;
+  if (pe?.autoText?.content) return pe.autoText.content;
+  if (pe?.person?.personProperties) {
+    const p = pe.person.personProperties;
+    return p.name || p.email || '@person';
+  }
+  if (pe?.richLink?.richLinkProperties) {
+    const r = pe.richLink.richLinkProperties;
+    return r.title || r.uri || '[link]';
+  }
+  if (pe?.equation) return '[equation]';
+  if (pe?.horizontalRule) return '\n---\n';
+  if (pe?.pageBreak || pe?.columnBreak) return '\n';
+  if (pe?.footnoteReference) return ''; // footnote bodies live elsewhere
+  if (pe?.inlineObjectElement) return '[image]';
+  return '';
+}
+
+/**
  * Walk a Docs API `documents.get` response and concatenate every text run into
  * a single plain-text string. Handles top-level body, table cells, and the
  * multi-tab structure (`tabs[]` with optional `childTabs`). Tabs are separated
@@ -212,7 +238,7 @@ function extractPlainText(doc: any): string {
     for (const elem of body.content) {
       if (elem.paragraph?.elements) {
         for (const pe of elem.paragraph.elements) {
-          if (pe.textRun?.content) parts.push(pe.textRun.content);
+          parts.push(renderParagraphElement(pe));
         }
       } else if (elem.table?.tableRows) {
         for (const row of elem.table.tableRows) {
@@ -269,10 +295,40 @@ export async function getDocText(documentId: string): Promise<DocsApiResult<{ te
 }
 
 /**
+ * List every tabId in a doc (including nested `childTabs`). Returns an empty
+ * array for legacy non-tabbed docs; in that case the caller should omit
+ * `tabsCriteria` and let the API apply to the body. Errors are swallowed —
+ * if the lookup fails we fall back to the no-tabsCriteria path so the call
+ * still does *something* on single-tab docs.
+ */
+async function listAllTabIds(client: OAuth2Client, documentId: string): Promise<string[]> {
+  try {
+    const url = `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}?includeTabsContent=true&fields=tabs(tabProperties(tabId),childTabs)`;
+    const resp = await client.request<any>({ url, method: 'GET' });
+    const ids: string[] = [];
+    function walk(tabs: any[] | undefined): void {
+      for (const t of tabs ?? []) {
+        const id = t?.tabProperties?.tabId;
+        if (id) ids.push(id);
+        walk(t?.childTabs);
+      }
+    }
+    walk(resp.data?.tabs);
+    return ids;
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Apply find-and-replace to a doc using `documents.batchUpdate`. Always uses
  * `replaceAllText` (Docs API doesn't have a "first-occurrence-only" mode);
  * when the caller asks for `first` we still call replaceAllText but the agent
  * is responsible for picking a search string unique enough to match once.
+ *
+ * For multi-tab documents we first list every tab id (including nested
+ * `childTabs`) and pass them via `tabsCriteria.tabIds`. Without that, the
+ * Docs API only applies the replacement to the first tab.
  */
 export async function findAndReplace(
   documentId: string,
@@ -283,13 +339,16 @@ export async function findAndReplace(
   const client = await getAuthedClient();
   if (!client) return { success: false, error: 'Not connected to Google Docs' };
 
+  const tabIds = await listAllTabIds(client, documentId);
+
   const url = `https://docs.googleapis.com/v1/documents/${encodeURIComponent(documentId)}:batchUpdate`;
-  const body = {
+  const body: any = {
     requests: [
       {
         replaceAllText: {
           containsText: { text: searchText, matchCase },
           replaceText,
+          ...(tabIds.length > 0 ? { tabsCriteria: { tabIds } } : {}),
         },
       },
     ],
