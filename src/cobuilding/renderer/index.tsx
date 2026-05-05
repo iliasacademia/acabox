@@ -33,6 +33,7 @@ import AcademiaLogin from './components/AcademiaLogin';
 import WelcomeScreen from './components/WelcomeScreen';
 import { SetupBanner } from './components/SetupBanner';
 import { TaskPanel } from './components/TaskPanel';
+import { GlobalComposer } from './components/GlobalComposer';
 import { TabBar } from './tabs/TabBar';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
@@ -89,9 +90,11 @@ type SidebarTab = 'home' | 'tools' | 'files' | 'chats' | 'debug' | 'settings';
 
 function NotificationNavigator({
   setSidebarTab,
+  setChatViewMode,
   deactivateAllTabs,
 }: {
   setSidebarTab: (tab: SidebarTab) => void;
+  setChatViewMode: (mode: 'list' | 'detail') => void;
   deactivateAllTabs: () => void;
 }) {
   const runtime = useAssistantRuntime();
@@ -102,6 +105,7 @@ function NotificationNavigator({
       if (navigation.type === 'thread' && navigation.threadId) {
         console.log('[NotificationNav] Thread navigation — threadId:', navigation.threadId, 'sidebarTab:', navigation.sidebarTab ?? 'chats (default)');
         setSidebarTab(navigation.sidebarTab ?? 'chats');
+        setChatViewMode('detail');
         deactivateAllTabs();
         try {
           console.log('[NotificationNav] Calling runtime.threads.switchToThread("' + navigation.threadId + '")');
@@ -119,7 +123,7 @@ function NotificationNavigator({
     };
     window.electronAPI.on('notification:navigate', handler);
     return () => window.electronAPI.removeListener('notification:navigate', handler);
-  }, [runtime, setSidebarTab, deactivateAllTabs]);
+  }, [runtime, setSidebarTab, setChatViewMode, deactivateAllTabs]);
 
   return null;
 }
@@ -127,9 +131,11 @@ function NotificationNavigator({
 /** Listens for navigate-to-page IPC (from Word overlay) and shows the chat view. */
 function OverlayNavigationHandler({
   setSidebarTab,
+  setChatViewMode,
   deactivateAllTabs,
 }: {
   setSidebarTab: (tab: SidebarTab) => void;
+  setChatViewMode: (mode: 'list' | 'detail') => void;
   deactivateAllTabs: () => void;
 }) {
   const runtime = useAssistantRuntime();
@@ -138,6 +144,7 @@ function OverlayNavigationHandler({
     const handler = (_event: unknown, payload: { page: string; projectId?: number; conversationId?: number; sessionId?: string }) => {
       console.log('[OverlayNav] Received navigate-to-page:', JSON.stringify(payload));
       setSidebarTab('chats');
+      setChatViewMode('detail');
       deactivateAllTabs();
       if (payload.sessionId) {
         try {
@@ -149,7 +156,7 @@ function OverlayNavigationHandler({
     };
     window.electronAPI.on('navigate-to-page', handler);
     return () => window.electronAPI.removeListener('navigate-to-page', handler);
-  }, [runtime, setSidebarTab, deactivateAllTabs]);
+  }, [runtime, setSidebarTab, setChatViewMode, deactivateAllTabs]);
 
   return null;
 }
@@ -232,6 +239,31 @@ function ShowChatOnThreadSelect({ onShowChat, suppressRef }: { onShowChat: () =>
     }
     prevRef.current = mainThreadId;
   }, [mainThreadId, onShowChat, suppressRef]);
+
+  return null;
+}
+
+/**
+ * Switches to a new (empty) thread whenever the user leaves chat detail view.
+ * This ensures the GlobalComposer always targets a fresh thread on non-chat pages.
+ */
+function ResetThreadOnLeavingDetail({
+  isInChatDetail,
+  suppressRef,
+}: {
+  isInChatDetail: boolean;
+  suppressRef: React.MutableRefObject<boolean>;
+}) {
+  const runtime = useAssistantRuntime();
+  const prevRef = useRef(isInChatDetail);
+
+  useEffect(() => {
+    if (prevRef.current && !isInChatDetail) {
+      suppressRef.current = true;
+      runtime.switchToNewThread();
+    }
+    prevRef.current = isInChatDetail;
+  }, [isInChatDetail, runtime, suppressRef]);
 
   return null;
 }
@@ -326,6 +358,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
   }, []);
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('home');
+  const [chatViewMode, setChatViewMode] = useState<'list' | 'detail'>('list');
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
     return (saved as DebugSection) || 'apps';
@@ -492,12 +525,13 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
       <SessionTitleUpdater />
       <SessionsListRefresher />
       <SessionSubscriber />
-      <ShowChatOnThreadSelect onShowChat={deactivateAllTabs} suppressRef={suppressThreadDeactivateRef} />
+      <ShowChatOnThreadSelect onShowChat={() => { deactivateAllTabs(); setChatViewMode('detail'); }} suppressRef={suppressThreadDeactivateRef} />
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
-      <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); deactivateAllTabs(); }} />
-      <NotificationNavigator setSidebarTab={setSidebarTab} deactivateAllTabs={deactivateAllTabs} />
-      <OverlayNavigationHandler setSidebarTab={setSidebarTab} deactivateAllTabs={deactivateAllTabs} />
+      <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
+      <ResetThreadOnLeavingDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} suppressRef={suppressThreadDeactivateRef} />
+      <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
+      <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
         <div className="appRoot">
           <SetupBanner />
@@ -527,23 +561,25 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
               </button>
               <button
                 className={`topNavTab${sidebarTab === 'chats' ? ' topNavTab--active' : ''}`}
-                onClick={() => { setSidebarTab('chats'); deactivateAllTabs(); }}
+                onClick={() => { setSidebarTab('chats'); setChatViewMode('list'); deactivateAllTabs(); }}
               >
                 Chats
               </button>
+            </nav>
+            <div className="topNavBar__right">
               <button
-                className={`topNavTab${sidebarTab === 'debug' ? ' topNavTab--active' : ''}`}
+                className={`topNavTab topNavTab--secondary${sidebarTab === 'debug' ? ' topNavTab--active' : ''}`}
                 onClick={() => setSidebarTab('debug')}
               >
                 Debug
               </button>
               <button
-                className={`topNavTab${sidebarTab === 'settings' ? ' topNavTab--active' : ''}`}
+                className={`topNavTab topNavTab--secondary${sidebarTab === 'settings' ? ' topNavTab--active' : ''}`}
                 onClick={() => setSidebarTab('settings')}
               >
                 Settings
               </button>
-            </nav>
+            </div>
           </div>
           <div className="contentArea">
             {/* Home tab */}
@@ -671,21 +707,21 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
             </div>
 
             {/* Chats tab */}
-            <div style={{ display: sidebarTab === 'chats' ? 'flex' : 'none', flex: 1 }}>
-              <PanelGroup direction="horizontal" autoSaveId="cobuild.chatsLayout" className="appPanelGroup">
-                <Panel id="chatsSidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
-                  <div className="sidebarPanel">
-                    <div className="sidebarContent">
-                      <ThreadList />
-                    </div>
+            <div style={{ display: sidebarTab === 'chats' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
+              {chatViewMode === 'detail' ? (
+                <>
+                  <div className="chatDetailHeader">
+                    <button
+                      className="chatDetailBackBtn"
+                      onClick={() => { setChatViewMode('list'); }}
+                    >
+                      &larr; Back to chats
+                    </button>
                   </div>
-                </Panel>
-                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                <Panel id="chatsMain" order={2} defaultSize={82} minSize={30}>
-                  <div className="mainPanel">
+                  <div className="chatDetailContent" style={{ flex: 1, minHeight: 0, display: 'flex' }}>
                     <PanelGroup direction="horizontal" autoSaveId="cobuild.chatTasks" className="appPanelGroup">
                       <Panel id="thread" order={1} defaultSize={78} minSize={40}>
-                        <Thread />
+                        <Thread hideComposer />
                       </Panel>
                       {showTaskPanel && (
                         <>
@@ -697,8 +733,10 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
                       )}
                     </PanelGroup>
                   </div>
-                </Panel>
-              </PanelGroup>
+                </>
+              ) : (
+                <ThreadList onSelectThread={() => setChatViewMode('detail')} />
+              )}
             </div>
 
             {/* Debug tab */}
@@ -734,6 +772,19 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
               />
             </div>
           </div>
+          {/* Global composer — shown on all pages except settings, debug, active miniapp */}
+          {sidebarTab !== 'settings' &&
+           sidebarTab !== 'debug' &&
+           !(sidebarTab === 'tools' && activeTab?.kind === 'miniapp') && (
+            <GlobalComposer
+              isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
+              onNavigateToChat={() => {
+                suppressThreadDeactivateRef.current = true;
+                setSidebarTab('chats');
+                setChatViewMode('detail');
+              }}
+            />
+          )}
         </div>
         </div>
       </TooltipProvider>
