@@ -1951,8 +1951,7 @@ function notifySessionsChanged() {
 
 // Session IPC handlers
 ipcMain.handle('sessions:list', (_event, source?: string) => {
-  if (!activeWorkspace) return [];
-  return listSessions(activeWorkspace.id, source);
+  return listSessions(undefined, source);
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
 ipcMain.handle('sessions:rename', (_event, id: string, title: string) => {

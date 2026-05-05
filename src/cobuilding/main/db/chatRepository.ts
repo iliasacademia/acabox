@@ -35,11 +35,13 @@ export function getSession(id: string): Session | undefined {
     .get(id) as Session | undefined;
 }
 
-export function listSessions(workspaceId: string, source?: string, documentPath?: string): Session[] {
+export function listSessions(workspaceId?: string, source?: string, documentPath?: string): Session[] {
   const sourceClause = source !== undefined ? 'source = ?' : 'source IS NULL';
   const docClause = documentPath !== undefined ? ' AND document_path = ?' : '';
-  const sql = `SELECT * FROM sessions WHERE workspace_id = ? AND ${sourceClause}${docClause} ORDER BY updated_at DESC`;
-  const params: unknown[] = [workspaceId];
+  const workspaceClause = workspaceId !== undefined ? 'workspace_id = ? AND ' : '';
+  const sql = `SELECT * FROM sessions WHERE ${workspaceClause}${sourceClause}${docClause} ORDER BY updated_at DESC`;
+  const params: unknown[] = [];
+  if (workspaceId !== undefined) params.push(workspaceId);
   if (source !== undefined) params.push(source);
   if (documentPath !== undefined) params.push(documentPath);
   return getDatabase().prepare(sql).all(...params) as Session[];
@@ -51,10 +53,12 @@ export function listSessions(workspaceId: string, source?: string, documentPath?
  * shares a stable prefix (e.g. Apple Notes' `applenotes://%`) so the overlay
  * can show all chats for the host when the active document isn't pinned yet.
  */
-export function listSessionsByDocPathLike(workspaceId: string, source: string | undefined, documentPathLike: string): Session[] {
+export function listSessionsByDocPathLike(workspaceId: string | undefined, source: string | undefined, documentPathLike: string): Session[] {
   const sourceClause = source !== undefined ? 'source = ?' : 'source IS NULL';
-  const sql = `SELECT * FROM sessions WHERE workspace_id = ? AND ${sourceClause} AND document_path LIKE ? ORDER BY updated_at DESC`;
-  const params: unknown[] = [workspaceId];
+  const workspaceClause = workspaceId !== undefined ? 'workspace_id = ? AND ' : '';
+  const sql = `SELECT * FROM sessions WHERE ${workspaceClause}${sourceClause} AND document_path LIKE ? ORDER BY updated_at DESC`;
+  const params: unknown[] = [];
+  if (workspaceId !== undefined) params.push(workspaceId);
   if (source !== undefined) params.push(source);
   params.push(documentPathLike);
   return getDatabase().prepare(sql).all(...params) as Session[];
