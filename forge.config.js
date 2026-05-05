@@ -93,6 +93,33 @@ const packagerConfig = {
   // whole class of "missing module" runtime errors we'd otherwise hunt
   // down case-by-case.
   prune: false,
+  // Belt-and-suspenders: even with prune: false and the explicit webpack
+  // external entry, @electron-forge/plugin-webpack runs its own prune step
+  // that drops packages it doesn't see referenced in webpack stats. ESM-only
+  // packages like data-uri-to-buffer@4 (used at runtime by node-fetch via
+  // dynamic import) slip through every signal we have. This hook
+  // unconditionally copies the package into the .app's node_modules after
+  // packagerConfig and plugin-webpack are done. Idempotent.
+  afterCopy: [
+    (buildPath, _electronVersion, _platform, _arch, callback) => {
+      try {
+        const fs = require('fs');
+        const path = require('path');
+        const must = ['data-uri-to-buffer'];
+        for (const pkg of must) {
+          const src = path.join(__dirname, 'node_modules', pkg);
+          const dest = path.join(buildPath, 'node_modules', pkg);
+          if (fs.existsSync(dest)) continue;
+          if (!fs.existsSync(src)) continue;
+          fs.cpSync(src, dest, { recursive: true, dereference: true });
+          console.log(`[forge.afterCopy] Copied ${pkg} into packaged .app`);
+        }
+        callback();
+      } catch (err) {
+        callback(err);
+      }
+    },
+  ],
   protocols: [
     {
       name: 'Writing Agent',
