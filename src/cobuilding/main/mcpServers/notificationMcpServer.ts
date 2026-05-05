@@ -25,7 +25,7 @@ export function createNotificationMcpServer(
           navigation: z.object({
             type: z.enum(['thread', 'sidebar']).describe('The type of navigation action.'),
             threadId: z.string().optional().describe('The thread ID to navigate to (required when type is "thread").'),
-            sidebarTab: z.enum(['chats', 'files', 'apps', 'scheduled', 'reactions', 'debug']).optional()
+            sidebarTab: z.enum(['home', 'tools', 'files', 'chats', 'debug', 'settings']).optional()
               .describe('The sidebar tab to show when navigating (optional for "thread", required for "sidebar").'),
           }).optional().describe('Optional navigation action when the user clicks the notification.'),
         },

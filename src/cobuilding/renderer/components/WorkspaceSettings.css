@@ -197,3 +197,22 @@
   gap: 8px;
   margin-top: 4px;
 }
+
+/* Inline mode (rendered as a tab panel instead of modal overlay) */
+
+.wsSettings--inline {
+  position: relative;
+  inset: unset;
+  background: #faf8f5;
+  z-index: auto;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 32px 20px;
+}
+
+.wsSettings--inline .wsSettings__card {
+  max-height: none;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e5e2dd;
+}

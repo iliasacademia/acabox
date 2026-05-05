@@ -8,9 +8,10 @@ interface WorkspaceSettingsProps {
   onClose: () => void;
   onSaved: (ws: Workspace) => void;
   onLogout: () => void;
+  inline?: boolean;
 }
 
-const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout }) => {
+const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout, inline }) => {
   const [name, setName] = useState(workspace.name);
   const [directoryPath, setDirectoryPath] = useState(workspace.directory_path);
   const [error, setError] = useState<string | null>(null);
@@ -217,7 +218,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   }, []);
 
   return (
-    <div className="wsSettings" onClick={onClose}>
+    <div className={`wsSettings${inline ? ' wsSettings--inline' : ''}`} onClick={inline ? undefined : onClose}>
       <div className="wsSettings__card" onClick={(e) => e.stopPropagation()}>
         <h2 className="wsSettings__title">Workspace Settings</h2>
 

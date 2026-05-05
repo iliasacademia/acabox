@@ -9,7 +9,6 @@ import {
   useAssistantRuntime,
   useComposerRuntime,
 } from '@assistant-ui/react';
-import { FolderIcon, MessageSquareIcon, BracesIcon, SettingsIcon, LayoutGridIcon, ClockIcon, SparklesIcon, MicIcon, CalendarIcon } from 'lucide-react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
@@ -19,18 +18,8 @@ import { FileViewer } from './components/FileViewer';
 import { NotebookViewer } from './components/notebook';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
-import { ScheduledTasksSidebar } from './components/ScheduledTasksSidebar';
-import { ReactionsSidebar } from './components/ReactionsSidebar';
-import { FocusEditor } from './components/FocusEditor';
-import { NotesSidebar } from './components/NotesSidebar';
-import { NotesPanel } from './components/NotesPanel';
-import { NotesChat } from './components/NotesChat';
-import { CalendarPage } from './components/CalendarPage';
-
-import { ScheduledTaskEditor } from './components/ScheduledTaskEditor';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useTasks } from './taskStore';
-import './components/ScheduledTasks.css';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
@@ -96,7 +85,7 @@ function QuickChatInjector({ onSwitchToChat }: { onSwitchToChat: () => void }) {
 }
 
 /** Listens for notification:navigate IPC and navigates to the specified target. */
-type SidebarTab = 'chats' | 'files' | 'apps' | 'scheduled' | 'reactions' | 'writing' | 'notes' | 'calendar' | 'debug';
+type SidebarTab = 'home' | 'tools' | 'files' | 'chats' | 'debug' | 'settings';
 
 function NotificationNavigator({
   setSidebarTab,
@@ -336,16 +325,11 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
     trackEvent('Cobuilding Session');
   }, []);
 
-  const [showSettings, setShowSettings] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('chats');
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>('home');
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
     return (saved as DebugSection) || 'apps';
   });
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [isNewTask, setIsNewTask] = useState(false);
-  const [taskRefreshKey, setTaskRefreshKey] = useState(0);
-  const [selectedNoteDay, setSelectedNoteDay] = useState<string | null>(null);
 
   const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs({
     onBeforeClose: (id) => {
@@ -411,6 +395,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
   });
 
   const handleSelectFile = useCallback((filePath: string) => {
+    setSidebarTab('files');
     const isNotebook = filePath.endsWith('.ipynb');
     const kind = isNotebook ? 'notebook' as const : 'file' as const;
     const label = filePath.split('/').pop() ?? filePath;
@@ -437,6 +422,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
 
   const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean }) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName, opts);
+    setSidebarTab('tools');
     const tabId = `miniapp::${dirName}`;
     // Only force an iframe reload when the tab doesn't already exist. Re-clicking
     // an already-open mini app should just activate it — remounting the viewer
@@ -457,27 +443,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
     openTab(descriptor);
   }, [openTab]);
 
-  const handleOpenDebug = useCallback(() => {
-    const descriptor: TabDescriptor = {
-      id: 'debug',
-      kind: 'debug',
-      label: 'Debug',
-      pinned: true,
-      data: { kind: 'debug' },
-    };
-    openTab(descriptor);
-  }, [openTab]);
-
-  const handleOpenFocus = useCallback(() => {
-    const descriptor: TabDescriptor = {
-      id: 'focus',
-      kind: 'focus',
-      label: 'Focus',
-      pinned: true,
-      data: { kind: 'focus' },
-    };
-    openTab(descriptor);
-  }, [openTab]);
 
   const handleFilesClick = useCallback(() => {
     setSidebarTab('files');
@@ -489,8 +454,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
     // Otherwise, leave the main panel as-is
   }, [tabs, activateTab]);
 
-  const handleAppsClick = useCallback(() => {
-    setSidebarTab('apps');
+  const handleToolsClick = useCallback(() => {
+    setSidebarTab('tools');
     // Activate the most recently opened miniapp tab, or auto-open the first app
     const miniappTab = [...tabs].reverse().find((t) => t.kind === 'miniapp');
     if (miniappTab) {
@@ -499,14 +464,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
       setAutoSelectFirstApp(true);
     }
   }, [tabs, activateTab]);
-
-  const handleNotesClick = useCallback(() => {
-    setSidebarTab('notes');
-    deactivateAllTabs();
-    if (!selectedNoteDay) {
-      setSelectedNoteDay(new Date().toISOString().split('T')[0]);
-    }
-  }, [deactivateAllTabs, selectedNoteDay]);
 
   // Suppress ShowChatOnThreadSelect when switching threads for a miniapp
   const suppressThreadDeactivateRef = useRef(false);
@@ -545,147 +502,80 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
         <div className="appRoot">
           <SetupBanner />
           <div className="appLayout">
-          <div className="activityBar">
-            <button
-              className={`activityBarBtn ${sidebarTab === 'files' ? 'activityBarBtn--active' : ''}`}
-              onClick={handleFilesClick}
-            >
-              <FolderIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Files</span>
-            </button>
-            <button
-              className={`activityBarBtn ${sidebarTab === 'chats' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => { setSidebarTab('chats'); deactivateAllTabs(); }}
-            >
-              <MessageSquareIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Chats</span>
-            </button>
-            <button
-              className={`activityBarBtn ${sidebarTab === 'apps' ? 'activityBarBtn--active' : ''}`}
-              onClick={handleAppsClick}
-            >
-              <LayoutGridIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Apps</span>
-            </button>
-            <button
-              className={`activityBarBtn ${sidebarTab === 'scheduled' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setSidebarTab('scheduled')}
-            >
-              <ClockIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Schedule</span>
-            </button>
-            <button
-              className={`activityBarBtn ${sidebarTab === 'reactions' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setSidebarTab('reactions')}
-            >
-              <SparklesIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Reactions</span>
-            </button>
-            <button
-              className={`activityBarBtn ${sidebarTab === 'notes' ? 'activityBarBtn--active' : ''}`}
-              onClick={handleNotesClick}
-            >
-              <MicIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Notes</span>
-            </button>
-            <button
-              className={`activityBarBtn ${sidebarTab === 'calendar' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => setSidebarTab('calendar')}
-            >
-              <CalendarIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Calendar</span>
-            </button>
-            <button
-              className={`activityBarBtn activityBarBtn--bottom ${sidebarTab === 'debug' ? 'activityBarBtn--active' : ''}`}
-              onClick={() => { setSidebarTab('debug'); handleOpenDebug(); }}
-            >
-              <BracesIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Debug</span>
-            </button>
-            <button
-              className="activityBarBtn"
-              onClick={() => setShowSettings(true)}
-            >
-              <SettingsIcon style={{ width: 20, height: 20 }} />
-              <span className="activityBarBtnLabel">Settings</span>
-            </button>
+          <div className="topNavBar">
+            <div className="topNavBar__brand">
+              <span className="topNavBar__brandName">Co-scientist</span>
+            </div>
+            <nav className="topNavBar__tabs">
+              <button
+                className={`topNavTab${sidebarTab === 'home' ? ' topNavTab--active' : ''}`}
+                onClick={() => { setSidebarTab('home'); deactivateAllTabs(); }}
+              >
+                Home
+              </button>
+              <button
+                className={`topNavTab${sidebarTab === 'tools' ? ' topNavTab--active' : ''}`}
+                onClick={handleToolsClick}
+              >
+                Tools
+              </button>
+              <button
+                className={`topNavTab${sidebarTab === 'files' ? ' topNavTab--active' : ''}`}
+                onClick={handleFilesClick}
+              >
+                Files
+              </button>
+              <button
+                className={`topNavTab${sidebarTab === 'chats' ? ' topNavTab--active' : ''}`}
+                onClick={() => { setSidebarTab('chats'); deactivateAllTabs(); }}
+              >
+                Chats
+              </button>
+              <button
+                className={`topNavTab${sidebarTab === 'debug' ? ' topNavTab--active' : ''}`}
+                onClick={() => setSidebarTab('debug')}
+              >
+                Debug
+              </button>
+              <button
+                className={`topNavTab${sidebarTab === 'settings' ? ' topNavTab--active' : ''}`}
+                onClick={() => setSidebarTab('settings')}
+              >
+                Settings
+              </button>
+            </nav>
           </div>
-          <PanelGroup direction="horizontal" autoSaveId="cobuild.layout" className="appPanelGroup">
-            {sidebarTab !== 'calendar' && (
-              <>
-                <Panel id="sidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
+          <div className="contentArea">
+            {/* Home tab */}
+            <div style={{ display: sidebarTab === 'home' ? 'flex' : 'none', flex: 1 }}>
+              <div className="homeContent">
+                <h1>Home</h1>
+              </div>
+            </div>
+
+            {/* Tools tab */}
+            <div style={{ display: sidebarTab === 'tools' ? 'flex' : 'none', flex: 1 }}>
+              <PanelGroup direction="horizontal" autoSaveId="cobuild.toolsLayout" className="appPanelGroup">
+                <Panel id="toolsSidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
                   <div className="sidebarPanel">
                     <div className="sidebarContent">
-                      {sidebarTab === 'chats' ? (
-                        <ThreadList />
-                      ) : sidebarTab === 'files' ? (
-                        <FilesTab
-                          workspacePath={workspace.directory_path}
-                          onSelectFile={handleSelectFile}
-                        />
-                      ) : sidebarTab === 'apps' ? (
-                        <MiniAppsTab
-                          workspacePath={workspace.directory_path}
-                          onSelectApp={handleSelectApp}
-                          onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
-                          onNewApplication={() => { setSidebarTab('chats'); }}
-                          activeAppDirName={activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : undefined}
-                          autoSelectFirst={autoSelectFirstApp}
-                          onAutoSelectDone={() => setAutoSelectFirstApp(false)}
-                        />
-                      ) : sidebarTab === 'reactions' ? (
-                        <ReactionsSidebar onOpenFocus={handleOpenFocus} />
-                      ) : sidebarTab === 'scheduled' ? (
-                        <ScheduledTasksSidebar
-                          selectedTaskId={selectedTaskId}
-                          onSelectTask={(id) => { setSelectedTaskId(id); setIsNewTask(false); }}
-                          onNewTask={() => { setSelectedTaskId(null); setIsNewTask(true); }}
-                          refreshKey={taskRefreshKey}
-                        />
-                      ) : sidebarTab === 'notes' ? (
-                        <NotesSidebar
-                          selectedDay={selectedNoteDay}
-                          onSelectDay={setSelectedNoteDay}
-                        />
-                      ) : sidebarTab === 'debug' ? (
-                        <DebugSidebar activeSection={debugSection} onSelect={(s) => { setDebugSection(s); localStorage.setItem('debug-section', s); }} />
-                      ) : null}
+                      <MiniAppsTab
+                        workspacePath={workspace.directory_path}
+                        onSelectApp={handleSelectApp}
+                        onDeleteApp={(dirName) => closeTab(`miniapp::${dirName}`)}
+                        onNewApplication={() => { setSidebarTab('chats'); }}
+                        activeAppDirName={activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : undefined}
+                        autoSelectFirst={autoSelectFirstApp}
+                        onAutoSelectDone={() => setAutoSelectFirstApp(false)}
+                      />
                     </div>
                   </div>
                 </Panel>
                 <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-              </>
-            )}
-            <Panel id="main" order={2} defaultSize={54} minSize={30}>
-              <div className="mainPanel">
-                {sidebarTab === 'calendar' ? (
-                  <CalendarPage />
-                ) : sidebarTab === 'notes' ? (
-                  <PanelGroup direction="horizontal" autoSaveId="cobuild.notesLayout" className="appPanelGroup">
-                    <Panel id="notesMain" order={1} defaultSize={65} minSize={40}>
-                      <NotesPanel selectedDay={selectedNoteDay} />
-                    </Panel>
-                    <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                    <Panel id="notesAssistant" order={2} defaultSize={35} minSize={20} maxSize={50}>
-                      <NotesChat dayFile={selectedNoteDay ?? new Date().toISOString().split('T')[0]} />
-                    </Panel>
-                  </PanelGroup>
-                ) : sidebarTab === 'scheduled' ? (
-                  (selectedTaskId || isNewTask) ? (
-                    <ScheduledTaskEditor
-                      taskId={selectedTaskId}
-                      onSaved={(savedId) => { setSelectedTaskId(savedId); setIsNewTask(false); setTaskRefreshKey((k) => k + 1); }}
-                      onDeleted={() => { setSelectedTaskId(null); setIsNewTask(false); setTaskRefreshKey((k) => k + 1); }}
-                    />
-                  ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '0.875rem' }}>
-                      Select a task or create a new one
-                    </div>
-                  )
-                ) : (
-                  <>
+                <Panel id="toolsMain" order={2} defaultSize={54} minSize={30}>
+                  <div className="mainPanel">
                     <TabBar
-                      tabs={tabs}
+                      tabs={tabs.filter(t => t.kind === 'miniapp')}
                       activeTabId={activeTabId}
                       dirtyTabIds={dirtyTabIds}
                       hasLiveKernel={hasLiveKernel}
@@ -693,31 +583,76 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
                       onClose={closeTab}
                       onPin={pinTab}
                       onShowChat={deactivateAllTabs}
+                      homeLabel="Tools"
                     />
                     <div className="tabPanelsContainer">
-                      {/* Chat is the default view when no tab is active */}
-                      <div className="tabPanel" style={{ display: activeTabId === null ? 'flex' : 'none' }}>
-                        <PanelGroup direction="horizontal" autoSaveId="cobuild.chatTasks" className="appPanelGroup">
-                          <Panel id="thread" order={1} defaultSize={78} minSize={40}>
-                            <Thread />
-                          </Panel>
-                          {showTaskPanel && (
-                            <>
-                              <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                              <Panel id="tasks" order={2} defaultSize={22} minSize={15} maxSize={45}>
-                                <TaskPanel />
-                              </Panel>
-                            </>
-                          )}
-                        </PanelGroup>
+                      <div className="tabPanel" style={{ display: !activeTabId || !tabs.find(t => t.id === activeTabId && t.kind === 'miniapp') ? 'flex' : 'none' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '0.875rem' }}>
+                          Select a tool from the sidebar
+                        </div>
                       </div>
-                      {/* Render all tab panels - hidden ones use display:none to preserve state */}
-                      {tabs.map((tab) => (
-                        <div
-                          key={tab.id}
-                          className="tabPanel"
-                          style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}
-                        >
+                      {tabs.filter(t => t.kind === 'miniapp').map((tab) => (
+                        <div key={tab.id} className="tabPanel" style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}>
+                          {tab.data.kind === 'miniapp' && (
+                            <MiniAppViewer
+                              dirName={tab.data.dirName}
+                              workspacePath={workspace.directory_path}
+                              reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
+                            />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </Panel>
+                {showChatSidePanel && (
+                  <>
+                    <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                    <Panel id="toolsChatSide" order={3} defaultSize={28} minSize={18} maxSize={50}>
+                      <div className="chatSidePanel">
+                        <Thread />
+                      </div>
+                    </Panel>
+                  </>
+                )}
+              </PanelGroup>
+            </div>
+
+            {/* Files tab */}
+            <div style={{ display: sidebarTab === 'files' ? 'flex' : 'none', flex: 1 }}>
+              <PanelGroup direction="horizontal" autoSaveId="cobuild.filesLayout" className="appPanelGroup">
+                <Panel id="filesSidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
+                  <div className="sidebarPanel">
+                    <div className="sidebarContent">
+                      <FilesTab
+                        workspacePath={workspace.directory_path}
+                        onSelectFile={handleSelectFile}
+                      />
+                    </div>
+                  </div>
+                </Panel>
+                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                <Panel id="filesMain" order={2} defaultSize={82} minSize={30}>
+                  <div className="mainPanel">
+                    <TabBar
+                      tabs={tabs.filter(t => t.kind === 'file' || t.kind === 'notebook')}
+                      activeTabId={activeTabId}
+                      dirtyTabIds={dirtyTabIds}
+                      hasLiveKernel={hasLiveKernel}
+                      onActivate={activateTab}
+                      onClose={closeTab}
+                      onPin={pinTab}
+                      onShowChat={deactivateAllTabs}
+                      homeLabel="Files"
+                    />
+                    <div className="tabPanelsContainer">
+                      <div className="tabPanel" style={{ display: !activeTabId || !tabs.find(t => t.id === activeTabId && (t.kind === 'file' || t.kind === 'notebook')) ? 'flex' : 'none' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '0.875rem' }}>
+                          Select a file from the sidebar
+                        </div>
+                      </div>
+                      {tabs.filter(t => t.kind === 'file' || t.kind === 'notebook').map((tab) => (
+                        <div key={tab.id} className="tabPanel" style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}>
                           {tab.data.kind === 'file' && (
                             <FileViewer filePath={tab.data.filePath} />
                           )}
@@ -727,50 +662,80 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
                               onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
                             />
                           )}
-                          {tab.data.kind === 'miniapp' && (
-                            <MiniAppViewer
-                              dirName={tab.data.dirName}
-                              workspacePath={workspace.directory_path}
-                              reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
-                            />
-                          )}
-                          {tab.data.kind === 'debug' && (
-                            <DebugContent activeSection={debugSection} />
-                          )}
-                          {tab.data.kind === 'focus' && (
-                            <FocusEditor />
-                          )}
                         </div>
                       ))}
                     </div>
-                  </>
-                )}
-              </div>
-            </Panel>
-            {showChatSidePanel && (
-              <>
-                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                <Panel id="chatSide" order={3} defaultSize={28} minSize={18} maxSize={50}>
-                  <div className="chatSidePanel">
-                    <Thread />
                   </div>
                 </Panel>
-              </>
-            )}
-          </PanelGroup>
+              </PanelGroup>
+            </div>
+
+            {/* Chats tab */}
+            <div style={{ display: sidebarTab === 'chats' ? 'flex' : 'none', flex: 1 }}>
+              <PanelGroup direction="horizontal" autoSaveId="cobuild.chatsLayout" className="appPanelGroup">
+                <Panel id="chatsSidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
+                  <div className="sidebarPanel">
+                    <div className="sidebarContent">
+                      <ThreadList />
+                    </div>
+                  </div>
+                </Panel>
+                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                <Panel id="chatsMain" order={2} defaultSize={82} minSize={30}>
+                  <div className="mainPanel">
+                    <PanelGroup direction="horizontal" autoSaveId="cobuild.chatTasks" className="appPanelGroup">
+                      <Panel id="thread" order={1} defaultSize={78} minSize={40}>
+                        <Thread />
+                      </Panel>
+                      {showTaskPanel && (
+                        <>
+                          <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                          <Panel id="tasks" order={2} defaultSize={22} minSize={15} maxSize={45}>
+                            <TaskPanel />
+                          </Panel>
+                        </>
+                      )}
+                    </PanelGroup>
+                  </div>
+                </Panel>
+              </PanelGroup>
+            </div>
+
+            {/* Debug tab */}
+            <div style={{ display: sidebarTab === 'debug' ? 'flex' : 'none', flex: 1 }}>
+              <PanelGroup direction="horizontal" autoSaveId="cobuild.debugLayout" className="appPanelGroup">
+                <Panel id="debugSidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
+                  <div className="sidebarPanel">
+                    <div className="sidebarContent">
+                      <DebugSidebar activeSection={debugSection} onSelect={(s) => { setDebugSection(s); localStorage.setItem('debug-section', s); }} />
+                    </div>
+                  </div>
+                </Panel>
+                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                <Panel id="debugMain" order={2} defaultSize={82} minSize={30}>
+                  <div className="mainPanel">
+                    <DebugContent activeSection={debugSection} />
+                  </div>
+                </Panel>
+              </PanelGroup>
+            </div>
+
+            {/* Settings tab */}
+            <div style={{ display: sidebarTab === 'settings' ? 'flex' : 'none', flex: 1 }}>
+              <WorkspaceSettings
+                workspace={workspace}
+                onClose={() => setSidebarTab('home')}
+                onSaved={(ws) => {
+                  onWorkspaceUpdated(ws);
+                  setSidebarTab('home');
+                }}
+                onLogout={onLogout}
+                inline
+              />
+            </div>
+          </div>
         </div>
         </div>
-        {showSettings && (
-          <WorkspaceSettings
-            workspace={workspace}
-            onClose={() => setShowSettings(false)}
-            onSaved={(ws) => {
-              onWorkspaceUpdated(ws);
-              setShowSettings(false);
-            }}
-            onLogout={onLogout}
-          />
-        )}
       </TooltipProvider>
     </AssistantRuntimeProvider>
   );

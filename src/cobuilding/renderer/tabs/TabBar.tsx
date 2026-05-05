@@ -11,6 +11,7 @@ interface TabBarProps {
   onClose: (id: string) => void;
   onPin: (id: string) => void;
   onShowChat: () => void;
+  homeLabel?: string;
 }
 
 const iconStyle = { width: 14, height: 14, flexShrink: 0 };
@@ -37,6 +38,7 @@ export const TabBar: FC<TabBarProps> = ({
   onClose,
   onPin,
   onShowChat,
+  homeLabel = 'Chat',
 }) => {
   if (tabs.length === 0) return null;
 
@@ -49,7 +51,7 @@ export const TabBar: FC<TabBarProps> = ({
         onClick={onShowChat}
       >
         <MessageSquareIcon style={{ width: 14, height: 14 }} />
-        <span className="tabBarItemLabel">Chat</span>
+        <span className="tabBarItemLabel">{homeLabel}</span>
       </div>
       {tabs.map((tab) => {
         const isDirty = dirtyTabIds.has(tab.id);

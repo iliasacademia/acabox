@@ -36,67 +36,110 @@ body,
 
 .appLayout {
   display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
   width: 100%;
 }
 
-/* --- Activity Bar --- */
+/* --- Top Navigation Bar --- */
 
-.activityBar {
-  width: 80px;
+.topNavBar {
+  display: flex;
+  align-items: center;
+  height: 48px;
+  padding: 0 20px;
+  background: #faf8f5;
+  border-bottom: 1px solid #e5e2dd;
   flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 8px 0;
-  gap: 10px;
-  background: #333;
-  border-right: 1px solid #222;
+  gap: 32px;
+  -webkit-app-region: drag;
 }
 
-.activityBarBtn {
+.topNavBar__brand {
+  flex-shrink: 0;
+}
+
+.topNavBar__brandName {
+  font-family: 'Gupter', serif;
+  font-size: 24px;
+  font-weight: 400;
+  color: #141413;
+  letter-spacing: -0.3px;
+}
+
+.topNavBar__tabs {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
-  width: 70px;
-  padding: 8px 0 6px;
+  gap: 4px;
+  height: 100%;
+  -webkit-app-region: no-drag;
+}
+
+.topNavTab {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 14px;
   border: none;
-  border-radius: 8px;
   background: none;
-  color: rgba(255, 255, 255, 0.45);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: #9c958b;
   cursor: pointer;
-  transition: color 0.15s, background 0.15s;
+  transition: color 0.15s;
   position: relative;
-}
-
-.activityBarBtn:hover {
-  color: rgba(255, 255, 255, 0.85);
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.activityBarBtnLabel {
-  font-size: 11px;
-  line-height: 1;
   white-space: nowrap;
 }
 
-.activityBarBtn--active {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
+.topNavTab:hover {
+  color: #5c5549;
 }
 
+.topNavTab--active {
+  color: #3d3832;
+  font-weight: 600;
+}
 
-.activityBarBtn--bottom {
-  margin-top: auto;
+.topNavTab--active::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  background: #3d3832;
+  border-radius: 1px;
+}
+
+/* --- Content Area --- */
+
+.contentArea {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.homeContent {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #faf8f5;
+}
+
+.homeContent h1 {
+  font-family: 'Gupter', serif;
+  font-size: 32px;
+  font-weight: 400;
+  color: #141413;
 }
 
 .sidebarPanel {
   height: 100%;
   padding: 12px;
-  background: #fafafa;
+  background: #faf8f5;
   display: flex;
   flex-direction: column;
 }
