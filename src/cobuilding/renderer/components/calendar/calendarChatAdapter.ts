@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { ChatModelAdapter } from '@assistant-ui/react';
-import type { ChatMessageStream } from '../../shared/types';
+import type { ChatMessageStream } from '../../../shared/types';
 import { responseBuilder, toAsyncIterable } from '../../chatAdapter';
 import { resetProgress } from '../../progressStore';
 

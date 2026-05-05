@@ -5,7 +5,7 @@ import { CalendarChat } from './CalendarChat';
 import { CalendarSidebar } from './CalendarSidebar';
 import { EventEditPopover } from './EventEditPopover';
 import { nextAutoColor, AUTO_COLORS } from './calendarColors';
-import type { CalendarGroup, CalendarEvent, UpdateEventData, EventDependency, CascadeUpdate } from '../../shared/types';
+import type { CalendarGroup, CalendarEvent, UpdateEventData, EventDependency, CascadeUpdate } from '../../../shared/types';
 
 const MIN_PANEL_WIDTH = 15;
 
