@@ -58,9 +58,6 @@ export const CsvView: FC<CsvViewProps> = ({ content, delimiter }) => {
 
   return (
     <div className="csvView">
-      <div className="csvViewMeta">
-        {rows.length.toLocaleString()} rows · {columns.length} columns
-      </div>
       <div ref={scrollRef} className="csvViewScroll">
         <table className="csvViewTable">
           <thead>

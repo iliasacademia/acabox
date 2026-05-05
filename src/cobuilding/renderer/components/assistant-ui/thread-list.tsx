@@ -149,15 +149,14 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
   return (
     <SearchQueryContext.Provider value={searchQuery}>
       <SelectThreadContext.Provider value={onSelectThread}>
-        <ThreadListPrimitive.Root className="chatListRoot">
-          <div className="chatListScroll">
-            <div className="chatListInner">
+        <ThreadListPrimitive.Root className="pageShell">
+          <div className="pageShell__inner">
               {/* Page header */}
-              <div className="chatListPageHeader">
-                <span className="chatListBreadcrumb">
-                  CHATS &middot; <ConversationCount />
-                </span>
-                <h1 className="chatListTitle">Your conversations</h1>
+              <div className="pageShell__headerBlock">
+                <div className="pageShell__stats">
+                  <ConversationCount />
+                </div>
+                <h1 className="pageShell__title">Chats</h1>
                 <p className="chatListDescription">
                   Every chat is saved automatically. Search by content or browse recent ones.
                 </p>
@@ -182,7 +181,6 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
                   {() => <ThreadListItem />}
                 </ThreadListPrimitive.Items>
               </div>
-            </div>
           </div>
         </ThreadListPrimitive.Root>
       </SelectThreadContext.Provider>

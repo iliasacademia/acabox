@@ -3,7 +3,7 @@ import {
   ThreadPrimitive,
   ComposerPrimitive,
   AuiIf,
-  useAuiState,
+  useThreadRuntime,
 } from '@assistant-ui/react';
 import {
   SendIcon,
@@ -38,19 +38,26 @@ export const GlobalComposer: FC<GlobalComposerProps> = ({
 };
 
 /**
- * Watches the thread's isEmpty state. When a message is sent (isEmpty goes
- * from true to false) while not in chat detail, navigates to the chat view.
+ * Subscribes to thread message count changes. When a message appears on a
+ * previously-empty thread while not in chat detail, navigates to the chat view.
  */
 function NavigateOnSend({ isInChatDetail, onNavigateToChat }: GlobalComposerProps) {
-  const isEmpty = useAuiState((s: any) => s.thread.isEmpty);
-  const prevEmpty = useRef(isEmpty);
+  const threadRuntime = useThreadRuntime();
+  const isInChatDetailRef = useRef(isInChatDetail);
+  isInChatDetailRef.current = isInChatDetail;
+  const onNavigateRef = useRef(onNavigateToChat);
+  onNavigateRef.current = onNavigateToChat;
 
   useEffect(() => {
-    if (prevEmpty.current && !isEmpty && !isInChatDetail) {
-      onNavigateToChat();
-    }
-    prevEmpty.current = isEmpty;
-  }, [isEmpty, isInChatDetail, onNavigateToChat]);
+    let prevEmpty = threadRuntime.getState().messages.length === 0;
+    return threadRuntime.subscribe(() => {
+      const nowEmpty = threadRuntime.getState().messages.length === 0;
+      if (prevEmpty && !nowEmpty && !isInChatDetailRef.current) {
+        onNavigateRef.current();
+      }
+      prevEmpty = nowEmpty;
+    });
+  }, [threadRuntime]);
 
   return null;
 }
