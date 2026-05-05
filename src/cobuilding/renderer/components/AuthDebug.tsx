@@ -2,12 +2,17 @@ import React, { useState, useEffect } from 'react';
 
 export const AuthDebug: React.FC = () => {
   const [currentKey, setCurrentKey] = useState<string | null>(null);
+  const [baseURL, setBaseURL] = useState<string | null>(null);
+  const [provider, setProvider] = useState<'cloudflare' | 'anthropic'>('cloudflare');
   const [refetching, setRefetching] = useState(false);
+  const [switching, setSwitching] = useState(false);
   const [result, setResult] = useState<{ success: boolean; keyIdentifier?: string; error?: string } | null>(null);
 
   useEffect(() => {
-    window.authAPI.getApiKey().then(({ apiKey }) => {
+    window.authAPI.getApiKey().then(({ apiKey, baseURL: url, provider: p }: any) => {
       setCurrentKey(apiKey);
+      setBaseURL(url ?? null);
+      if (p) setProvider(p);
     });
   }, []);
 
@@ -18,13 +23,35 @@ export const AuthDebug: React.FC = () => {
       const res = await window.authAPI.refetchApiKey();
       setResult(res);
       if (res.success) {
-        const { apiKey } = await window.authAPI.getApiKey();
+        const { apiKey, baseURL: url } = await window.authAPI.getApiKey();
         setCurrentKey(apiKey);
+        setBaseURL(url ?? null);
       }
     } catch (err) {
       setResult({ success: false, error: err instanceof Error ? err.message : String(err) });
     } finally {
       setRefetching(false);
+    }
+  };
+
+  const handleProviderChange = async (newProvider: 'cloudflare' | 'anthropic') => {
+    setSwitching(true);
+    setResult(null);
+    try {
+      const res = await window.authAPI.setApiProvider(newProvider);
+      if (res.success) {
+        setProvider(newProvider);
+        const { apiKey, baseURL: url } = await window.authAPI.getApiKey();
+        setCurrentKey(apiKey);
+        setBaseURL(url ?? null);
+        setResult({ success: true });
+      } else {
+        setResult({ success: false, error: res.error });
+      }
+    } catch (err) {
+      setResult({ success: false, error: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setSwitching(false);
     }
   };
 
@@ -37,15 +64,37 @@ export const AuthDebug: React.FC = () => {
       <h3 className="debugSection__title">API Key</h3>
 
       <div className="debugSection__infoRow">
+        <span className="debugSection__infoLabel">Provider:</span>
+        <span className="debugSection__infoValue">
+          <select
+            value={provider}
+            onChange={(e) => handleProviderChange(e.target.value as 'cloudflare' | 'anthropic')}
+            disabled={switching}
+            style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color, #555)' }}
+          >
+            <option value="cloudflare">Cloudflare AI Gateway</option>
+            <option value="anthropic">Anthropic API (direct)</option>
+          </select>
+        </span>
+      </div>
+
+      <div className="debugSection__infoRow">
         <span className="debugSection__infoLabel">Current Key:</span>
         <code className="debugSection__infoValue">{maskedKey}</code>
       </div>
+
+      {baseURL && (
+        <div className="debugSection__infoRow">
+          <span className="debugSection__infoLabel">Base URL:</span>
+          <code className="debugSection__infoValue" style={{ fontSize: '11px', wordBreak: 'break-all' }}>{baseURL}</code>
+        </div>
+      )}
 
       <div className="debugSection__actions">
         <button
           className="debugSection__btn"
           onClick={handleRefetch}
-          disabled={refetching}
+          disabled={refetching || switching}
         >
           {refetching ? 'Refetching...' : 'Refetch API Key'}
         </button>
@@ -53,12 +102,12 @@ export const AuthDebug: React.FC = () => {
 
       {result?.success && (
         <div className="debugSection__progress">
-          API key refetched successfully{result.keyIdentifier ? ` (identifier: ${result.keyIdentifier})` : ''}
+          {switching ? 'Provider switched successfully' : `API key refetched successfully${result.keyIdentifier ? ` (identifier: ${result.keyIdentifier})` : ''}`}
         </div>
       )}
       {result && !result.success && (
         <div className="debugSection__error">
-          {result.error || 'Failed to refetch API key'}
+          {result.error || 'Operation failed'}
         </div>
       )}
     </div>

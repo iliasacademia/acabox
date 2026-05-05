@@ -250,6 +250,27 @@ function setMaxAttachmentSizeMB(sizeMB: number): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+export type ApiProvider = 'cloudflare' | 'anthropic';
+
+function getApiProvider(): ApiProvider {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.apiProvider === 'anthropic' ? 'anthropic' : 'cloudflare';
+  } catch {
+    return 'cloudflare';
+  }
+}
+
+function setApiProvider(provider: ApiProvider): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.apiProvider = provider;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
 function getOpenAIKey(): string | null {
   try {
     const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
@@ -385,7 +406,7 @@ let cachedBaseURL: string | undefined = undefined;
 let activeApiBaseUrl: string = BASE_URL;
 
 async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL?: string }> {
-  const result = await fetchGatewayCredentials();
+  const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
   cachedApiKey = result.apiKey;
   cachedBaseURL = result.baseURL;
   if (activeWorkspace) {
@@ -961,7 +982,7 @@ ipcMain.handle(
     let apiKey = cachedApiKey ?? '';
     if (!apiKey) {
       try {
-        const result = await fetchGatewayCredentials();
+        const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
         cachedApiKey = result.apiKey;
         cachedBaseURL = result.baseURL;
         apiKey = result.apiKey;
@@ -2409,7 +2430,7 @@ ipcMain.handle('auth:checkLogin', async () => {
   try {
     const loggedIn = await checkLogin();
     if (loggedIn) {
-      fetchGatewayCredentials().then(({ apiKey, baseURL }) => {
+      fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(({ apiKey, baseURL }) => {
         cachedApiKey = apiKey;
         cachedBaseURL = baseURL;
         if (activeWorkspace) {
@@ -2457,7 +2478,7 @@ ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: strin
       return { success: false, error: result.error };
     }
     if (result.authorized) {
-      fetchGatewayCredentials().then(({ apiKey, baseURL }) => {
+      fetchGatewayCredentials(getApiProvider() === 'cloudflare').then(({ apiKey, baseURL }) => {
         cachedApiKey = apiKey;
         cachedBaseURL = baseURL;
         if (activeWorkspace) {
@@ -2474,12 +2495,37 @@ ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: strin
 });
 
 ipcMain.handle('auth:getApiKey', () => {
-  return { apiKey: cachedApiKey };
+  return { apiKey: cachedApiKey, baseURL: cachedBaseURL, provider: getApiProvider() };
+});
+
+ipcMain.handle('auth:getApiProvider', () => {
+  return { provider: getApiProvider() };
+});
+
+ipcMain.handle('auth:setApiProvider', async (_event, provider: string) => {
+  if (provider !== 'cloudflare' && provider !== 'anthropic') {
+    return { success: false, error: 'Invalid provider' };
+  }
+  setApiProvider(provider);
+  log.info(`[Auth] API provider set to: ${provider}`);
+  try {
+    const result = await fetchGatewayCredentials(provider === 'cloudflare');
+    cachedApiKey = result.apiKey;
+    cachedBaseURL = result.baseURL;
+    if (activeWorkspace) {
+      updateApiKey(activeWorkspace.id, result.apiKey);
+      activeWorkspace = { ...activeWorkspace, api_key: result.apiKey };
+    }
+    return { success: true };
+  } catch (error: any) {
+    log.error('[Auth] Failed to fetch credentials after provider switch:', error);
+    return { success: false, error: error.message };
+  }
 });
 
 ipcMain.handle('auth:refetchApiKey', async () => {
   try {
-    const result = await fetchGatewayCredentials();
+    const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
     cachedApiKey = result.apiKey;
     cachedBaseURL = result.baseURL;
     if (activeWorkspace) {

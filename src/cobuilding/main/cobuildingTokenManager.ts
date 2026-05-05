@@ -19,10 +19,10 @@ let onRefresh: ((config: AnthropicConfig) => void) | null = null;
 const REFRESH_BEFORE_EXPIRY_MS = 30 * 60 * 1000;
 const RETRY_DELAY_MS = 5 * 60 * 1000;
 
-export async function fetchGatewayCredentials(): Promise<AnthropicConfig & { keyIdentifier?: string }> {
+export async function fetchGatewayCredentials(useGateway = true): Promise<AnthropicConfig & { keyIdentifier?: string }> {
   const client = await APIclient();
   const response = await client.get('v0/cobuilding/api_key', {
-    params: { provider: 'cloudflare_ai_gateway' },
+    params: useGateway ? { provider: 'cloudflare_ai_gateway' } : {},
     validateStatus: (status: number) => status >= 200 && status < 600,
   });
 
