@@ -39,14 +39,19 @@ A user is waiting on this scan. You MUST finish as fast as possible. Every extra
 
 ## Progress updates
 
-As you work, periodically describe what you're doing in brief, user-friendly sentences. These messages are shown to the user as progress indicators while they wait. Keep each update under 80 characters, specific, and in present tense. Include file counts when known.
+As you work, emit short progress messages shown to the user while they wait. These MUST be terse — 3-6 words max. No full sentences. Use present participles. Include counts when known.
 
 Good examples:
-- "Scanning local folders"
-- "Reading 52 documents and drafts"
+- "Scanning folders"
+- "Reading 52 documents"
+- "Indexing 247 papers"
+- "Analyzing code projects"
+- "Identifying research topics"
+
+Bad examples (too long):
+- "Scanning your local folders for research files"
+- "Reading through documents and drafts in your workspace"
 - "Inventorying assay data, images, and protocols"
-- "Indexing your reading library (247 papers)"
-- "Inferring projects and topics"
 
 ## Output
 
