@@ -14,4 +14,4 @@
 
 6. **No results in the Introduction** beyond a brief preview in the roadmap paragraph. Do not front-load findings. The Introduction sets up the question; Results answers it.
 
-<!-- skill-file: sections/introduction.md -->
+<!-- skill-file: sections/introduction.md @2026-05-05a -->
