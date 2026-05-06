@@ -18,6 +18,7 @@ import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
+import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
 import {
   listBriefings,
@@ -1162,6 +1163,16 @@ ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
     if (result.errors.length > 0) {
       for (const e of result.errors) {
         log.warn(`[Papers] ${e.source}/"${e.topic}": ${e.message}`);
+      }
+    }
+    if (activeWorkspace && result.papers.length > 0) {
+      try {
+        persistPapersAsBriefings(activeWorkspace.id, result.papers);
+      } catch (err) {
+        log.warn(
+          '[Papers→Briefings] persist failed:',
+          err instanceof Error ? err.message : err,
+        );
       }
     }
     return result;
