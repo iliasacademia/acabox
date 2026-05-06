@@ -318,6 +318,19 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
     ipcRenderer.on('sessions:changed', handler);
     return () => { ipcRenderer.removeListener('sessions:changed', handler); };
   },
+  /**
+   * Fires after a turn completes for `sessionId` in any surface (desktop
+   * or overlay). Emitted by the main process's SSE fanout (`ensureSseFanout`'s
+   * onDone). The desktop chat panel uses this to refetch its history when
+   * the active thread matches — closes the gap where an overlay-typed user
+   * message stays missing on the desktop because chat:event only carries
+   * assistant-side stream events, not the user message that prompted them.
+   */
+  onForeignTurnDone: (callback: (sessionId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string) => callback(sessionId);
+    ipcRenderer.on('chat:foreign-done', handler);
+    return () => { ipcRenderer.removeListener('chat:foreign-done', handler); };
+  },
 });
 
 // Track active stream iterators per threadId to clean up stale ones

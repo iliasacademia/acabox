@@ -132,32 +132,42 @@ export function createAuthMiddleware(tokenManager: TokenManager) {
     request: FastifyRequest,
     reply: FastifyReply
   ): Promise<void> {
+    // Prefer the Authorization header (everything else uses Bearer), but
+    // fall back to a `token` query param. The browser EventSource API can't
+    // attach custom headers, so SSE endpoints (e.g. the cross-surface chat-
+    // event channel `/api/cobuilding/sessions/:id/events`) need this query-
+    // param path. Same token, same TokenManager validation — just a second
+    // place to source it from.
     const authHeader = request.headers.authorization;
+    let token: string | null = null;
 
-    // Check for Authorization header
-    if (!authHeader) {
+    if (authHeader) {
+      const parts = authHeader.split(' ');
+      if (parts.length !== 2 || parts[0] !== 'Bearer') {
+        reply.code(401).send({
+          error: 'Unauthorized',
+          message: 'Malformed Authorization header. Expected: Bearer <token>',
+          statusCode: 401,
+        });
+        return;
+      }
+      token = parts[1];
+    } else {
+      const qs = (request.query ?? {}) as Record<string, string | undefined>;
+      if (typeof qs.token === 'string' && qs.token.length > 0) {
+        token = qs.token;
+      }
+    }
+
+    if (!token) {
       reply.code(401).send({
         error: 'Unauthorized',
-        message: 'Missing Authorization header',
+        message: 'Missing Authorization header or token query param',
         statusCode: 401,
       });
       return;
     }
 
-    // Parse Bearer token
-    const parts = authHeader.split(' ');
-    if (parts.length !== 2 || parts[0] !== 'Bearer') {
-      reply.code(401).send({
-        error: 'Unauthorized',
-        message: 'Malformed Authorization header. Expected: Bearer <token>',
-        statusCode: 401,
-      });
-      return;
-    }
-
-    const token = parts[1];
-
-    // Validate token
     if (!tokenManager.isValidToken(token)) {
       reply.code(401).send({
         error: 'Unauthorized',

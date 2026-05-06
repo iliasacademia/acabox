@@ -491,6 +491,15 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
           {activeSession
             ? <WorkspaceConversationView
+                // `key` forces a fresh mount when the user switches
+                // conversations. assistant-ui's `useLocalRuntime` calls
+                // `history.load()` only on initial thread mount; updating
+                // the history adapter reference (via useMemo on sessionId)
+                // doesn't re-fire the load. Without this `key`, the runtime
+                // keeps showing the previously-opened conversation while
+                // the prop quietly changes — that's the "previous conversation
+                // is loaded instead of the conversation I was in" symptom.
+                key={activeSession.id}
                 sessionId={activeSession.id}
                 sessionTitle={activeSession.title}
                 documentPath={docPath}

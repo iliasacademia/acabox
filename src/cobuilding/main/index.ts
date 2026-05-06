@@ -396,6 +396,61 @@ const editStates = new Map<string, string>();
 // per session per renderer.
 const forwardingListeners = new Map<string, () => void>();
 
+// ─── Cross-surface chat-event fanout (desktop ↔ overlay) ──────────────
+//
+// The desktop chat panel receives streaming events via Electron IPC
+// (`webContents.send('chat:event', …)`). The Word overlay is a WKWebView
+// served over the local HTTP server — it has no `webContents`, so the IPC
+// path can't reach it. Without a separate channel, a turn started in the
+// desktop never streams to an overlay viewing the same conversation; the
+// overlay only hears about it on the next manual refresh.
+//
+// `sseSessionSubscribers` holds the open SSE response streams listening
+// on `GET /api/cobuilding/sessions/:id/events`. `sseFanoutListeners`
+// tracks the single agent-session listener attached per session that
+// fans events out to every subscriber. Once attached, the fanout listener
+// stays for the lifetime of the agent session — fans out for both
+// desktop-initiated and overlay-initiated turns.
+const sseSessionSubscribers = new Map<string, Set<NodeJS.WritableStream>>();
+const sseFanoutListeners = new Map<string, () => void>();
+
+function broadcastSseToSubscribers(sessionId: string, event: string, data: unknown): void {
+  const subs = sseSessionSubscribers.get(sessionId);
+  if (!subs || subs.size === 0) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const stream of subs) {
+    try { stream.write(payload); } catch { /* dead connection — request.raw 'close' will reap it */ }
+  }
+}
+
+/**
+ * Attach exactly one fanout listener to the agent session for `sessionId`,
+ * which forwards events to every active SSE subscriber for that session.
+ * Idempotent — safe to call from every chat-send entry point.
+ */
+function ensureSseFanout(sessionId: string): void {
+  if (sseFanoutListeners.has(sessionId)) return;
+  const session = getRegisteredSession(sessionId);
+  if (!session) return;
+  const unsubscribe = session.addListener({
+    onEvent: (msg) => broadcastSseToSubscribers(sessionId, 'event', msg),
+    onDone: () => {
+      broadcastSseToSubscribers(sessionId, 'done', {});
+      // Also signal the desktop renderer (which can't subscribe to SSE —
+      // it has its own IPC chain) that a turn finished for this session,
+      // so it can refetch history if its active thread matches. Without
+      // this, an overlay-typed user message stays missing on the desktop
+      // even though the assistant's streamed reply already arrived via
+      // `ensureForwarding`'s chat:event path.
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('chat:foreign-done', sessionId);
+      }
+    },
+    onError: (err) => broadcastSseToSubscribers(sessionId, 'error', { error: err }),
+  });
+  sseFanoutListeners.set(sessionId, unsubscribe);
+}
+
 function ensureForwarding(threadId: string, sender: Electron.WebContents): void {
   const key = `${threadId}:${sender.id}`;
   if (forwardingListeners.has(key)) return;
@@ -651,6 +706,54 @@ app.whenReady().then(async () => {
               },
             );
 
+            // GET /api/cobuilding/sessions/:sessionId/events
+            //
+            // Long-lived SSE stream of agent events for `sessionId`. Closes
+            // the asymmetry where desktop-initiated turns wouldn't reach an
+            // overlay viewing the same conversation: the overlay opens this
+            // endpoint when the conversation is opened, and the per-session
+            // fanout listener (attached on first chat-send via
+            // `ensureSseFanout`) writes every event/done/error frame to
+            // every active subscriber. The overlay treats `done` as a
+            // signal to refetch /messages and re-render — minimal coupling
+            // to the assistant-ui runtime, smallest possible diff to the
+            // desktop renderer (zero — it stays on its existing IPC path).
+            fastify.get<{ Params: { sessionId: string } }>(
+              '/api/cobuilding/sessions/:sessionId/events',
+              async (request, reply) => {
+                const { sessionId } = request.params;
+                reply.raw.writeHead(200, {
+                  'Content-Type': 'text/event-stream',
+                  'Cache-Control': 'no-cache',
+                  Connection: 'keep-alive',
+                });
+
+                let subs = sseSessionSubscribers.get(sessionId);
+                if (!subs) {
+                  subs = new Set();
+                  sseSessionSubscribers.set(sessionId, subs);
+                }
+                subs.add(reply.raw);
+
+                // If the session already exists (the common case — the user
+                // is opening an active conversation), attach the fanout
+                // listener now. Otherwise it'll be attached the first time
+                // chat:send / POST /send runs for this sessionId.
+                ensureSseFanout(sessionId);
+
+                // Initial heartbeat so the EventSource's `open` fires.
+                reply.raw.write('event: connected\ndata: {}\n\n');
+
+                request.raw.on('close', () => {
+                  const set = sseSessionSubscribers.get(sessionId);
+                  if (set) {
+                    set.delete(reply.raw);
+                    if (set.size === 0) sseSessionSubscribers.delete(sessionId);
+                  }
+                });
+              },
+            );
+
             // POST /api/cobuilding/apply-edit — execute a user-approved edit.
             // Dispatches to the HostApp that owns the document (resolved by
             // file extension on `document_path`). Falls back to Word for
@@ -761,6 +864,7 @@ app.whenReady().then(async () => {
                       sessionId,
                     } as NavigateToPagePayload);
                   }
+                  ensureSseFanout(sessionId);
                   const unsubscribe = existingRunning.addListener({
                     onEvent: (msg) => sendSSE('event', msg),
                     onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); notifySessionsChanged(); },
@@ -818,6 +922,7 @@ app.whenReady().then(async () => {
                     sessionId,
                   } as NavigateToPagePayload);
                 }
+                ensureSseFanout(sessionId);
 
                 const unsubscribe = session.addListener({
                   onEvent: (msg) => sendSSE('event', msg),
@@ -2122,6 +2227,9 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
   }
 
   ensureForwarding(threadId, event.sender);
+  // Also fan events out to overlays watching this session — they live on
+  // the WKWebView side of an HTTP boundary so the IPC path can't reach them.
+  ensureSseFanout(threadId);
   getRegisteredSession(threadId)!.sendMessage(text, attachments);
 
   if (isFirstMessage && !isCalendarSession && activeWorkspace.api_key) {

@@ -9,13 +9,12 @@ import { useMemo, useRef } from 'react';
 import type {
   ChatModelAdapter,
   ThreadAssistantMessagePart,
-  ThreadMessageLike,
   ToolCallMessagePart,
 } from '@assistant-ui/react';
 import { ExportedMessageRepository } from '@assistant-ui/react';
 import type { ThreadHistoryAdapter } from '@assistant-ui/react';
-import type { ReadonlyJSONObject } from 'assistant-stream/utils';
 import type { ChatStreamMessage } from '../../cobuilding/shared/types';
+import { convertHistoryMessages, type HistoryDbMessage } from '../../cobuilding/renderer/historyMessageConverter';
 
 /**
  * Builds response content from a stream of ChatStreamMessage events.
@@ -196,90 +195,10 @@ export function useHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapt
 }
 
 // ─── HTTP-based Thread History Adapter ─────────────────────────────────
-
-interface DbMessage {
-  id: number;
-  type: string;
-  content: unknown;
-  created_at: string;
-}
-
-interface AnthropicToolUseBlock {
-  type: 'tool_use';
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-}
-
-interface AnthropicToolResultBlock {
-  type: 'tool_result';
-  tool_use_id: string;
-  content: unknown;
-  is_error?: boolean;
-}
-
-type ToolResultsMap = Map<string, { result: unknown; isError: boolean }>;
-
-function buildToolResultsMap(dbMessages: DbMessage[]): ToolResultsMap {
-  const map: ToolResultsMap = new Map();
-  for (const msg of dbMessages) {
-    if (msg.type === 'tool_result') {
-      const blocks = (Array.isArray(msg.content) ? msg.content : []) as AnthropicToolResultBlock[];
-      for (const block of blocks) {
-        if (block.tool_use_id) {
-          map.set(block.tool_use_id, { result: block.content, isError: block.is_error ?? false });
-        }
-      }
-    }
-  }
-  return map;
-}
-
-function convertDbMessages(dbMessages: DbMessage[]): ThreadMessageLike[] {
-  const toolResults = buildToolResultsMap(dbMessages);
-  const messages: ThreadMessageLike[] = [];
-  let pendingAssistantContent: any[] | null = null;
-
-  const flushAssistant = () => {
-    if (pendingAssistantContent && pendingAssistantContent.length > 0) {
-      messages.push({ role: 'assistant', content: pendingAssistantContent });
-    }
-    pendingAssistantContent = null;
-  };
-
-  for (const msg of dbMessages) {
-    if (msg.type === 'user') {
-      flushAssistant();
-      const parsed = typeof msg.content === 'string'
-        ? (() => { try { return JSON.parse(msg.content); } catch { return { text: msg.content }; } })()
-        : (msg.content as any);
-      messages.push({ role: 'user', content: parsed.text ?? '' });
-    } else if (msg.type === 'assistant') {
-      const blocks = (Array.isArray(msg.content) ? msg.content : []) as any[];
-      const converted = blocks
-        .filter((b: any) => b.type === 'text' || b.type === 'tool_use')
-        .map((b: any) => {
-          if (b.type === 'text') return { type: 'text' as const, text: b.text };
-          const result = toolResults.get(b.id);
-          return {
-            type: 'tool-call' as const,
-            toolCallId: b.id,
-            toolName: b.name,
-            args: (b.input ?? {}) as ReadonlyJSONObject,
-            result: result?.result,
-            isError: result?.isError ?? false,
-          };
-        });
-      if (pendingAssistantContent) {
-        pendingAssistantContent.push(...converted);
-      } else {
-        pendingAssistantContent = [...converted];
-      }
-    }
-  }
-  flushAssistant();
-  return messages;
-}
+//
+// HTTP route's /api/cobuilding/sessions/:id/messages already JSON.parses
+// each message's content server-side, so we hand the rows straight to
+// the shared `convertHistoryMessages` (no string-decode pass needed).
 
 export function useHttpHistoryAdapter(
   serverUrl: string,
@@ -295,7 +214,8 @@ export function useHttpHistoryAdapter(
           const res = await fetch(`${serverUrl}/api/cobuilding/sessions/${sessionId}/messages`, { headers });
           if (!res.ok) return ExportedMessageRepository.fromArray([]);
           const data = await res.json();
-          const messages = convertDbMessages(data.messages ?? []);
+          const dbMessages = (data.messages ?? []) as HistoryDbMessage[];
+          const messages = convertHistoryMessages(dbMessages);
           return ExportedMessageRepository.fromArray(messages);
         } catch {
           return ExportedMessageRepository.fromArray([]);

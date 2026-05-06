@@ -8,6 +8,7 @@ import {
   useAssistantToolUI,
   useAssistantRuntime,
   useComposerRuntime,
+  useAuiState,
 } from '@assistant-ui/react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
@@ -212,6 +213,67 @@ function SessionsListRefresher() {
       if (timer) clearTimeout(timer);
       unsubscribe();
     };
+  }, [runtime]);
+
+  return null;
+}
+
+/**
+ * Symmetric counterpart to the overlay's `ForeignTurnWatcher`: when a turn
+ * completes for the active desktop chat in a *different* surface (e.g.
+ * the user typed and sent from the Word overlay), the IPC `chat:event`
+ * forwarding only delivers the assistant's streamed reply — the
+ * overlay-typed user message is never streamed, only persisted to the
+ * SQLite messages table by `agentSession.sendMessage`. So the desktop
+ * displays the assistant bubble but no user bubble preceding it; even
+ * leaving the conversation and reopening doesn't help because the
+ * runtime's per-thread history is cached.
+ *
+ * We hack the same internal cache the SessionsListRefresher already uses
+ * (private `_loadThreadsPromise` / `__internal_load`) for the active
+ * thread, plus a `switchToThread(id)` poke so the runtime re-reads its
+ * per-thread state. Suppressed when our own thread is currently running
+ * (the in-flight desktop send is already populating the runtime in
+ * real time, no remount needed).
+ */
+function ForeignTurnWatcherDesktop() {
+  const runtime = useAssistantRuntime();
+  // mainThreadId / isRunning bridge from runtime state into the effect.
+  // Refs so the EventTarget-style listener doesn't re-attach on every
+  // state update.
+  const mainThreadIdRef = useRef<string | undefined>(undefined);
+  const isRunningRef = useRef(false);
+
+  const mainThreadId = useThreadList((s: any) => s.mainThreadId) as string | undefined;
+  mainThreadIdRef.current = mainThreadId;
+  const isRunning = useAuiState((s: any) => s.thread?.isRunning ?? false);
+  isRunningRef.current = isRunning;
+
+  useEffect(() => {
+    const unsubscribe = window.sessionsAPI.onForeignTurnDone((sessionId: string) => {
+      if (sessionId !== mainThreadIdRef.current) return;
+      if (isRunningRef.current) return;
+      try {
+        // Best-effort: nudge the runtime to drop cached per-thread state and
+        // reload via the history adapter. Same pattern as
+        // SessionsListRefresher but targeted at the active thread.
+        const threadsCore: any = (runtime as any)?._core?.threads;
+        const threadCore: any = threadsCore?.getThreadRuntimeCore?.(sessionId)
+          ?? threadsCore?._threads?.get?.(sessionId)
+          ?? null;
+        if (threadCore) {
+          threadCore._loadHistoryPromise = null;
+          threadCore.__internal_loadHistory?.();
+        }
+        // Toggle through switchToThread to force assistant-ui's public path
+        // to refetch. If switching to the same id is a no-op in this version,
+        // the cache poke above is the safety net.
+        runtime.threads.switchToThread(sessionId);
+      } catch (err) {
+        console.warn('[ForeignTurnWatcher] reload nudge failed', err);
+      }
+    });
+    return unsubscribe;
   }, [runtime]);
 
   return null;
@@ -506,6 +568,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionTitleUpdater />
       <SessionsListRefresher />
+      <ForeignTurnWatcherDesktop />
       <SessionSubscriber />
       <ShowChatOnThreadSelect onShowChat={() => { deactivateAllTabs(); setChatViewMode('detail'); }} suppressRef={suppressThreadDeactivateRef} />
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
