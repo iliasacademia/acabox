@@ -6,7 +6,7 @@
  * but has a simpler composer without ModelSelector or file attachments.
  */
 
-import React, { createContext, useContext, memo, useEffect, useState } from 'react';
+import React, { createContext, useContext, memo, useState } from 'react';
 import type { FC } from 'react';
 import {
   ActionBarPrimitive,
@@ -24,25 +24,21 @@ import {
   type CodeHeaderProps,
 } from '@assistant-ui/react-markdown';
 import remarkGfm from 'remark-gfm';
-import DOMPurify from 'dompurify';
 import '../../cobuilding/renderer/components/WritingAgentView.css';
 import { TooltipProvider } from '../../cobuilding/renderer/components/ui/tooltip';
 import { ToolFallback } from '../../cobuilding/renderer/components/assistant-ui/tool-fallback';
 import { ToolGroup } from '../../cobuilding/renderer/components/assistant-ui/tool-group';
 import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thinking-indicator';
 import { ApprovalParagraph, ApprovalList, APPROVAL_CHOICES } from '../../cobuilding/renderer/components/assistant-ui/approval-buttons';
-import { navigateToPage, tokenParam } from './shared';
+import { AnchorWithDoi, parseAgentHtml } from '../../cobuilding/renderer/components/assistant-ui/doi-link';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  BookmarkPlusIcon,
   CheckIcon,
   CopyIcon,
-  Loader2Icon,
   LoaderIcon,
   RefreshCwIcon,
   SquareIcon,
-  XIcon,
 } from 'lucide-react';
 
 // ─── Overlay MarkdownText ───────────────────────────────────────────
@@ -73,227 +69,13 @@ const OverlayCodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
 
 const DOI_RE = /\b10\.\d{4,9}\/[^\s\]<>"'(),]+/g;
 
-function openOverlayUrl(url: string) {
-  navigateToPage({ page: 'external', url }, tokenParam);
-}
-
-// ─── Zotero "Add ref" button (overlay path) ────────────────────────
-// Mirrors src/cobuilding/renderer/components/assistant-ui/markdown-text.tsx but
-// hits the local HTTP server (the overlay runs in WKWebView, has no preload).
-
-type ZoteroLocalStatus = 'running' | 'not-running' | 'not-installed';
-
-function authHeaders(): Record<string, string> {
-  const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (tokenParam) h['Authorization'] = `Bearer ${tokenParam}`;
-  return h;
-}
-
-const overlayZoteroStatusStore = (() => {
-  let status: ZoteroLocalStatus | null = null;
-  let lastFetch = 0;
-  let inflight: Promise<void> | null = null;
-  const listeners = new Set<(s: ZoteroLocalStatus | null) => void>();
-  const STALE_MS = 30_000;
-
-  const refresh = (): Promise<void> => {
-    if (inflight) return inflight;
-    inflight = (async () => {
-      try {
-        const r = await fetch(`${window.location.origin}/api/zotero/status`, {
-          headers: authHeaders(),
-        });
-        const json = await r.json();
-        status = json?.status ?? 'not-running';
-      } catch {
-        status = 'not-running';
-      }
-      lastFetch = Date.now();
-      inflight = null;
-      listeners.forEach(fn => fn(status));
-    })();
-    return inflight;
-  };
-  if (typeof window !== 'undefined') {
-    window.addEventListener('focus', () => { refresh(); });
-    window.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') refresh();
-    });
-  }
-
-  return {
-    subscribe(fn: (s: ZoteroLocalStatus | null) => void): () => void {
-      listeners.add(fn);
-      fn(status);
-      if (status === null || Date.now() - lastFetch > STALE_MS) refresh();
-      return () => { listeners.delete(fn); };
-    },
-    refresh,
-    get(): ZoteroLocalStatus | null { return status; },
-  };
-})();
-
-const overlayAddedDoiStore = (() => {
-  const norm = (doi: string) => doi.trim().toLowerCase().replace(/[.,;:]+$/, '');
-  const set = new Set<string>();
-  let inflight: Promise<void> | null = null;
-  let lastHydrated = 0;
-  const HYDRATE_TTL_MS = 30_000;
-  const listeners = new Set<() => void>();
-
-  const hydrate = (force = false): Promise<void> => {
-    if (inflight) return inflight;
-    if (!force && lastHydrated > 0 && Date.now() - lastHydrated < HYDRATE_TTL_MS) {
-      return Promise.resolve();
-    }
-    inflight = (async () => {
-      try {
-        const r = await fetch(`${window.location.origin}/api/zotero/added-dois`, { headers: authHeaders() });
-        const json = await r.json();
-        if (Array.isArray(json?.dois)) {
-          let changed = false;
-          for (const d of json.dois as string[]) {
-            const n = norm(d);
-            if (!set.has(n)) { set.add(n); changed = true; }
-          }
-          if (changed) listeners.forEach(fn => fn());
-        }
-      } catch { /* server may not be up yet */ }
-      lastHydrated = Date.now();
-      inflight = null;
-    })();
-    return inflight;
-  };
-
-  if (typeof window !== 'undefined') {
-    window.addEventListener('focus', () => { hydrate(true); });
-    window.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') hydrate(true);
-    });
-    // Re-hydrate periodically so DOIs the agent's MCP search just marked
-    // appear as "Open in Zotero" without waiting for a focus change.
-    setInterval(() => {
-      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
-        hydrate(true);
-      }
-    }, 5000);
-  }
-
-  return {
-    has(doi: string): boolean { return set.has(norm(doi)); },
-    add(doi: string): void { set.add(norm(doi)); listeners.forEach(fn => fn()); },
-    subscribe(fn: () => void): () => void {
-      listeners.add(fn);
-      hydrate();
-      return () => { listeners.delete(fn); };
-    },
-  };
-})();
-
-const ZoteroAddRefButton: React.FC<{ doi: string }> = ({ doi }) => {
-  const [status, setStatus] = useState<ZoteroLocalStatus | null>(overlayZoteroStatusStore.get());
-  const [state, setState] = useState<'idle' | 'saving' | 'error'>('idle');
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [added, setAdded] = useState<boolean>(overlayAddedDoiStore.has(doi));
-
-  useEffect(() => overlayZoteroStatusStore.subscribe(setStatus), []);
-  useEffect(() => overlayAddedDoiStore.subscribe(() => setAdded(overlayAddedDoiStore.has(doi))), [doi]);
-
-  // Ask Zotero whether the DOI is already in the user's library so pre-existing
-  // refs render as "Open in Zotero" without the user having to click Add first.
-  useEffect(() => {
-    if (status !== 'running' || overlayAddedDoiStore.has(doi)) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await fetch(`${window.location.origin}/api/zotero/check-doi?doi=${encodeURIComponent(doi)}`, {
-          headers: authHeaders(),
-        });
-        const json = await r.json();
-        if (!cancelled && json?.exists === true) overlayAddedDoiStore.add(doi);
-      } catch { /* unknown — leave as Add */ }
-    })();
-    return () => { cancelled = true; };
-  }, [doi, status]);
-
-  const handleAdd = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setState('saving');
-    setErrorMsg(null);
-    try {
-      const res = await fetch(`${window.location.origin}/api/zotero/add`, {
-        method: 'POST',
-        headers: authHeaders(),
-        body: JSON.stringify({ doi }),
-      });
-      const json = await res.json();
-      if (json?.success) {
-        overlayAddedDoiStore.add(doi);
-        setState('idle');
-        overlayZoteroStatusStore.refresh();
-      } else {
-        setState('error');
-        setErrorMsg(json?.error ?? 'Failed to add ref');
-        setTimeout(() => setState('idle'), 5000);
-      }
-    } catch (err: any) {
-      setState('error');
-      setErrorMsg(err?.message ?? 'Unexpected error');
-      setTimeout(() => setState('idle'), 5000);
-    }
-  };
-
-  const handleOpen = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // Server resolves DOI → best Zotero URL (uses item key when known) and
-    // launches it via the OS opener directly — no "Allow this site…" prompt.
-    fetch(`${window.location.origin}/api/zotero/open?doi=${encodeURIComponent(doi)}`, {
-      headers: authHeaders(),
-    }).catch(() => { /* best-effort */ });
-  };
-
-  if (added) {
-    return (
-      <button
-        type="button"
-        className="zoteroAddRefBtn zoteroAddRefBtn--added"
-        onClick={handleOpen}
-        title="Open ref in Zotero"
-        aria-label="Open ref in Zotero"
-      >
-        <CheckIcon size={12} />
-      </button>
-    );
-  }
-
-  const disabled = status === 'not-installed' || state === 'saving';
-  const tooltip =
-    status === 'not-installed' ? 'Zotero not installed' :
-    state === 'saving' ? 'Adding ref to Zotero…' :
-    state === 'error' ? (errorMsg ?? 'Failed to add ref') :
-    status === 'not-running' ? 'Open Zotero and add this ref' :
-    'Add ref to Zotero';
-
-  const Icon =
-    state === 'saving' ? Loader2Icon :
-    state === 'error' ? XIcon :
-    BookmarkPlusIcon;
-
-  return (
-    <button
-      type="button"
-      className={`zoteroAddRefBtn zoteroAddRefBtn--${state}${disabled ? ' zoteroAddRefBtn--disabled' : ''}`}
-      onClick={handleAdd}
-      disabled={disabled}
-      title={tooltip}
-      aria-label={tooltip}
-    >
-      <Icon size={12} className={state === 'saving' ? 'zoteroAddRefBtn__spin' : ''} />
-    </button>
-  );
-};
+// ─── DOI / Zotero rendering: shared with the desktop renderer ──────
+//
+// The stores, ZoteroAddRefButton, AnchorWithDoi, and parseAgentHtml live
+// in doi-link.tsx and detect IPC vs HTTP at runtime so the same module
+// works in both the Electron renderer and this WKWebView overlay. Until
+// PR #434 there were two parallel copies, and the HTML-branch fix only
+// landed in one — fix surface is now a single file.
 
 function autolinkDoiText(text: string, keyPrefix: string): React.ReactNode {
   if (!text.includes('10.') || !text.includes('/')) return text;
@@ -308,15 +90,9 @@ function autolinkDoiText(text: string, keyPrefix: string): React.ReactNode {
     const doi = m[0].replace(/[.,;:]+$/, '');
     const url = `https://doi.org/${doi}`;
     out.push(
-      <span key={`${keyPrefix}-ref-${i}`} className="docRefInline">
-        <a
-          href={url}
-          onClick={(e) => { e.preventDefault(); openOverlayUrl(url); }}
-        >
-          {doi}
-        </a>
-        <ZoteroAddRefButton doi={doi} />
-      </span>,
+      <AnchorWithDoi key={`${keyPrefix}-ref-${i}`} href={url}>
+        {doi}
+      </AnchorWithDoi>,
     );
     last = start + doi.length;
   });
@@ -359,32 +135,9 @@ const overlayComponents = memoizeMarkdownComponents({
   ul: ApprovalList as any,
   li: ListItemWithDoiLinks as any,
   td: TableCellWithDoiLinks as any,
-  a: ({ href, children, ...props }) => {
-    const doiFromHref = (() => {
-      if (!href) return null;
-      const m = href.match(/^https?:\/\/(?:dx\.)?doi\.org\/(10\.\d{4,9}\/[^\s?#]+)/i);
-      return m ? m[1] : null;
-    })();
-    const link = (
-      <a
-        {...props}
-        href={href}
-        onClick={(e) => {
-          e.preventDefault();
-          if (href) navigateToPage({ page: 'external', url: href }, tokenParam);
-        }}
-      >
-        {children}
-      </a>
-    );
-    if (!doiFromHref) return link;
-    return (
-      <span className="docRefInline">
-        {link}
-        <ZoteroAddRefButton doi={doiFromHref} />
-      </span>
-    );
-  },
+  a: ({ href, children, ...props }) => (
+    <AnchorWithDoi href={href} {...props}>{children}</AnchorWithDoi>
+  ),
   code: function Code({ className, ...props }) {
     const isCodeBlock = useIsMarkdownCodeBlock();
     return <code className={`${!isCodeBlock ? 'inlineCode' : ''}${className ? ` ${className}` : ''}`} {...props} />;
@@ -405,13 +158,11 @@ const OverlayMarkdownText = memo(() => {
     return textParts.length > 0 ? textParts[textParts.length - 1]?.text : null;
   });
 
+  // Same fix as markdown-text.tsx: writing-agent HTML responses go through
+  // the shared parseAgentHtml, which sanitizes via DOMPurify and replaces
+  // <a> nodes with AnchorWithDoi so the Zotero "+" button shows up here too.
   if (text && looksLikeHtml(text)) {
-    return (
-      <div
-        className="writingAgentHtml"
-        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(text) }}
-      />
-    );
+    return <div className="writingAgentHtml">{parseAgentHtml(text)}</div>;
   }
 
   return (

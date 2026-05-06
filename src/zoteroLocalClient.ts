@@ -358,6 +358,11 @@ function buildItemFromCrossref(meta: CrossrefMessage, doi: string): Record<strin
 }
 
 async function postSaveItems(item: Record<string, unknown>, doi: string): Promise<{ success: boolean; error?: string }> {
+  const body = JSON.stringify({
+    items: [item],
+    uri: `https://doi.org/${doi}`,
+    cookie: '',
+  });
   try {
     const res = await fetchWithTimeout(
       `${ZOTERO_CONNECTOR_BASE}/connector/saveItems`,
@@ -365,14 +370,20 @@ async function postSaveItems(item: Record<string, unknown>, doi: string): Promis
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          // Connector accepts requests with a Mozilla-style UA; mimic the Zotero browser connector.
+          // Zotero connector silently drops the TCP connection on requests
+          // it doesn't trust (UND_ERR_SOCKET with bytesRead=0). It validates
+          // the Origin against a whitelist that includes browser extensions
+          // and 127.0.0.1; loopback origin is the simplest match for a
+          // local Electron app. Without this, the connector accepts the
+          // body then closes the socket before responding.
+          'Origin': 'http://127.0.0.1',
+          // Connector also looks for these to identify the API caller.
+          // Match the browser-connector's announced version so newer Zotero
+          // builds don't reject us as too-old.
+          'X-Zotero-Connector-API-Version': '3',
           'User-Agent': 'Mozilla/5.0 (compatible; AcademiaWritingAgent)',
         },
-        body: JSON.stringify({
-          items: [item],
-          uri: `https://doi.org/${doi}`,
-          cookie: '',
-        }),
+        body,
       },
       10000,
     );
@@ -389,7 +400,20 @@ async function postSaveItems(item: Record<string, unknown>, doi: string): Promis
     }
     return { success: false, error: `Zotero connector returned ${res.status}: ${text.slice(0, 200)}` };
   } catch (err: any) {
-    return { success: false, error: err?.message ?? String(err) };
+    // undici wraps low-level network errors as TypeError("fetch failed") with the
+    // real reason in err.cause. Pull both out so the renderer's tooltip shows
+    // something diagnostic ("ECONNRESET", "ECONNREFUSED", etc.) instead of just
+    // the generic wrapper.
+    const cause = err?.cause;
+    const causeMsg = cause?.code ?? cause?.errno ?? cause?.message ?? '';
+    const message = err?.message ?? String(err);
+    logger.warn('[Zotero] postSaveItems fetch failed', {
+      message,
+      cause: causeMsg,
+      causeRaw: cause,
+    });
+    const detail = causeMsg ? `${message} (${causeMsg})` : message;
+    return { success: false, error: detail };
   }
 }
 
