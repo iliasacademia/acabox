@@ -452,6 +452,71 @@ function createMcpRelayServers(state: SessionState) {
         }, relay('zotero', 'add_doi')),
       ],
     }),
+
+    grants: createSdkMcpServer({
+      name: 'grants',
+      tools: [
+        tool('save_user_context',
+          'Save user profile data to improve grant matching quality. Call before creating a project if user context is available. Each question/response pair is upserted.',
+          {
+            data: z.array(z.object({
+              question: z.enum([
+                'What type of organization are you affiliated with?',
+                'Where is your research institution located?',
+                'What best describes your field of research?',
+                'What title best describes you?',
+                'How many grants did you apply for in the last 12 months?',
+                'How many years of professional experience do you have?',
+              ]).describe('Must be one of the predefined onboarding questions.'),
+              response: z.string().describe('The user\'s answer.'),
+            })).min(1).describe('Array of question/response pairs to save.'),
+          },
+          relay('grants', 'save_user_context'),
+        ),
+        tool('create_project',
+          'Create a grant project and trigger the matching pipeline. Results appear asynchronously — use get_project to poll. More detailed research summaries produce better matches.',
+          {
+            research_summary: z.string().min(1).describe('Detailed description of research focus, methodology, and goals.'),
+            name: z.string().optional().describe('Optional project name. Auto-generated if omitted.'),
+          },
+          relay('grants', 'create_project'),
+        ),
+        tool('get_project',
+          'Get a grant project with matched opportunities. Poll after creating a project until results stabilize (2-5 minutes). Only opportunities with score > 3 are returned.',
+          {
+            project_id: z.number().int().describe('The project ID returned by create_project.'),
+          },
+          relay('grants', 'get_project'),
+        ),
+        tool('list_projects', 'List all grant projects for the current user.', {},
+          relay('grants', 'list_projects'),
+        ),
+        tool('favorite_opportunity', 'Save or unsave a grant opportunity for later reference.', {
+          project_id: z.number().int(),
+          grant_opportunity_id: z.number().int(),
+          favorite: z.boolean().describe('true to save, false to unsave.'),
+        }, relay('grants', 'favorite_opportunity')),
+        tool('hide_opportunity', 'Dismiss or un-dismiss a grant opportunity.', {
+          project_id: z.number().int(),
+          grant_opportunity_id: z.number().int(),
+          hidden: z.boolean().describe('true to hide, false to un-hide.'),
+        }, relay('grants', 'hide_opportunity')),
+        tool('set_hidden_reason', 'Record why a grant opportunity was dismissed. Call after hide_opportunity.', {
+          project_id: z.number().int(),
+          grant_opportunity_id: z.number().int(),
+          hidden_reason: z.string().min(1).describe('Why the opportunity was dismissed.'),
+        }, relay('grants', 'set_hidden_reason')),
+        tool('visit_opportunity', 'Mark a grant opportunity as visited. Clears the "new" indicator.', {
+          project_id: z.number().int(),
+          grant_opportunity_id: z.number().int(),
+        }, relay('grants', 'visit_opportunity')),
+        tool('update_project', 'Update a grant project name or research summary. Does NOT re-trigger matching — create a new project for a new search.', {
+          project_id: z.number().int(),
+          name: z.string().optional(),
+          research_summary: z.string().optional(),
+        }, relay('grants', 'update_project')),
+      ],
+    }),
   };
 }
 

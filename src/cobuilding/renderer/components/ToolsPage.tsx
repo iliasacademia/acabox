@@ -78,6 +78,7 @@ const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
     chatPromptTemplate: (filePath) =>
       `/academic-writing-agent\n\nPlease help me work on the following file: ${filePath}`,
   },
+  { name: 'Grant Finder', description: 'Funding opportunities matched to your research', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(72) },
   {
     name: 'Grant Writer',
     description: 'AI-assisted grant writing, specific aims, and narrative drafting',
@@ -109,7 +110,7 @@ export function ToolsPage({
   onSwitchToChat,
 }: {
   workspacePath: string;
-  onSelectApp: (dirName: string) => void;
+  onSelectApp: (dirName: string, opts?: { preBuilt?: boolean }) => void;
   onSwitchToChat: () => void;
 }) {
   const [apps, setApps] = useState<ToolsPageMiniApp[]>([]);
@@ -189,13 +190,23 @@ export function ToolsPage({
 
   const handleBuildSuggested = useCallback((tool: SuggestedMiniApp) => {
     assistantRuntime.switchToNewThread();
-    onSwitchToChat();
     setTimeout(() => {
-      composerRuntime.setText(
-        `Please build the following mini-app for me:\n\n${tool.details_on_what_to_build}`
-      );
-      composerRuntime.send();
-    }, 100);
+      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.details_on_what_to_build}`);
+      onSwitchToChat();
+      setTimeout(() => {
+        const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
+        if (input) {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+        const shell = document.querySelector('.composerShell');
+        if (shell) {
+          shell.classList.remove('composerShell--highlight');
+          void (shell as HTMLElement).offsetWidth;
+          shell.classList.add('composerShell--highlight');
+        }
+      }, 0);
+    }, 0);
   }, [assistantRuntime, composerRuntime, onSwitchToChat]);
 
   const handleDismissSuggested = useCallback((tool: SuggestedMiniApp) => {
@@ -397,10 +408,11 @@ export function ToolsPage({
                               <div className="toolRow__header">
                                 <button
                                   className="toolRow__name"
-                                  onClick={() => onSelectApp(app.dirName)}
+                                  onClick={() => onSelectApp(app.dirName, { preBuilt: app.preBuilt })}
                                 >
                                   {app.name}
                                 </button>
+                                {app.preBuilt && <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>}
                                 <span className="toolRow__tag toolRow__tag--plain">ON-DEMAND</span>
                               </div>
                               {app.description && <div className="toolRow__description">{app.description}</div>}
@@ -419,7 +431,7 @@ export function ToolsPage({
                               </button>
                               <button
                                 className="toolRow__primaryBtn"
-                                onClick={() => onSelectApp(app.dirName)}
+                                onClick={() => onSelectApp(app.dirName, { preBuilt: app.preBuilt })}
                               >
                                 <PlayIcon style={{ width: 14, height: 14 }} />
                                 Use
@@ -441,6 +453,7 @@ export function ToolsPage({
                       );
                     }
                     const { stub: tool } = item;
+                    const stubAction = () => handleStubAction(tool);
                     return (
                       <div key={item.key} className={`toolRow${bordered}`}>
                         <div className="toolRow__icon">
@@ -448,7 +461,7 @@ export function ToolsPage({
                         </div>
                         <div className="toolRow__info">
                           <div className="toolRow__header">
-                            <button className="toolRow__name" onClick={() => handleStubAction(tool)}>
+                            <button className="toolRow__name" onClick={stubAction}>
                               {tool.name}
                             </button>
                             <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>
@@ -470,7 +483,7 @@ export function ToolsPage({
                               View outputs
                             </button>
                           ) : (
-                            <button className="toolRow__primaryBtn" onClick={() => handleStubAction(tool)}>
+                            <button className="toolRow__primaryBtn" onClick={stubAction}>
                               <PlayIcon style={{ width: 14, height: 14 }} />
                               Use
                             </button>
