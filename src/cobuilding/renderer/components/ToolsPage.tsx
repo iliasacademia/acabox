@@ -159,23 +159,13 @@ export function ToolsPage({
 
   const handleBuildSuggested = useCallback((tool: SuggestedMiniApp) => {
     assistantRuntime.switchToNewThread();
+    onSwitchToChat();
     setTimeout(() => {
-      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.details_on_what_to_build}`);
-      onSwitchToChat();
-      setTimeout(() => {
-        const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
-        if (input) {
-          input.focus();
-          input.setSelectionRange(input.value.length, input.value.length);
-        }
-        const shell = document.querySelector('.composerShell');
-        if (shell) {
-          shell.classList.remove('composerShell--highlight');
-          void (shell as HTMLElement).offsetWidth;
-          shell.classList.add('composerShell--highlight');
-        }
-      }, 0);
-    }, 0);
+      composerRuntime.setText(
+        `Please build the following mini-app for me:\n\n${tool.details_on_what_to_build}`
+      );
+      composerRuntime.send();
+    }, 100);
   }, [assistantRuntime, composerRuntime, onSwitchToChat]);
 
   const handleDismissSuggested = useCallback((tool: SuggestedMiniApp) => {

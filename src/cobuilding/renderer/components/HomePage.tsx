@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowUpRightIcon } from 'lucide-react';
+import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
+import { ArrowUpRightIcon, SparklesIcon, XIcon } from 'lucide-react';
 
 interface WorkingOnItem {
   file_path: string;
   description: string;
+}
+
+interface SuggestedMiniApp {
+  name: string;
+  why_im_suggesting_this: string;
+  details_on_what_to_build: string;
 }
 
 function basename(filePath: string): string {
@@ -39,33 +46,78 @@ function formatDate(): string {
 
 const MAX_VISIBLE_CARDS = 3;
 
+const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research directory. First, inspect the workspace and understand the current file structure, research projects, documents, data, scripts, outputs, and any existing naming conventions. Then recommend an effective organization plan for the directory.
+
+YOU MUST ALWAYS present me with a clear plan before proceeding to take any actions or make any file modifications. Do not move, rename, delete, rewrite, or create files until I explicitly approve the plan.`;
+
 export function HomePage({
   workspacePath,
   onSelectFile,
+  onSwitchToChat,
 }: {
   workspacePath: string;
   onSelectFile: (filePath: string) => void;
+  onSwitchToChat: () => void;
 }) {
   const [workingOnItems, setWorkingOnItems] = useState<WorkingOnItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showDirectoryBriefing, setShowDirectoryBriefing] = useState(true);
+  const [suggestedMiniApps, setSuggestedMiniApps] = useState<SuggestedMiniApp[]>([]);
+  const [dismissedApps, setDismissedApps] = useState<Set<string>>(new Set());
+  const assistantRuntime = useAssistantRuntime();
+  const composerRuntime = useComposerRuntime();
 
   useEffect(() => {
     window.reportsAPI.getLatest('directory_scan').then((report) => {
-      if (!report?.what_youre_working_on) {
+      if (!report) {
         setLoading(false);
         return;
       }
-      try {
-        const parsed = JSON.parse(report.what_youre_working_on);
-        if (Array.isArray(parsed)) setWorkingOnItems(parsed);
-      } catch {
-        // ignore malformed JSON
+      if (report.what_youre_working_on) {
+        try {
+          const parsed = JSON.parse(report.what_youre_working_on);
+          if (Array.isArray(parsed)) setWorkingOnItems(parsed);
+        } catch { /* ignore */ }
+      }
+      if (report.suggested_mini_apps) {
+        try {
+          const parsed = JSON.parse(report.suggested_mini_apps);
+          if (Array.isArray(parsed)) setSuggestedMiniApps(parsed);
+        } catch { /* ignore */ }
       }
       setLoading(false);
     });
   }, []);
 
   const visibleItems = workingOnItems.slice(0, MAX_VISIBLE_CARDS);
+
+  const visibleMiniApps = suggestedMiniApps
+    .filter((app) => !dismissedApps.has(app.name))
+    .slice(0, 3);
+
+  const handleStartDirectoryOrganization = () => {
+    assistantRuntime.switchToNewThread();
+    onSwitchToChat();
+    setTimeout(() => {
+      composerRuntime.setText(DIRECTORY_ORGANIZATION_PROMPT);
+      composerRuntime.send();
+    }, 100);
+  };
+
+  const handleStartMiniApp = (app: SuggestedMiniApp) => {
+    assistantRuntime.switchToNewThread();
+    onSwitchToChat();
+    setTimeout(() => {
+      composerRuntime.setText(
+        `Please build the following mini-app for me:\n\n${app.details_on_what_to_build}`
+      );
+      composerRuntime.send();
+    }, 100);
+  };
+
+  const handleDismissMiniApp = (appName: string) => {
+    setDismissedApps((prev) => new Set(prev).add(appName));
+  };
 
   return (
     <div className="pageShell">
@@ -125,11 +177,85 @@ export function HomePage({
             What's worth your attention from your routines and from me
           </p>
           <div className="homeBriefingGrid">
-            <div className="homeBriefingCard homeBriefingCard--placeholder" />
-            <div className="homeBriefingCard homeBriefingCard--placeholder" />
-          </div>
-          <div className="homeBriefingGrid homeBriefingGrid--full">
-            <div className="homeBriefingCard homeBriefingCard--placeholder" />
+            {showDirectoryBriefing && (
+              <div className="homeBriefingCard homeBriefingCard--action">
+                <button
+                  type="button"
+                  className="homeBriefingCard__close"
+                  aria-label="Dismiss briefing"
+                  onClick={() => setShowDirectoryBriefing(false)}
+                >
+                  <XIcon className="homeBriefingCard__closeIcon" />
+                </button>
+                <div className="homeBriefingCard__eyebrow">
+                  <SparklesIcon className="homeBriefingCard__eyebrowIcon" />
+                  <span>I can do this for you</span>
+                </div>
+                <h3 className="homeBriefingCard__title">Organize your research directory</h3>
+                <p className="homeBriefingCard__description">
+                  I will figure out an effective way to organize the files in your workspace.
+                </p>
+                <div className="homeBriefingCard__actions">
+                  <button
+                    type="button"
+                    className="homeBriefingCard__button homeBriefingCard__button--primary"
+                    onClick={handleStartDirectoryOrganization}
+                  >
+                    Yes, do it
+                    <ArrowUpRightIcon className="homeBriefingCard__buttonIcon" />
+                  </button>
+                  <button
+                    type="button"
+                    className="homeBriefingCard__button homeBriefingCard__button--secondary"
+                    onClick={() => setShowDirectoryBriefing(false)}
+                  >
+                    Not Now
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {visibleMiniApps.map((app) => (
+              <div key={app.name} className="homeBriefingCard homeBriefingCard--action">
+                <button
+                  type="button"
+                  className="homeBriefingCard__close"
+                  aria-label="Dismiss briefing"
+                  onClick={() => handleDismissMiniApp(app.name)}
+                >
+                  <XIcon className="homeBriefingCard__closeIcon" />
+                </button>
+                <div className="homeBriefingCard__eyebrow">
+                  <SparklesIcon className="homeBriefingCard__eyebrowIcon" />
+                  <span>I can do this for you</span>
+                </div>
+                <h3 className="homeBriefingCard__title">{app.name}</h3>
+                <p className="homeBriefingCard__description">
+                  {app.why_im_suggesting_this}
+                </p>
+                <div className="homeBriefingCard__actions">
+                  <button
+                    type="button"
+                    className="homeBriefingCard__button homeBriefingCard__button--primary"
+                    onClick={() => handleStartMiniApp(app)}
+                  >
+                    Build it
+                    <ArrowUpRightIcon className="homeBriefingCard__buttonIcon" />
+                  </button>
+                  <button
+                    type="button"
+                    className="homeBriefingCard__button homeBriefingCard__button--secondary"
+                    onClick={() => handleDismissMiniApp(app.name)}
+                  >
+                    Not Now
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {(showDirectoryBriefing ? 1 : 0) + visibleMiniApps.length < 2 && (
+              <div className="homeBriefingCard homeBriefingCard--placeholder" />
+            )}
           </div>
         </section>
       </div>

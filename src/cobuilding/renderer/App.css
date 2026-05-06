@@ -154,8 +154,8 @@ body,
 }
 
 .pageShell__inner {
-  padding: 36px 64px 120px;
-  max-width: 1060px;
+  padding: 36px 40px 120px;
+  max-width: 1280px;
   width: 100%;
   margin: 0 auto;
 }
@@ -5792,8 +5792,8 @@ body.cobuild-resizing webview {
 .homeBriefingGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0;
-  margin-bottom: 0;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
 .homeBriefingGrid--full {
@@ -5802,6 +5802,7 @@ body.cobuild-resizing webview {
 }
 
 .homeBriefingCard {
+  position: relative;
   background: #fff;
   border: 1px solid #e5e2dd;
   padding: 24px;
@@ -5809,14 +5810,123 @@ body.cobuild-resizing webview {
   font-family: 'DM Sans', sans-serif;
 }
 
-.homeBriefingGrid .homeBriefingCard:not(:last-child) {
-  border-right: none;
-}
-
-.homeBriefingGrid--full .homeBriefingCard {
-  border-top: none;
-}
-
 .homeBriefingCard--placeholder {
   border-style: dashed;
+}
+
+.homeBriefingCard--action {
+  background: #f4f1e4;
+  border-left: 3px solid #78896f;
+  padding: 24px 28px 24px 24px;
+}
+
+.homeBriefingCard__close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: #9c958b;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.homeBriefingCard__close:hover {
+  color: #5c5549;
+}
+
+.homeBriefingCard__closeIcon {
+  width: 14px;
+  height: 14px;
+}
+
+.homeBriefingCard__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  padding-right: 28px;
+  color: #78896f;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.homeBriefingCard__eyebrowIcon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.homeBriefingCard__title {
+  margin: 0 0 14px;
+  padding-right: 28px;
+  color: #141413;
+  font-family: 'Gupter', serif;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.homeBriefingCard__description {
+  max-width: 560px;
+  margin: 0 0 22px;
+  color: #6f685f;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+}
+
+.homeBriefingCard__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.homeBriefingCard__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 16px;
+  border-radius: 2px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.homeBriefingCard__button--primary {
+  color: #fff;
+  background: #171512;
+  border: 1px solid #171512;
+}
+
+.homeBriefingCard__button--primary:hover {
+  background: #2b2823;
+  border-color: #2b2823;
+}
+
+.homeBriefingCard__button--secondary {
+  color: #5c5549;
+  background: #f8f5ec;
+  border: 1px solid #e5e2dd;
+}
+
+.homeBriefingCard__button--secondary:hover {
+  background: #fff;
+}
+
+.homeBriefingCard__buttonIcon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
 }

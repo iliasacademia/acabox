@@ -570,6 +570,11 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
                 <HomePage
                   workspacePath={workspace.directory_path}
                   onSelectFile={handleSelectFile}
+                  onSwitchToChat={() => {
+                    setSidebarTab('chats');
+                    setChatViewMode('detail');
+                    deactivateAllTabs();
+                  }}
                 />
               </div>
             </div>
