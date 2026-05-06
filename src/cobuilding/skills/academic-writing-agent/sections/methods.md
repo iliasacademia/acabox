@@ -14,4 +14,4 @@
 
 6. **No figure references in Methods.** Figures belong in Results. Methods describes procedures, not outcomes.
 
-<!-- skill-file: sections/methods.md -->
+<!-- skill-file: sections/methods.md @2026-05-05a -->

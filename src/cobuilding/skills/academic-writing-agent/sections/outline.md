@@ -16,4 +16,4 @@ The user is working on a structural plan, not prose. Adjust all actions accordin
 
 6. **When drafting from an outline:** Generate text that follows the bullet structure as a scaffold but produces real paragraph prose. Maintain the argument sequence the author planned.
 
-<!-- skill-file: sections/outline.md -->
+<!-- skill-file: sections/outline.md @2026-05-05a -->

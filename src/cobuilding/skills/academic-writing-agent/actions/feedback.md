@@ -28,4 +28,4 @@ Encouraging PI on the author's team. Direct but constructive. Follow the base-la
 
 When critiquing the author's choices, first consider why they may have made that choice. If their approach has merit even though you'd suggest a different one, acknowledge that before offering the alternative. Critique the specific weakness, not the general decision.
 
-<!-- skill-file: actions/feedback.md -->
+<!-- skill-file: actions/feedback.md @2026-05-05a -->

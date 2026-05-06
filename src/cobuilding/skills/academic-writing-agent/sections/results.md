@@ -19,4 +19,4 @@
 
 6. **No citations in Results** unless referencing a method, dataset, or tool by name. Results reports your own data, not others' work.
 
-<!-- skill-file: sections/results.md -->
+<!-- skill-file: sections/results.md @2026-05-05a -->
