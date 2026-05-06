@@ -287,6 +287,25 @@
   line-height: 1;
 }
 
+/* Skip button */
+.wsSetup__skipBtn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  background: none;
+  color: #6b7280;
+  border: none;
+  padding: 10px 0 10px 28px;
+  cursor: pointer;
+  margin-top: 12px;
+  display: block;
+  transition: color 0.15s;
+}
+
+.wsSetup__skipBtn:hover {
+  color: #374151;
+}
+
 /* Hide branding bar on small screens to reclaim vertical space */
 @media (max-height: 700px) {
   .wsSetup__branding {

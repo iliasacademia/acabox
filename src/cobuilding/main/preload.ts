@@ -547,6 +547,15 @@ contextBridge.exposeInMainWorld('officeAddinAPI', {
   deleteCert: () => ipcRenderer.invoke('officeAddin:deleteCert'),
 });
 
+contextBridge.exposeInMainWorld('academiaAPI', {
+  fetch: (method: string, endpoint: string, data?: unknown) =>
+    ipcRenderer.invoke('academia:fetch', { method, endpoint, data }),
+});
+
+contextBridge.exposeInMainWorld('nativeToolsAPI', {
+  getUrl: (toolId: string) => ipcRenderer.invoke('nativeTools:getUrl', toolId),
+});
+
 contextBridge.exposeInMainWorld('anthropicAPI', {
   complete: (params: unknown) => ipcRenderer.invoke('anthropic:complete', params),
 

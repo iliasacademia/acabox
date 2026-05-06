@@ -79,6 +79,7 @@ export interface ScanParams {
   workspaceId: string;
   directoryPath: string;
   apiKey: string;
+  baseURL?: string;
   onMessage?: (event: ScannerEvent) => void;
 }
 
@@ -185,7 +186,7 @@ const blockHiddenPaths: HookCallback = async (input) => {
 };
 
 export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> {
-  const { workspaceId, directoryPath, apiKey, onMessage } = params;
+  const { workspaceId, directoryPath, apiKey, baseURL, onMessage } = params;
   const reportId = randomUUID();
 
   log.info(`[DirectoryScanner] Starting scan for workspace ${workspaceId} at ${directoryPath}`);
@@ -216,6 +217,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
         env: {
           ...process.env,
           ANTHROPIC_API_KEY: apiKey,
+          ...(baseURL ? { ANTHROPIC_BASE_URL: baseURL } : {}),
         },
         persistSession: false,
         thinking: { type: 'disabled' },

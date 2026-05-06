@@ -284,7 +284,8 @@ export const login = async (email: string, password: string) => {
 
 export const logout = async () => {
   await APIclient();
-  const cookieFileName = app.isPackaged ? 'backendCookies.encrypted' : 'backendCookies.dev.encrypted';
+  const isDevEndpoint = currentBaseUrl.includes('devdemia');
+  const cookieFileName = app.isPackaged ? 'backendCookies.encrypted' : (isDevEndpoint ? 'backendCookies.dev.encrypted' : 'backendCookies.prod.encrypted');
   const cookieJarPath = path.join(app.getPath('userData'), cookieFileName);
 
   // Clear cookies from the jar

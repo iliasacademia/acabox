@@ -451,6 +451,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   // open_mini_application on an already-open tab just activates it without
   // reloading the iframe contents.
   const [miniAppReloadNonces, setMiniAppReloadNonces] = useState<Record<string, number>>({});
+  const [preBuiltApps, setPreBuiltApps] = useState<Set<string>>(new Set());
 
   // Latest tabs ref so handleSelectApp's identity doesn't change on every tab
   // mutation (it would otherwise re-render sidebar components on each close/open).
@@ -505,7 +506,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     return () => window.removeEventListener('open-file-tab', handler);
   }, [workspace.directory_path, handleSelectFile, runtime]);
 
-  const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean }) => {
+  const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean; preBuilt?: boolean }) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName, opts);
     // Fire-and-forget: record this open in the app's manifest so the Tools page
     // can sort by recency. Failures are non-fatal and shouldn't block opening.
@@ -522,6 +523,9 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     if (!alreadyOpen || opts?.forceReload) {
       setMiniAppReloadNonces((prev) => ({ ...prev, [dirName]: (prev[dirName] ?? 0) + 1 }));
     }
+    if (opts?.preBuilt) {
+      setPreBuiltApps((prev) => new Set(prev).add(dirName));
+    }
     const descriptor: TabDescriptor = {
       id: tabId,
       kind: 'miniapp',
@@ -531,7 +535,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
     };
     openTab(descriptor);
   }, [openTab]);
-
 
   const handleFilesClick = useCallback(() => {
     setSidebarTab('files');
@@ -658,6 +661,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                                     dirName={tab.data.dirName}
                                     workspacePath={workspace.directory_path}
                                     reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
+                                    preBuilt={preBuiltApps.has(tab.data.dirName)}
                                     onBack={() => setToolsViewMode('listing')}
                                   />
                                 )}
@@ -691,6 +695,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                                   dirName={tab.data.dirName}
                                   workspacePath={workspace.directory_path}
                                   reloadNonce={miniAppReloadNonces[tab.data.dirName] ?? 0}
+                                  preBuilt={preBuiltApps.has(tab.data.dirName)}
                                   onBack={() => setToolsViewMode('listing')}
                                 />
                               )}
@@ -915,6 +920,14 @@ function App() {
               if (ws) {
                 setWorkspace(ws);
                 setStep('scanning');
+              }
+            });
+          }}
+          onSkip={() => {
+            window.workspacesAPI.getActive().then((ws) => {
+              if (ws) {
+                setWorkspace(ws);
+                setStep('ready');
               }
             });
           }}

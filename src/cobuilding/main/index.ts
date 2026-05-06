@@ -98,6 +98,8 @@ const isSmokeTest = process.argv.includes('--smoke-test');
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
+let cobuildingHttpBaseUrl: string | null = null;
+
 const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
   'Complete ALL of the following steps in order:\n' +
   '\n' +
@@ -369,7 +371,18 @@ let activeWorkspace: Workspace | null = null;
 
 let cachedApiKey: string | null = null;
 let cachedBaseURL: string | undefined = undefined;
-let activeApiBaseUrl: string = BASE_URL;
+let activeApiBaseUrl: string = (() => {
+  if (app.isPackaged) return BASE_URL;
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    if (data.apiEndpoint === 'production') {
+      const url = 'https://api.academia.edu/';
+      setBaseUrl(url);
+      return url;
+    }
+  } catch { }
+  return BASE_URL;
+})();
 
 async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL?: string }> {
   const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
@@ -955,6 +968,7 @@ app.whenReady().then(async () => {
           const port = await httpServer.start();
           const baseUrl = httpServer.getBaseUrl();
           const authToken = httpServer.getAuthToken();
+          cobuildingHttpBaseUrl = baseUrl;
           log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
 
           // Store HTTP port so the HTTPS server can proxy to it when started from debug panel
@@ -1211,6 +1225,7 @@ ipcMain.handle('scanner:start', async () => {
     workspaceId: activeWorkspace.id,
     directoryPath: activeWorkspace.directory_path,
     apiKey,
+    baseURL: cachedBaseURL,
     onMessage: (event) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('scanner:event', event);
@@ -1250,6 +1265,7 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
   const { resolveObsidianDocumentPath } = require('./hostApps/obsidianHostApp');
   const { checkLogin } = require('../../apiClient');
   const { findReferencesForFile, findReferencesForText, createCitationReportFromText, getCitationReport, addClaimToReport, searchCitationsForClaim, formatCitations, listCitationReports } = require('./citeright/citeRightClient');
+  const { saveUserContext: grantsSaveUserContext, createProject: grantsCreateProject, getProject: grantsGetProject, listProjects: grantsListProjects, setFavoriteOpportunity, setHiddenOpportunity, setHiddenReason: grantsSetHiddenReason, visitOpportunity, updateProject: grantsUpdateProject } = require('./grants/grantsClient');
   const { summarizeReport } = require('./citeright/reportSummary');
   const { createSession: createDbSession, insertMessage: insertDbMessage, updateSessionTitle } = require('./db/chatRepository');
   const { randomUUID } = require('crypto');
@@ -1397,6 +1413,45 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
           const { addDoiToZotero } = require('../../zoteroLocalClient');
           return ok(JSON.stringify(await addDoiToZotero(args.doi)));
         } catch (e: any) { return fail(`Zotero add_doi failed: ${e.message}`); }
+      },
+    },
+
+    grants: {
+      save_user_context: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsSaveUserContext(args.data)));
+      },
+      create_project: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsCreateProject(args.research_summary, args.name)));
+      },
+      get_project: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsGetProject(args.project_id)));
+      },
+      list_projects: async () => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsListProjects()));
+      },
+      favorite_opportunity: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await setFavoriteOpportunity(args.project_id, args.grant_opportunity_id, args.favorite)));
+      },
+      hide_opportunity: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await setHiddenOpportunity(args.project_id, args.grant_opportunity_id, args.hidden)));
+      },
+      set_hidden_reason: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsSetHiddenReason(args.project_id, args.grant_opportunity_id, args.hidden_reason)));
+      },
+      visit_opportunity: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await visitOpportunity(args.project_id, args.grant_opportunity_id)));
+      },
+      update_project: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsUpdateProject(args.project_id, { name: args.name, research_summary: args.research_summary })));
       },
     },
   };
@@ -1637,6 +1692,11 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'mcp__obsidian__get_active_note', 'mcp__obsidian__get_text',
       'mcp__obsidian__list_notes', 'mcp__obsidian__open_note',
       'mcp__obsidian__find_and_replace',
+      'mcp__grants__save_user_context', 'mcp__grants__create_project',
+      'mcp__grants__get_project', 'mcp__grants__list_projects',
+      'mcp__grants__favorite_opportunity', 'mcp__grants__hide_opportunity',
+      'mcp__grants__set_hidden_reason', 'mcp__grants__visit_opportunity',
+      'mcp__grants__update_project',
     ],
     settingSources: ['project'],
   };
@@ -2426,6 +2486,18 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
   }
 });
 
+ipcMain.handle('nativeTools:getUrl', async (_event, toolId: string) => {
+  if (toolId === 'grantFinder' && cobuildingHttpBaseUrl) {
+    return `${cobuildingHttpBaseUrl}/ui/popup/grantFinder/index.html`;
+  }
+  return null;
+});
+
+ipcMain.handle('academia:fetch', async (_event, args: { method: string; endpoint: string; data?: unknown }) => {
+  const { callBackendApi } = require('../../apiCall');
+  return callBackendApi({ method: args.method as any, endpoint: args.endpoint, data: args.data });
+});
+
 // Auth IPC handlers
 ipcMain.handle('auth:checkLogin', async () => {
   try {
@@ -2585,6 +2657,15 @@ ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
   const url = endpoint === 'production' ? 'https://api.academia.edu/' : 'https://api.devdemia.com/';
   activeApiBaseUrl = url;
   setBaseUrl(url);
+
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.apiEndpoint = endpoint;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+
   log.info(`[Auth] Switched API endpoint to ${endpoint} (${url})`);
   return { success: true, endpoint };
 });

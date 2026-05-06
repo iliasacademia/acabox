@@ -415,6 +415,7 @@ declare global {
     description: string | null;
     icon: string | null;
     lastOpened: string | null;
+    preBuilt: boolean;
     hasManifest: boolean;
   }
 
@@ -686,5 +687,9 @@ declare global {
     scannerAPI: ScannerAPI;
     briefingsAPI: BriefingsAPI;
     scannedFilesAPI: ScannedFilesAPI;
+    nativeToolsAPI: { getUrl(toolId: string): Promise<string | null> };
+    academiaAPI: {
+      fetch(method: string, endpoint: string, data?: unknown): Promise<unknown>;
+    };
   }
 }

@@ -43,14 +43,26 @@ interface MiniAppViewerProps {
   dirName: string;
   workspacePath: string;
   reloadNonce?: number;
+  preBuilt?: boolean;
   onBack?: () => void;
 }
 
-export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce, onBack }) => {
+export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, reloadNonce, preBuilt, onBack }) => {
   const [viewingSource, setViewingSource] = useState(false);
   const [rebuildKey, setRebuildKey] = useState(0);
   const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
+  const iframeRef = useRef<HTMLIFrameElement>(null);
   const appDir = `${workspacePath}/.applications/${dirName}`;
+
+  // For pre-built apps, resolve the webpack-served URL
+  const [nativeToolUrl, setNativeToolUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (preBuilt) {
+      window.nativeToolsAPI.getUrl(dirName).then((url) => {
+        if (url) setNativeToolUrl(url);
+      });
+    }
+  }, [preBuilt, dirName]);
 
   const handleRebuild = useCallback(async () => {
     setRebuildState({ kind: 'building' });
@@ -84,9 +96,29 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     }
   }, [dirName]);
 
+  useEffect(() => {
+    if (preBuilt) return;
+    window.filesAPI.readFile(`${appDir}/dist/bundle.js`).then((res: any) => {
+      if (res?.error) handleRebuild();
+    }).catch(() => handleRebuild());
+  }, [appDir, handleRebuild, preBuilt]);
+
   const handleShowInFinder = useCallback(async () => {
     await window.filesAPI.showInFinder(appDir);
   }, [appDir]);
+
+  const handleRefresh = useCallback(() => {
+    const iframe = iframeRef.current;
+    if (iframe) {
+      try {
+        iframe.contentWindow?.location.reload();
+      } catch {
+        const src = iframe.src;
+        iframe.src = '';
+        iframe.src = src;
+      }
+    }
+  }, []);
 
   return (
     <div className="miniAppViewer">
@@ -96,25 +128,43 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         onToggleSource={() => setViewingSource((v) => !v)}
         onRebuild={handleRebuild}
         onShowInFinder={handleShowInFinder}
+        onRefresh={handleRefresh}
         rebuildState={rebuildState}
+        preBuilt={preBuilt}
         onBack={onBack}
       />
       <div className="miniAppBody">
-        <ContainerGate dirName={dirName}>
-          {viewingSource ? (
-            <SourceViewer
-              appDir={appDir}
-              dirName={dirName}
-              rebuildState={rebuildState}
-            />
-          ) : (
-            <MiniAppContent
-              key={`${rebuildKey}-${reloadNonce ?? 0}`}
-              dirName={dirName}
-              workspacePath={workspacePath}
-            />
-          )}
-        </ContainerGate>
+        {preBuilt && nativeToolUrl ? (
+          <MiniAppContent
+            ref={iframeRef}
+            key={`prebuilt-${reloadNonce ?? 0}`}
+            dirName={dirName}
+            workspacePath={workspacePath}
+            preBuilt
+            nativeToolUrl={nativeToolUrl}
+          />
+        ) : preBuilt ? (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+            <div style={{ width: 24, height: 24, border: '3px solid #e0e0e0', borderTopColor: '#666', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+          </div>
+        ) : (
+          <ContainerGate dirName={dirName}>
+            {viewingSource ? (
+              <SourceViewer
+                appDir={appDir}
+                dirName={dirName}
+                rebuildState={rebuildState}
+              />
+            ) : (
+              <MiniAppContent
+                ref={iframeRef}
+                key={`${rebuildKey}-${reloadNonce ?? 0}`}
+                dirName={dirName}
+                workspacePath={workspacePath}
+              />
+            )}
+          </ContainerGate>
+        )}
       </div>
     </div>
   );
@@ -126,9 +176,11 @@ const MiniAppHeader: FC<{
   onToggleSource: () => void;
   onRebuild: () => void;
   onShowInFinder: () => void;
+  onRefresh: () => void;
   rebuildState: RebuildState;
+  preBuilt?: boolean;
   onBack?: () => void;
-}> = ({ dirName, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, onBack }) => {
+}> = ({ dirName, viewingSource, onToggleSource, onRebuild, onShowInFinder, onRefresh, rebuildState, preBuilt, onBack }) => {
   const handleExport = useCallback(async () => {
     await window.miniAppsAPI.exportApp(dirName);
   }, [dirName]);
@@ -147,50 +199,65 @@ const MiniAppHeader: FC<{
         <div className="miniAppHeaderIconBtn__wrapper">
           <button
             className="miniAppHeaderIconBtn"
-            onClick={handleExport}
+            onClick={onRefresh}
           >
-            <DownloadIcon style={{ width: 16, height: 16 }} />
+            <RefreshCwIcon style={{ width: 16, height: 16 }} />
           </button>
-          <span className="miniAppHeaderIconBtn__tooltip">Download</span>
+          <span className="miniAppHeaderIconBtn__tooltip">Refresh</span>
         </div>
-        <div className="miniAppHeaderIconBtn__wrapper">
-          <button
-            className="miniAppHeaderIconBtn"
-            onClick={onRebuild}
-            disabled={isBuilding}
-          >
-            <RefreshCwIcon style={{ width: 16, height: 16, animation: isBuilding ? 'spin 0.8s linear infinite' : 'none' }} />
-          </button>
-          <span className="miniAppHeaderIconBtn__tooltip">Rebuild</span>
-        </div>
-        <div className="miniAppHeaderIconBtn__wrapper">
-          <button
-            className="miniAppHeaderIconBtn"
-            onClick={onShowInFinder}
-          >
-            <FolderIcon style={{ width: 16, height: 16 }} />
-          </button>
-          <span className="miniAppHeaderIconBtn__tooltip">Show in Finder</span>
-        </div>
+        {!preBuilt && (
+          <>
+            <div className="miniAppHeaderIconBtn__wrapper">
+              <button
+                className="miniAppHeaderIconBtn"
+                onClick={handleExport}
+              >
+                <DownloadIcon style={{ width: 16, height: 16 }} />
+              </button>
+              <span className="miniAppHeaderIconBtn__tooltip">Download</span>
+            </div>
+            <div className="miniAppHeaderIconBtn__wrapper">
+              <button
+                className="miniAppHeaderIconBtn"
+                onClick={onRebuild}
+                disabled={isBuilding}
+              >
+                <RefreshCwIcon style={{ width: 16, height: 16, animation: isBuilding ? 'spin 0.8s linear infinite' : 'none' }} />
+              </button>
+              <span className="miniAppHeaderIconBtn__tooltip">Rebuild</span>
+            </div>
+            <div className="miniAppHeaderIconBtn__wrapper">
+              <button
+                className="miniAppHeaderIconBtn"
+                onClick={onShowInFinder}
+              >
+                <FolderIcon style={{ width: 16, height: 16 }} />
+              </button>
+              <span className="miniAppHeaderIconBtn__tooltip">Show in Finder</span>
+            </div>
+          </>
+        )}
         <KernelStatusIndicator dirName={dirName} />
-        <div className="miniAppHeaderViewToggle">
-          <button
-            className={`miniAppHeaderViewBtn${!viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
-            onClick={() => viewingSource && onToggleSource()}
-            title="View tool"
-          >
-            <MonitorIcon style={{ width: 14, height: 14 }} />
-            Tool
-          </button>
-          <button
-            className={`miniAppHeaderViewBtn${viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
-            onClick={() => !viewingSource && onToggleSource()}
-            title="View source"
-          >
-            <CodeIcon style={{ width: 14, height: 14 }} />
-            Code
-          </button>
-        </div>
+        {!preBuilt && (
+          <div className="miniAppHeaderViewToggle">
+            <button
+              className={`miniAppHeaderViewBtn${!viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
+              onClick={() => viewingSource && onToggleSource()}
+              title="View tool"
+            >
+              <MonitorIcon style={{ width: 14, height: 14 }} />
+              Tool
+            </button>
+            <button
+              className={`miniAppHeaderViewBtn${viewingSource ? ' miniAppHeaderViewBtn--active' : ''}`}
+              onClick={() => !viewingSource && onToggleSource()}
+              title="View source"
+            >
+              <CodeIcon style={{ width: 14, height: 14 }} />
+              Code
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -354,8 +421,9 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
   return <>{children}</>;
 };
 
-const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirName, workspacePath }) => {
+const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; workspacePath: string; preBuilt?: boolean; nativeToolUrl?: string }>(({ dirName, workspacePath, preBuilt, nativeToolUrl }, ref) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  React.useImperativeHandle(ref, () => iframeRef.current!, []);
   const [loadError, setLoadError] = useState(false);
   const appDir = `${workspacePath}/.applications/${dirName}`;
   const { connect, executeCode } = useKernel(`miniapp::${dirName}`);
@@ -370,7 +438,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
       if (doc && doc.title === '') {
         // Check if the body is essentially empty (failed load)
         const bodyText = doc.body?.innerText?.trim() ?? '';
-        if (bodyText === 'Not Found' || bodyText === 'Forbidden' || bodyText === '') {
+        if (bodyText === 'Not Found' || bodyText === 'Forbidden' || (bodyText === '' && !nativeToolUrl)) {
           console.warn('[MiniAppContent] Iframe loaded but content appears missing for:', dirName);
           setLoadError(true);
           return;
@@ -384,7 +452,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
       { type: 'init', workspacePath },
       '*',
     );
-  }, [workspacePath, dirName]);
+  }, [workspacePath, dirName, nativeToolUrl]);
 
   const handleBridgeMessage = useCallback(
     async (event: MessageEvent) => {
@@ -406,6 +474,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             result = await window.filesAPI.readFile(args.path);
             break;
           case 'writeFile':
+            if (preBuilt) { error = 'Write operations are disabled for pre-built apps'; break; }
             await window.filesAPI.writeFile(args.path, args.content);
             result = { ok: true };
             break;
@@ -418,6 +487,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             break;
           }
           case 'deleteFile':
+            if (preBuilt) { error = 'Delete operations are disabled for pre-built apps'; break; }
             await window.filesAPI.deleteFile(args.path as string);
             result = { ok: true };
             break;
@@ -457,6 +527,20 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
             composerRuntime.setText(prompt);
             composerRuntime.send();
             result = { ok: true };
+            break;
+          }
+          case 'setComposerText': {
+            composerRuntime.setText(args.text as string);
+            result = { ok: true };
+            break;
+          }
+          case 'openExternal': {
+            await (window as any).electronAPI.invoke('shell:openExternal', args.url as string);
+            result = { ok: true };
+            break;
+          }
+          case 'academia:fetch': {
+            result = await (window as any).academiaAPI.fetch(args.method, args.endpoint, args.data);
             break;
           }
           case 'anthropic:complete': {
@@ -500,7 +584,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
         );
       }
     },
-    [connect, executeCode, composerRuntime, dirName],
+    [connect, executeCode, composerRuntime, dirName, preBuilt],
   );
 
   useEffect(() => {
@@ -508,14 +592,14 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
     return () => window.removeEventListener('message', handleBridgeMessage);
   }, [handleBridgeMessage]);
 
-  const iframeSrc = `local-file://${encodeURI(appDir)}/src/index.html`;
+  const iframeSrc = nativeToolUrl || `local-file://${encodeURI(appDir)}/src/index.html`;
 
   if (loadError) {
     return (
       <div style={{ padding: 24, color: '#888' }}>
         <p>Could not load application <strong>{dirName}</strong>.</p>
         <p style={{ fontSize: 13, marginTop: 8 }}>
-          Expected: <code>{appDir}/src/index.html</code>
+          Expected: <code>{nativeToolUrl || `${appDir}/src/index.html`}</code>
         </p>
       </div>
     );
@@ -534,7 +618,7 @@ const MiniAppContent: FC<{ dirName: string; workspacePath: string }> = ({ dirNam
       }}
     />
   );
-};
+});
 
 interface SourceFile {
   label: string;
