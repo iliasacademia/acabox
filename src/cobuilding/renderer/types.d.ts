@@ -605,10 +605,13 @@ declare global {
     onEvent(callback: (event: ScannerEvent) => void): () => void;
   }
 
+  type PaperSource = 'arxiv' | 'pubmed' | 'openalex' | 'biorxiv';
+
   interface FetchedPaper {
     id: string;
-    source: 'arxiv';
+    source: PaperSource;
     externalId: string;
+    doi: string | null;
     title: string;
     abstract: string;
     authors: string[];
@@ -616,14 +619,15 @@ declare global {
     venue: string;
     publishedAt: string;
     url: string;
-    pdfUrl: string;
+    pdfUrl: string | null;
     matchedTopic: string;
+    sources: PaperSource[];
   }
 
   interface PapersFetchResult {
     papers: FetchedPaper[];
     fetchedAt: string;
-    errors: { topic: string; message: string }[];
+    errors: { source: PaperSource; topic: string; message: string }[];
   }
 
   interface PapersAPI {
@@ -631,6 +635,7 @@ declare global {
       topics: string[];
       maxPerTopic?: number;
       maxTotal?: number;
+      sources?: PaperSource[];
     }): Promise<PapersFetchResult>;
   }
 

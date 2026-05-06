@@ -62,7 +62,7 @@ export function PaperMonitorView({ onBack }: { onBack: () => void }) {
   const [topics, setTopics] = useState<string[]>(() => loadConfiguredTopics());
   const [papers, setPapers] = useState<FetchedPaper[]>([]);
   const [fetchedAt, setFetchedAt] = useState<string>('');
-  const [errors, setErrors] = useState<{ topic: string; message: string }[]>([]);
+  const [errors, setErrors] = useState<{ source: PaperSource; topic: string; message: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
@@ -130,7 +130,7 @@ export function PaperMonitorView({ onBack }: { onBack: () => void }) {
           <BookOpenIcon style={{ width: 13, height: 13 }} />
           <span>PAPERS</span>
           <span>&middot;</span>
-          <span>PAPER MONITOR &middot; ARXIV</span>
+          <span>PAPER MONITOR &middot; ARXIV &middot; PUBMED &middot; OPENALEX &middot; BIORXIV</span>
         </div>
 
         <h1 className="paperMonitor__title">Recommended for you</h1>
@@ -189,8 +189,8 @@ export function PaperMonitorView({ onBack }: { onBack: () => void }) {
 
         {errors.length > 0 && !loadError && (
           <div className="paperMonitor__errorBox">
-            <strong>Some topics failed:</strong>{' '}
-            {errors.map((e) => `${e.topic} (${e.message})`).join('; ')}
+            <strong>Some sources failed:</strong>{' '}
+            {errors.map((e) => `${e.source}/${e.topic} (${e.message})`).join('; ')}
           </div>
         )}
 
@@ -213,6 +213,12 @@ export function PaperMonitorView({ onBack }: { onBack: () => void }) {
                 <div className="paperMonitor__paperMeta">
                   {p.authorsLine || 'Unknown authors'} &middot; <em>{p.venue}</em>
                   {p.publishedAt ? <> &middot; {formatPublishedAgo(p.publishedAt)}</> : null}
+                  {' '}
+                  {p.sources.map((s) => (
+                    <span key={s} className={`paperMonitor__sourcePill paperMonitor__sourcePill--${s}`}>
+                      {s}
+                    </span>
+                  ))}
                 </div>
                 {p.abstract ? (
                   <div className="paperMonitor__paperOneLine">

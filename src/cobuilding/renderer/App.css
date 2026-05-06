@@ -4944,6 +4944,25 @@ body.cobuild-resizing webview {
   text-transform: lowercase;
 }
 
+.paperMonitor__sourcePill {
+  display: inline-block;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  margin-left: 6px;
+  border-radius: 3px;
+  background: #ece8e1;
+  color: #6b5e3f;
+}
+
+.paperMonitor__sourcePill--arxiv { background: #e8e1d4; color: #6b4419; }
+.paperMonitor__sourcePill--pubmed { background: #d8e6e0; color: #2f5d4f; }
+.paperMonitor__sourcePill--openalex { background: #d8def0; color: #2c3a6b; }
+.paperMonitor__sourcePill--biorxiv { background: #f0d8d8; color: #7a2c2c; }
+
 .paperMonitor__errorBox {
   background: #fdf2f0;
   border: 1px solid #f0d5cf;

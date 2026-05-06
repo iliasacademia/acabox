@@ -1,5 +1,6 @@
 import * as https from 'https';
 import log from 'electron-log';
+import type { SourcePaper } from './sourceTypes';
 
 export interface ArxivPaper {
   id: string;
@@ -25,6 +26,32 @@ export interface ArxivQueryOptions {
 const ARXIV_HOST = 'export.arxiv.org';
 const REQUEST_TIMEOUT_MS = 45_000;
 const RETRY_ATTEMPTS = 1;
+
+/** Source-uniform entry point used by the papers service. */
+export async function searchArxivAsSource(searchQuery: string, maxResults: number): Promise<SourcePaper[]> {
+  const papers = await searchArxiv({
+    searchQuery,
+    maxResults,
+    sortBy: 'submittedDate',
+    sortOrder: 'descending',
+  });
+  return papers.map(arxivToSource);
+}
+
+function arxivToSource(p: ArxivPaper): SourcePaper {
+  return {
+    source: 'arxiv',
+    externalId: `arxiv:${p.arxivId}`,
+    doi: null,
+    title: p.title,
+    abstract: p.summary,
+    authors: p.authors,
+    venue: p.primaryCategory ? `arXiv (${p.primaryCategory})` : 'arXiv',
+    publishedAt: p.published,
+    url: p.url,
+    pdfUrl: p.pdfUrl,
+  };
+}
 
 export async function searchArxiv(opts: ArxivQueryOptions): Promise<ArxivPaper[]> {
   const params = new URLSearchParams({
