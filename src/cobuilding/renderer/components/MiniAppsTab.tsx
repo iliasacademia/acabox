@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import * as LucideIcons from 'lucide-react';
 import { LayoutGridIcon, PlusIcon, TrashIcon, UploadIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
-interface MiniAppEntry {
-  name: string;
-  dirName: string;
+type MiniAppsTabApp = MiniAppEntry;
+
+function resolveLucideIcon(name: string | null): React.ComponentType<{ style?: React.CSSProperties }> {
+  if (!name) return LayoutGridIcon;
+  const registry = LucideIcons as unknown as Record<string, React.ComponentType<{ style?: React.CSSProperties }>>;
+  return registry[`${name}Icon`] ?? registry[name] ?? LayoutGridIcon;
 }
 
 export function MiniAppsTab({
@@ -24,9 +28,9 @@ export function MiniAppsTab({
   autoSelectFirst?: boolean;
   onAutoSelectDone?: () => void;
 }) {
-  const [apps, setApps] = useState<MiniAppEntry[]>([]);
+  const [apps, setApps] = useState<MiniAppsTabApp[]>([]);
   const [loading, setLoading] = useState(true);
-  const [pendingDelete, setPendingDelete] = useState<MiniAppEntry | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<MiniAppsTabApp | null>(null);
   const [importing, setImporting] = useState(false);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
@@ -34,15 +38,13 @@ export function MiniAppsTab({
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const appsDir = `${workspacePath}/.applications`;
-      const entries = await window.filesAPI.readDirectory(appsDir);
-      const miniApps = entries
-        .filter((e) => e.isDirectory && !e.name.startsWith('_'))
-        .map((e) => ({
-          name: e.name.replace(/[-_]/g, ' '),
-          dirName: e.name,
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name));
+      const miniApps = await window.miniAppsAPI.list();
+      miniApps.sort((a, b) => {
+        const aTs = a.lastOpened ? Date.parse(a.lastOpened) : 0;
+        const bTs = b.lastOpened ? Date.parse(b.lastOpened) : 0;
+        if (aTs !== bTs) return bTs - aTs;
+        return a.name.localeCompare(b.name);
+      });
       setApps(miniApps);
     } catch {
       setApps([]);
@@ -66,7 +68,7 @@ export function MiniAppsTab({
     }
   }, [autoSelectFirst, apps, loading, onSelectApp, onAutoSelectDone]);
 
-  const handleDeleteApp = useCallback(async (app: MiniAppEntry) => {
+  const handleDeleteApp = useCallback(async (app: MiniAppsTabApp) => {
     try {
       const appDir = `${workspacePath}/.applications/${app.dirName}`;
       await window.filesAPI.deleteFile(appDir);
@@ -138,13 +140,15 @@ export function MiniAppsTab({
         <div className="miniAppsTabEmpty">No applications yet</div>
       ) : (
         <div className="miniAppsTabList">
-          {apps.map((app) => (
+          {apps.map((app) => {
+            const Icon = resolveLucideIcon(app.icon);
+            return (
             <div key={app.dirName} className={`miniAppsTabItem${activeAppDirName === app.dirName ? ' miniAppsTabItem--active' : ''}`}>
               <button
                 className="miniAppsTabItemTrigger"
                 onClick={() => onSelectApp(app.dirName)}
               >
-                <LayoutGridIcon style={{ width: 16, height: 16, flexShrink: 0 }} />
+                <Icon style={{ width: 16, height: 16, flexShrink: 0 }} />
                 <span className="miniAppsTabItemName">{app.name}</span>
               </button>
               <button
@@ -155,7 +159,8 @@ export function MiniAppsTab({
                 <TrashIcon style={{ width: 14, height: 14 }} />
               </button>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {pendingDelete && (

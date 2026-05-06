@@ -9,12 +9,22 @@ const { values } = parseArgs({
     name: { type: "string" },
     template: { type: "string" },
     kernel: { type: "string" },
+    description: { type: "string" },
+    icon: { type: "string" },
   },
 });
 
 const workspaceDir = process.env.MINI_APP_WORKSPACE_DIR || process.cwd();
 if (!values.name) {
   console.error("--name is required");
+  process.exit(1);
+}
+if (!values.description) {
+  console.error("--description is required");
+  process.exit(1);
+}
+if (!values.icon) {
+  console.error("--icon is required");
   process.exit(1);
 }
 
@@ -167,6 +177,19 @@ const notebook = {
 writeFileSync(
   join(miniAppDir, "notebook.ipynb"),
   JSON.stringify(notebook, null, 1) + "\n",
+);
+
+// Scaffold manifest.json. The Tools page reads this to render each app's title,
+// icon, and description, and orders apps by lastOpened (most recent first).
+const manifest = {
+  name: values.name,
+  description: values.description,
+  icon: values.icon,
+  lastOpened: null,
+};
+writeFileSync(
+  join(miniAppDir, "manifest.json"),
+  JSON.stringify(manifest, null, 2) + "\n",
 );
 
 // Copy template files if --template is specified

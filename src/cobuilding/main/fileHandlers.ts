@@ -313,6 +313,73 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
     return result.filePaths[0];
   });
 
+  ipcMain.handle('miniApps:list', async () => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+    const appsDir = path.join(workspaceDir, '.applications');
+
+    let entries: fs.Dirent[];
+    try {
+      entries = await fsPromises.readdir(appsDir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+
+    const apps = await Promise.all(
+      entries
+        .filter((e) => e.isDirectory() && !e.name.startsWith('_'))
+        .map(async (e) => {
+          const dirName = e.name;
+          const manifestPath = path.join(appsDir, dirName, 'manifest.json');
+          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown } | null = null;
+          try {
+            const raw = await fsPromises.readFile(manifestPath, 'utf-8');
+            manifest = JSON.parse(raw);
+          } catch {
+            // missing or unreadable — fall through to dir-name fallback
+          }
+          const fallbackName = dirName.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase());
+          return {
+            dirName,
+            name: typeof manifest?.name === 'string' && manifest.name.trim() ? manifest.name : fallbackName,
+            description: typeof manifest?.description === 'string' ? manifest.description : null,
+            icon: typeof manifest?.icon === 'string' ? manifest.icon : null,
+            lastOpened: typeof manifest?.lastOpened === 'string' ? manifest.lastOpened : null,
+            hasManifest: manifest !== null,
+          };
+        }),
+    );
+
+    return apps;
+  });
+
+  ipcMain.handle('miniApps:touch', async (_event, dirName: string) => {
+    const workspaceDir = requireWorkspace(getWorkspacePath);
+    if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
+      return { ok: false, error: 'Invalid app name' };
+    }
+    const manifestPath = path.join(workspaceDir, '.applications', dirName, 'manifest.json');
+
+    let manifest: Record<string, unknown> = {};
+    try {
+      const raw = await fsPromises.readFile(manifestPath, 'utf-8');
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') manifest = parsed;
+    } catch {
+      // No manifest yet — the migration will fill in name/description/icon
+      // later. Touching just records the lastOpened timestamp; the rest stays
+      // missing until the migration job (or skill) writes it.
+    }
+
+    manifest.lastOpened = new Date().toISOString();
+
+    try {
+      await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+      return { ok: true };
+    } catch (e: any) {
+      return { ok: false, error: String(e?.message ?? e) };
+    }
+  });
+
   ipcMain.handle('miniApps:export', async (_event, dirName: string) => {
     const workspaceDir = requireWorkspace(getWorkspacePath);
     const mainWindow = getMainWindow();

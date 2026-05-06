@@ -84,6 +84,8 @@ contextBridge.exposeInMainWorld('filesAPI', {
 contextBridge.exposeInMainWorld('miniAppsAPI', {
   exportApp: (dirName: string) => ipcRenderer.invoke('miniApps:export', dirName),
   importApp: () => ipcRenderer.invoke('miniApps:import'),
+  list: () => ipcRenderer.invoke('miniApps:list'),
+  touch: (dirName: string) => ipcRenderer.invoke('miniApps:touch', dirName),
 });
 
 contextBridge.exposeInMainWorld('settingsAPI', {
