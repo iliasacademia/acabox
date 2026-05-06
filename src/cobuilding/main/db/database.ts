@@ -301,6 +301,22 @@ const migrations = [
       CREATE INDEX idx_briefings_workspace_status  ON briefings(workspace_id, status);
     `,
   },
+  {
+    version: 19,
+    sql: `
+      CREATE TABLE scanned_files (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        report_id TEXT REFERENCES workspace_reports(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_type TEXT NOT NULL CHECK (file_type IN ('manuscript', 'grant', 'presentation')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_scanned_files_workspace ON scanned_files(workspace_id);
+      CREATE INDEX idx_scanned_files_type ON scanned_files(workspace_id, file_type);
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

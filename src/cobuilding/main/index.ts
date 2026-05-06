@@ -23,6 +23,7 @@ import {
   setBriefingStatus,
   type BriefingStatus,
 } from './db/briefingsRepository';
+import { getScannedFilesByType, getScannedFiles } from './db/scannedFilesRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -1170,6 +1171,18 @@ ipcMain.handle(
     setBriefingStatus(id, status);
   },
 );
+
+// ─── Scanned Files IPC ──────────────────────────────────────────
+
+ipcMain.handle('scannedFiles:getByType', (_event, fileType: string) => {
+  if (!activeWorkspace) return [];
+  return getScannedFilesByType(activeWorkspace.id, fileType);
+});
+
+ipcMain.handle('scannedFiles:getAll', () => {
+  if (!activeWorkspace) return [];
+  return getScannedFiles(activeWorkspace.id);
+});
 
 // ─── Directory Scanner IPC ──────────────────────────────────────
 

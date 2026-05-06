@@ -57,7 +57,7 @@ Bad examples (too long):
 
 ## Output
 
-Produce a JSON report following the output schema with three fields:
+Produce a JSON report following the output schema with five fields:
 
 1. **about_you_summary**: A concise 2-4 paragraph summary of the researcher written in second person ("You are a computational biologist..."). This will be shown directly to the researcher for confirmation, so make it read naturally and capture the essence of who they are and what they do.
 
@@ -77,7 +77,14 @@ Produce a JSON report following the output schema with three fields:
 
    **Maximize variety across the 3 slots.** Pick one item from each available category rather than multiple items from the same category. For example, if the researcher has manuscripts, a presentation, and a grant proposal, include one of each — do NOT list three manuscripts. Only double up on a category if fewer than three categories are represented in their files.
 
-4. **suggested_mini_apps**: A list of 2-5 mini-apps tailored to this researcher's files. These are built as sandboxed React apps with Plotly charts and file I/O through a bridge API — no direct filesystem access, no custom Canvas/D3, no real-time streaming. Prioritize apps that need NO backend kernel (React-only) because they build fastest and let the user see value immediately.
+4. **tagged_files**: A comprehensive list of ALL manuscript, grant, and presentation files you encountered during the scan. For each file, record the relative path, the filename, and its type:
+   - \`manuscript\`: .tex, .docx, .md files that are academic papers, theses, chapters, or dissertations
+   - \`grant\`: files or directories whose names or contents indicate grant proposals, funding applications, or NIH/NSF/R01 submissions
+   - \`presentation\`: .pptx or .key files, or directories with names like "talks", "slides", "lab-meeting"
+
+   Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
+
+5. **suggested_mini_apps**: A list of 2-5 mini-apps tailored to this researcher's files. These are built as sandboxed React apps with Plotly charts and file I/O through a bridge API — no direct filesystem access, no custom Canvas/D3, no real-time streaming. Prioritize apps that need NO backend kernel (React-only) because they build fastest and let the user see value immediately.
 
    **Good categories** (these map to framework strengths):
    - **Data explorer**: Load a CSV/TSV via file picker, display as searchable/sortable/filterable table with column statistics. Suggest when you find tabular data files.

@@ -2936,6 +2936,33 @@ body.cobuild-resizing webview {
   font-weight: 500;
 }
 
+.fileTreeTag {
+  flex-shrink: 0;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 5px;
+  opacity: 0.85;
+}
+
+.fileTreeTag--manuscript {
+  color: #2563eb;
+  background: #dbeafe;
+}
+
+.fileTreeTag--grant {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.fileTreeTag--presentation {
+  color: #9333ea;
+  background: #f3e8ff;
+}
+
 /* Tight icon groups (workspace toolbar + per-row rename/delete) */
 .fileTreeRowActions {
   display: flex;
@@ -4673,6 +4700,163 @@ body.cobuild-resizing webview {
 .createToolModal__createBtn:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+/* File picker modal */
+
+.filePickerModal {
+  background: #faf8f5;
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  width: 540px;
+  max-width: 92vw;
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.filePickerModal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 24px 24px 16px;
+  border-bottom: 1px solid #ede9e3;
+  flex-shrink: 0;
+}
+
+.filePickerModal__title {
+  font-family: 'Gupter', serif;
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: #141413;
+  margin: 0 0 4px;
+}
+
+.filePickerModal__subtitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  color: #7a746a;
+  margin: 0;
+}
+
+.filePickerModal__close {
+  flex-shrink: 0;
+  border: none;
+  background: none;
+  color: #9c958b;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.filePickerModal__close:hover {
+  color: #5c5549;
+}
+
+.filePickerModal__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+}
+
+.filePickerModal__empty {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  color: #9c958b;
+  padding: 24px 0;
+  text-align: center;
+}
+
+.filePickerModal__group {
+  margin-bottom: 16px;
+}
+
+.filePickerModal__group:last-child {
+  margin-bottom: 0;
+}
+
+.filePickerModal__groupLabel {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9c958b;
+  margin-bottom: 6px;
+}
+
+.filePickerModal__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  background: #fff;
+  border: 1px solid #ede9e3;
+  border-top: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.filePickerModal__group .filePickerModal__row:first-of-type {
+  border-top: 1px solid #ede9e3;
+  border-radius: 6px 6px 0 0;
+}
+
+.filePickerModal__group .filePickerModal__row:last-of-type {
+  border-radius: 0 0 6px 6px;
+}
+
+.filePickerModal__group .filePickerModal__row:only-of-type {
+  border-top: 1px solid #ede9e3;
+  border-radius: 6px;
+}
+
+.filePickerModal__row:hover {
+  background: #f4f1eb;
+}
+
+.filePickerModal__rowIcon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: #4a9eff;
+}
+
+.filePickerModal__rowName {
+  flex: 1;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  color: #141413;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filePickerModal__rowPath {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.75rem;
+  color: #b5aea4;
+  flex-shrink: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filePickerModal__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 16px 24px;
+  border-top: 1px solid #ede9e3;
+  flex-shrink: 0;
+  background: #faf8f5;
 }
 
 /* Footer actions */

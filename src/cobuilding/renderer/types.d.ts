@@ -643,6 +643,21 @@ declare global {
     setStatus(id: string, status: BriefingStatus): Promise<void>;
   }
 
+  interface ScannedFile {
+    id: string;
+    workspace_id: string;
+    report_id: string | null;
+    file_path: string;
+    file_name: string;
+    file_type: 'manuscript' | 'grant' | 'presentation';
+    created_at: string;
+  }
+
+  interface ScannedFilesAPI {
+    getByType(fileType: 'manuscript' | 'grant' | 'presentation'): Promise<ScannedFile[]>;
+    getAll(): Promise<ScannedFile[]>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     calendarAPI: CalendarAPI;
@@ -670,5 +685,6 @@ declare global {
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;
     briefingsAPI: BriefingsAPI;
+    scannedFilesAPI: ScannedFilesAPI;
   }
 }
