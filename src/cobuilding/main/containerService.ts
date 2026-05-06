@@ -533,8 +533,15 @@ class CobuildingContainerService {
 
   /**
    * Stop the agent server process inside the container.
+   *
+   * Logs a stack trace on every invocation so that if a running session is
+   * unexpectedly killed mid-task ([AgentServer] Process exited code=0
+   * signal=null), we can see exactly which caller fired pkill — most likely
+   * a re-entrant startAgentServer() (re-init) or a stray container:stop.
    */
   async stopAgentServer(): Promise<void> {
+    const trace = new Error('stopAgentServer call site').stack;
+    log.warn(`[ContainerService] stopAgentServer invoked\n${trace}`);
     try {
       await this.exec(['pkill', '-f', 'agent-server.js']);
     } catch {
