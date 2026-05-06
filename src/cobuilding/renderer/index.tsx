@@ -8,19 +8,20 @@ import {
   useAssistantToolUI,
   useAssistantRuntime,
   useComposerRuntime,
+  useAuiState,
 } from '@assistant-ui/react';
 import { TooltipProvider } from './components/ui/tooltip';
 import { Thread } from './components/assistant-ui/thread';
 import { ThreadList } from './components/assistant-ui/thread-list';
 import { FilesTab } from './components/FilesTab';
-import { DebugSidebar, DebugContent, type DebugSection } from './components/DebugPanel';
+import { DebugSidebar, DebugContent, type DebugSection } from './components/debug/DebugPanel';
 import { FileViewer } from './components/FileViewer';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
 import { PaperMonitorView } from './components/PaperMonitorView';
+import { HomePage } from './components/HomePage';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { useTasks } from './taskStore';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
@@ -33,7 +34,6 @@ import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
 import WelcomeScreen from './components/WelcomeScreen';
 import { SetupBanner } from './components/SetupBanner';
-import { TaskPanel } from './components/TaskPanel';
 import { GlobalComposer } from './components/GlobalComposer';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
@@ -214,6 +214,67 @@ function SessionsListRefresher() {
       if (timer) clearTimeout(timer);
       unsubscribe();
     };
+  }, [runtime]);
+
+  return null;
+}
+
+/**
+ * Symmetric counterpart to the overlay's `ForeignTurnWatcher`: when a turn
+ * completes for the active desktop chat in a *different* surface (e.g.
+ * the user typed and sent from the Word overlay), the IPC `chat:event`
+ * forwarding only delivers the assistant's streamed reply — the
+ * overlay-typed user message is never streamed, only persisted to the
+ * SQLite messages table by `agentSession.sendMessage`. So the desktop
+ * displays the assistant bubble but no user bubble preceding it; even
+ * leaving the conversation and reopening doesn't help because the
+ * runtime's per-thread history is cached.
+ *
+ * We hack the same internal cache the SessionsListRefresher already uses
+ * (private `_loadThreadsPromise` / `__internal_load`) for the active
+ * thread, plus a `switchToThread(id)` poke so the runtime re-reads its
+ * per-thread state. Suppressed when our own thread is currently running
+ * (the in-flight desktop send is already populating the runtime in
+ * real time, no remount needed).
+ */
+function ForeignTurnWatcherDesktop() {
+  const runtime = useAssistantRuntime();
+  // mainThreadId / isRunning bridge from runtime state into the effect.
+  // Refs so the EventTarget-style listener doesn't re-attach on every
+  // state update.
+  const mainThreadIdRef = useRef<string | undefined>(undefined);
+  const isRunningRef = useRef(false);
+
+  const mainThreadId = useThreadList((s: any) => s.mainThreadId) as string | undefined;
+  mainThreadIdRef.current = mainThreadId;
+  const isRunning = useAuiState((s: any) => s.thread?.isRunning ?? false);
+  isRunningRef.current = isRunning;
+
+  useEffect(() => {
+    const unsubscribe = window.sessionsAPI.onForeignTurnDone((sessionId: string) => {
+      if (sessionId !== mainThreadIdRef.current) return;
+      if (isRunningRef.current) return;
+      try {
+        // Best-effort: nudge the runtime to drop cached per-thread state and
+        // reload via the history adapter. Same pattern as
+        // SessionsListRefresher but targeted at the active thread.
+        const threadsCore: any = (runtime as any)?._core?.threads;
+        const threadCore: any = threadsCore?.getThreadRuntimeCore?.(sessionId)
+          ?? threadsCore?._threads?.get?.(sessionId)
+          ?? null;
+        if (threadCore) {
+          threadCore._loadHistoryPromise = null;
+          threadCore.__internal_loadHistory?.();
+        }
+        // Toggle through switchToThread to force assistant-ui's public path
+        // to refetch. If switching to the same id is a no-op in this version,
+        // the cache poke above is the safety net.
+        runtime.threads.switchToThread(sessionId);
+      } catch (err) {
+        console.warn('[ForeignTurnWatcher] reload nudge failed', err);
+      }
+    });
+    return unsubscribe;
   }, [runtime]);
 
   return null;
@@ -504,14 +565,11 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
     document.body.classList.toggle('cobuild-resizing', isDragging);
   }, []);
 
-  // Whether the inner Thread/TaskPanel split should show the task panel.
-  const tasks = useTasks();
-  const showTaskPanel = !!tasks && tasks.length > 0;
-
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionTitleUpdater />
       <SessionsListRefresher />
+      <ForeignTurnWatcherDesktop />
       <SessionSubscriber />
       <ShowChatOnThreadSelect onShowChat={() => { deactivateAllTabs(); setChatViewMode('detail'); }} suppressRef={suppressThreadDeactivateRef} />
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
@@ -573,7 +631,15 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
             {/* Home tab */}
             <div style={{ display: sidebarTab === 'home' ? 'flex' : 'none', flex: 1 }}>
               <div className="homeContent">
-                <h1>Home</h1>
+                <HomePage
+                  workspacePath={workspace.directory_path}
+                  onSelectFile={handleSelectFile}
+                  onSwitchToChat={() => {
+                    setSidebarTab('chats');
+                    setChatViewMode('detail');
+                    deactivateAllTabs();
+                  }}
+                />
               </div>
             </div>
 
@@ -748,19 +814,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
                     </button>
                   </div>
                   <div className="chatDetailContent" style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-                    <PanelGroup direction="horizontal" autoSaveId="cobuild.chatTasks" className="appPanelGroup">
-                      <Panel id="thread" order={1} defaultSize={78} minSize={40}>
-                        <Thread hideComposer />
-                      </Panel>
-                      {showTaskPanel && (
-                        <>
-                          <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                          <Panel id="tasks" order={2} defaultSize={22} minSize={15} maxSize={45}>
-                            <TaskPanel />
-                          </Panel>
-                        </>
-                      )}
-                    </PanelGroup>
+                    <Thread hideComposer />
                   </div>
                 </>
               ) : (
@@ -828,35 +882,33 @@ function App() {
   const [step, setStep] = useState<OnboardingStep>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [scanReportId, setScanReportId] = useState<string | null>(null);
-  const [canSkipSetup, setCanSkipSetup] = useState(false);
 
   useEffect(() => {
-    window.authAPI.checkLogin().then((result: any) => {
-      const { loggedIn, user, appInfo } = result;
-      initFullStory(appInfo?.isPackaged);
-
-      if (!loggedIn) {
-        window.workspacesAPI.getActive().then((ws) => {
-          if (ws) {
-            setWorkspace(ws);
-            setCanSkipSetup(true);
+    window.workspacesAPI.getActive().then((ws) => {
+      if (ws) {
+        setWorkspace(ws);
+        setStep('ready');
+        window.authAPI.checkLogin().then((result: any) => {
+          const { user, appInfo } = result;
+          initFullStory(appInfo?.isPackaged);
+          if (user?.id) {
+            identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
           }
-          setStep('welcome');
-        });
+        }).catch(() => {});
         return;
       }
 
-      if (user?.id) {
-        identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
-      }
-
-      window.workspacesAPI.getActive().then((ws) => {
-        if (ws) {
-          setWorkspace(ws);
-          setStep('ready');
-        } else {
-          setStep('workspace');
+      window.authAPI.checkLogin().then((result: any) => {
+        const { loggedIn, user, appInfo } = result;
+        initFullStory(appInfo?.isPackaged);
+        if (!loggedIn) {
+          setStep('welcome');
+          return;
         }
+        if (user?.id) {
+          identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
+        }
+        setStep('workspace');
       });
     });
   }, []);
@@ -869,7 +921,7 @@ function App() {
       return (
         <WelcomeScreen
           onGetStarted={() => setStep('login')}
-          onSkipSetup={canSkipSetup ? () => setStep('ready') : undefined}
+          onSkipSetup={workspace ? () => setStep('ready') : undefined}
         />
       );
 

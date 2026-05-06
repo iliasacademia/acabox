@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import './EventEditPopover.css';
-import { PLAN_COLORS, nextAutoColor } from '../calendarColors';
-import type { CalendarEvent, CalendarGroup, UpdateEventData, EventDependency } from '../../shared/types';
+import { PLAN_COLORS, nextAutoColor } from './calendarColors';
+import type { CalendarEvent, CalendarGroup, UpdateEventData, EventDependency } from '../../../shared/types';
 
 interface Props {
   event: CalendarEvent;

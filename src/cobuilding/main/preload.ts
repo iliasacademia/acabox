@@ -234,23 +234,6 @@ contextBridge.exposeInMainWorld('calendarAPI', {
     return () => { ipcRenderer.removeListener('calendar:mutation', handler); };
   },
 
-  listReactions: (opts?: unknown) => ipcRenderer.invoke('calendar:listReactions', opts),
-  getReactionCount: () => ipcRenderer.invoke('calendar:getReactionCount'),
-  updateReactionStatus: (id: string, status: string) => ipcRenderer.invoke('calendar:updateReactionStatus', id, status),
-  deleteReaction: (id: string) => ipcRenderer.invoke('calendar:deleteReaction', id),
-  onReactionsUpdated: (callback: () => void): (() => void) => {
-    const handler = () => callback();
-    ipcRenderer.on('calendar:reactionsUpdated', handler);
-    return () => { ipcRenderer.removeListener('calendar:reactionsUpdated', handler); };
-  },
-});
-
-contextBridge.exposeInMainWorld('googleCalendarAPI', {
-  status: () => ipcRenderer.invoke('googleCalendar:status'),
-  connect: () => ipcRenderer.invoke('googleCalendar:connect'),
-  disconnect: () => ipcRenderer.invoke('googleCalendar:disconnect'),
-  fetchEvents: (from: string, to: string) => ipcRenderer.invoke('googleCalendar:fetchEvents', from, to),
-  setCredentials: (clientId: string, clientSecret: string) => ipcRenderer.invoke('googleCalendar:setCredentials', clientId, clientSecret),
 });
 
 contextBridge.exposeInMainWorld('googleDocsAPI', {
@@ -305,6 +288,13 @@ contextBridge.exposeInMainWorld('papersAPI', {
     ipcRenderer.invoke('papers:fetch', input),
 });
 
+contextBridge.exposeInMainWorld('briefingsAPI', {
+  list: (filter?: { status?: string[]; limit?: number }) =>
+    ipcRenderer.invoke('briefings:list', filter),
+  setStatus: (id: string, status: string) =>
+    ipcRenderer.invoke('briefings:setStatus', id, status),
+});
+
 contextBridge.exposeInMainWorld('scannerAPI', {
   start: () => ipcRenderer.invoke('scanner:start'),
   onEvent: (callback: (event: any) => void) => {
@@ -332,6 +322,19 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
     const handler = () => callback();
     ipcRenderer.on('sessions:changed', handler);
     return () => { ipcRenderer.removeListener('sessions:changed', handler); };
+  },
+  /**
+   * Fires after a turn completes for `sessionId` in any surface (desktop
+   * or overlay). Emitted by the main process's SSE fanout (`ensureSseFanout`'s
+   * onDone). The desktop chat panel uses this to refetch its history when
+   * the active thread matches — closes the gap where an overlay-typed user
+   * message stays missing on the desktop because chat:event only carries
+   * assistant-side stream events, not the user message that prompted them.
+   */
+  onForeignTurnDone: (callback: (sessionId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, sessionId: string) => callback(sessionId);
+    ipcRenderer.on('chat:foreign-done', handler);
+    return () => { ipcRenderer.removeListener('chat:foreign-done', handler); };
   },
 });
 

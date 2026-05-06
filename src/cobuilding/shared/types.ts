@@ -277,31 +277,4 @@ export interface CascadeUpdate {
   newEndAt: string;
 }
 
-// ---- Calendar Reactions (AI Insights) ----
 
-export interface CalendarReaction {
-  id: string;
-  workspace_id: string;
-  event_id: string | null;
-  group_id: string | null;
-  title: string;
-  content: string;
-  status: 'unread' | 'read' | 'dismissed';
-  trigger_context: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreateReactionData {
-  event_id?: string | null;
-  group_id?: string | null;
-  title: string;
-  content: string;
-  trigger_context: string;
-}
-
-export interface CalendarEditBundle {
-  mutations: Array<{ type: string; entityId: string; entityName?: string; timestamp: string }>;
-  workspaceId: string;
-  triggeredAt: string;
-}

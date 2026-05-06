@@ -459,9 +459,21 @@ class CobuildingContainerService {
   /**
    * Start the agent server process inside the container.
    * Waits for the health endpoint to respond before returning.
+   *
+   * Idempotent: if an agent server is already running on the configured
+   * port and responding to /health, this short-circuits without touching
+   * it. Restarts kill in-flight model sessions, and renderer remounts
+   * (e.g. closing the main window + reopening, which resets the
+   * SetupBanner module guard and re-fires ensureSetup) should not be
+   * able to drop an active conversation underneath the user.
    */
   async startAgentServer(configJson: string, workspacePath: string): Promise<void> {
-    // Kill any existing agent server first
+    if (await this.isAgentServerHealthy()) {
+      log.debug('[ContainerService] Agent server already healthy — skipping restart');
+      return;
+    }
+
+    // Kill any existing (unhealthy / orphaned) agent server first
     await this.stopAgentServer();
 
     // Write config to workspace
@@ -503,32 +515,41 @@ class CobuildingContainerService {
     const startTime = Date.now();
     const timeoutMs = 10_000;
     while (Date.now() - startTime < timeoutMs) {
-      try {
-        const response = await new Promise<string>((resolve, reject) => {
-          const req = http.request({
-            hostname: 'localhost',
-            port: agentPort,
-            path: '/health',
-            method: 'GET',
-            timeout: 2000,
-          }, (res) => {
-            const chunks: Buffer[] = [];
-            res.on('data', (c: Buffer) => chunks.push(c));
-            res.on('end', () => resolve(Buffer.concat(chunks).toString()));
-          });
-          req.on('error', reject);
-          req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
-          req.end();
-        });
-        log.info(`[ContainerService] Agent server healthy: ${response.trim()}`);
+      if (await this.isAgentServerHealthy(2000)) {
+        log.info('[ContainerService] Agent server healthy');
         return;
-      } catch {
-        // Not ready yet, wait and retry
-        await new Promise(r => setTimeout(r, 500));
       }
+      await new Promise(r => setTimeout(r, 500));
     }
 
     log.error('[ContainerService] Agent server failed to become healthy within 10s');
+  }
+
+  /**
+   * One-shot /health probe. Returns true iff the agent server on the
+   * currently-assigned port responds 200 within the timeout. Used both
+   * as a pre-check in startAgentServer (skip restart if already healthy)
+   * and as the unit-step of the post-spawn readiness poll.
+   */
+  private async isAgentServerHealthy(timeoutMs = 1500): Promise<boolean> {
+    const port = this.agentPort;
+    if (!port) return false;
+    return new Promise<boolean>((resolve) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port,
+        path: '/health',
+        method: 'GET',
+        timeout: timeoutMs,
+      }, (res) => {
+        const ok = res.statusCode === 200;
+        res.resume();
+        resolve(ok);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.end();
+    });
   }
 
   /**

@@ -19,6 +19,11 @@ import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
+import {
+  listBriefings,
+  setBriefingStatus,
+  type BriefingStatus,
+} from './db/briefingsRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -73,67 +78,16 @@ import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuild
 import { fetchGatewayCredentials, getAnthropicConfig, setRefreshCallback, destroyTokenManager, type AnthropicConfig } from './cobuildingTokenManager';
 import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
+import { registerCalendarHandlers } from './ipc/calendar';
+import { registerDebugHandlers } from './ipc/debug';
 import { AcademiaHttpServer } from '../../server/httpServer';
 import { setHttpProxyPort, stopHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
-import {
-  isConnected as isGoogleCalendarConnected,
-  disconnect as disconnectGoogleCalendar,
-  startOAuthFlow as startGoogleCalendarOAuth,
-  fetchEvents as fetchGoogleCalendarEvents,
-  hasCredentials as googleCalendarHasCredentials,
-  setStoredCredentials as setGoogleCalendarCredentials,
-} from './googleCalendarService';
 import {
   isConnected as isGoogleDocsConnected,
   disconnect as disconnectGoogleDocs,
   startOAuthFlow as startGoogleDocsOAuth,
   hasCredentials as googleDocsHasCredentials,
 } from './googleDocsService';
-import {
-  listGroups,
-  createGroup,
-  updateGroup,
-  deleteGroup,
-  getGroupTimeRange,
-  listEvents,
-  createEvent,
-  updateEvent,
-  deleteEvent,
-  addEventFile,
-  listEventFiles,
-  removeEventFile,
-  addGroupFile,
-  listGroupFiles,
-  removeGroupFile,
-  getEvent,
-} from './db/calendarRepository';
-import {
-  createDependency,
-  getDependency,
-  getSuccessors,
-  listDependenciesByWorkspace,
-  updateDependency,
-  deleteDependency,
-  hasCycle,
-  applyCascade,
-  adjustBufferAndCascade,
-} from './db/dependencyRepository';
-import {
-  createResource,
-  listResources,
-  updateResource,
-  moveResource,
-  deleteResource,
-} from './db/resourceRepository';
-import {
-  createReaction,
-  listReactions,
-  countUnreadReactions,
-  updateReactionStatus,
-  deleteReaction,
-} from './db/calendarReactionRepository';
-import { createCalendarReactionService } from './calendarReactionService';
-import type { CalendarReactionService } from './calendarReactionService';
 import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
@@ -436,8 +390,6 @@ setRefreshCallback((config: AnthropicConfig) => {
   }
 });
 
-let calendarReactionSvc: CalendarReactionService | null = null;
-
 // Shared edit state store — keyed by toolCallId, synced between overlay and desktop
 const editStates = new Map<string, string>();
 
@@ -445,6 +397,61 @@ const editStates = new Map<string, string>();
 // Both chat:subscribe and chat:send use this to ensure exactly one forwarding listener
 // per session per renderer.
 const forwardingListeners = new Map<string, () => void>();
+
+// ─── Cross-surface chat-event fanout (desktop ↔ overlay) ──────────────
+//
+// The desktop chat panel receives streaming events via Electron IPC
+// (`webContents.send('chat:event', …)`). The Word overlay is a WKWebView
+// served over the local HTTP server — it has no `webContents`, so the IPC
+// path can't reach it. Without a separate channel, a turn started in the
+// desktop never streams to an overlay viewing the same conversation; the
+// overlay only hears about it on the next manual refresh.
+//
+// `sseSessionSubscribers` holds the open SSE response streams listening
+// on `GET /api/cobuilding/sessions/:id/events`. `sseFanoutListeners`
+// tracks the single agent-session listener attached per session that
+// fans events out to every subscriber. Once attached, the fanout listener
+// stays for the lifetime of the agent session — fans out for both
+// desktop-initiated and overlay-initiated turns.
+const sseSessionSubscribers = new Map<string, Set<NodeJS.WritableStream>>();
+const sseFanoutListeners = new Map<string, () => void>();
+
+function broadcastSseToSubscribers(sessionId: string, event: string, data: unknown): void {
+  const subs = sseSessionSubscribers.get(sessionId);
+  if (!subs || subs.size === 0) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const stream of subs) {
+    try { stream.write(payload); } catch { /* dead connection — request.raw 'close' will reap it */ }
+  }
+}
+
+/**
+ * Attach exactly one fanout listener to the agent session for `sessionId`,
+ * which forwards events to every active SSE subscriber for that session.
+ * Idempotent — safe to call from every chat-send entry point.
+ */
+function ensureSseFanout(sessionId: string): void {
+  if (sseFanoutListeners.has(sessionId)) return;
+  const session = getRegisteredSession(sessionId);
+  if (!session) return;
+  const unsubscribe = session.addListener({
+    onEvent: (msg) => broadcastSseToSubscribers(sessionId, 'event', msg),
+    onDone: () => {
+      broadcastSseToSubscribers(sessionId, 'done', {});
+      // Also signal the desktop renderer (which can't subscribe to SSE —
+      // it has its own IPC chain) that a turn finished for this session,
+      // so it can refetch history if its active thread matches. Without
+      // this, an overlay-typed user message stays missing on the desktop
+      // even though the assistant's streamed reply already arrived via
+      // `ensureForwarding`'s chat:event path.
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('chat:foreign-done', sessionId);
+      }
+    },
+    onError: (err) => broadcastSseToSubscribers(sessionId, 'error', { error: err }),
+  });
+  sseFanoutListeners.set(sessionId, unsubscribe);
+}
 
 function ensureForwarding(threadId: string, sender: Electron.WebContents): void {
   const key = `${threadId}:${sender.id}`;
@@ -619,6 +626,8 @@ app.whenReady().then(async () => {
     initFileMonitor(() => activeWorkspace?.directory_path ?? null);
     initActivityQuery(() => activeWorkspace?.directory_path ?? null);
     initSessionFiles(() => activeWorkspace?.directory_path ?? null);
+    registerCalendarHandlers(() => mainWindow);
+    registerDebugHandlers();
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
@@ -654,15 +663,6 @@ app.whenReady().then(async () => {
       ensureReactionsTask(activeWorkspace.id);
     }
     startScheduledTasks(handleNotificationNavigation);
-
-    calendarReactionSvc = createCalendarReactionService(() => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('calendar:reactionsUpdated');
-      }
-    });
-    if (activeWorkspace) {
-      calendarReactionSvc.setWorkspace(activeWorkspace.id, activeWorkspace.api_key, cachedBaseURL);
-    }
 
     // Start HTTP server and window monitor for the Word overlay
     if (FEATURES.MS_WORD_INTEGRATION_ENABLED && FEATURES.MS_WORD_V2_ENABLED) {
@@ -706,6 +706,54 @@ app.whenReady().then(async () => {
                   return { id: m.id, type: m.type, content, created_at: m.created_at };
                 });
                 reply.send({ messages: parsed });
+              },
+            );
+
+            // GET /api/cobuilding/sessions/:sessionId/events
+            //
+            // Long-lived SSE stream of agent events for `sessionId`. Closes
+            // the asymmetry where desktop-initiated turns wouldn't reach an
+            // overlay viewing the same conversation: the overlay opens this
+            // endpoint when the conversation is opened, and the per-session
+            // fanout listener (attached on first chat-send via
+            // `ensureSseFanout`) writes every event/done/error frame to
+            // every active subscriber. The overlay treats `done` as a
+            // signal to refetch /messages and re-render — minimal coupling
+            // to the assistant-ui runtime, smallest possible diff to the
+            // desktop renderer (zero — it stays on its existing IPC path).
+            fastify.get<{ Params: { sessionId: string } }>(
+              '/api/cobuilding/sessions/:sessionId/events',
+              async (request, reply) => {
+                const { sessionId } = request.params;
+                reply.raw.writeHead(200, {
+                  'Content-Type': 'text/event-stream',
+                  'Cache-Control': 'no-cache',
+                  Connection: 'keep-alive',
+                });
+
+                let subs = sseSessionSubscribers.get(sessionId);
+                if (!subs) {
+                  subs = new Set();
+                  sseSessionSubscribers.set(sessionId, subs);
+                }
+                subs.add(reply.raw);
+
+                // If the session already exists (the common case — the user
+                // is opening an active conversation), attach the fanout
+                // listener now. Otherwise it'll be attached the first time
+                // chat:send / POST /send runs for this sessionId.
+                ensureSseFanout(sessionId);
+
+                // Initial heartbeat so the EventSource's `open` fires.
+                reply.raw.write('event: connected\ndata: {}\n\n');
+
+                request.raw.on('close', () => {
+                  const set = sseSessionSubscribers.get(sessionId);
+                  if (set) {
+                    set.delete(reply.raw);
+                    if (set.size === 0) sseSessionSubscribers.delete(sessionId);
+                  }
+                });
               },
             );
 
@@ -819,6 +867,7 @@ app.whenReady().then(async () => {
                       sessionId,
                     } as NavigateToPagePayload);
                   }
+                  ensureSseFanout(sessionId);
                   const unsubscribe = existingRunning.addListener({
                     onEvent: (msg) => sendSSE('event', msg),
                     onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); notifySessionsChanged(); },
@@ -834,8 +883,8 @@ app.whenReady().then(async () => {
                   const session = createAgentSession(
                     sessionId,
                     {
-                      onEvent: () => {},
-                      onDone: () => {},
+                      onEvent: () => { },
+                      onDone: () => { },
                       onError: () => { unregisterSession(sessionId); },
                     },
                     activeWorkspace,
@@ -876,6 +925,7 @@ app.whenReady().then(async () => {
                     sessionId,
                   } as NavigateToPagePayload);
                 }
+                ensureSseFanout(sessionId);
 
                 const unsubscribe = session.addListener({
                   onEvent: (msg) => sendSSE('event', msg),
@@ -1008,8 +1058,6 @@ ipcMain.handle(
       const scheduler = getTaskScheduler();
       scheduler.stop();
       scheduler.start();
-      calendarReactionSvc?.setWorkspace(activeWorkspace.id, activeWorkspace.api_key, cachedBaseURL);
-
       // Directory scan is triggered separately via scanner:start IPC
     }
     return activeWorkspace ?? null;
@@ -1109,10 +1157,12 @@ ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
   try {
     const result = await fetchPapers(safeInput);
     log.info(
-      `[Papers] fetch ok: ${result.papers.length} papers, ${result.errors.length} topic errors`,
+      `[Papers] fetch ok: ${result.papers.length} papers, ${result.errors.length} source/topic errors`,
     );
     if (result.errors.length > 0) {
-      for (const e of result.errors) log.warn(`[Papers] topic "${e.topic}": ${e.message}`);
+      for (const e of result.errors) {
+        log.warn(`[Papers] ${e.source}/"${e.topic}": ${e.message}`);
+      }
     }
     return result;
   } catch (err) {
@@ -1121,10 +1171,27 @@ ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
     return {
       papers: [],
       fetchedAt: new Date().toISOString(),
-      errors: [{ topic: '*', message }],
+      errors: [{ source: 'arxiv' as const, topic: '*', message }],
     };
   }
 });
+
+// ─── Briefings IPC ──────────────────────────────────────────────
+
+ipcMain.handle(
+  'briefings:list',
+  (_event, filter?: { status?: BriefingStatus[]; limit?: number }) => {
+    if (!activeWorkspace) return [];
+    return listBriefings(activeWorkspace.id, filter ?? {});
+  },
+);
+
+ipcMain.handle(
+  'briefings:setStatus',
+  (_event, id: string, status: BriefingStatus) => {
+    setBriefingStatus(id, status);
+  },
+);
 
 // ─── Directory Scanner IPC ──────────────────────────────────────
 
@@ -1519,6 +1586,12 @@ Output JSON only. No prose, no code fences.`,
 async function startAgentInfrastructure(workspacePath: string): Promise<void> {
   if (!activeWorkspace) return;
 
+  try {
+    await refreshCredentialsForSession();
+  } catch (err) {
+    log.warn('[startAgentInfrastructure] Credential refresh failed, using stored key:', err);
+  }
+
   // 0. One-time migration of session files from bundled podman HOME
   migrateHostSessionsToContainer(workspacePath);
 
@@ -1781,182 +1854,8 @@ ipcMain.handle('container:rebuildEnvironment', async () => {
 
 });
 
-// ─── Debug: Data Management ─────────────────────────────────────
-
-ipcMain.handle('debug:getStorageInfo', () => {
-  const userData = app.getPath('userData');
-  const podmanPaths = getAllPodmanDataPaths();
-  return {
-    environment: app.isPackaged ? 'production' : 'development',
-    userData,
-    podmanPaths,
-  };
-});
-
 ipcMain.handle('app:quit', () => {
   app.quit();
-});
-
-function removePath(p: string): { path: string; ok: boolean; error?: string } {
-  try {
-    if (fs.existsSync(p)) {
-      fs.rmSync(p, { recursive: true, force: true });
-      return { path: p, ok: true };
-    }
-    return { path: p, ok: true };
-  } catch (err) {
-    return { path: p, ok: false, error: (err as Error).message };
-  }
-}
-
-ipcMain.handle('debug:clearSelected', async (_event: unknown, ids: string[]) => {
-  const set = new Set(ids);
-  const results: string[] = [];
-  const errors: string[] = [];
-  const userData = app.getPath('userData');
-
-  const ok = (label: string) => results.push(label);
-  const fail = (label: string, err: string) => errors.push(`${label}: ${err}`);
-
-  // ── Chat Sessions & Messages ──
-  if (set.has('chat-sessions')) {
-    try {
-      const db = getDatabase();
-      db.exec('DELETE FROM messages');
-      db.exec('DELETE FROM sessions');
-      ok('Chat sessions');
-    } catch (e) { fail('Chat sessions', (e as Error).message); }
-  }
-
-  // ── Workspace Records ──
-  if (set.has('workspace-records')) {
-    try {
-      const db = getDatabase();
-      const workspaces = db.prepare('SELECT directory_path FROM workspaces').all() as { directory_path: string }[];
-      // Remove .academia and .claude dirs inside each workspace
-      for (const w of workspaces) {
-        for (const sub of ['.academia', '.claude']) {
-          const p = path.join(w.directory_path, sub);
-          if (fs.existsSync(p)) fs.rmSync(p, { recursive: true, force: true });
-        }
-      }
-      db.exec('DELETE FROM messages');
-      db.exec('DELETE FROM sessions');
-      db.exec('DELETE FROM workspaces');
-      ok('Workspaces');
-    } catch (e) { fail('Workspaces', (e as Error).message); }
-  }
-
-  // ── Browser Activity ──
-  if (set.has('browser-activity')) {
-    try {
-      const db = getObservationsDatabase();
-      db.exec("DELETE FROM session_files WHERE session_type = 'browser'");
-      db.exec('DELETE FROM browser_sessions');
-      ok('Browser activity');
-    } catch (e) { fail('Browser activity', (e as Error).message); }
-  }
-
-  // ── File Activity ──
-  if (set.has('file-activity')) {
-    try {
-      const db = getObservationsDatabase();
-      db.exec("DELETE FROM session_files WHERE session_type = 'file'");
-      db.exec('DELETE FROM file_sessions');
-      ok('File activity');
-    } catch (e) { fail('File activity', (e as Error).message); }
-  }
-
-  // ── Scheduled Tasks ──
-  if (set.has('scheduled-tasks')) {
-    try {
-      const db = getSchedulingDatabase();
-      db.exec('DELETE FROM scheduled_task_runs');
-      db.exec('DELETE FROM scheduled_tasks');
-      ok('Scheduled tasks');
-    } catch (e) { fail('Scheduled tasks', (e as Error).message); }
-  }
-
-  // ── Task Run History ──
-  if (set.has('task-runs')) {
-    try {
-      const db = getSchedulingDatabase();
-      db.exec('DELETE FROM scheduled_task_runs');
-      ok('Task run history');
-    } catch (e) { fail('Task run history', (e as Error).message); }
-  }
-
-  // ── System Log ──
-  if (set.has('system-log')) {
-    try { systemLogger.clear(); ok('System log'); }
-    catch (e) { fail('System log', (e as Error).message); }
-  }
-
-  // ── Command Log ──
-  if (set.has('command-log')) {
-    try { commandLogger.clear(); ok('Command log'); }
-    catch (e) { fail('Command log', (e as Error).message); }
-  }
-
-  // ── App Log ──
-  if (set.has('app-log')) {
-    const logPath = path.join(userData, 'cobuilding.log');
-    const r = removePath(logPath);
-    r.ok ? ok('App log') : fail('App log', r.error!);
-  }
-
-  // ── Settings ──
-  if (set.has('settings')) {
-    const r = removePath(path.join(userData, 'cobuilding-settings.json'));
-    r.ok ? ok('Settings') : fail('Settings', r.error!);
-  }
-
-  // ── Podman Binaries ──
-  if (set.has('podman-binaries')) {
-    try {
-      containerService.deleteBundledBinaries();
-      ok('Podman binaries');
-    } catch (e) { fail('Podman binaries', (e as Error).message); }
-  }
-
-  // ── Podman Config & VM Images ──
-  if (set.has('podman-config-data')) {
-    const r = removePath(path.join(userData, 'cobuilding-podman-data'));
-    r.ok ? ok('Podman config & data') : fail('Podman config & data', r.error!);
-  }
-
-  // ── Container Image ──
-  if (set.has('container-image')) {
-    try {
-      await containerService.deleteImage();
-      ok('Container image');
-    } catch (e) { fail('Container image', (e as Error).message); }
-  }
-
-  // ── Podman VM State ──
-  if (set.has('podman-vm')) {
-    try { containerService.stop(); } catch { /* ok */ }
-    const podmanPaths = getAllPodmanDataPaths();
-    for (const p of podmanPaths) {
-      if (p.label.includes('HOME') || p.label.includes('runtime')) {
-        const r = removePath(p.path);
-        if (!r.ok) fail(p.label, r.error!);
-      }
-    }
-    ok('Podman VM state');
-  }
-
-  // ── Electron Cache ──
-  if (set.has('electron-cache')) {
-    for (const dir of ['Cache', 'Code Cache', 'GPUCache', 'DawnGraphiteCache', 'DawnWebGPUCache',
-      'Local Storage', 'Session Storage', 'blob_storage', 'SharedStorage']) {
-      removePath(path.join(userData, dir));
-    }
-    ok('Electron cache');
-  }
-
-  log.warn('[Debug] clearSelected:', { cleared: results, errors });
-  return { cleared: results, errors };
 });
 
 // Jupyter kernel gateway IPC handlers
@@ -2142,8 +2041,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
         activeWorkspace.api_key,
         activeWorkspace.directory_path,
         {
-          onEvent: () => {},
-          onDone: () => {},
+          onEvent: () => { },
+          onDone: () => { },
           onError: () => { unregisterSession(threadId); },
         },
         (mutation: CalendarMutationEvent) => {
@@ -2163,8 +2062,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
       const session = createAgentSession(
         threadId,
         {
-          onEvent: () => {},
-          onDone: () => {},
+          onEvent: () => { },
+          onDone: () => { },
           onError: () => { unregisterSession(threadId); },
         },
         activeWorkspace,
@@ -2184,6 +2083,9 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
   }
 
   ensureForwarding(threadId, event.sender);
+  // Also fan events out to overlays watching this session — they live on
+  // the WKWebView side of an HTTP boundary so the IPC path can't reach them.
+  ensureSseFanout(threadId);
   getRegisteredSession(threadId)!.sendMessage(text, attachments);
 
   if (isFirstMessage && !isCalendarSession && activeWorkspace.api_key) {
@@ -3019,253 +2921,7 @@ ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
   }
 });
 
-// ---- Calendar IPC handlers ----
-
-ipcMain.handle('calendar:listGroups', async () => {
-  const ws = getActiveWorkspace();
-  if (!ws) return [];
-  return listGroups(ws.id);
-});
-
-ipcMain.handle('calendar:createGroup', async (_event, data) => {
-  const ws = getActiveWorkspace();
-  if (!ws) throw new Error('No active workspace');
-  const group = createGroup(ws.id, data);
-  calendarReactionSvc?.recordMutation({ type: 'group-created', entityId: group.id, entityName: group.name, timestamp: new Date().toISOString() });
-  _event.sender.send('calendar:mutation', { type: 'group-created', group });
-  return group;
-});
-
-ipcMain.handle('calendar:updateGroup', async (_event, id: string, data) => {
-  return updateGroup(id, data) ?? null;
-});
-
-ipcMain.handle('calendar:deleteGroup', async (_event, id: string) => {
-  deleteGroup(id);
-});
-
-ipcMain.handle('calendar:getGroupTimeRange', async (_event, id: string) => {
-  return getGroupTimeRange(id);
-});
-
-ipcMain.handle('calendar:listEvents', async (_event, opts) => {
-  const ws = getActiveWorkspace();
-  if (!ws) return [];
-  return listEvents(ws.id, opts ?? {});
-});
-
-ipcMain.handle('calendar:createEvent', async (_event, data) => {
-  const ws = getActiveWorkspace();
-  if (!ws) throw new Error('No active workspace');
-  const event = createEvent(ws.id, data);
-  calendarReactionSvc?.recordMutation({ type: 'event-created', entityId: event.id, entityName: event.name, timestamp: new Date().toISOString() });
-  _event.sender.send('calendar:mutation', { type: 'event-created', event });
-  return event;
-});
-
-ipcMain.handle('calendar:updateEvent', async (_event, id: string, data) => {
-  const event = updateEvent(id, data) ?? null;
-  if (event) calendarReactionSvc?.recordMutation({ type: 'event-updated', entityId: event.id, entityName: event.name, timestamp: new Date().toISOString() });
-  return event;
-});
-
-ipcMain.handle('calendar:deleteEvent', async (_event, id: string) => {
-  deleteEvent(id);
-});
-
-ipcMain.handle('calendar:addEventFile', async (_event, eventId: string, filePath: string) => {
-  const result = addEventFile(eventId, filePath);
-  calendarReactionSvc?.recordMutation({ type: 'event-file-added', entityId: eventId, entityName: filePath, timestamp: new Date().toISOString() });
-  return result;
-});
-
-ipcMain.handle('calendar:listEventFiles', async (_event, eventId: string) => {
-  return listEventFiles(eventId);
-});
-
-ipcMain.handle('calendar:removeEventFile', async (_event, id: number) => {
-  removeEventFile(id);
-});
-
-ipcMain.handle('calendar:addGroupFile', async (_event, groupId: string, filePath: string) => {
-  const result = addGroupFile(groupId, filePath);
-  calendarReactionSvc?.recordMutation({ type: 'group-file-added', entityId: groupId, entityName: filePath, timestamp: new Date().toISOString() });
-  return result;
-});
-
-ipcMain.handle('calendar:listGroupFiles', async (_event, groupId: string, includeFromEvents?: boolean) => {
-  return listGroupFiles(groupId, includeFromEvents);
-});
-
-ipcMain.handle('calendar:removeGroupFile', async (_event, id: number) => {
-  removeGroupFile(id);
-});
-
-// ---- Calendar Resources IPC handlers ----
-
-ipcMain.handle('calendar:listResources', async (_event, opts) => {
-  const ws = getActiveWorkspace();
-  if (!ws) return [];
-  return listResources(ws.id, opts ?? {});
-});
-
-ipcMain.handle('calendar:createResource', async (_event, data) => {
-  const ws = getActiveWorkspace();
-  if (!ws) throw new Error('No active workspace');
-  const resource = createResource(ws.id, data);
-  if (!data.ai_generated) {
-    // Use the linked event/plan as the entity so cooldown checks work correctly.
-    const entityId = data.event_id ?? data.group_id ?? resource.id;
-    calendarReactionSvc?.recordMutation({ type: 'resource-added', entityId, entityName: resource.title, timestamp: new Date().toISOString() });
-  }
-  return resource;
-});
-
-ipcMain.handle('calendar:updateResource', async (_event, id: string, data) => {
-  return updateResource(id, data) ?? null;
-});
-
-ipcMain.handle('calendar:deleteResource', async (_event, id: string) => {
-  deleteResource(id);
-});
-
-ipcMain.handle('calendar:openResourceFile', async (_event, filePath: string) => {
-  return shell.openPath(filePath);
-});
-
-ipcMain.handle('calendar:openResourceUrl', async (_event, url: string) => {
-  await shell.openExternal(url);
-});
-
-ipcMain.handle('calendar:revealResourceFile', async (_event, filePath: string) => {
-  shell.showItemInFolder(filePath);
-});
-
-
-ipcMain.handle('calendar:moveResource', async (_event, id: string, data) => {
-  return moveResource(id, data) ?? null;
-});
-
-ipcMain.handle('calendar:listWorkspaceFiles', async () => {
-  if (!activeWorkspace) return [];
-  const baseDir = activeWorkspace.directory_path;
-  const IGNORE = new Set(['.git', 'node_modules', '.DS_Store', '__pycache__', '.applications', '.academia']);
-  function walk(dir: string, depth: number): { name: string; path: string; isDir: boolean; children?: unknown[] }[] {
-    try {
-      return fs.readdirSync(dir, { withFileTypes: true })
-        .filter(e => !IGNORE.has(e.name) && !e.name.startsWith('.'))
-        .map(e => {
-          const full = require('path').join(dir, e.name);
-          if (e.isDirectory() && depth < 2) {
-            return { name: e.name, path: full, isDir: true, children: walk(full, depth + 1) };
-          }
-          return { name: e.name, path: full, isDir: e.isDirectory() };
-        });
-    } catch { return []; }
-  }
-  return walk(baseDir, 0);
-});
-
-ipcMain.handle('calendar:pickResourceFile', async () => {
-  if (!mainWindow) return null;
-  const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile', 'multiSelections'],
-  });
-  return result.canceled ? null : result.filePaths;
-});
-
-// ---- Event dependency IPC handlers ----
-
-ipcMain.handle('calendar:listDependencies', async () => {
-  const ws = getActiveWorkspace();
-  if (!ws) return [];
-  return listDependenciesByWorkspace(ws.id);
-});
-
-ipcMain.handle('calendar:createDependency', async (_event, data) => {
-  if (hasCycle(data.predecessor_id, data.successor_id)) {
-    return { error: 'cycle' };
-  }
-  return createDependency(data);
-});
-
-ipcMain.handle('calendar:updateDependency', async (_event, id: string, data) => {
-  return updateDependency(id, data) ?? null;
-});
-
-ipcMain.handle('calendar:deleteDependency', async (_event, id: string) => {
-  deleteDependency(id);
-});
-
-ipcMain.handle('calendar:moveEventWithCascade', async (_event, id: string, newStartAt: string, newEndAt: string) => {
-  const moved = updateEvent(id, { start_at: newStartAt, end_at: newEndAt });
-  if (!moved) return null;
-  calendarReactionSvc?.recordMutation({ type: 'event-moved', entityId: moved.id, entityName: moved.name, timestamp: new Date().toISOString() });
-  const cascaded = applyCascade(id);
-  // Fetch updated versions of cascaded events
-  const cascadedEvents = cascaded.map(u => getEvent(u.eventId)).filter(Boolean);
-  return { moved, cascaded: cascadeUpdatesWithEvents(cascaded, cascadedEvents as any[]) };
-});
-
-function cascadeUpdatesWithEvents(updates: any[], events: any[]) {
-  return updates.map(u => {
-    const ev = events.find((e: any) => e.id === u.eventId);
-    return { ...u, event: ev ?? null };
-  });
-}
-
-ipcMain.handle('calendar:adjustBuffer', async (_event, depId: string, newLagCurrentMs: number) => {
-  return adjustBufferAndCascade(depId, newLagCurrentMs);
-});
-
-// ---- Calendar Reactions IPC handlers ----
-
-ipcMain.handle('calendar:listReactions', async (_event, opts) => {
-  const ws = getActiveWorkspace();
-  if (!ws) return [];
-  return listReactions(ws.id, opts ?? {});
-});
-
-ipcMain.handle('calendar:getReactionCount', async () => {
-  const ws = getActiveWorkspace();
-  if (!ws) return { unread: 0 };
-  return { unread: countUnreadReactions(ws.id) };
-});
-
-ipcMain.handle('calendar:updateReactionStatus', async (_event, id: string, status: 'read' | 'dismissed') => {
-  return updateReactionStatus(id, status) ?? null;
-});
-
-ipcMain.handle('calendar:deleteReaction', async (_event, id: string) => {
-  deleteReaction(id);
-});
-
-// ---- Google Calendar IPC handlers ----
-
-ipcMain.handle('googleCalendar:status', () => {
-  return { connected: isGoogleCalendarConnected(), hasCredentials: googleCalendarHasCredentials() };
-});
-
-ipcMain.handle('googleCalendar:setCredentials', (_event, clientId: string, clientSecret: string) => {
-  setGoogleCalendarCredentials(clientId, clientSecret);
-});
-
-ipcMain.handle('googleCalendar:connect', async () => {
-  await startGoogleCalendarOAuth();
-});
-
-ipcMain.handle('googleCalendar:disconnect', () => {
-  disconnectGoogleCalendar();
-});
-
-ipcMain.handle('googleCalendar:fetchEvents', async (_event, from: string, to: string) => {
-  return fetchGoogleCalendarEvents({ from, to });
-});
-
-// ---- Google Docs IPC handlers (Phase C2 OAuth + Docs API) ----
-// Reuses the OAuth client id/secret stored in cobuilding-settings.json (same
-// as Google Calendar). Tokens are stored separately in google-docs-tokens.json
-// because the granted scopes differ.
+// ---- Google Docs IPC handlers ----
 
 ipcMain.handle('googleDocs:status', () => {
   return {

@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { CheckIcon } from 'lucide-react';
 import './WorkspaceOnboarding.css';
 import './ScanningProgress.css';
 
@@ -8,13 +7,9 @@ interface ScanningProgressProps {
   onSkip: () => void;
 }
 
-interface ProgressItem {
-  text: string;
-  completed: boolean;
-}
-
 const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip }) => {
-  const [items, setItems] = useState<ProgressItem[]>([]);
+  const [currentStep, setCurrentStep] = useState<string | null>(null);
+  const [stepIndex, setStepIndex] = useState(0);
   const [fileActivities, setFileActivities] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -51,17 +46,15 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
 
     unsubscribeRef.current = window.scannerAPI.onEvent((event: ScannerEvent) => {
       if (event.type === 'progress') {
-        setItems((prev) => {
-          const updated = prev.map((item) => ({ ...item, completed: true }));
-          return [...updated, { text: event.text, completed: false }];
-        });
+        setCurrentStep(event.text);
+        setStepIndex((prev) => prev + 1);
       } else if (event.type === 'file_activity') {
         setFileActivities((prev) => {
           const next = [...prev, event.path];
           return next.length > 200 ? next.slice(-200) : next;
         });
       } else if (event.type === 'complete') {
-        setItems((prev) => prev.map((item) => ({ ...item, completed: true })));
+        setCurrentStep(null);
         setProgress(100);
         setDone(true);
         stopProgressTimer();
@@ -98,7 +91,8 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
 
   const handleRetry = () => {
     setError(null);
-    setItems([]);
+    setCurrentStep(null);
+    setStepIndex(0);
     setFileActivities([]);
     setProgress(0);
     setDone(false);
@@ -123,20 +117,12 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
             />
           </div>
 
-          <ul className="wsSetup__progressList">
-            {items.map((item, index) => (
-              <li key={index} className="wsSetup__progressItem">
-                {item.completed ? (
-                  <span className="wsSetup__checkIcon">
-                    <CheckIcon />
-                  </span>
-                ) : (
-                  <span className="wsSetup__spinnerIcon" />
-                )}
-                <span>{item.text}</span>
-              </li>
-            ))}
-          </ul>
+          {currentStep && (
+            <div key={stepIndex} className="wsSetup__currentStep">
+              <span className="wsSetup__spinnerIcon" />
+              <span>{currentStep}</span>
+            </div>
+          )}
 
           {error && (
             <>
@@ -154,7 +140,7 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
             </>
           )}
 
-          {!error && !done && items.length === 0 && (
+          {!error && !done && !currentStep && (
             <p className="wsSetup__subtitle" style={{ marginTop: 0 }}>
               Scanning your workspace to learn about your research...
             </p>

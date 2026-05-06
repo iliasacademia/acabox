@@ -151,7 +151,6 @@ const packagerConfig = {
       console.warn('[forge.config] Linux claude binary not found — run npm install first');
       return [];
     })(),
-    'src/cobuilding/assets/silero_vad.onnx',
     ...(platform === 'darwin' ? [
       'src/applescripts',
       'src/native/build/Release/word_accessibility.node',

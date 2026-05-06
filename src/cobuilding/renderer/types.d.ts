@@ -1,4 +1,4 @@
-import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry, CalendarReaction } from '../shared/types';
+import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry } from '../shared/types';
 
 interface DirEntry {
   name: string;
@@ -76,6 +76,7 @@ interface SessionsAPI {
   findForApp(dirName: string): Promise<string | null>;
   onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
   onSessionsChanged(callback: () => void): () => void;
+  onForeignTurnDone(callback: (sessionId: string) => void): () => void;
 }
 
 interface ContainerAPI {
@@ -246,6 +247,7 @@ declare global {
     findForApp(dirName: string): Promise<string | null>;
     onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
     onSessionsChanged(callback: () => void): () => void;
+    onForeignTurnDone(callback: (sessionId: string) => void): () => void;
   }
 
   interface ContainerAPI {
@@ -531,34 +533,6 @@ declare global {
     adjustBuffer(depId: string, newLagCurrentMs: number): Promise<{ dependency: EventDependency; cascaded: CascadeUpdate[] }>;
     onCalendarMutation(callback: (mutation: CalendarMutationEvent) => void): () => void;
 
-    listReactions(opts?: { includeRead?: boolean; includeDismissed?: boolean }): Promise<CalendarReaction[]>;
-    getReactionCount(): Promise<{ unread: number }>;
-    updateReactionStatus(id: string, status: 'read' | 'dismissed'): Promise<CalendarReaction | null>;
-    deleteReaction(id: string): Promise<void>;
-    onReactionsUpdated(callback: () => void): () => void;
-  }
-
-  interface GoogleCalendarEvent {
-    id: string;
-    summary: string | null;
-    description: string | null;
-    location: string | null;
-    start: { dateTime?: string; date?: string; timeZone?: string };
-    end: { dateTime?: string; date?: string; timeZone?: string };
-    status: string;
-    colorId?: string;
-    htmlLink?: string;
-    recurrence?: string[];
-    recurringEventId?: string;
-    organizer?: { email: string; displayName?: string };
-  }
-
-  interface GoogleCalendarAPI {
-    status(): Promise<{ connected: boolean; hasCredentials: boolean }>;
-    connect(): Promise<void>;
-    disconnect(): Promise<void>;
-    fetchEvents(from: string, to: string): Promise<GoogleCalendarEvent[]>;
-    setCredentials(clientId: string, clientSecret: string): Promise<void>;
   }
 
   interface OfficeAddinAPI {
@@ -639,10 +613,70 @@ declare global {
     }): Promise<PapersFetchResult>;
   }
 
+  type BriefingType =
+    | 'suggested_action'
+    | 'suggested_tool'
+    | 'paper'
+    | 'citation'
+    | 'grant';
+
+  type BriefingStatus = 'new' | 'opened' | 'dismissed';
+
+  interface Briefing {
+    id: string;
+    workspace_id: string;
+    type: BriefingType;
+    /** JSON string; shape depends on `type` (see BriefingData* interfaces). */
+    briefing_data: string;
+    why_im_suggesting_this: string | null;
+    status: BriefingStatus;
+    source_report_id: string | null;
+    created_at: string;
+    updated_at: string;
+  }
+
+  interface BriefingDataSuggestedTool {
+    name: string;
+    details_on_what_to_build: string;
+  }
+
+  interface BriefingDataSuggestedAction {
+    title: string;
+    description: string;
+    chat_prompt: string;
+  }
+
+  interface BriefingDataPaper {
+    title: string;
+    authors?: string[];
+    url?: string;
+    abstract?: string;
+  }
+
+  interface BriefingDataCitation {
+    paper_title: string;
+    citing_work: string;
+    url?: string;
+  }
+
+  interface BriefingDataGrant {
+    title: string;
+    agency: string;
+    deadline?: string;
+    url?: string;
+  }
+
+  interface BriefingsAPI {
+    list(filter?: {
+      status?: BriefingStatus[];
+      limit?: number;
+    }): Promise<Briefing[]>;
+    setStatus(id: string, status: BriefingStatus): Promise<void>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     calendarAPI: CalendarAPI;
-    googleCalendarAPI: GoogleCalendarAPI;
     filesAPI: FilesAPI;
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;
@@ -667,5 +701,6 @@ declare global {
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;
     papersAPI: PapersAPI;
+    briefingsAPI: BriefingsAPI;
   }
 }

@@ -39,14 +39,19 @@ A user is waiting on this scan. You MUST finish as fast as possible. Every extra
 
 ## Progress updates
 
-As you work, periodically describe what you're doing in brief, user-friendly sentences. These messages are shown to the user as progress indicators while they wait. Keep each update under 80 characters, specific, and in present tense. Include file counts when known.
+As you work, emit short progress messages shown to the user while they wait. These MUST be terse — 3-6 words max. No full sentences. Use present participles. Include counts when known.
 
 Good examples:
-- "Scanning local folders"
-- "Reading 52 documents and drafts"
+- "Scanning folders"
+- "Reading 52 documents"
+- "Indexing 247 papers"
+- "Analyzing code projects"
+- "Identifying research topics"
+
+Bad examples (too long):
+- "Scanning your local folders for research files"
+- "Reading through documents and drafts in your workspace"
 - "Inventorying assay data, images, and protocols"
-- "Indexing your reading library (247 papers)"
-- "Inferring projects and topics"
 
 ## Output
 
@@ -58,7 +63,25 @@ Produce a JSON report following the output schema with three fields:
 
 3. **what_youre_working_on**: A list of specific files the researcher has been actively working on recently (based on modification times). For each file, include the relative path and a short description of what the user might want to do next with it (e.g. "Continue drafting the methods section", "Review and address referee comments", "Debug the data loading step"). Focus on the most recently modified and most important files.
 
-4. **suggested_mini_apps**: A list of 2-5 simple mini-apps that would be useful for this researcher. Each suggestion should be a quick-to-build data analysis tool tailored to their specific files and workflows. Good examples: a CSV column explorer for their tabular data, a batch file renamer for their image sets, a simple plot generator for their experimental results, a data format converter, or a basic statistical summary dashboard. Each suggestion needs a name, why you're suggesting it (tied to what you found in their directory), and brief details on what to build. Keep suggestions practical and achievable — focus on tools that load a file, do one thing well, and show the result.`;
+4. **suggested_mini_apps**: A list of 2-5 mini-apps tailored to this researcher's files. These are built as sandboxed React apps with Plotly charts and file I/O through a bridge API — no direct filesystem access, no custom Canvas/D3, no real-time streaming. Prioritize apps that need NO backend kernel (React-only) because they build fastest and let the user see value immediately.
+
+   **Good categories** (these map to framework strengths):
+   - **Data explorer**: Load a CSV/TSV via file picker, display as searchable/sortable/filterable table with column statistics. Suggest when you find tabular data files.
+   - **Chart generator**: Load tabular data and render interactive Plotly charts (scatter, bar, line, heatmap, violin, box, 3D scatter). Suggest when you find experimental results or numeric datasets.
+   - **AI text analyzer**: Use the built-in Claude API to summarize PDFs, classify abstracts, extract metadata from papers, or compare documents. Suggest when you find collections of papers, notes, or text files.
+   - **Data transformer**: Filter rows, merge CSVs, reshape columns, compute derived fields, and export the result. Suggest when you find messy or multi-part datasets that need cleaning.
+   - **Statistical dashboard**: Summary statistics, distributions, and correlation matrices for tabular data. React-only for basic stats; suggest a Python/R kernel only for advanced methods like PCA or clustering.
+
+   **Do NOT suggest**: batch file renaming, filesystem reorganizers, image editors, real-time monitors, or anything that requires direct filesystem writes outside the app's output directory. These do not work in the sandboxed framework.
+
+   **For each suggestion provide three fields:**
+   - \`name\`: Short display title (e.g. "Expression Data Explorer", "Paper Summarizer").
+   - \`why_im_suggesting_this\`: 1-2 sentences tying the suggestion to specific files or patterns you found in their directory.
+   - \`details_on_what_to_build\`: This text is sent directly to the app builder as the build instruction. Make it concrete:
+     - Reference specific files or file patterns from the scan (e.g. "Load CSV files from the experiments/ directory like results_2024.csv").
+     - Describe what the app loads, what it displays, and what the user can interact with.
+     - Mention specific chart types if relevant (e.g. "scatter plot of column X vs Y", "heatmap of the correlation matrix").
+     - Keep it to 2-4 sentences — enough to build from without ambiguity.`;
 }
 
 export function buildScannerPrompt(directoryPath: string): string {

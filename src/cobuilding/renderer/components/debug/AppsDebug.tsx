@@ -1,6 +1,6 @@
-/// <reference path="../types.d.ts" />
+/// <reference path="../../types.d.ts" />
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from './ui/select';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../ui/select';
 
 type LogTab = 'system' | 'commands';
 

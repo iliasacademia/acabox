@@ -3,8 +3,70 @@ import { randomUUID } from 'crypto';
 import log from 'electron-log';
 import { resolveClaudeBinary } from '../sdkBinarySetup';
 import { createReport, updateReportStatus } from '../db/reportRepository';
+import { createBriefing } from '../db/briefingsRepository';
 import { buildScannerSystemPrompt, buildScannerPrompt } from './systemPrompt';
 import { REPORT_JSON_SCHEMA } from './reportSchema';
+
+const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research directory. First, inspect the workspace and understand the current file structure, research projects, documents, data, scripts, outputs, and any existing naming conventions. Then recommend an effective organization plan for the directory.
+
+YOU MUST ALWAYS present me with a clear plan before proceeding to take any actions or make any file modifications. Do not move, rename, delete, rewrite, or create files until I explicitly approve the plan.`;
+
+interface SuggestedMiniAppParsed {
+  name?: unknown;
+  why_im_suggesting_this?: unknown;
+  details_on_what_to_build?: unknown;
+}
+
+function createBriefingsFromScan(
+  workspaceId: string,
+  reportId: string,
+  resultText: string,
+): void {
+  // Always create the directory-organization action briefing.
+  createBriefing({
+    workspaceId,
+    type: 'suggested_action',
+    sourceReportId: reportId,
+    whyImSuggestingThis:
+      'A well-organized workspace makes it easier to find files and helps me give better recommendations.',
+    briefingData: {
+      title: 'Organize your research directory',
+      description:
+        'I will figure out an effective way to organize the files in your workspace.',
+      chat_prompt: DIRECTORY_ORGANIZATION_PROMPT,
+    },
+  });
+
+  // Create one suggested_tool briefing per mini-app the scanner suggested.
+  let parsed: { suggested_mini_apps?: unknown };
+  try {
+    parsed = JSON.parse(resultText);
+  } catch {
+    return;
+  }
+  const apps = Array.isArray(parsed.suggested_mini_apps)
+    ? (parsed.suggested_mini_apps as SuggestedMiniAppParsed[])
+    : [];
+
+  for (const app of apps) {
+    if (typeof app?.name !== 'string' || typeof app?.details_on_what_to_build !== 'string') {
+      continue;
+    }
+    createBriefing({
+      workspaceId,
+      type: 'suggested_tool',
+      sourceReportId: reportId,
+      whyImSuggestingThis:
+        typeof app.why_im_suggesting_this === 'string'
+          ? app.why_im_suggesting_this
+          : null,
+      briefingData: {
+        name: app.name,
+        details_on_what_to_build: app.details_on_what_to_build,
+      },
+    });
+  }
+}
 
 export type ScannerEvent =
   | { type: 'progress'; text: string }
@@ -217,6 +279,11 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
             : (typeof msg.result === 'string' ? msg.result : JSON.stringify(msg.result));
           log.info(`[DirectoryScanner] Scan completed for workspace ${workspaceId} (has structured_output: ${!!structured}, result length: ${(msg.result as string)?.length ?? 0})`);
           updateReportStatus(reportId, 'completed', resultText);
+          try {
+            createBriefingsFromScan(workspaceId, reportId, resultText);
+          } catch (err) {
+            log.error('[DirectoryScanner] Failed to create briefings from scan:', err);
+          }
           onMessage?.({ type: 'complete', reportId, reportData: resultText });
         } else {
           const errorText = (msg.error as string) || (msg.subtype as string) || 'Unknown error';

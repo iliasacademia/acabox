@@ -63,7 +63,7 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
 
         <div className="wsSetup__infoBanner">
           <InfoIcon className="wsSetup__infoIcon" />
-          <span>I only read &mdash; I never write to your files unless you ask me to.</span>
+          <span>This process will only read your files, not modify them.</span>
         </div>
 
         <div className="wsSetup__sources">

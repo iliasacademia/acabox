@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { PLAN_COLORS } from '../calendarColors';
-import type { CalendarGroup, CalendarEvent, EventDependency, CalendarResource, CreateResourceData } from '../../shared/types';
+import { PLAN_COLORS } from './calendarColors';
+import type { CalendarGroup, CalendarEvent, EventDependency, CalendarResource, CreateResourceData } from '../../../shared/types';
 
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

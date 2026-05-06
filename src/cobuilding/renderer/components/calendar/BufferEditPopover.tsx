@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import type { EventDependency } from '../../shared/types';
+import type { EventDependency } from '../../../shared/types';
 
 interface Props {
   dependency: EventDependency;
