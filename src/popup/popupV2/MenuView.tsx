@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   useLocalRuntime,
   AssistantRuntimeProvider,
+  useAuiState,
 } from '@assistant-ui/react';
 import { OverlayThread } from './OverlayThread';
 import { useHttpChatAdapter, useHttpHistoryAdapter } from './httpChatAdapter';
@@ -226,13 +227,37 @@ interface WorkspaceConversationViewProps {
   onBack: () => void;
 }
 
-export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps> = ({
+/**
+ * Outer wrapper that owns a refresh counter for cross-surface chat sync.
+ *
+ * When a turn completes in the desktop chat panel (or any other surface
+ * driving this session), the server's chat-event SSE channel emits a
+ * `done` frame to /api/cobuilding/sessions/:id/events. The Inner
+ * component's `<ForeignTurnWatcher>` listens for it and bumps the
+ * counter — which, via the inner's `key`, forces a fresh runtime mount
+ * so `history.load()` re-fetches the conversation. We suppress the bump
+ * for OUR own turns (where `s.thread.isRunning` is true at the moment of
+ * the `done` event) to avoid a flash on every send.
+ */
+export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps> = (props) => {
+  const [refreshCounter, setRefreshCounter] = useState(0);
+  return (
+    <WorkspaceConversationViewInner
+      key={`${props.sessionId}-${refreshCounter}`}
+      {...props}
+      onForeignTurnDone={() => setRefreshCounter((c) => c + 1)}
+    />
+  );
+};
+
+const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & { onForeignTurnDone: () => void }> = ({
   sessionId,
   sessionTitle,
   documentPath,
   documentDisplayName,
   selectedText: selectedTextProp,
   onBack,
+  onForeignTurnDone,
 }) => {
   const displayName = effectiveDocDisplayName(documentDisplayName, documentPath);
   // Local selected text state — syncs from prop, can be dismissed with X
@@ -290,6 +315,7 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
       {/* Chat — uses the same Thread component as the desktop app */}
       <div style={{ flex: 1, minHeight: 0 }}>
         <AssistantRuntimeProvider runtime={runtime}>
+          <ForeignTurnWatcher sessionId={sessionId} onForeignDone={onForeignTurnDone} />
           <OverlayThread
             documentPath={documentPath}
             selectedText={activeSelectedText}
@@ -299,6 +325,43 @@ export const WorkspaceConversationView: React.FC<WorkspaceConversationViewProps>
       </div>
     </div>
   );
+};
+
+/**
+ * Subscribes to /api/cobuilding/sessions/:id/events and signals the parent
+ * when a turn that wasn't initiated locally finishes — e.g. the user sent
+ * a message from the desktop chat panel and the agent's response landed
+ * in the database. Our own turns are filtered out by checking the runtime
+ * state at the moment of the `done` event: if `s.thread.isRunning` is
+ * true, the in-flight /send SSE response is already streaming the result
+ * into our runtime, so a remount would just cause a needless flash.
+ *
+ * Lives inside `<AssistantRuntimeProvider>` so it can read thread state.
+ * Returns null — pure side-effect component.
+ */
+const ForeignTurnWatcher: React.FC<{ sessionId: string; onForeignDone: () => void }> = ({ sessionId, onForeignDone }) => {
+  const isRunning = useAuiState((s: any) => s.thread.isRunning);
+  // Stable refs so the EventSource isn't torn down on every isRunning flip.
+  const isRunningRef = useRef(isRunning);
+  isRunningRef.current = isRunning;
+  const onForeignDoneRef = useRef(onForeignDone);
+  onForeignDoneRef.current = onForeignDone;
+
+  useEffect(() => {
+    if (!sessionId || !serverUrl) return;
+    const tokenQs = tokenParam ? `?token=${encodeURIComponent(tokenParam)}` : '';
+    const es = new EventSource(`${serverUrl}/api/cobuilding/sessions/${sessionId}/events${tokenQs}`);
+    const handleDone = () => {
+      if (!isRunningRef.current) onForeignDoneRef.current();
+    };
+    es.addEventListener('done', handleDone);
+    return () => {
+      es.removeEventListener('done', handleDone);
+      es.close();
+    };
+  }, [sessionId]);
+
+  return null;
 };
 
 // ─── Not Linked View ─────────────────────────────────────────────────

@@ -76,6 +76,7 @@ interface SessionsAPI {
   findForApp(dirName: string): Promise<string | null>;
   onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
   onSessionsChanged(callback: () => void): () => void;
+  onForeignTurnDone(callback: (sessionId: string) => void): () => void;
 }
 
 interface ContainerAPI {
@@ -246,6 +247,7 @@ declare global {
     findForApp(dirName: string): Promise<string | null>;
     onTitleUpdated(callback: (sessionId: string, title: string) => void): () => void;
     onSessionsChanged(callback: () => void): () => void;
+    onForeignTurnDone(callback: (sessionId: string) => void): () => void;
   }
 
   interface ContainerAPI {

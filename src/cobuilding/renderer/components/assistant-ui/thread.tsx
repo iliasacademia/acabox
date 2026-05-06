@@ -5,8 +5,7 @@ import { ToolGroup } from './tool-group';
 import { TodoWrite } from './todo-write';
 import { EnterPlanMode } from './enter-plan-mode';
 import { Reasoning } from './thinking-indicator';
-import { composerAttachmentComponents } from './composer-attachments';
-import { ModelSelector } from '../ModelSelector';
+import { ChatComposer } from './chat-composer';
 import { useProcessingLabel } from '../../progressStore';
 import { useSetupState } from '../../setupStore';
 import { TooltipIconButton } from './tooltip-icon-button';
@@ -24,17 +23,14 @@ import {
 } from '@assistant-ui/react';
 import {
   ArrowDownIcon,
-  SendIcon,
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   CopyIcon,
   FileTextIcon,
   LoaderIcon,
-  PaperclipIcon,
   PencilIcon,
   RefreshCwIcon,
-  SquareIcon,
 } from 'lucide-react';
 import type { FC } from 'react';
 
@@ -77,7 +73,7 @@ export const Thread: FC<ThreadProps> = ({
       {!hideComposer && (
         <ThreadPrimitive.ViewportFooter className="threadViewportFooter">
           <ThreadScrollToBottom />
-          <Composer />
+          <ChatComposer />
         </ThreadPrimitive.ViewportFooter>
       )}
     </ThreadPrimitive.Viewport>
@@ -175,98 +171,6 @@ const ThreadWelcome: FC = () => {
   );
 };
 
-
-const Composer: FC = () => {
-  const setup = useSetupState();
-  const isEmpty = useAuiState((s: any) => s.thread.isEmpty);
-
-  // When the thread is empty, the centered ThreadWelcome handles the setup
-  // indicator — don't duplicate it in the composer. For existing threads,
-  // replace the input with the setup indicator.
-  if ((setup.state === 'downloading') && !isEmpty) {
-    return (
-      <div className="composerRoot">
-        <div className="composerSetupBlock">
-          <span className="composerSetupText">{setup.message || 'Setting up environment...'}</span>
-          <div className="composerSetupProgress">
-            <div className="composerSetupProgressBar" style={{ width: `${setup.percent}%` }} />
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Empty thread + setup in progress — centered indicator handles it, hide composer entirely
-  if ((setup.state === 'downloading') && isEmpty) {
-    return null;
-  }
-
-  return (
-    <ComposerPrimitive.Root className="composerRoot">
-      <ComposerPrimitive.Attachments components={composerAttachmentComponents} />
-      <div className="composerShell">
-        <ComposerPrimitive.Input
-          placeholder="Send a message..."
-          className="composerInput"
-          rows={1}
-          autoFocus
-          aria-label="Message input"
-        />
-        <div className="composerToolbar">
-          <ComposerPrimitive.AddAttachment asChild>
-            <TooltipIconButton
-              tooltip="Attach file"
-              side="bottom"
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="composerAttach"
-            >
-              <PaperclipIcon className="composerAttachIcon" />
-            </TooltipIconButton>
-          </ComposerPrimitive.AddAttachment>
-          <ModelSelector />
-          <ComposerAction />
-        </div>
-      </div>
-    </ComposerPrimitive.Root>
-  );
-};
-
-const ComposerAction: FC = () => {
-  return (
-    <div className="composerActions">
-      <AuiIf condition={(s: any) => !s.thread.isRunning}>
-        <ComposerPrimitive.Send asChild>
-          <TooltipIconButton
-            tooltip="Send message"
-            side="bottom"
-            type="button"
-            variant="default"
-            size="icon"
-            className="composerSend"
-            aria-label="Send message"
-          >
-            <SendIcon className="composerSendIcon" />
-          </TooltipIconButton>
-        </ComposerPrimitive.Send>
-      </AuiIf>
-      <AuiIf condition={(s: any) => s.thread.isRunning}>
-        <ComposerPrimitive.Cancel asChild>
-          <Button
-            type="button"
-            variant="default"
-            size="icon"
-            className="composerCancel"
-            aria-label="Stop generating"
-          >
-            <SquareIcon className="composerCancelIcon" />
-          </Button>
-        </ComposerPrimitive.Cancel>
-      </AuiIf>
-    </div>
-  );
-};
 
 const MessageError: FC = () => {
   return (

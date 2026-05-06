@@ -1,9 +1,15 @@
 /**
- * Simplified Thread component for the Word overlay popup.
+ * Thread component for the Word overlay popup.
  *
- * Reuses the same message part renderers as the desktop app (MarkdownText,
- * Reasoning, ToolFallback, ToolGroup) for identical message rendering,
- * but has a simpler composer without ModelSelector or file attachments.
+ * Reuses the same message part renderers AND the same composer as the
+ * desktop chat — see `ChatComposer` (`assistant-ui/chat-composer.tsx`).
+ * The overlay used to ship its own stripped-down composer (no model
+ * picker, no attach button), but maintaining two parallel composers was
+ * the same hazard that bit us with the parallel DOI rendering: features
+ * and fixes drift. Now both surfaces use one component, and the only
+ * overlay-specific thing — the "selected text" pill that shows what
+ * passage the user picked in Word — is passed in as the composer's
+ * `prefix` slot.
  */
 
 import React, { createContext, useContext, memo, useState } from 'react';
@@ -11,7 +17,6 @@ import type { FC } from 'react';
 import {
   ActionBarPrimitive,
   AuiIf,
-  ComposerPrimitive,
   ErrorPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
@@ -31,14 +36,13 @@ import { ToolGroup } from '../../cobuilding/renderer/components/assistant-ui/too
 import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thinking-indicator';
 import { ApprovalParagraph, ApprovalList, APPROVAL_CHOICES } from '../../cobuilding/renderer/components/assistant-ui/approval-buttons';
 import { AnchorWithDoi, parseAgentHtml } from '../../cobuilding/renderer/components/assistant-ui/doi-link';
+import { ChatComposer } from '../../cobuilding/renderer/components/assistant-ui/chat-composer';
 import {
   ArrowDownIcon,
-  ArrowUpIcon,
   CheckIcon,
   CopyIcon,
   LoaderIcon,
   RefreshCwIcon,
-  SquareIcon,
 } from 'lucide-react';
 
 // ─── Overlay MarkdownText ───────────────────────────────────────────
@@ -338,94 +342,48 @@ const OverlayScrollToBottom = React.forwardRef<HTMLButtonElement, React.ButtonHT
   ),
 );
 
-const OverlaySendButton = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement>>(
-  (props, ref) => (
-    <button
-      ref={ref}
-      {...props}
-      aria-label="Send message"
-      style={{
-        width: '28px', height: '28px', borderRadius: '50%',
-        background: props.disabled ? '#d1d5db' : '#141413',
-        border: 'none', cursor: props.disabled ? 'default' : 'pointer',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: '#fff', padding: 0,
-        transition: 'background 0.15s',
-      }}
-    >
-      <ArrowUpIcon size={14} />
-    </button>
-  ),
-);
-
-
+/**
+ * Selection-aware wrapper around the shared `ChatComposer`. Reads the
+ * overlay's `PillsContext` to render the "selected text" chip as the
+ * composer's `prefix` and swap the placeholder when the user has Word
+ * text selected. All actual composer markup (input, attach button, model
+ * picker, send/cancel) lives in the shared component.
+ */
 const OverlayComposer: FC = () => {
   const { selectedText, onDismissSelection } = useContext(PillsContext);
 
+  const prefix = selectedText ? (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '8px',
+      padding: '8px 14px',
+      marginBottom: '4px',
+      background: '#f5f5f3',
+      borderRadius: '16px',
+      fontFamily: "'DM Sans', sans-serif", fontSize: '13px', color: '#374151',
+    }}>
+      <span style={{
+        flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+      }}>
+        "{selectedText.length > 50 ? selectedText.substring(0, 50) + '...' : selectedText}" selected
+      </span>
+      <button
+        onClick={onDismissSelection}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          padding: '2px', fontSize: '14px', lineHeight: '1',
+          color: '#9ca3af', flexShrink: 0,
+        }}
+        aria-label="Clear selection"
+      >
+        ✕
+      </button>
+    </div>
+  ) : null;
+
   return (
-    <ComposerPrimitive.Root className="composerRoot">
-      {/* Selected text bar — above the composer shell, matching Claude for Word */}
-      {selectedText && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '8px',
-          padding: '8px 14px',
-          marginBottom: '4px',
-          background: '#f5f5f3',
-          borderRadius: '16px',
-          fontFamily: "'DM Sans', sans-serif", fontSize: '13px', color: '#374151',
-        }}>
-          <span style={{
-            flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            "{selectedText.length > 50 ? selectedText.substring(0, 50) + '...' : selectedText}" selected
-          </span>
-          <button
-            onClick={onDismissSelection}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: '2px', fontSize: '14px', lineHeight: '1',
-              color: '#9ca3af', flexShrink: 0,
-            }}
-            aria-label="Clear selection"
-          >
-            ✕
-          </button>
-        </div>
-      )}
-      <div className="composerShell">
-        <ComposerPrimitive.Input
-          placeholder={selectedText ? 'Reply' : 'Send a message...'}
-          className="composerInput"
-          rows={1}
-          autoFocus
-          aria-label="Message input"
-        />
-        <div className="composerToolbar">
-          <div style={{ flex: 1 }} />
-          <div className="composerActions">
-            <AuiIf condition={(s: any) => !s.thread.isRunning}>
-              <ComposerPrimitive.Send asChild>
-                <OverlaySendButton />
-              </ComposerPrimitive.Send>
-            </AuiIf>
-            <AuiIf condition={(s: any) => s.thread.isRunning}>
-              <ComposerPrimitive.Cancel asChild>
-                <button
-                  aria-label="Stop generating"
-                  style={{
-                    width: '28px', height: '28px', borderRadius: '50%',
-                    background: '#dc2626', border: 'none', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: '#fff', padding: 0,
-                  }}
-                >
-                  <SquareIcon size={12} />
-                </button>
-              </ComposerPrimitive.Cancel>
-            </AuiIf>
-          </div>
-        </div>
-      </div>
-    </ComposerPrimitive.Root>
+    <ChatComposer
+      prefix={prefix}
+      placeholder={selectedText ? 'Reply' : 'Send a message...'}
+    />
   );
 };
