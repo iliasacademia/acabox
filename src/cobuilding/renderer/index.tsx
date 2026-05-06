@@ -18,6 +18,7 @@ import { FileViewer } from './components/FileViewer';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
+import { HomePage } from './components/HomePage';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
@@ -566,7 +567,10 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
             {/* Home tab */}
             <div style={{ display: sidebarTab === 'home' ? 'flex' : 'none', flex: 1 }}>
               <div className="homeContent">
-                <h1>Home</h1>
+                <HomePage
+                  workspacePath={workspace.directory_path}
+                  onSelectFile={handleSelectFile}
+                />
               </div>
             </div>
 
