@@ -780,35 +780,33 @@ function App() {
   const [step, setStep] = useState<OnboardingStep>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [scanReportId, setScanReportId] = useState<string | null>(null);
-  const [canSkipSetup, setCanSkipSetup] = useState(false);
 
   useEffect(() => {
-    window.authAPI.checkLogin().then((result: any) => {
-      const { loggedIn, user, appInfo } = result;
-      initFullStory(appInfo?.isPackaged);
-
-      if (!loggedIn) {
-        window.workspacesAPI.getActive().then((ws) => {
-          if (ws) {
-            setWorkspace(ws);
-            setCanSkipSetup(true);
+    window.workspacesAPI.getActive().then((ws) => {
+      if (ws) {
+        setWorkspace(ws);
+        setStep('ready');
+        window.authAPI.checkLogin().then((result: any) => {
+          const { user, appInfo } = result;
+          initFullStory(appInfo?.isPackaged);
+          if (user?.id) {
+            identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
           }
-          setStep('welcome');
-        });
+        }).catch(() => {});
         return;
       }
 
-      if (user?.id) {
-        identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
-      }
-
-      window.workspacesAPI.getActive().then((ws) => {
-        if (ws) {
-          setWorkspace(ws);
-          setStep('ready');
-        } else {
-          setStep('workspace');
+      window.authAPI.checkLogin().then((result: any) => {
+        const { loggedIn, user, appInfo } = result;
+        initFullStory(appInfo?.isPackaged);
+        if (!loggedIn) {
+          setStep('welcome');
+          return;
         }
+        if (user?.id) {
+          identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
+        }
+        setStep('workspace');
       });
     });
   }, []);
@@ -821,7 +819,7 @@ function App() {
       return (
         <WelcomeScreen
           onGetStarted={() => setStep('login')}
-          onSkipSetup={canSkipSetup ? () => setStep('ready') : undefined}
+          onSkipSetup={workspace ? () => setStep('ready') : undefined}
         />
       );
 

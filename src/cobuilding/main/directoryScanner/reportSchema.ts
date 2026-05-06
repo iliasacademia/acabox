@@ -34,20 +34,20 @@ export const REPORT_JSON_SCHEMA = {
         properties: {
           name: {
             type: 'string',
-            description: 'Short display name for the suggested mini-app (e.g. "CSV Column Explorer", "PCA Visualizer").',
+            description: 'Short display name for the suggested mini-app (e.g. "Expression Data Explorer", "Paper Summarizer", "Correlation Dashboard").',
           },
           why_im_suggesting_this: {
             type: 'string',
-            description: 'A 1-2 sentence explanation of why this app would be useful for this specific researcher, based on their files and workflow.',
+            description: 'A 1-2 sentence explanation tying this suggestion to specific files or patterns found in the researcher\'s directory.',
           },
           details_on_what_to_build: {
             type: 'string',
-            description: 'A concise description of what the app should do — inputs, outputs, and key functionality. Keep it focused on simple, quick-to-build data analysis tools.',
+            description: 'Actionable build instruction sent directly to the app builder. Reference specific files or patterns from the scan, describe what the app loads and displays, and mention chart types or interactions. 2-4 sentences.',
           },
         },
         required: ['name', 'why_im_suggesting_this', 'details_on_what_to_build'],
       },
-      description: 'A list of 2-5 suggested mini-apps the co-scientist could build for this researcher. Focus on simple data analysis tools that could be built quickly — things like file format converters, data visualizers, simple statistical analysis dashboards, or data cleaning utilities.',
+      description: 'A list of 2-5 suggested mini-apps tailored to the researcher\'s files. Prioritize React-only apps (data explorers, chart generators, AI text analyzers, data transformers, statistical dashboards) that build fast and need no backend kernel.',
     },
   },
   required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on', 'suggested_mini_apps'],

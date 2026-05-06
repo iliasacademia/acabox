@@ -1451,6 +1451,12 @@ Output JSON only. No prose, no code fences.`,
 async function startAgentInfrastructure(workspacePath: string): Promise<void> {
   if (!activeWorkspace) return;
 
+  try {
+    await refreshCredentialsForSession();
+  } catch (err) {
+    log.warn('[startAgentInfrastructure] Credential refresh failed, using stored key:', err);
+  }
+
   // 0. One-time migration of session files from bundled podman HOME
   migrateHostSessionsToContainer(workspacePath);
 
