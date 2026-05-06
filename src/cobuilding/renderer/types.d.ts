@@ -1,4 +1,4 @@
-import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry, CalendarReaction } from '../shared/types';
+import type { ChatAPI, Workspace, ScheduledTask, ScheduledTaskRun, CreateTaskData, UpdateTaskData, CalendarGroup, CalendarEvent, EventFile, GroupFile, CreateGroupData, UpdateGroupData, CreateEventData, UpdateEventData, EventDependency, CreateDependencyData, UpdateDependencyData, CascadeUpdate, CalendarResource, CalendarResourceType, CreateResourceData, UpdateResourceData, MoveResourceData, ListResourcesOptions, WorkspaceFileEntry } from '../shared/types';
 
 interface DirEntry {
   name: string;
@@ -531,34 +531,6 @@ declare global {
     adjustBuffer(depId: string, newLagCurrentMs: number): Promise<{ dependency: EventDependency; cascaded: CascadeUpdate[] }>;
     onCalendarMutation(callback: (mutation: CalendarMutationEvent) => void): () => void;
 
-    listReactions(opts?: { includeRead?: boolean; includeDismissed?: boolean }): Promise<CalendarReaction[]>;
-    getReactionCount(): Promise<{ unread: number }>;
-    updateReactionStatus(id: string, status: 'read' | 'dismissed'): Promise<CalendarReaction | null>;
-    deleteReaction(id: string): Promise<void>;
-    onReactionsUpdated(callback: () => void): () => void;
-  }
-
-  interface GoogleCalendarEvent {
-    id: string;
-    summary: string | null;
-    description: string | null;
-    location: string | null;
-    start: { dateTime?: string; date?: string; timeZone?: string };
-    end: { dateTime?: string; date?: string; timeZone?: string };
-    status: string;
-    colorId?: string;
-    htmlLink?: string;
-    recurrence?: string[];
-    recurringEventId?: string;
-    organizer?: { email: string; displayName?: string };
-  }
-
-  interface GoogleCalendarAPI {
-    status(): Promise<{ connected: boolean; hasCredentials: boolean }>;
-    connect(): Promise<void>;
-    disconnect(): Promise<void>;
-    fetchEvents(from: string, to: string): Promise<GoogleCalendarEvent[]>;
-    setCredentials(clientId: string, clientSecret: string): Promise<void>;
   }
 
   interface OfficeAddinAPI {
@@ -608,7 +580,6 @@ declare global {
   interface Window {
     chatAPI: ChatAPI;
     calendarAPI: CalendarAPI;
-    googleCalendarAPI: GoogleCalendarAPI;
     filesAPI: FilesAPI;
     workspacesAPI: WorkspacesAPI;
     sessionsAPI: SessionsAPI;

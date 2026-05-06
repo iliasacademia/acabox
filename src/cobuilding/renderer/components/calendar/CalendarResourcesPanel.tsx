@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import type { CalendarEvent, CalendarGroup, CalendarResource, CreateResourceData } from '../../shared/types';
+import type { CalendarEvent, CalendarGroup, CalendarResource, CreateResourceData } from '../../../shared/types';
 import './CalendarResourcesPanel.css';
 
 interface CalendarResourcesPanelProps {

@@ -1,8 +1,8 @@
 import React from 'react';
 import { useLocalRuntime, AssistantRuntimeProvider } from '@assistant-ui/react';
-import { Thread } from './assistant-ui/thread';
-import { useCalendarChatAdapter } from '../calendarChatAdapter';
-import { useCalendarHistoryAdapter } from '../calendarHistoryAdapter';
+import { Thread } from '../assistant-ui/thread';
+import { useCalendarChatAdapter } from './calendarChatAdapter';
+import { useCalendarHistoryAdapter } from './calendarHistoryAdapter';
 import './CalendarChat.css';
 
 export function CalendarChat() {
