@@ -12,9 +12,69 @@ Citation and reference assistance. Used directly when the user asks about citati
 
 When a reference is needed, follow this priority order:
 
-1. **Check the author's Zotero library and uploaded materials first.** If the relevant paper is already in the author's collection, use it. This is the highest-confidence source.
+1. **Check the author's Zotero library first** (see "Using Zotero" below). If the relevant paper is already in the author's collection, use it. This is the highest-confidence source.
 2. **Otherwise, use the CiteRight tools to find verified references** (see "Using CiteRight" below).
 3. **Always label the source.** The user must know whether a reference came from their own library or from CiteRight's external search.
+
+## Using Zotero
+
+The author's local Zotero library is the highest-confidence source: anything there is something the author has already curated. Two tools are available:
+
+- `mcp__zotero__status` — no params. Returns `{status: "running"}` when the local Zotero desktop client is reachable.
+- `mcp__zotero__search_library` — `query` (string, required, non-empty) and optional `limit` (default 10). Returns an array of items.
+
+### Status-first pattern
+
+Call `mcp__zotero__status` first. If the response is not `{status: "running"}`, skip Zotero silently and fall through to CiteRight. Zotero requires the desktop client running on the user's machine — its absence is normal, not a failure. **Do not surface this as a blocker to the user.**
+
+### Query strategy
+
+`limit` is silently capped near 10 regardless of what you pass, and the search is keyword/lexical (not semantic). A single broad query will not enumerate the relevant subset of the library. Compensate by issuing several targeted queries built from the claim — significant nouns, author surnames if the claim names anyone, and topic words — then union the results and dedupe by the `key` field. Be generous with variants since conceptually related papers won't surface unless they share words with the claim.
+
+### itemType filter
+
+The library contains noise: stray webpage saves (e.g. a Google sign-in page saved as `itemType: webpage`), bare PDF attachments without metadata. Keep only citation-grade types:
+
+- `journalArticle`, `preprint`, `book`, `bookSection`, `conferencePaper`, `thesis`
+
+Drop `webpage` and `attachment` results.
+
+### Verification
+
+A keyword hit is not a verified match. After filtering, read each candidate's `title` and `abstractNote` against the claim. Only present a match you are confident actually supports the claim. If nothing in the filtered set clearly supports the claim, fall through to CiteRight — do not present a weak Zotero hit as if verified. Apply the same meaning check as for CiteRight results: topic overlap is not enough — the paper must support the specific number, mechanism, or comparison in the claim.
+
+### Field mapping (Zotero → citation fields)
+
+- `title` → title
+- `creators[]` filtered to `creatorType == "author"`, lastName + firstName → authors
+- `date` → publication_year (parse the year prefix; e.g. `"2024-05-03"` → 2024, `"06/2015"` → 2015, `"2026-03"` → 2026)
+- `publicationTitle` → journal / publication
+- `DOI` → doi; build the link as `https://doi.org/<DOI>`
+- `url` → fallback link when DOI is absent
+- `abstractNote` → use to verify the paper supports the claim (do not present as part of the citation)
+
+### Presenting Zotero results
+
+Use the same per-publication format as CiteRight results so the user sees a consistent layout. For each verified Zotero match show:
+
+- **Full title**.
+- **Authors** — list them; "First Author et al." with the count is fine for long lists.
+- **Year** and **journal/publication**.
+- **A clickable link** — markdown `[DOI](https://doi.org/<DOI>)` when DOI is present, otherwise the `url` field, otherwise "no link available" (do not drop the entry).
+- **Why this matches** — a short sentence in your own words explaining why the paper supports the claim. Zotero does not provide a `reasoning` field, so write it from the `title` and `abstractNote`. Keep it as concise as CiteRight's `reasoning`.
+
+**Example** (matches the CiteRight format):
+
+> **Cao, Short & Yip (2017)** — "Understanding the mechanisms of amorphous creep through molecular simulation," *Proceedings of the National Academy of Sciences*. [10.1073/pnas.1708618114](https://doi.org/10.1073/pnas.1708618114) — *from your Zotero library*
+> *Why matched:* The abstract identifies the microscopic processes of creep as an open question, supporting the claim that these origins are poorly understood compared to crystalline solids.
+
+### Source labeling
+
+Tag every Zotero-sourced reference explicitly as "*from your Zotero library*" so the user can tell it apart from CiteRight results at a glance. This reinforces the labeling rule in the **Constraints** section at the bottom of this file.
+
+### Formatting Zotero items into a citation style
+
+Zotero results map cleanly into `mcp__citeright__format_citations`. Pass an array of works built from the field mapping above (`title`, `authors`, `publication_year`, `publication`, `doi`) to format Zotero-sourced references in MLA, APA, Chicago, Vancouver, Harvard, IEEE, or ACS.
 
 ## Using CiteRight
 
@@ -104,6 +164,24 @@ The chat UI opens links in the system's default browser, so a fully formatted re
 
 CiteRight requires a logged-in academia.edu account. If a tool returns an error containing "requires a logged-in academia.edu account", surface that to the user verbatim and stop -- do not fall back to unverified LLM-suggested references for that turn.
 
+### Meaning check
+
+Topic overlap is not a valid match. Before presenting any reference to the user, verify that the source supports the specific claim it is being attached to.
+
+For each candidate publication CiteRight returns, ask:
+
+- Does this source support the **exact wording** of the claim — the specific number, mechanism, conclusion, or comparison — or does it only share the general subject area?
+- If the claim contains a **specific value** (a percentage, a count, a p-value, a named effect), does that value appear in or follow directly from this source?
+- If the claim makes a **comparative statement** ("more effective than", "higher than", "first to show"), does this source make or directly support that comparison?
+
+If the answer to the relevant question is no, the candidate fails the meaning check. Do not present it as a valid citation.
+
+When a candidate passes topic match but fails meaning check, do not silently discard it. Tell the user:
+
+> "CiteRight found [title] ([year]) for this claim, but it covers [general topic] rather than [the specific claim]. I have not included it."
+
+If no candidate passes the meaning check, treat the claim as unverified and mark it [citation needed — no verified match for this specific claim], the same as when CiteRight returns nothing at all.
+
 ### When CiteRight returns nothing useful
 
 If the ranked publications don't fit the claim, say so plainly. Do not pad the answer with unverified LLM guesses. It is better to say "CiteRight didn't surface a strong match for this claim -- you may need to search manually" than to present a low-confidence reference as if verified.
@@ -119,4 +197,4 @@ If a domain profile is available, consult it to determine whether a claim is com
 - When multiple references could support a claim, prefer the one already in the author's materials over a CiteRight result
 - Always label the source (author's library vs. CiteRight search) when presenting a reference
 
-<!-- skill-file: actions/cite.md -->
+<!-- skill-file: actions/cite.md @2026-05-05c -->

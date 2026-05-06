@@ -2,10 +2,15 @@
 name: academic-writing-agent
 description: >
   AI co-writing agent for scientific manuscripts, grant proposals, theses,
-  and dissertations. Routes requests by detecting the user's intended action
-  (draft, revise, feedback, review) and the paper section they're working in,
-  then applies section-specific conventions and action-specific processes.
-  Always load this skill when the user is working on academic scientific writing.
+  and dissertations. Handles drafting, revising, feedback, review, and
+  citation work — including finding papers, looking up literature on a
+  topic, verifying references, and checking citations. Routes requests by
+  detecting the user's intended action (draft, revise, feedback, review,
+  cite) and the paper section they're working in, then applies
+  section-specific conventions and action-specific processes. Always load
+  this skill when the user is working on academic scientific writing OR
+  asking about citations, references, or literature search related to
+  manuscript work.
 ---
 
 # Academic Writing Agent
@@ -26,7 +31,7 @@ Determine what the user wants from their message. Use the first matching rule:
 | Asks to rewrite, improve, expand, shorten, restructure, fix, or edit existing text | **Revise** (`actions/revise.md`) |
 | Asks a question about their text, requests discussion or opinions, asks "what do you think" | **Feedback** (`actions/feedback.md`) |
 | Asks for evaluation, review, critique of a section or paper, wants systematic assessment | **Review** (`actions/review.md`) |
-| Asks about citations, references, or sourcing claims | **Cite** (`actions/cite.md`) |
+| Asks about citations, references, sourcing claims, finding papers on a topic, looking up literature on a subject, or asking what's been written on something | **Cite** (`actions/cite.md`) |
 
 Tiebreakers for ambiguous cases:
 - Question about text quality with no scope specified = Feedback
@@ -34,6 +39,7 @@ Tiebreakers for ambiguous cases:
 - Existing text + user wants changes = Revise
 - No existing text + user wants new text = Draft
 - Problem is about argument ordering or section organization = Revise
+- Any prompt that involves looking up published work — even framed as topic search ("find papers on X", "what's the literature on Y") — routes through Cite
 - If no action can be detected, default to Feedback
 
 ### Step 2: Detect the Section
@@ -129,4 +135,4 @@ If a domain profile is available, use it for subdomain conventions, terminology 
 3. If something is unclear, quote the exact passage before discussing it
 4. If content is too minimal for meaningful feedback, say so directly
 
-<!-- skill-file: SKILL.md -->
+<!-- skill-file: SKILL.md @2026-05-05c -->

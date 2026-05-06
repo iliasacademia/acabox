@@ -15,7 +15,6 @@ import { ThreadList } from './components/assistant-ui/thread-list';
 import { FilesTab } from './components/FilesTab';
 import { DebugSidebar, DebugContent, type DebugSection } from './components/DebugPanel';
 import { FileViewer } from './components/FileViewer';
-import { NotebookViewer } from './components/notebook';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
@@ -36,7 +35,6 @@ import WelcomeScreen from './components/WelcomeScreen';
 import { SetupBanner } from './components/SetupBanner';
 import { TaskPanel } from './components/TaskPanel';
 import { GlobalComposer } from './components/GlobalComposer';
-import { TabBar } from './tabs/TabBar';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
 import { kernelRegistry } from './components/notebook/kernelRegistry';
@@ -252,20 +250,26 @@ function ShowChatOnThreadSelect({ onShowChat, suppressRef }: { onShowChat: () =>
 function ResetThreadOnLeavingDetail({
   isInChatDetail,
   suppressRef,
+  suppressResetRef,
 }: {
   isInChatDetail: boolean;
   suppressRef: React.MutableRefObject<boolean>;
+  suppressResetRef: React.MutableRefObject<boolean>;
 }) {
   const runtime = useAssistantRuntime();
   const prevRef = useRef(isInChatDetail);
 
   useEffect(() => {
     if (prevRef.current && !isInChatDetail) {
-      suppressRef.current = true;
-      runtime.switchToNewThread();
+      if (suppressResetRef.current) {
+        suppressResetRef.current = false;
+      } else {
+        suppressRef.current = true;
+        runtime.switchToNewThread();
+      }
     }
     prevRef.current = isInChatDetail;
-  }, [isInChatDetail, runtime, suppressRef]);
+  }, [isInChatDetail, runtime, suppressRef, suppressResetRef]);
 
   return null;
 }
@@ -354,6 +358,9 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string, opts?: { for
 }
 
 
+/** File extensions that need full-width viewing (tables, PDFs). */
+const WIDE_VIEWER_RE = /\.(csv|tsv|xlsx?|pdf)$/i;
+
 function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void; onLogout: () => void }) {
   useEffect(() => {
     trackEvent('Cobuilding Session');
@@ -363,17 +370,21 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
   const [chatViewMode, setChatViewMode] = useState<'list' | 'detail'>('list');
   const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail' | 'paper-monitor'>('listing');
   const [toolChatOpen, setToolChatOpen] = useState(true);
+  const [filesViewMode, setFilesViewMode] = useState<'listing' | 'detail'>('listing');
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
+  const [fileOpenedFrom, setFileOpenedFrom] = useState<'files' | 'chat'>('files');
+  const [fileReturnThreadId, setFileReturnThreadId] = useState<string | null>(null);
+  const [fileCount, setFileCount] = useState(0);
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
     return (saved as DebugSection) || 'apps';
   });
 
-  const { tabs, activeTabId, openTab, closeTab, activateTab, pinTab, deactivateAllTabs } = useTabs({
+  const { tabs, activeTabId, openTab, deactivateAllTabs } = useTabs({
     onBeforeClose: (id) => {
       kernelRegistry.shutdown(id).catch(() => {});
     },
   });
-  const [dirtyTabIds, setDirtyTabIds] = useState<Set<string>>(new Set());
   const [autoSelectFirstApp, setAutoSelectFirstApp] = useState(false);
   // Per-mini-app reload nonce — bumped each time the app is (re-)opened so the
   // iframe remounts and picks up a freshly built bundle. Without this, calling
@@ -397,24 +408,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
     }
   }, [workspace.directory_path]);
 
-  const hasLiveKernel = useCallback((tabId: string) => {
-    const entry = kernelRegistry.get(tabId);
-    return entry !== null && entry.status !== 'dead' && entry.status !== 'disconnected';
-  }, []);
-
-  const handleDirtyChange = useCallback((tabId: string, dirty: boolean) => {
-    setDirtyTabIds((prev) => {
-      if (dirty && prev.has(tabId)) return prev;
-      if (!dirty && !prev.has(tabId)) return prev;
-      const next = new Set(prev);
-      if (dirty) {
-        next.add(tabId);
-      } else {
-        next.delete(tabId);
-      }
-      return next;
-    });
-  }, []);
 
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => {
@@ -431,34 +424,32 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
     adapter: sessionListAdapter,
   });
 
-  const handleSelectFile = useCallback((filePath: string) => {
+  const handleSelectFile = useCallback((filePath: string, from?: 'files' | 'chat') => {
     setSidebarTab('files');
-    const isNotebook = filePath.endsWith('.ipynb');
-    const kind = isNotebook ? 'notebook' as const : 'file' as const;
-    const label = filePath.split('/').pop() ?? filePath;
-    const id = `${kind}::${filePath}`;
-    const descriptor: TabDescriptor = {
-      id,
-      kind,
-      label,
-      pinned: isNotebook, // notebooks are always pinned, regular files are preview
-      data: isNotebook ? { kind: 'notebook', filePath } : { kind: 'file', filePath },
-    };
-    openTab(descriptor);
-  }, [openTab]);
+    setActiveFilePath(filePath);
+    setFileOpenedFrom(from ?? 'files');
+    setFilesViewMode('detail');
+  }, []);
 
   // Open file tabs from clickable paths in chat messages
   useEffect(() => {
     const handler = (e: CustomEvent<{ filePath: string; lineNumber?: number }>) => {
       const absolutePath = `${workspace.directory_path}/${e.detail.filePath}`;
-      handleSelectFile(absolutePath);
+      // Capture the current thread ID so "Back to chat" can restore it
+      const threadId = runtime.threads.getState().mainThreadId;
+      setFileReturnThreadId(threadId ?? null);
+      suppressThreadResetRef.current = true;
+      handleSelectFile(absolutePath, 'chat');
     };
     window.addEventListener('open-file-tab', handler);
     return () => window.removeEventListener('open-file-tab', handler);
-  }, [workspace.directory_path, handleSelectFile]);
+  }, [workspace.directory_path, handleSelectFile, runtime]);
 
   const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean }) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName, opts);
+    // Fire-and-forget: record this open in the app's manifest so the Tools page
+    // can sort by recency. Failures are non-fatal and shouldn't block opening.
+    window.miniAppsAPI.touch(dirName).catch(() => {});
     setSidebarTab('tools');
     setToolsViewMode('detail');
     const tabId = `miniapp::${dirName}`;
@@ -484,13 +475,9 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
 
   const handleFilesClick = useCallback(() => {
     setSidebarTab('files');
-    // If there's an open file/notebook tab, activate it
-    const fileTab = [...tabs].reverse().find((t) => t.kind === 'file' || t.kind === 'notebook');
-    if (fileTab) {
-      activateTab(fileTab.id);
-    }
-    // Otherwise, leave the main panel as-is
-  }, [tabs, activateTab]);
+    setFilesViewMode('listing');
+    setActiveFilePath(null);
+  }, []);
 
   const handleToolsClick = useCallback(() => {
     setSidebarTab('tools');
@@ -500,12 +487,14 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
   // Suppress ShowChatOnThreadSelect when switching threads for a miniapp
   const suppressThreadDeactivateRef = useRef(false);
 
+  // Suppress thread reset when opening a file from chat (so we can return to the same thread)
+  const suppressThreadResetRef = useRef(false);
+
   // In-memory cache: dirName → sessionId
   const appSessionCacheRef = useRef<Map<string, string>>(new Map());
 
-  // Determine if the active tab is a miniapp (for showing chat side panel)
+  // Determine the active miniapp tab (for chat session switching)
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const showChatSidePanel = activeTab?.kind === 'miniapp';
   const activeMiniAppDirName = activeTab?.kind === 'miniapp' && activeTab.data.kind === 'miniapp' ? activeTab.data.dirName : null;
 
   // Toggle a body class while dragging any panel divider so iframes/webviews
@@ -528,7 +517,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
       <AppSessionSwitcher activeDirName={activeMiniAppDirName} cacheRef={appSessionCacheRef} suppressRef={suppressThreadDeactivateRef} />
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
-      <ResetThreadOnLeavingDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} suppressRef={suppressThreadDeactivateRef} />
+      <ResetThreadOnLeavingDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
       <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
@@ -699,64 +688,60 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
             </div>
 
             {/* Files tab */}
-            <div style={{ display: sidebarTab === 'files' ? 'flex' : 'none', flex: 1 }}>
-              <PanelGroup direction="horizontal" autoSaveId="cobuild.filesLayout" className="appPanelGroup">
-                <Panel id="filesSidebar" order={1} defaultSize={18} minSize={12} maxSize={40}>
-                  <div className="sidebarPanel">
-                    <div className="sidebarContent">
+            <div style={{ display: sidebarTab === 'files' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
+              {filesViewMode === 'detail' && activeFilePath ? (
+                <>
+                  <div className="detailHeader detailHeader--sticky">
+                    <button
+                      className="detailBackBtn"
+                      onClick={() => {
+                        if (fileOpenedFrom === 'chat' && fileReturnThreadId) {
+                          suppressThreadDeactivateRef.current = true;
+                          runtime.threads.switchToThread(fileReturnThreadId);
+                          setSidebarTab('chats');
+                          setChatViewMode('detail');
+                        }
+                        setFilesViewMode('listing');
+                        setActiveFilePath(null);
+                        setFileOpenedFrom('files');
+                        setFileReturnThreadId(null);
+                      }}
+                    >
+                      &larr; {fileOpenedFrom === 'chat' ? 'Back to chat' : 'Back to files'}
+                    </button>
+                    <span className="fileDetailFileName">{activeFilePath.split('/').pop() ?? activeFilePath}</span>
+                    <span className="fileDetailSpacer" />
+                  </div>
+                  <div className={`fileDetailContent${WIDE_VIEWER_RE.test(activeFilePath) ? ' fileDetailContent--wide' : ''}`} style={{ flex: 1, minHeight: 0 }}>
+                    <FileViewer filePath={activeFilePath} />
+                  </div>
+                </>
+              ) : (
+                <div className="pageShell">
+                  <div className="pageShell__inner">
+                    <div className="pageShell__headerBlock">
+                      <div className="pageShell__stats">{fileCount.toLocaleString()} FILES</div>
+                      <h1 className="pageShell__title">Files</h1>
+                    </div>
+                    <div className="filesPage__explorerCard">
                       <FilesTab
                         workspacePath={workspace.directory_path}
                         onSelectFile={handleSelectFile}
+                        onFileCount={setFileCount}
                       />
                     </div>
                   </div>
-                </Panel>
-                <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                <Panel id="filesMain" order={2} defaultSize={82} minSize={30}>
-                  <div className="mainPanel">
-                    <TabBar
-                      tabs={tabs.filter(t => t.kind === 'file' || t.kind === 'notebook')}
-                      activeTabId={activeTabId}
-                      dirtyTabIds={dirtyTabIds}
-                      hasLiveKernel={hasLiveKernel}
-                      onActivate={activateTab}
-                      onClose={closeTab}
-                      onPin={pinTab}
-                      onShowChat={deactivateAllTabs}
-                      homeLabel="Files"
-                    />
-                    <div className="tabPanelsContainer">
-                      <div className="tabPanel" style={{ display: !activeTabId || !tabs.find(t => t.id === activeTabId && (t.kind === 'file' || t.kind === 'notebook')) ? 'flex' : 'none' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#999', fontSize: '0.875rem' }}>
-                          Select a file from the sidebar
-                        </div>
-                      </div>
-                      {tabs.filter(t => t.kind === 'file' || t.kind === 'notebook').map((tab) => (
-                        <div key={tab.id} className="tabPanel" style={{ display: tab.id === activeTabId ? 'flex' : 'none' }}>
-                          {tab.data.kind === 'file' && (
-                            <FileViewer filePath={tab.data.filePath} />
-                          )}
-                          {tab.data.kind === 'notebook' && (
-                            <NotebookViewer
-                              filePath={tab.data.filePath}
-                              onDirtyChange={(dirty) => handleDirtyChange(tab.id, dirty)}
-                            />
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </Panel>
-              </PanelGroup>
+                </div>
+              )}
             </div>
 
             {/* Chats tab */}
             <div style={{ display: sidebarTab === 'chats' ? 'flex' : 'none', flex: 1, flexDirection: 'column' }}>
               {chatViewMode === 'detail' ? (
                 <>
-                  <div className="chatDetailHeader">
+                  <div className="detailHeader">
                     <button
-                      className="chatDetailBackBtn"
+                      className="detailBackBtn"
                       onClick={() => { setChatViewMode('list'); }}
                     >
                       &larr; Back to chats
@@ -824,9 +809,9 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
             <GlobalComposer
               isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
               onNavigateToChat={() => {
-                suppressThreadDeactivateRef.current = true;
                 setSidebarTab('chats');
                 setChatViewMode('detail');
+                deactivateAllTabs();
               }}
             />
           )}

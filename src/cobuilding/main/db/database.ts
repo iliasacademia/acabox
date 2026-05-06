@@ -275,6 +275,12 @@ const migrations = [
       CREATE INDEX idx_workspace_reports_workspace ON workspace_reports(workspace_id);
     `,
   },
+  {
+    version: 17,
+    sql: `
+      ALTER TABLE workspace_reports ADD COLUMN suggested_mini_apps TEXT;
+    `,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

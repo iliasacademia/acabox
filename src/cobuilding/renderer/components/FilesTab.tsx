@@ -38,9 +38,10 @@ interface ContextMenuState {
 interface FilesTabProps {
   workspacePath: string;
   onSelectFile: (path: string) => void;
+  onFileCount?: (count: number) => void;
 }
 
-export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => {
+export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFileCount }) => {
   const workspaceName = workspacePath.split('/').pop() ?? workspacePath;
   const [rootChildren, setRootChildren] = useState<TreeNode[]>([]);
   const [rootExpanded, setRootExpanded] = useState(true);
@@ -78,19 +79,33 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile }) => 
   }, []);
 
 
+  const countFilesFromEntries = useCallback(async (entries: { path: string; isDirectory: boolean }[]): Promise<number> => {
+    let fileCount = entries.filter((e) => !e.isDirectory).length;
+    const dirCounts = await Promise.all(
+      entries.filter((e) => e.isDirectory).map(async (e) => {
+        const children = await window.filesAPI.readDirectory(e.path);
+        return countFilesFromEntries(children);
+      }),
+    );
+    for (const c of dirCounts) fileCount += c;
+    return fileCount;
+  }, []);
+
   const loadRoot = useCallback(async () => {
     const entries = await window.filesAPI.readDirectory(workspacePath);
-    setRootChildren(
-      entries.map((e) => ({
-        name: e.name,
-        path: e.path,
-        isDirectory: e.isDirectory,
-        children: e.isDirectory ? [] : undefined,
-      })),
-    );
+    const nodes = entries.map((e) => ({
+      name: e.name,
+      path: e.path,
+      isDirectory: e.isDirectory,
+      children: e.isDirectory ? [] : undefined,
+    }));
+    setRootChildren(nodes);
     setRootLoaded(true);
     setRootExpanded(true);
-  }, [workspacePath]);
+    if (onFileCount) {
+      countFilesFromEntries(entries).then(onFileCount);
+    }
+  }, [workspacePath, onFileCount, countFilesFromEntries]);
 
   useEffect(() => {
     loadRoot();

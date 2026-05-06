@@ -1,5 +1,5 @@
 import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { CheckIcon, LoaderIcon, XCircleIcon, MinusCircleIcon } from 'lucide-react';
+import { CheckIcon, LoaderIcon, XCircleIcon, MinusCircleIcon, CopyIcon, ChevronDownIcon, ChevronRightIcon } from 'lucide-react';
 
 /**
  * Suggestion card for mcp__ms-word__find_and_replace.
@@ -178,6 +178,8 @@ const FindAndReplaceSuggestionImpl = ({
   const [cardState, setCardState] = useState<CardState>('pending');
   const [error, setError] = useState<string | null>(null);
   const [showBatchHeader, setShowBatchHeader] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
   // Poll server for edit state changes (syncs overlay ↔ desktop)
   useEffect(() => {
@@ -263,7 +265,12 @@ const FindAndReplaceSuggestionImpl = ({
     unregisterPending(toolCallId);
     try {
       const res = await applyEdit(toolCallId, parsed);
-      if (res.success) {
+      // Require both success AND a non-zero replacement count. Some failure
+      // modes return success=true with count=0 (e.g. silent host-app misses);
+      // gating on count prevents the green "Applied" card from appearing when
+      // nothing actually landed in the document.
+      const didApply = res.success && (res.replacementsCount ?? 0) > 0;
+      if (didApply) {
         setCardState('applied');
         // Broadcast to sibling cards so any that failed in the same
         // paragraph can auto-retry now that this revision has landed.
@@ -273,7 +280,7 @@ const FindAndReplaceSuggestionImpl = ({
           replacementText: parsed.replacement_text || '',
         });
       } else {
-        setError(res.error || 'Unknown error');
+        setError(res.error || (res.success ? 'No matches were replaced' : 'Unknown error'));
         setCardState('pending');
         registerPending(toolCallId);
       }
@@ -289,6 +296,32 @@ const FindAndReplaceSuggestionImpl = ({
     setEditState(toolCallId, 'denied');
     unregisterPending(toolCallId);
   }, [toolCallId]);
+
+  const handleCopy = useCallback(async () => {
+    // Copy the proposed replacement as plain text. When apply fails because
+    // of ligatures, smart-quotes, or other glyph mismatches, the user can
+    // paste this into Word manually.
+    const text = replacementText || '';
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Surface clipboard denial in the same error slot.
+      setError('Could not copy to clipboard');
+    }
+  }, [replacementText]);
 
   // Keep refs in sync so batch listeners call the latest version
   handleApproveRef.current = handleApprove;
@@ -306,14 +339,67 @@ const FindAndReplaceSuggestionImpl = ({
     );
   }
 
-  // --- Denied ---
+  // --- Denied / dismissed ---
+  // Collapsed by default but expandable: clicking Dismiss is easy to do by
+  // accident, and when expanded we show the full proposal actions (Accept /
+  // Copy / Dismiss) so the user can recover or re-confirm.
   if (cardState === 'denied') {
+    const handleAcceptFromDismissed = async () => {
+      setDetailsExpanded(false);
+      setError(null);
+      // Clear the persisted denied state before approving so the polling
+      // doesn't briefly flip us back to denied while applyEdit is in flight.
+      setEditState(toolCallId, '');
+      registerPending(toolCallId);
+      setCardState('pending');
+      // handleApprove reads cardState via closure, but its internal flow only
+      // checks `parsed`; calling it directly works.
+      handleApproveRef.current();
+    };
+    const handleDismissAgain = () => {
+      setDetailsExpanded(false);
+      // Already in 'denied' state — just re-persist and collapse.
+      setEditState(toolCallId, 'denied');
+    };
     return (
       <div className="suggestionCard suggestionCard--skipped">
-        <div className="suggestionHeader">
+        <button
+          type="button"
+          className="suggestionHeader suggestionHeader--toggle"
+          onClick={() => setDetailsExpanded((v) => !v)}
+          aria-expanded={detailsExpanded}
+        >
+          {detailsExpanded ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
           <MinusCircleIcon size={14} />
-          <span className="suggestionHeaderText">Skipped</span>
-        </div>
+          <span className="suggestionHeaderText">Dismissed</span>
+        </button>
+        {detailsExpanded && (
+          <>
+            <div className="suggestionDiff">
+              <del className="suggestionDiffDel">{searchText}</del>
+              <ins className="suggestionDiffIns">{replacementText}</ins>
+            </div>
+            <div className="suggestionActions">
+              <button className="suggestionBtn suggestionBtn--approve" onClick={handleAcceptFromDismissed}>
+                Accept
+              </button>
+              <button
+                className="suggestionBtn suggestionBtn--copy"
+                onClick={handleCopy}
+                title="Copy the proposed text"
+              >
+                {copied ? (
+                  <><CheckIcon size={12} /> Copied</>
+                ) : (
+                  <><CopyIcon size={12} /> Copy</>
+                )}
+              </button>
+              <button className="suggestionBtn suggestionBtn--deny" onClick={handleDismissAgain}>
+                Dismiss
+              </button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -331,17 +417,42 @@ const FindAndReplaceSuggestionImpl = ({
   }
 
   // --- Applied ---
+  // Collapsed by default. Expand to review the diff and copy the replacement
+  // text if needed (e.g. to paste somewhere else, or to verify what landed).
   if (cardState === 'applied') {
     return (
       <div className="suggestionCard suggestionCard--applied">
-        <div className="suggestionHeader">
+        <button
+          type="button"
+          className="suggestionHeader suggestionHeader--toggle"
+          onClick={() => setDetailsExpanded((v) => !v)}
+          aria-expanded={detailsExpanded}
+        >
+          {detailsExpanded ? <ChevronDownIcon size={14} /> : <ChevronRightIcon size={14} />}
           <CheckIcon size={14} />
           <span className="suggestionHeaderText">Applied edit</span>
-        </div>
-        <div className="suggestionDiff">
-          <del className="suggestionDiffDel">{searchText}</del>
-          <ins className="suggestionDiffIns">{replacementText}</ins>
-        </div>
+        </button>
+        {detailsExpanded && (
+          <>
+            <div className="suggestionDiff">
+              <del className="suggestionDiffDel">{searchText}</del>
+              <ins className="suggestionDiffIns">{replacementText}</ins>
+            </div>
+            <div className="suggestionActions">
+              <button
+                className="suggestionBtn suggestionBtn--copy"
+                onClick={handleCopy}
+                title="Copy the applied text"
+              >
+                {copied ? (
+                  <><CheckIcon size={12} /> Copied</>
+                ) : (
+                  <><CopyIcon size={12} /> Copy</>
+                )}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -360,7 +471,7 @@ const FindAndReplaceSuggestionImpl = ({
                 Approve all
               </button>
               <button className="suggestionBtn suggestionBtn--deny" onClick={() => emitBatch('deny-all')}>
-                Deny all
+                Dismiss all
               </button>
             </div>
           </div>
@@ -380,8 +491,23 @@ const FindAndReplaceSuggestionImpl = ({
             <button className="suggestionBtn suggestionBtn--approve" onClick={handleApprove}>
               {error ? 'Retry' : 'Approve'}
             </button>
-            <button className="suggestionBtn suggestionBtn--deny" onClick={handleDeny}>
-              Deny
+            <button
+              className="suggestionBtn suggestionBtn--copy"
+              onClick={handleCopy}
+              title="Copy the proposed text so you can paste it into the document manually"
+            >
+              {copied ? (
+                <><CheckIcon size={12} /> Copied</>
+              ) : (
+                <><CopyIcon size={12} /> Copy</>
+              )}
+            </button>
+            <button
+              className="suggestionBtn suggestionBtn--deny"
+              onClick={handleDeny}
+              title="Dismiss this proposal — use this if you applied it manually or don't want it"
+            >
+              Dismiss
             </button>
           </div>
         </div>

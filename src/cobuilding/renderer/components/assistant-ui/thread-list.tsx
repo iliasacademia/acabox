@@ -6,7 +6,7 @@ import {
   useThreadList,
 } from '@assistant-ui/react';
 import { DropdownMenu, AlertDialog } from 'radix-ui';
-import { MoreVerticalIcon, PencilIcon, TrashIcon, SearchIcon } from 'lucide-react';
+import { MessageSquareIcon, MoreVerticalIcon, PencilIcon, TrashIcon, SearchIcon } from 'lucide-react';
 import type { FC } from 'react';
 import {
   dateFromSessionStoredAt,
@@ -138,7 +138,49 @@ function formatRelativeDate(iso: string): string {
 const ConversationCount: FC = () => {
   const threadIds = useThreadList((s: any) => s.threadIds);
   const count = threadIds?.length ?? 0;
-  return <>{count} CONVERSATION{count !== 1 ? 'S' : ''}</>;
+  // Hold the last non-zero count so the "0 CONVERSATIONS" flash during a
+  // background refresh (sessions:changed → _loadThreadsPromise reset) doesn't
+  // show. We only ever bump the displayed count up or hold it; the runtime
+  // settles to the real count on its own.
+  const stableRef = useRef(count);
+  if (count > 0) stableRef.current = count;
+  const display = count > 0 ? count : stableRef.current;
+  return <>{display} CONVERSATION{display !== 1 ? 'S' : ''}</>;
+};
+
+// --- Stable items: hide the empty flash during refresh ---
+//
+// `useThreadList((s) => s.threadIds)` briefly returns `[]` when the runtime
+// invalidates the list cache and reloads (we do this on every
+// sessions:changed broadcast, see SessionsListRefresher in index.tsx). If we
+// render the live items unconditionally, navigating back from a chat shows
+// an empty list for a beat before the new fetch lands.
+//
+// We persist "have we ever seen items?" at module scope so that ThreadList
+// unmount/remount (which happens when the user enters a chat and clicks
+// back) doesn't reset the signal. While the live count is 0 but we know
+// items exist server-side, we render a "Refreshing…" placeholder instead
+// of the genuine empty state.
+let haveEverSeenThreads = false;
+
+const StableThreadItems: FC = () => {
+  const threadIds = useThreadList((s: any) => s.threadIds) as string[] | undefined;
+  const count = threadIds?.length ?? 0;
+  if (count > 0) haveEverSeenThreads = true;
+
+  if (count === 0 && haveEverSeenThreads) {
+    return (
+      <div className="chatListRefreshing" style={{ padding: '12px 4px', color: '#9ca3af', fontSize: 13 }}>
+        Refreshing chats…
+      </div>
+    );
+  }
+
+  return (
+    <ThreadListPrimitive.Items>
+      {() => <ThreadListItem />}
+    </ThreadListPrimitive.Items>
+  );
 };
 
 // --- Main ThreadList ---
@@ -149,17 +191,16 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
   return (
     <SearchQueryContext.Provider value={searchQuery}>
       <SelectThreadContext.Provider value={onSelectThread}>
-        <ThreadListPrimitive.Root className="chatListRoot">
-          <div className="chatListScroll">
-            <div className="chatListInner">
+        <ThreadListPrimitive.Root className="pageShell">
+          <div className="pageShell__inner">
               {/* Page header */}
-              <div className="chatListPageHeader">
-                <span className="chatListBreadcrumb">
-                  CHATS &middot; <ConversationCount />
-                </span>
-                <h1 className="chatListTitle">Your conversations</h1>
-                <p className="chatListDescription">
-                  Every chat is saved automatically. Search by content or browse recent ones.
+              <div className="pageShell__headerBlock">
+                <div className="pageShell__stats">
+                  <ConversationCount />
+                </div>
+                <h1 className="pageShell__title">Chats</h1>
+                <p className="pageShell__subtitle">
+                  Every conversation you've had with me. Most recent first.
                 </p>
               </div>
 
@@ -178,11 +219,8 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
 
               {/* Items */}
               <div className="chatListItems">
-                <ThreadListPrimitive.Items>
-                  {() => <ThreadListItem />}
-                </ThreadListPrimitive.Items>
+                <StableThreadItems />
               </div>
-            </div>
           </div>
         </ThreadListPrimitive.Root>
       </SelectThreadContext.Provider>
@@ -246,6 +284,9 @@ const ThreadListItem: FC = () => {
 
   return (
     <ThreadListItemPrimitive.Root className="chatListItem">
+      <div className="chatListItemIcon">
+        <MessageSquareIcon style={{ width: 18, height: 18 }} />
+      </div>
       <ThreadListItemPrimitive.Trigger
         className="chatListItemTrigger"
         onClick={() => onSelectThread?.()}

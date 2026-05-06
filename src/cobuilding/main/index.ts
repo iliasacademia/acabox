@@ -1385,11 +1385,120 @@ function migrateHostSessionsToContainer(workspacePath: string): void {
   }
 }
 
+/**
+ * TODO: Remove this migration once most workspaces have been migrated past
+ * this version. Added: 2026-05-05. Safe to remove after ~2026-08-05.
+ *
+ * Every mini-app must have a manifest.json describing its name, description,
+ * icon (Lucide name), and lastOpened timestamp — the Tools page reads this to
+ * render each app and order by recency. Apps created before this change don't
+ * have one. On startup we scan .applications/* for missing manifests and
+ * launch a background job per app that asks Claude to generate the metadata
+ * from the app's source. Failures are logged and retried on next startup.
+ */
+async function migrateMissingManifests(workspace: Workspace): Promise<void> {
+  const appsDir = path.join(workspace.directory_path, '.applications');
+
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsPromises.readdir(appsDir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+
+  const missing: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('_')) continue;
+    const manifestPath = path.join(appsDir, entry.name, 'manifest.json');
+    try {
+      await fsPromises.access(manifestPath);
+    } catch {
+      missing.push(entry.name);
+    }
+  }
+
+  if (missing.length === 0) return;
+  log.info(`[ManifestMigration] Generating manifests for ${missing.length} apps: ${missing.join(', ')}`);
+
+  // Run sequentially to keep API load light. Each app is independent; one
+  // failure doesn't affect the others.
+  for (const dirName of missing) {
+    try {
+      await generateManifestForApp(workspace, dirName);
+    } catch (err) {
+      log.warn(`[ManifestMigration] Failed for ${dirName}: ${(err as Error).message ?? err}`);
+    }
+  }
+}
+
+async function generateManifestForApp(workspace: Workspace, dirName: string): Promise<void> {
+  const appDir = path.join(workspace.directory_path, '.applications', dirName);
+  const manifestPath = path.join(appDir, 'manifest.json');
+
+  // Another startup run may have raced to write the file in the meantime.
+  try {
+    await fsPromises.access(manifestPath);
+    return;
+  } catch { /* keep going */ }
+
+  if (!workspace.api_key) {
+    log.warn(`[ManifestMigration] No API key — skipping ${dirName}`);
+    return;
+  }
+
+  let appSource = '';
+  try {
+    appSource = await fsPromises.readFile(path.join(appDir, 'src', 'App.tsx'), 'utf-8');
+  } catch { /* fall back to dir name */ }
+  if (appSource.length > 8000) appSource = appSource.slice(0, 8000);
+
+  const client = new Anthropic({ apiKey: workspace.api_key, baseURL: cachedBaseURL });
+  const message = await client.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 400,
+    messages: [{
+      role: 'user',
+      content: `You are generating manifest.json metadata for a mini-app. Return only JSON with these fields:
+- name: short user-visible title (≤ 40 chars)
+- description: one-sentence summary of what the app does (≤ 80 chars)
+- icon: a Lucide icon name in PascalCase (e.g. FlaskConical, LineChart, Microscope, Dna, Beaker, Image, Table, BarChart3) that visually fits
+
+Directory name: ${dirName}
+
+App source (truncated):
+${appSource || '(no App.tsx found — infer from the directory name)'}
+
+Output JSON only. No prose, no code fences.`,
+    }],
+  });
+
+  const block = message.content[0] as { type: string; text?: string };
+  const text = (block && block.type === 'text' && block.text) ? block.text : '';
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON in model response');
+
+  const parsed = JSON.parse(jsonMatch[0]) as { name?: unknown; description?: unknown; icon?: unknown };
+  const fallbackName = dirName.replace(/[-_]/g, ' ').replace(/^./, (c) => c.toUpperCase());
+  const manifest = {
+    name: typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name : fallbackName,
+    description: typeof parsed.description === 'string' ? parsed.description : '',
+    icon: typeof parsed.icon === 'string' && parsed.icon.trim() ? parsed.icon : 'LayoutGrid',
+    lastOpened: null,
+  };
+
+  await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  log.info(`[ManifestMigration] Wrote manifest for ${dirName}: ${manifest.name} / ${manifest.icon}`);
+}
+
 async function startAgentInfrastructure(workspacePath: string): Promise<void> {
   if (!activeWorkspace) return;
 
   // 0. One-time migration of session files from bundled podman HOME
   migrateHostSessionsToContainer(workspacePath);
+
+  // 0b. Backfill manifest.json for any apps that pre-date the manifest format.
+  // Fire-and-forget so AI calls don't gate the rest of startup.
+  void migrateMissingManifests(activeWorkspace);
 
   // 1. Copy agent server bundle and claude binary to workspace
   await containerService.ensureAgentFilesInWorkspace(workspacePath);

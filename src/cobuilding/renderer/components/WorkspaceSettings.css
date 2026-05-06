@@ -17,7 +17,7 @@
   max-height: 85vh;
   overflow-y: auto;
   background: #ffffff;
-  border-radius: 12px;
+  border-radius: 0;
   padding: 28px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
@@ -106,7 +106,7 @@
   padding: 16px 28px;
   background: #ffffff;
   border-top: 1.5px solid #e5e7eb;
-  border-radius: 0 0 12px 12px;
+  border-radius: 0;
 }
 
 .wsSettings__divider {
@@ -216,7 +216,7 @@
 .wsSettings--inline .wsSettings__card {
   max-width: 640px;
   max-height: none;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  box-shadow: none;
   border: 1px solid #e5e2dd;
   margin: 0 auto;
 }

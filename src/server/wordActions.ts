@@ -13,6 +13,7 @@ import { app } from 'electron';
 import { defaultLogger as logger } from '../utils/logger';
 import { logToWindowMonitorDb } from '../windowMonitorDb';
 import { windowMonitorService } from '../windowMonitorService';
+import { buildFindReplaceScript } from './wordFindReplaceScript';
 
 function getWordActionsBinPath(): string {
   if (app.isPackaged) {
@@ -1005,104 +1006,22 @@ async function runFindAndReplace(
 
   const replaceAll = replaceScope === 'all';
   const sanitizeChangedSearch = cleanSearch !== searchText;
+  // Word's find object is unreliable past ~255 chars on Word-for-Mac. When a
+  // search of this length misses, we fall through to an anchor + range
+  // strategy (Pass 3) instead of giving up.
+  const longSearchThreshold = 255;
+  const isLongSearch = searchText.length > longSearchThreshold;
 
   try {
-    const script = `
-set searchPath to POSIX file "${searchPath}"
-set replacePath to POSIX file "${replacePath}"
-set originalSearchPath to POSIX file "${originalSearchPath}"
-set searchText to (read searchPath as «class utf8»)
-set replaceText to (read replacePath as «class utf8»)
-set originalSearchText to (read originalSearchPath as «class utf8»)
-
-tell application "Microsoft Word"
-  if (count of documents) is 0 then
-    return "error||No document open"
-  end if
-  try
-    -- Temporarily set author name so tracked changes show "Academia Coscientist"
-    set origName to user name
-    set origInitials to user initials
-    set user name to "Academia Coscientist"
-    set user initials to "AC"
-    set doc to active document
-    set origTrack to track revisions of doc
-    set track revisions of doc to true
-
-    set replacementsCount to 0
-    set usedOriginal to false
-
-    try
-      -- Pass 1: sanitized search string (ligatures expanded, smart
-      -- quotes/dashes normalized to ASCII). Catches the common case
-      -- where the agent's search came from a PDF and contains glyphs
-      -- the doc represents in plain ASCII. Word's own engine handles
-      -- position, so on match the replacement always lands correctly.
-      set docRange to create range doc start 0 end (end of content of text object of doc)
-      set findObj to find object of docRange
-      clear formatting findObj
-      set content of findObj to searchText
-      set forward of findObj to true
-      set wrap of findObj to find stop
-      set match case of findObj to ${matchCase}
-      set replObj to replacement of findObj
-      clear formatting replObj
-      set content of replObj to replaceText
-      set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
-      if wasFound then
-        set replacementsCount to 1
-      else if ${sanitizeChangedSearch ? 'true' : 'false'} then
-        -- Pass 2: un-sanitized original. Catches the inverse case
-        -- where both the doc and the search contain matching fancy
-        -- chars and our sanitization moved them apart.
-        set docRange to create range doc start 0 end (end of content of text object of doc)
-        set findObj to find object of docRange
-        clear formatting findObj
-        set content of findObj to originalSearchText
-        set forward of findObj to true
-        set wrap of findObj to find stop
-        set match case of findObj to ${matchCase}
-        set replObj to replacement of findObj
-        clear formatting replObj
-        set content of replObj to replaceText
-        set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
-        if wasFound then
-          set replacementsCount to 1
-          set usedOriginal to true
-        end if
-      end if
-    on error tier1Err
-      -- Word's find rejected the inputs (long search strings, paragraph
-      -- marks, citation field codes, or PDF/clipboard artifacts that
-      -- survive sanitizePdfArtifacts). We deliberately do NOT attempt a
-      -- positional fallback here — earlier prefix-extend implementations
-      -- landed the replacement at the wrong location because AppleScript's
-      -- find binding doesn't reliably mutate the search range. A clean
-      -- failure that the user can copy/paste from the diff is safer than
-      -- a destructive guess. The TS wrapper converts replacementsCount=0
-      -- into success=false with a friendly "Could not find the search
-      -- text…" message; the renderer keeps the suggestion card visible
-      -- with a Retry button.
-      log "[wordActions] Word find errored, returning no-match: " & tier1Err
-    end try
-
-    set user name to origName
-    set user initials to origInitials
-    set track revisions of doc to origTrack
-    if usedOriginal then
-      return "ok||" & replacementsCount & "||original"
-    else
-      return "ok||" & replacementsCount
-    end if
-  on error errMsg number errNum
-    try
-      set user name to origName
-      set user initials to origInitials
-      set track revisions of doc to origTrack
-    end try
-    return "error||" & errMsg
-  end try
-end tell`;
+    const script = buildFindReplaceScript({
+      searchPath,
+      replacePath,
+      originalSearchPath,
+      replaceAll,
+      matchCase,
+      sanitizeChangedSearch,
+      isLongSearch,
+    });
 
     const result = await runAppleScriptStdin(script);
     const parts = result.split('||');
@@ -1112,31 +1031,33 @@ end tell`;
     }
 
     const count = parseInt(parts[1] || '0', 10);
-    if (parts[2] === 'original') {
+    const mode = parts[2] || 'find';
+    const revCount = parseInt(parts[3] || '0', 10);
+    if (mode === 'original') {
       logger.info('[WordActions] findAndReplaceInWord: matched on un-sanitized fallback (doc has fancy chars matching original search)');
+    } else if (mode === 'anchor' || mode === 'anchor-original') {
+      logger.info(`[WordActions] findAndReplaceInWord: matched via anchor+range fallback (mode=${mode}, search length=${searchText.length})`);
     }
     if (count === 0) {
-      // Both passes (sanitized + original) missed. We don't try a positional
-      // fallback — earlier prefix-extend attempts wrote the replacement at
-      // the wrong location too often to justify keeping. Surface as a hard
-      // failure with a reason that's actually accurate about *why* this
-      // particular search likely failed. The renderer keeps the suggestion
-      // card visible with the diff and a Retry/Deny pair so the user can
-      // hand-apply the change.
-      logger.info(`[WordActions] findAndReplaceInWord: no match found (search length=${searchText.length})`);
+      logger.info(`[WordActions] findAndReplaceInWord: no match found (search length=${searchText.length}, revisions=${revCount})`);
       const suspicious = describeSuspiciousChars(searchText);
-      // Word's find object has a content-length limit (historically ~255
-      // chars; modern Word-for-Mac is more permissive but unreliable on
-      // long passages with mixed punctuation/parentheses). If the search
-      // looks long, that's almost certainly why this miss happened.
-      const isLongSearch = searchText.length > 255;
+      // Track-change diagnosis takes priority over length/char hints. If
+      // the doc has unaccepted revisions, "content of text object of doc"
+      // returns the post-revision text, which strips deleted ranges. So
+      // any search that targets text already deleted by a prior tracked
+      // change CANNOT be located by either Word's find or our offset
+      // fallback. The fix is workflow-level: accept (or reject) the prior
+      // changes first, then retry — or the user can copy/paste manually
+      // since the doc may already reflect the desired final state.
       let reason: string;
-      if (isLongSearch) {
-        reason = ` The search text is ${searchText.length} characters — Word's find engine has trouble matching passages this long, especially ones with mixed punctuation or parentheses. Ask the agent to split this into smaller, sentence-level edits, or copy the proposed text from the diff above and paste it in manually.`;
+      if (revCount > 0) {
+        reason = ` The document has ${revCount} unaccepted track change${revCount === 1 ? '' : 's'}. If a prior revision deleted the text this edit was matching against, Word can no longer find it. Open Review → Accept All to apply prior changes and click Retry, or click Copy to apply manually. (If the doc already shows your desired text, just Dismiss this edit.)`;
+      } else if (isLongSearch) {
+        reason = ` The search text is ${searchText.length} characters and Word's matcher couldn't locate it. Click Copy below to grab the proposed text, then paste it into the document manually.`;
       } else if (suspicious.length) {
-        reason = ` The search text contains ${suspicious.join(', ')} which Word's find can't always match against the doc's representation of the same character.`;
+        reason = ` The search text contains ${suspicious.join(', ')} which Word's find can't always match against the doc's representation of the same character. Click Copy to grab the proposed text and paste it in manually.`;
       } else {
-        reason = ' The exact passage may have been edited since the agent proposed this change, or the surrounding paragraph contains track-change markup that breaks Word\'s find. Try clicking Retry, or copy from the diff and apply manually.';
+        reason = ' The exact passage may have been edited since the agent proposed this change. Click Retry, or click Copy to grab the proposed text and paste it in manually.';
       }
       return {
         success: false,

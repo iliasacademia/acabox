@@ -70,4 +70,4 @@ Order comments by severity (major first), then by confidence (high first).
 
 Every quote must be a verbatim substring of the author's text. Copy it character-for-character. Do not paraphrase, reword, summarize, or reconstruct. If you cannot find an exact passage to quote, the comment may not be grounded in the actual text. Reconsider whether the issue is real.
 
-<!-- skill-file: actions/review.md -->
+<!-- skill-file: actions/review.md @2026-05-05a -->
