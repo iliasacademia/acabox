@@ -18,6 +18,11 @@ import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
+import {
+  listBriefings,
+  setBriefingStatus,
+  type BriefingStatus,
+} from './db/briefingsRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -1035,6 +1040,23 @@ ipcMain.handle('reports:get', (_event, reportId: string) => {
 ipcMain.handle('reports:update', (_event, reportId: string, reportData: string) => {
   updateReportData(reportId, reportData);
 });
+
+// ─── Briefings IPC ──────────────────────────────────────────────
+
+ipcMain.handle(
+  'briefings:list',
+  (_event, filter?: { status?: BriefingStatus[]; limit?: number }) => {
+    if (!activeWorkspace) return [];
+    return listBriefings(activeWorkspace.id, filter ?? {});
+  },
+);
+
+ipcMain.handle(
+  'briefings:setStatus',
+  (_event, id: string, status: BriefingStatus) => {
+    setBriefingStatus(id, status);
+  },
+);
 
 // ─── Directory Scanner IPC ──────────────────────────────────────
 

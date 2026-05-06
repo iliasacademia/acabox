@@ -283,6 +283,13 @@ contextBridge.exposeInMainWorld('reportsAPI', {
     ipcRenderer.invoke('reports:update', reportId, reportData),
 });
 
+contextBridge.exposeInMainWorld('briefingsAPI', {
+  list: (filter?: { status?: string[]; limit?: number }) =>
+    ipcRenderer.invoke('briefings:list', filter),
+  setStatus: (id: string, status: string) =>
+    ipcRenderer.invoke('briefings:setStatus', id, status),
+});
+
 contextBridge.exposeInMainWorld('scannerAPI', {
   start: () => ipcRenderer.invoke('scanner:start'),
   onEvent: (callback: (event: any) => void) => {

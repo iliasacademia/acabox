@@ -18,10 +18,13 @@ const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess, onBack }) => {
   const [error, setError] = useState<string>('');
   const [copied, setCopied] = useState<boolean>(false);
   const isVerifyingRef = useRef(false);
-  const [endpoint, setEndpoint] = useState<string>('devdemia');
+  const [endpoint, setEndpoint] = useState<string>('production');
 
   useEffect(() => {
-    startQRAuth();
+    (async () => {
+      await window.authAPI.setEndpoint('production');
+      startQRAuth();
+    })();
   }, []);
 
   const handleEndpointChange = async (newEndpoint: string) => {
@@ -136,20 +139,6 @@ const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess, onBack }) => {
             Sign in to link this app to your Academia.edu account
           </p>
         </div>
-
-        {window.authAPI.isDev && (
-          <div className="academiaLogin__endpointSelector">
-            <label className="academiaLogin__endpointLabel">API Endpoint:</label>
-            <select
-              className="academiaLogin__endpointSelect"
-              value={endpoint}
-              onChange={(e) => handleEndpointChange(e.target.value)}
-            >
-              <option value="devdemia">Development (devdemia.com)</option>
-              <option value="production">Production (academia.edu)</option>
-            </select>
-          </div>
-        )}
 
         <div className="academiaLogin__card">
           {status === 'initializing' && (
@@ -268,6 +257,20 @@ const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess, onBack }) => {
             </div>
           )}
         </div>
+
+        {window.authAPI.isDev && (
+          <div className="academiaLogin__endpointSelector">
+            <label className="academiaLogin__endpointLabel">API Endpoint:</label>
+            <select
+              className="academiaLogin__endpointSelect"
+              value={endpoint}
+              onChange={(e) => handleEndpointChange(e.target.value)}
+            >
+              <option value="production">Production (academia.edu)</option>
+              <option value="devdemia">Development (devdemia.com)</option>
+            </select>
+          </div>
+        )}
       </div>
     </div>
   );
