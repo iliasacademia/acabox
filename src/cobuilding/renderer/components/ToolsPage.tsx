@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { LayoutGridIcon, PlusIcon, UploadIcon, ChevronRightIcon, PowerIcon, TrashIcon } from 'lucide-react';
+import { LayoutGridIcon, PlusIcon, UploadIcon, ChevronRightIcon, PowerIcon, TrashIcon, BellIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
 interface MiniAppEntry {
@@ -47,10 +47,12 @@ const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
 export function ToolsPage({
   workspacePath,
   onSelectApp,
+  onOpenPaperMonitor,
   onSwitchToChat,
 }: {
   workspacePath: string;
   onSelectApp: (dirName: string) => void;
+  onOpenPaperMonitor: () => void;
   onSwitchToChat: () => void;
 }) {
   const [apps, setApps] = useState<MiniAppEntry[]>([]);
@@ -146,7 +148,7 @@ export function ToolsPage({
     }
   }, [workspacePath, refresh]);
 
-  const installedCount = apps.length;
+  const installedCount = apps.length + 1;
   const suggestedCount = PERSONALIZED_TOOLS_STUB.length;
   const availableCount = AVAILABLE_TOOLS_STUB.length;
 
@@ -177,58 +179,86 @@ export function ToolsPage({
             <span className="toolsSection__count">{installedCount}</span>
           </h2>
           <div className="toolsCard">
-            {loading && apps.length === 0 ? (
-              <div className="toolsSection__empty">Loading...</div>
-            ) : apps.length === 0 ? (
-              <div className="toolsSection__empty">No tools installed yet</div>
-            ) : (
-              apps.map((app, i) => (
-                <div key={app.dirName}>
-                  <div className={`toolRow${i > 0 ? ' toolRow--bordered' : ''}`}>
-                    <div className="toolRow__icon">
-                      <LayoutGridIcon style={{ width: 18, height: 18 }} />
-                    </div>
-                    <div className="toolRow__info">
-                      <div className="toolRow__header">
-                        <button
-                          className="toolRow__name"
-                          onClick={() => onSelectApp(app.dirName)}
-                        >
-                          {app.name}
-                        </button>
-                        <span className="toolRow__tag toolRow__tag--plain">ON-DEMAND</span>
-                      </div>
-                    </div>
-                    <div className="toolRow__actions">
+            <div>
+              <div className="toolRow">
+                <div className="toolRow__icon">
+                  <BellIcon style={{ width: 18, height: 18 }} />
+                </div>
+                <div className="toolRow__info">
+                  <div className="toolRow__header">
+                    <button className="toolRow__name" onClick={onOpenPaperMonitor}>
+                      Paper Monitor
+                    </button>
+                    <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>
+                    <span className="toolRow__tag toolRow__tag--plain">SCHEDULED</span>
+                  </div>
+                  <div className="toolRow__description">New papers in your topics, weekly digest</div>
+                </div>
+                <div className="toolRow__actions">
+                  <button
+                    className="toolRow__settingsBtn"
+                    onClick={() => setSettingsOpen(settingsOpen === 'paper-monitor' ? null : 'paper-monitor')}
+                  >
+                    <ChevronRightIcon style={{ width: 14, height: 14, transform: settingsOpen === 'paper-monitor' ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                    Settings
+                  </button>
+                  <button className="toolRow__primaryBtn" onClick={onOpenPaperMonitor}>
+                    View
+                  </button>
+                </div>
+              </div>
+              {settingsOpen === 'paper-monitor' && (
+                <div className="toolRow__settingsPanel">
+                  <PaperMonitorSettings />
+                </div>
+              )}
+            </div>
+            {loading && apps.length === 0 ? null : apps.map((app) => (
+              <div key={app.dirName}>
+                <div className="toolRow toolRow--bordered">
+                  <div className="toolRow__icon">
+                    <LayoutGridIcon style={{ width: 18, height: 18 }} />
+                  </div>
+                  <div className="toolRow__info">
+                    <div className="toolRow__header">
                       <button
-                        className="toolRow__settingsBtn"
-                        onClick={() => setSettingsOpen(settingsOpen === app.dirName ? null : app.dirName)}
-                      >
-                        <ChevronRightIcon style={{ width: 14, height: 14, transform: settingsOpen === app.dirName ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
-                        Settings
-                      </button>
-                      <button
-                        className="toolRow__primaryBtn"
+                        className="toolRow__name"
                         onClick={() => onSelectApp(app.dirName)}
                       >
-                        View
+                        {app.name}
                       </button>
+                      <span className="toolRow__tag toolRow__tag--plain">ON-DEMAND</span>
                     </div>
                   </div>
-                  {settingsOpen === app.dirName && (
-                    <div className="toolRow__settingsPanel">
-                      <button
-                        className="toolRow__deleteBtn"
-                        onClick={() => setConfirmDelete(app)}
-                      >
-                        <TrashIcon style={{ width: 14, height: 14 }} />
-                        Delete tool
-                      </button>
-                    </div>
-                  )}
+                  <div className="toolRow__actions">
+                    <button
+                      className="toolRow__settingsBtn"
+                      onClick={() => setSettingsOpen(settingsOpen === app.dirName ? null : app.dirName)}
+                    >
+                      <ChevronRightIcon style={{ width: 14, height: 14, transform: settingsOpen === app.dirName ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                      Settings
+                    </button>
+                    <button
+                      className="toolRow__primaryBtn"
+                      onClick={() => onSelectApp(app.dirName)}
+                    >
+                      View
+                    </button>
+                  </div>
                 </div>
-              ))
-            )}
+                {settingsOpen === app.dirName && (
+                  <div className="toolRow__settingsPanel">
+                    <button
+                      className="toolRow__deleteBtn"
+                      onClick={() => setConfirmDelete(app)}
+                    >
+                      <TrashIcon style={{ width: 14, height: 14 }} />
+                      Delete tool
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </section>
 
@@ -347,6 +377,105 @@ export function ToolsPage({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Paper Monitor settings (inline editor under the row) ---
+
+const PAPER_MONITOR_SETTINGS_KEY = 'cobuild.paperMonitor.settings';
+
+interface PaperMonitorSettingsValue {
+  topics: string;
+  sources: string;
+  frequency: string;
+  dayOfWeek: string;
+}
+
+const DEFAULT_SETTINGS: PaperMonitorSettingsValue = {
+  topics: 'wound healing, YAP/TAZ, mechanotransduction',
+  sources: 'PubMed, bioRxiv, 5 journals',
+  frequency: 'Weekly',
+  dayOfWeek: 'Monday · 8am',
+};
+
+function loadSettings(): PaperMonitorSettingsValue {
+  try {
+    const raw = localStorage.getItem(PAPER_MONITOR_SETTINGS_KEY);
+    if (!raw) return DEFAULT_SETTINGS;
+    const parsed = JSON.parse(raw);
+    return { ...DEFAULT_SETTINGS, ...parsed };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+function saveSettings(value: PaperMonitorSettingsValue) {
+  localStorage.setItem(PAPER_MONITOR_SETTINGS_KEY, JSON.stringify(value));
+}
+
+function PaperMonitorSettings() {
+  const [value, setValue] = useState<PaperMonitorSettingsValue>(() => loadSettings());
+  const [editingField, setEditingField] = useState<keyof PaperMonitorSettingsValue | null>(null);
+  const [draft, setDraft] = useState('');
+
+  const startEdit = (field: keyof PaperMonitorSettingsValue) => {
+    setEditingField(field);
+    setDraft(value[field]);
+  };
+
+  const commit = () => {
+    if (!editingField) return;
+    const next = { ...value, [editingField]: draft.trim() || DEFAULT_SETTINGS[editingField] };
+    setValue(next);
+    saveSettings(next);
+    setEditingField(null);
+  };
+
+  const cancel = () => {
+    setEditingField(null);
+  };
+
+  const fields: { key: keyof PaperMonitorSettingsValue; label: string }[] = [
+    { key: 'topics', label: 'TOPICS' },
+    { key: 'sources', label: 'SOURCES' },
+    { key: 'frequency', label: 'FREQUENCY' },
+    { key: 'dayOfWeek', label: 'DAY OF WEEK' },
+  ];
+
+  return (
+    <div className="paperMonitorSettings">
+      <div className="paperMonitorSettings__heading">
+        CONFIGURATION &middot; CLICK TO EDIT
+      </div>
+      {fields.map((f) => {
+        const isEditing = editingField === f.key;
+        return (
+          <div key={f.key} className="paperMonitorSettings__row">
+            <div className="paperMonitorSettings__label">{f.label}</div>
+            {isEditing ? (
+              <input
+                className="paperMonitorSettings__input"
+                value={draft}
+                autoFocus
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commit();
+                  if (e.key === 'Escape') cancel();
+                }}
+              />
+            ) : (
+              <button
+                className="paperMonitorSettings__value"
+                onClick={() => startEdit(f.key)}
+              >
+                {value[f.key]}
+              </button>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

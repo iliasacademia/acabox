@@ -19,6 +19,7 @@ import { NotebookViewer } from './components/notebook';
 import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
+import { PaperMonitorView } from './components/PaperMonitorView';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useTasks } from './taskStore';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -360,7 +361,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('home');
   const [chatViewMode, setChatViewMode] = useState<'list' | 'detail'>('list');
-  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail'>('listing');
+  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail' | 'paper-monitor'>('listing');
   const [toolChatOpen, setToolChatOpen] = useState(true);
   const [debugSection, setDebugSection] = useState<DebugSection>(() => {
     const saved = localStorage.getItem('debug-section');
@@ -651,10 +652,47 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
                     </div>
                   )}
                 </div>
+              ) : toolsViewMode === 'paper-monitor' ? (
+                <div className="toolDetailContent">
+                  {toolChatOpen ? (
+                    <PanelGroup direction="horizontal" autoSaveId="cobuild.paperMonitorLayout" className="appPanelGroup">
+                      <Panel id="paperMonitorMain" order={1} defaultSize={65} minSize={30}>
+                        <div className="mainPanel">
+                          <PaperMonitorView onBack={() => setToolsViewMode('listing')} />
+                        </div>
+                      </Panel>
+                      <div className="panelBorder">
+                        <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                        <button
+                          className="panelCollapseBtn"
+                          onClick={() => setToolChatOpen(false)}
+                          title="Close chat panel"
+                        />
+                      </div>
+                      <Panel id="paperMonitorChat" order={2} defaultSize={35} minSize={18} maxSize={50}>
+                        <div className="chatSidePanel">
+                          <Thread />
+                        </div>
+                      </Panel>
+                    </PanelGroup>
+                  ) : (
+                    <div style={{ flex: 1, display: 'flex', position: 'relative' }}>
+                      <div className="mainPanel" style={{ flex: 1 }}>
+                        <PaperMonitorView onBack={() => setToolsViewMode('listing')} />
+                      </div>
+                      <button
+                        className="panelExpandBtn"
+                        onClick={() => setToolChatOpen(true)}
+                        title="Open chat panel"
+                      />
+                    </div>
+                  )}
+                </div>
               ) : (
                 <ToolsPage
                   workspacePath={workspace.directory_path}
                   onSelectApp={handleSelectApp}
+                  onOpenPaperMonitor={() => setToolsViewMode('paper-monitor')}
                   onSwitchToChat={() => setSidebarTab('chats')}
                 />
               )}
@@ -781,7 +819,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
           {/* Global composer — shown on all pages except settings, debug, tool detail view */}
           {sidebarTab !== 'settings' &&
            sidebarTab !== 'debug' &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') && (
+           !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
+           !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') && (
             <GlobalComposer
               isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
               onNavigateToChat={() => {
