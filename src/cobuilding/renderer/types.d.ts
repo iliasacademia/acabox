@@ -577,6 +577,67 @@ declare global {
     onEvent(callback: (event: ScannerEvent) => void): () => void;
   }
 
+  type BriefingType =
+    | 'suggested_action'
+    | 'suggested_tool'
+    | 'paper'
+    | 'citation'
+    | 'grant';
+
+  type BriefingStatus = 'new' | 'opened' | 'dismissed';
+
+  interface Briefing {
+    id: string;
+    workspace_id: string;
+    type: BriefingType;
+    /** JSON string; shape depends on `type` (see BriefingData* interfaces). */
+    briefing_data: string;
+    why_im_suggesting_this: string | null;
+    status: BriefingStatus;
+    source_report_id: string | null;
+    created_at: string;
+    updated_at: string;
+  }
+
+  interface BriefingDataSuggestedTool {
+    name: string;
+    details_on_what_to_build: string;
+  }
+
+  interface BriefingDataSuggestedAction {
+    title: string;
+    description: string;
+    chat_prompt: string;
+  }
+
+  interface BriefingDataPaper {
+    title: string;
+    authors?: string[];
+    url?: string;
+    abstract?: string;
+  }
+
+  interface BriefingDataCitation {
+    paper_title: string;
+    citing_work: string;
+    url?: string;
+  }
+
+  interface BriefingDataGrant {
+    title: string;
+    agency: string;
+    deadline?: string;
+    url?: string;
+  }
+
+  interface BriefingsAPI {
+    list(filter?: {
+      status?: BriefingStatus[];
+      limit?: number;
+    }): Promise<Briefing[]>;
+    setStatus(id: string, status: BriefingStatus): Promise<void>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     calendarAPI: CalendarAPI;
@@ -603,5 +664,6 @@ declare global {
     officeAddinAPI: OfficeAddinAPI;
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;
+    briefingsAPI: BriefingsAPI;
   }
 }
