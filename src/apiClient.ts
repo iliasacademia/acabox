@@ -303,3 +303,9 @@ export const logout = async () => {
 
   return { success: true };
 };
+
+export function hasSessionCookie(): boolean {
+  const cookieFileName = app.isPackaged ? 'backendCookies.encrypted' : 'backendCookies.dev.encrypted';
+  const cookieJarPath = path.join(app.getPath('userData'), cookieFileName);
+  return fs.existsSync(cookieJarPath);
+}

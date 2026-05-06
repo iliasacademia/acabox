@@ -30,7 +30,7 @@
     "test:window-monitor": "node window-monitor/test/window-monitor-macos-test.js",
     "cleanup:sessions": "node scripts/cleanup-sessions.js",
     "db:dev": "sqlite3 -column -header ~/Library/Application\\ Support/academia-electron/sessions-dev.db",
-    "db:cobuilding:reset": "rm -f ~/Library/Application\\ Support/academia-electron/development/cobuilding.db",
+    "db:cobuilding:reset": "rm -f ~/Library/Application\\ Support/academia-electron/development/cobuilding.db*",
     "cobuilding:build-container": "podman build -t cobuilding-container -f src/cobuilding/Dockerfile src/cobuilding",
     "cobuilding:build-container:full": "podman build -t cobuilding-base:local -f src/cobuilding/Dockerfile.base src/cobuilding && podman build --build-arg BASE_IMAGE=cobuilding-base:local -t cobuilding-container -f src/cobuilding/Dockerfile src/cobuilding",
     "prebuild": "npm run build:native && npm run build:popup",

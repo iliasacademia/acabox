@@ -43,6 +43,7 @@ import {
   getActiveWorkspace,
   listWorkspaces,
   touchWorkspace,
+  deleteAllWorkspaces,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -71,7 +72,7 @@ import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } fro
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { BackgroundBuilder } from './backgroundBuilder';
 import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer, installDepsStreaming } from './environmentGenerator';
-import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL } from '../../apiClient';
+import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL, hasSessionCookie } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuildingAuthService';
 import { fetchGatewayCredentials, getAnthropicConfig, setRefreshCallback, destroyTokenManager, type AnthropicConfig } from './cobuildingTokenManager';
@@ -1100,6 +1101,11 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle('workspaces:deleteAll', () => {
+  deleteAllWorkspaces();
+  activeWorkspace = null;
+});
+
 ipcMain.handle('workspaces:list', () => {
   return listWorkspaces();
 });
@@ -1169,13 +1175,18 @@ ipcMain.handle(
 
 let scannerRunning = false;
 
-ipcMain.handle('scanner:start', () => {
+ipcMain.handle('scanner:start', async () => {
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  const apiKey = activeWorkspace.api_key;
+  let apiKey = activeWorkspace.api_key;
   if (!apiKey) {
-    throw new Error('No API key available');
+    const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+    cachedApiKey = result.apiKey;
+    cachedBaseURL = result.baseURL;
+    apiKey = result.apiKey;
+    updateApiKey(activeWorkspace.id, apiKey);
+    activeWorkspace = { ...activeWorkspace, api_key: apiKey };
   }
   if (scannerRunning) {
     log.warn('[scanner:start] Scan already in progress — ignoring duplicate request');
@@ -2543,6 +2554,7 @@ ipcMain.handle('auth:logout', async () => {
   try {
     activeWorkspace = null;
     cachedApiKey = null;
+    deleteAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {
@@ -2550,6 +2562,8 @@ ipcMain.handle('auth:logout', async () => {
     return { success: false, error: error.message };
   }
 });
+
+ipcMain.handle('auth:hasSessionCookie', () => hasSessionCookie());
 
 ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
   if (app.isPackaged) {

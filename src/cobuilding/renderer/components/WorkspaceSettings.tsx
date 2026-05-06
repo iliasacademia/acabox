@@ -8,10 +8,11 @@ interface WorkspaceSettingsProps {
   onClose: () => void;
   onSaved: (ws: Workspace) => void;
   onLogout: () => void;
+  onRestartOnboarding: () => void;
   inline?: boolean;
 }
 
-const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout, inline }) => {
+const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClose, onSaved, onLogout, onRestartOnboarding, inline }) => {
   const [name, setName] = useState(workspace.name);
   const [directoryPath, setDirectoryPath] = useState(workspace.directory_path);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [integrationToggling, setIntegrationToggling] = useState<IntegrationId | null>(null);
   const [integrationPermissionPrompt, setIntegrationPermissionPrompt] = useState<{ id: IntegrationId; displayName: string } | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [isRestartingOnboarding, setIsRestartingOnboarding] = useState(false);
 
   const [allWorkspaces, setAllWorkspaces] = useState<Workspace[]>([]);
   const [isSwitching, setIsSwitching] = useState<string | null>(null);
@@ -511,7 +513,22 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
           <button
             type="button"
             className="gsStep__btn gsStep__btn--secondary"
-            disabled={isLoggingOut}
+            disabled={isRestartingOnboarding || isLoggingOut}
+            onClick={async () => {
+              setIsRestartingOnboarding(true);
+              await window.workspacesAPI.deleteAll();
+              onRestartOnboarding();
+            }}
+          >
+            {isRestartingOnboarding ? 'Restarting...' : 'Restart Onboarding'}
+          </button>
+        </div>
+
+        <div className="wsSettings__field">
+          <button
+            type="button"
+            className="gsStep__btn gsStep__btn--secondary"
+            disabled={isLoggingOut || isRestartingOnboarding}
             onClick={async () => {
               setIsLoggingOut(true);
               const result = await window.authAPI.logout();

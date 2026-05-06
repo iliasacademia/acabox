@@ -421,7 +421,7 @@ function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string, opts?: { for
 /** File extensions that need full-width viewing (tables, PDFs). */
 const WIDE_VIEWER_RE = /\.(csv|tsv|xlsx?|pdf)$/i;
 
-function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void; onLogout: () => void }) {
+function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding }: { workspace: Workspace; onWorkspaceUpdated: (ws: Workspace) => void; onLogout: () => void; onRestartOnboarding: () => void }) {
   useEffect(() => {
     trackEvent('Cobuilding Session');
   }, []);
@@ -813,6 +813,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
                   setSidebarTab('home');
                 }}
                 onLogout={onLogout}
+                onRestartOnboarding={onRestartOnboarding}
                 inline
               />
             </div>
@@ -881,7 +882,10 @@ function App() {
     case 'welcome':
       return (
         <WelcomeScreen
-          onGetStarted={() => setStep('login')}
+          onGetStarted={async () => {
+            const hasCookie = await window.authAPI.hasSessionCookie();
+            setStep(hasCookie ? 'workspace' : 'login');
+          }}
           onSkipSetup={workspace ? () => setStep('ready') : undefined}
         />
       );
@@ -942,6 +946,10 @@ function App() {
           workspace={workspace!}
           onWorkspaceUpdated={setWorkspace}
           onLogout={() => setStep('welcome')}
+          onRestartOnboarding={() => {
+            setWorkspace(null);
+            setStep('welcome');
+          }}
         />
       );
   }

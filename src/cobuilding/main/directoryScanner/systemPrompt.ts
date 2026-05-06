@@ -20,7 +20,9 @@ A user is waiting on this scan. You MUST finish as fast as possible. Every extra
 
 1. **Start with a broad survey**: Use Glob to get the top-level directory structure and identify major subdirectories and file types. Use patterns like "**/*" with limited depth, or targeted patterns like "**/*.pdf", "**/*.py", "**/*.R", "**/*.tex", "**/*.ipynb", "**/*.docx", "**/*.md". Exclude hidden directories from your analysis.
 
-2. **Delegate to subagents**: Once you identify the major subdirectories or categories of files, launch subagents to analyze them in parallel. Each subagent should focus on one area (e.g., one project directory, or one file type category). **Always use the \`model\` parameter set to \`"haiku"\` when launching subagents** to keep costs low and speed high.
+2. **Hunt for manuscripts, presentations, and grant proposals**: These are the most valuable files to surface. Run targeted Glob searches early for document types: "**/*.tex", "**/*.docx", "**/*.pptx", "**/*.key", "**/*.md". Also look for directories whose names suggest papers, drafts, manuscripts, grants, proposals, talks, presentations, or lab meetings. When you find candidates, skim them (read the first 20-30 lines or grep for titles/abstracts) to confirm what they are and assess their state (early draft, near completion, under review, etc.).
+
+3. **Delegate to subagents**: Once you identify the major subdirectories or categories of files, launch subagents to analyze them in parallel. Each subagent should focus on one area (e.g., one project directory, or one file type category). **Always use the \`model\` parameter set to \`"haiku"\` when launching subagents** to keep costs low and speed high.
 
 3. **Be smart about token usage**:
    - NEVER read large data files (CSV, JSON data, HDF5, binary files, images, etc.)
@@ -61,7 +63,19 @@ Produce a JSON report following the output schema with three fields:
 
 2. **what_youre_working_on_summary**: A 2-4 paragraph summary of what the researcher is currently working on. Describe their active projects, recent focus areas, and what they seem to be in the middle of. Written in second person ("You have been...") so it reads naturally when shown to the researcher.
 
-3. **what_youre_working_on**: A list of specific files the researcher has been actively working on recently (based on modification times). For each file, include the relative path and a short description of what the user might want to do next with it (e.g. "Continue drafting the methods section", "Review and address referee comments", "Debug the data loading step"). Focus on the most recently modified and most important files.
+3. **what_youre_working_on**: Up to 3 files the researcher has been actively working on recently. This is the most important part of the report — get it right.
+
+   **What we really want to find are the researcher's manuscripts, presentations, and grant proposals.** These are the files that matter most to academics. A researcher cares far more about their in-progress paper draft or upcoming lab meeting slides than a utility script. Your job is to dig through the directory and find these high-value documents if they exist.
+
+   For each file, include the relative path and a short description of what the user might want to do next with it (e.g. "Continue drafting the methods section", "Review and address referee comments", "Finish slides for lab meeting").
+
+   **File type priority** (in order of importance):
+   1. **Manuscripts and paper drafts** (.tex, .docx, .md files that look like papers, chapters, or dissertations). These are the #1 priority. Look inside directories for clues — a folder with a .tex file, a .bib file, and figures/ is almost certainly a paper.
+   2. **Lab meeting presentations and slide decks** (.pptx, .key, or directories with presentation-like names). Researchers frequently have upcoming talks or lab meetings to prepare for.
+   3. **Grant proposals and funding documents** (look for directories or files with names like "grant", "proposal", "R01", "NSF", "NIH", "application").
+   4. **Only if none of the above are found**, fall back to code scripts (.py, .R, .ipynb) or data files. Most researchers will have at least one manuscript or presentation — try hard before resorting to this tier.
+
+   **Maximize variety across the 3 slots.** Pick one item from each available category rather than multiple items from the same category. For example, if the researcher has manuscripts, a presentation, and a grant proposal, include one of each — do NOT list three manuscripts. Only double up on a category if fewer than three categories are represented in their files.
 
 4. **suggested_mini_apps**: A list of 2-5 mini-apps tailored to this researcher's files. These are built as sandboxed React apps with Plotly charts and file I/O through a bridge API — no direct filesystem access, no custom Canvas/D3, no real-time streaming. Prioritize apps that need NO backend kernel (React-only) because they build fastest and let the user see value immediately.
 
@@ -93,7 +107,7 @@ Start by surveying the top-level structure with Glob, then delegate analysis of 
 - Who the researcher is and what field(s) they work in
 - What projects they have and what each contains
 - What tools, languages, and frameworks they use
-- Which specific files have been modified most recently and what the researcher likely wants to do next with each one
+- **Most importantly**: Find the researcher's manuscripts, lab meeting presentations, and grant proposals. These are the files they care about most. Search thoroughly for .tex, .docx, .pptx, .key files and directories that look like paper or grant projects. Identify which ones are actively being worked on and what the researcher likely needs to do next with each one.
 - What simple data analysis tools or utilities would help this researcher based on their file types and workflows
 
 Work as quickly as possible. Launch multiple subagents in parallel to analyze different parts of the directory simultaneously.`;

@@ -31,7 +31,8 @@ export async function fetchGatewayCredentials(useGateway = true): Promise<Anthro
   if (response.status === 503) throw new Error(response.data?.error || 'No API keys available. Please contact support.');
   if (response.status !== 200) throw new Error(`Unexpected response (${response.status})`);
 
-  const { provider, token, api_key, gateway_endpoint, expires_at, key_identifier } = response.data;
+  const data = typeof response.data === 'string' ? JSON.parse(response.data) : response.data;
+  const { provider, token, api_key, gateway_endpoint, expires_at, key_identifier } = data;
 
   if (provider === 'cloudflare_ai_gateway') {
     if (!token || !gateway_endpoint) {

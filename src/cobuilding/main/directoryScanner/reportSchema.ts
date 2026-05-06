@@ -11,6 +11,7 @@ export const REPORT_JSON_SCHEMA = {
     },
     what_youre_working_on: {
       type: 'array',
+      maxItems: 3,
       items: {
         type: 'object',
         properties: {
@@ -25,7 +26,7 @@ export const REPORT_JSON_SCHEMA = {
         },
         required: ['file_path', 'description'],
       },
-      description: 'A list of files the researcher is currently working on (based on recent modification times), each with a suggested next action. Focus on the most recently modified and most important files.',
+      description: 'Up to 3 files the researcher is currently working on, each with a suggested next action. Prioritize manuscripts, lab meeting presentations, and grant proposals. Fall back to code scripts or data files only if none of those are found.',
     },
     suggested_mini_apps: {
       type: 'array',

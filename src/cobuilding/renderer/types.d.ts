@@ -48,6 +48,7 @@ interface WorkspacesAPI {
   switch(id: string): Promise<Workspace>;
   update(data: { name: string; directoryPath: string }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
+  deleteAll(): Promise<void>;
 }
 
 interface SessionData {
@@ -125,6 +126,7 @@ interface AuthAPI {
   setApiProvider(provider: string, customKey?: string, customBaseURL?: string): Promise<{ success: boolean; error?: string }>;
   isDev: boolean;
   setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
+  hasSessionCookie(): Promise<boolean>;
   onDeepLinkCallback(
     callback: (data: { verificationCode: string; deviceId: string }) => void
   ): () => void;
@@ -219,6 +221,7 @@ declare global {
     switch(id: string): Promise<Workspace>;
     update(data: { name: string; directoryPath: string }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
+    deleteAll(): Promise<void>;
   }
 
   interface SessionData {
