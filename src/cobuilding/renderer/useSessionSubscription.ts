@@ -3,7 +3,6 @@ import { useThreadRuntime, useAuiState } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream } from '../shared/types';
 import type { ThreadAssistantMessagePart, ToolCallMessagePart } from '@assistant-ui/react';
 import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel } from './progressStore';
-import { setTasks, tryUpdateTasksFromArgs, clearTasks } from './taskStore';
 
 const IDLE_TIMEOUT_MS = 60_000;
 
@@ -86,7 +85,6 @@ export function useSessionSubscription() {
       if (idleTimer) clearTimeout(idleTimer);
       unsubscribe();
       resetProgress();
-      clearTasks();
     };
   }, [remoteId, threadRuntime]);
 }
@@ -170,9 +168,6 @@ function responseBuilder() {
       case 'tool-call-args-delta':
         if (streamingToolCall) {
           streamingToolCall.argsText += msg.argsText;
-          if (streamingToolCall.toolName === 'TodoWrite') {
-            tryUpdateTasksFromArgs(streamingToolCall.argsText);
-          }
         }
         return;
       case 'tool-call-end':
@@ -192,9 +187,6 @@ function responseBuilder() {
           args: msg.args as any,
           argsText: msg.argsText,
         });
-        if (msg.toolName === 'TodoWrite' && Array.isArray(msg.args?.todos)) {
-          setTasks(msg.args.todos as any);
-        }
         return;
       case 'status':
         setProcessingLabel((msg as any).status || null);
