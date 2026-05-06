@@ -1,4 +1,4 @@
-/// <reference path="../types.d.ts" />
+/// <reference path="../../types.d.ts" />
 import React, { useState, useEffect, useRef } from 'react';
 
 interface TerminalEntry {

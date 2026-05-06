@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Trash2, ChevronRight, ChevronDown } from 'lucide-react';
-import { ContainerTests } from './ContainerTests';
+import { ContainerTests } from '../ContainerTests';
 
 type BinaryMode = 'system' | 'bundled';
 type ImageSource = 'registry' | 'local';
