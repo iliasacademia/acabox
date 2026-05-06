@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import academiaLogos from '../assets/academia-logos.svg';
 import { onVisibilityChanged, cacheFullStoryConfig, FullStoryConfig } from './utils/fullstory';
 import './AcademiaNotificationsButton.css';
 
@@ -394,11 +393,8 @@ const AcademiaNotificationsButtonV2: React.FC = () => {
           <span className="drag-dot" />
           <span className="drag-dot" />
         </div>
-        <div className="logo-section" data-node-id="1630:6720">
-          <img src={academiaLogos} alt="Academia" className="logo" data-node-id="1630:6721" />
-        </div>
         <span className="feedback-text" data-node-id="1630:6722">
-          {isEnableFeedback ? 'Enable feedback' : 'Academia Coscientist'}
+          {isEnableFeedback ? 'Enable feedback' : 'Academia'}
         </span>
         {!isEnableFeedback && badgeCount > 0 && (
           <div className="badge" data-node-id="1630:6723">
