@@ -4,6 +4,7 @@ import log from 'electron-log';
 import { resolveClaudeBinary } from '../sdkBinarySetup';
 import { createReport, updateReportStatus } from '../db/reportRepository';
 import { createBriefing } from '../db/briefingsRepository';
+import { upsertScannedFiles } from '../db/scannedFilesRepository';
 import { buildScannerSystemPrompt, buildScannerPrompt } from './systemPrompt';
 import { REPORT_JSON_SCHEMA } from './reportSchema';
 
@@ -283,6 +284,14 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
             createBriefingsFromScan(workspaceId, reportId, resultText);
           } catch (err) {
             log.error('[DirectoryScanner] Failed to create briefings from scan:', err);
+          }
+          try {
+            const scanData = JSON.parse(resultText);
+            if (Array.isArray(scanData.tagged_files)) {
+              upsertScannedFiles(workspaceId, reportId, scanData.tagged_files);
+            }
+          } catch (err) {
+            log.error('[DirectoryScanner] Failed to persist tagged files:', err);
           }
           onMessage?.({ type: 'complete', reportId, reportData: resultText });
         } else {

@@ -292,6 +292,11 @@ contextBridge.exposeInMainWorld('briefingsAPI', {
     ipcRenderer.invoke('briefings:setStatus', id, status),
 });
 
+contextBridge.exposeInMainWorld('scannedFilesAPI', {
+  getByType: (fileType: string) => ipcRenderer.invoke('scannedFiles:getByType', fileType),
+  getAll: () => ipcRenderer.invoke('scannedFiles:getAll'),
+});
+
 contextBridge.exposeInMainWorld('scannerAPI', {
   start: () => ipcRenderer.invoke('scanner:start'),
   onEvent: (callback: (event: any) => void) => {

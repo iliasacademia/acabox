@@ -35,6 +35,14 @@ interface ContextMenuState {
   node: TreeNode;
 }
 
+type FileTagType = 'manuscript' | 'grant' | 'presentation';
+
+const FILE_TAG_LABEL: Record<FileTagType, string> = {
+  manuscript: 'MANUSCRIPT',
+  grant: 'GRANT',
+  presentation: 'SLIDES',
+};
+
 interface FilesTabProps {
   workspacePath: string;
   onSelectFile: (path: string) => void;
@@ -52,6 +60,16 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [renamingPath, setRenamingPath] = useState<string | null>(null);
   const [creatingIn, setCreatingIn] = useState<{ dirPath: string; type: 'file' | 'folder' } | null>(null);
+  const [fileTagMap, setFileTagMap] = useState<Map<string, FileTagType>>(new Map());
+
+  useEffect(() => {
+    window.scannedFilesAPI.getAll().then((files) => {
+      console.log('[FilesTab] scanned files from DB:', files.length, files.slice(0, 5));
+      const map = new Map<string, FileTagType>();
+      for (const f of files) map.set(f.file_path, f.file_type as FileTagType);
+      setFileTagMap(map);
+    }).catch((err) => { console.error('[FilesTab] scannedFilesAPI.getAll failed:', err); });
+  }, []);
 
   // Prevent Electron's default drag-and-drop behavior (navigating to the file)
   useEffect(() => {
@@ -398,6 +416,8 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
               key={node.path}
               node={node}
               depth={1}
+              workspacePath={workspacePath}
+              fileTagMap={fileTagMap}
               onSelectFile={onSelectFile}
               loadChildren={loadChildren}
               onDropOnDir={handleDropOnDir}
@@ -465,6 +485,8 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
 interface FileTreeNodeProps {
   node: TreeNode;
   depth: number;
+  workspacePath: string;
+  fileTagMap: Map<string, FileTagType>;
   onSelectFile: (path: string) => void;
   loadChildren: (node: TreeNode) => Promise<TreeNode[]>;
   onDropOnDir: (e: React.DragEvent, targetDir: string) => void;
@@ -486,6 +508,8 @@ interface FileTreeNodeProps {
 const FileTreeNode: FC<FileTreeNodeProps> = ({
   node,
   depth,
+  workspacePath,
+  fileTagMap,
   onSelectFile,
   loadChildren,
   onDropOnDir,
@@ -507,6 +531,14 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   const [children, setChildren] = useState<TreeNode[]>(node.children ?? []);
   const [loaded, setLoaded] = useState(false);
   const isRenaming = renamingPath === node.path;
+
+  const relPath = node.path.startsWith(workspacePath + '/')
+    ? node.path.slice(workspacePath.length + 1)
+    : null;
+  const fileTag = !node.isDirectory && relPath ? fileTagMap.get(relPath) : undefined;
+  if (!node.isDirectory && fileTagMap.size > 0 && depth === 1) {
+    console.log('[FilesTab] node relPath:', relPath, '→ tag:', fileTag, '| map keys sample:', [...fileTagMap.keys()].slice(0, 3));
+  }
 
   // Expand (and load) so "New file/folder" is visible when the row toolbar or context menu targets this dir or a descendant.
   useEffect(() => {
@@ -597,7 +629,14 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
               onCancel={onRenameCancel}
             />
           ) : (
-            <span className="fileTreeName">{node.name}</span>
+            <>
+              <span className="fileTreeName">{node.name}</span>
+              {fileTag && (
+                <span className={`fileTreeTag fileTreeTag--${fileTag}`}>
+                  {FILE_TAG_LABEL[fileTag]}
+                </span>
+              )}
+            </>
           )}
         </div>
         {!isRenaming && (
@@ -650,6 +689,8 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
             key={child.path}
             node={child}
             depth={depth + 1}
+            workspacePath={workspacePath}
+            fileTagMap={fileTagMap}
             onSelectFile={onSelectFile}
             loadChildren={loadChildren}
             onDropOnDir={onDropOnDir}

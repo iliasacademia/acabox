@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon } from 'lucide-react';
+import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
 type ToolsPageMiniApp = MiniAppEntry;
@@ -59,6 +59,8 @@ interface AvailableStub {
   preBuilt?: boolean;
   lastOpened: string;
   status?: string;
+  filePickerType?: 'manuscript' | 'grant' | 'presentation' | 'all' | 'manuscript_grant';
+  chatPromptTemplate?: (filePath: string) => string;
 }
 
 function hoursAgoIso(hours: number): string {
@@ -66,8 +68,36 @@ function hoursAgoIso(hours: number): string {
 }
 
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
-  { name: 'Grant Finder', description: 'Funding opportunities matched to your research', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(72) },
-  { name: 'Peer Review Assistant', description: 'Manuscript review with structured feedback', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(240) },
+  {
+    name: 'Academic Writing Agent',
+    description: 'Draft, revise, and polish manuscripts and grants',
+    tag: 'ON-DEMAND',
+    preBuilt: true,
+    lastOpened: hoursAgoIso(2),
+    filePickerType: 'manuscript_grant',
+    chatPromptTemplate: (filePath) =>
+      `/academic-writing-agent\n\nPlease help me work on the following file: ${filePath}`,
+  },
+  {
+    name: 'Grant Writer',
+    description: 'AI-assisted grant writing, specific aims, and narrative drafting',
+    tag: 'ON-DEMAND',
+    preBuilt: true,
+    lastOpened: hoursAgoIso(72),
+    filePickerType: 'grant',
+    chatPromptTemplate: (filePath) =>
+      `/academic-writing-agent\n\nPlease help me write and improve my grant proposal: ${filePath}`,
+  },
+  {
+    name: 'Peer Review Assistant',
+    description: 'Manuscript review with structured feedback',
+    tag: 'ON-DEMAND',
+    preBuilt: true,
+    lastOpened: hoursAgoIso(240),
+    filePickerType: 'manuscript',
+    chatPromptTemplate: (filePath) =>
+      `/academic-writing-agent\n\nPlease review my manuscript and provide structured feedback: ${filePath}`,
+  },
   { name: 'Literature Synthesis', description: 'Build a structured review across many papers', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(48) },
   { name: 'Paper Monitor', description: 'New papers in your topics, weekly digest', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(5), status: 'ran this morning \u00b7 4 items' },
   { name: 'Citation Alerts', description: 'When new work cites your publications', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(6), status: 'ran 6h ago \u00b7 1 new citation' },
@@ -172,14 +202,61 @@ export function ToolsPage({
     setSuggestedApps((prev) => prev.filter((t) => t.name !== tool.name));
   }, []);
 
-  const handleStubAction = useCallback(() => {
-    alert('This is a placeholder for now.');
-  }, []);
-
   const [toolFilter, setToolFilter] = useState<'all' | 'on-demand' | 'scheduled'>('all');
   const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ToolsPageMiniApp | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // File picker modal for pre-built writing tools
+  const [filePicker, setFilePicker] = useState<{
+    stub: AvailableStub;
+    files: ScannedFile[];
+    loading: boolean;
+  } | null>(null);
+
+  const handleOpenFilePicker = useCallback(async (stub: AvailableStub) => {
+    if (!stub.filePickerType) { alert('This is a placeholder for now.'); return; }
+    setFilePicker({ stub, files: [], loading: true });
+    try {
+      const files = (stub.filePickerType === 'all' || stub.filePickerType === 'manuscript_grant')
+        ? await window.scannedFilesAPI.getAll()
+        : await window.scannedFilesAPI.getByType(stub.filePickerType);
+      setFilePicker((prev) => prev ? { ...prev, files, loading: false } : null);
+    } catch {
+      setFilePicker((prev) => prev ? { ...prev, files: [], loading: false } : null);
+    }
+  }, []);
+
+  const handlePickFile = useCallback((stub: AvailableStub, filePath: string) => {
+    setFilePicker(null);
+    if (!stub.chatPromptTemplate) return;
+    assistantRuntime.switchToNewThread();
+    onSwitchToChat();
+    setTimeout(() => {
+      composerRuntime.setText(stub.chatPromptTemplate!(filePath));
+      composerRuntime.send();
+    }, 100);
+  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
+
+  const handleBrowseFile = useCallback(async (stub: AvailableStub) => {
+    setFilePicker(null);
+    const filePath = await window.filesAPI.selectFile();
+    if (!filePath || !stub.chatPromptTemplate) return;
+    assistantRuntime.switchToNewThread();
+    onSwitchToChat();
+    setTimeout(() => {
+      composerRuntime.setText(stub.chatPromptTemplate!(filePath));
+      composerRuntime.send();
+    }, 100);
+  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
+
+  const handleStubAction = useCallback((stub: AvailableStub) => {
+    if (stub.filePickerType) {
+      handleOpenFilePicker(stub);
+    } else {
+      alert('This is a placeholder for now.');
+    }
+  }, [handleOpenFilePicker]);
 
   const handleDelete = useCallback(async (app: ToolsPageMiniApp) => {
     setDeleting(true);
@@ -371,7 +448,7 @@ export function ToolsPage({
                         </div>
                         <div className="toolRow__info">
                           <div className="toolRow__header">
-                            <button className="toolRow__name" onClick={handleStubAction}>
+                            <button className="toolRow__name" onClick={() => handleStubAction(tool)}>
                               {tool.name}
                             </button>
                             <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>
@@ -384,16 +461,16 @@ export function ToolsPage({
                           })()}
                         </div>
                         <div className="toolRow__actions">
-                          <button className="toolRow__settingsBtn" onClick={handleStubAction}>
+                          <button className="toolRow__settingsBtn" onClick={() => handleStubAction(tool)}>
                             <ChevronRightIcon style={{ width: 14, height: 14 }} />
                             Settings
                           </button>
                           {tool.tag === 'SCHEDULED' ? (
-                            <button className="toolRow__primaryBtn" onClick={handleStubAction}>
+                            <button className="toolRow__primaryBtn" onClick={() => handleStubAction(tool)}>
                               View outputs
                             </button>
                           ) : (
-                            <button className="toolRow__primaryBtn" onClick={handleStubAction}>
+                            <button className="toolRow__primaryBtn" onClick={() => handleStubAction(tool)}>
                               <PlayIcon style={{ width: 14, height: 14 }} />
                               Use
                             </button>
@@ -441,6 +518,72 @@ export function ToolsPage({
                 {deleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {filePicker && (
+        <div className="toolsConfirmOverlay" onClick={() => setFilePicker(null)}>
+          <div className="filePickerModal" onClick={(e) => e.stopPropagation()}>
+
+            <div className="filePickerModal__header">
+              <div>
+                <h2 className="filePickerModal__title">{filePicker.stub.name}</h2>
+                <p className="filePickerModal__subtitle">Select a file to work on, or browse to choose one.</p>
+              </div>
+              <button className="filePickerModal__close" onClick={() => setFilePicker(null)}>
+                <XIcon style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
+
+            <div className="filePickerModal__body">
+              {filePicker.loading ? (
+                <div className="filePickerModal__empty">Loading files…</div>
+              ) : filePicker.files.length === 0 ? (
+                <div className="filePickerModal__empty">
+                  No tagged files found from your last scan. Use "Browse files" to select manually.
+                </div>
+              ) : (
+                (['manuscript', 'grant', 'presentation'] as const)
+                  .filter((type) => {
+                    if (filePicker.stub.filePickerType === 'all') return filePicker.files.some((f) => f.file_type === type);
+                    if (filePicker.stub.filePickerType === 'manuscript_grant') return type !== 'presentation' && filePicker.files.some((f) => f.file_type === type);
+                    return type === filePicker.stub.filePickerType;
+                  })
+                  .map((type) => {
+                    const group = filePicker.files.filter((f) => f.file_type === type);
+                    if (group.length === 0) return null;
+                    const label = type === 'manuscript' ? 'Manuscripts' : type === 'grant' ? 'Grants' : 'Presentations';
+                    return (
+                      <div key={type} className="filePickerModal__group">
+                        <div className="filePickerModal__groupLabel">{label}</div>
+                        {group.map((file, i) => (
+                          <button
+                            key={file.id}
+                            className={`filePickerModal__row${i > 0 ? ' filePickerModal__row--bordered' : ''}`}
+                            onClick={() => handlePickFile(filePicker.stub, file.file_path)}
+                          >
+                            <FileTextIcon className="filePickerModal__rowIcon" />
+                            <span className="filePickerModal__rowName">{file.file_name}</span>
+                            <span className="filePickerModal__rowPath">{file.file_path}</span>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            <div className="filePickerModal__footer">
+              <button className="createToolModal__cancelBtn" onClick={() => setFilePicker(null)}>
+                Cancel
+              </button>
+              <button className="createToolModal__createBtn" onClick={() => handleBrowseFile(filePicker.stub)}>
+                <FolderOpenIcon style={{ width: 14, height: 14, marginRight: 6 }} />
+                Browse files
+              </button>
+            </div>
+
           </div>
         </div>
       )}
