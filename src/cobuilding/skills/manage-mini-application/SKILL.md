@@ -28,14 +28,24 @@ Each mini-app lives under `.applications/<lowerCamelCaseName>`. The agent writes
 node \
   .claude/skills/manage-mini-application/scripts/manage_mini_app.mjs \
   --name "<display name>" \
+  --description "<one-line description>" \
+  --icon "<lucide icon name>" \
   [--template "<template name>"]
 ```
+
+`--description` and `--icon` are required and populate `manifest.json` (see below).
+
+- **description**: a short, one-line summary (≤ 80 chars) of what the app does, shown under the title on the Tools page. Write it for the user, not the agent.
+- **icon**: a [Lucide](https://lucide.dev/icons) icon name in PascalCase (e.g. `FlaskConical`, `LineChart`, `Microscope`, `Dna`, `Beaker`, `Image`, `Table`, `BarChart3`). Pick one that visually matches what the app does — the Tools page renders it as the app's icon.
 
 The script prints `{ name, dir_name, dir }` to stdout and creates:
 - `<dir>/src/index.html` — HTML shell with Tailwind
 - `<dir>/src/index.tsx` — React mount boilerplate with error boundary
 - `<dir>/dist/`, `<dir>/output/`, `<dir>/input/` directories
 - `<dir>/notebook.ipynb` — canonical notebook with a `parameters` cell + cobuild metadata; default kernel is `python3` (override with `--kernel ir` for R)
+- `<dir>/manifest.json` — `{ name, description, icon, lastOpened }`. The Tools page uses `name` as the title, `description` as the subtitle, `icon` to render the app's Lucide icon, and orders apps by `lastOpened` (most recent first). `lastOpened` starts as `null` and is updated by the host each time the app is opened — do not set it yourself.
+
+If you later edit an app's purpose, also update `manifest.json` (name/description/icon) so the Tools page stays in sync.
 
 If `--template` is specified, template files from `.applications/_templates/<name>/` are copied into `src/`. Available templates:
 
@@ -206,7 +216,7 @@ The component reads the slot from `params`, calls `selectInput`/`clearInput`, an
 
 **Prefer Plotly.js for all data visualizations** (charts, plots, graphs, heatmaps). Do not use custom SVG/Canvas rendering or other charting libraries when Plotly can handle the visualization.
 
-**App Style** This app is for use by scientists to analyze and viualize their data. Keep the style modern and professional with a `bg-gray-50` background. 
+**App Style** This app is for use by scientists to analyze and visualize their data. Keep the style modern and professional. The app sits directly below the host's top nav bar (the strip with Home / Tools / Files / Chats), which uses `#faf8f5`. The app's outermost container MUST use that same warm off-white as its background — `bg-[#faf8f5]` in Tailwind, or `style={{ backgroundColor: '#faf8f5' }}` if you need an inline style. Do not use `bg-gray-50`, `bg-white`, or any other off-tone — a mismatch creates a visible seam where the app meets the surrounding chrome.
 
 ### Step 3: Add an action cell to the notebook (only for kernel-backed apps)
 
@@ -251,8 +261,9 @@ To edit an existing min-app, follow these steps:
 
 1. Locate the min-app directory at `.applications/<dir_name>/` within the workspace.
 2. Edit the `App.tsx` or `notebook.ipynb` file in the min-app directory to make changes to the UI of backing analysis and params.
-3. Rebuild the bundle with same command as in Step 4 of "Creating a min-app". If the build fails, read the error output, fix the issue in `App.tsx`, and rebuild.
-4. After a successful build, alsways call `open_mini_application` with the `dir_name` from Step 1 to make the changes visible to the user.
+3. If the change alters what the app does, also update `manifest.json` (`name`, `description`, `icon`) so the Tools page stays in sync. Leave `lastOpened` alone — the host owns that field.
+4. Rebuild the bundle with same command as in Step 4 of "Creating a min-app". If the build fails, read the error output, fix the issue in `App.tsx`, and rebuild.
+5. After a successful build, alsways call `open_mini_application` with the `dir_name` from Step 1 to make the changes visible to the user.
 
 ## Installing software
 

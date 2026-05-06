@@ -446,6 +446,9 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
 
   const handleSelectApp = useCallback((dirName: string, opts?: { forceReload?: boolean }) => {
     console.debug('[handleSelectApp] Opening mini app tab:', dirName, opts);
+    // Fire-and-forget: record this open in the app's manifest so the Tools page
+    // can sort by recency. Failures are non-fatal and shouldn't block opening.
+    window.miniAppsAPI.touch(dirName).catch(() => {});
     setSidebarTab('tools');
     setToolsViewMode('detail');
     const tabId = `miniapp::${dirName}`;

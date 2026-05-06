@@ -404,9 +404,20 @@ declare global {
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
   }
 
+  interface MiniAppEntry {
+    dirName: string;
+    name: string;
+    description: string | null;
+    icon: string | null;
+    lastOpened: string | null;
+    hasManifest: boolean;
+  }
+
   interface MiniAppsAPI {
     exportApp(dirName: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importApp(): Promise<{ ok: boolean; dirName?: string; canceled?: boolean; error?: string }>;
+    list(): Promise<MiniAppEntry[]>;
+    touch(dirName: string): Promise<{ ok: boolean; error?: string }>;
   }
 
   interface WritingAgentProject {

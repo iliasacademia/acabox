@@ -6,7 +6,7 @@ import {
   useThreadList,
 } from '@assistant-ui/react';
 import { DropdownMenu, AlertDialog } from 'radix-ui';
-import { MoreVerticalIcon, PencilIcon, TrashIcon, SearchIcon } from 'lucide-react';
+import { MessageSquareIcon, MoreVerticalIcon, PencilIcon, TrashIcon, SearchIcon } from 'lucide-react';
 import type { FC } from 'react';
 import {
   dateFromSessionStoredAt,
@@ -157,8 +157,8 @@ export const ThreadList: FC<ThreadListProps> = ({ onSelectThread }) => {
                   <ConversationCount />
                 </div>
                 <h1 className="pageShell__title">Chats</h1>
-                <p className="chatListDescription">
-                  Every chat is saved automatically. Search by content or browse recent ones.
+                <p className="pageShell__subtitle">
+                  Every conversation you've had with me. Most recent first.
                 </p>
               </div>
 
@@ -244,6 +244,9 @@ const ThreadListItem: FC = () => {
 
   return (
     <ThreadListItemPrimitive.Root className="chatListItem">
+      <div className="chatListItemIcon">
+        <MessageSquareIcon style={{ width: 18, height: 18 }} />
+      </div>
       <ThreadListItemPrimitive.Trigger
         className="chatListItemTrigger"
         onClick={() => onSelectThread?.()}
