@@ -19,7 +19,6 @@ import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
-import { useTasks } from './taskStore';
 import { useElectronChatAdapter } from './chatAdapter';
 import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
@@ -32,7 +31,6 @@ import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
 import WelcomeScreen from './components/WelcomeScreen';
 import { SetupBanner } from './components/SetupBanner';
-import { TaskPanel } from './components/TaskPanel';
 import { GlobalComposer } from './components/GlobalComposer';
 import { useTabs } from './tabs/useTabs';
 import type { TabDescriptor } from './tabs/types';
@@ -503,10 +501,6 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
     document.body.classList.toggle('cobuild-resizing', isDragging);
   }, []);
 
-  // Whether the inner Thread/TaskPanel split should show the task panel.
-  const tasks = useTasks();
-  const showTaskPanel = !!tasks && tasks.length > 0;
-
   return (
     <AssistantRuntimeProvider runtime={runtime}>
       <SessionTitleUpdater />
@@ -710,19 +704,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout }: { workspace: Work
                     </button>
                   </div>
                   <div className="chatDetailContent" style={{ flex: 1, minHeight: 0, display: 'flex' }}>
-                    <PanelGroup direction="horizontal" autoSaveId="cobuild.chatTasks" className="appPanelGroup">
-                      <Panel id="thread" order={1} defaultSize={78} minSize={40}>
-                        <Thread hideComposer />
-                      </Panel>
-                      {showTaskPanel && (
-                        <>
-                          <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
-                          <Panel id="tasks" order={2} defaultSize={22} minSize={15} maxSize={45}>
-                            <TaskPanel />
-                          </Panel>
-                        </>
-                      )}
-                    </PanelGroup>
+                    <Thread hideComposer />
                   </div>
                 </>
               ) : (

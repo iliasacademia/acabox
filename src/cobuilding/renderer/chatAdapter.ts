@@ -7,7 +7,6 @@ import type {
 import { useAui } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../shared/types';
 import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone } from './progressStore';
-import { setTasks, tryUpdateTasksFromArgs } from './taskStore';
 
 export function toAsyncIterable(
   stream: ChatMessageStream,
@@ -146,9 +145,6 @@ export function responseBuilder() {
       case 'tool-call-args-delta':
         if (streamingToolCall) {
           streamingToolCall.argsText += msg.argsText;
-          if (streamingToolCall.toolName === 'TodoWrite') {
-            tryUpdateTasksFromArgs(streamingToolCall.argsText);
-          }
         }
         return;
       case 'tool-call-end':
@@ -169,9 +165,6 @@ export function responseBuilder() {
           args: msg.args as any,
           argsText: msg.argsText,
         });
-        if (msg.toolName === 'TodoWrite' && Array.isArray(msg.args?.todos)) {
-          setTasks(msg.args.todos as any);
-        }
         return;
       case 'tool-result': {
         clearToolProgress(msg.toolCallId);
