@@ -1,84 +1,104 @@
-import React, { useState } from 'react';
-import { ChevronLeftIcon, BookOpenIcon, BookmarkIcon, QuoteIcon, SearchIcon, SparklesIcon } from 'lucide-react';
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  ChevronLeftIcon,
+  BookOpenIcon,
+  BookmarkIcon,
+  QuoteIcon,
+  SearchIcon,
+  SparklesIcon,
+  RefreshCwIcon,
+} from 'lucide-react';
+import { useComposerRuntime } from '@assistant-ui/react';
 
-interface DigestPaper {
-  id: string;
-  title: string;
-  authors: string;
-  venue: string;
-  publishedAgo: string;
-  relevance: number;
-  oneLine: string;
-  whyRelevant: string;
-  abstract: string;
-}
+const SETTINGS_KEY = 'cobuild.paperMonitor.settings';
 
-const MOCK_DIGEST: DigestPaper[] = [
-  {
-    id: 'p1',
-    title: 'Substrate stiffness gradients direct YAP nuclear translocation in basal keratinocytes',
-    authors: 'Schmidt, K., Yamamoto, R., Goldberg, P.',
-    venue: 'Journal of Cell Biology',
-    publishedAgo: 'Published 2 days ago',
-    relevance: 88,
-    oneLine: 'Their stiffness range overlaps yours; live-cell timing data could strengthen your discussion.',
-    whyRelevant:
-      'This methodology is very close to your PDMS substrate work. Their stiffness range overlaps yours (you tested 1–40 kPa). Their live-cell timing data could inform your discussion section.',
-    abstract:
-      'The mechanical environment of the basement membrane is heterogeneous, yet how stiffness gradients influence transcription factor localization in epithelial cells remains unclear. Using polyacrylamide gels with controlled stiffness gradients (0.5–50 kPa), we demonstrate that YAP nuclear/cytoplasmic ratios respond to local stiffness within minutes, with single-cell variability driven by F-actin organization. Live-cell imaging reveals that YAP translocation precedes transcriptional changes by 30–45 minutes.',
-  },
-  {
-    id: 'p2',
-    title: 'Live-cell imaging of wound closure dynamics in 3D organoid culture',
-    authors: 'Park, A., Tanaka, M., Williams, D.',
-    venue: 'Developmental Cell',
-    publishedAgo: 'Published 4 days ago',
-    relevance: 76,
-    oneLine: 'Useful methodologically if you ever extend to 3D — your reviewer 2 has asked about this.',
-    whyRelevant:
-      'A 3D extension of techniques close to yours. Reviewer 2 has asked about 3D extension on your last submission — this paper is a useful reference.',
-    abstract:
-      'Three-dimensional organoid systems recapitulate aspects of in vivo tissue not captured by 2D models. Here we present a live-cell imaging pipeline for tracking wound closure dynamics in epithelial organoids over 72 hours.',
-  },
-  {
-    id: 'p3',
-    title: 'YAP/TAZ regulation of epidermal stem cell behavior in homeostasis',
-    authors: 'Reyes, L., Choi, K., Vance, T.',
-    venue: 'Cell Reports',
-    publishedAgo: 'Published 5 days ago',
-    relevance: 71,
-    oneLine: 'Adjacent — homeostasis rather than wound healing, but the YAP transcriptional data is useful background.',
-    whyRelevant:
-      'Adjacent topic (homeostasis vs. wound healing), but the YAP transcriptional data overlaps your discussion of mechanotransduction.',
-    abstract:
-      'YAP/TAZ activity is required for epidermal stem cell maintenance under homeostatic conditions. We profile transcriptional changes downstream of YAP nuclear localization across the basal compartment.',
-  },
-  {
-    id: 'p4',
-    title: 'Optogenetic control of YAP localization reveals temporal coding of mechanical signals',
-    authors: 'Tanaka, R., Mishra, P., Lopez-Garcia, J.',
-    venue: 'bioRxiv',
-    publishedAgo: 'Posted 6 days ago',
-    relevance: 64,
-    oneLine: 'Optogenetic approach — different toolset, but their temporal coding finding is interesting for your timing data.',
-    whyRelevant:
-      'Different toolset (optogenetics vs. substrate stiffness), but their temporal coding finding aligns with the timing patterns you observed.',
-    abstract:
-      'Using LOV-domain optogenetic tools, we drive YAP nuclear translocation on demand and discover that mechanical signals are temporally encoded with ~30 minute resolution.',
-  },
-];
+const DEFAULT_TOPICS = ['wound healing', 'YAP/TAZ', 'mechanotransduction'];
 
-const TAKEAWAY =
-  'Schmidt et al. is the standout — their stiffness range overlaps yours and the live-cell timing data could strengthen your discussion. Park et al. is methodologically interesting if you ever extend to 3D. The other two are more peripheral.';
+const TAKEAWAY_PLACEHOLDER =
+  'Cross-paper triage will appear here once Claude reviews this digest.';
 
 type FilterMode = 'all' | 'unread' | 'saved' | 'read';
 
+function loadConfiguredTopics(): string[] {
+  try {
+    const raw = localStorage.getItem(SETTINGS_KEY);
+    if (!raw) return DEFAULT_TOPICS;
+    const parsed = JSON.parse(raw);
+    if (typeof parsed?.topics !== 'string') return DEFAULT_TOPICS;
+    const topics = parsed.topics
+      .split(',')
+      .map((t: string) => t.trim())
+      .filter((t: string): t is string => t.length > 0);
+    return topics.length > 0 ? topics : DEFAULT_TOPICS;
+  } catch {
+    return DEFAULT_TOPICS;
+  }
+}
+
+function formatPublishedAgo(iso: string): string {
+  if (!iso) return '';
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return '';
+  const diffMs = Date.now() - ts;
+  const day = 24 * 60 * 60 * 1000;
+  const days = Math.max(0, Math.floor(diffMs / day));
+  if (days === 0) return 'Published today';
+  if (days === 1) return 'Published yesterday';
+  if (days < 30) return `Published ${days} days ago`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `Published ${months} month${months === 1 ? '' : 's'} ago`;
+  const years = Math.floor(days / 365);
+  return `Published ${years} year${years === 1 ? '' : 's'} ago`;
+}
+
+function formatFetchedAt(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
 export function PaperMonitorView({ onBack }: { onBack: () => void }) {
+  const [topics, setTopics] = useState<string[]>(() => loadConfiguredTopics());
+  const [papers, setPapers] = useState<FetchedPaper[]>([]);
+  const [fetchedAt, setFetchedAt] = useState<string>('');
+  const [errors, setErrors] = useState<{ topic: string; message: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [openPaperId, setOpenPaperId] = useState<string | null>(null);
   const [filter, setFilter] = useState<FilterMode>('all');
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
 
-  const openPaper = openPaperId ? MOCK_DIGEST.find((p) => p.id === openPaperId) ?? null : null;
+  const fetchPapers = useCallback(async () => {
+    const currentTopics = loadConfiguredTopics();
+    setTopics(currentTopics);
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const result = await window.papersAPI.fetch({
+        topics: currentTopics,
+        maxPerTopic: 5,
+        maxTotal: 20,
+      });
+      setPapers(result.papers);
+      setFetchedAt(result.fetchedAt);
+      setErrors(result.errors);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setLoadError(message);
+      setPapers([]);
+      setErrors([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPapers();
+  }, [fetchPapers]);
+
+  const visiblePapers = filter === 'saved' ? papers.filter((p) => savedIds.has(p.id)) : papers;
+  const openPaper = openPaperId ? papers.find((p) => p.id === openPaperId) ?? null : null;
 
   if (openPaper) {
     return (
@@ -110,29 +130,43 @@ export function PaperMonitorView({ onBack }: { onBack: () => void }) {
           <BookOpenIcon style={{ width: 13, height: 13 }} />
           <span>PAPERS</span>
           <span>&middot;</span>
-          <span>PAPER MONITOR RUNNING WEEKLY</span>
+          <span>PAPER MONITOR &middot; ARXIV</span>
         </div>
 
         <h1 className="paperMonitor__title">Recommended for you</h1>
         <p className="paperMonitor__subtitle">
-          Papers from your topics, ranked by relevance to your work. Click any paper to see the full breakdown &mdash; chat alongside stays with you.
+          Papers from your topics, fetched from arXiv. Click any paper to see the abstract.
         </p>
 
-        <div className="paperMonitor__filters">
-          {(['all', 'unread', 'saved', 'read'] as FilterMode[]).map((f) => (
-            <button
-              key={f}
-              className={`paperMonitor__filterPill${filter === f ? ' paperMonitor__filterPill--active' : ''}`}
-              onClick={() => setFilter(f)}
-            >
-              {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
-            </button>
-          ))}
+        <div className="paperMonitor__filtersRow">
+          <div className="paperMonitor__filters">
+            {(['all', 'unread', 'saved', 'read'] as FilterMode[]).map((f) => (
+              <button
+                key={f}
+                className={`paperMonitor__filterPill${filter === f ? ' paperMonitor__filterPill--active' : ''}`}
+                onClick={() => setFilter(f)}
+              >
+                {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+              </button>
+            ))}
+          </div>
+          <button
+            className="paperMonitor__refreshBtn"
+            onClick={fetchPapers}
+            disabled={loading}
+            title="Refresh"
+          >
+            <RefreshCwIcon style={{ width: 13, height: 13 }} />
+            {loading ? 'Fetching…' : 'Refresh'}
+          </button>
         </div>
 
         <h2 className="paperMonitor__sectionTitle">
           This week&apos;s digest
-          <span className="paperMonitor__sectionMeta">{MOCK_DIGEST.length} papers &middot; Apr 29</span>
+          <span className="paperMonitor__sectionMeta">
+            {visiblePapers.length} paper{visiblePapers.length === 1 ? '' : 's'}
+            {fetchedAt ? ` · fetched ${formatFetchedAt(fetchedAt)}` : ''}
+          </span>
         </h2>
 
         <div className="paperMonitor__takeaway">
@@ -140,29 +174,63 @@ export function PaperMonitorView({ onBack }: { onBack: () => void }) {
             <SparklesIcon style={{ width: 13, height: 13 }} />
             THIS WEEK&apos;S TAKEAWAY
           </div>
-          <div className="paperMonitor__takeawayBody">{TAKEAWAY}</div>
+          <div className="paperMonitor__takeawayBody">
+            {topics.length > 0
+              ? `Topics: ${topics.join(', ')}. ${TAKEAWAY_PLACEHOLDER}`
+              : TAKEAWAY_PLACEHOLDER}
+          </div>
         </div>
 
-        <div className="paperMonitor__list">
-          {MOCK_DIGEST.map((p) => (
-            <button key={p.id} className="paperMonitor__paperCard" onClick={() => setOpenPaperId(p.id)}>
-              <div className="paperMonitor__paperHeader">
-                <h3 className="paperMonitor__paperTitle">{p.title}</h3>
-                <div className="paperMonitor__relevance">
-                  <span className="paperMonitor__relevanceLabel">RELEVANCE</span>
-                  <span className="paperMonitor__relevanceScore">{p.relevance}</span>
+        {loadError && (
+          <div className="paperMonitor__errorBox">
+            <strong>Could not fetch papers.</strong> {loadError}
+          </div>
+        )}
+
+        {errors.length > 0 && !loadError && (
+          <div className="paperMonitor__errorBox">
+            <strong>Some topics failed:</strong>{' '}
+            {errors.map((e) => `${e.topic} (${e.message})`).join('; ')}
+          </div>
+        )}
+
+        {loading && papers.length === 0 ? (
+          <div className="paperMonitor__empty">Fetching latest papers from arXiv…</div>
+        ) : visiblePapers.length === 0 ? (
+          <div className="paperMonitor__empty">
+            No papers yet. Adjust your topics in Settings, then click Refresh.
+          </div>
+        ) : (
+          <div className="paperMonitor__list">
+            {visiblePapers.map((p) => (
+              <button key={p.id} className="paperMonitor__paperCard" onClick={() => setOpenPaperId(p.id)}>
+                <div className="paperMonitor__paperHeader">
+                  <h3 className="paperMonitor__paperTitle">{p.title}</h3>
+                  <div className="paperMonitor__matchedTopic" title="Matched topic">
+                    {p.matchedTopic}
+                  </div>
                 </div>
-              </div>
-              <div className="paperMonitor__paperMeta">
-                {p.authors} &middot; <em>{p.venue}</em> &middot; {p.publishedAgo}
-              </div>
-              <div className="paperMonitor__paperOneLine">{p.oneLine}</div>
-            </button>
-          ))}
-        </div>
+                <div className="paperMonitor__paperMeta">
+                  {p.authorsLine || 'Unknown authors'} &middot; <em>{p.venue}</em>
+                  {p.publishedAt ? <> &middot; {formatPublishedAgo(p.publishedAt)}</> : null}
+                </div>
+                {p.abstract ? (
+                  <div className="paperMonitor__paperOneLine">
+                    {truncate(p.abstract, 240)}
+                  </div>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+function truncate(s: string, max: number): string {
+  if (s.length <= max) return s;
+  return `${s.slice(0, max).trimEnd()}…`;
 }
 
 function PaperDetail({
@@ -171,11 +239,47 @@ function PaperDetail({
   onToggleSave,
   onBackToList,
 }: {
-  paper: DigestPaper;
+  paper: FetchedPaper;
   saved: boolean;
   onToggleSave: () => void;
   onBackToList: () => void;
 }) {
+  const composer = useComposerRuntime();
+
+  const handleReadFull = () => {
+    if (paper.pdfUrl) window.open(paper.pdfUrl, '_blank');
+    else if (paper.url) window.open(paper.url, '_blank');
+  };
+
+  const sendToChat = useCallback(
+    (prompt: string) => {
+      composer.setText(prompt);
+      composer.send();
+    },
+    [composer],
+  );
+
+  const handleDraftCitation = () => {
+    const authors = paper.authorsLine || 'unknown authors';
+    sendToChat(
+      `Draft a citation for this paper. I can choose the format afterwards — start with APA.\n\n` +
+        `Title: ${paper.title}\n` +
+        `Authors: ${authors}\n` +
+        `Source: ${paper.venue}${paper.publishedAt ? ` · ${paper.publishedAt}` : ''}\n` +
+        `arXiv ID: ${paper.externalId}\n` +
+        `URL: ${paper.url}`,
+    );
+  };
+
+  const handleFindSimilar = () => {
+    sendToChat(
+      `Find papers in my library similar to this one and explain why each is related.\n\n` +
+        `Title: ${paper.title}\n` +
+        `Abstract: ${paper.abstract || '(no abstract available)'}\n` +
+        `Topic: ${paper.matchedTopic}`,
+    );
+  };
+
   return (
     <div className="paperMonitor">
       <div className="paperMonitor__scroll">
@@ -186,45 +290,47 @@ function PaperDetail({
 
         <div className="paperMonitor__crumbs paperMonitor__crumbs--detail">
           <BookOpenIcon style={{ width: 13, height: 13 }} />
-          <span>PAPER</span>
-          <div className="paperMonitor__relevance paperMonitor__relevance--detail">
-            <span className="paperMonitor__relevanceLabel">Relevance to your work</span>
-            <span className="paperMonitor__relevanceScore">{paper.relevance}</span>
-          </div>
+          <span>PAPER &middot; ARXIV {paper.externalId}</span>
         </div>
 
         <h1 className="paperMonitor__detailTitle">{paper.title}</h1>
         <div className="paperMonitor__detailMeta">
-          {paper.authors} &middot; <em>{paper.venue}</em> &middot; {paper.publishedAgo}
+          {paper.authorsLine || 'Unknown authors'} &middot; <em>{paper.venue}</em>
+          {paper.publishedAt ? <> &middot; {formatPublishedAgo(paper.publishedAt)}</> : null}
         </div>
 
         <div className="paperMonitor__whyBox">
           <div className="paperMonitor__whyLabel">
             <SparklesIcon style={{ width: 13, height: 13 }} />
-            WHY THIS IS RELEVANT TO YOU
+            MATCHED TOPIC
           </div>
-          <div className="paperMonitor__whyBody">{paper.whyRelevant}</div>
+          <div className="paperMonitor__whyBody">{paper.matchedTopic}</div>
         </div>
 
         <div className="paperMonitor__sectionLabel">ABSTRACT</div>
-        <div className="paperMonitor__abstract">{paper.abstract}</div>
+        <div className="paperMonitor__abstract">
+          {paper.abstract || 'No abstract available.'}
+        </div>
 
-        <button className="paperMonitor__primaryAction">
+        <button className="paperMonitor__primaryAction" onClick={handleReadFull}>
           <BookOpenIcon style={{ width: 16, height: 16 }} />
           Read full paper
         </button>
 
-        <button className={`paperMonitor__secondaryAction${saved ? ' paperMonitor__secondaryAction--active' : ''}`} onClick={onToggleSave}>
+        <button
+          className={`paperMonitor__secondaryAction${saved ? ' paperMonitor__secondaryAction--active' : ''}`}
+          onClick={onToggleSave}
+        >
           <BookmarkIcon style={{ width: 14, height: 14 }} />
           {saved ? 'Saved to library' : 'Save to library'}
         </button>
 
-        <button className="paperMonitor__secondaryAction">
+        <button className="paperMonitor__secondaryAction" onClick={handleDraftCitation}>
           <QuoteIcon style={{ width: 14, height: 14 }} />
           Draft a citation
         </button>
 
-        <button className="paperMonitor__secondaryAction">
+        <button className="paperMonitor__secondaryAction" onClick={handleFindSimilar}>
           <SearchIcon style={{ width: 14, height: 14 }} />
           Find similar in my library
         </button>

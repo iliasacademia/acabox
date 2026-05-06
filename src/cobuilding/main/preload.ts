@@ -300,6 +300,11 @@ contextBridge.exposeInMainWorld('reportsAPI', {
     ipcRenderer.invoke('reports:update', reportId, reportData),
 });
 
+contextBridge.exposeInMainWorld('papersAPI', {
+  fetch: (input: { topics: string[]; maxPerTopic?: number; maxTotal?: number }) =>
+    ipcRenderer.invoke('papers:fetch', input),
+});
+
 contextBridge.exposeInMainWorld('scannerAPI', {
   start: () => ipcRenderer.invoke('scanner:start'),
   onEvent: (callback: (event: any) => void) => {

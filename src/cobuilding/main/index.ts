@@ -17,6 +17,7 @@ import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
+import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
@@ -1098,6 +1099,31 @@ ipcMain.handle('reports:get', (_event, reportId: string) => {
 
 ipcMain.handle('reports:update', (_event, reportId: string, reportData: string) => {
   updateReportData(reportId, reportData);
+});
+
+// ─── Papers (Paper Monitor) IPC ─────────────────────────────────
+
+ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
+  const safeInput: FetchPapersInput = input ?? { topics: [] };
+  log.info('[Papers] fetch start, topics:', safeInput.topics);
+  try {
+    const result = await fetchPapers(safeInput);
+    log.info(
+      `[Papers] fetch ok: ${result.papers.length} papers, ${result.errors.length} topic errors`,
+    );
+    if (result.errors.length > 0) {
+      for (const e of result.errors) log.warn(`[Papers] topic "${e.topic}": ${e.message}`);
+    }
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error('[Papers] fetch failed:', message, err instanceof Error ? err.stack : '');
+    return {
+      papers: [],
+      fetchedAt: new Date().toISOString(),
+      errors: [{ topic: '*', message }],
+    };
+  }
 });
 
 // ─── Directory Scanner IPC ──────────────────────────────────────

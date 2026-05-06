@@ -605,6 +605,35 @@ declare global {
     onEvent(callback: (event: ScannerEvent) => void): () => void;
   }
 
+  interface FetchedPaper {
+    id: string;
+    source: 'arxiv';
+    externalId: string;
+    title: string;
+    abstract: string;
+    authors: string[];
+    authorsLine: string;
+    venue: string;
+    publishedAt: string;
+    url: string;
+    pdfUrl: string;
+    matchedTopic: string;
+  }
+
+  interface PapersFetchResult {
+    papers: FetchedPaper[];
+    fetchedAt: string;
+    errors: { topic: string; message: string }[];
+  }
+
+  interface PapersAPI {
+    fetch(input: {
+      topics: string[];
+      maxPerTopic?: number;
+      maxTotal?: number;
+    }): Promise<PapersFetchResult>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     calendarAPI: CalendarAPI;
@@ -632,5 +661,6 @@ declare global {
     officeAddinAPI: OfficeAddinAPI;
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;
+    papersAPI: PapersAPI;
   }
 }
