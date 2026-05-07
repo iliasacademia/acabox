@@ -684,6 +684,8 @@ declare global {
   interface BriefingDataWritingAgent {
     /** Relative path (within workspace) to the DOCX manuscript. */
     file_path: string;
+    /** LLM-generated card title contextual to the manuscript. */
+    title?: string;
     /** What the user might pick up next on this manuscript. */
     description: string;
     /**

@@ -83,9 +83,9 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
     case 'writing_agent':
       return {
         eyebrow: 'I can do this for you',
-        title: 'Peer review your manuscript',
+        title: parsed.data.title || 'Peer review your manuscript',
         primaryLabel: 'Yes, do it',
-        fallbackDescription: `I'll read ${basename(parsed.data.file_path)} as a peer reviewer would and flag concerns about the argument, evidence, methodology, and structure — left as comments in Word for you to act on.`,
+        fallbackDescription: parsed.data.description || `I'll read ${basename(parsed.data.file_path)} as a peer reviewer and flag concerns about the argument, evidence, methodology, and structure.`,
       };
     default:
       return null;
