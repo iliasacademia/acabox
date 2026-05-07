@@ -27,6 +27,12 @@ function basename(filePath: string | undefined): string {
   return parts[parts.length - 1] || filePath;
 }
 
+function basenameNoExt(filePath: string | undefined): string {
+  const name = basename(filePath);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? name.substring(0, dot) : name;
+}
+
 function formatDate(): string {
   const now = new Date();
   const day = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
@@ -38,6 +44,7 @@ function formatDate(): string {
 interface BriefingCardDisplay {
   eyebrow: string;
   title: string;
+  subtitle?: string;
   primaryLabel: string;
   fallbackDescription: string;
 }
@@ -81,9 +88,10 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
       };
     case 'writing_agent':
       return {
-        eyebrow: 'I can do this for you',
+        eyebrow: 'I can review this for you',
         title: parsed.data.title || 'Peer review your manuscript',
-        primaryLabel: 'Yes, do it',
+        subtitle: basenameNoExt(parsed.data.file_path) || undefined,
+        primaryLabel: 'Review in Word',
         fallbackDescription: parsed.data.description || `I'll read ${basename(parsed.data.file_path)} as a peer reviewer and flag concerns about the argument, evidence, methodology, and structure.`,
       };
     default:
@@ -108,17 +116,13 @@ export function HomePage({
 
   useEffect(() => {
     const refresh = () => {
-      // Pin any writing_agent briefings to the top so the peer-review card
-      // isn't pushed off by suggested_action briefings with a newer created_at.
       window.briefingsAPI
         .list({ status: ['new'], limit: 50 })
         .then((rows) => {
           const parsed = rows
             .map(parseBriefing)
             .filter((b): b is ParsedBriefing => b !== null);
-          const writingAgent = parsed.filter((b) => b.type === 'writing_agent');
-          const others = parsed.filter((b) => b.type !== 'writing_agent');
-          setBriefings([...writingAgent, ...others]);
+          setBriefings(parsed);
         });
     };
     refresh();
@@ -215,6 +219,9 @@ export function HomePage({
                     <span>{card.eyebrow}</span>
                   </div>
                   <h3 className="homeBriefingCard__title">{card.title}</h3>
+                  {card.subtitle && (
+                    <p className="homeBriefingCard__subtitle">{card.subtitle}</p>
+                  )}
                   <p className="homeBriefingCard__description">
                     {/* writing_agent always uses our peer-review copy; other
                         types prefer the briefing's own reason text. */}

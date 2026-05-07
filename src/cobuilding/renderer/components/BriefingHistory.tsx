@@ -48,7 +48,7 @@ function rowEyebrow(type: BriefingType): string {
     case 'paper': return 'New paper';
     case 'citation': return 'New citation';
     case 'grant': return 'Grant opportunity';
-    case 'writing_agent': return 'I can do this for you';
+    case 'writing_agent': return 'I can review this for you';
   }
 }
 
@@ -72,7 +72,7 @@ function rowPrimaryLabel(type: BriefingType): string {
     case 'paper': return 'Read it';
     case 'citation': return 'View';
     case 'grant': return 'View';
-    case 'writing_agent': return 'Open in Word';
+    case 'writing_agent': return 'Review in Word';
   }
 }
 
