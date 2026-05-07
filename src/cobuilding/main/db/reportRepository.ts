@@ -39,8 +39,6 @@ export function updateReportStatus(
   let aboutYouSummary: string | null = null;
   let workingOnSummary: string | null = null;
   let workingOn: string | null = null;
-  let suggestedMiniApps: string | null = null;
-
   if (data) {
     try {
       const parsed = JSON.parse(data);
@@ -49,9 +47,6 @@ export function updateReportStatus(
       workingOnSummary = parsed.what_youre_working_on_summary ?? null;
       workingOn = Array.isArray(parsed.what_youre_working_on)
         ? JSON.stringify(parsed.what_youre_working_on)
-        : null;
-      suggestedMiniApps = Array.isArray(parsed.suggested_mini_apps)
-        ? JSON.stringify(parsed.suggested_mini_apps)
         : null;
     } catch {
       // If JSON parsing fails, leave columns null — raw data is still saved in report_data
@@ -66,7 +61,6 @@ export function updateReportStatus(
          about_you_summary = COALESCE(?, about_you_summary),
          what_youre_working_on_summary = COALESCE(?, what_youre_working_on_summary),
          what_youre_working_on = COALESCE(?, what_youre_working_on),
-         suggested_mini_apps = COALESCE(?, suggested_mini_apps),
          error = ?,
          completed_at = ?
      WHERE id = ?`,
@@ -77,7 +71,6 @@ export function updateReportStatus(
     aboutYouSummary,
     workingOnSummary,
     workingOn,
-    suggestedMiniApps,
     error ?? null,
     completedAt,
     id,
@@ -98,8 +91,6 @@ export function updateReportData(id: string, data: string): void {
   let aboutYouSummary: string | null = null;
   let workingOnSummary: string | null = null;
   let workingOn: string | null = null;
-  let suggestedMiniApps: string | null = null;
-
   try {
     const parsed = JSON.parse(data);
     inDepthReport = parsed.in_depth_report ?? null;
@@ -107,9 +98,6 @@ export function updateReportData(id: string, data: string): void {
     workingOnSummary = parsed.what_youre_working_on_summary ?? null;
     workingOn = Array.isArray(parsed.what_youre_working_on)
       ? JSON.stringify(parsed.what_youre_working_on)
-      : null;
-    suggestedMiniApps = Array.isArray(parsed.suggested_mini_apps)
-      ? JSON.stringify(parsed.suggested_mini_apps)
       : null;
   } catch {
     // leave columns null
@@ -121,10 +109,9 @@ export function updateReportData(id: string, data: string): void {
          in_depth_report = ?,
          about_you_summary = ?,
          what_youre_working_on_summary = ?,
-         what_youre_working_on = ?,
-         suggested_mini_apps = ?
+         what_youre_working_on = ?
      WHERE id = ?`,
-  ).run(data, inDepthReport, aboutYouSummary, workingOnSummary, workingOn, suggestedMiniApps, id);
+  ).run(data, inDepthReport, aboutYouSummary, workingOnSummary, workingOn, id);
 }
 
 export function getLatestReport(

@@ -95,25 +95,5 @@ Your final output MUST be valid JSON (no markdown fences, no commentary before o
    - \`grant\`: files or directories whose names or contents indicate grant proposals, funding applications, or NIH/NSF/R01 submissions
    - \`presentation\`: .pptx or .key files, or directories with names like "talks", "slides", "lab-meeting"
 
-   Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
-
-5. **suggested_mini_apps**: A list of 2-5 mini-apps tailored to this researcher's files. These are built as sandboxed React apps with Plotly charts and file I/O through a bridge API — no direct filesystem access, no custom Canvas/D3, no real-time streaming. Prioritize apps that need NO backend kernel (React-only) because they build fastest and let the user see value immediately.
-
-   **Good categories** (these map to framework strengths):
-   - **Data explorer**: Load a CSV/TSV via file picker, display as searchable/sortable/filterable table with column statistics. Suggest when you find tabular data files.
-   - **Chart generator**: Load tabular data and render interactive Plotly charts (scatter, bar, line, heatmap, violin, box, 3D scatter). Suggest when you find experimental results or numeric datasets.
-   - **AI text analyzer**: Use the built-in Claude API to summarize PDFs, classify abstracts, extract metadata from papers, or compare documents. Suggest when you find collections of papers, notes, or text files.
-   - **Data transformer**: Filter rows, merge CSVs, reshape columns, compute derived fields, and export the result. Suggest when you find messy or multi-part datasets that need cleaning.
-   - **Statistical dashboard**: Summary statistics, distributions, and correlation matrices for tabular data. React-only for basic stats; suggest a Python/R kernel only for advanced methods like PCA or clustering.
-
-   **Do NOT suggest**: batch file renaming, filesystem reorganizers, image editors, real-time monitors, or anything that requires direct filesystem writes outside the app's output directory. These do not work in the sandboxed framework.
-
-   **For each suggestion provide three fields:**
-   - \`name\`: Short display title (e.g. "Expression Data Explorer", "Paper Summarizer").
-   - \`why_im_suggesting_this\`: 1-2 sentences tying the suggestion to specific files or patterns you found in their directory.
-   - \`details_on_what_to_build\`: This text is sent directly to the app builder as the build instruction. Make it concrete:
-     - Reference specific files or file patterns from the scan (e.g. "Load CSV files from the experiments/ directory like results_2024.csv").
-     - Describe what the app loads, what it displays, and what the user can interact with.
-     - Mention specific chart types if relevant (e.g. "scatter plot of column X vs Y", "heatmap of the correlation matrix").
-     - Keep it to 2-4 sentences — enough to build from without ambiguity.`;
+   Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.`;
 }

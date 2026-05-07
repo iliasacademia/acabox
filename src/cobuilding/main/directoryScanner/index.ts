@@ -11,12 +11,6 @@ const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research direc
 
 YOU MUST ALWAYS present me with a clear plan before proceeding to take any actions or make any file modifications. Do not move, rename, delete, rewrite, or create files until I explicitly approve the plan.`;
 
-interface SuggestedMiniAppParsed {
-  name?: unknown;
-  why_im_suggesting_this?: unknown;
-  details_on_what_to_build?: unknown;
-}
-
 interface WorkingOnFileParsed {
   file_path?: unknown;
   description?: unknown;
@@ -53,7 +47,6 @@ function createBriefingsFromScan(
   });
 
   let parsed: {
-    suggested_mini_apps?: unknown;
     what_youre_working_on?: unknown;
     tagged_files?: unknown;
   };
@@ -105,29 +98,6 @@ function createBriefingsFromScan(
     });
   }
 
-  // Create one suggested_tool briefing per mini-app the scanner suggested.
-  const apps = Array.isArray(parsed.suggested_mini_apps)
-    ? (parsed.suggested_mini_apps as SuggestedMiniAppParsed[])
-    : [];
-
-  for (const app of apps) {
-    if (typeof app?.name !== 'string' || typeof app?.details_on_what_to_build !== 'string') {
-      continue;
-    }
-    createBriefing({
-      workspaceId,
-      type: 'suggested_tool',
-      sourceReportId: reportId,
-      whyImSuggestingThis:
-        typeof app.why_im_suggesting_this === 'string'
-          ? app.why_im_suggesting_this
-          : null,
-      briefingData: {
-        name: app.name,
-        details_on_what_to_build: app.details_on_what_to_build,
-      },
-    });
-  }
 
   // One notify covers every briefing created synchronously above; the async
   // manuscript-analysis path fires its own when the upgrade lands.
