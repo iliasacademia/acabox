@@ -178,6 +178,11 @@ const FindAndReplaceSuggestionImpl = ({
   const [cardState, setCardState] = useState<CardState>('pending');
   const [error, setError] = useState<string | null>(null);
   const [showBatchHeader, setShowBatchHeader] = useState(false);
+  // Mirror the batch-registry size into local state so re-renders fire when
+  // sibling cards register/unregister even if `showBatchHeader` is unchanged.
+  // (setShowBatchHeader(true)→setShowBatchHeader(true) is a React no-op, so
+  // reading `pendingCards.size` directly in render would otherwise stay stale.)
+  const [batchCount, setBatchCount] = useState(0);
   const [copied, setCopied] = useState(false);
   const [detailsExpanded, setDetailsExpanded] = useState(false);
 
@@ -216,6 +221,7 @@ const FindAndReplaceSuggestionImpl = ({
     const update = () => {
       const firstPending = [...pendingCards][0];
       setShowBatchHeader(firstPending === toolCallId && pendingCards.size > 1);
+      setBatchCount(pendingCards.size);
     };
     countListeners.add(update);
     update();
@@ -464,7 +470,7 @@ const FindAndReplaceSuggestionImpl = ({
         {showBatchHeader && (
           <div className="suggestionBatchHeader">
             <span className="suggestionBatchCount">
-              {pendingCards.size} suggestions
+              {batchCount} suggestions
             </span>
             <div className="suggestionBatchActions">
               <button className="suggestionBtn suggestionBtn--approve" onClick={() => emitBatch('approve-all')}>

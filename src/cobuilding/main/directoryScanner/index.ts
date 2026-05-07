@@ -1,14 +1,12 @@
 import { query, type SDKMessage, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'crypto';
-import * as path from 'path';
 import log from 'electron-log';
 import { resolveClaudeBinary } from '../sdkBinarySetup';
 import { createReport, updateReportStatus } from '../db/reportRepository';
-import { createBriefing, updateBriefingData } from '../db/briefingsRepository';
+import { createBriefing } from '../db/briefingsRepository';
 import { upsertScannedFiles } from '../db/scannedFilesRepository';
 import { buildScannerSystemPrompt, buildScannerPrompt } from './systemPrompt';
 import { REPORT_JSON_SCHEMA } from './reportSchema';
-import { analyzeManuscriptForImprovements } from './manuscriptAnalysis';
 
 const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research directory. First, inspect the workspace and understand the current file structure, research projects, documents, data, scripts, outputs, and any existing naming conventions. Then recommend an effective organization plan for the directory.
 
@@ -25,16 +23,19 @@ interface WorkingOnFileParsed {
   description?: unknown;
 }
 
-const FALLBACK_KICKOFF_PROMPT = `My manuscript is open in Word. Please read it with the ms-word tools, identify 3-5 specific things I could improve (clarity, structure, argument, evidence, citations), and start on the highest-leverage one.`;
+interface TaggedFileParsed {
+  file_path?: unknown;
+  file_name?: unknown;
+  file_type?: unknown;
+}
+
+const WRITING_AGENT_KICKOFF_PROMPT = 'Read just the first section of this manuscript (the Introduction, or whatever heading appears first) and propose exactly 3 small wording improvements as tracked changes — clarity or concision only, no content changes.';
 
 function createBriefingsFromScan(
   workspaceId: string,
   reportId: string,
   resultText: string,
   ctx: {
-    directoryPath: string;
-    apiKey: string;
-    baseURL?: string;
     onBriefingsChanged?: () => void;
   },
 ): void {
@@ -56,6 +57,7 @@ function createBriefingsFromScan(
   let parsed: {
     suggested_mini_apps?: unknown;
     what_youre_working_on?: unknown;
+    tagged_files?: unknown;
   };
   try {
     parsed = JSON.parse(resultText);
@@ -63,24 +65,34 @@ function createBriefingsFromScan(
     return;
   }
 
-  // If the scan found a DOCX manuscript among the active files, surface it as
-  // a Writing Agent briefing — clicking it opens the doc in Word.
+  // Surface the most relevant DOCX manuscript as a Writing Agent briefing.
+  // Source from `tagged_files` (the comprehensive list — any manuscript the
+  // scanner found) rather than `what_youre_working_on` (capped at 3 items
+  // prioritizing variety across categories, so a manuscript can get bumped
+  // out by a presentation or grant). Pull the description from working-on
+  // if the same file also made that list, otherwise fall back to a generic.
   const workingOn = Array.isArray(parsed.what_youre_working_on)
     ? (parsed.what_youre_working_on as WorkingOnFileParsed[])
     : [];
-  const docxFile = workingOn.find(
+  const taggedFiles = Array.isArray(parsed.tagged_files)
+    ? (parsed.tagged_files as TaggedFileParsed[])
+    : [];
+  const docxManuscript = taggedFiles.find(
     (f) =>
-      typeof f?.file_path === 'string' &&
+      f?.file_type === 'manuscript' &&
+      typeof f.file_path === 'string' &&
       f.file_path.toLowerCase().endsWith('.docx'),
   );
-  if (docxFile && typeof docxFile.file_path === 'string') {
-    const relPath = docxFile.file_path;
+  if (docxManuscript && typeof docxManuscript.file_path === 'string') {
+    const relPath = docxManuscript.file_path;
+    const matchingWorkingOn = workingOn.find(
+      (f) => typeof f?.file_path === 'string' && f.file_path === relPath,
+    );
     const description =
-      typeof docxFile.description === 'string' ? docxFile.description : '';
-    // Create the briefing immediately with a generic kickoff so the user isn't
-    // blocked on the manuscript analysis. The chat_prompt is upgraded below
-    // once the async Haiku call returns.
-    const briefingId = createBriefing({
+      typeof matchingWorkingOn?.description === 'string'
+        ? matchingWorkingOn.description
+        : '';
+    createBriefing({
       workspaceId,
       type: 'writing_agent',
       sourceReportId: reportId,
@@ -90,32 +102,9 @@ function createBriefingsFromScan(
       briefingData: {
         file_path: relPath,
         description,
-        chat_prompt: FALLBACK_KICKOFF_PROMPT,
+        chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
       },
     });
-
-    const absPath = path.isAbsolute(relPath)
-      ? relPath
-      : path.join(ctx.directoryPath, relPath);
-    void analyzeManuscriptForImprovements(absPath, ctx.apiKey, ctx.baseURL)
-      .then((chatPrompt) => {
-        if (!chatPrompt || chatPrompt === FALLBACK_KICKOFF_PROMPT) return;
-        updateBriefingData(briefingId, {
-          file_path: relPath,
-          description,
-          chat_prompt: chatPrompt,
-        });
-        log.info(
-          `[ManuscriptAnalysis] Updated briefing ${briefingId} with manuscript-specific kickoff`,
-        );
-        ctx.onBriefingsChanged?.();
-      })
-      .catch((err) => {
-        log.warn(
-          '[ManuscriptAnalysis] Background analysis failed; briefing keeps fallback prompt:',
-          err,
-        );
-      });
   }
 
   // Create one suggested_tool briefing per mini-app the scanner suggested.
@@ -369,9 +358,6 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           updateReportStatus(reportId, 'completed', resultText);
           try {
             createBriefingsFromScan(workspaceId, reportId, resultText, {
-              directoryPath,
-              apiKey,
-              baseURL: params.baseURL,
               onBriefingsChanged: params.onBriefingsChanged,
             });
           } catch (err) {

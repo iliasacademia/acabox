@@ -248,6 +248,7 @@ declare global {
     list(source?: string): Promise<SessionData[]>;
     get(id: string): Promise<SessionData | undefined>;
     setDocumentPath(id: string, documentPath: string): Promise<void>;
+    countForDocument(documentPath: string): Promise<number>;
     rename(id: string, title: string): Promise<void>;
     delete(id: string): Promise<void>;
     listMessages(sessionId: string): Promise<MessageData[]>;
@@ -387,8 +388,6 @@ declare global {
     openFile(fileUrl: string, bundleId?: string): Promise<string>;
     setDockRightForDocument(documentPath: string, docked: boolean): Promise<void>;
     setOverlayKickoffForDocument(documentPath: string, prompt: string): Promise<void>;
-    /** Run the mammoth + Haiku analyzer on a manuscript file and return a manuscript-specific kickoff message. */
-    analyzeManuscriptForKickoff(filePath: string): Promise<string>;
   }
 
   interface BrowserMonitorAPI {

@@ -186,8 +186,6 @@ contextBridge.exposeInMainWorld('fileMonitorAPI', {
     ipcRenderer.invoke('windowMonitor:setDockRightForDocument', documentPath, docked),
   setOverlayKickoffForDocument: (documentPath: string, prompt: string) =>
     ipcRenderer.invoke('windowMonitor:setOverlayKickoffForDocument', documentPath, prompt),
-  analyzeManuscriptForKickoff: (filePath: string) =>
-    ipcRenderer.invoke('manuscript:analyzeForKickoff', filePath),
 });
 
 contextBridge.exposeInMainWorld('observationsAPI', {
@@ -331,6 +329,8 @@ contextBridge.exposeInMainWorld('sessionsAPI', {
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
   setDocumentPath: (id: string, documentPath: string) =>
     ipcRenderer.invoke('sessions:setDocumentPath', id, documentPath),
+  countForDocument: (documentPath: string) =>
+    ipcRenderer.invoke('sessions:countForDocument', documentPath) as Promise<number>,
   rename: (id: string, title: string) => ipcRenderer.invoke('sessions:rename', id, title),
   delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
   listMessages: (sessionId: string) => ipcRenderer.invoke('messages:list', sessionId),

@@ -90,14 +90,3 @@ export function setBriefingStatus(id: string, status: BriefingStatus): void {
   ).run(status, id);
 }
 
-/** Replace `briefing_data` in place — used for async enrichment after create. */
-export function updateBriefingData(id: string, briefingData: unknown): void {
-  const db = getDatabase();
-  const dataJson =
-    typeof briefingData === 'string' ? briefingData : JSON.stringify(briefingData);
-  db.prepare(
-    `UPDATE briefings
-     SET briefing_data = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now')
-     WHERE id = ?`,
-  ).run(dataJson, id);
-}

@@ -1076,6 +1076,17 @@ ipcMain.handle(
       const scheduler = getTaskScheduler();
       scheduler.stop();
       scheduler.start();
+      // Tell the Word overlay about the freshly-created workspace so it
+      // recognizes docs inside it (otherwise the overlay falls through to
+      // the legacy "Not linked to a project" view on first onboarding).
+      windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+      windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
+        if (!activeWorkspace) return [];
+        const rows = documentPathLike !== undefined
+          ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
+          : listSessions(activeWorkspace.id, undefined, documentPath);
+        return rows.map((s) => ({ id: s.id, title: s.title, created_at: s.created_at }));
+      });
       // Directory scan is triggered separately via scanner:start IPC
     }
     return activeWorkspace ?? null;
@@ -2045,13 +2056,6 @@ ipcMain.handle('windowMonitor:setOverlayKickoffForDocument', (_event, documentPa
   windowMonitorService.setPendingKickoffForDocument(documentPath, prompt);
 });
 
-ipcMain.handle('manuscript:analyzeForKickoff', async (_event, filePath: string): Promise<string> => {
-  if (!activeWorkspace) {
-    throw new Error('No active workspace');
-  }
-  const { analyzeManuscriptForImprovements } = await import('./directoryScanner/manuscriptAnalysis');
-  return analyzeManuscriptForImprovements(filePath, activeWorkspace.api_key, cachedBaseURL);
-});
 
 // Observations IPC handlers
 ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
@@ -2067,6 +2071,10 @@ function notifySessionsChanged() {
 // Session IPC handlers
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   return listSessions(undefined, source);
+});
+ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): number => {
+  if (!activeWorkspace) return 0;
+  return listSessions(activeWorkspace.id, undefined, documentPath).length;
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
 ipcMain.handle('sessions:setDocumentPath', (_event, id: string, documentPath: string) => {

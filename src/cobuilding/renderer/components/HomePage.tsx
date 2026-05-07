@@ -194,9 +194,16 @@ export function HomePage({
       const fileUrl = absolutePath.startsWith('file://')
         ? absolutePath
         : `file://${absolutePath}`;
-      // Stash the scanner's improvement prompt FIRST (await it) so the entry
-      // exists in main before Word activates and the popup polls.
-      if (parsed.data.chat_prompt) {
+      // Only auto-fire the kickoff for the first-ever conversation on this
+      // doc. If the user already has chats here, just open Word + dock and
+      // let them pick which past conversation to continue from the overlay.
+      let existingSessions = 0;
+      try {
+        existingSessions = await window.sessionsAPI.countForDocument(absolutePath);
+      } catch (err) {
+        console.warn('[WritingAgent] countForDocument failed; defaulting to kickoff:', err);
+      }
+      if (existingSessions === 0 && parsed.data.chat_prompt) {
         try {
           await window.fileMonitorAPI.setOverlayKickoffForDocument(absolutePath, parsed.data.chat_prompt);
         } catch (err) {
