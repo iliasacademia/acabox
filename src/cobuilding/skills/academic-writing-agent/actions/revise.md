@@ -40,17 +40,48 @@ Then, in this order:
 
 3. **Read the selection.** Call `mcp__ms-word__get_selection` to capture the verbatim original passage.
 
-4. **Propose the edit.** Call `mcp__ms-word__find_and_replace`:
+4. **Emit the chat HTML response** per the Chat Output Format below. This is the **only** text block in the assistant turn — it must precede the `find_and_replace` call so the suggestion card renders BELOW the chat bubble in the visual stream. The user reads your one-sentence summary and bullet rationale first, then sees the diff card directly underneath.
+
+   The text block must be **pure HTML end-to-end**: first character `<`, last character `>`, no prose outside HTML tags anywhere in the block. Before sending it, run the pre-send check from `format.md`:
+   - First character is `<`? (no leading "Here's the revision" prose)
+   - Last character is `>`? (no trailing "Suggestion card placed in the document", "Ready for accept/reject", "I'll skip the todo list", or any other meta-narration)
+   - This is the only text block in the turn? (no separate narration block before tool calls or after `find_and_replace`)
+
+   If you fail any of these, the chat bubble renders as raw text and the user sees `<details>`, `<span>`, `<article>`, etc. literally. Anything you'd want to say outside the HTML belongs inside `<div class="summary">`.
+
+5. **Propose the edit.** Call `mcp__ms-word__find_and_replace` as the final action of this turn:
    - `search_text`: the verbatim selection — character-for-character, including line breaks, ligature artifacts (`eﬀect`, `diﬃcult`), inline page-number numerals, non-breaking spaces. Even one-character drift fails the lookup.
    - `replacement_text`: the revised passage.
    - `replace_scope`: `"first"` (default).
    - `match_case`: `true` (default).
 
-5. **Compose the chat response** per the Chat Output Format below.
+### Why HTML-before-tool-call
+
+The card is rendered at the position of its tool call in the message stream. If `find_and_replace` runs before the HTML, the card appears above the explanatory text and the user has to scroll up to read what changed after reviewing the diff. Emitting the HTML as a text block first and the tool call last reverses that order: explanation, then diff. This is the intended layout — do not regress to the old ordering for "convenience".
+
+### No narration text blocks anywhere in the turn
+
+The intended turn shape is:
+
+```
+[ToolSearch]
+[track_changes_status]
+[set_track_changes if needed]
+[get_selection]
+[text block: <details>...</details><br><article>...</article>]
+[find_and_replace]
+```
+
+No text blocks appear before, between, or after the tool calls — only the single HTML text block in the middle. Specifically:
+
+- **Do not** emit a leading sentence like "I'll load the ms-word tool schemas and check the document state before proposing the revision" before the first tool call. The model does not need to announce its plan; just call the tools.
+- **Do not** emit a closing sentence like "The card is in the document for accept/reject" or "The single-step revise action doesn't warrant a todo list" after `find_and_replace`. Anything you would have said belongs inside the HTML's `<div class="summary">`.
 
 ### Tool-failure fallback (degraded path)
 
 If the tool sequence cannot complete for reasons other than Track Changes being off — `find_and_replace` returns an error, there is no active Word document, the schemas fail to load via `ToolSearch`, the selection comes back empty — deliver the revision in chat as a `<blockquote source="assistant">` containing the full revised passage and explain in `framework_to_address` what failed. This is a degraded path used only on genuine tool failure. Track Changes being off is **not** a tool failure; step 2 handles that.
+
+When you discover the failure mid-sequence (e.g., empty selection at step 3), skip step 5 entirely and put the full revised passage inline in the HTML response from step 4. The chat bubble is the only delivery channel in the degraded path, so the "do not include the full revised passage" rule below does not apply.
 
 ## Chat Output Format
 
@@ -76,4 +107,4 @@ For structural reorganization, the chat critique briefly explains the new orderi
 - If the text has problems beyond what the user asked about, focus on what they requested. You may briefly note other issues but do not rewrite for them uninvited
 - Maintain consistency with the rest of the manuscript
 
-<!-- skill-file: actions/revise.md @2026-05-05e -->
+<!-- skill-file: actions/revise.md @2026-05-06c -->
