@@ -108,17 +108,13 @@ export function HomePage({
 
   useEffect(() => {
     const refresh = () => {
-      // Pin any writing_agent briefings to the top so the peer-review card
-      // isn't pushed off by suggested_action briefings with a newer created_at.
       window.briefingsAPI
         .list({ status: ['new'], limit: 50 })
         .then((rows) => {
           const parsed = rows
             .map(parseBriefing)
             .filter((b): b is ParsedBriefing => b !== null);
-          const writingAgent = parsed.filter((b) => b.type === 'writing_agent');
-          const others = parsed.filter((b) => b.type !== 'writing_agent');
-          setBriefings([...writingAgent, ...others]);
+          setBriefings(parsed);
         });
     };
     refresh();
