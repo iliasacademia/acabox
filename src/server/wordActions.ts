@@ -14,6 +14,7 @@ import { defaultLogger as logger } from '../utils/logger';
 import { logToWindowMonitorDb } from '../windowMonitorDb';
 import { windowMonitorService } from '../windowMonitorService';
 import { buildFindReplaceScript } from './wordFindReplaceScript';
+import { normalizeWithMap } from './wordTextNormalize';
 
 function getWordActionsBinPath(): string {
   if (app.isPackaged) {
@@ -103,6 +104,83 @@ function describeSuspiciousChars(input: string): string[] {
   if (/ /.test(input)) labels.push('non-breaking space');
   if (/­/.test(input)) labels.push('soft hyphen');
   return labels;
+}
+
+/**
+ * Pass 5 fallback. After the AppleScript script returned `count===0`,
+ * read the doc text it captured and run an indexOf in JS-side normalized
+ * space. If that finds the search text, fire a focused replace-by-offset
+ * AppleScript so Word writes the change at the right range.
+ *
+ * Returns null when no match landed; the caller should fall through to
+ * the existing not-found error.
+ */
+async function jsNormalizedIndexFallback(opts: {
+  docText: string;
+  cleanSearch: string;
+  originalSearch: string;
+  replaceText: string;
+  matchCase: boolean;
+}): Promise<{ replacementsCount: number } | null> {
+  const { docText, cleanSearch, originalSearch, replaceText, matchCase } = opts;
+  if (!docText) return null;
+
+  const docNorm = normalizeWithMap(docText);
+  const candidates: { needle: string }[] = [{ needle: cleanSearch }];
+  if (originalSearch && originalSearch !== cleanSearch) {
+    candidates.push({ needle: originalSearch });
+  }
+
+  const docHay = matchCase ? docNorm.out : docNorm.out.toLowerCase();
+  for (const { needle } of candidates) {
+    const needleNorm = normalizeWithMap(needle).out;
+    if (!needleNorm.length) continue;
+    const haystackNeedle = matchCase ? needleNorm : needleNorm.toLowerCase();
+    const found = docHay.indexOf(haystackNeedle);
+    if (found < 0) continue;
+    const startOrig = docNorm.map[found];
+    const endOrig = docNorm.map[found + needleNorm.length];
+    if (typeof startOrig !== 'number' || typeof endOrig !== 'number' || endOrig <= startOrig) continue;
+    logger.info(`[WordActions] findAndReplaceInWord: Pass 5 (JS normalized) located match at doc chars ${startOrig}..${endOrig}`);
+    const ok = await replaceWordRangeByOffset(startOrig, endOrig, replaceText);
+    if (ok) return { replacementsCount: 1 };
+  }
+  return null;
+}
+
+/**
+ * Replace the content of a Word range identified by character offsets
+ * (zero-based, end-exclusive) with the given replacement text. Used as
+ * the write step for Pass 5 — by the time we call this, JS has already
+ * verified the source text matches.
+ */
+async function replaceWordRangeByOffset(start: number, end: number, replaceText: string): Promise<boolean> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'word-fr-replace-'));
+  const replPath = path.join(tmpDir, 'replace.txt');
+  try {
+    await fs.writeFile(replPath, replaceText.replace(/\r\n|\r|\n/g, '\r'), 'utf8');
+    const script = `
+set replPath to POSIX file "${replPath}"
+set replaceText to (read replPath as «class utf8»)
+tell application "Microsoft Word"
+  if (count of documents) is 0 then return "error||No document open"
+  try
+    set doc to active document
+    set targetRange to create range doc start ${start} end ${end}
+    set content of targetRange to replaceText
+    return "ok"
+  on error errMsg
+    return "error||" & errMsg
+  end try
+end tell
+`;
+    const result = await runAppleScriptStdin(script);
+    return result.trim().startsWith('ok');
+  } catch {
+    return false;
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 const WORD_EXTENSIONS = new Set(['.doc', '.docx', '.docm', '.dotx', '.dotm', '.rtf']);
@@ -997,6 +1075,7 @@ async function runFindAndReplace(
   const searchPath = path.join(tmpDir, 'search.txt');
   const replacePath = path.join(tmpDir, 'replace.txt');
   const originalSearchPath = path.join(tmpDir, 'search-original.txt');
+  const docTextPath = path.join(tmpDir, 'doc-text.txt');
   // Word treats CR as the paragraph separator. Normalize line endings so
   // the file content matches what the find object expects.
   const toCR = (s: string) => s.replace(/\r\n|\r|\n/g, '\r');
@@ -1017,6 +1096,7 @@ async function runFindAndReplace(
       searchPath,
       replacePath,
       originalSearchPath,
+      docTextPath,
       replaceAll,
       matchCase,
       sanitizeChangedSearch,
@@ -1039,6 +1119,30 @@ async function runFindAndReplace(
       logger.info(`[WordActions] findAndReplaceInWord: matched via anchor+extend fallback (mode=${mode}, search length=${searchText.length})`);
     }
     if (count === 0) {
+      // Pass 5: JS-side normalized indexOf. AppleScript's literal find
+      // can't reconcile invisible Word inserts (comment refs, PUA glyphs,
+      // soft hyphens) against the agent's clean search text — but a
+      // normalized comparison can. The AppleScript script wrote the
+      // captured doc text to docTextPath; read it, normalize both sides
+      // with offset tracking, and on match fire a focused replace.
+      try {
+        const docText = await fs.readFile(docTextPath, 'utf8');
+        const fallback = await jsNormalizedIndexFallback({
+          docText,
+          cleanSearch,
+          originalSearch: searchText,
+          replaceText: cleanReplace,
+          matchCase,
+        });
+        if (fallback) {
+          logger.info(`[WordActions] findAndReplaceInWord: matched via Pass 5 JS-normalized indexOf (search length=${searchText.length})`);
+          return { success: true, replacementsCount: fallback.replacementsCount };
+        }
+      } catch {
+        // Either the script didn't capture docText (already had a match
+        // or Word state went sideways) or the file write failed; the
+        // standard not-found error below covers it.
+      }
       logger.info(`[WordActions] findAndReplaceInWord: no match found (search length=${searchText.length}, revisions=${revCount}, longSearch=${isLongSearch})`);
       // Lead with the most likely cause based on the search-text shape; only
       // mention track changes when there are some AND the search is short

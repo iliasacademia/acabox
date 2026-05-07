@@ -26,6 +26,14 @@ export interface BuildScriptOpts {
   searchPath: string;
   replacePath: string;
   originalSearchPath: string;
+  /**
+   * Path the script writes the captured doc text to when no pass replaced.
+   * Lets the JS layer run a normalized indexOf as Pass 5 — necessary when
+   * the doc contains invisible content (comment refs, PUA glyphs, soft
+   * hyphens) that AppleScript's literal-byte find can't reconcile with
+   * the agent's search text in either sanitized or un-sanitized form.
+   */
+  docTextPath: string;
   replaceAll: boolean;
   matchCase: boolean;
   sanitizeChangedSearch: boolean;
@@ -33,11 +41,12 @@ export interface BuildScriptOpts {
 }
 
 export function buildFindReplaceScript(opts: BuildScriptOpts): string {
-  const { searchPath, replacePath, originalSearchPath, replaceAll, matchCase, sanitizeChangedSearch, isLongSearch } = opts;
+  const { searchPath, replacePath, originalSearchPath, docTextPath, replaceAll, matchCase, sanitizeChangedSearch, isLongSearch } = opts;
   return `
 set searchPath to POSIX file "${searchPath}"
 set replacePath to POSIX file "${replacePath}"
 set originalSearchPath to POSIX file "${originalSearchPath}"
+set docTextPath to "${docTextPath}"
 set searchText to (read searchPath as «class utf8»)
 set replaceText to (read replacePath as «class utf8»)
 set originalSearchText to (read originalSearchPath as «class utf8»)
@@ -113,13 +122,16 @@ tell application "Microsoft Word"
       log "[wordActions] Word find errored, falling through to Pass 3 if applicable: " & tier1Err
     end try
 
-    -- Capture the doc text for Pass 3 BEFORE we exit the tell. Pass 3's
-    -- offset/count operations happen outside any application tell to
-    -- escape Word's dictionary; once we're outside we can't ask Word
-    -- anything more without a re-tell.
-    if replacementsCount is 0 and ${isLongSearch ? 'true' : 'false'} then
+    -- Capture the doc text BEFORE we exit the tell. Pass 3's offset/count
+    -- operations happen outside any application tell to escape Word's
+    -- dictionary; once we're outside we can't ask Word anything more
+    -- without a re-tell. We also keep this around for the JS-side Pass 5
+    -- (normalized indexOf): always capture on miss, not just when
+    -- isLongSearch, since invisible content (comment refs, PUA glyphs)
+    -- can defeat literal find at any length.
+    if replacementsCount is 0 then
       set docText to content of text object of doc
-      set needPass3 to true
+      ${isLongSearch ? 'set needPass3 to true' : ''}
     end if
     -- Always capture revision count when find missed. content of text
     -- object of doc returns the FINAL text (post-revision) — so if a prior
@@ -371,6 +383,23 @@ end if
         set track revisions of active document to origTrack
       end try
     end tell
+  end try
+end if
+
+-- Persist the captured doc text so the JS layer can run a normalized
+-- indexOf (Pass 5) when AppleScript's literal find missed in every form.
+-- Best-effort: a write failure here only loses the Pass 5 fallback, not
+-- the primary outcome.
+if replacementsCount is 0 and docText is not "" then
+  try
+    set fh to open for access (POSIX file docTextPath) with write permission
+    set eof of fh to 0
+    write docText to fh as «class utf8»
+    close access fh
+  on error
+    try
+      close access (POSIX file docTextPath)
+    end try
   end try
 end if
 

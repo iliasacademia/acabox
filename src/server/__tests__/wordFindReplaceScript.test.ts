@@ -49,6 +49,7 @@ const baseOpts: BuildScriptOpts = {
   searchPath: '/tmp/search.txt',
   replacePath: '/tmp/replace.txt',
   originalSearchPath: '/tmp/search-original.txt',
+  docTextPath: '/tmp/doc-text.txt',
   replaceAll: false,
   matchCase: true,
   sanitizeChangedSearch: false,
