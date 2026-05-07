@@ -131,3 +131,42 @@
   min-height: 200px;
 }
 
+/* Generating briefings loading state */
+.wsReview__generating {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 80px 24px;
+  text-align: center;
+}
+
+.wsReview__spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #e5ddd0;
+  border-top-color: #8b7355;
+  border-radius: 50%;
+  animation: wsReviewSpin 0.8s linear infinite;
+  margin-bottom: 24px;
+}
+
+@keyframes wsReviewSpin {
+  to { transform: rotate(360deg); }
+}
+
+.wsReview__generatingTitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1f2937;
+  margin: 0 0 8px;
+}
+
+.wsReview__generatingSubtitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0;
+}
+

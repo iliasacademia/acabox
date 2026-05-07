@@ -26,19 +26,22 @@ function parseBriefing(b: Briefing): ParsedBriefing | null {
   }
 }
 
-function basename(filePath: string): string {
+function basename(filePath: string | undefined): string {
+  if (!filePath) return '';
   const parts = filePath.split('/');
   return parts[parts.length - 1] || filePath;
 }
 
-function parentDir(filePath: string): string {
+function parentDir(filePath: string | undefined): string {
+  if (!filePath) return '';
   const parts = filePath.split('/');
   if (parts.length <= 1) return '';
   return parts.slice(0, -1).join('/');
 }
 
 /** Derive a short tag from the file extension. */
-function fileTag(filePath: string): string {
+function fileTag(filePath: string | undefined): string {
+  if (!filePath) return 'FILE';
   const ext = filePath.split('.').pop()?.toLowerCase();
   switch (ext) {
     case 'docx': case 'doc': case 'gdoc': return 'DOCUMENT';
@@ -143,7 +146,7 @@ export function HomePage({
           const parsed = JSON.parse(report.what_youre_working_on);
           if (Array.isArray(parsed)) {
             setWorkingOnItems(
-              parsed.filter((item: WorkingOnItem) => !basename(item.file_path).startsWith('~$')),
+              parsed.filter((item: WorkingOnItem) => item?.file_path && !basename(item.file_path).startsWith('~$')),
             );
           }
         } catch { /* ignore */ }

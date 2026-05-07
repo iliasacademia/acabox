@@ -17,6 +17,7 @@ import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
+import { generateBriefingSuggestions } from './briefingSuggester';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
@@ -47,7 +48,6 @@ import {
   getActiveWorkspace,
   listWorkspaces,
   touchWorkspace,
-  deleteAllWorkspaces,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -1131,7 +1131,6 @@ ipcMain.handle(
 );
 
 ipcMain.handle('workspaces:deleteAll', () => {
-  deleteAllWorkspaces();
   activeWorkspace = null;
 });
 
@@ -1297,6 +1296,21 @@ ipcMain.handle('scanner:start', async () => {
     }
   }).finally(() => {
     scannerRunning = false;
+  });
+});
+
+ipcMain.handle('scanner:generateBriefings', async (_event, reportId: string) => {
+  if (!activeWorkspace) {
+    throw new Error('No active workspace');
+  }
+  await generateBriefingSuggestions({
+    workspaceId: activeWorkspace.id,
+    reportId,
+    onBriefingsChanged: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('briefings:changed');
+      }
+    },
   });
 });
 
@@ -1863,6 +1877,28 @@ ipcMain.handle('container:ensureSetup', async () => {
       ensuredApps.add(appName);
     });
   }
+});
+
+ipcMain.handle('container:ensureSetupBackground', async () => {
+  const progressCallback = (stage: string, message: string, percent?: number) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
+  };
+  await containerService.ensureSetup(progressCallback);
+});
+
+ipcMain.handle('container:ensureReady', async () => {
+  if (!activeWorkspace) {
+    throw new Error('No active workspace');
+  }
+  const progressCallback = (stage: string, message: string, percent?: number) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
+  };
+  await containerService.ensureSetup(progressCallback, activeWorkspace.directory_path);
+  await containerService.start(activeWorkspace.directory_path);
+  await startAgentInfrastructure(activeWorkspace.directory_path);
+  backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
+    ensuredApps.add(appName);
+  });
 });
 
 // ─── Environment IPC ──────────────────────────────────────────────
@@ -2715,7 +2751,6 @@ ipcMain.handle('auth:logout', async () => {
   try {
     activeWorkspace = null;
     cachedApiKey = null;
-    deleteAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {

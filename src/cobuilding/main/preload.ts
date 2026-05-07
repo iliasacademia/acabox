@@ -114,6 +114,8 @@ contextBridge.exposeInMainWorld('containerAPI', {
   getName: () => ipcRenderer.invoke('container:getName'),
   isImageBuilt: () => ipcRenderer.invoke('container:isImageBuilt'),
   ensureSetup: () => ipcRenderer.invoke('container:ensureSetup'),
+  ensureSetupBackground: () => ipcRenderer.invoke('container:ensureSetupBackground'),
+  ensureReady: () => ipcRenderer.invoke('container:ensureReady'),
   getEnvironmentInfo: () => ipcRenderer.invoke('container:getEnvironmentInfo'),
   appDepsReady: (dirName: string) => ipcRenderer.invoke('container:appDepsReady', dirName),
   ensureAppDeps: (dirName: string) => ipcRenderer.invoke('container:ensureAppDeps', dirName),
@@ -315,6 +317,7 @@ contextBridge.exposeInMainWorld('scannedFilesAPI', {
 
 contextBridge.exposeInMainWorld('scannerAPI', {
   start: () => ipcRenderer.invoke('scanner:start'),
+  generateBriefings: (reportId: string) => ipcRenderer.invoke('scanner:generateBriefings', reportId),
   onEvent: (callback: (event: any) => void) => {
     const handler = (_event: unknown, data: any) => callback(data);
     ipcRenderer.on('scanner:event', handler);
