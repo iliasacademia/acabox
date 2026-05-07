@@ -48,7 +48,7 @@ function rowTitle(row: ParsedRow): string {
     case 'grant':
       return typeof d.title === 'string' ? d.title : 'Grant';
     case 'writing_agent': {
-      if (typeof d.file_path !== 'string') return 'Writing Agent';
+      if (typeof d.file_path !== 'string') return 'Peer Review Assistant';
       const parts = d.file_path.split('/');
       return parts[parts.length - 1] || d.file_path;
     }
@@ -69,7 +69,7 @@ function rowSubtitle(row: ParsedRow): string {
     case 'grant':
       return typeof d.agency === 'string' ? d.agency : 'Grant';
     case 'writing_agent':
-      return 'Writing Agent · open in Word';
+      return 'Peer Review Assistant · open in Word';
   }
 }
 
@@ -144,6 +144,12 @@ function rangeLabel(rows: ParsedRow[]): string {
   return `${count} ${itemWord} in past ${Math.round(days / 30)} months`;
 }
 
+const NEXT_STATUS: Record<BriefingStatus, BriefingStatus> = {
+  new: 'opened',
+  opened: 'dismissed',
+  dismissed: 'new',
+};
+
 export function BriefingHistory({ onBack }: { onBack: () => void }) {
   const [rows, setRows] = useState<ParsedRow[] | null>(null);
   const [filter, setFilter] = useState<FilterId>('all');
@@ -212,9 +218,24 @@ export function BriefingHistory({ onBack }: { onBack: () => void }) {
                       <div className="briefingHistoryRow__title">{rowTitle(row)}</div>
                       <div className="briefingHistoryRow__subtitle">{rowSubtitle(row)}</div>
                     </div>
-                    <div className={`briefingHistoryRow__status briefingHistoryRow__status--${row.briefing.status}`}>
+                    <button
+                      type="button"
+                      className={`briefingHistoryRow__status briefingHistoryRow__status--${row.briefing.status}`}
+                      onClick={() => {
+                        const next = NEXT_STATUS[row.briefing.status];
+                        window.briefingsAPI.setStatus(row.briefing.id, next);
+                        setRows((prev) =>
+                          prev?.map((r) =>
+                            r.briefing.id === row.briefing.id
+                              ? { ...r, briefing: { ...r.briefing, status: next } }
+                              : r,
+                          ) ?? null,
+                        );
+                      }}
+                      title={`Click to change to ${STATUS_LABEL[NEXT_STATUS[row.briefing.status]]}`}
+                    >
                       {STATUS_LABEL[row.briefing.status]}
-                    </div>
+                    </button>
                   </div>
                 ))}
               </div>

@@ -58,6 +58,7 @@ function formatDate(): string {
 }
 
 const MAX_VISIBLE_CARDS = 3;
+const MAX_VISIBLE_BRIEFINGS = 3;
 
 interface BriefingCardDisplay {
   eyebrow: string;
@@ -105,10 +106,10 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
       };
     case 'writing_agent':
       return {
-        eyebrow: 'Writing Agent',
-        title: basename(parsed.data.file_path),
-        primaryLabel: 'Open in Word',
-        fallbackDescription: parsed.data.description,
+        eyebrow: 'I can do this for you',
+        title: 'Peer review your manuscript',
+        primaryLabel: 'Yes, do it',
+        fallbackDescription: `I'll read ${basename(parsed.data.file_path)} as a peer reviewer would and flag concerns about the argument, evidence, methodology, and structure — left as comments in Word for you to act on.`,
       };
     default:
       return null;
@@ -141,9 +142,15 @@ export function HomePage({
         try {
           const parsed = JSON.parse(report.what_youre_working_on);
           if (Array.isArray(parsed)) {
-            setWorkingOnItems(
-              parsed.filter((item: WorkingOnItem) => !basename(item.file_path).startsWith('~$')),
-            );
+            // Normalise: LLM may return {path,description} instead of
+            // the schema's {file_path,description}.
+            const normalised: WorkingOnItem[] = parsed
+              .map((item: Record<string, unknown>) => ({
+                file_path: (item.file_path ?? item.path) as string,
+                description: (item.description ?? '') as string,
+              }))
+              .filter((item) => item.file_path && !basename(item.file_path).startsWith('~$'));
+            setWorkingOnItems(normalised);
           }
         } catch { /* ignore */ }
       }
@@ -153,13 +160,21 @@ export function HomePage({
 
   useEffect(() => {
     const refresh = () => {
+      // Fetch a wider window than we display, then pin any writing_agent
+      // briefings to the top before trimming to MAX_VISIBLE_BRIEFINGS. The
+      // peer-review card is the headline pitch — without pinning it gets
+      // pushed off the visible top by suggested_action briefings created
+      // *after* the directory scan (briefingSuggester runs on review
+      // submit, so its rows have a newer created_at).
       window.briefingsAPI
-        .list({ status: ['new'] })
+        .list({ status: ['new'], limit: 50 })
         .then((rows) => {
           const parsed = rows
             .map(parseBriefing)
             .filter((b): b is ParsedBriefing => b !== null);
-          setBriefings(parsed);
+          const writingAgent = parsed.filter((b) => b.type === 'writing_agent');
+          const others = parsed.filter((b) => b.type !== 'writing_agent');
+          setBriefings([...writingAgent, ...others].slice(0, MAX_VISIBLE_BRIEFINGS));
         });
     };
     refresh();
@@ -197,16 +212,11 @@ export function HomePage({
       const fileUrl = absolutePath.startsWith('file://')
         ? absolutePath
         : `file://${absolutePath}`;
-      // Only auto-fire the kickoff for the first-ever conversation on this
-      // doc. If the user already has chats here, just open Word + dock and
-      // let them pick which past conversation to continue from the overlay.
-      let existingSessions = 0;
-      try {
-        existingSessions = await window.sessionsAPI.countForDocument(absolutePath);
-      } catch (err) {
-        console.warn('[WritingAgent] countForDocument failed; defaulting to kickoff:', err);
-      }
-      if (existingSessions === 0 && parsed.data.chat_prompt) {
+      // Always start a fresh peer-review chat in the overlay, regardless of
+      // whether the user already has past conversations on this doc. The
+      // kickoff carries a unique id so the popup forces a new chat even if
+      // the prompt text matches a previous one.
+      if (parsed.data.chat_prompt) {
         try {
           await window.fileMonitorAPI.setOverlayKickoffForDocument(absolutePath, parsed.data.chat_prompt);
         } catch (err) {
@@ -323,7 +333,11 @@ export function HomePage({
                   </div>
                   <h3 className="homeBriefingCard__title">{card.title}</h3>
                   <p className="homeBriefingCard__description">
-                    {parsed.briefing.why_im_suggesting_this ?? card.fallbackDescription}
+                    {/* writing_agent always uses our peer-review copy; other
+                        types prefer the briefing's own reason text. */}
+                    {parsed.type === 'writing_agent'
+                      ? card.fallbackDescription
+                      : (parsed.briefing.why_im_suggesting_this ?? card.fallbackDescription)}
                   </p>
                   <div className="homeBriefingCard__actions">
                     <button

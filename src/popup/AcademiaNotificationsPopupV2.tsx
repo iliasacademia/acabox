@@ -133,9 +133,10 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // view auto-sends it on mount so the overlay's chat adapter owns the SSE
   // stream and live progress renders without flicker. Cleared after fire.
   const [pendingKickoffPrompt, setPendingKickoffPrompt] = useState<string | null>(null);
-  // Last kickoff prompt we acted on. The server doesn't consume the prompt
+  // Last kickoff id we acted on. The server doesn't consume the prompt
   // (avoids a race with WS connection ordering); we ignore subsequent polls
-  // that carry the same text.
+  // that carry the same id. Dedup by id (not prompt text) so a repeat click
+  // with identical prompt text still forces a new chat.
   const lastFiredKickoffRef = useRef<string | null>(null);
 
   // Animate popup size (width and/or height) over ~250ms with ease-out
@@ -225,15 +226,18 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setWorkspaceSessions(pollData.workspaceSessions ?? []);
     setActiveDocumentDisplayName(pollData.activeDocumentDisplayName ?? null);
 
-    // Kickoff prompt set by the desktop side (Writing-Agent flow). The server
-    // sends it on every pollData while it's set; we dedup client-side so we
-    // fire a new chat exactly once per unique prompt.
-    const incoming = pollData.pendingKickoffPrompt;
-    if (incoming && incoming !== lastFiredKickoffRef.current) {
-      lastFiredKickoffRef.current = incoming;
+    // Kickoff set by the desktop side (briefing card or Tools-page tile). The
+    // server sends it on every pollData while it's set; we dedup client-side
+    // by kickoff id so repeat clicks each produce a fresh chat. If the
+    // kickoff carries a prompt, auto-send it; otherwise just open an empty
+    // new chat (Tools-page flow).
+    const incomingPrompt = pollData.pendingKickoffPrompt;
+    const incomingId = pollData.pendingKickoffId;
+    if (incomingId && incomingId !== lastFiredKickoffRef.current) {
+      lastFiredKickoffRef.current = incomingId;
       const newSessionId = crypto.randomUUID();
-      console.log('[AcademiaNotificationsPopupV2] Kickoff prompt arrived; opening new chat', newSessionId);
-      setPendingKickoffPrompt(incoming);
+      console.log('[AcademiaNotificationsPopupV2] Kickoff', incomingId, 'arrived; opening new chat', newSessionId, incomingPrompt ? '(with prompt)' : '(empty)');
+      if (incomingPrompt) setPendingKickoffPrompt(incomingPrompt);
       setActiveSession({ id: newSessionId, title: 'New Conversation' });
     }
 

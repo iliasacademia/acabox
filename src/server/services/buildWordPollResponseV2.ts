@@ -173,7 +173,7 @@ export function buildWordPollResponseV2(
         : windowMonitorService.getLastSelectedText();
       // Consume any pending kickoff prompt set by the desktop side; included
       // exactly once so the popup can start a chat with this text pre-sent.
-      const pendingKickoffPrompt = windowMonitorService.consumePendingKickoffForDocument(documentPath);
+      const pendingKickoff = windowMonitorService.consumePendingKickoffForDocument(documentPath);
       return {
         isInWorkspace: true,
         workspaceSessions: sessions,
@@ -188,7 +188,14 @@ export function buildWordPollResponseV2(
         hasSelectedText: false,
         selectedText: selectedTextContent ?? undefined,
         isDockedActive,
-        ...(pendingKickoffPrompt ? { pendingKickoffPrompt } : {}),
+        ...(pendingKickoff
+          ? {
+              pendingKickoffId: pendingKickoff.kickoffId,
+              ...(pendingKickoff.prompt !== null
+                ? { pendingKickoffPrompt: pendingKickoff.prompt }
+                : {}),
+            }
+          : {}),
       };
     }
     // Cobuilding mode: document is outside the workspace — hide overlay entirely

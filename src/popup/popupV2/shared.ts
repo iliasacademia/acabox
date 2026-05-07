@@ -118,6 +118,11 @@ export interface WordPollResponse {
    * deletes the entry after including it in a response.
    */
   pendingKickoffPrompt?: string;
+  /**
+   * Unique id for the current kickoff. Popup dedups by this id rather than by
+   * prompt text, so repeat clicks (or identical prompts) each force a new chat.
+   */
+  pendingKickoffId?: string;
 }
 
 export interface WebSocketMessage {
