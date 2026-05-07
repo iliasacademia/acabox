@@ -20,6 +20,11 @@ import {
 } from './popupV2/shared';
 import { useWordPollWebSocket } from './popupV2/useWordPollWebSocket';
 import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceConversationView } from './popupV2/MenuView';
+import {
+  findAutoOpenCandidate,
+  shouldAutoOpenFreshSession,
+  shouldClearActiveOnDocChange,
+} from './popupV2/sessionLogic';
 
 
 console.log('[AcademiaNotificationsPopupV2] Initializing...');
@@ -174,8 +179,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // reports activeDocumentPath=null) and clearing here causes the overlay
   // to lose its active session every time the user briefly switches apps.
   useEffect(() => {
-    const prev = prevDocPathRef.current;
-    if (prev !== null && docPath !== null && prev !== docPath) {
+    if (shouldClearActiveOnDocChange(prevDocPathRef.current, docPath)) {
       setActiveSession(null);
     }
   }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -245,15 +249,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     const sessions = pollData.workspaceSessions ?? [];
     const NEW_SESSION_MAX_AGE_MS = 10_000;
     const alreadyAutoOpened = autoOpenedSessionIdsRef.current;
-    const fresh = sessions.find((s) => {
-      if (alreadyAutoOpened.has(s.id)) return false;
-      const createdMs = Date.parse(s.created_at);
-      return Number.isFinite(createdMs) && Date.now() - createdMs < NEW_SESSION_MAX_AGE_MS;
-    });
-    if (fresh && !activeSession) {
-      console.log('[AcademiaNotificationsPopupV2] Auto-opening fresh session:', fresh.id);
-      setActiveSession({ id: fresh.id, title: fresh.title });
-      alreadyAutoOpened.add(fresh.id);
+    const fresh = findAutoOpenCandidate(sessions, alreadyAutoOpened, Date.now(), NEW_SESSION_MAX_AGE_MS);
+    if (shouldAutoOpenFreshSession(activeSession?.id ?? null, fresh)) {
+      console.log('[AcademiaNotificationsPopupV2] Auto-opening fresh session:', fresh!.id);
+      setActiveSession({ id: fresh!.id, title: fresh!.title });
+      alreadyAutoOpened.add(fresh!.id);
       persistAutoOpened(docPath, alreadyAutoOpened);
     } else if (fresh) {
       // Mark fresh sessions as "seen" even when we don't open them (because
