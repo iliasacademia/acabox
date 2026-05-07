@@ -58,7 +58,6 @@ function formatDate(): string {
 }
 
 const MAX_VISIBLE_CARDS = 3;
-const MAX_VISIBLE_BRIEFINGS = 3;
 
 interface BriefingCardDisplay {
   eyebrow: string;
@@ -155,7 +154,7 @@ export function HomePage({
   useEffect(() => {
     const refresh = () => {
       window.briefingsAPI
-        .list({ status: ['new'], limit: MAX_VISIBLE_BRIEFINGS })
+        .list({ status: ['new'] })
         .then((rows) => {
           const parsed = rows
             .map(parseBriefing)

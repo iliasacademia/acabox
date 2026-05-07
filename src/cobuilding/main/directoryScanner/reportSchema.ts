@@ -28,27 +28,32 @@ export const REPORT_JSON_SCHEMA = {
       },
       description: 'Up to 3 files the researcher is currently working on, each with a suggested next action. Prioritize manuscripts, lab meeting presentations, and grant proposals. Fall back to code scripts or data files only if none of those are found.',
     },
-    suggested_mini_apps: {
+    suggestions: {
       type: 'array',
       items: {
         type: 'object',
         properties: {
           name: {
             type: 'string',
-            description: 'Short display name for the suggested mini-app (e.g. "Expression Data Explorer", "Paper Summarizer", "Correlation Dashboard").',
+            description: 'Short display name for the suggestion (e.g. "Summarize review comments", "Expression Data Explorer").',
+          },
+          type: {
+            type: 'string',
+            enum: ['one_time_task', 'mini_app'],
+            description: 'Whether this is a one-time task or an interactive mini-app to build.',
           },
           why_im_suggesting_this: {
             type: 'string',
             description: 'A 1-2 sentence explanation tying this suggestion to specific files or patterns found in the researcher\'s directory.',
           },
-          details_on_what_to_build: {
+          description: {
             type: 'string',
-            description: 'Actionable build instruction sent directly to the app builder. Reference specific files or patterns from the scan, describe what the app loads and displays, and mention chart types or interactions. 2-4 sentences.',
+            description: 'A clear, actionable description of what to do. Reference specific files or patterns from the scan. 2-4 sentences.',
           },
         },
-        required: ['name', 'why_im_suggesting_this', 'details_on_what_to_build'],
+        required: ['name', 'type', 'why_im_suggesting_this', 'description'],
       },
-      description: 'A list of 2-5 suggested mini-apps tailored to the researcher\'s files. Prioritize React-only apps (data explorers, chart generators, AI text analyzers, data transformers, statistical dashboards) that build fast and need no backend kernel.',
+      description: 'Suggestions that would significantly expedite the researcher\'s work. Can be one-time tasks (summarizing, synthesizing, converting, analyzing) or interactive mini-apps (data explorers, dashboards, chart generators). Include as many as are genuinely useful.',
     },
     tagged_files: {
       type: 'array',
@@ -74,5 +79,5 @@ export const REPORT_JSON_SCHEMA = {
       description: 'All manuscript, grant, and presentation files found in the directory. Include every file that clearly belongs to one of these three categories — this list populates file pickers in writing tools.',
     },
   },
-  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on', 'suggested_mini_apps', 'tagged_files'],
+  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on', 'suggestions', 'tagged_files'],
 };

@@ -48,8 +48,10 @@ function formatLastUsed(lastOpened: string | null): string | null {
 
 interface SuggestedMiniApp {
   name: string;
+  type?: string;
   why_im_suggesting_this: string;
-  details_on_what_to_build: string;
+  description?: string;
+  details_on_what_to_build?: string;
 }
 
 interface AvailableStub {
@@ -155,7 +157,12 @@ export function ToolsPage({
       if (!report?.suggested_mini_apps) return;
       try {
         const parsed = JSON.parse(report.suggested_mini_apps);
-        if (Array.isArray(parsed)) setSuggestedApps(parsed);
+        if (Array.isArray(parsed)) {
+          const miniApps = parsed.filter(
+            (s: SuggestedMiniApp) => !s.type || s.type === 'mini_app',
+          );
+          setSuggestedApps(miniApps);
+        }
       } catch {
         // ignore malformed JSON
       }
@@ -197,7 +204,7 @@ export function ToolsPage({
   const handleBuildSuggested = useCallback((tool: SuggestedMiniApp) => {
     assistantRuntime.switchToNewThread();
     setTimeout(() => {
-      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.details_on_what_to_build}`);
+      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.description ?? tool.details_on_what_to_build}`);
       onSwitchToChat();
       setTimeout(() => {
         const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
