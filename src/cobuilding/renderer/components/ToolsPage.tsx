@@ -242,6 +242,24 @@ export function ToolsPage({
       // so prune the picker to that subset.
       if (stub.useWordOverlay) {
         files = files.filter((f) => f.file_path.toLowerCase().endsWith('.docx'));
+        // Fall back to every .docx in the workspace when nothing was tagged
+        // as a manuscript yet — only workspace files work here, so we
+        // surface them inline rather than punting to a Browse dialog.
+        if (files.length === 0) {
+          const docx = await window.filesAPI.findByExtension(['docx']);
+          files = docx.map((f) => {
+            const name = f.relPath.split('/').pop() ?? f.relPath;
+            return {
+              id: f.relPath,
+              workspace_id: '',
+              report_id: null,
+              file_path: f.relPath,
+              file_name: name,
+              file_type: 'manuscript' as const,
+              created_at: '',
+            };
+          });
+        }
       }
       setFilePicker((prev) => prev ? { ...prev, files, loading: false } : null);
     } catch {
@@ -615,7 +633,7 @@ export function ToolsPage({
               ) : filePicker.files.length === 0 ? (
                 <div className="filePickerModal__empty">
                   {filePicker.stub.useWordOverlay
-                    ? 'No .docx manuscripts found from your last scan. Use "Browse files" to select one manually.'
+                    ? 'No .docx files found in your workspace. Add a manuscript to your workspace folder and try again.'
                     : 'No tagged files found from your last scan. Use "Browse files" to select manually.'}
                 </div>
               ) : (
@@ -656,13 +674,15 @@ export function ToolsPage({
               >
                 Cancel
               </button>
-              <button
-                className="createToolModal__createBtn"
-                onClick={() => handleBrowseFile(filePicker.stub)}
-              >
-                <FolderOpenIcon style={{ width: 14, height: 14, marginRight: 6 }} />
-                Browse files
-              </button>
+              {!filePicker.stub.useWordOverlay && (
+                <button
+                  className="createToolModal__createBtn"
+                  onClick={() => handleBrowseFile(filePicker.stub)}
+                >
+                  <FolderOpenIcon style={{ width: 14, height: 14, marginRight: 6 }} />
+                  Browse files
+                </button>
+              )}
             </div>
 
           </div>
