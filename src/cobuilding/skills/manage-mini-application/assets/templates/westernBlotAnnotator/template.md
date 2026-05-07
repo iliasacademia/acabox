@@ -12,18 +12,18 @@ the actual code, see `src/App.tsx`, `notebook.ipynb`, `scripts/analyze.py`,
 
 ## What ships with the template
 
-The mirrored template tree is copied into the new app at scaffold time, and
-the manage script runs the install wrapper for every dependency file it
-finds (`requirements.txt`, `setup/*.sh`, etc.) so the new app is ready to
-run immediately:
+The mirrored template tree is copied into the new app at scaffold time. The
+host's BackgroundBuilder picks up the dep files asynchronously and installs
+them in the live container while rebuilding the image — the agent should
+not run installs itself.
 
 | Path                               | Why it ships                                                                                                |
 | ---------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | `src/App.tsx`                      | The interactive UI.                                                                                         |
 | `notebook.ipynb`                   | Persistent state holder (params + outputs) **and** the `action`-tagged cell that runs `analyze.py` via the kernel.   |
 | `scripts/analyze.py`               | GelGenie pipeline (segmentation → connected components → membrane / lane / band detection). Importable module; called from the action cell. |
-| `requirements.txt`                 | Python deps for `analyze.py`: `torch`, `numpy`, `scipy`, `Pillow`. Auto-installed by the manage script via `.applications/install pip`. |
-| `setup/download_model.sh`          | Idempotent download of the GelGenie TorchScript checkpoint (~57MB) from HuggingFace into `models/`. Auto-run by the manage script via `.applications/install manual`. The model is intentionally **not** bundled in the repo — keep it that way to avoid bloating workspace setup. |
+| `requirements.txt`                 | Python deps for `analyze.py`: `torch`, `numpy`, `scipy`, `Pillow`. Installed by BackgroundBuilder when this file appears. |
+| `setup/download_model.sh`          | Idempotent download of the GelGenie TorchScript checkpoint (~57MB) from HuggingFace into `models/`. Run by BackgroundBuilder via the `manual` install path. The model is intentionally **not** bundled in the repo — keep it that way to avoid bloating workspace setup. |
 
 ## What each parameter controls
 
@@ -141,14 +141,21 @@ node \
   --template "westernBlotAnnotator"
 ```
 
-The manage script handles everything in one shot:
+The manage script just mirrors the template tree into
+`.applications/<dirName>/` and exits. The host's BackgroundBuilder takes
+over from there: it sees `requirements.txt` and runs
+`pip install torch numpy scipy Pillow` in the live container, and it sees
+`setup/download_model.sh` and runs it as a manual install (downloading the
+GelGenie model into `models/unet_dec_21_finetune_epoch_590.pt`). Both
+happen in parallel with the agent's next steps and can take 5–15 minutes
+on a cold container.
 
-1. Mirrors the template tree into `.applications/<dirName>/`.
-2. Auto-runs the install wrapper for every dep file the template ships
-   with — pip installs `requirements.txt`, then runs each
-   `setup/*.sh` via `manual` install. For this template that means
-   installing `torch numpy scipy Pillow` and downloading the GelGenie
-   model into `models/unet_dec_21_finetune_epoch_590.pt`.
+**Do not block on the install.** Build the esbuild bundle (it only needs
+Node packages, not Python) and call `open_mini_application` immediately.
+The mini-app's "Installing software…" view will show install progress to
+the user while they wait. The user may see kernel errors if they hit Run
+before deps are ready — they should retry once the install indicator
+clears.
 
 If the new app's `dirName` is not `westernBlotAnnotator`, update
 `DIR_NAME` in `src/App.tsx` to match — that constant is used to construct

@@ -1946,7 +1946,32 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   // instead of starting a conflicting parallel install (avoids dpkg lock issues).
   const pending = backgroundBuilder.getPendingInstall(dirName);
   if (pending) {
-    log.debug(`[ensureAppDeps] Waiting for background install of ${dirName} to finish`);
+    log.info(`[ensureAppDeps] Waiting for background install of ${dirName} to finish`);
+
+    // Re-emit the install's current state to the renderer. The mini-app's
+    // ContainerGate subscribes to `container:installProgress` on mount, but the
+    // initial `step` event from BackgroundBuilder typically fired several
+    // seconds earlier when the agent ran the manage script. Without this
+    // replay, the line handler in MiniAppViewer drops every subsequent line
+    // (since installStatus is null) and the InstallingView shows a blank
+    // spinner with no detail until the install completes.
+    const activeState = backgroundBuilder.getActiveInstallState(dirName);
+    if (activeState && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('container:installProgress', {
+        dirName,
+        type: 'step',
+        registry: activeState.registry,
+        packages: activeState.packages,
+      });
+      if (activeState.lastLine) {
+        mainWindow.webContents.send('container:installProgress', {
+          dirName,
+          type: 'line',
+          line: activeState.lastLine,
+        });
+      }
+    }
+
     await pending;
     ensuredApps.add(dirName);
     return { installed: ['(completed by background installer)'] };
