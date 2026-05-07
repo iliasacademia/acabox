@@ -65,47 +65,25 @@ function createBriefingsFromScan(
     return;
   }
 
-  // Surface the most relevant DOCX manuscript as a Writing Agent briefing.
-  // Source from `tagged_files` (the comprehensive list — any manuscript the
-  // scanner found) rather than `what_youre_working_on` (capped at 3 items
-  // prioritizing variety across categories, so a manuscript can get bumped
-  // out by a presentation or grant). Pull the description from working-on
-  // if the same file also made that list, otherwise fall back to a generic.
   const workingOn = Array.isArray(parsed.what_youre_working_on)
     ? (parsed.what_youre_working_on as WorkingOnFileParsed[])
     : [];
   const taggedFiles = Array.isArray(parsed.tagged_files)
     ? (parsed.tagged_files as TaggedFileParsed[])
     : [];
-  const docxManuscript = taggedFiles.find(
-    (f) =>
-      f?.file_type === 'manuscript' &&
-      typeof f.file_path === 'string' &&
-      f.file_path.toLowerCase().endsWith('.docx'),
+
+  // Pick the docx the briefing should point at. Prefer `what_youre_working_on`
+  // because the scanner already curated that to the top three priorities and
+  // wrote a tailored description we can show verbatim. Fall back to
+  // `tagged_files` only if working-on has no docx (e.g. all items are .tex
+  // or the list got filled with non-docx priorities).
+  const docxFromWorkingOn = workingOn.find(
+    (f) => typeof f?.file_path === 'string' && f.file_path.toLowerCase().endsWith('.docx'),
   );
-  if (docxManuscript && typeof docxManuscript.file_path === 'string') {
-    const relPath = docxManuscript.file_path;
-    const matchingWorkingOn = workingOn.find(
-      (f) => typeof f?.file_path === 'string' && f.file_path === relPath,
-    );
-    const description =
-      typeof matchingWorkingOn?.description === 'string'
-        ? matchingWorkingOn.description
-        : '';
-    createBriefing({
-      workspaceId,
-      type: 'writing_agent',
-      sourceReportId: reportId,
-      whyImSuggestingThis:
-        description ||
-        'Pick up where you left off — I can help you draft and revise inline in Word.',
-      briefingData: {
-        file_path: relPath,
-        description,
-        chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
-      },
-    });
-  }
+  const docxFromTagged = taggedFiles.find(
+    (f) => typeof f?.file_path === 'string' && f.file_path.toLowerCase().endsWith('.docx'),
+  );
+  const writingAgentSource = docxFromWorkingOn ?? docxFromTagged;
 
   // Create one suggested_tool briefing per mini-app the scanner suggested.
   const apps = Array.isArray(parsed.suggested_mini_apps)
@@ -127,6 +105,29 @@ function createBriefingsFromScan(
       briefingData: {
         name: app.name,
         details_on_what_to_build: app.details_on_what_to_build,
+      },
+    });
+  }
+
+  // Insert the writing-agent briefing LAST so it lands at the top of the
+  // `created_at DESC` feed and isn't bumped off the visible top-3 by the
+  // suggested_tool inserts above.
+  if (writingAgentSource && typeof writingAgentSource.file_path === 'string') {
+    const description =
+      'description' in writingAgentSource && typeof writingAgentSource.description === 'string'
+        ? writingAgentSource.description
+        : '';
+    createBriefing({
+      workspaceId,
+      type: 'writing_agent',
+      sourceReportId: reportId,
+      whyImSuggestingThis:
+        description ||
+        'Pick up where you left off — I can help you draft and revise inline in Word.',
+      briefingData: {
+        file_path: writingAgentSource.file_path,
+        description,
+        chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
       },
     });
   }
