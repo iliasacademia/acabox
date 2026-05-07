@@ -413,6 +413,8 @@ declare global {
       podmanPaths: DataPathInfo[];
     }>;
     clearSelected(ids: string[]): Promise<{ cleared: string[]; errors: string[] }>;
+    /** Pipes a renderer-side log line into electron-log on the main process. */
+    log(msg: string): Promise<void>;
   }
 
   interface SettingsAPI {

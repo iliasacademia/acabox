@@ -283,6 +283,12 @@ export function createAgentSession(
         };
       });
       insertMessage(sessionId, 'user', JSON.stringify({ text: userMessage, attachments: storedAttachments }));
+      // Broadcast the user message to every surface subscribed to this
+      // session. Without this, a message typed in the overlay would land
+      // in SQLite but the desktop chat (subscribing via IPC fanout) would
+      // never see the user turn — only the assistant's streamed reply.
+      log.info(`[AgentSession] emitting user-message sessionId=${sessionId} textLen=${userMessage.length}`);
+      emitEvent({ type: 'user-message', text: userMessage });
 
       const processedText = messagePreprocessor ? messagePreprocessor(userMessage) : userMessage;
 
