@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, BellIcon } from 'lucide-react';
+import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, BellIcon, PenLineIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
 type ToolsPageMiniApp = MiniAppEntry;
@@ -66,6 +66,7 @@ function hoursAgoIso(hours: number): string {
 }
 
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
+  { name: 'Writing Agent', description: 'Draft and revise manuscripts in MS Word with tracked changes', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(2) },
   { name: 'Grant Finder', description: 'Funding opportunities matched to your research', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(72) },
   { name: 'Peer Review Assistant', description: 'Manuscript review with structured feedback', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(240) },
   { name: 'Literature Synthesis', description: 'Build a structured review across many papers', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(48) },
@@ -177,6 +178,56 @@ export function ToolsPage({
   const handleStubAction = useCallback(() => {
     alert('This is a placeholder for now.');
   }, []);
+
+  // Writing Agent: pick a DOCX manuscript and open it in MS Word.
+  const [writingAgentChooser, setWritingAgentChooser] = useState<
+    { relPath: string; mtimeMs: number }[] | null
+  >(null);
+  const [writingAgentLoading, setWritingAgentLoading] = useState(false);
+  // Set to the relPath being analyzed while the kickoff prompt is generated;
+  // gates the chooser modal so the user sees progress instead of a no-op click.
+  const [writingAgentAnalyzing, setWritingAgentAnalyzing] = useState<string | null>(null);
+
+  const handleOpenWritingAgent = useCallback(async () => {
+    setWritingAgentLoading(true);
+    try {
+      const docxFiles = await window.filesAPI.findByExtension(['docx']);
+      setWritingAgentChooser(docxFiles);
+    } catch (err) {
+      console.error('[WritingAgent] Failed to list DOCX files:', err);
+      setWritingAgentChooser([]);
+    } finally {
+      setWritingAgentLoading(false);
+    }
+  }, []);
+
+  const handleWritingAgentPick = useCallback(async (relPath: string) => {
+    const absolutePath = `${workspacePath}/${relPath}`;
+    const fileUrl = absolutePath.startsWith('file://')
+      ? absolutePath
+      : `file://${absolutePath}`;
+    setWritingAgentAnalyzing(relPath);
+    // Run the mammoth + Haiku analyzer to produce a manuscript-specific
+    // kickoff that names actual sections / claims / weaknesses, so the agent
+    // can act immediately instead of having to read the whole doc first.
+    let prompt: string;
+    try {
+      prompt = await window.fileMonitorAPI.analyzeManuscriptForKickoff(absolutePath);
+    } catch (err) {
+      console.warn('[WritingAgent] Manuscript analysis failed; using generic prompt:', err);
+      const fileName = relPath.split('/').pop() ?? relPath;
+      prompt = `My manuscript "${fileName}" is open in Word. Please read it with the ms-word tools, identify 3-5 specific things I could improve (clarity, structure, argument, evidence, citations), and start on the highest-leverage one.`;
+    }
+    setWritingAgentAnalyzing(null);
+    setWritingAgentChooser(null);
+    try {
+      await window.fileMonitorAPI.setOverlayKickoffForDocument(absolutePath, prompt);
+    } catch (err) {
+      console.warn('[WritingAgent] Failed to stash kickoff:', err);
+    }
+    window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+    window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
+  }, [workspacePath]);
 
   const [toolFilter, setToolFilter] = useState<'all' | 'on-demand' | 'scheduled'>('all');
   const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
@@ -367,10 +418,19 @@ export function ToolsPage({
                     }
                     const { stub: tool } = item;
                     const isPaperMonitor = tool.name === 'Paper Monitor';
+                    const isWritingAgent = tool.name === 'Writing Agent';
                     const stubKey = `stub:${tool.name}`;
                     const stubSettingsOpen = settingsOpen === stubKey;
-                    const StubIcon = isPaperMonitor ? BellIcon : LayoutGridIcon;
-                    const onPrimary = isPaperMonitor ? onOpenPaperMonitor : handleStubAction;
+                    const StubIcon = isPaperMonitor
+                      ? BellIcon
+                      : isWritingAgent
+                        ? PenLineIcon
+                        : LayoutGridIcon;
+                    const onPrimary = isPaperMonitor
+                      ? onOpenPaperMonitor
+                      : isWritingAgent
+                        ? handleOpenWritingAgent
+                        : handleStubAction;
                     const onSettingsClick = isPaperMonitor
                       ? () => setSettingsOpen(stubSettingsOpen ? null : stubKey)
                       : handleStubAction;
@@ -395,10 +455,12 @@ export function ToolsPage({
                           })()}
                         </div>
                         <div className="toolRow__actions">
-                          <button className="toolRow__settingsBtn" onClick={onSettingsClick}>
-                            <ChevronRightIcon style={{ width: 14, height: 14, transform: stubSettingsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
-                            Settings
-                          </button>
+                          {!isWritingAgent && (
+                            <button className="toolRow__settingsBtn" onClick={onSettingsClick}>
+                              <ChevronRightIcon style={{ width: 14, height: 14, transform: stubSettingsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                              Settings
+                            </button>
+                          )}
                           {tool.tag === 'SCHEDULED' ? (
                             <button className="toolRow__primaryBtn" onClick={onPrimary}>
                               View outputs
@@ -492,6 +554,75 @@ export function ToolsPage({
               >
                 Create Tool
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {(writingAgentChooser !== null || writingAgentLoading) && (
+        <div
+          className="toolsConfirmOverlay"
+          onClick={() => { if (!writingAgentAnalyzing) setWritingAgentChooser(null); }}
+        >
+          <div className="createToolModal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="createToolModal__close"
+              onClick={() => { if (!writingAgentAnalyzing) setWritingAgentChooser(null); }}
+              disabled={!!writingAgentAnalyzing}
+            >&times;</button>
+            <h2 className="createToolModal__title">Pick a manuscript</h2>
+            <p className="createToolModal__subtitle">
+              {writingAgentAnalyzing
+                ? 'Analyzing the manuscript to draft a focused first message…'
+                : 'Choose a DOCX file to open in Word with the Writing Agent overlay alongside.'}
+            </p>
+            <div style={{ maxHeight: 340, overflowY: 'auto', marginTop: 8 }}>
+              {writingAgentLoading && (
+                <div style={{ padding: '16px 4px', color: '#888' }}>Searching workspace…</div>
+              )}
+              {!writingAgentLoading && writingAgentChooser && writingAgentChooser.length === 0 && (
+                <div style={{ padding: '16px 4px', color: '#888' }}>
+                  No DOCX files found in this workspace.
+                </div>
+              )}
+              {!writingAgentLoading && writingAgentChooser && writingAgentChooser.map((f) => {
+                const parts = f.relPath.split('/');
+                const name = parts[parts.length - 1];
+                const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
+                const isAnalyzingThis = writingAgentAnalyzing === f.relPath;
+                const isAnalyzingOther = !!writingAgentAnalyzing && !isAnalyzingThis;
+                return (
+                  <button
+                    key={f.relPath}
+                    onClick={() => handleWritingAgentPick(f.relPath)}
+                    disabled={!!writingAgentAnalyzing}
+                    style={{
+                      display: 'block',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      border: '1px solid #e6e6e6',
+                      borderRadius: 6,
+                      marginBottom: 6,
+                      background: isAnalyzingThis ? '#f3f4f6' : '#fff',
+                      cursor: writingAgentAnalyzing ? 'default' : 'pointer',
+                      opacity: isAnalyzingOther ? 0.5 : 1,
+                    }}
+                  >
+                    <div style={{ fontWeight: 500 }}>
+                      {name}
+                      {isAnalyzingThis && (
+                        <span style={{ fontWeight: 400, color: '#888', marginLeft: 8 }}>
+                          analyzing…
+                        </span>
+                      )}
+                    </div>
+                    {dir && (
+                      <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{dir}</div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>

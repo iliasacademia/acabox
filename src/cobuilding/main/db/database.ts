@@ -288,7 +288,7 @@ const migrations = [
         id                     TEXT PRIMARY KEY,
         workspace_id           TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
         type                   TEXT NOT NULL
-          CHECK (type IN ('suggested_action', 'suggested_tool', 'paper', 'citation', 'grant')),
+          CHECK (type IN ('suggested_action', 'suggested_tool', 'paper', 'citation', 'grant', 'writing_agent')),
         briefing_data          TEXT NOT NULL DEFAULT '{}',
         why_im_suggesting_this TEXT,
         status                 TEXT NOT NULL DEFAULT 'new'
@@ -297,6 +297,35 @@ const migrations = [
         created_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
         updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
       );
+      CREATE INDEX idx_briefings_workspace_created ON briefings(workspace_id, created_at DESC);
+      CREATE INDEX idx_briefings_workspace_status  ON briefings(workspace_id, status);
+    `,
+  },
+  {
+    // Existing dev installs already ran v18 with the old CHECK clause that
+    // disallowed 'writing_agent'. SQLite has no ALTER for CHECK constraints,
+    // so we recreate the table preserving rows.
+    version: 19,
+    sql: `
+      CREATE TABLE briefings_new (
+        id                     TEXT PRIMARY KEY,
+        workspace_id           TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        type                   TEXT NOT NULL
+          CHECK (type IN ('suggested_action', 'suggested_tool', 'paper', 'citation', 'grant', 'writing_agent')),
+        briefing_data          TEXT NOT NULL DEFAULT '{}',
+        why_im_suggesting_this TEXT,
+        status                 TEXT NOT NULL DEFAULT 'new'
+          CHECK (status IN ('new', 'opened', 'dismissed')),
+        source_report_id       TEXT REFERENCES workspace_reports(id) ON DELETE SET NULL,
+        created_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now')),
+        updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      INSERT INTO briefings_new
+        SELECT id, workspace_id, type, briefing_data, why_im_suggesting_this,
+               status, source_report_id, created_at, updated_at
+        FROM briefings;
+      DROP TABLE briefings;
+      ALTER TABLE briefings_new RENAME TO briefings;
       CREATE INDEX idx_briefings_workspace_created ON briefings(workspace_id, created_at DESC);
       CREATE INDEX idx_briefings_workspace_status  ON briefings(workspace_id, status);
     `,

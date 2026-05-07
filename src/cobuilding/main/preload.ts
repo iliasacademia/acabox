@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('filesAPI', {
   readFile: (filePath: string) => ipcRenderer.invoke('files:readFile', filePath),
   fileExists: (filePath: string) => ipcRenderer.invoke('files:exists', filePath),
   findByName: (filename: string, hintDirs: string[]) => ipcRenderer.invoke('files:findByName', filename, hintDirs),
+  findByExtension: (extensions: string[]) => ipcRenderer.invoke('files:findByExtension', extensions),
   copyToWorkspace: (sourcePaths: string[], destinationDir: string) =>
     ipcRenderer.invoke('files:copyToWorkspace', sourcePaths, destinationDir),
   moveFile: (sourcePath: string, destinationDir: string) =>
@@ -179,6 +180,12 @@ contextBridge.exposeInMainWorld('fileMonitorAPI', {
   stop: () => ipcRenderer.invoke('fileMonitor:stop'),
   getTodaySessions: () => ipcRenderer.invoke('fileMonitor:getTodaySessions'),
   openFile: (fileUrl: string, bundleId?: string) => ipcRenderer.invoke('fileMonitor:openFile', fileUrl, bundleId),
+  setDockRightForDocument: (documentPath: string, docked: boolean) =>
+    ipcRenderer.invoke('windowMonitor:setDockRightForDocument', documentPath, docked),
+  setOverlayKickoffForDocument: (documentPath: string, prompt: string) =>
+    ipcRenderer.invoke('windowMonitor:setOverlayKickoffForDocument', documentPath, prompt),
+  analyzeManuscriptForKickoff: (filePath: string) =>
+    ipcRenderer.invoke('manuscript:analyzeForKickoff', filePath),
 });
 
 contextBridge.exposeInMainWorld('observationsAPI', {
@@ -293,6 +300,12 @@ contextBridge.exposeInMainWorld('briefingsAPI', {
     ipcRenderer.invoke('briefings:list', filter),
   setStatus: (id: string, status: string) =>
     ipcRenderer.invoke('briefings:setStatus', id, status),
+  /** Fires whenever briefings are created, updated, or change status. */
+  onChanged: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('briefings:changed', handler);
+    return () => { ipcRenderer.removeListener('briefings:changed', handler); };
+  },
 });
 
 contextBridge.exposeInMainWorld('scannerAPI', {
@@ -309,6 +322,8 @@ contextBridge.exposeInMainWorld('scannerAPI', {
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
+  setDocumentPath: (id: string, documentPath: string) =>
+    ipcRenderer.invoke('sessions:setDocumentPath', id, documentPath),
   rename: (id: string, title: string) => ipcRenderer.invoke('sessions:rename', id, title),
   delete: (id: string) => ipcRenderer.invoke('sessions:delete', id),
   listMessages: (sessionId: string) => ipcRenderer.invoke('messages:list', sessionId),
@@ -484,8 +499,8 @@ contextBridge.exposeInMainWorld('chatAPI', {
     ipcRenderer.on('quick-chat:inject', handler);
     return () => { ipcRenderer.removeListener('quick-chat:inject', handler); };
   },
-  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string) => {
-    ipcRenderer.send('chat:send', { threadId, text, attachments, model });
+  sendMessage: (threadId: string, text: string, attachments?: any[], model?: string, documentPath?: string) => {
+    ipcRenderer.send('chat:send', { threadId, text, attachments, model, documentPath });
     return createStreamIterator(threadId).stream;
   },
   subscribe: (threadId: string) => {

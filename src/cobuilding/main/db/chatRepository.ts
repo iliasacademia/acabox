@@ -29,6 +29,28 @@ export function createSession(
     .run(id, workspaceId, source, documentPath);
 }
 
+/**
+ * Pre-create or upgrade a session row to be scoped to a document.
+ * Used by surfaces that want a chat to appear in the per-document overlay
+ * list (e.g. Writing Agent flow) before the agent has streamed a message.
+ * - If the row doesn't exist: inserts it with the document path.
+ * - If the row exists with no document_path: fills it in.
+ * - If the row already has a different document_path: leaves it alone.
+ */
+export function setSessionDocumentPath(
+  id: string,
+  workspaceId: string,
+  documentPath: string,
+): void {
+  const db = getDatabase();
+  db.prepare(
+    'INSERT OR IGNORE INTO sessions (id, workspace_id, document_path) VALUES (?, ?, ?)',
+  ).run(id, workspaceId, documentPath);
+  db.prepare(
+    'UPDATE sessions SET document_path = ? WHERE id = ? AND document_path IS NULL',
+  ).run(documentPath, id);
+}
+
 export function getSession(id: string): Session | undefined {
   return getDatabase()
     .prepare('SELECT * FROM sessions WHERE id = ?')

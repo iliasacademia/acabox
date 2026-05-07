@@ -31,6 +31,7 @@ import { initObservationsDatabase, getObservationsDatabase, closeObservationsDat
 import {
   listSessions,
   listSessionsByDocPathLike,
+  setSessionDocumentPath,
   getSession,
   createSession,
   updateSessionTitle,
@@ -1226,9 +1227,15 @@ ipcMain.handle('scanner:start', () => {
     workspaceId: activeWorkspace.id,
     directoryPath: activeWorkspace.directory_path,
     apiKey,
+    baseURL: cachedBaseURL,
     onMessage: (event) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('scanner:event', event);
+      }
+    },
+    onBriefingsChanged: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('briefings:changed');
       }
     },
   }).catch((err) => {
@@ -1947,6 +1954,22 @@ ipcMain.handle('fileMonitor:openFile', (_event, fileUrl: string, bundleId?: stri
   }
 });
 
+ipcMain.handle('windowMonitor:setDockRightForDocument', (_event, documentPath: string, docked: boolean) => {
+  windowMonitorService.setDockRightForDocument(documentPath, docked);
+});
+
+ipcMain.handle('windowMonitor:setOverlayKickoffForDocument', (_event, documentPath: string, prompt: string) => {
+  windowMonitorService.setPendingKickoffForDocument(documentPath, prompt);
+});
+
+ipcMain.handle('manuscript:analyzeForKickoff', async (_event, filePath: string): Promise<string> => {
+  if (!activeWorkspace) {
+    throw new Error('No active workspace');
+  }
+  const { analyzeManuscriptForImprovements } = await import('./directoryScanner/manuscriptAnalysis');
+  return analyzeManuscriptForImprovements(filePath, activeWorkspace.api_key, cachedBaseURL);
+});
+
 // Observations IPC handlers
 ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
 ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
@@ -1963,6 +1986,11 @@ ipcMain.handle('sessions:list', (_event, source?: string) => {
   return listSessions(undefined, source);
 });
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
+ipcMain.handle('sessions:setDocumentPath', (_event, id: string, documentPath: string) => {
+  if (!activeWorkspace) return;
+  setSessionDocumentPath(id, activeWorkspace.id, documentPath);
+  notifySessionsChanged();
+});
 ipcMain.handle('sessions:rename', (_event, id: string, title: string) => {
   updateSessionTitle(id, title);
   notifySessionsChanged();
@@ -2023,7 +2051,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
   }
 }
 
-ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string }) => {
+ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPath }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string }) => {
   if (!activeWorkspace) {
     event.sender.send('chat:error', threadId, 'No active workspace');
     return;
@@ -2082,6 +2110,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
         undefined,
         handleNotificationNavigation,
         model,
+        undefined,
+        documentPath,
       );
 
       registerSession(threadId, session);

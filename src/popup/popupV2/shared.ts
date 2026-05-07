@@ -111,6 +111,13 @@ export interface WordPollResponse {
     title: string;
     created_at: string;
   }>;
+  /**
+   * Pending kickoff prompt for the active document, set by surfaces like the
+   * Writing-Agent flow that want the overlay to start a new chat with this
+   * text already sent. Consumed exactly once per pollData arrival; the server
+   * deletes the entry after including it in a response.
+   */
+  pendingKickoffPrompt?: string;
 }
 
 export interface WebSocketMessage {

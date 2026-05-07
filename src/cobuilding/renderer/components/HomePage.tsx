@@ -14,7 +14,8 @@ type ParsedBriefing =
   | { briefing: Briefing; type: 'suggested_action'; data: BriefingDataSuggestedAction }
   | { briefing: Briefing; type: 'paper'; data: BriefingDataPaper }
   | { briefing: Briefing; type: 'citation'; data: BriefingDataCitation }
-  | { briefing: Briefing; type: 'grant'; data: BriefingDataGrant };
+  | { briefing: Briefing; type: 'grant'; data: BriefingDataGrant }
+  | { briefing: Briefing; type: 'writing_agent'; data: BriefingDataWritingAgent };
 
 function parseBriefing(b: Briefing): ParsedBriefing | null {
   try {
@@ -103,6 +104,13 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
         primaryLabel: 'View',
         fallbackDescription: parsed.data.agency,
       };
+    case 'writing_agent':
+      return {
+        eyebrow: 'Writing Agent',
+        title: basename(parsed.data.file_path),
+        primaryLabel: 'Open in Word',
+        fallbackDescription: parsed.data.description,
+      };
     default:
       return null;
   }
@@ -141,14 +149,20 @@ export function HomePage({
   }, []);
 
   useEffect(() => {
-    window.briefingsAPI
-      .list({ status: ['new'], limit: MAX_VISIBLE_BRIEFINGS })
-      .then((rows) => {
-        const parsed = rows
-          .map(parseBriefing)
-          .filter((b): b is ParsedBriefing => b !== null);
-        setBriefings(parsed);
-      });
+    const refresh = () => {
+      window.briefingsAPI
+        .list({ status: ['new'], limit: MAX_VISIBLE_BRIEFINGS })
+        .then((rows) => {
+          const parsed = rows
+            .map(parseBriefing)
+            .filter((b): b is ParsedBriefing => b !== null);
+          setBriefings(parsed);
+        });
+    };
+    refresh();
+    // Re-fetch whenever briefings are created, updated, or change status —
+    // covers async manuscript enrichment, paper-monitor inserts, etc.
+    return window.briefingsAPI.onChanged(refresh);
   }, []);
 
   const visibleItems = workingOnItems.slice(0, MAX_VISIBLE_CARDS);
@@ -167,7 +181,7 @@ export function HomePage({
     setBriefings((prev) => prev.filter((b) => b.briefing.id !== id));
   };
 
-  const handleOpenBriefing = (parsed: ParsedBriefing) => {
+  const handleOpenBriefing = async (parsed: ParsedBriefing) => {
     updateBriefingStatus(parsed.briefing.id, 'opened');
     if (parsed.type === 'suggested_action') {
       sendChatPrompt(parsed.data.chat_prompt);
@@ -175,6 +189,23 @@ export function HomePage({
       sendChatPrompt(
         `Please build the following mini-app for me:\n\n${parsed.data.details_on_what_to_build}`,
       );
+    } else if (parsed.type === 'writing_agent') {
+      const absolutePath = `${workspacePath}/${parsed.data.file_path}`;
+      const fileUrl = absolutePath.startsWith('file://')
+        ? absolutePath
+        : `file://${absolutePath}`;
+      // Stash the scanner's improvement prompt FIRST (await it) so the entry
+      // exists in main before Word activates and the popup polls.
+      if (parsed.data.chat_prompt) {
+        try {
+          await window.fileMonitorAPI.setOverlayKickoffForDocument(absolutePath, parsed.data.chat_prompt);
+        } catch (err) {
+          console.warn('[WritingAgent] Failed to stash kickoff:', err);
+        }
+      }
+      window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+      // Snap Word to ~66% width and the overlay to the remaining ~33%.
+      window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
     }
     // paper / citation / grant: action handlers will be added when those types ship.
   };

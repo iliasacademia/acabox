@@ -84,6 +84,53 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
       }));
   });
 
+  ipcMain.handle(
+    'files:findByExtension',
+    async (_event, extensions: string[]): Promise<{ relPath: string; mtimeMs: number }[]> => {
+      const workspaceDir = requireWorkspace(getWorkspacePath);
+      const exts = new Set(
+        extensions.map((e) => (e.startsWith('.') ? e : `.${e}`).toLowerCase()),
+      );
+      const SKIP = new Set([
+        '.git',
+        'node_modules',
+        '__pycache__',
+        '.applications',
+        '.academia',
+      ]);
+      const results: { relPath: string; mtimeMs: number }[] = [];
+      function walk(dir: string): void {
+        let entries: fs.Dirent[];
+        try {
+          entries = fs.readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const e of entries) {
+          if (e.name.startsWith('.') || SKIP.has(e.name)) continue;
+          // Word writes a ~$<name>.docx lock file beside any open document;
+          // exclude these from any extension-based listing.
+          if (e.name.startsWith('~$')) continue;
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) {
+            walk(full);
+          } else if (exts.has(path.extname(e.name).toLowerCase())) {
+            try {
+              const st = fs.statSync(full);
+              results.push({
+                relPath: path.relative(workspaceDir, full),
+                mtimeMs: st.mtimeMs,
+              });
+            } catch { /* ignore */ }
+          }
+        }
+      }
+      walk(workspaceDir);
+      results.sort((a, b) => b.mtimeMs - a.mtimeMs);
+      return results;
+    },
+  );
+
   ipcMain.handle('files:exists', async (_event, filePath: string) => {
     const workspaceDir = requireWorkspace(getWorkspacePath);
     try {
