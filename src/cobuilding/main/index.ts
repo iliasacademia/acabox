@@ -452,7 +452,19 @@ function ensureSseFanout(sessionId: string): void {
   const session = getRegisteredSession(sessionId);
   if (!session) return;
   const unsubscribe = session.addListener({
-    onEvent: (msg) => broadcastSseToSubscribers(sessionId, 'event', msg),
+    onEvent: (msg) => {
+      broadcastSseToSubscribers(sessionId, 'event', msg);
+      // Also nudge the desktop renderer when a user-message lands from
+      // another surface. agentSession emits 'user-message' immediately
+      // after inserting a foreign-typed user turn into the DB; firing
+      // chat:foreign-done now (rather than waiting for onDone) makes
+      // the user turn visible on the desktop before the assistant
+      // streams its reply, which is exactly the gap that was missing
+      // user "ok" turns from the desktop view in screenshots.
+      if (msg.type === 'user-message' && mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('chat:foreign-done', sessionId);
+      }
+    },
     onDone: () => {
       broadcastSseToSubscribers(sessionId, 'done', {});
       // Also signal the desktop renderer (which can't subscribe to SSE —

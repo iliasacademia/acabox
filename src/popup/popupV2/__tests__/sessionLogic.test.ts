@@ -20,6 +20,7 @@ import {
   findAutoOpenCandidate,
   shouldClearActiveOnDocChange,
   isActiveSessionStaleForDoc,
+  shouldRefreshOnForeignEvent,
   WorkspaceSession,
 } from '../sessionLogic';
 
@@ -164,5 +165,64 @@ describe('isActiveSessionStaleForDoc', () => {
     // (latter). Returning false here defers the decision to a later
     // tick when we have real data.
     expect(isActiveSessionStaleForDoc('A1', [])).toBe(false);
+  });
+});
+
+describe('shouldRefreshOnForeignEvent', () => {
+  // The cross-surface refresh trigger. A `done` event always means
+  // "another surface finished a turn"; a generic `event` only triggers
+  // refresh when its payload type is `user-message` (a user message
+  // landed in the DB from another surface — refresh so the user turn
+  // shows up before the assistant streams its reply). isRunning gates
+  // both: when WE are the originating surface, our local runtime is
+  // already feeding the view and a refresh would just flash.
+
+  it('refreshes on a foreign `done` event when not running locally', () => {
+    expect(shouldRefreshOnForeignEvent('done', null, false)).toBe(true);
+  });
+
+  it('refreshes on a foreign user-message event when not running locally', () => {
+    expect(shouldRefreshOnForeignEvent('event', { type: 'user-message', text: 'hi' }, false)).toBe(true);
+  });
+
+  it('does NOT refresh on `done` while running locally (we are the originator)', () => {
+    // The user typed in this surface; our /send is already streaming the
+    // reply through the local runtime. A foreign-refresh here would tear
+    // down our in-flight runtime view.
+    expect(shouldRefreshOnForeignEvent('done', null, true)).toBe(false);
+  });
+
+  it('does NOT refresh on a user-message event while running locally', () => {
+    expect(shouldRefreshOnForeignEvent('event', { type: 'user-message', text: 'hi' }, true)).toBe(false);
+  });
+
+  it('does NOT refresh on assistant-side stream events (text-delta, tool-call, etc.)', () => {
+    // Assistant-side events are handled by the live stream subscription —
+    // they should not trigger a thread re-mount. Refresh fires only on
+    // turn-completion or user-message arrival.
+    expect(shouldRefreshOnForeignEvent('event', { type: 'text-delta', text: 'foo' }, false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('event', { type: 'tool-call', toolCallId: 't1', toolName: 'f', args: {}, argsText: '' }, false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('event', { type: 'thinking-delta', text: 'x' }, false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('event', { type: 'heartbeat' }, false)).toBe(false);
+  });
+
+  it('does NOT refresh on a malformed payload', () => {
+    // EventSource handlers receive untrusted text — JSON.parse may
+    // succeed with garbage, or the handler may pass null on parse
+    // failure. Either way, no recognized type → no refresh.
+    expect(shouldRefreshOnForeignEvent('event', null, false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('event', undefined, false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('event', 'not an object', false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('event', {}, false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('event', { type: 42 }, false)).toBe(false);
+  });
+
+  it('does NOT refresh on unknown SSE event names', () => {
+    // The SSE channel may carry events we don't recognize (heartbeat,
+    // future additions). Default to no-refresh rather than thrashing
+    // the thread on every unknown event.
+    expect(shouldRefreshOnForeignEvent('error', null, false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('keepalive', null, false)).toBe(false);
+    expect(shouldRefreshOnForeignEvent('', null, false)).toBe(false);
   });
 });

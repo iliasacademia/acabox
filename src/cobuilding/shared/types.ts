@@ -31,7 +31,14 @@ export type ChatStreamMessage =
   // Heartbeat — signals the agent is still alive during long operations
   | { type: 'heartbeat' }
   // Status — changes the processing indicator label (e.g., "Agent initializing..." vs "Processing")
-  | { type: 'status'; status: string };
+  | { type: 'status'; status: string }
+  // Cross-surface user message — emitted server-side right after a user
+  // message is inserted into the DB, so subscribers on OTHER surfaces
+  // (the desktop chat when the overlay sent it, or vice versa) can refresh
+  // and show the user turn before the assistant streams. Without this, the
+  // assistant's reply lands via the existing fanout but the prompting user
+  // turn stays missing on the non-originating surface.
+  | { type: 'user-message'; text: string };
 
 export interface ChatMessageStream {
   next(): Promise<{ value: ChatStreamMessage | null; done: boolean }>;

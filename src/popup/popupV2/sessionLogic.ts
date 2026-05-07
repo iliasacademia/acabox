@@ -99,3 +99,35 @@ export function isActiveSessionStaleForDoc(
   if (workspaceSessions.length === 0) return false;
   return !workspaceSessions.some((s) => s.id === activeSessionId);
 }
+
+/**
+ * Should an incoming SSE / IPC chat-event trigger a foreign-refresh?
+ *
+ * The server emits two interesting cross-surface events: `done` (assistant
+ * turn finished) and `user-message` (a user message just landed in the DB
+ * from another surface). On the receiving surface, both are signals to
+ * reload the thread's history so the new content shows up.
+ *
+ * `isRunning` gates both: when the receiving surface is itself driving the
+ * turn, the local runtime is already streaming the response into the view,
+ * so a foreign-refresh would just cause a flash. When `isRunning` is false,
+ * the event is unambiguously from somewhere else and a refresh is needed.
+ *
+ * Pure function so the routing decision can be unit-tested without
+ * mounting the React component or wiring up an EventSource.
+ */
+export function shouldRefreshOnForeignEvent(
+  eventName: string,
+  eventPayload: unknown,
+  isRunningLocally: boolean,
+): boolean {
+  if (isRunningLocally) return false;
+  if (eventName === 'done') return true;
+  if (eventName === 'event') {
+    const data = eventPayload as { type?: unknown } | null;
+    if (data && typeof data === 'object' && data.type === 'user-message') {
+      return true;
+    }
+  }
+  return false;
+}
