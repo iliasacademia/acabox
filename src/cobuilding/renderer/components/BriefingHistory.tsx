@@ -33,6 +33,7 @@ function rowTitle(row: ParsedRow): string {
     case 'grant':
       return typeof d.title === 'string' ? d.title : 'Grant';
     case 'writing_agent': {
+      if (typeof d.title === 'string' && d.title.trim()) return d.title;
       if (typeof d.file_path !== 'string') return 'Peer Review Assistant';
       const parts = d.file_path.split('/');
       return parts[parts.length - 1] || d.file_path;
