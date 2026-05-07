@@ -12,13 +12,13 @@ A user is waiting on this scan. You MUST finish as fast as possible. Every extra
 
 ## Hidden files and directories
 
-**Ignore all hidden files and directories** (names starting with a dot, e.g. \`.git\`, \`.vscode\`, \`.env\`, \`.DS_Store\`). Do not scan them, read them, or include them in your report. They are not relevant to the researcher's work. Access to hidden paths is blocked and will fail — do not attempt it.
+**NEVER access any hidden files or directories** — anything whose name starts with a dot. This includes but is not limited to: \`.git\`, \`.vscode\`, \`.env\`, \`.DS_Store\`, \`.academia\`, \`.applications\`, \`.claude\`, \`.config\`, \`.cache\`, \`.npm\`, \`.Rproj.user\`. Do not scan them, read them, glob into them, or include them in your report. They are internal application data, not the researcher's work. Access to hidden paths is blocked by a hook and will fail — do not attempt it.
 
-**When launching subagents, include this instruction in their prompt:** "Do NOT access any hidden files or directories (names starting with a dot). Skip any path containing a dot-prefixed segment like .git, .vscode, .env, etc."
+**When launching subagents, include this instruction in their prompt:** "NEVER access any hidden files or directories (names starting with a dot). Skip any path containing a dot-prefixed segment like .git, .academia, .applications, .claude, .vscode, .env, etc. Access to these paths is blocked and will fail."
 
 ## Strategy
 
-1. **Start with a broad survey**: Use Glob to get the top-level directory structure and identify major subdirectories and file types. Use patterns like "**/*" with limited depth, or targeted patterns like "**/*.pdf", "**/*.py", "**/*.R", "**/*.tex", "**/*.ipynb", "**/*.docx", "**/*.md". Exclude hidden directories from your analysis.
+1. **Start with a broad survey**: Use Glob to get the top-level directory structure and identify major subdirectories and file types. Use patterns like "**/*" with limited depth, or targeted patterns like "**/*.pdf", "**/*.py", "**/*.R", "**/*.tex", "**/*.ipynb", "**/*.docx", "**/*.md". **Skip all directories starting with a dot.**
 
 2. **Hunt for manuscripts, presentations, and grant proposals**: These are the most valuable files to surface. Run targeted Glob searches early for document types: "**/*.tex", "**/*.docx", "**/*.pptx", "**/*.key", "**/*.md". Also look for directories whose names suggest papers, drafts, manuscripts, grants, proposals, talks, presentations, or lab meetings. When you find candidates, skim them (read the first 20-30 lines or grep for titles/abstracts) to confirm what they are and assess their state (early draft, near completion, under review, etc.).
 
@@ -121,13 +121,13 @@ A user is waiting on this scan. You MUST finish as fast as possible. Every extra
 
 ## Hidden files and directories
 
-**Ignore all hidden files and directories** (names starting with a dot, e.g. \`.git\`, \`.vscode\`, \`.env\`, \`.DS_Store\`). Do not scan them, read them, or include them in your report. They are not relevant to the researcher's work. Access to hidden paths is blocked and will fail — do not attempt it.
+**NEVER access any hidden files or directories** — anything whose name starts with a dot. This includes but is not limited to: \`.git\`, \`.vscode\`, \`.env\`, \`.DS_Store\`, \`.academia\`, \`.applications\`, \`.claude\`, \`.config\`, \`.cache\`, \`.npm\`, \`.Rproj.user\`. Do not scan them, read them, glob into them, or include them in your report. They are internal application data, not the researcher's work. Access to hidden paths is blocked by a hook and will fail — do not attempt it.
 
-**When launching subagents, include this instruction in their prompt:** "Do NOT access any hidden files or directories (names starting with a dot). Skip any path containing a dot-prefixed segment like .git, .vscode, .env, etc."
+**When launching subagents, include this instruction in their prompt:** "NEVER access any hidden files or directories (names starting with a dot). Skip any path containing a dot-prefixed segment like .git, .academia, .applications, .claude, .vscode, .env, etc. Access to these paths is blocked and will fail."
 
 ## Strategy
 
-1. **Start with a broad survey**: Use Glob to get the top-level directory structure and identify major subdirectories and file types. Use patterns like "**/*" with limited depth, or targeted patterns like "**/*.pdf", "**/*.py", "**/*.R", "**/*.tex", "**/*.ipynb", "**/*.docx", "**/*.md". Exclude hidden directories from your analysis.
+1. **Start with a broad survey**: Use Glob to get the top-level directory structure and identify major subdirectories and file types. Use patterns like "**/*" with limited depth, or targeted patterns like "**/*.pdf", "**/*.py", "**/*.R", "**/*.tex", "**/*.ipynb", "**/*.docx", "**/*.md". **Skip all directories starting with a dot.**
 
 2. **Hunt for manuscripts, presentations, and grant proposals**: These are the most valuable files to surface. Run targeted Glob searches early for document types: "**/*.tex", "**/*.docx", "**/*.pptx", "**/*.key", "**/*.md". Also look for directories whose names suggest papers, drafts, manuscripts, grants, proposals, talks, presentations, or lab meetings. When you find candidates, skim them (read the first 20-30 lines or grep for titles/abstracts) to confirm what they are and assess their state (early draft, near completion, under review, etc.).
 
