@@ -12,10 +12,11 @@ const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research direc
 
 YOU MUST ALWAYS present me with a clear plan before proceeding to take any actions or make any file modifications. Do not move, rename, delete, rewrite, or create files until I explicitly approve the plan.`;
 
-interface SuggestedMiniAppParsed {
+interface SuggestionParsed {
   name?: unknown;
+  type?: unknown;
   why_im_suggesting_this?: unknown;
-  details_on_what_to_build?: unknown;
+  description?: unknown;
 }
 
 interface WorkingOnFileParsed {
@@ -55,7 +56,7 @@ function createBriefingsFromScan(
   });
 
   let parsed: {
-    suggested_mini_apps?: unknown;
+    suggestions?: unknown;
     what_youre_working_on?: unknown;
     tagged_files?: unknown;
   };
@@ -85,28 +86,44 @@ function createBriefingsFromScan(
   );
   const writingAgentSource = docxFromWorkingOn ?? docxFromTagged;
 
-  // Create one suggested_tool briefing per mini-app the scanner suggested.
-  const apps = Array.isArray(parsed.suggested_mini_apps)
-    ? (parsed.suggested_mini_apps as SuggestedMiniAppParsed[])
+  // Create briefings from scanner suggestions (one-time tasks and mini-apps).
+  const suggestions = Array.isArray(parsed.suggestions)
+    ? (parsed.suggestions as SuggestionParsed[])
     : [];
 
-  for (const app of apps) {
-    if (typeof app?.name !== 'string' || typeof app?.details_on_what_to_build !== 'string') {
+  for (const suggestion of suggestions) {
+    if (typeof suggestion?.name !== 'string' || typeof suggestion?.description !== 'string') {
       continue;
     }
-    createBriefing({
-      workspaceId,
-      type: 'suggested_tool',
-      sourceReportId: reportId,
-      whyImSuggestingThis:
-        typeof app.why_im_suggesting_this === 'string'
-          ? app.why_im_suggesting_this
-          : null,
-      briefingData: {
-        name: app.name,
-        details_on_what_to_build: app.details_on_what_to_build,
-      },
-    });
+    const whyImSuggestingThis =
+      typeof suggestion.why_im_suggesting_this === 'string'
+        ? suggestion.why_im_suggesting_this
+        : null;
+
+    if (suggestion.type === 'mini_app') {
+      createBriefing({
+        workspaceId,
+        type: 'suggested_tool',
+        sourceReportId: reportId,
+        whyImSuggestingThis,
+        briefingData: {
+          name: suggestion.name,
+          details_on_what_to_build: suggestion.description,
+        },
+      });
+    } else {
+      createBriefing({
+        workspaceId,
+        type: 'suggested_action',
+        sourceReportId: reportId,
+        whyImSuggestingThis,
+        briefingData: {
+          title: suggestion.name,
+          description: suggestion.description,
+          chat_prompt: suggestion.description,
+        },
+      });
+    }
   }
 
   // Insert the writing-agent briefing LAST so it lands at the top of the

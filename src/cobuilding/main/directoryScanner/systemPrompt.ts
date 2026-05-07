@@ -84,25 +84,25 @@ Produce a JSON report following the output schema with five fields:
 
    Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
 
-5. **suggested_mini_apps**: A list of 2-5 mini-apps tailored to this researcher's files. These are built as sandboxed React apps with Plotly charts and file I/O through a bridge API — no direct filesystem access, no custom Canvas/D3, no real-time streaming. Prioritize apps that need NO backend kernel (React-only) because they build fastest and let the user see value immediately.
+5. **suggestions**: Based on what you learned about the researcher from their folders, suggest 2-5 things you can do for them that would significantly expedite their research. These can be one-time tasks or building mini-apps.
 
-   **Good categories** (these map to framework strengths):
-   - **Data explorer**: Load a CSV/TSV via file picker, display as searchable/sortable/filterable table with column statistics. Suggest when you find tabular data files.
-   - **Chart generator**: Load tabular data and render interactive Plotly charts (scatter, bar, line, heatmap, violin, box, 3D scatter). Suggest when you find experimental results or numeric datasets.
-   - **AI text analyzer**: Use the built-in Claude API to summarize PDFs, classify abstracts, extract metadata from papers, or compare documents. Suggest when you find collections of papers, notes, or text files.
-   - **Data transformer**: Filter rows, merge CSVs, reshape columns, compute derived fields, and export the result. Suggest when you find messy or multi-part datasets that need cleaning.
-   - **Statistical dashboard**: Summary statistics, distributions, and correlation matrices for tabular data. React-only for basic stats; suggest a Python/R kernel only for advanced methods like PCA or clustering.
+   **One-time tasks** (\`type: "one_time_task"\`): Things the researcher would benefit from but might not think to ask for, or tasks that would take them hours but you can do quickly. Examples:
+   - Summarizing or synthesizing a body of literature they have collected
+   - Creating a structured comparison table across multiple papers or datasets
+   - Extracting and organizing key findings, methods, or statistics from their documents
+   - Converting or reformatting files (e.g. reformatting references, converting between data formats)
+   - Drafting sections of documents based on existing notes or data
+   - Analyzing patterns across their datasets or experimental results
 
-   **Do NOT suggest**: batch file renaming, filesystem reorganizers, image editors, real-time monitors, or anything that requires direct filesystem writes outside the app's output directory. These do not work in the sandboxed framework.
+   **Mini-apps** (\`type: "mini_app"\`): Interactive tools built as sandboxed React apps with Plotly charts and file I/O through a bridge API. Good for data explorers, chart generators, statistical dashboards, AI-powered text analyzers, and data transformers. Do NOT suggest mini-apps that require direct filesystem writes, real-time monitors, or image editing.
 
-   **For each suggestion provide three fields:**
-   - \`name\`: Short display title (e.g. "Expression Data Explorer", "Paper Summarizer").
+   **Prioritize high-impact suggestions.** Think about what would save the researcher the most time or unlock insights they couldn't easily get on their own. Tie every suggestion to specific files or patterns you actually found in their directory.
+
+   **For each suggestion provide four fields:**
+   - \`name\`: Short display title (e.g. "Summarize review comments", "Expression Data Explorer").
+   - \`type\`: Either \`"one_time_task"\` or \`"mini_app"\`.
    - \`why_im_suggesting_this\`: 1-2 sentences tying the suggestion to specific files or patterns you found in their directory.
-   - \`details_on_what_to_build\`: This text is sent directly to the app builder as the build instruction. Make it concrete:
-     - Reference specific files or file patterns from the scan (e.g. "Load CSV files from the experiments/ directory like results_2024.csv").
-     - Describe what the app loads, what it displays, and what the user can interact with.
-     - Mention specific chart types if relevant (e.g. "scatter plot of column X vs Y", "heatmap of the correlation matrix").
-     - Keep it to 2-4 sentences — enough to build from without ambiguity.`;
+   - \`description\`: A clear, actionable description of what you would do. Reference specific files or file patterns from the scan. 2-4 sentences — enough to act on without ambiguity.`;
 }
 
 export function buildScannerPrompt(directoryPath: string): string {
@@ -115,7 +115,7 @@ Start by surveying the top-level structure with Glob, then delegate analysis of 
 - What projects they have and what each contains
 - What tools, languages, and frameworks they use
 - **Most importantly**: Find the researcher's manuscripts, lab meeting presentations, and grant proposals. These are the files they care about most. Search thoroughly for .tex, .docx, .pptx, .key files and directories that look like paper or grant projects. Identify which ones are actively being worked on and what the researcher likely needs to do next with each one.
-- What simple data analysis tools or utilities would help this researcher based on their file types and workflows
+- What things you could do for this researcher — one-time tasks or interactive tools — that would significantly expedite their research
 
 Work as quickly as possible. Launch multiple subagents in parallel to analyze different parts of the directory simultaneously.`;
 }
