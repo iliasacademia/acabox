@@ -98,6 +98,13 @@ Produce a JSON report following the output schema with five fields:
 
    **Prioritize high-impact suggestions.** Think about what would save the researcher the most time or unlock insights they couldn't easily get on their own. Tie every suggestion to specific files or patterns you actually found in their directory.
 
+   **Maximize variety across suggestions.** Don't cluster suggestions around one category (e.g. don't suggest three literature reviews). Spread them across different angles:
+   - **Research technique analysis**: Look at the specific techniques and methods the researcher uses (e.g. Western blots, PCR, RNA-seq, regression analysis, finite element modeling) and suggest technique-specific analysis help you could provide.
+   - **Repetitive workflow automation**: Identify repetitive work patterns in the researcher's files — data formatting, figure generation, protocol documentation, reference management — and suggest mini-apps that could streamline those workflows.
+   - **Document review and improvement**: Review drafts, grant proposals, or presentations.
+   - **Literature synthesis**: Summarize or compare bodies of literature they've collected.
+   - **Data exploration and visualization**: Build interactive dashboards or analysis tools for their datasets.
+
    **For each suggestion provide four fields:**
    - \`name\`: Short display title.
    - \`type\`: Either \`"one_time_task"\` or \`"mini_app"\`.
@@ -106,7 +113,9 @@ Produce a JSON report following the output schema with five fields:
 
    **Examples** (adapt to what you actually find):
    - \`{ name: "Synthesize literature on X", type: "one_time_task", why_im_suggesting_this: "You have 23 PDFs in papers/topic-X/ spanning 2019-2024.", description: "Read all 23 papers in papers/topic-X/, extract key findings and methodologies, and produce a structured literature review organized by theme with a summary table of methods, sample sizes, and main results." }\`
-   - \`{ name: "Experiment Results Dashboard", type: "mini_app", why_im_suggesting_this: "You have multiple CSV files in experiments/ with columns that look like treatment conditions and measurements.", description: "Build an interactive dashboard that loads CSV files from experiments/, displays sortable data tables, and generates Plotly charts (box plots by treatment group, scatter plots of key variables, time-series trends) with filtering controls." }\`
+   - \`{ name: "Western blot quantification tool", type: "mini_app", why_im_suggesting_this: "Your lab notebook entries and protocols/ folder show you regularly run Western blots and manually quantify band intensities.", description: "Build a mini-app that lets you upload Western blot images, automatically detect and quantify band intensities using densitometry, normalize to loading controls, and export publication-ready bar charts with statistical comparisons." }\`
+   - \`{ name: "Batch figure formatter", type: "mini_app", why_im_suggesting_this: "You have 40+ figures across 5 manuscript directories, each with inconsistent axis labels, fonts, and color schemes.", description: "Build a mini-app that loads your Plotly/matplotlib figures, lets you set a unified style template (font, colors, axis formatting), previews changes across all figures, and exports publication-ready versions in bulk." }\`
+   - \`{ name: "Analysis help for your research techniques", type: "one_time_task", why_im_suggesting_this: "Your code and data files show you use several research techniques including RNA-seq, qPCR, and cell viability assays.", description: "For each research technique identified in your workflow, provide a detailed breakdown of the analysis steps I can help with — from raw data processing to statistical testing to figure generation — with specific recommendations tied to your existing scripts and datasets." }\`
    - \`{ name: "Review my draft on Y", type: "one_time_task", why_im_suggesting_this: "Your manuscript drafts/paper-Y.docx was recently modified and appears to be a near-complete draft.", description: "Read drafts/paper-Y.docx end-to-end and provide a structured review: assess the argument flow, flag gaps in the literature review, check whether the methods section is reproducible, and suggest specific improvements for clarity and concision." }\``;
 }
 
