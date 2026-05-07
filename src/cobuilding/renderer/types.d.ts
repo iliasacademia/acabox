@@ -388,6 +388,7 @@ declare global {
     openFile(fileUrl: string, bundleId?: string): Promise<string>;
     setDockRightForDocument(documentPath: string, docked: boolean): Promise<void>;
     setOverlayKickoffForDocument(documentPath: string, prompt: string): Promise<void>;
+    requestNewOverlayChatForDocument(documentPath: string): Promise<void>;
   }
 
   interface BrowserMonitorAPI {
@@ -409,6 +410,8 @@ declare global {
       podmanPaths: DataPathInfo[];
     }>;
     clearSelected(ids: string[]): Promise<{ cleared: string[]; errors: string[] }>;
+    /** Pipes a renderer-side log line into electron-log on the main process. */
+    log(msg: string): Promise<void>;
   }
 
   interface SettingsAPI {
@@ -681,6 +684,8 @@ declare global {
   interface BriefingDataWritingAgent {
     /** Relative path (within workspace) to the DOCX manuscript. */
     file_path: string;
+    /** LLM-generated card title contextual to the manuscript. */
+    title?: string;
     /** What the user might pick up next on this manuscript. */
     description: string;
     /**

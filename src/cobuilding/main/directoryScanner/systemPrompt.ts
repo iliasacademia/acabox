@@ -84,25 +84,39 @@ Produce a JSON report following the output schema with five fields:
 
    Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
 
-5. **suggested_mini_apps**: A list of 2-5 mini-apps tailored to this researcher's files. These are built as sandboxed React apps with Plotly charts and file I/O through a bridge API — no direct filesystem access, no custom Canvas/D3, no real-time streaming. Prioritize apps that need NO backend kernel (React-only) because they build fastest and let the user see value immediately.
+5. **suggestions**: Based on what you learned about the researcher from their folders, suggest things you can do for them that would significantly expedite their research. These can be one-time tasks or building mini-apps. Suggest as many as are genuinely useful — don't hold back.
 
-   **Good categories** (these map to framework strengths):
-   - **Data explorer**: Load a CSV/TSV via file picker, display as searchable/sortable/filterable table with column statistics. Suggest when you find tabular data files.
-   - **Chart generator**: Load tabular data and render interactive Plotly charts (scatter, bar, line, heatmap, violin, box, 3D scatter). Suggest when you find experimental results or numeric datasets.
-   - **AI text analyzer**: Use the built-in Claude API to summarize PDFs, classify abstracts, extract metadata from papers, or compare documents. Suggest when you find collections of papers, notes, or text files.
-   - **Data transformer**: Filter rows, merge CSVs, reshape columns, compute derived fields, and export the result. Suggest when you find messy or multi-part datasets that need cleaning.
-   - **Statistical dashboard**: Summary statistics, distributions, and correlation matrices for tabular data. React-only for basic stats; suggest a Python/R kernel only for advanced methods like PCA or clustering.
+   **One-time tasks** (\`type: "one_time_task"\`): Things the researcher would benefit from but might not think to ask for, or tasks that would take them hours but you can do quickly. Examples:
+   - Summarizing or synthesizing a body of literature they have collected
+   - Creating a structured comparison table across multiple papers or datasets
+   - Extracting and organizing key findings, methods, or statistics from their documents
+   - Converting or reformatting files (e.g. reformatting references, converting between data formats)
+   - Drafting sections of documents based on existing notes or data
+   - Analyzing patterns across their datasets or experimental results
 
-   **Do NOT suggest**: batch file renaming, filesystem reorganizers, image editors, real-time monitors, or anything that requires direct filesystem writes outside the app's output directory. These do not work in the sandboxed framework.
+   **Mini-apps** (\`type: "mini_app"\`): Interactive tools built as sandboxed React apps with Plotly charts and file I/O through a bridge API. Good for data explorers, chart generators, statistical dashboards, AI-powered text analyzers, and data transformers. Do NOT suggest mini-apps that require direct filesystem writes, real-time monitors, or image editing.
 
-   **For each suggestion provide three fields:**
-   - \`name\`: Short display title (e.g. "Expression Data Explorer", "Paper Summarizer").
+   **Prioritize high-impact suggestions.** Think about what would save the researcher the most time or unlock insights they couldn't easily get on their own. Tie every suggestion to specific files or patterns you actually found in their directory.
+
+   **Maximize variety across suggestions.** Don't cluster suggestions around one category (e.g. don't suggest three literature reviews). Spread them across different angles:
+   - **Research technique analysis**: Look at the specific techniques and methods the researcher uses (e.g. Western blots, PCR, RNA-seq, regression analysis, finite element modeling) and suggest technique-specific analysis help you could provide.
+   - **Repetitive workflow automation**: Identify repetitive work patterns in the researcher's files — data formatting, figure generation, protocol documentation, reference management — and suggest mini-apps that could streamline those workflows.
+   - **Document review and improvement**: Review drafts, grant proposals, or presentations.
+   - **Literature synthesis**: Summarize or compare bodies of literature they've collected.
+   - **Data exploration and visualization**: Build interactive dashboards or analysis tools for their datasets.
+
+   **For each suggestion provide four fields:**
+   - \`name\`: Short display title.
+   - \`type\`: Either \`"one_time_task"\` or \`"mini_app"\`.
    - \`why_im_suggesting_this\`: 1-2 sentences tying the suggestion to specific files or patterns you found in their directory.
-   - \`details_on_what_to_build\`: This text is sent directly to the app builder as the build instruction. Make it concrete:
-     - Reference specific files or file patterns from the scan (e.g. "Load CSV files from the experiments/ directory like results_2024.csv").
-     - Describe what the app loads, what it displays, and what the user can interact with.
-     - Mention specific chart types if relevant (e.g. "scatter plot of column X vs Y", "heatmap of the correlation matrix").
-     - Keep it to 2-4 sentences — enough to build from without ambiguity.`;
+   - \`description\`: A clear, actionable description of what you would do. Reference specific files or file patterns from the scan. 2-4 sentences — enough to act on without ambiguity.
+
+   **Examples** (adapt to what you actually find):
+   - \`{ name: "Synthesize literature on X", type: "one_time_task", why_im_suggesting_this: "You have 23 PDFs in papers/topic-X/ spanning 2019-2024.", description: "Read all 23 papers in papers/topic-X/, extract key findings and methodologies, and produce a structured literature review organized by theme with a summary table of methods, sample sizes, and main results." }\`
+   - \`{ name: "Western blot quantification tool", type: "mini_app", why_im_suggesting_this: "Your lab notebook entries and protocols/ folder show you regularly run Western blots and manually quantify band intensities.", description: "Build a mini-app that lets you upload Western blot images, automatically detect and quantify band intensities using densitometry, normalize to loading controls, and export publication-ready bar charts with statistical comparisons." }\`
+   - \`{ name: "Batch figure formatter", type: "mini_app", why_im_suggesting_this: "You have 40+ figures across 5 manuscript directories, each with inconsistent axis labels, fonts, and color schemes.", description: "Build a mini-app that loads your Plotly/matplotlib figures, lets you set a unified style template (font, colors, axis formatting), previews changes across all figures, and exports publication-ready versions in bulk." }\`
+   - \`{ name: "Analysis help for your research techniques", type: "one_time_task", why_im_suggesting_this: "Your code and data files show you use several research techniques including RNA-seq, qPCR, and cell viability assays.", description: "For each research technique identified in your workflow, provide a detailed breakdown of the analysis steps I can help with — from raw data processing to statistical testing to figure generation — with specific recommendations tied to your existing scripts and datasets." }\`
+   - \`{ name: "Review my draft on Y", type: "one_time_task", why_im_suggesting_this: "Your manuscript drafts/paper-Y.docx was recently modified and appears to be a near-complete draft.", description: "Read drafts/paper-Y.docx end-to-end and provide a structured review: assess the argument flow, flag gaps in the literature review, check whether the methods section is reproducible, and suggest specific improvements for clarity and concision." }\``;
 }
 
 export function buildScannerPrompt(directoryPath: string): string {
@@ -115,7 +129,7 @@ Start by surveying the top-level structure with Glob, then delegate analysis of 
 - What projects they have and what each contains
 - What tools, languages, and frameworks they use
 - **Most importantly**: Find the researcher's manuscripts, lab meeting presentations, and grant proposals. These are the files they care about most. Search thoroughly for .tex, .docx, .pptx, .key files and directories that look like paper or grant projects. Identify which ones are actively being worked on and what the researcher likely needs to do next with each one.
-- What simple data analysis tools or utilities would help this researcher based on their file types and workflows
+- What things you could do for this researcher — one-time tasks or interactive tools — that would significantly expedite their research
 
 Work as quickly as possible. Launch multiple subagents in parallel to analyze different parts of the directory simultaneously.`;
 }

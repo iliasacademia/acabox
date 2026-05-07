@@ -48,8 +48,10 @@ function formatLastUsed(lastOpened: string | null): string | null {
 
 interface SuggestedMiniApp {
   name: string;
+  type?: string;
   why_im_suggesting_this: string;
-  details_on_what_to_build: string;
+  description?: string;
+  details_on_what_to_build?: string;
 }
 
 interface AvailableStub {
@@ -76,8 +78,8 @@ function hoursAgoIso(hours: number): string {
 
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   {
-    name: 'Writing Agent',
-    description: 'Draft and revise manuscripts in MS Word with tracked changes',
+    name: 'Peer Review Assistant',
+    description: 'Read your manuscript like a peer reviewer and leave structured comments in MS Word',
     tag: 'ON-DEMAND',
     preBuilt: true,
     lastOpened: hoursAgoIso(2),
@@ -94,16 +96,6 @@ const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
     filePickerType: 'grant',
     chatPromptTemplate: (filePath) =>
       `/academic-writing-agent\n\nPlease help me write and improve my grant proposal: ${filePath}`,
-  },
-  {
-    name: 'Peer Review Assistant',
-    description: 'Manuscript review with structured feedback',
-    tag: 'ON-DEMAND',
-    preBuilt: true,
-    lastOpened: hoursAgoIso(240),
-    filePickerType: 'manuscript',
-    chatPromptTemplate: (filePath) =>
-      `/academic-writing-agent\n\nPlease review my manuscript and provide structured feedback: ${filePath}`,
   },
   { name: 'Literature Synthesis', description: 'Build a structured review across many papers', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(48) },
   { name: 'Paper Monitor', description: 'New papers in your topics, weekly digest', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(5), status: 'ran this morning \u00b7 4 items' },
@@ -155,7 +147,12 @@ export function ToolsPage({
       if (!report?.suggested_mini_apps) return;
       try {
         const parsed = JSON.parse(report.suggested_mini_apps);
-        if (Array.isArray(parsed)) setSuggestedApps(parsed);
+        if (Array.isArray(parsed)) {
+          const miniApps = parsed.filter(
+            (s: SuggestedMiniApp) => !s.type || s.type === 'mini_app',
+          );
+          setSuggestedApps(miniApps);
+        }
       } catch {
         // ignore malformed JSON
       }
@@ -197,7 +194,7 @@ export function ToolsPage({
   const handleBuildSuggested = useCallback((tool: SuggestedMiniApp) => {
     assistantRuntime.switchToNewThread();
     setTimeout(() => {
-      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.details_on_what_to_build}`);
+      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.description ?? tool.details_on_what_to_build}`);
       onSwitchToChat();
       setTimeout(() => {
         const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
@@ -242,6 +239,24 @@ export function ToolsPage({
       // so prune the picker to that subset.
       if (stub.useWordOverlay) {
         files = files.filter((f) => f.file_path.toLowerCase().endsWith('.docx'));
+        // Fall back to every .docx in the workspace when nothing was tagged
+        // as a manuscript yet — only workspace files work here, so we
+        // surface them inline rather than punting to a Browse dialog.
+        if (files.length === 0) {
+          const docx = await window.filesAPI.findByExtension(['docx']);
+          files = docx.map((f) => {
+            const name = f.relPath.split('/').pop() ?? f.relPath;
+            return {
+              id: f.relPath,
+              workspace_id: '',
+              report_id: null,
+              file_path: f.relPath,
+              file_name: name,
+              file_type: 'manuscript' as const,
+              created_at: '',
+            };
+          });
+        }
       }
       setFilePicker((prev) => prev ? { ...prev, files, loading: false } : null);
     } catch {
@@ -251,37 +266,18 @@ export function ToolsPage({
 
   const handlePickFile = useCallback(async (stub: AvailableStub, filePath: string) => {
     if (stub.useWordOverlay) {
-      // Word-overlay flow: set kickoff → open in Word → snap dock-right.
-      // The popup-v2 receives the kickoff via pollData, auto-creates a chat,
-      // and the overlay's own httpChatAdapter owns the SSE stream.
+      // Tools-page Word-overlay flow: open the file in Word, dock the overlay
+      // to the right, and start a fresh empty chat in the overlay. We do NOT
+      // pre-send a prompt here — the user picked the tool, not a specific
+      // task, so let them drive the conversation. Briefing-card flow is the
+      // surface that auto-sends a review prompt.
       const absolutePath = filePath.startsWith('/') ? filePath : `${workspacePath}/${filePath}`;
       const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
-      // If the user already has chats for this doc, skip the auto-kickoff:
-      // open Word + dock and let them pick which past conversation to
-      // continue (or start a fresh one manually) from the overlay session
-      // list. The kickoff is a "first time on this doc" thing.
-      let existingSessions = 0;
-      try {
-        existingSessions = await window.sessionsAPI.countForDocument(absolutePath);
-      } catch (err) {
-        console.warn('[WritingAgent] countForDocument failed; defaulting to kickoff:', err);
-      }
-      if (existingSessions > 0) {
-        setFilePicker(null);
-        window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
-        window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
-        return;
-      }
-      // Demo-friendly kickoff: scoped to the first section of the doc and
-      // forces the agent into the proposed-edit (find_and_replace) path
-      // almost immediately, so the suggestion cards with Approve/Deny show
-      // up within seconds instead of after a full-doc review.
-      const prompt = 'Read just the first section of this manuscript (the Introduction, or whatever heading appears first) and propose exactly 3 small wording improvements as tracked changes — clarity or concision only, no content changes.';
       setFilePicker(null);
       try {
-        await window.fileMonitorAPI.setOverlayKickoffForDocument(absolutePath, prompt);
+        await window.fileMonitorAPI.requestNewOverlayChatForDocument(absolutePath);
       } catch (err) {
-        console.warn('[WritingAgent] Failed to stash kickoff:', err);
+        console.warn('[PeerReviewAssistant] Failed to request new overlay chat:', err);
       }
       window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
       window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
@@ -597,7 +593,7 @@ export function ToolsPage({
                 <h2 className="filePickerModal__title">{filePicker.stub.name}</h2>
                 <p className="filePickerModal__subtitle">
                   {filePicker.stub.useWordOverlay
-                    ? 'Pick a manuscript to open in Word with the Writing Agent overlay alongside.'
+                    ? 'Pick a manuscript to open in Word with the Peer Review Assistant alongside.'
                     : 'Select a file to work on, or browse to choose one.'}
                 </p>
               </div>
@@ -615,7 +611,7 @@ export function ToolsPage({
               ) : filePicker.files.length === 0 ? (
                 <div className="filePickerModal__empty">
                   {filePicker.stub.useWordOverlay
-                    ? 'No .docx manuscripts found from your last scan. Use "Browse files" to select one manually.'
+                    ? 'No .docx files found in your workspace. Add a manuscript to your workspace folder and try again.'
                     : 'No tagged files found from your last scan. Use "Browse files" to select manually.'}
                 </div>
               ) : (
@@ -656,13 +652,15 @@ export function ToolsPage({
               >
                 Cancel
               </button>
-              <button
-                className="createToolModal__createBtn"
-                onClick={() => handleBrowseFile(filePicker.stub)}
-              >
-                <FolderOpenIcon style={{ width: 14, height: 14, marginRight: 6 }} />
-                Browse files
-              </button>
+              {!filePicker.stub.useWordOverlay && (
+                <button
+                  className="createToolModal__createBtn"
+                  onClick={() => handleBrowseFile(filePicker.stub)}
+                >
+                  <FolderOpenIcon style={{ width: 14, height: 14, marginRight: 6 }} />
+                  Browse files
+                </button>
+              )}
             </div>
 
           </div>

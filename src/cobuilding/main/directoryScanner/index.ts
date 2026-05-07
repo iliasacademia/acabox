@@ -1,10 +1,13 @@
 import { query, type SDKMessage, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'crypto';
+import * as path from 'path';
 import log from 'electron-log';
+import Anthropic from '@anthropic-ai/sdk';
 import { resolveClaudeBinary } from '../sdkBinarySetup';
 import { createReport, updateReportStatus } from '../db/reportRepository';
 import { createBriefing } from '../db/briefingsRepository';
 import { upsertScannedFiles } from '../db/scannedFilesRepository';
+import { extractText } from '../fileMonitor/textExtractor';
 import { buildScannerSystemPrompt, buildScannerPrompt } from './systemPrompt';
 import { REPORT_JSON_SCHEMA } from './reportSchema';
 
@@ -12,24 +15,38 @@ const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research direc
 
 YOU MUST ALWAYS present me with a clear plan before proceeding to take any actions or make any file modifications. Do not move, rename, delete, rewrite, or create files until I explicitly approve the plan.`;
 
-interface SuggestedMiniAppParsed {
+interface SuggestionParsed {
   name?: unknown;
+  type?: unknown;
   why_im_suggesting_this?: unknown;
-  details_on_what_to_build?: unknown;
+  description?: unknown;
 }
 
 interface WorkingOnFileParsed {
   file_path?: unknown;
+  path?: unknown;
   description?: unknown;
 }
 
 interface TaggedFileParsed {
   file_path?: unknown;
+  path?: unknown;
   file_name?: unknown;
   file_type?: unknown;
 }
 
-const WRITING_AGENT_KICKOFF_PROMPT = 'Read just the first section of this manuscript (the Introduction, or whatever heading appears first) and propose exactly 3 small wording improvements as tracked changes — clarity or concision only, no content changes.';
+function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undefined {
+  if (typeof f.file_path === 'string') return f.file_path;
+  if (typeof f.path === 'string') return f.path;
+  return undefined;
+}
+
+const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nPlease act as a peer reviewer for this manuscript. Read it end to end and flag concerns a reviewer would raise — about the argument, the evidence, the methodology, the framing, and the structure. Be specific and constructive. Suggest edits based on your feedback.';
+
+interface ManuscriptCandidate {
+  filePath: string;
+  scannerDescription: string;
+}
 
 function createBriefingsFromScan(
   workspaceId: string,
@@ -38,7 +55,7 @@ function createBriefingsFromScan(
   ctx: {
     onBriefingsChanged?: () => void;
   },
-): void {
+): ManuscriptCandidate[] {
   // Always create the directory-organization action briefing.
   createBriefing({
     workspaceId,
@@ -55,85 +72,197 @@ function createBriefingsFromScan(
   });
 
   let parsed: {
-    suggested_mini_apps?: unknown;
+    suggestions?: unknown;
     what_youre_working_on?: unknown;
     tagged_files?: unknown;
   };
   try {
     parsed = JSON.parse(resultText);
   } catch {
-    return;
+    return [];
   }
 
-  // Surface the most relevant DOCX manuscript as a Writing Agent briefing.
-  // Source from `tagged_files` (the comprehensive list — any manuscript the
-  // scanner found) rather than `what_youre_working_on` (capped at 3 items
-  // prioritizing variety across categories, so a manuscript can get bumped
-  // out by a presentation or grant). Pull the description from working-on
-  // if the same file also made that list, otherwise fall back to a generic.
   const workingOn = Array.isArray(parsed.what_youre_working_on)
     ? (parsed.what_youre_working_on as WorkingOnFileParsed[])
     : [];
   const taggedFiles = Array.isArray(parsed.tagged_files)
     ? (parsed.tagged_files as TaggedFileParsed[])
     : [];
-  const docxManuscript = taggedFiles.find(
-    (f) =>
-      f?.file_type === 'manuscript' &&
-      typeof f.file_path === 'string' &&
-      f.file_path.toLowerCase().endsWith('.docx'),
-  );
-  if (docxManuscript && typeof docxManuscript.file_path === 'string') {
-    const relPath = docxManuscript.file_path;
-    const matchingWorkingOn = workingOn.find(
-      (f) => typeof f?.file_path === 'string' && f.file_path === relPath,
-    );
-    const description =
-      typeof matchingWorkingOn?.description === 'string'
-        ? matchingWorkingOn.description
-        : '';
-    createBriefing({
-      workspaceId,
-      type: 'writing_agent',
-      sourceReportId: reportId,
-      whyImSuggestingThis:
-        description ||
-        'Pick up where you left off — I can help you draft and revise inline in Word.',
-      briefingData: {
-        file_path: relPath,
-        description,
-        chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
-      },
-    });
+
+  const workingOnByPath = new Map<string, string>();
+  for (const f of workingOn) {
+    const p = getFilePath(f);
+    if (p && typeof f.description === 'string') workingOnByPath.set(p, f.description);
   }
 
-  // Create one suggested_tool briefing per mini-app the scanner suggested.
-  const apps = Array.isArray(parsed.suggested_mini_apps)
-    ? (parsed.suggested_mini_apps as SuggestedMiniAppParsed[])
+  // Collect manuscript-type docx files for peer-review enrichment.
+  const manuscriptDocxFiles = taggedFiles.filter((f) => {
+    const p = getFilePath(f);
+    if (!p || !p.toLowerCase().endsWith('.docx')) return false;
+    const name = p.split('/').pop() ?? '';
+    if (name.startsWith('~$')) return false;
+    const fileType = (typeof f.file_type === 'string' ? f.file_type : typeof (f as any).type === 'string' ? (f as any).type : '').toLowerCase();
+    return fileType === 'manuscript';
+  });
+
+  // Create briefings from scanner suggestions (one-time tasks and mini-apps).
+  const suggestions = Array.isArray(parsed.suggestions)
+    ? (parsed.suggestions as SuggestionParsed[])
     : [];
 
-  for (const app of apps) {
-    if (typeof app?.name !== 'string' || typeof app?.details_on_what_to_build !== 'string') {
+  for (const suggestion of suggestions) {
+    if (typeof suggestion?.name !== 'string' || typeof suggestion?.description !== 'string') {
       continue;
     }
-    createBriefing({
-      workspaceId,
-      type: 'suggested_tool',
-      sourceReportId: reportId,
-      whyImSuggestingThis:
-        typeof app.why_im_suggesting_this === 'string'
-          ? app.why_im_suggesting_this
-          : null,
-      briefingData: {
-        name: app.name,
-        details_on_what_to_build: app.details_on_what_to_build,
-      },
-    });
+    const whyImSuggestingThis =
+      typeof suggestion.why_im_suggesting_this === 'string'
+        ? suggestion.why_im_suggesting_this
+        : null;
+
+    if (suggestion.type === 'mini_app') {
+      createBriefing({
+        workspaceId,
+        type: 'suggested_tool',
+        sourceReportId: reportId,
+        whyImSuggestingThis,
+        briefingData: {
+          name: suggestion.name,
+          details_on_what_to_build: suggestion.description,
+        },
+      });
+    } else {
+      createBriefing({
+        workspaceId,
+        type: 'suggested_action',
+        sourceReportId: reportId,
+        whyImSuggestingThis,
+        briefingData: {
+          title: suggestion.name,
+          description: suggestion.description,
+          chat_prompt: suggestion.description,
+        },
+      });
+    }
   }
 
-  // One notify covers every briefing created synchronously above; the async
-  // manuscript-analysis path fires its own when the upgrade lands.
   ctx.onBriefingsChanged?.();
+
+  // Return manuscript candidates — writing_agent briefings are created after
+  // LLM enrichment generates contextual titles and descriptions.
+  return manuscriptDocxFiles.map((f) => {
+    const filePath = getFilePath(f)!;
+    return { filePath, scannerDescription: workingOnByPath.get(filePath) ?? '' };
+  });
+}
+
+/**
+ * Read manuscript content and call Haiku to generate a contextual title and
+ * description for the peer-review briefing card. Creates the writing_agent
+ * briefing with LLM-generated content. Runs during onboarding scan so the
+ * card is ready when the user reaches the home page.
+ */
+async function enrichAndCreateManuscriptBriefings(
+  manuscripts: ManuscriptCandidate[],
+  workspaceId: string,
+  reportId: string,
+  directoryPath: string,
+  apiKey: string,
+  baseURL?: string,
+): Promise<void> {
+  if (manuscripts.length === 0) return;
+
+  const client = new Anthropic({ apiKey, baseURL });
+
+  for (const { filePath, scannerDescription } of manuscripts) {
+    try {
+      const absolutePath = path.join(directoryPath, filePath);
+      const fullText = await extractText(absolutePath);
+      const excerpt = fullText ? fullText.slice(0, 2000) : '';
+
+      if (!excerpt) {
+        log.warn(`[ManuscriptEnrichment] Could not extract text from ${filePath}, creating with defaults`);
+        createBriefing({
+          workspaceId,
+          type: 'writing_agent',
+          sourceReportId: reportId,
+          whyImSuggestingThis: scannerDescription || 'I can peer-review this manuscript and suggest edits.',
+          briefingData: {
+            file_path: filePath,
+            description: scannerDescription,
+            chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
+          },
+        });
+        continue;
+      }
+
+      const fileName = filePath.split('/').pop() ?? filePath;
+      const message = await client.messages.create({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 300,
+        messages: [{
+          role: 'user',
+          content: `You are generating a briefing card for a peer-review assistant. Given this manuscript excerpt, return JSON with:
+- "title": A short card title (5-10 words) that references the manuscript's topic, e.g. "Review your cortisol signaling paper" or "Peer review the HIF-2α analysis". Start with "Review" or "Peer review".
+- "description": One sentence describing what the review will focus on, specific to this manuscript's content. E.g. "I'll check the experimental design of your RPTEC timecourse and flag gaps in the methodology."
+
+Filename: ${fileName}
+
+Manuscript excerpt:
+${excerpt}
+
+Output JSON only. No prose, no code fences.`,
+        }],
+      });
+
+      const block = message.content[0] as { type: string; text?: string };
+      const text = (block && block.type === 'text' && block.text) ? block.text : '';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+      let title = 'Peer review your manuscript';
+      let description = scannerDescription;
+
+      if (jsonMatch) {
+        try {
+          const generated = JSON.parse(jsonMatch[0]) as { title?: unknown; description?: unknown };
+          if (typeof generated.title === 'string' && generated.title.trim()) {
+            title = generated.title.trim();
+          }
+          if (typeof generated.description === 'string' && generated.description.trim()) {
+            description = generated.description.trim();
+          }
+        } catch {
+          log.warn(`[ManuscriptEnrichment] Failed to parse Haiku JSON for ${filePath}`);
+        }
+      }
+
+      log.info(`[ManuscriptEnrichment] ${filePath} → "${title}"`);
+      createBriefing({
+        workspaceId,
+        type: 'writing_agent',
+        sourceReportId: reportId,
+        whyImSuggestingThis: description || 'I can peer-review this manuscript and suggest edits.',
+        briefingData: {
+          file_path: filePath,
+          title,
+          description,
+          chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
+        },
+      });
+    } catch (err) {
+      log.error(`[ManuscriptEnrichment] Failed to enrich ${filePath}:`, err);
+      createBriefing({
+        workspaceId,
+        type: 'writing_agent',
+        sourceReportId: reportId,
+        whyImSuggestingThis: scannerDescription || 'I can peer-review this manuscript and suggest edits.',
+        briefingData: {
+          file_path: filePath,
+          description: scannerDescription,
+          chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
+        },
+      });
+    }
+  }
 }
 
 export type ScannerEvent =
@@ -283,7 +412,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
       options: {
         abortController,
         pathToClaudeCodeExecutable: claudeBinaryPath,
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-sonnet-4-6',
         systemPrompt: buildScannerSystemPrompt(),
         tools: ['Read', 'Glob', 'Grep', 'Agent'],
         allowedTools: ['Read', 'Glob', 'Grep', 'Agent'],
@@ -356,8 +485,9 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
             : (typeof msg.result === 'string' ? msg.result : JSON.stringify(msg.result));
           log.info(`[DirectoryScanner] Scan completed for workspace ${workspaceId} (has structured_output: ${!!structured}, result length: ${(msg.result as string)?.length ?? 0})`);
           updateReportStatus(reportId, 'completed', resultText);
+          let manuscripts: ManuscriptCandidate[] = [];
           try {
-            createBriefingsFromScan(workspaceId, reportId, resultText, {
+            manuscripts = createBriefingsFromScan(workspaceId, reportId, resultText, {
               onBriefingsChanged: params.onBriefingsChanged,
             });
           } catch (err) {
@@ -366,10 +496,29 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           try {
             const scanData = JSON.parse(resultText);
             if (Array.isArray(scanData.tagged_files)) {
-              upsertScannedFiles(workspaceId, reportId, scanData.tagged_files);
+              // Normalise keys: LLM may return {path,filename,type}
+              // instead of the schema's {file_path,file_name,file_type}.
+              const normalised = scanData.tagged_files
+                .map((f: Record<string, unknown>) => ({
+                  file_path: (f.file_path ?? f.path) as string,
+                  file_name: (f.file_name ?? f.filename) as string,
+                  file_type: (f.file_type ?? f.type) as string,
+                }))
+                .filter((f: { file_name: string }) => !f.file_name.startsWith('~$'));
+              upsertScannedFiles(workspaceId, reportId, normalised);
             }
           } catch (err) {
             log.error('[DirectoryScanner] Failed to persist tagged files:', err);
+          }
+          // Enrich manuscripts with LLM-generated titles before completing.
+          try {
+            await enrichAndCreateManuscriptBriefings(
+              manuscripts, workspaceId, reportId, directoryPath,
+              params.apiKey, params.baseURL,
+            );
+            params.onBriefingsChanged?.();
+          } catch (err) {
+            log.error('[DirectoryScanner] Manuscript enrichment failed:', err);
           }
           onMessage?.({ type: 'complete', reportId, reportData: resultText });
         } else {

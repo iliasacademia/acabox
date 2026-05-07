@@ -199,6 +199,12 @@ export interface OverlayPollResponse {
    * Writing-Agent flow. Consumed exactly once per pollData arrival.
    */
   pendingKickoffPrompt?: string;
+  /**
+   * Unique id for the current kickoff. Popup dedups by this id rather than by
+   * prompt text, so repeat clicks (or identical prompts from different
+   * surfaces) each force a fresh chat.
+   */
+  pendingKickoffId?: string;
   /** FullStory configuration for popup initialization (avoids extra HTTP calls) */
   fullStoryConfig?: {
     userId: number | null;

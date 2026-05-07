@@ -50,9 +50,11 @@ export function updateReportStatus(
       workingOn = Array.isArray(parsed.what_youre_working_on)
         ? JSON.stringify(parsed.what_youre_working_on)
         : null;
-      suggestedMiniApps = Array.isArray(parsed.suggested_mini_apps)
-        ? JSON.stringify(parsed.suggested_mini_apps)
-        : null;
+      suggestedMiniApps = Array.isArray(parsed.suggestions)
+        ? JSON.stringify(parsed.suggestions)
+        : Array.isArray(parsed.suggested_mini_apps)
+          ? JSON.stringify(parsed.suggested_mini_apps)
+          : null;
     } catch {
       // If JSON parsing fails, leave columns null — raw data is still saved in report_data
     }

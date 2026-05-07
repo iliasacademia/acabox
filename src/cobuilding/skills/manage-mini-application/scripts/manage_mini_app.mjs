@@ -2,7 +2,7 @@
 
 import { parseArgs } from "util";
 import { join } from "path";
-import { mkdirSync, writeFileSync, existsSync, cpSync, readdirSync, statSync } from "fs";
+import { mkdirSync, writeFileSync, existsSync, cpSync, readdirSync } from "fs";
 
 const { values } = parseArgs({
   options: {
@@ -192,25 +192,37 @@ writeFileSync(
   JSON.stringify(manifest, null, 2) + "\n",
 );
 
-// Copy template files if --template is specified
+// Copy template files if --template is specified.
+//
+// Templates mirror the deployed app's directory layout: anything inside
+// `<template>/src/` lands in the new app's `src/`, anything else lands at the
+// app root. So a template can ship `src/App.tsx`, `notebook.ipynb`,
+// `scripts/foo.py`, `models/foo.pt`, `requirements.txt`, etc., and each file
+// goes where it belongs without per-file special cases.
+//
+// `template.md` is documentation for the agent — it travels with the template
+// source so it can be edited alongside the code, but it's intentionally
+// excluded from the per-app copy.
 if (values.template) {
   const templatesDir = join(workspaceDir, ".applications", "_templates", values.template);
-  if (existsSync(templatesDir)) {
-    // Copy .ipynb files to app root, everything else to src/
-    for (const entry of readdirSync(templatesDir)) {
-      const srcPath = join(templatesDir, entry);
-      if (entry.endsWith(".ipynb")) {
-        cpSync(srcPath, join(miniAppDir, entry));
-      } else if (statSync(srcPath).isDirectory()) {
-        cpSync(srcPath, join(miniAppDir, "src", entry), { recursive: true });
-      } else {
-        cpSync(srcPath, join(miniAppDir, "src", entry));
-      }
-    }
-  } else {
+  if (!existsSync(templatesDir)) {
     console.error(`Template directory not found: ${templatesDir}`);
     process.exit(1);
   }
+  for (const entry of readdirSync(templatesDir)) {
+    if (entry === "template.md") continue;
+    const srcPath = join(templatesDir, entry);
+    cpSync(srcPath, join(miniAppDir, entry), { recursive: true });
+  }
+
+  // NOTE: the script intentionally does NOT install template dependencies.
+  // The host's BackgroundBuilder watches `.applications/<app>/requirements.txt`,
+  // `package.json`, `r-packages.txt`, `apt-packages.txt`, and `setup/*.sh` and
+  // runs the appropriate live install + container image rebuild as soon as those
+  // files appear. Doing pip / setup runs here would race with that pipeline AND
+  // block the agent's tool call for several minutes on cold containers. The
+  // mini-app's own "Installing software…" UI surfaces install progress to the
+  // user while the agent moves on to building the bundle and opening the app.
 }
 
 console.log(JSON.stringify({ name: values.name, dir_name: dirName, dir: miniAppDir }));

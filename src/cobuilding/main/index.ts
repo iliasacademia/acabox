@@ -36,7 +36,6 @@ import {
   getSession,
   createSession,
   updateSessionTitle,
-  insertMessage,
   deleteSession,
   getMessages,
   findSessionForApp,
@@ -47,7 +46,9 @@ import {
   getActiveWorkspace,
   listWorkspaces,
   touchWorkspace,
-  deleteAllWorkspaces,
+  deactivateAllWorkspaces,
+  findInactiveWorkspaceByDirectory,
+  reactivateWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -452,7 +453,23 @@ function ensureSseFanout(sessionId: string): void {
   const session = getRegisteredSession(sessionId);
   if (!session) return;
   const unsubscribe = session.addListener({
-    onEvent: (msg) => broadcastSseToSubscribers(sessionId, 'event', msg),
+    onEvent: (msg) => {
+      if (msg.type !== 'heartbeat') {
+        log.info(`[SseFanout] event sessionId=${sessionId} type=${msg.type}`);
+      }
+      broadcastSseToSubscribers(sessionId, 'event', msg);
+      // Also nudge the desktop renderer when a user-message lands from
+      // another surface. agentSession emits 'user-message' immediately
+      // after inserting a foreign-typed user turn into the DB; firing
+      // chat:foreign-done now (rather than waiting for onDone) makes
+      // the user turn visible on the desktop before the assistant
+      // streams its reply, which is exactly the gap that was missing
+      // user "ok" turns from the desktop view in screenshots.
+      if (msg.type === 'user-message' && mainWindow && !mainWindow.isDestroyed()) {
+        log.info(`[SseFanout] firing chat:foreign-done sessionId=${sessionId} cause=user-message`);
+        mainWindow.webContents.send('chat:foreign-done', sessionId);
+      }
+    },
     onDone: () => {
       broadcastSseToSubscribers(sessionId, 'done', {});
       // Also signal the desktop renderer (which can't subscribe to SSE —
@@ -877,12 +894,15 @@ app.whenReady().then(async () => {
                 if (existingRunning?.isRunning) {
                   // Ensure IPC forwarding to the desktop app BEFORE sending the message,
                   // so the desktop receives streaming events immediately.
+                  // Note: we deliberately do NOT fire NAVIGATE_TO_PAGE here.
+                  // Auto-yanking the desktop into the chat tab on every
+                  // overlay-typed message was disruptive — the desktop's
+                  // SessionsListRefresher already surfaces new/updated
+                  // sessions, and the live-message replication via
+                  // `chat:foreign-done` keeps history in sync once the
+                  // user navigates there themselves.
                   if (mainWindow && !mainWindow.isDestroyed()) {
                     ensureForwarding(sessionId, mainWindow.webContents);
-                    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                      page: 'session',
-                      sessionId,
-                    } as NavigateToPagePayload);
                   }
                   ensureSseFanout(sessionId);
                   const unsubscribe = existingRunning.addListener({
@@ -935,12 +955,10 @@ app.whenReady().then(async () => {
 
                 // Ensure IPC forwarding to the desktop app BEFORE sending the message,
                 // so the desktop receives streaming events immediately.
+                // Note: NAVIGATE_TO_PAGE is intentionally NOT fired here
+                // (see matching note in the existingRunning branch).
                 if (mainWindow && !mainWindow.isDestroyed()) {
                   ensureForwarding(sessionId, mainWindow.webContents);
-                  mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                    page: 'session',
-                    sessionId,
-                  } as NavigateToPagePayload);
                 }
                 ensureSseFanout(sessionId);
 
@@ -1067,9 +1085,15 @@ ipcMain.handle(
     provisionWorkspace(directoryPath);
     containerService.writeStartContainerScript(directoryPath);
 
-    const id = randomUUID();
-    createWorkspace(id, name, directoryPath, apiKey);
-    touchWorkspace(id);
+    const existing = findInactiveWorkspaceByDirectory(directoryPath);
+    if (existing) {
+      reactivateWorkspace(existing.id, apiKey);
+      touchWorkspace(existing.id);
+    } else {
+      const id = randomUUID();
+      createWorkspace(id, name, directoryPath, apiKey);
+      touchWorkspace(id);
+    }
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
@@ -1130,8 +1154,14 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle('workspaces:deleteAll', () => {
-  deleteAllWorkspaces();
+ipcMain.handle('workspaces:deleteAll', async () => {
+  backgroundBuilder.dispose();
+  kernelGatewayService.stop();
+  ensuredApps.clear();
+  await stopAgentInfrastructure();
+  containerService.stop();
+  getTaskScheduler().stop();
+  deactivateAllWorkspaces();
   activeWorkspace = null;
 });
 
@@ -1234,6 +1264,9 @@ ipcMain.handle(
   'briefings:setStatus',
   (_event, id: string, status: BriefingStatus) => {
     setBriefingStatus(id, status);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('briefings:changed');
+    }
   },
 );
 
@@ -1913,7 +1946,32 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
   // instead of starting a conflicting parallel install (avoids dpkg lock issues).
   const pending = backgroundBuilder.getPendingInstall(dirName);
   if (pending) {
-    log.debug(`[ensureAppDeps] Waiting for background install of ${dirName} to finish`);
+    log.info(`[ensureAppDeps] Waiting for background install of ${dirName} to finish`);
+
+    // Re-emit the install's current state to the renderer. The mini-app's
+    // ContainerGate subscribes to `container:installProgress` on mount, but the
+    // initial `step` event from BackgroundBuilder typically fired several
+    // seconds earlier when the agent ran the manage script. Without this
+    // replay, the line handler in MiniAppViewer drops every subsequent line
+    // (since installStatus is null) and the InstallingView shows a blank
+    // spinner with no detail until the install completes.
+    const activeState = backgroundBuilder.getActiveInstallState(dirName);
+    if (activeState && mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('container:installProgress', {
+        dirName,
+        type: 'step',
+        registry: activeState.registry,
+        packages: activeState.packages,
+      });
+      if (activeState.lastLine) {
+        mainWindow.webContents.send('container:installProgress', {
+          dirName,
+          type: 'line',
+          line: activeState.lastLine,
+        });
+      }
+    }
+
     await pending;
     ensuredApps.add(dirName);
     return { installed: ['(completed by background installer)'] };
@@ -2056,6 +2114,10 @@ ipcMain.handle('windowMonitor:setOverlayKickoffForDocument', (_event, documentPa
   windowMonitorService.setPendingKickoffForDocument(documentPath, prompt);
 });
 
+ipcMain.handle('windowMonitor:requestNewOverlayChatForDocument', (_event, documentPath: string) => {
+  windowMonitorService.requestNewOverlayChatForDocument(documentPath);
+});
+
 
 // Observations IPC handlers
 ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
@@ -2098,23 +2160,49 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
 // Find or create a session associated with a mini app
-ipcMain.handle('sessions:findForApp', (_event, dirName: string) => {
+ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
   if (!activeWorkspace) return null;
+  if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
+    return null;
+  }
 
-  // Search for an existing session that created or is bound to this app
+  const manifestPath = path.join(activeWorkspace.directory_path, '.applications', dirName, 'manifest.json');
+
+  let manifest: Record<string, unknown> | null = null;
+  try {
+    const raw = await fsPromises.readFile(manifestPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') manifest = parsed as Record<string, unknown>;
+  } catch {
+    // Missing or unreadable manifest — fall through to legacy search/create.
+  }
+
+  // Prefer the chatSessionId stored in the manifest when it points to a real session.
+  const manifestSessionId = typeof manifest?.chatSessionId === 'string' ? manifest.chatSessionId : null;
+  if (manifestSessionId && getSession(manifestSessionId)) {
+    return manifestSessionId;
+  }
+
+  // Fall back to the legacy search (assistant tool call or synthetic user message).
   const existingId = findSessionForApp(activeWorkspace.id, dirName);
   if (existingId) return existingId;
 
-  // No session found — create a new one with a synthetic context message
+  // No existing session — create one and link it via the manifest.
   const sessionId = randomUUID();
-  const displayName = dirName.replace(/[-_]/g, ' ');
+  const manifestName = typeof manifest?.name === 'string' && manifest.name.trim() ? manifest.name.trim() : null;
+  const title = manifestName ?? dirName.replace(/[-_]/g, ' ');
   createSession(sessionId, activeWorkspace.id);
-  insertMessage(
-    sessionId,
-    'user',
-    JSON.stringify({ text: `This chat is connected to the application "${dirName}".` }),
-  );
-  updateSessionTitle(sessionId, displayName);
+  updateSessionTitle(sessionId, title);
+
+  if (manifest) {
+    manifest.chatSessionId = sessionId;
+    try {
+      await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    } catch (err) {
+      log.warn('[sessions:findForApp] Failed to write chatSessionId to manifest:', err);
+    }
+  }
+
   notifySessionsChanged();
   return sessionId;
 });
@@ -2713,9 +2801,15 @@ ipcMain.handle('auth:refetchApiKey', async () => {
 
 ipcMain.handle('auth:logout', async () => {
   try {
+    backgroundBuilder.dispose();
+    kernelGatewayService.stop();
+    ensuredApps.clear();
+    await stopAgentInfrastructure();
+    containerService.stop();
+    getTaskScheduler().stop();
+    deactivateAllWorkspaces();
     activeWorkspace = null;
     cachedApiKey = null;
-    deleteAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {

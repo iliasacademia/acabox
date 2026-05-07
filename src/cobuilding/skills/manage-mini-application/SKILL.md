@@ -47,9 +47,21 @@ The script prints `{ name, dir_name, dir }` to stdout and creates:
 
 If you later edit an app's purpose, also update `manifest.json` (name/description/icon) so the Tools page stays in sync.
 
-If `--template` is specified, template files from `.applications/_templates/<name>/` are copied into `src/`. Available templates:
+If `--template` is specified, the template tree at `.applications/_templates/<name>/` is mirrored into the new app — anything inside `<template>/src/` lands in the new app's `src/`, anything else lands at the app root. So a template can ship `src/App.tsx`, `notebook.ipynb`, `scripts/foo.py`, `requirements.txt`, `setup/*.sh`, etc., and each file ends up where it belongs.
 
-- `differentialExpression` — DESeq2 analysis with interactive volcano/MA plots. See [templates/differential_expression.md](templates/differential_expression.md).
+**Dependencies install asynchronously — do not wait for them.** The host has a BackgroundBuilder that watches `.applications/<app>/requirements.txt`, `package.json`, `r-packages.txt`, `apt-packages.txt`, and `setup/*.sh`. The moment those files appear, it runs a live install in the running container AND rebuilds the container image so the deps survive restarts. Templates therefore declare both their code and their installable dependencies (including model-checkpoint downloads written as idempotent `setup/*.sh` scripts), and the install pipeline picks them up automatically — no agent action required.
+
+**Hard rules for the agent when scaffolding from a template:**
+
+- Do NOT run `.applications/install` yourself — BackgroundBuilder is already running it. A second concurrent install races for bandwidth and slows everything down.
+- Do NOT use `Monitor`, `ScheduleWakeup`, or polling loops to wait for installs to finish. The install can take 5–15 minutes on cold containers; blocking the chat turn on it produces a bad UX (silent agent, opaque "thinking" state).
+- After running the manage script, immediately build the bundle with `esbuild` (it doesn't need Python deps) and call the `open_mini_application` MCP tool. Then **stop and return control to the user**.
+- The mini-app's own "Installing software…" view surfaces live install progress to the user when they open the app — they will see it there, not in the chat. Tell the user once that you've opened the app and that deps are still installing in the background, and let the in-app UI take over from there.
+
+Each template also ships with a colocated `template.md` describing its parameters, output contract, and design rationale; read that before editing the template's code. The `template.md` itself is excluded from the per-app copy. Available templates:
+
+- `differentialExpression` — DESeq2 analysis with interactive volcano/MA plots. See `.applications/_templates/differentialExpression/template.md`.
+- `westernBlotAnnotator` — interactive Western blot annotation: GelGenie-based band/lane detection, LLM-assisted band filtering, click-to-edit labels, and PNG figure export. Ships with a Python pipeline and a `setup/download_model.sh` that pulls the TorchScript GelGenie checkpoint from HuggingFace. See `.applications/_templates/westernBlotAnnotator/template.md`.
 
 ### Step 2: Write `src/App.tsx`
 

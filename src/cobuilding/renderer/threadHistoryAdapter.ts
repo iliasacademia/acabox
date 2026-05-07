@@ -20,11 +20,13 @@ export function useThreadHistoryAdapter(): ThreadHistoryAdapter {
     (): ThreadHistoryAdapter => ({
       async load() {
         if (!remoteId) {
+          window.debugAPI.log('[HistoryAdapter] load remoteId=null count=0');
           return ExportedMessageRepository.fromArray([]);
         }
         // IPC returns rows whose `content` column is still a JSON string.
         const dbMessages = await window.sessionsAPI.listMessages(remoteId);
         const messages = convertHistoryMessagesFromStringContent(dbMessages);
+        window.debugAPI.log(`[HistoryAdapter] load remoteId=${remoteId} count=${messages.length}`);
         return ExportedMessageRepository.fromArray(messages);
       },
 
