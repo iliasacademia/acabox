@@ -19,6 +19,7 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
   const [editingSection, setEditingSection] = useState<'about' | 'working_on' | null>(null);
   const [editBuffer, setEditBuffer] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   useEffect(() => {
     window.reportsAPI.get(reportId).then((report) => {
@@ -65,10 +66,37 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
     } catch {
       // Non-critical — continue even if save fails
     }
+    setIsSaving(false);
+    setIsGenerating(true);
+    try {
+      await window.scannerAPI.generateBriefings(reportId);
+    } catch {
+      // Non-critical — continue even if briefing generation fails
+    }
     onComplete();
   };
 
   if (loading) return null;
+
+  if (isGenerating) {
+    return (
+      <div className="wsSetup">
+        <div className="wsSetup__branding">
+          <span className="wsSetup__brandName">Co-scientist</span>
+          <span className="wsSetup__brandLabel">SETUP</span>
+        </div>
+        <div className="wsSetup__inner wsSetup__reviewInner">
+          <div className="wsReview__generating">
+            <div className="wsReview__spinner" />
+            <h2 className="wsReview__generatingTitle">Preparing your recommendations&hellip;</h2>
+            <p className="wsReview__generatingSubtitle">
+              Figuring out how I can help expedite your research
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="wsSetup">

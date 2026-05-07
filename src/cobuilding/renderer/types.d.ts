@@ -591,6 +591,7 @@ declare global {
 
   interface ScannerAPI {
     start(): Promise<void>;
+    generateBriefings(reportId: string): Promise<void>;
     onEvent(callback: (event: ScannerEvent) => void): () => void;
   }
 

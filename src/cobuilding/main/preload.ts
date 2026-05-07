@@ -317,6 +317,7 @@ contextBridge.exposeInMainWorld('scannedFilesAPI', {
 
 contextBridge.exposeInMainWorld('scannerAPI', {
   start: () => ipcRenderer.invoke('scanner:start'),
+  generateBriefings: (reportId: string) => ipcRenderer.invoke('scanner:generateBriefings', reportId),
   onEvent: (callback: (event: any) => void) => {
     const handler = (_event: unknown, data: any) => callback(data);
     ipcRenderer.on('scanner:event', handler);

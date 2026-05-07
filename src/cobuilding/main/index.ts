@@ -17,6 +17,7 @@ import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
+import { generateBriefingSuggestions } from './briefingSuggester';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
@@ -1295,6 +1296,21 @@ ipcMain.handle('scanner:start', async () => {
     }
   }).finally(() => {
     scannerRunning = false;
+  });
+});
+
+ipcMain.handle('scanner:generateBriefings', async (_event, reportId: string) => {
+  if (!activeWorkspace) {
+    throw new Error('No active workspace');
+  }
+  await generateBriefingSuggestions({
+    workspaceId: activeWorkspace.id,
+    reportId,
+    onBriefingsChanged: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('briefings:changed');
+      }
+    },
   });
 });
 
