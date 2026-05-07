@@ -141,7 +141,11 @@ export function HomePage({
       if (report.what_youre_working_on) {
         try {
           const parsed = JSON.parse(report.what_youre_working_on);
-          if (Array.isArray(parsed)) setWorkingOnItems(parsed);
+          if (Array.isArray(parsed)) {
+            setWorkingOnItems(
+              parsed.filter((item: WorkingOnItem) => !basename(item.file_path).startsWith('~$')),
+            );
+          }
         } catch { /* ignore */ }
       }
       setLoading(false);

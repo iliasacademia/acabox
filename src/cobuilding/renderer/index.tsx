@@ -487,6 +487,13 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   });
 
   const handleSelectFile = useCallback((filePath: string, from?: 'files' | 'chat') => {
+    const ext = filePath.split('.').pop()?.toLowerCase();
+    if ((ext === 'docx' || ext === 'doc') && from !== 'chat') {
+      const fileUrl = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+      window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+      window.fileMonitorAPI.setDockRightForDocument(filePath, true);
+      return;
+    }
     setSidebarTab('files');
     setActiveFilePath(filePath);
     setFileOpenedFrom(from ?? 'files');

@@ -21,6 +21,11 @@ function fileTreeRowPaddingLeft(depth: number): number {
   return FILE_TREE_INDENT_BASE + depth * FILE_TREE_INDENT_STEP;
 }
 
+/** Hide Office lock files (`~$Manuscript.docx`) created while a doc is open in Word. */
+function isHiddenWorkspaceEntry(name: string): boolean {
+  return name.startsWith('~$');
+}
+
 interface TreeNode {
   name: string;
   path: string;
@@ -97,10 +102,11 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
   }, []);
 
 
-  const countFilesFromEntries = useCallback(async (entries: { path: string; isDirectory: boolean }[]): Promise<number> => {
-    let fileCount = entries.filter((e) => !e.isDirectory).length;
+  const countFilesFromEntries = useCallback(async (entries: { name: string; path: string; isDirectory: boolean }[]): Promise<number> => {
+    const visible = entries.filter((e) => !isHiddenWorkspaceEntry(e.name));
+    let fileCount = visible.filter((e) => !e.isDirectory).length;
     const dirCounts = await Promise.all(
-      entries.filter((e) => e.isDirectory).map(async (e) => {
+      visible.filter((e) => e.isDirectory).map(async (e) => {
         const children = await window.filesAPI.readDirectory(e.path);
         return countFilesFromEntries(children);
       }),
@@ -110,7 +116,8 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
   }, []);
 
   const loadRoot = useCallback(async () => {
-    const entries = await window.filesAPI.readDirectory(workspacePath);
+    const entries = (await window.filesAPI.readDirectory(workspacePath))
+      .filter((e) => !isHiddenWorkspaceEntry(e.name));
     const nodes = entries.map((e) => ({
       name: e.name,
       path: e.path,
@@ -130,7 +137,8 @@ export const FilesTab: FC<FilesTabProps> = ({ workspacePath, onSelectFile, onFil
   }, [loadRoot]);
 
   const loadChildren = useCallback(async (node: TreeNode) => {
-    const entries = await window.filesAPI.readDirectory(node.path);
+    const entries = (await window.filesAPI.readDirectory(node.path))
+      .filter((e) => !isHiddenWorkspaceEntry(e.name));
     return entries.map((e) => ({
       name: e.name,
       path: e.path,
