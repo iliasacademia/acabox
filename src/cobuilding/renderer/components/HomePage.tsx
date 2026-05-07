@@ -34,7 +34,6 @@ function formatDate(): string {
   return `${day}, ${date}`;
 }
 
-const MAX_VISIBLE_BRIEFINGS = 3;
 
 interface BriefingCardDisplay {
   eyebrow: string;
@@ -109,12 +108,8 @@ export function HomePage({
 
   useEffect(() => {
     const refresh = () => {
-      // Fetch a wider window than we display, then pin any writing_agent
-      // briefings to the top before trimming to MAX_VISIBLE_BRIEFINGS. The
-      // peer-review card is the headline pitch — without pinning it gets
-      // pushed off the visible top by suggested_action briefings created
-      // *after* the directory scan (briefingSuggester runs on review
-      // submit, so its rows have a newer created_at).
+      // Pin any writing_agent briefings to the top so the peer-review card
+      // isn't pushed off by suggested_action briefings with a newer created_at.
       window.briefingsAPI
         .list({ status: ['new'], limit: 50 })
         .then((rows) => {
@@ -123,7 +118,7 @@ export function HomePage({
             .filter((b): b is ParsedBriefing => b !== null);
           const writingAgent = parsed.filter((b) => b.type === 'writing_agent');
           const others = parsed.filter((b) => b.type !== 'writing_agent');
-          setBriefings([...writingAgent, ...others].slice(0, MAX_VISIBLE_BRIEFINGS));
+          setBriefings([...writingAgent, ...others]);
         });
     };
     refresh();
