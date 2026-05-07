@@ -49,7 +49,7 @@ export async function registerFileDialogRoutes(fastify: FastifyInstance): Promis
 
     try {
       const entries = fs.readdirSync(targetDir, { withFileTypes: true })
-        .filter(e => !e.name.startsWith('.'))
+        .filter(e => !e.name.startsWith('.') && !e.name.startsWith('~$'))
         .map(e => ({
           name: e.name,
           isDir: e.isDirectory(),
