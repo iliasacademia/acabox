@@ -301,7 +301,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
       options: {
         abortController,
         pathToClaudeCodeExecutable: claudeBinaryPath,
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-sonnet-4-6',
         systemPrompt: buildScannerSystemPrompt(),
         tools: ['Read', 'Glob', 'Grep', 'Agent'],
         allowedTools: ['Read', 'Glob', 'Grep', 'Agent'],
