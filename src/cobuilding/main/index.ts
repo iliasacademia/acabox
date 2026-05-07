@@ -1154,7 +1154,13 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle('workspaces:deleteAll', () => {
+ipcMain.handle('workspaces:deleteAll', async () => {
+  backgroundBuilder.dispose();
+  kernelGatewayService.stop();
+  ensuredApps.clear();
+  await stopAgentInfrastructure();
+  containerService.stop();
+  getTaskScheduler().stop();
   deactivateAllWorkspaces();
   activeWorkspace = null;
 });
@@ -2767,9 +2773,15 @@ ipcMain.handle('auth:refetchApiKey', async () => {
 
 ipcMain.handle('auth:logout', async () => {
   try {
+    backgroundBuilder.dispose();
+    kernelGatewayService.stop();
+    ensuredApps.clear();
+    await stopAgentInfrastructure();
+    containerService.stop();
+    getTaskScheduler().stop();
+    deactivateAllWorkspaces();
     activeWorkspace = null;
     cachedApiKey = null;
-    deactivateAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {

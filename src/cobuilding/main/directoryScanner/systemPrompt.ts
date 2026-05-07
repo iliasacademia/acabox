@@ -22,7 +22,7 @@ A user is waiting on this scan. You MUST finish as fast as possible. Every extra
 
 2. **Hunt for manuscripts, presentations, and grant proposals**: These are the most valuable files to surface. Run targeted Glob searches early for document types: "**/*.tex", "**/*.docx", "**/*.pptx", "**/*.key", "**/*.md". Also look for directories whose names suggest papers, drafts, manuscripts, grants, proposals, talks, presentations, or lab meetings. When you find candidates, skim them (read the first 20-30 lines or grep for titles/abstracts) to confirm what they are and assess their state (early draft, near completion, under review, etc.).
 
-3. **Delegate to subagents**: Once you identify the major subdirectories or categories of files, launch subagents to analyze them in parallel. Each subagent should focus on one area (e.g., one project directory, or one file type category). **Always use the \`model\` parameter set to \`"sonnet"\` when launching subagents** to keep costs low and speed high.
+3. **Delegate to subagents**: Once you identify the major subdirectories or categories of files, launch subagents to analyze them in parallel. Each subagent should focus on one area (e.g., one project directory, or one file type category). **Always use the \`model\` parameter set to \`"haiku"\` when launching subagents** to keep costs low and speed high.
 
 3. **Be smart about token usage**:
    - NEVER read large data files (CSV, JSON data, HDF5, binary files, images, etc.)
