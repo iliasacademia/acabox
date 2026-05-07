@@ -234,6 +234,9 @@ if replacementsCount is 0 then
       tell application "Microsoft Word"
         try
           set doc to active document
+          -- Pass 4a: search with the SANITIZED anchor (smart quotes
+          -- straightened, dashes ASCII-folded, etc). Catches the common
+          -- "search-has-fancy, doc-has-plain" direction.
           set scanRange to create range doc start 0 end (end of content of text object of doc)
           set anchorFind to find object of scanRange
           clear formatting anchorFind
@@ -249,7 +252,6 @@ if replacementsCount is 0 then
             if not wasFound then exit repeat
             set hitStart to start of scanRange
             set hitEnd to end of scanRange
-            -- Try the sanitized search first.
             try
               set extendedRange to create range doc start hitStart end (hitEnd + extendBy)
               set extendedText to content of extendedRange
@@ -260,8 +262,10 @@ if replacementsCount is 0 then
                 exit repeat
               end if
             end try
-            -- Fall through to the un-sanitized original (catches the
-            -- doc-has-fancy, search-has-fancy case at long lengths).
+            -- Belt-and-suspenders: also try matching the extended range
+            -- against the un-sanitized original at the SAME hit. Cheap
+            -- second comparison, catches the case where the doc happens
+            -- to keep its fancy chars and the original variant matches.
             if anchorOriginal is not "" then
               try
                 set extendedRangeOrig to create range doc start hitStart end (hitEnd + extendByOriginal)
@@ -291,6 +295,65 @@ if replacementsCount is 0 then
               exit repeat
             end try
           end repeat
+          -- Pass 4b: if the sanitized anchor found nothing at all, the
+          -- doc likely keeps its smart quotes / en-dashes / NBSPs and
+          -- Word's literal-byte find rejected our ASCII-folded anchor.
+          -- Retry the whole find loop with the un-sanitized original
+          -- anchor so we can match the doc's fancy chars directly.
+          if replacementsCount is 0 and anchorOriginal is not "" then
+            set scanRange to create range doc start 0 end (end of content of text object of doc)
+            set anchorFind to find object of scanRange
+            clear formatting anchorFind
+            set content of anchorFind to anchorOriginal
+            set forward of anchorFind to true
+            set wrap of anchorFind to find stop
+            set match case of anchorFind to ${matchCase}
+            set safetyCounter to 0
+            repeat
+              if safetyCounter > 50 then exit repeat
+              set safetyCounter to safetyCounter + 1
+              set wasFound to execute find anchorFind
+              if not wasFound then exit repeat
+              set hitStart to start of scanRange
+              set hitEnd to end of scanRange
+              try
+                set extendedRangeOrig to create range doc start hitStart end (hitEnd + extendByOriginal)
+                set extendedTextOrig to content of extendedRangeOrig
+                if extendedTextOrig is equal to originalSearchText then
+                  set content of extendedRangeOrig to replaceText
+                  set replacementsCount to 1
+                  set usedAnchor to true
+                  set usedOriginal to true
+                  exit repeat
+                end if
+              end try
+              -- Also try the sanitized full text against this original
+              -- anchor's extended range (covers a partial-overlap case
+              -- where the anchor matched the original-fancy form but the
+              -- tail had been edited toward the sanitized form).
+              try
+                set extendedRange to create range doc start hitStart end (hitEnd + extendBy)
+                set extendedText to content of extendedRange
+                if extendedText is equal to searchText then
+                  set content of extendedRange to replaceText
+                  set replacementsCount to 1
+                  set usedAnchor to true
+                  exit repeat
+                end if
+              end try
+              try
+                set scanRange to create range doc start hitEnd end (end of content of text object of doc)
+                set anchorFind to find object of scanRange
+                clear formatting anchorFind
+                set content of anchorFind to anchorOriginal
+                set forward of anchorFind to true
+                set wrap of anchorFind to find stop
+                set match case of anchorFind to ${matchCase}
+              on error
+                exit repeat
+              end try
+            end repeat
+          end if
         on error pass4Err
           log "[wordActions] Pass 4 anchor+extend errored: " & pass4Err
         end try
