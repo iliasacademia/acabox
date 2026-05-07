@@ -2080,6 +2080,10 @@ ipcMain.handle('windowMonitor:setOverlayKickoffForDocument', (_event, documentPa
   windowMonitorService.setPendingKickoffForDocument(documentPath, prompt);
 });
 
+ipcMain.handle('windowMonitor:requestNewOverlayChatForDocument', (_event, documentPath: string) => {
+  windowMonitorService.requestNewOverlayChatForDocument(documentPath);
+});
+
 
 // Observations IPC handlers
 ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());

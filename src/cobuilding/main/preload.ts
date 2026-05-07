@@ -186,6 +186,8 @@ contextBridge.exposeInMainWorld('fileMonitorAPI', {
     ipcRenderer.invoke('windowMonitor:setDockRightForDocument', documentPath, docked),
   setOverlayKickoffForDocument: (documentPath: string, prompt: string) =>
     ipcRenderer.invoke('windowMonitor:setOverlayKickoffForDocument', documentPath, prompt),
+  requestNewOverlayChatForDocument: (documentPath: string) =>
+    ipcRenderer.invoke('windowMonitor:requestNewOverlayChatForDocument', documentPath),
 });
 
 contextBridge.exposeInMainWorld('observationsAPI', {

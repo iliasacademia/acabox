@@ -1,4 +1,5 @@
 import { ChildProcess, execFile, spawn } from 'child_process';
+import { randomUUID } from 'crypto';
 import { app, screen } from 'electron';
 import { readFileSync, existsSync, watch, FSWatcher } from 'fs';
 import * as path from 'path';
@@ -1201,20 +1202,36 @@ export class WindowMonitorService {
    * surprises. Set by desktop surfaces that want the overlay to start a
    * fresh chat with a prefilled message already sent.
    */
-  private pendingKickoff: { prompt: string; createdMs: number } | null = null;
+  private pendingKickoff: { prompt: string | null; kickoffId: string; createdMs: number } | null = null;
 
   setPendingKickoffForDocument(_documentPath: string, prompt: string): void {
-    this.pendingKickoff = { prompt, createdMs: Date.now() };
-    logger.info(`[WindowMonitor] Stored pending kickoff (${prompt.length} chars)`);
+    // Each call gets a fresh kickoffId so the popup creates a new chat even
+    // when the prompt text is identical to a previous click.
+    const kickoffId = randomUUID();
+    this.pendingKickoff = { prompt, kickoffId, createdMs: Date.now() };
+    logger.info(`[WindowMonitor] Stored pending kickoff ${kickoffId} (${prompt.length} chars)`);
     // Trigger a broadcast so any already-connected popup picks this up
     // immediately, instead of waiting for the next focus/doc change.
     wordPollEventBus.emit('change', 'webview-visibility-changed');
   }
 
-  consumePendingKickoffForDocument(_documentPath: string): string | null {
+  /**
+   * Like setPendingKickoffForDocument but with no auto-sent prompt: the popup
+   * opens a fresh empty chat. Used by surfaces that want to start a new
+   * conversation in the overlay without dictating the first message (e.g.
+   * Tools-page Peer Review Assistant tile after the user picks a manuscript).
+   */
+  requestNewOverlayChatForDocument(_documentPath: string): void {
+    const kickoffId = randomUUID();
+    this.pendingKickoff = { prompt: null, kickoffId, createdMs: Date.now() };
+    logger.info(`[WindowMonitor] Stored pending new-chat request ${kickoffId}`);
+    wordPollEventBus.emit('change', 'webview-visibility-changed');
+  }
+
+  consumePendingKickoffForDocument(_documentPath: string): { prompt: string | null; kickoffId: string } | null {
     // Note: NOT actually consumed server-side. The popup connects to the WS
     // *after* the kickoff is set, so a server-side consume would race the
-    // initial broadcast and be lost. The popup tracks the last prompt it
+    // initial broadcast and be lost. The popup tracks the last kickoffId it
     // acted on via a client-side ref and dedups itself. Cleared only by
     // TTL or by a subsequent setPendingKickoff overwriting it.
     if (!this.pendingKickoff) return null;
@@ -1223,7 +1240,7 @@ export class WindowMonitorService {
       this.pendingKickoff = null;
       return null;
     }
-    return this.pendingKickoff.prompt;
+    return { prompt: this.pendingKickoff.prompt, kickoffId: this.pendingKickoff.kickoffId };
   }
 
   /**
