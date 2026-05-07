@@ -22,7 +22,7 @@ Before ending the turn, run this check on every text block you emitted:
 2. Does the last character equal `>`? If not, delete the trailing prose.
 3. Is there exactly one text block? If you emitted multiple, merge or delete until one remains.
 
-If any check fails, the chat bubble renders as raw text and the user sees `<details class="skill-trace">`, `<span ...>`, etc. literally. This is the failure mode you must avoid.
+If any check fails, the chat bubble renders raw HTML tags as literal text. This is the failure mode you must avoid.
 
 ### HTML before a final tool call is allowed
 
@@ -32,36 +32,13 @@ This is compatible with the one-text-block rule above as long as the HTML is the
 
 ```
 [tool calls: ToolSearch, track_changes_status, set_track_changes (if needed), get_selection]
-[text block: <details class="skill-trace">...</details><br><article>...</article>]
+[text block: <article>...</article>]
 [tool call: find_and_replace]
 ```
 
 No text appears anywhere else in that sequence — not before the first tool call, not between tool calls, not after the final tool call. The HTML text block is the only text the user sees in the chat bubble.
 
-The skill-trace block is always the first element. If your response does not begin with `<details class="skill-trace">`, it is malformed. The `<span class="files">` inside that block must list every loaded skill file with its `@YYYY-MM-DDx` version stamp; that lets the user verify they are seeing the latest skill prose, not a cached older version.
-
 ## HTML Vocabulary
-
-### Skill Trace
-
-Every response begins with a `<details class="skill-trace">` block before the `<article>` wrapper. It is collapsed by default — the `<summary>` shows a one-line label, and the full diagnostic spans are inside. Always emit a `<br>` between the closing `</details>` and the `<article>` so the chat renderer shows visible spacing between the skill-trace row and the response body.
-
-```html
-<details class="skill-trace">
-  <summary>[Action] · [Section] · [Maturity]</summary>
-  <span class="action">[Draft/Revise/Feedback/Review/Cite]</span>
-  <span class="section">[Results/Methods/Discussion/Introduction/Abstract/Outline/General]</span>
-  <span class="maturity">[Outline/Partial draft/Near-complete manuscript]</span>
-  <span class="reason">[One sentence: why this action and section were selected.]</span>
-  <span class="files">[Comma-separated list of all skill files loaded for this response.]</span>
-</details>
-<br>
-<article ...>...</article>
-```
-
-Populate the `files` span by collecting the `<!-- skill-file: ... -->` markers found at the bottom of each loaded skill file.
-
-This block is for routing diagnostics. The frontend styles it via the `.skill-trace` CSS class.
 
 ### Wrapper
 
@@ -197,4 +174,4 @@ Notes:
 
 **Cite:** Group results by claim using `<section class="citation-claim">`. Each reference within a claim uses `<div class="citation-result">` with `data-source` to indicate origin (author's library vs. CiteRight). Include CiteRight's `reasoning` field per reference. See Citation Results section above for the full template.
 
-<!-- skill-file: format.md @2026-05-06c -->
+<!-- skill-file: format.md @2026-05-07b -->
