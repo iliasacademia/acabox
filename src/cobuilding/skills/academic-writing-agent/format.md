@@ -4,9 +4,39 @@ All responses must be a single valid HTML fragment. No markdown, no text outside
 
 ## Strict no-plain-text rule
 
-The first character of your final user-facing message is `<`. The last character is `>`. There is no plain-text lead-in, no plain-text aside between tool calls and the HTML, and no plain-text trailer.
+**Across the entire assistant turn, you emit exactly ONE text block, and it is pure HTML.** Every text block in the turn must satisfy: first character `<`, last character `>`, no prose anywhere inside that does not sit between HTML tags. There is no leading narration before tool calls, no aside between tool calls, no trailer after the HTML, no closing summary after the final tool call.
 
-Common failure mode to avoid: after running tool calls (e.g., `track_changes_status`, `find_and_replace`), the agent emits a conversational sentence like "Track Changes is off. Here's what I planned…" before the `<article>` wrapper. **That sentence belongs inside the HTML response, in the `<div class="summary">` or the relevant `<section>`.** Tool-call narration that appears next to a tool call (the short "I'll check the selection" type sentence the SDK shows alongside a tool invocation) is not part of the user-facing response and does not count against this rule. The final response — the one rendered in the chat bubble — is HTML only, every time.
+This is enforced because the chat renderer surfaces every text block in the chat bubble. Anything you write outside HTML tags shows up to the user — usually as raw, unstyled text alongside or instead of the rendered article.
+
+Forbidden text blocks (all real failures observed):
+
+- **Leading pre-tool narration:** "I'll load the ms-word tool schemas and check the document state before proposing the revision." — this used to be tolerated as "tool-call narration"; it is no longer. Just call the tools. The model does not need to announce its plan.
+- **Mid-turn narration between tool batches:** "Now I'll read the selection and propose the edit." — same problem. Call the tool, do not narrate.
+- **Trailing summary after `</article>`:** "Suggestion card placed in the document; ready for accept/reject", "The single-step revise action doesn't warrant a todo list, so I'll skip it", "The card is in Word for review", any sentence describing what just happened or what you did or did not do. None of these. The `<div class="summary">` already announces the card; restating it outside the article both duplicates information AND breaks rendering.
+
+### Pre-send check
+
+Before ending the turn, run this check on every text block you emitted:
+
+1. Does the first character equal `<`? If not, delete the leading prose.
+2. Does the last character equal `>`? If not, delete the trailing prose.
+3. Is there exactly one text block? If you emitted multiple, merge or delete until one remains.
+
+If any check fails, the chat bubble renders as raw text and the user sees `<details class="skill-trace">`, `<span ...>`, etc. literally. This is the failure mode you must avoid.
+
+### HTML before a final tool call is allowed
+
+For Revise and the anchor-mode path of Draft, the HTML chat response is emitted as a text block BEFORE the final `mcp__ms-word__find_and_replace` call, not after. The suggestion card produced by that tool is a separate UI element that renders at the position of the tool call in the stream, so emitting the HTML first puts the explanation above and the card below — the layout the user expects.
+
+This is compatible with the one-text-block rule above as long as the HTML is the only text block in the turn. The intended assistant turn shape is:
+
+```
+[tool calls: ToolSearch, track_changes_status, set_track_changes (if needed), get_selection]
+[text block: <details class="skill-trace">...</details><br><article>...</article>]
+[tool call: find_and_replace]
+```
+
+No text appears anywhere else in that sequence — not before the first tool call, not between tool calls, not after the final tool call. The HTML text block is the only text the user sees in the chat bubble.
 
 The skill-trace block is always the first element. If your response does not begin with `<details class="skill-trace">`, it is malformed. The `<span class="files">` inside that block must list every loaded skill file with its `@YYYY-MM-DDx` version stamp; that lets the user verify they are seeing the latest skill prose, not a cached older version.
 
@@ -157,9 +187,9 @@ Notes:
 
 ## Action-Specific Usage
 
-**Draft:** When an anchor exists in the document (placeholder, outline bullet, user selection), deliver the prose via `mcp__ms-word__find_and_replace` after calling `mcp__ms-word__track_changes_status` to confirm Track Changes is on. The chat is commentary only — do NOT include the drafted prose as a `<blockquote source="assistant">`. If no anchor exists, fall back to including the prose in the chat with `<blockquote source="assistant">`. See `actions/draft.md`.
+**Draft:** When an anchor exists in the document (placeholder, outline bullet, user selection), deliver the prose via `mcp__ms-word__find_and_replace` after calling `mcp__ms-word__track_changes_status` to confirm Track Changes is on. Tool sequence: `track_changes_status` → emit chat HTML response → `find_and_replace`. The chat is commentary only — do NOT include the drafted prose as a `<blockquote source="assistant">`. If no anchor exists, fall back to including the prose in the chat with `<blockquote source="assistant">`. See `actions/draft.md`.
 
-**Revise:** Deliver the revision via `mcp__ms-word__find_and_replace` (`search_text` = original passage verbatim, `replacement_text` = revision). Tool sequence: `track_changes_status` → if disabled, `set_track_changes(enabled=true)` → `get_selection` → `find_and_replace`. Do not bail when Track Changes is off — auto-enable it silently. The UI renders a suggestion card with the original and the proposed text plus approve/deny. The chat is commentary only — do NOT include the revised passage as a `<blockquote source="assistant">` (this produces visually identical adjacent blocks). See `actions/revise.md`.
+**Revise:** Deliver the revision via `mcp__ms-word__find_and_replace` (`search_text` = original passage verbatim, `replacement_text` = revision). Tool sequence: `track_changes_status` → if disabled, `set_track_changes(enabled=true)` → `get_selection` → emit chat HTML response → `find_and_replace`. Emitting the HTML before the `find_and_replace` call is required so the suggestion card renders below the chat bubble; do not call `find_and_replace` before the HTML. Do not bail when Track Changes is off — auto-enable it silently. The UI renders a suggestion card with the original and the proposed text plus approve/deny. The chat is commentary only — do NOT include the revised passage as a `<blockquote source="assistant">` (this produces visually identical adjacent blocks). See `actions/revise.md`.
 
 **Feedback:** Use `<blockquote>` or `<q>` to quote the author's text. Use `<q source="assistant">` for any concrete suggested rephrasing. Most of the response is agent commentary in `<p>` tags.
 
@@ -167,4 +197,4 @@ Notes:
 
 **Cite:** Group results by claim using `<section class="citation-claim">`. Each reference within a claim uses `<div class="citation-result">` with `data-source` to indicate origin (author's library vs. CiteRight). Include CiteRight's `reasoning` field per reference. See Citation Results section above for the full template.
 
-<!-- skill-file: format.md @2026-05-05e -->
+<!-- skill-file: format.md @2026-05-06c -->
