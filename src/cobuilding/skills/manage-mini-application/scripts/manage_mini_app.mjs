@@ -2,8 +2,7 @@
 
 import { parseArgs } from "util";
 import { join } from "path";
-import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from "fs";
-import { spawnSync } from "child_process";
+import { mkdirSync, writeFileSync, existsSync, cpSync, readdirSync } from "fs";
 
 const { values } = parseArgs({
   options: {
@@ -216,78 +215,14 @@ if (values.template) {
     cpSync(srcPath, join(miniAppDir, entry), { recursive: true });
   }
 
-  // Install any dependencies the template ships with. The install wrapper
-  // (./.applications/install) is the single sanctioned path for installs and
-  // also persists the dependency declaration so it survives container rebuilds.
-  installTemplateDependencies(miniAppDir, dirName);
+  // NOTE: the script intentionally does NOT install template dependencies.
+  // The host's BackgroundBuilder watches `.applications/<app>/requirements.txt`,
+  // `package.json`, `r-packages.txt`, `apt-packages.txt`, and `setup/*.sh` and
+  // runs the appropriate live install + container image rebuild as soon as those
+  // files appear. Doing pip / setup runs here would race with that pipeline AND
+  // block the agent's tool call for several minutes on cold containers. The
+  // mini-app's own "Installing software…" UI surfaces install progress to the
+  // user while the agent moves on to building the bundle and opening the app.
 }
 
 console.log(JSON.stringify({ name: values.name, dir_name: dirName, dir: miniAppDir }));
-
-// ---------------------------------------------------------------------------
-
-function readDepLines(filePath) {
-  if (!existsSync(filePath)) return [];
-  return readFileSync(filePath, "utf8")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line && !line.startsWith("#"));
-}
-
-function runInstallWrapper(installScript, args) {
-  const result = spawnSync("bash", [installScript, ...args], {
-    cwd: workspaceDir,
-    stdio: "inherit",
-  });
-  if (result.status !== 0) {
-    console.error(`install wrapper failed: ${args.join(" ")}`);
-    process.exit(result.status || 1);
-  }
-}
-
-function installTemplateDependencies(appDir, appName) {
-  const installScript = join(workspaceDir, ".applications", "install");
-  if (!existsSync(installScript)) {
-    // No install wrapper — workspace not fully set up. Nothing to do.
-    return;
-  }
-
-  const pip = readDepLines(join(appDir, "requirements.txt"));
-  if (pip.length > 0) {
-    runInstallWrapper(installScript, ["pip", ...pip, "--app", appName]);
-  }
-
-  const rPkgs = readDepLines(join(appDir, "r-packages.txt"));
-  if (rPkgs.length > 0) {
-    runInstallWrapper(installScript, ["R", ...rPkgs, "--app", appName]);
-  }
-
-  const apt = readDepLines(join(appDir, "apt-packages.txt"));
-  if (apt.length > 0) {
-    runInstallWrapper(installScript, ["apt", ...apt, "--app", appName]);
-  }
-
-  const pkgJsonPath = join(appDir, "package.json");
-  if (existsSync(pkgJsonPath)) {
-    try {
-      const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
-      const deps = Object.entries(pkg.dependencies ?? {});
-      const specs = deps.map(([n, v]) => (v && v !== "*" ? `${n}@${v}` : n));
-      if (specs.length > 0) {
-        runInstallWrapper(installScript, ["npm", ...specs, "--app", appName]);
-      }
-    } catch (err) {
-      console.error(`failed to parse ${pkgJsonPath}: ${err.message}`);
-      process.exit(1);
-    }
-  }
-
-  const setupDir = join(appDir, "setup");
-  if (existsSync(setupDir)) {
-    const scripts = readdirSync(setupDir).filter((f) => f.endsWith(".sh"));
-    for (const script of scripts) {
-      const rel = `.applications/${appName}/setup/${script}`;
-      runInstallWrapper(installScript, ["manual", rel, "--app", appName]);
-    }
-  }
-}

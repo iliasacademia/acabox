@@ -20,7 +20,7 @@ import log from 'electron-log';
 import type { BrowserWindow } from 'electron';
 import { containerService } from './containerService';
 import type { CommandLogEntry } from './commandLogger';
-import { installDepsInContainer, getInstallSteps } from './environmentGenerator';
+import { installDepsStreaming, getInstallSteps } from './environmentGenerator';
 
 const DEBOUNCE_MS = 5_000;
 
@@ -41,6 +41,12 @@ export class BackgroundBuilder {
 
   // Track in-progress dep installs so ensureAppDeps can wait instead of conflicting
   private pendingInstalls = new Map<string, Promise<void>>();
+
+  // Most recent step + last streamed line per in-progress install. Used to
+  // replay state to renderers that mount AFTER an install has already started
+  // (which is the common case — the agent triggers the install via
+  // manage_mini_app.mjs, then opens the mini-app several seconds later).
+  private activeInstalls = new Map<string, { registry: string; packages: string[]; lastLine: string }>();
 
   /** Current build state for the debug panel. */
   getState(): BuildState {
@@ -119,6 +125,19 @@ export class BackgroundBuilder {
 
         log.debug(`[BackgroundBuilder] Dep file changed: ${filename}`);
         this.scheduleRebuild();
+
+        // Race protection: when a brand-new app is scaffolded, fs.watch usually
+        // fires for the directory FIRST (triggering installAppDepsLive at line
+        // 115) and only fires for the dep files inside it ~100ms later. If
+        // getInstallSteps ran during that gap it returned an empty list and the
+        // initial install became a no-op. Now that the dep file has actually
+        // landed, kick off a live install — unless one's already running.
+        if (!this.pendingInstalls.has(topDir) && containerService.isRunning()) {
+          if (getInstallSteps(appsDir, topDir).length > 0) {
+            log.info(`[BackgroundBuilder] Dep file appeared for ${topDir} after initial scan, installing now`);
+            this.installAppDepsLive(appsDir, topDir);
+          }
+        }
       });
 
       this.watcher.on('error', (err) => {
@@ -158,17 +177,79 @@ export class BackgroundBuilder {
     return this.pendingInstalls.get(dirName) ?? null;
   }
 
+  /**
+   * Snapshot of the in-progress install for this app: which step we're on
+   * and what the most recent stdout line was. Used by ensureAppDeps to
+   * re-emit state to a renderer that subscribed to `container:installProgress`
+   * AFTER the install had already started, so the InstallingView shows the
+   * package list and live output instead of an empty spinner.
+   */
+  getActiveInstallState(dirName: string): { registry: string; packages: string[]; lastLine: string } | null {
+    return this.activeInstalls.get(dirName) ?? null;
+  }
+
   // ─── Live Dep Install for New Apps ───────────────────────────
 
   private async installAppDepsLive(appsDir: string, dirName: string): Promise<void> {
     if (!containerService.isRunning()) return;
 
+    // Stream install output to the renderer via the same `container:installProgress`
+    // IPC channel that `ensureAppDeps` uses, so the mini-app's "Installing software…"
+    // view shows live pip / setup progress regardless of whether the install was
+    // kicked off by BackgroundBuilder (auto, on file change) or by ensureAppDeps
+    // (when the user opens the app). Without this, BackgroundBuilder runs deps
+    // silently and the renderer just sits on the spinner.
+    //
+    // We also keep `activeInstalls[dirName]` in sync so that a renderer mounting
+    // mid-install can be sent the current step + last line via ensureAppDeps's
+    // re-broadcast (otherwise it misses the initial step event and the line
+    // handler in MiniAppViewer drops every subsequent line).
+    const sendProgress = (payload: Record<string, unknown>): void => {
+      if (payload.type === 'step') {
+        this.activeInstalls.set(dirName, {
+          registry: payload.registry as string,
+          packages: payload.packages as string[],
+          lastLine: '',
+        });
+      } else if (payload.type === 'line') {
+        const state = this.activeInstalls.get(dirName);
+        if (state) state.lastLine = payload.line as string;
+      } else if (payload.type === 'done') {
+        this.activeInstalls.delete(dirName);
+      }
+
+      const win = this.getMainWindow();
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('container:installProgress', { dirName, ...payload });
+      }
+    };
+
     const installPromise = (async () => {
       try {
-        const results = await installDepsInContainer(appsDir, dirName, (cmd) => containerService.exec(cmd));
-        if (results.length > 0) log.info(`[BackgroundBuilder] Live deps installed for ${dirName}: ${results.join(', ')}`);
+        log.info(`[BackgroundBuilder] Starting live install for ${dirName}`);
+        const results = await installDepsStreaming(
+          appsDir,
+          dirName,
+          (cmd, onLine) => containerService.execStreaming(cmd, onLine),
+          (registry, packages) => {
+            log.info(`[BackgroundBuilder] Install step for ${dirName}: ${registry} (${packages.length} packages: ${packages.join(', ')})`);
+            sendProgress({ type: 'step', registry, packages });
+          },
+          (line) => sendProgress({ type: 'line', line }),
+        );
+        sendProgress({ type: 'done' });
+        log.info(
+          `[BackgroundBuilder] Live install finished for ${dirName}: ` +
+          (results.length > 0 ? results.join(', ') : '(no install steps)')
+        );
       } catch (err) {
         log.warn(`[BackgroundBuilder] Failed to install deps for ${dirName}: ${(err as Error).message}`);
+        // Leave the last streamed line visible in the UI so the user can see
+        // what failed; don't emit `done`, which would clear the status block.
+        // But do clear the active state so a future install for the same app
+        // (e.g. user retries by reopening) starts clean.
+        this.activeInstalls.delete(dirName);
+        throw err;
       } finally {
         this.pendingInstalls.delete(dirName);
       }

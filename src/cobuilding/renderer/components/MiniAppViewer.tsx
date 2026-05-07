@@ -244,7 +244,7 @@ interface InstallStatus {
 const InstallingView: FC<{ message: string; installStatus?: InstallStatus | null }> = ({ message, installStatus }) => (
   <div style={{
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    height: '100%', gap: 12, color: '#666', fontSize: 14,
+    height: '100%', paddingBottom: '12vh', gap: 12, color: '#666', fontSize: 14,
   }}>
     <div style={{
       width: 24, height: 24, border: '3px solid #e0e0e0', borderTopColor: '#666',
@@ -323,7 +323,14 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
       if (progress.type === 'step' && progress.registry && progress.packages) {
         setInstallStatus({ registry: progress.registry, packages: progress.packages, lastLine: '' });
       } else if (progress.type === 'line' && progress.line) {
-        setInstallStatus((prev) => prev ? { ...prev, lastLine: progress.line! } : prev);
+        // If a line arrives before any step (e.g. we subscribed mid-install
+        // and the replay path didn't fire), seed a minimal placeholder so the
+        // line is still surfaced rather than silently dropped.
+        setInstallStatus((prev) =>
+          prev
+            ? { ...prev, lastLine: progress.line! }
+            : { registry: 'install', packages: [], lastLine: progress.line! },
+        );
       } else if (progress.type === 'done') {
         setInstallStatus(null);
       }
