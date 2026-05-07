@@ -83,7 +83,7 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
       return {
         eyebrow: 'I can do this for you',
         title: parsed.data.title || 'Peer review your manuscript',
-        primaryLabel: 'Yes, do it',
+        primaryLabel: 'Open in Word',
         fallbackDescription: parsed.data.description || `I'll read ${basename(parsed.data.file_path)} as a peer reviewer and flag concerns about the argument, evidence, methodology, and structure.`,
       };
     default:
