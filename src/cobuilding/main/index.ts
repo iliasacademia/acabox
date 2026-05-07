@@ -36,7 +36,6 @@ import {
   getSession,
   createSession,
   updateSessionTitle,
-  insertMessage,
   deleteSession,
   getMessages,
   findSessionForApp,
@@ -2123,23 +2122,49 @@ ipcMain.handle('sessions:delete', (_event, id: string) => {
 ipcMain.handle('messages:list', (_event, sessionId: string) => getMessages(sessionId));
 
 // Find or create a session associated with a mini app
-ipcMain.handle('sessions:findForApp', (_event, dirName: string) => {
+ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
   if (!activeWorkspace) return null;
+  if (!dirName || dirName.includes('/') || dirName.includes('\\') || dirName.startsWith('.')) {
+    return null;
+  }
 
-  // Search for an existing session that created or is bound to this app
+  const manifestPath = path.join(activeWorkspace.directory_path, '.applications', dirName, 'manifest.json');
+
+  let manifest: Record<string, unknown> | null = null;
+  try {
+    const raw = await fsPromises.readFile(manifestPath, 'utf-8');
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') manifest = parsed as Record<string, unknown>;
+  } catch {
+    // Missing or unreadable manifest — fall through to legacy search/create.
+  }
+
+  // Prefer the chatSessionId stored in the manifest when it points to a real session.
+  const manifestSessionId = typeof manifest?.chatSessionId === 'string' ? manifest.chatSessionId : null;
+  if (manifestSessionId && getSession(manifestSessionId)) {
+    return manifestSessionId;
+  }
+
+  // Fall back to the legacy search (assistant tool call or synthetic user message).
   const existingId = findSessionForApp(activeWorkspace.id, dirName);
   if (existingId) return existingId;
 
-  // No session found — create a new one with a synthetic context message
+  // No existing session — create one and link it via the manifest.
   const sessionId = randomUUID();
-  const displayName = dirName.replace(/[-_]/g, ' ');
+  const manifestName = typeof manifest?.name === 'string' && manifest.name.trim() ? manifest.name.trim() : null;
+  const title = manifestName ?? dirName.replace(/[-_]/g, ' ');
   createSession(sessionId, activeWorkspace.id);
-  insertMessage(
-    sessionId,
-    'user',
-    JSON.stringify({ text: `This chat is connected to the application "${dirName}".` }),
-  );
-  updateSessionTitle(sessionId, displayName);
+  updateSessionTitle(sessionId, title);
+
+  if (manifest) {
+    manifest.chatSessionId = sessionId;
+    try {
+      await fsPromises.writeFile(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+    } catch (err) {
+      log.warn('[sessions:findForApp] Failed to write chatSessionId to manifest:', err);
+    }
+  }
+
   notifySessionsChanged();
   return sessionId;
 });

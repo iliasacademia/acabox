@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
 import { ArrowLeftIcon, CodeIcon, DownloadIcon, FolderIcon, MonitorIcon, RefreshCwIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
-import { useKernel, type KernelStatus } from './notebook/useKernel';
+import { useKernel } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
 import { useSetupState } from '../setupStore';
@@ -51,7 +51,6 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
   const [viewingSource, setViewingSource] = useState(false);
   const [rebuildKey, setRebuildKey] = useState(0);
   const [rebuildState, setRebuildState] = useState<RebuildState>({ kind: 'idle' });
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const appDir = `${workspacePath}/.applications/${dirName}`;
 
   // For pre-built apps, resolve the webpack-served URL
@@ -107,19 +106,6 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
     await window.filesAPI.showInFinder(appDir);
   }, [appDir]);
 
-  const handleRefresh = useCallback(() => {
-    const iframe = iframeRef.current;
-    if (iframe) {
-      try {
-        iframe.contentWindow?.location.reload();
-      } catch {
-        const src = iframe.src;
-        iframe.src = '';
-        iframe.src = src;
-      }
-    }
-  }, []);
-
   return (
     <div className="miniAppViewer">
       <MiniAppHeader
@@ -128,7 +114,6 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         onToggleSource={() => setViewingSource((v) => !v)}
         onRebuild={handleRebuild}
         onShowInFinder={handleShowInFinder}
-        onRefresh={handleRefresh}
         rebuildState={rebuildState}
         preBuilt={preBuilt}
         onBack={onBack}
@@ -136,7 +121,6 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
       <div className="miniAppBody">
         {preBuilt && nativeToolUrl ? (
           <MiniAppContent
-            ref={iframeRef}
             key={`prebuilt-${reloadNonce ?? 0}`}
             dirName={dirName}
             workspacePath={workspacePath}
@@ -157,7 +141,6 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
               />
             ) : (
               <MiniAppContent
-                ref={iframeRef}
                 key={`${rebuildKey}-${reloadNonce ?? 0}`}
                 dirName={dirName}
                 workspacePath={workspacePath}
@@ -176,11 +159,10 @@ const MiniAppHeader: FC<{
   onToggleSource: () => void;
   onRebuild: () => void;
   onShowInFinder: () => void;
-  onRefresh: () => void;
   rebuildState: RebuildState;
   preBuilt?: boolean;
   onBack?: () => void;
-}> = ({ dirName, viewingSource, onToggleSource, onRebuild, onShowInFinder, onRefresh, rebuildState, preBuilt, onBack }) => {
+}> = ({ dirName, viewingSource, onToggleSource, onRebuild, onShowInFinder, rebuildState, preBuilt, onBack }) => {
   const handleExport = useCallback(async () => {
     await window.miniAppsAPI.exportApp(dirName);
   }, [dirName]);
@@ -196,15 +178,6 @@ const MiniAppHeader: FC<{
         </button>
       )}
       <div className="miniAppHeader__right">
-        <div className="miniAppHeaderIconBtn__wrapper">
-          <button
-            className="miniAppHeaderIconBtn"
-            onClick={onRefresh}
-          >
-            <RefreshCwIcon style={{ width: 16, height: 16 }} />
-          </button>
-          <span className="miniAppHeaderIconBtn__tooltip">Refresh</span>
-        </div>
         {!preBuilt && (
           <>
             <div className="miniAppHeaderIconBtn__wrapper">
@@ -237,7 +210,6 @@ const MiniAppHeader: FC<{
             </div>
           </>
         )}
-        <KernelStatusIndicator dirName={dirName} />
         {!preBuilt && (
           <div className="miniAppHeaderViewToggle">
             <button
@@ -259,38 +231,6 @@ const MiniAppHeader: FC<{
           </div>
         )}
       </div>
-    </div>
-  );
-};
-
-const KERNEL_STATUS_LABEL: Record<KernelStatus, string> = {
-  disconnected: 'Kernel off',
-  starting: 'Starting kernel…',
-  idle: 'Kernel idle',
-  busy: 'Kernel running',
-  dead: 'Kernel stopped',
-};
-
-const KERNEL_STATUS_COLOR: Record<KernelStatus, string> = {
-  disconnected: '#bbb',
-  starting: '#d98c00',
-  idle: '#2e9e5e',
-  busy: '#2b7fd6',
-  dead: '#c0392b',
-};
-
-const KernelStatusIndicator: FC<{ dirName: string }> = ({ dirName }) => {
-  const { status } = useKernel(`miniapp::${dirName}`);
-  if (status === 'disconnected') return null;
-  const label = KERNEL_STATUS_LABEL[status];
-  const pulse = status === 'starting' || status === 'busy';
-  return (
-    <div className="miniAppHeaderKernelStatus" title={label}>
-      <span
-        className={`miniAppHeaderKernelStatusDot${pulse ? ' miniAppHeaderKernelStatusDot--pulse' : ''}`}
-        style={{ background: KERNEL_STATUS_COLOR[status] }}
-      />
-      <span>{label}</span>
     </div>
   );
 };
