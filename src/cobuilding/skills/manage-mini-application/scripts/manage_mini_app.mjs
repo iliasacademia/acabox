@@ -2,7 +2,8 @@
 
 import { parseArgs } from "util";
 import { join } from "path";
-import { mkdirSync, writeFileSync, existsSync, cpSync, readdirSync, statSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from "fs";
+import { spawnSync } from "child_process";
 
 const { values } = parseArgs({
   options: {
@@ -192,25 +193,101 @@ writeFileSync(
   JSON.stringify(manifest, null, 2) + "\n",
 );
 
-// Copy template files if --template is specified
+// Copy template files if --template is specified.
+//
+// Templates mirror the deployed app's directory layout: anything inside
+// `<template>/src/` lands in the new app's `src/`, anything else lands at the
+// app root. So a template can ship `src/App.tsx`, `notebook.ipynb`,
+// `scripts/foo.py`, `models/foo.pt`, `requirements.txt`, etc., and each file
+// goes where it belongs without per-file special cases.
+//
+// `template.md` is documentation for the agent — it travels with the template
+// source so it can be edited alongside the code, but it's intentionally
+// excluded from the per-app copy.
 if (values.template) {
   const templatesDir = join(workspaceDir, ".applications", "_templates", values.template);
-  if (existsSync(templatesDir)) {
-    // Copy .ipynb files to app root, everything else to src/
-    for (const entry of readdirSync(templatesDir)) {
-      const srcPath = join(templatesDir, entry);
-      if (entry.endsWith(".ipynb")) {
-        cpSync(srcPath, join(miniAppDir, entry));
-      } else if (statSync(srcPath).isDirectory()) {
-        cpSync(srcPath, join(miniAppDir, "src", entry), { recursive: true });
-      } else {
-        cpSync(srcPath, join(miniAppDir, "src", entry));
-      }
-    }
-  } else {
+  if (!existsSync(templatesDir)) {
     console.error(`Template directory not found: ${templatesDir}`);
     process.exit(1);
   }
+  for (const entry of readdirSync(templatesDir)) {
+    if (entry === "template.md") continue;
+    const srcPath = join(templatesDir, entry);
+    cpSync(srcPath, join(miniAppDir, entry), { recursive: true });
+  }
+
+  // Install any dependencies the template ships with. The install wrapper
+  // (./.applications/install) is the single sanctioned path for installs and
+  // also persists the dependency declaration so it survives container rebuilds.
+  installTemplateDependencies(miniAppDir, dirName);
 }
 
 console.log(JSON.stringify({ name: values.name, dir_name: dirName, dir: miniAppDir }));
+
+// ---------------------------------------------------------------------------
+
+function readDepLines(filePath) {
+  if (!existsSync(filePath)) return [];
+  return readFileSync(filePath, "utf8")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"));
+}
+
+function runInstallWrapper(installScript, args) {
+  const result = spawnSync("bash", [installScript, ...args], {
+    cwd: workspaceDir,
+    stdio: "inherit",
+  });
+  if (result.status !== 0) {
+    console.error(`install wrapper failed: ${args.join(" ")}`);
+    process.exit(result.status || 1);
+  }
+}
+
+function installTemplateDependencies(appDir, appName) {
+  const installScript = join(workspaceDir, ".applications", "install");
+  if (!existsSync(installScript)) {
+    // No install wrapper — workspace not fully set up. Nothing to do.
+    return;
+  }
+
+  const pip = readDepLines(join(appDir, "requirements.txt"));
+  if (pip.length > 0) {
+    runInstallWrapper(installScript, ["pip", ...pip, "--app", appName]);
+  }
+
+  const rPkgs = readDepLines(join(appDir, "r-packages.txt"));
+  if (rPkgs.length > 0) {
+    runInstallWrapper(installScript, ["R", ...rPkgs, "--app", appName]);
+  }
+
+  const apt = readDepLines(join(appDir, "apt-packages.txt"));
+  if (apt.length > 0) {
+    runInstallWrapper(installScript, ["apt", ...apt, "--app", appName]);
+  }
+
+  const pkgJsonPath = join(appDir, "package.json");
+  if (existsSync(pkgJsonPath)) {
+    try {
+      const pkg = JSON.parse(readFileSync(pkgJsonPath, "utf8"));
+      const deps = Object.entries(pkg.dependencies ?? {});
+      const specs = deps.map(([n, v]) => (v && v !== "*" ? `${n}@${v}` : n));
+      if (specs.length > 0) {
+        runInstallWrapper(installScript, ["npm", ...specs, "--app", appName]);
+      }
+    } catch (err) {
+      console.error(`failed to parse ${pkgJsonPath}: ${err.message}`);
+      process.exit(1);
+    }
+  }
+
+  const setupDir = join(appDir, "setup");
+  if (existsSync(setupDir)) {
+    const scripts = readdirSync(setupDir).filter((f) => f.endsWith(".sh"));
+    for (const script of scripts) {
+      const rel = `.applications/${appName}/setup/${script}`;
+      runInstallWrapper(installScript, ["manual", rel, "--app", appName]);
+    }
+  }
+}

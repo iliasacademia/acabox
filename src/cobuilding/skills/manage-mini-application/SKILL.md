@@ -47,9 +47,14 @@ The script prints `{ name, dir_name, dir }` to stdout and creates:
 
 If you later edit an app's purpose, also update `manifest.json` (name/description/icon) so the Tools page stays in sync.
 
-If `--template` is specified, template files from `.applications/_templates/<name>/` are copied into `src/`. Available templates:
+If `--template` is specified, the template tree at `.applications/_templates/<name>/` is mirrored into the new app — anything inside `<template>/src/` lands in the new app's `src/`, anything else lands at the app root. So a template can ship `src/App.tsx`, `notebook.ipynb`, `scripts/foo.py`, `requirements.txt`, `setup/*.sh`, etc., and each file ends up where it belongs.
 
-- `differentialExpression` — DESeq2 analysis with interactive volcano/MA plots. See [templates/differential_expression.md](templates/differential_expression.md).
+After copying, the manage script automatically runs `.applications/install` for every dependency file the template ships with: `requirements.txt` → pip, `r-packages.txt` → R, `apt-packages.txt` → apt, `package.json` deps → npm, and each `setup/*.sh` → manual. Templates therefore declare both their code and their installable dependencies (including downloads of large model checkpoints, dataset fixtures, etc. — written as idempotent `setup/*.sh` scripts so they're tracked, re-runnable on container rebuild, and not bloating the repo).
+
+Each template also ships with a colocated `template.md` describing its parameters, output contract, and design rationale; read that before editing the template's code. The `template.md` itself is excluded from the per-app copy. Available templates:
+
+- `differentialExpression` — DESeq2 analysis with interactive volcano/MA plots. See `.applications/_templates/differentialExpression/template.md`.
+- `westernBlotAnnotator` — interactive Western blot annotation: GelGenie-based band/lane detection, LLM-assisted band filtering, click-to-edit labels, and PNG figure export. Ships with a Python pipeline and a `setup/download_model.sh` that pulls the TorchScript GelGenie checkpoint from HuggingFace at scaffold time. See `.applications/_templates/westernBlotAnnotator/template.md`.
 
 ### Step 2: Write `src/App.tsx`
 
