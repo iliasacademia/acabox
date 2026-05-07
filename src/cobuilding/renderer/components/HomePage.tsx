@@ -3,11 +3,6 @@ import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { ArrowUpRightIcon, HistoryIcon, SparklesIcon, XIcon } from 'lucide-react';
 import { BriefingHistory } from './BriefingHistory';
 
-interface WorkingOnItem {
-  file_path: string;
-  description: string;
-}
-
 /** A briefing with its `briefing_data` JSON parsed into a typed payload. */
 type ParsedBriefing =
   | { briefing: Briefing; type: 'suggested_tool'; data: BriefingDataSuggestedTool }
@@ -26,39 +21,18 @@ function parseBriefing(b: Briefing): ParsedBriefing | null {
   }
 }
 
-function basename(filePath: string): string {
+function basename(filePath: string | undefined): string {
+  if (!filePath) return '';
   const parts = filePath.split('/');
   return parts[parts.length - 1] || filePath;
 }
 
-function parentDir(filePath: string): string {
-  const parts = filePath.split('/');
-  if (parts.length <= 1) return '';
-  return parts.slice(0, -1).join('/');
-}
-
-/** Derive a short tag from the file extension. */
-function fileTag(filePath: string): string {
-  const ext = filePath.split('.').pop()?.toLowerCase();
-  switch (ext) {
-    case 'docx': case 'doc': case 'gdoc': return 'DOCUMENT';
-    case 'tex': case 'latex': return 'MANUSCRIPT';
-    case 'md': case 'txt': case 'rtf': return 'DOCUMENT';
-    case 'pdf': return 'PDF';
-    case 'py': case 'r': case 'jl': case 'ipynb': return 'SCRIPT';
-    case 'csv': case 'tsv': case 'xlsx': case 'xls': return 'DATA';
-    case 'bib': return 'BIBLIOGRAPHY';
-    case 'pptx': case 'ppt': return 'PRESENTATION';
-    default: return 'FILE';
-  }
-}
-
 function formatDate(): string {
-  return new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }).toUpperCase();
+  const now = new Date();
+  const day = now.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+  const date = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }).toUpperCase();
+  return `${day}, ${date}`;
 }
-
-const MAX_VISIBLE_CARDS = 3;
-
 interface BriefingCardDisplay {
   eyebrow: string;
   title: string;
@@ -105,7 +79,7 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
       };
     case 'writing_agent':
       return {
-        eyebrow: 'Writing Agent',
+        eyebrow: 'I can do this for you',
         title: basename(parsed.data.file_path),
         primaryLabel: 'Open in Word',
         fallbackDescription: parsed.data.description,
@@ -117,39 +91,18 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
 
 export function HomePage({
   workspacePath,
-  onSelectFile,
+  onSelectFile: _onSelectFile,
   onSwitchToChat,
 }: {
   workspacePath: string;
   onSelectFile: (filePath: string) => void;
   onSwitchToChat: () => void;
 }) {
-  const [workingOnItems, setWorkingOnItems] = useState<WorkingOnItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [briefings, setBriefings] = useState<ParsedBriefing[]>([]);
   const [view, setView] = useState<'home' | 'history'>('home');
+  const [freeformInput, setFreeformInput] = useState('');
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
-
-  useEffect(() => {
-    window.reportsAPI.getLatest('directory_scan').then((report) => {
-      if (!report) {
-        setLoading(false);
-        return;
-      }
-      if (report.what_youre_working_on) {
-        try {
-          const parsed = JSON.parse(report.what_youre_working_on);
-          if (Array.isArray(parsed)) {
-            setWorkingOnItems(
-              parsed.filter((item: WorkingOnItem) => !basename(item.file_path).startsWith('~$')),
-            );
-          }
-        } catch { /* ignore */ }
-      }
-      setLoading(false);
-    });
-  }, []);
 
   useEffect(() => {
     const refresh = () => {
@@ -163,12 +116,9 @@ export function HomePage({
         });
     };
     refresh();
-    // Re-fetch whenever briefings are created, updated, or change status —
-    // covers async manuscript enrichment, paper-monitor inserts, etc.
+    // Re-fetch whenever briefings are created, updated, or change status.
     return window.briefingsAPI.onChanged(refresh);
   }, []);
-
-  const visibleItems = workingOnItems.slice(0, MAX_VISIBLE_CARDS);
 
   const sendChatPrompt = (prompt: string) => {
     assistantRuntime.switchToNewThread();
@@ -225,83 +175,25 @@ export function HomePage({
   };
 
   if (view === 'history') {
-    return <BriefingHistory onBack={() => setView('home')} />;
+    return <BriefingHistory onBack={() => setView('home')} workspacePath={workspacePath} onSwitchToChat={onSwitchToChat} />;
   }
 
   return (
     <div className="pageShell">
-      <div className="pageShell__inner">
-        {/* Page header / Working On section */}
-        <div className="pageShell__headerBlock">
-          <div className="pageShell__stats">WORKSPACE &middot; {formatDate()}</div>
-          <h1 className="pageShell__title">
-            Working on
-            {workingOnItems.length > 0 && (
-              <span className="homeTitle__count"> &middot; {workingOnItems.length} active</span>
-            )}
-          </h1>
-          <p className="pageShell__subtitle">
-            Click a file to open it with the agent alongside
+      <div className="pageShell__inner homePageInner">
+        <div className="homeHeader">
+          <div className="pageShell__stats">{formatDate()}</div>
+          <h1 className="homeHeader__title">From reading your work</h1>
+          <p className="homeHeader__subtitle">
+            A few things I noticed I could do for you. Pick what would help.
           </p>
         </div>
 
-        {loading ? (
-          <div className="homeSection__empty">Loading&hellip;</div>
-        ) : workingOnItems.length === 0 ? (
-          <div className="homeSection__empty">
-            No active files detected yet.
-          </div>
-        ) : (
-          <div className="homeCardGrid">
-            {visibleItems.map((item) => (
-              <button
-                key={item.file_path}
-                className="homeCard"
-                onClick={() => onSelectFile(`${workspacePath}/${item.file_path}`)}
-              >
-                <div className="homeCard__top">
-                  <span className="homeCard__tag">{fileTag(item.file_path)}</span>
-                  <ArrowUpRightIcon className="homeCard__arrow" style={{ width: 14, height: 14 }} />
-                </div>
-                <div className="homeCard__title">
-                  {basename(item.file_path)}
-                </div>
-                <div className="homeCard__path">
-                  {parentDir(item.file_path) || item.file_path}
-                </div>
-                <div className="homeCard__description">
-                  {item.description}
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Briefing section */}
-        <section className="homeSection homeSection--briefing">
-          <div className="homeSection__headerRow">
-            <h2 className="homeSection__heading">
-              Briefing
-              {briefings.length > 0 && (
-                <span className="homeTitle__count">
-                  {' '}&nbsp;{briefings.length} {briefings.length === 1 ? 'item' : 'items'}
-                </span>
-              )}
-            </h2>
-            <button
-              type="button"
-              className="homeSection__historyButton"
-              onClick={() => setView('history')}
-            >
-              <HistoryIcon className="homeSection__historyIcon" />
-              View briefing history
-            </button>
-          </div>
-          <p className="homeSection__subtitle">
-            What's worth your attention from your routines and from me
-          </p>
-          <div className="homeBriefingGrid">
-            {briefings.map((parsed) => {
+        <div className="homeBriefingList">
+          {briefings.length === 0 ? (
+            <div className="homeSection__empty">No new briefings.</div>
+          ) : (
+            briefings.map((parsed) => {
               const card = renderBriefingCard(parsed);
               if (!card) return null;
               return (
@@ -344,13 +236,56 @@ export function HomePage({
                   </div>
                 </div>
               );
-            })}
+            })
+          )}
 
-            {briefings.length < 2 && (
-              <div className="homeBriefingCard homeBriefingCard--placeholder" />
-            )}
+          <div className="homeBriefingCard homeBriefingCard--action homeFreeformCard">
+            <div className="homeFreeformCard__heading">
+              <SparklesIcon style={{ width: 16, height: 16, flexShrink: 0 }} />
+              <span>Anything else I can help with?</span>
+            </div>
+            <p className="homeFreeformCard__subtitle">
+              Tell me what you need — I'll do it now, or build a tool if it's worth keeping around.
+            </p>
+            <div className="homeFreeformCard__inputRow">
+              <input
+                type="text"
+                className="homeFreeformCard__input"
+                placeholder="Help me draft a cover letter... find papers on... quantify these images..."
+                value={freeformInput}
+                onChange={(e) => setFreeformInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && freeformInput.trim()) {
+                    sendChatPrompt(freeformInput.trim());
+                    setFreeformInput('');
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className="homeFreeformCard__sendButton"
+                disabled={!freeformInput.trim()}
+                onClick={() => {
+                  if (freeformInput.trim()) {
+                    sendChatPrompt(freeformInput.trim());
+                    setFreeformInput('');
+                  }
+                }}
+              >
+                <ArrowUpRightIcon style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
           </div>
-        </section>
+
+          <button
+            type="button"
+            className="homeBriefingList__historyLink"
+            onClick={() => setView('history')}
+          >
+            <HistoryIcon style={{ width: 14, height: 14 }} />
+            View past tasks
+          </button>
+        </div>
       </div>
     </div>
   );
