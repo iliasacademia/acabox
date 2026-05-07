@@ -6896,6 +6896,14 @@ button.briefingHistoryRow__status {
   line-height: 1.2;
 }
 
+.homeBriefingCard__subtitle {
+  margin: -10px 0 14px;
+  padding-right: 28px;
+  color: #8a8379;
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
 .homeBriefingCard__description {
   margin: 0 0 22px;
   color: #6f685f;
