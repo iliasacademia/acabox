@@ -8,6 +8,7 @@ export interface Workspace {
   created_at: string;
   updated_at: string;
   last_accessed_at: string | null;
+  deleted_at: string | null;
 }
 
 export function createWorkspace(
@@ -25,13 +26,13 @@ export function createWorkspace(
 
 export function getWorkspace(id: string): Workspace | undefined {
   return getDatabase()
-    .prepare('SELECT * FROM workspaces WHERE id = ?')
+    .prepare('SELECT * FROM workspaces WHERE id = ? AND deleted_at IS NULL')
     .get(id) as Workspace | undefined;
 }
 
 export function listWorkspaces(): Workspace[] {
   return getDatabase()
-    .prepare('SELECT * FROM workspaces ORDER BY created_at')
+    .prepare('SELECT * FROM workspaces WHERE deleted_at IS NULL ORDER BY created_at')
     .all() as Workspace[];
 }
 
@@ -58,7 +59,7 @@ export function updateApiKey(id: string, apiKey: string): void {
 
 export function getActiveWorkspace(): Workspace | undefined {
   return getDatabase()
-    .prepare('SELECT * FROM workspaces ORDER BY last_accessed_at DESC, created_at ASC LIMIT 1')
+    .prepare('SELECT * FROM workspaces WHERE deleted_at IS NULL ORDER BY last_accessed_at DESC, created_at ASC LIMIT 1')
     .get() as Workspace | undefined;
 }
 
@@ -68,8 +69,20 @@ export function touchWorkspace(id: string): void {
     .run(id);
 }
 
-export function deleteAllWorkspaces(): void {
+export function deactivateAllWorkspaces(): void {
   getDatabase()
-    .prepare('DELETE FROM workspaces')
+    .prepare("UPDATE workspaces SET deleted_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE deleted_at IS NULL")
     .run();
+}
+
+export function findInactiveWorkspaceByDirectory(directoryPath: string): Workspace | undefined {
+  return getDatabase()
+    .prepare('SELECT * FROM workspaces WHERE directory_path = ? AND deleted_at IS NOT NULL ORDER BY deleted_at DESC LIMIT 1')
+    .get(directoryPath) as Workspace | undefined;
+}
+
+export function reactivateWorkspace(id: string, apiKey: string): void {
+  getDatabase()
+    .prepare("UPDATE workspaces SET deleted_at = NULL, api_key = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE id = ?")
+    .run(apiKey, id);
 }

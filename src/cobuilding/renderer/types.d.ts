@@ -98,8 +98,6 @@ interface ContainerAPI {
   getName(): Promise<string>;
   isImageBuilt(): Promise<boolean>;
   ensureSetup(): Promise<void>;
-  ensureSetupBackground(): Promise<void>;
-  ensureReady(): Promise<void>;
   getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
   appDepsReady(dirName: string): Promise<boolean>;
   ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
@@ -277,8 +275,6 @@ declare global {
     getName(): Promise<string>;
     isImageBuilt(): Promise<boolean>;
     ensureSetup(): Promise<void>;
-    ensureSetupBackground(): Promise<void>;
-    ensureReady(): Promise<void>;
     getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
     appDepsReady(dirName: string): Promise<boolean>;
     ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
@@ -413,6 +409,8 @@ declare global {
       podmanPaths: DataPathInfo[];
     }>;
     clearSelected(ids: string[]): Promise<{ cleared: string[]; errors: string[] }>;
+    /** Pipes a renderer-side log line into electron-log on the main process. */
+    log(msg: string): Promise<void>;
   }
 
   interface SettingsAPI {
@@ -591,7 +589,6 @@ declare global {
 
   interface ScannerAPI {
     start(): Promise<void>;
-    generateBriefings(reportId: string): Promise<void>;
     onEvent(callback: (event: ScannerEvent) => void): () => void;
   }
 

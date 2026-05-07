@@ -28,6 +28,33 @@ export const REPORT_JSON_SCHEMA = {
       },
       description: 'Up to 3 files the researcher is currently working on, each with a suggested next action. Prioritize manuscripts, lab meeting presentations, and grant proposals. Fall back to code scripts or data files only if none of those are found.',
     },
+    suggestions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Short display name for the suggestion (e.g. "Summarize review comments", "Expression Data Explorer").',
+          },
+          type: {
+            type: 'string',
+            enum: ['one_time_task', 'mini_app'],
+            description: 'Whether this is a one-time task or an interactive mini-app to build.',
+          },
+          why_im_suggesting_this: {
+            type: 'string',
+            description: 'A 1-2 sentence explanation tying this suggestion to specific files or patterns found in the researcher\'s directory.',
+          },
+          description: {
+            type: 'string',
+            description: 'A clear, actionable description of what to do. Reference specific files or patterns from the scan. 2-4 sentences.',
+          },
+        },
+        required: ['name', 'type', 'why_im_suggesting_this', 'description'],
+      },
+      description: 'Suggestions that would significantly expedite the researcher\'s work. Can be one-time tasks (summarizing, synthesizing, converting, analyzing) or interactive mini-apps (data explorers, dashboards, chart generators). Include as many as are genuinely useful.',
+    },
     tagged_files: {
       type: 'array',
       items: {
@@ -52,5 +79,5 @@ export const REPORT_JSON_SCHEMA = {
       description: 'All manuscript, grant, and presentation files found in the directory. Include every file that clearly belongs to one of these three categories — this list populates file pickers in writing tools.',
     },
   },
-  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on', 'tagged_files'],
+  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on', 'suggestions', 'tagged_files'],
 };

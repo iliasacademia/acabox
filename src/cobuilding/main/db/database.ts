@@ -346,6 +346,10 @@ const migrations = [
       CREATE INDEX idx_briefings_workspace_status  ON briefings(workspace_id, status);
     `,
   },
+  {
+    version: 21,
+    sql: `ALTER TABLE workspaces ADD COLUMN deleted_at TEXT DEFAULT NULL;`,
+  },
 ];
 
 function runMigrations(database: Database.Database) {

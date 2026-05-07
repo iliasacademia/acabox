@@ -17,7 +17,6 @@ import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
-import { generateBriefingSuggestions } from './briefingSuggester';
 import { fetchPapers, type FetchPapersInput } from './papers/papersService';
 import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
@@ -47,6 +46,9 @@ import {
   getActiveWorkspace,
   listWorkspaces,
   touchWorkspace,
+  deactivateAllWorkspaces,
+  findInactiveWorkspaceByDirectory,
+  reactivateWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -451,7 +453,23 @@ function ensureSseFanout(sessionId: string): void {
   const session = getRegisteredSession(sessionId);
   if (!session) return;
   const unsubscribe = session.addListener({
-    onEvent: (msg) => broadcastSseToSubscribers(sessionId, 'event', msg),
+    onEvent: (msg) => {
+      if (msg.type !== 'heartbeat') {
+        log.info(`[SseFanout] event sessionId=${sessionId} type=${msg.type}`);
+      }
+      broadcastSseToSubscribers(sessionId, 'event', msg);
+      // Also nudge the desktop renderer when a user-message lands from
+      // another surface. agentSession emits 'user-message' immediately
+      // after inserting a foreign-typed user turn into the DB; firing
+      // chat:foreign-done now (rather than waiting for onDone) makes
+      // the user turn visible on the desktop before the assistant
+      // streams its reply, which is exactly the gap that was missing
+      // user "ok" turns from the desktop view in screenshots.
+      if (msg.type === 'user-message' && mainWindow && !mainWindow.isDestroyed()) {
+        log.info(`[SseFanout] firing chat:foreign-done sessionId=${sessionId} cause=user-message`);
+        mainWindow.webContents.send('chat:foreign-done', sessionId);
+      }
+    },
     onDone: () => {
       broadcastSseToSubscribers(sessionId, 'done', {});
       // Also signal the desktop renderer (which can't subscribe to SSE —
@@ -876,12 +894,15 @@ app.whenReady().then(async () => {
                 if (existingRunning?.isRunning) {
                   // Ensure IPC forwarding to the desktop app BEFORE sending the message,
                   // so the desktop receives streaming events immediately.
+                  // Note: we deliberately do NOT fire NAVIGATE_TO_PAGE here.
+                  // Auto-yanking the desktop into the chat tab on every
+                  // overlay-typed message was disruptive — the desktop's
+                  // SessionsListRefresher already surfaces new/updated
+                  // sessions, and the live-message replication via
+                  // `chat:foreign-done` keeps history in sync once the
+                  // user navigates there themselves.
                   if (mainWindow && !mainWindow.isDestroyed()) {
                     ensureForwarding(sessionId, mainWindow.webContents);
-                    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                      page: 'session',
-                      sessionId,
-                    } as NavigateToPagePayload);
                   }
                   ensureSseFanout(sessionId);
                   const unsubscribe = existingRunning.addListener({
@@ -934,12 +955,10 @@ app.whenReady().then(async () => {
 
                 // Ensure IPC forwarding to the desktop app BEFORE sending the message,
                 // so the desktop receives streaming events immediately.
+                // Note: NAVIGATE_TO_PAGE is intentionally NOT fired here
+                // (see matching note in the existingRunning branch).
                 if (mainWindow && !mainWindow.isDestroyed()) {
                   ensureForwarding(sessionId, mainWindow.webContents);
-                  mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                    page: 'session',
-                    sessionId,
-                  } as NavigateToPagePayload);
                 }
                 ensureSseFanout(sessionId);
 
@@ -1066,9 +1085,15 @@ ipcMain.handle(
     provisionWorkspace(directoryPath);
     containerService.writeStartContainerScript(directoryPath);
 
-    const id = randomUUID();
-    createWorkspace(id, name, directoryPath, apiKey);
-    touchWorkspace(id);
+    const existing = findInactiveWorkspaceByDirectory(directoryPath);
+    if (existing) {
+      reactivateWorkspace(existing.id, apiKey);
+      touchWorkspace(existing.id);
+    } else {
+      const id = randomUUID();
+      createWorkspace(id, name, directoryPath, apiKey);
+      touchWorkspace(id);
+    }
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
@@ -1130,6 +1155,7 @@ ipcMain.handle(
 );
 
 ipcMain.handle('workspaces:deleteAll', () => {
+  deactivateAllWorkspaces();
   activeWorkspace = null;
 });
 
@@ -1295,21 +1321,6 @@ ipcMain.handle('scanner:start', async () => {
     }
   }).finally(() => {
     scannerRunning = false;
-  });
-});
-
-ipcMain.handle('scanner:generateBriefings', async (_event, reportId: string) => {
-  if (!activeWorkspace) {
-    throw new Error('No active workspace');
-  }
-  await generateBriefingSuggestions({
-    workspaceId: activeWorkspace.id,
-    reportId,
-    onBriefingsChanged: () => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('briefings:changed');
-      }
-    },
   });
 });
 
@@ -1876,28 +1887,6 @@ ipcMain.handle('container:ensureSetup', async () => {
       ensuredApps.add(appName);
     });
   }
-});
-
-ipcMain.handle('container:ensureSetupBackground', async () => {
-  const progressCallback = (stage: string, message: string, percent?: number) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
-  };
-  await containerService.ensureSetup(progressCallback);
-});
-
-ipcMain.handle('container:ensureReady', async () => {
-  if (!activeWorkspace) {
-    throw new Error('No active workspace');
-  }
-  const progressCallback = (stage: string, message: string, percent?: number) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
-  };
-  await containerService.ensureSetup(progressCallback, activeWorkspace.directory_path);
-  await containerService.start(activeWorkspace.directory_path);
-  await startAgentInfrastructure(activeWorkspace.directory_path);
-  backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
-    ensuredApps.add(appName);
-  });
 });
 
 // ─── Environment IPC ──────────────────────────────────────────────
@@ -2776,6 +2765,7 @@ ipcMain.handle('auth:logout', async () => {
   try {
     activeWorkspace = null;
     cachedApiKey = null;
+    deactivateAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {

@@ -30,7 +30,6 @@ import { useSessionSubscription } from './useSessionSubscription';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import ScanningProgress from './components/ScanningProgress';
 import ScanResultsReview from './components/ScanResultsReview';
-import ContainerSetupProgress from './components/ContainerSetupProgress';
 import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -240,37 +239,66 @@ function SessionsListRefresher() {
  */
 function ForeignTurnWatcherDesktop() {
   const runtime = useAssistantRuntime();
-  // mainThreadId / isRunning bridge from runtime state into the effect.
-  // Refs so the EventTarget-style listener doesn't re-attach on every
-  // state update.
-  const mainThreadIdRef = useRef<string | undefined>(undefined);
+  // The active thread's REMOTE id (DB session UUID) is the right
+  // identifier to compare against the foreign sessionId. assistant-ui's
+  // `mainThreadId` is its internal thread ID — for fresh threads that
+  // haven't been claimed by a remote yet, it looks like
+  // `__LOCALID_xxx` and never equals the server's session UUID. Logs
+  // confirmed this is why every "first message from a new overlay
+  // session" was hitting gate=mismatch on the desktop.
+  const activeRemoteIdRef = useRef<string | undefined>(undefined);
   const isRunningRef = useRef(false);
 
-  const mainThreadId = useThreadList((s: any) => s.mainThreadId) as string | undefined;
-  mainThreadIdRef.current = mainThreadId;
+  const activeRemoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  activeRemoteIdRef.current = activeRemoteId;
   const isRunning = useAuiState((s: any) => s.thread?.isRunning ?? false);
   isRunningRef.current = isRunning;
 
   useEffect(() => {
     const unsubscribe = window.sessionsAPI.onForeignTurnDone((sessionId: string) => {
-      if (sessionId !== mainThreadIdRef.current) return;
-      if (isRunningRef.current) return;
+      const activeId = activeRemoteIdRef.current;
+      const running = isRunningRef.current;
+      window.debugAPI.log(`[ForeignTurnWatcher] received sessionId=${sessionId} activeRemoteId=${activeId ?? 'null'} isRunning=${running}`);
+      if (sessionId !== activeId) {
+        window.debugAPI.log('[ForeignTurnWatcher] gate=mismatch — returning');
+        return;
+      }
+      if (running) {
+        window.debugAPI.log('[ForeignTurnWatcher] gate=running — returning');
+        return;
+      }
+      window.debugAPI.log('[ForeignTurnWatcher] gate=proceed');
       try {
-        // Best-effort: nudge the runtime to drop cached per-thread state and
-        // reload via the history adapter. Same pattern as
-        // SessionsListRefresher but targeted at the active thread.
+        // Best-effort: nudge the runtime to drop cached per-thread state
+        // and reload via the history adapter. Whether
+        // `__internal_loadHistory` exists is version-dependent (logs
+        // confirmed it's missing in our current assistant-ui — see
+        // `cachePoke=noMethod`), so this is a no-op until we find the
+        // real reload API. Left in place as documentation of the
+        // mechanism we WOULD want, and so log lines surface clearly
+        // when the API does land.
+        //
+        // The previous implementation chained switchToThread(other) +
+        // switchToThread(sessionId) hoping to force a re-mount. Logs
+        // showed assistant-ui silently dropped the back-switch, leaving
+        // the user stranded on the away thread — exactly the "switched
+        // to a different conversation" regression. That trick is
+        // removed. Until the proper reload mechanism lands, we accept
+        // that the desktop's view of an active foreign session won't
+        // refresh in-place; the user can navigate away and back to
+        // force a re-load if needed.
         const threadsCore: any = (runtime as any)?._core?.threads;
         const threadCore: any = threadsCore?.getThreadRuntimeCore?.(sessionId)
           ?? threadsCore?._threads?.get?.(sessionId)
           ?? null;
         if (threadCore) {
+          const hadMethod = typeof threadCore.__internal_loadHistory === 'function';
           threadCore._loadHistoryPromise = null;
           threadCore.__internal_loadHistory?.();
+          window.debugAPI.log(`[ForeignTurnWatcher] cachePoke=${hadMethod ? 'ran' : 'noMethod'}`);
+        } else {
+          window.debugAPI.log('[ForeignTurnWatcher] cachePoke=noThreadCore');
         }
-        // Toggle through switchToThread to force assistant-ui's public path
-        // to refetch. If switching to the same id is a no-op in this version,
-        // the cache poke above is the safety net.
-        runtime.threads.switchToThread(sessionId);
       } catch (err) {
         console.warn('[ForeignTurnWatcher] reload nudge failed', err);
       }
@@ -889,20 +917,12 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   );
 }
 
-type OnboardingStep = 'loading' | 'welcome' | 'login' | 'workspace' | 'container-setup' | 'scanning' | 'review' | 'ready';
+type OnboardingStep = 'loading' | 'welcome' | 'login' | 'workspace' | 'scanning' | 'review' | 'ready';
 
 function App() {
   const [step, setStep] = useState<OnboardingStep>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [scanReportId, setScanReportId] = useState<string | null>(null);
-
-  // Fire container setup in the background on every launch (no credentials needed).
-  // This downloads Podman and pulls the base image in parallel with login/onboarding.
-  useEffect(() => {
-    window.containerAPI.ensureSetupBackground().catch((err) => {
-      console.warn('[App] Background container setup failed:', err);
-    });
-  }, []);
 
   useEffect(() => {
     window.workspacesAPI.getActive().then((ws) => {
@@ -973,7 +993,7 @@ function App() {
             window.workspacesAPI.getActive().then((ws) => {
               if (ws) {
                 setWorkspace(ws);
-                setStep('container-setup');
+                setStep('scanning');
               }
             });
           }}
@@ -985,13 +1005,6 @@ function App() {
               }
             });
           }}
-        />
-      );
-
-    case 'container-setup':
-      return (
-        <ContainerSetupProgress
-          onComplete={() => setStep('scanning')}
         />
       );
 

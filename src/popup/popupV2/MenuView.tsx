@@ -5,6 +5,7 @@ import {
   useAuiState,
 } from '@assistant-ui/react';
 import { OverlayThread, InitialPromptAutoSend } from './OverlayThread';
+import { shouldRefreshOnForeignEvent } from './sessionLogic';
 import { useHttpChatAdapter, useHttpHistoryAdapter } from './httpChatAdapter';
 import '../../cobuilding/renderer/App.css';
 import '@assistant-ui/react-markdown/styles/dot.css';
@@ -367,11 +368,25 @@ const ForeignTurnWatcher: React.FC<{ sessionId: string; onForeignDone: () => voi
     const tokenQs = tokenParam ? `?token=${encodeURIComponent(tokenParam)}` : '';
     const es = new EventSource(`${serverUrl}/api/cobuilding/sessions/${sessionId}/events${tokenQs}`);
     const handleDone = () => {
-      if (!isRunningRef.current) onForeignDoneRef.current();
+      if (shouldRefreshOnForeignEvent('done', null, isRunningRef.current)) {
+        onForeignDoneRef.current();
+      }
+    };
+    // Foreign user-message: a message just landed in DB from another
+    // surface. Refresh so the user turn shows up immediately, before
+    // the assistant streams its reply.
+    const handleEvent = (e: MessageEvent) => {
+      let data: unknown = null;
+      try { data = JSON.parse(e.data); } catch { /* malformed — ignore */ }
+      if (shouldRefreshOnForeignEvent('event', data, isRunningRef.current)) {
+        onForeignDoneRef.current();
+      }
     };
     es.addEventListener('done', handleDone);
+    es.addEventListener('event', handleEvent);
     return () => {
       es.removeEventListener('done', handleDone);
+      es.removeEventListener('event', handleEvent);
       es.close();
     };
   }, [sessionId]);
