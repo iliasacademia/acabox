@@ -145,6 +145,23 @@ function createBriefingsFromScan(
     }
   }
 
+  // Hardcoded demo suggestion: if the scanner found this specific western blot
+  // TIF file, suggest building an annotation tool for western blot images.
+  if (resultText.includes('western_blot-test-20260507145157.tif')) {
+    createBriefing({
+      workspaceId,
+      type: 'suggested_tool',
+      sourceReportId: reportId,
+      whyImSuggestingThis:
+        'I found a western blot image in your workspace. An annotation tool could help you label bands, add molecular weight markers, and create publication-ready figures.',
+      briefingData: {
+        name: 'Western Blot Annotation Tool',
+        details_on_what_to_build:
+          'Build an interactive tool that helps create annotated western blot images. The tool should allow the user to upload western blot TIF images, label individual bands, add molecular weight markers, draw lane boundaries, and export publication-ready annotated figures with clean labeling.',
+      },
+    });
+  }
+
   ctx.onBriefingsChanged?.();
 
   // Return manuscript candidates — writing_agent briefings are created after

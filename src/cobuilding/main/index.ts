@@ -691,11 +691,11 @@ app.whenReady().then(async () => {
     }
 
     startFileMonitor();
-    startBrowserMonitor().then(() => rebuildTrayMenu());
+    // startBrowserMonitor().then(() => rebuildTrayMenu());
     initSchedulingDatabase(app.getPath('userData'));
-    if (activeWorkspace) {
-      ensureReactionsTask(activeWorkspace.id);
-    }
+    // if (activeWorkspace) {
+    //   ensureReactionsTask(activeWorkspace.id);
+    // }
     startScheduledTasks(handleNotificationNavigation);
 
     // Start HTTP server and window monitor for the Word overlay
@@ -1096,7 +1096,7 @@ ipcMain.handle(
     }
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
-      ensureReactionsTask(activeWorkspace.id);
+      // ensureReactionsTask(activeWorkspace.id);
       const scheduler = getTaskScheduler();
       scheduler.stop();
       scheduler.start();
@@ -1182,7 +1182,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   activeWorkspace = getActiveWorkspace() ?? null;
 
   if (activeWorkspace) {
-    ensureReactionsTask(activeWorkspace.id);
+    // ensureReactionsTask(activeWorkspace.id);
     // Update workspace directory for the Word overlay
     windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
   }
