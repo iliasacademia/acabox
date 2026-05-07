@@ -889,12 +889,15 @@ app.whenReady().then(async () => {
                 if (existingRunning?.isRunning) {
                   // Ensure IPC forwarding to the desktop app BEFORE sending the message,
                   // so the desktop receives streaming events immediately.
+                  // Note: we deliberately do NOT fire NAVIGATE_TO_PAGE here.
+                  // Auto-yanking the desktop into the chat tab on every
+                  // overlay-typed message was disruptive — the desktop's
+                  // SessionsListRefresher already surfaces new/updated
+                  // sessions, and the live-message replication via
+                  // `chat:foreign-done` keeps history in sync once the
+                  // user navigates there themselves.
                   if (mainWindow && !mainWindow.isDestroyed()) {
                     ensureForwarding(sessionId, mainWindow.webContents);
-                    mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                      page: 'session',
-                      sessionId,
-                    } as NavigateToPagePayload);
                   }
                   ensureSseFanout(sessionId);
                   const unsubscribe = existingRunning.addListener({
@@ -947,12 +950,10 @@ app.whenReady().then(async () => {
 
                 // Ensure IPC forwarding to the desktop app BEFORE sending the message,
                 // so the desktop receives streaming events immediately.
+                // Note: NAVIGATE_TO_PAGE is intentionally NOT fired here
+                // (see matching note in the existingRunning branch).
                 if (mainWindow && !mainWindow.isDestroyed()) {
                   ensureForwarding(sessionId, mainWindow.webContents);
-                  mainWindow.webContents.send(IPC_CHANNELS.NAVIGATE_TO_PAGE, {
-                    page: 'session',
-                    sessionId,
-                  } as NavigateToPagePayload);
                 }
                 ensureSseFanout(sessionId);
 
