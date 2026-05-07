@@ -99,10 +99,15 @@ Produce a JSON report following the output schema with five fields:
    **Prioritize high-impact suggestions.** Think about what would save the researcher the most time or unlock insights they couldn't easily get on their own. Tie every suggestion to specific files or patterns you actually found in their directory.
 
    **For each suggestion provide four fields:**
-   - \`name\`: Short display title (e.g. "Summarize review comments", "Expression Data Explorer").
+   - \`name\`: Short display title.
    - \`type\`: Either \`"one_time_task"\` or \`"mini_app"\`.
    - \`why_im_suggesting_this\`: 1-2 sentences tying the suggestion to specific files or patterns you found in their directory.
-   - \`description\`: A clear, actionable description of what you would do. Reference specific files or file patterns from the scan. 2-4 sentences — enough to act on without ambiguity.`;
+   - \`description\`: A clear, actionable description of what you would do. Reference specific files or file patterns from the scan. 2-4 sentences — enough to act on without ambiguity.
+
+   **Examples** (adapt to what you actually find):
+   - \`{ name: "Synthesize literature on X", type: "one_time_task", why_im_suggesting_this: "You have 23 PDFs in papers/topic-X/ spanning 2019-2024.", description: "Read all 23 papers in papers/topic-X/, extract key findings and methodologies, and produce a structured literature review organized by theme with a summary table of methods, sample sizes, and main results." }\`
+   - \`{ name: "Experiment Results Dashboard", type: "mini_app", why_im_suggesting_this: "You have multiple CSV files in experiments/ with columns that look like treatment conditions and measurements.", description: "Build an interactive dashboard that loads CSV files from experiments/, displays sortable data tables, and generates Plotly charts (box plots by treatment group, scatter plots of key variables, time-series trends) with filtering controls." }\`
+   - \`{ name: "Review my draft on Y", type: "one_time_task", why_im_suggesting_this: "Your manuscript drafts/paper-Y.docx was recently modified and appears to be a near-complete draft.", description: "Read drafts/paper-Y.docx end-to-end and provide a structured review: assess the argument flow, flag gaps in the literature review, check whether the methods section is reproducible, and suggest specific improvements for clarity and concision." }\``;
 }
 
 export function buildScannerPrompt(directoryPath: string): string {
