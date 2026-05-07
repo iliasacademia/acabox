@@ -6698,31 +6698,142 @@ button.briefingHistoryRow__status {
   color: #b5aea4;
 }
 
-/* --- Briefing grid --- */
+/* --- Home page header --- */
 
-.homeBriefingGrid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+.pageShell__inner.homePageInner {
+  max-width: 860px;
+}
+
+.homeHeader {
+  margin-bottom: 44px;
+}
+
+.homeHeader__title {
+  font-family: 'Gupter', serif;
+  font-size: 2.5rem;
+  font-weight: 500;
+  color: #141413;
+  letter-spacing: -0.5px;
+  margin: 8px 0 12px;
+}
+
+.homeHeader__subtitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.9375rem;
+  color: #7a746a;
+  line-height: 1.5;
+}
+
+/* --- Briefing vertical list --- */
+
+.homeBriefingList {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  margin-bottom: 16px;
 }
 
-.homeBriefingGrid--full {
-  grid-template-columns: 1fr;
-  margin-top: 0;
+.homeBriefingList__historyLink {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid #d6d0c5;
+  border-radius: 999px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  color: #7a746a;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
+
+.homeBriefingList__historyLink:hover {
+  background: #efeae1;
+  color: #3d3933;
+}
+
+/* --- Freeform card --- */
+
+.homeFreeformCard__heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Gupter', serif;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #141413;
+  margin-bottom: 8px;
+}
+
+.homeFreeformCard__subtitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.9375rem;
+  color: #6f685f;
+  line-height: 1.5;
+  margin-bottom: 18px;
+}
+
+.homeFreeformCard__inputRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.homeFreeformCard__input {
+  flex: 1;
+  padding: 10px 14px;
+  background: #fff;
+  border: 1px solid #d6d0c5;
+  border-radius: 3px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.9375rem;
+  color: #141413;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+
+.homeFreeformCard__input::placeholder {
+  color: #b5aea4;
+}
+
+.homeFreeformCard__input:focus {
+  border-color: #a09880;
+}
+
+.homeFreeformCard__sendButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  background: #171512;
+  border: none;
+  border-radius: 3px;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.homeFreeformCard__sendButton:hover:not(:disabled) {
+  background: #2b2823;
+}
+
+.homeFreeformCard__sendButton:disabled {
+  background: #c4bfb6;
+  cursor: default;
+}
+
+/* --- Briefing cards --- */
 
 .homeBriefingCard {
   position: relative;
   background: #fff;
   border: 1px solid #e5e2dd;
   padding: 24px;
-  min-height: 180px;
   font-family: 'DM Sans', sans-serif;
-}
-
-.homeBriefingCard--placeholder {
-  border-style: dashed;
 }
 
 .homeBriefingCard--action {
@@ -6786,7 +6897,6 @@ button.briefingHistoryRow__status {
 }
 
 .homeBriefingCard__description {
-  max-width: 560px;
   margin: 0 0 22px;
   color: #6f685f;
   font-size: 0.9375rem;
@@ -6806,13 +6916,14 @@ button.briefingHistoryRow__status {
   justify-content: center;
   gap: 8px;
   min-height: 38px;
-  padding: 0 16px;
+  padding: 0 18px;
   border-radius: 2px;
   font-family: 'DM Sans', sans-serif;
   font-size: 0.875rem;
   font-weight: 600;
   line-height: 1;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .homeBriefingCard__button--primary {
@@ -6824,16 +6935,6 @@ button.briefingHistoryRow__status {
 .homeBriefingCard__button--primary:hover {
   background: #2b2823;
   border-color: #2b2823;
-}
-
-.homeBriefingCard__button--secondary {
-  color: #5c5549;
-  background: #f8f5ec;
-  border: 1px solid #e5e2dd;
-}
-
-.homeBriefingCard__button--secondary:hover {
-  background: #fff;
 }
 
 .homeBriefingCard__buttonIcon {

@@ -1,21 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeftIcon, BookOpenIcon, AwardIcon, CalendarIcon, SparklesIcon, PenLineIcon } from 'lucide-react';
-
-type FilterId = 'all' | 'papers' | 'grants' | 'citations' | 'proactive';
-
-const FILTERS: Array<{ id: FilterId; label: string; types: BriefingType[] | null }> = [
-  { id: 'all', label: 'All', types: null },
-  { id: 'papers', label: 'Papers', types: ['paper'] },
-  { id: 'grants', label: 'Grants', types: ['grant'] },
-  { id: 'citations', label: 'Citations', types: ['citation'] },
-  { id: 'proactive', label: 'Proactive', types: ['suggested_action', 'suggested_tool'] },
-];
-
-const STATUS_LABEL: Record<BriefingStatus, string> = {
-  new: 'NEW',
-  opened: 'OPENED',
-  dismissed: 'DISMISSED',
-};
+import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
+import { ChevronLeftIcon, SparklesIcon, ArrowUpRightIcon } from 'lucide-react';
 
 interface ParsedRow {
   briefing: Briefing;
@@ -55,38 +40,38 @@ function rowTitle(row: ParsedRow): string {
   }
 }
 
-function rowSubtitle(row: ParsedRow): string {
-  const d = row.data;
-  switch (row.briefing.type) {
-    case 'suggested_tool':
-      return 'Mini-app suggestion';
-    case 'suggested_action':
-      return 'Suggested action';
-    case 'paper':
-      return Array.isArray(d.authors) ? d.authors.join(', ') : 'Paper';
-    case 'citation':
-      return typeof d.citing_work === 'string' ? `Cited by ${d.citing_work}` : 'Citation';
-    case 'grant':
-      return typeof d.agency === 'string' ? d.agency : 'Grant';
-    case 'writing_agent':
-      return 'Peer Review Assistant · open in Word';
+function rowEyebrow(type: BriefingType): string {
+  switch (type) {
+    case 'suggested_action': return 'I can do this for you';
+    case 'suggested_tool': return 'I can build this for you';
+    case 'paper': return 'New paper';
+    case 'citation': return 'New citation';
+    case 'grant': return 'Grant opportunity';
+    case 'writing_agent': return 'I can do this for you';
   }
 }
 
-function rowIcon(type: BriefingType) {
-  const cls = 'briefingHistoryRow__icon';
+function rowDescription(row: ParsedRow): string {
+  if (row.briefing.why_im_suggesting_this) return row.briefing.why_im_suggesting_this;
+  const d = row.data;
+  switch (row.briefing.type) {
+    case 'suggested_action': return typeof d.description === 'string' ? d.description : '';
+    case 'suggested_tool': return typeof d.details_on_what_to_build === 'string' ? d.details_on_what_to_build : '';
+    case 'paper': return typeof d.abstract === 'string' ? d.abstract : '';
+    case 'citation': return typeof d.citing_work === 'string' ? `Cited by ${d.citing_work}` : '';
+    case 'grant': return typeof d.agency === 'string' ? d.agency : '';
+    case 'writing_agent': return typeof d.description === 'string' ? d.description : '';
+  }
+}
+
+function rowPrimaryLabel(type: BriefingType): string {
   switch (type) {
-    case 'paper':
-    case 'citation':
-      return <BookOpenIcon className={cls} />;
-    case 'grant':
-      return <AwardIcon className={cls} />;
-    case 'suggested_action':
-      return <CalendarIcon className={cls} />;
-    case 'suggested_tool':
-      return <SparklesIcon className={cls} />;
-    case 'writing_agent':
-      return <PenLineIcon className={cls} />;
+    case 'suggested_action': return 'Yes, do it';
+    case 'suggested_tool': return 'Build it';
+    case 'paper': return 'Read it';
+    case 'citation': return 'View';
+    case 'grant': return 'View';
+    case 'writing_agent': return 'Open in Word';
   }
 }
 
@@ -150,9 +135,24 @@ const NEXT_STATUS: Record<BriefingStatus, BriefingStatus> = {
   dismissed: 'new',
 };
 
-export function BriefingHistory({ onBack }: { onBack: () => void }) {
+const STATUS_LABEL: Record<BriefingStatus, string> = {
+  new: 'NEW',
+  opened: 'OPENED',
+  dismissed: 'DISMISSED',
+};
+
+export function BriefingHistory({
+  onBack,
+  workspacePath,
+  onSwitchToChat,
+}: {
+  onBack: () => void;
+  workspacePath: string;
+  onSwitchToChat: () => void;
+}) {
   const [rows, setRows] = useState<ParsedRow[] | null>(null);
-  const [filter, setFilter] = useState<FilterId>('all');
+  const assistantRuntime = useAssistantRuntime();
+  const composerRuntime = useComposerRuntime();
 
   useEffect(() => {
     window.briefingsAPI.list().then((data) => {
@@ -160,14 +160,49 @@ export function BriefingHistory({ onBack }: { onBack: () => void }) {
     });
   }, []);
 
-  const filtered = useMemo(() => {
-    if (!rows) return [];
-    const types = FILTERS.find((f) => f.id === filter)?.types ?? null;
-    if (!types) return rows;
-    return rows.filter((r) => types.includes(r.briefing.type));
-  }, [rows, filter]);
+  const groups = useMemo(() => groupByDay(rows ?? []), [rows]);
 
-  const groups = useMemo(() => groupByDay(filtered), [filtered]);
+  const sendChatPrompt = (prompt: string) => {
+    assistantRuntime.switchToNewThread();
+    onSwitchToChat();
+    onBack();
+    setTimeout(() => {
+      composerRuntime.setText(prompt);
+      composerRuntime.send();
+    }, 100);
+  };
+
+  const handleOpenRow = async (row: ParsedRow) => {
+    window.briefingsAPI.setStatus(row.briefing.id, 'opened');
+    const d = row.data;
+    if (row.briefing.type === 'suggested_action') {
+      if (typeof d.chat_prompt === 'string') sendChatPrompt(d.chat_prompt);
+    } else if (row.briefing.type === 'suggested_tool') {
+      if (typeof d.details_on_what_to_build === 'string') {
+        sendChatPrompt(`Please build the following mini-app for me:\n\n${d.details_on_what_to_build}`);
+      }
+    } else if (row.briefing.type === 'writing_agent') {
+      if (typeof d.file_path !== 'string') return;
+      const absolutePath = `${workspacePath}/${d.file_path}`;
+      const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
+      let existingSessions = 0;
+      try {
+        existingSessions = await window.sessionsAPI.countForDocument(absolutePath);
+      } catch (err) {
+        console.warn('[WritingAgent] countForDocument failed:', err);
+      }
+      if (existingSessions === 0 && typeof d.chat_prompt === 'string') {
+        try {
+          await window.fileMonitorAPI.setOverlayKickoffForDocument(absolutePath, d.chat_prompt);
+        } catch (err) {
+          console.warn('[WritingAgent] Failed to stash kickoff:', err);
+        }
+      }
+      window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+      window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
+    }
+    // paper / citation / grant: action handlers will be added when those types ship.
+  };
 
   return (
     <div className="pageShell">
@@ -178,64 +213,61 @@ export function BriefingHistory({ onBack }: { onBack: () => void }) {
         </button>
       </div>
 
-      <div className="pageShell__inner briefingHistory">
-        <div className="briefingHistory__header">
-          <div className="briefingHistory__eyebrow">
-            BRIEFING HISTORY &middot; {rangeLabel(rows ?? []).toUpperCase()}
-          </div>
-          <h1 className="briefingHistory__title">What you&apos;ve seen recently</h1>
-          <p className="briefingHistory__subtitle">
+      <div className="pageShell__inner homePageInner">
+        <div className="homeHeader">
+          <div className="pageShell__stats">BRIEFING HISTORY &middot; {rangeLabel(rows ?? []).toUpperCase()}</div>
+          <h1 className="homeHeader__title">What you&apos;ve seen recently</h1>
+          <p className="homeHeader__subtitle">
             Everything that&apos;s appeared in your briefing, with what you did about it.
           </p>
         </div>
 
-        <div className="briefingHistory__filters">
-          {FILTERS.map((f) => (
-            <button
-              key={f.id}
-              type="button"
-              className={`briefingHistoryPill${filter === f.id ? ' briefingHistoryPill--active' : ''}`}
-              onClick={() => setFilter(f.id)}
-            >
-              {f.label}
-            </button>
-          ))}
-        </div>
-
         {rows === null ? (
           <div className="homeSection__empty">Loading&hellip;</div>
-        ) : filtered.length === 0 ? (
+        ) : rows.length === 0 ? (
           <div className="homeSection__empty">No briefings yet.</div>
         ) : (
           groups.map((group) => (
             <div key={group.label} className="briefingHistoryGroup">
               <h2 className="briefingHistoryGroup__label">{group.label}</h2>
-              <div className="briefingHistoryGroup__list">
+              <div className="homeBriefingList">
                 {group.rows.map((row) => (
-                  <div key={row.briefing.id} className="briefingHistoryRow">
-                    <div className="briefingHistoryRow__iconWrap">{rowIcon(row.briefing.type)}</div>
-                    <div className="briefingHistoryRow__main">
-                      <div className="briefingHistoryRow__title">{rowTitle(row)}</div>
-                      <div className="briefingHistoryRow__subtitle">{rowSubtitle(row)}</div>
+                  <div key={row.briefing.id} className="homeBriefingCard homeBriefingCard--action">
+                    <div className="homeBriefingCard__eyebrow">
+                      <SparklesIcon className="homeBriefingCard__eyebrowIcon" />
+                      <span>{rowEyebrow(row.briefing.type)}</span>
                     </div>
-                    <button
-                      type="button"
-                      className={`briefingHistoryRow__status briefingHistoryRow__status--${row.briefing.status}`}
-                      onClick={() => {
-                        const next = NEXT_STATUS[row.briefing.status];
-                        window.briefingsAPI.setStatus(row.briefing.id, next);
-                        setRows((prev) =>
-                          prev?.map((r) =>
-                            r.briefing.id === row.briefing.id
-                              ? { ...r, briefing: { ...r.briefing, status: next } }
-                              : r,
-                          ) ?? null,
-                        );
-                      }}
-                      title={`Click to change to ${STATUS_LABEL[NEXT_STATUS[row.briefing.status]]}`}
-                    >
-                      {STATUS_LABEL[row.briefing.status]}
-                    </button>
+                    <h3 className="homeBriefingCard__title">{rowTitle(row)}</h3>
+                    <p className="homeBriefingCard__description">{rowDescription(row)}</p>
+                    <div className="homeBriefingCard__actions">
+                      <button
+                        type="button"
+                        className="homeBriefingCard__button homeBriefingCard__button--primary"
+                        onClick={() => handleOpenRow(row)}
+                      >
+                        {rowPrimaryLabel(row.briefing.type)}
+                        <ArrowUpRightIcon className="homeBriefingCard__buttonIcon" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`briefingHistoryRow__status briefingHistoryRow__status--${row.briefing.status}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const next = NEXT_STATUS[row.briefing.status];
+                          window.briefingsAPI.setStatus(row.briefing.id, next);
+                          setRows((prev) =>
+                            prev?.map((r) =>
+                              r.briefing.id === row.briefing.id
+                                ? { ...r, briefing: { ...r.briefing, status: next } }
+                                : r,
+                            ) ?? null,
+                          );
+                        }}
+                        title={`Click to change to ${STATUS_LABEL[NEXT_STATUS[row.briefing.status]]}`}
+                      >
+                        {STATUS_LABEL[row.briefing.status]}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
