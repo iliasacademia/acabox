@@ -1036,28 +1036,26 @@ async function runFindAndReplace(
     if (mode === 'original') {
       logger.info('[WordActions] findAndReplaceInWord: matched on un-sanitized fallback (doc has fancy chars matching original search)');
     } else if (mode === 'anchor' || mode === 'anchor-original') {
-      logger.info(`[WordActions] findAndReplaceInWord: matched via anchor+range fallback (mode=${mode}, search length=${searchText.length})`);
+      logger.info(`[WordActions] findAndReplaceInWord: matched via anchor+extend fallback (mode=${mode}, search length=${searchText.length})`);
     }
     if (count === 0) {
-      logger.info(`[WordActions] findAndReplaceInWord: no match found (search length=${searchText.length}, revisions=${revCount})`);
+      logger.info(`[WordActions] findAndReplaceInWord: no match found (search length=${searchText.length}, revisions=${revCount}, longSearch=${isLongSearch})`);
+      // Lead with the most likely cause based on the search-text shape; only
+      // mention track changes when there are some AND the search is short
+      // enough that the cap/normalization paths don't dominate. For long
+      // searches (Pass 4 progressive anchor already exhausted) the most
+      // useful next step is Copy → paste, not "accept all and retry".
       const suspicious = describeSuspiciousChars(searchText);
-      // Track-change diagnosis takes priority over length/char hints. If
-      // the doc has unaccepted revisions, "content of text object of doc"
-      // returns the post-revision text, which strips deleted ranges. So
-      // any search that targets text already deleted by a prior tracked
-      // change CANNOT be located by either Word's find or our offset
-      // fallback. The fix is workflow-level: accept (or reject) the prior
-      // changes first, then retry — or the user can copy/paste manually
-      // since the doc may already reflect the desired final state.
       let reason: string;
-      if (revCount > 0) {
-        reason = ` The document has ${revCount} unaccepted track change${revCount === 1 ? '' : 's'}. If a prior revision deleted the text this edit was matching against, Word can no longer find it. Open Review → Accept All to apply prior changes and click Retry, or click Copy to apply manually. (If the doc already shows your desired text, just Dismiss this edit.)`;
-      } else if (isLongSearch) {
-        reason = ` The search text is ${searchText.length} characters and Word's matcher couldn't locate it. Click Copy below to grab the proposed text, then paste it into the document manually.`;
+      if (isLongSearch) {
+        reason = ` The text is ${searchText.length} characters and Word's matcher couldn't locate it even with progressive anchoring. Click Copy to grab the proposed text and paste it in manually.`;
       } else if (suspicious.length) {
-        reason = ` The search text contains ${suspicious.join(', ')} which Word's find can't always match against the doc's representation of the same character. Click Copy to grab the proposed text and paste it in manually.`;
+        reason = ` The text contains ${suspicious.join(', ')} which Word can't always match against the doc's representation. Click Copy to grab the proposed text and paste it in manually.`;
       } else {
-        reason = ' The exact passage may have been edited since the agent proposed this change. Click Retry, or click Copy to grab the proposed text and paste it in manually.';
+        reason = ' The exact passage may have been edited since the agent proposed this change. Click Retry, or Copy to apply manually.';
+      }
+      if (revCount > 0) {
+        reason += ` (Doc has ${revCount} unaccepted track change${revCount === 1 ? '' : 's'}; if a prior change deleted the matching text, accepting them first may help.)`;
       }
       return {
         success: false,

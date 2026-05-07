@@ -208,8 +208,98 @@ if needPass3 and txtIndex > 0 and candidateLen > 0 then
   end tell
 end if
 
--- Phase D: restore Word state.
-if restoreNeeded then
+${isLongSearch ? `-- Phase D: Pass 4 progressive anchor + extend. Word's find object caps at
+-- ~255 chars (silent miss past that on Word-for-Mac). For long searches
+-- where Pass 1-3 all missed, take a shrinking prefix of the search text
+-- as the anchor, find every occurrence, extend the matched range to the
+-- full search length, and verify. Anchor sizes: 200, 120, 60. The
+-- anchor-text slicing happens here at script level (outside any
+-- application tell) so AppleScript Standard Additions handles it
+-- without colliding with Word's dictionary.
+if replacementsCount is 0 then
+  set anchorSizesList to {200, 120, 60}
+  set fullLen to count of searchText
+  set origLen to count of originalSearchText
+  repeat with anchorSizeRef in anchorSizesList
+    if replacementsCount > 0 then exit repeat
+    set thisAnchorSize to anchorSizeRef as integer
+    if thisAnchorSize < fullLen then
+      set anchorText to text 1 thru thisAnchorSize of searchText
+      set anchorOriginal to ""
+      if ${sanitizeChangedSearch ? 'true' : 'false'} and thisAnchorSize ≤ origLen then
+        set anchorOriginal to text 1 thru thisAnchorSize of originalSearchText
+      end if
+      set extendBy to fullLen - thisAnchorSize
+      set extendByOriginal to origLen - thisAnchorSize
+      tell application "Microsoft Word"
+        try
+          set doc to active document
+          set scanRange to create range doc start 0 end (end of content of text object of doc)
+          set anchorFind to find object of scanRange
+          clear formatting anchorFind
+          set content of anchorFind to anchorText
+          set forward of anchorFind to true
+          set wrap of anchorFind to find stop
+          set match case of anchorFind to ${matchCase}
+          set safetyCounter to 0
+          repeat
+            if safetyCounter > 50 then exit repeat
+            set safetyCounter to safetyCounter + 1
+            set wasFound to execute find anchorFind
+            if not wasFound then exit repeat
+            set hitStart to start of scanRange
+            set hitEnd to end of scanRange
+            -- Try the sanitized search first.
+            try
+              set extendedRange to create range doc start hitStart end (hitEnd + extendBy)
+              set extendedText to content of extendedRange
+              if extendedText is equal to searchText then
+                set content of extendedRange to replaceText
+                set replacementsCount to 1
+                set usedAnchor to true
+                exit repeat
+              end if
+            end try
+            -- Fall through to the un-sanitized original (catches the
+            -- doc-has-fancy, search-has-fancy case at long lengths).
+            if anchorOriginal is not "" then
+              try
+                set extendedRangeOrig to create range doc start hitStart end (hitEnd + extendByOriginal)
+                set extendedTextOrig to content of extendedRangeOrig
+                if extendedTextOrig is equal to originalSearchText then
+                  set content of extendedRangeOrig to replaceText
+                  set replacementsCount to 1
+                  set usedAnchor to true
+                  set usedOriginal to true
+                  exit repeat
+                end if
+              end try
+            end if
+            -- This anchor hit didn't verify; advance past it and keep
+            -- searching. Re-build the find object so its range is reset
+            -- to "after the failed hit" rather than dynamically running
+            -- away (the .Find runaway-range gotcha).
+            try
+              set scanRange to create range doc start hitEnd end (end of content of text object of doc)
+              set anchorFind to find object of scanRange
+              clear formatting anchorFind
+              set content of anchorFind to anchorText
+              set forward of anchorFind to true
+              set wrap of anchorFind to find stop
+              set match case of anchorFind to ${matchCase}
+            on error
+              exit repeat
+            end try
+          end repeat
+        on error pass4Err
+          log "[wordActions] Pass 4 anchor+extend errored: " & pass4Err
+        end try
+      end tell
+    end if
+  end repeat
+end if
+
+` : ''}if restoreNeeded then
   try
     tell application "Microsoft Word"
       set user name to origName
