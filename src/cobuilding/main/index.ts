@@ -453,6 +453,9 @@ function ensureSseFanout(sessionId: string): void {
   if (!session) return;
   const unsubscribe = session.addListener({
     onEvent: (msg) => {
+      if (msg.type !== 'heartbeat') {
+        log.info(`[SseFanout] event sessionId=${sessionId} type=${msg.type}`);
+      }
       broadcastSseToSubscribers(sessionId, 'event', msg);
       // Also nudge the desktop renderer when a user-message lands from
       // another surface. agentSession emits 'user-message' immediately
@@ -462,6 +465,7 @@ function ensureSseFanout(sessionId: string): void {
       // streams its reply, which is exactly the gap that was missing
       // user "ok" turns from the desktop view in screenshots.
       if (msg.type === 'user-message' && mainWindow && !mainWindow.isDestroyed()) {
+        log.info(`[SseFanout] firing chat:foreign-done sessionId=${sessionId} cause=user-message`);
         mainWindow.webContents.send('chat:foreign-done', sessionId);
       }
     },

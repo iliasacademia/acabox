@@ -33,6 +33,15 @@ export function registerDebugHandlers() {
     };
   });
 
+  // Renderer → main bridge for diagnostic logs. The desktop chat panel
+  // and other renderers can pipe a string into electron-log so it
+  // lands in the same on-disk file as main-process logs and can be
+  // tailed from a shell — useful when the surface in question (e.g.
+  // the Word overlay) doesn't expose devtools.
+  ipcMain.handle('debug:log', (_event: unknown, msg: string) => {
+    log.info(typeof msg === 'string' ? msg : String(msg));
+  });
+
   ipcMain.handle('debug:clearSelected', async (_event: unknown, ids: string[]) => {
     const set = new Set(ids);
     const results: string[] = [];

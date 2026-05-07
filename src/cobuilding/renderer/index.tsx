@@ -253,8 +253,18 @@ function ForeignTurnWatcherDesktop() {
 
   useEffect(() => {
     const unsubscribe = window.sessionsAPI.onForeignTurnDone((sessionId: string) => {
-      if (sessionId !== mainThreadIdRef.current) return;
-      if (isRunningRef.current) return;
+      const activeId = mainThreadIdRef.current;
+      const running = isRunningRef.current;
+      window.debugAPI.log(`[ForeignTurnWatcher] received sessionId=${sessionId} activeId=${activeId ?? 'null'} isRunning=${running}`);
+      if (sessionId !== activeId) {
+        window.debugAPI.log('[ForeignTurnWatcher] gate=mismatch — returning');
+        return;
+      }
+      if (running) {
+        window.debugAPI.log('[ForeignTurnWatcher] gate=running — returning');
+        return;
+      }
+      window.debugAPI.log('[ForeignTurnWatcher] gate=proceed');
       try {
         // Belt: cache-poke via assistant-ui internals. Best-effort —
         // the same trick used by SessionsListRefresher for the threads
@@ -266,8 +276,12 @@ function ForeignTurnWatcherDesktop() {
           ?? threadsCore?._threads?.get?.(sessionId)
           ?? null;
         if (threadCore) {
+          const hadMethod = typeof threadCore.__internal_loadHistory === 'function';
           threadCore._loadHistoryPromise = null;
           threadCore.__internal_loadHistory?.();
+          window.debugAPI.log(`[ForeignTurnWatcher] cachePoke=${hadMethod ? 'ran' : 'noMethod'}`);
+        } else {
+          window.debugAPI.log('[ForeignTurnWatcher] cachePoke=noThreadCore');
         }
         // Suspenders: force a real unmount/remount by switching AWAY
         // and back. Calling switchToThread(sessionId) alone — which
@@ -279,14 +293,23 @@ function ForeignTurnWatcherDesktop() {
         // its test in popup/popupV2/sessionLogic.ts.
         const state = (runtime.threads as any).getState?.() ?? {};
         const threadIds: string[] = Array.isArray(state.threadIds) ? state.threadIds : [];
+        window.debugAPI.log(`[ForeignTurnWatcher] threadIds=${JSON.stringify(threadIds)}`);
+        let switchedAwayTo: string | null = null;
         refreshActiveThread(
           {
-            switchToThread: (id: string) => runtime.threads.switchToThread(id),
-            switchToNewThread: () => runtime.threads.switchToNewThread(),
+            switchToThread: (id: string) => {
+              if (switchedAwayTo === null) switchedAwayTo = id;
+              runtime.threads.switchToThread(id);
+            },
+            switchToNewThread: () => {
+              if (switchedAwayTo === null) switchedAwayTo = '<new>';
+              runtime.threads.switchToNewThread();
+            },
             getThreadIds: () => threadIds,
           },
           sessionId,
         );
+        window.debugAPI.log(`[ForeignTurnWatcher] switchAway=${switchedAwayTo} switchBack=${sessionId}`);
       } catch (err) {
         console.warn('[ForeignTurnWatcher] reload nudge failed', err);
       }
