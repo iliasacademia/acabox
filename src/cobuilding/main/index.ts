@@ -47,7 +47,9 @@ import {
   getActiveWorkspace,
   listWorkspaces,
   touchWorkspace,
-  deleteAllWorkspaces,
+  deactivateAllWorkspaces,
+  findInactiveWorkspaceByDirectory,
+  reactivateWorkspace,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -1084,9 +1086,15 @@ ipcMain.handle(
     provisionWorkspace(directoryPath);
     containerService.writeStartContainerScript(directoryPath);
 
-    const id = randomUUID();
-    createWorkspace(id, name, directoryPath, apiKey);
-    touchWorkspace(id);
+    const existing = findInactiveWorkspaceByDirectory(directoryPath);
+    if (existing) {
+      reactivateWorkspace(existing.id, apiKey);
+      touchWorkspace(existing.id);
+    } else {
+      const id = randomUUID();
+      createWorkspace(id, name, directoryPath, apiKey);
+      touchWorkspace(id);
+    }
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
@@ -1148,7 +1156,7 @@ ipcMain.handle(
 );
 
 ipcMain.handle('workspaces:deleteAll', () => {
-  deleteAllWorkspaces();
+  deactivateAllWorkspaces();
   activeWorkspace = null;
 });
 
@@ -2732,7 +2740,7 @@ ipcMain.handle('auth:logout', async () => {
   try {
     activeWorkspace = null;
     cachedApiKey = null;
-    deleteAllWorkspaces();
+    deactivateAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {
