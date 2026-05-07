@@ -47,7 +47,6 @@ import {
   getActiveWorkspace,
   listWorkspaces,
   touchWorkspace,
-  deleteAllWorkspaces,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -1131,7 +1130,6 @@ ipcMain.handle(
 );
 
 ipcMain.handle('workspaces:deleteAll', () => {
-  deleteAllWorkspaces();
   activeWorkspace = null;
 });
 
@@ -2737,7 +2735,6 @@ ipcMain.handle('auth:logout', async () => {
   try {
     activeWorkspace = null;
     cachedApiKey = null;
-    deleteAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {
