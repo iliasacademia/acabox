@@ -99,7 +99,30 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // Session IDs we've already auto-opened for the current docPath. Stops us
   // re-yanking the user back into a session if they explicitly went back to
   // the list view while the session is still inside our freshness window.
+  // Persisted in localStorage so that hide/show cycles of the overlay
+  // window don't reset the set — without this, a session the overlay
+  // already moved past becomes "fresh again" on remount and the auto-open
+  // logic re-fires, switching the user out of whatever they're typing in.
   const autoOpenedSessionIdsRef = useRef<Set<string>>(new Set());
+  const autoOpenedStorageKey = (path: string | null): string =>
+    `overlay_auto_opened_sessions:${path ?? '__none__'}`;
+  const loadAutoOpenedFromStorage = (path: string | null): Set<string> => {
+    try {
+      const raw = localStorage.getItem(autoOpenedStorageKey(path));
+      if (!raw) return new Set();
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr) ? new Set(arr.filter((s) => typeof s === 'string')) : new Set();
+    } catch { return new Set(); }
+  };
+  const persistAutoOpened = (path: string | null, set: Set<string>) => {
+    try {
+      // Keep this bounded — the set only matters as a deduper, and the
+      // most-recent sessions are the only ones that can still be inside
+      // the 10s freshness window.
+      const arr = Array.from(set).slice(-50);
+      localStorage.setItem(autoOpenedStorageKey(path), JSON.stringify(arr));
+    } catch { /* quota / serialization — non-fatal */ }
+  };
   // Kickoff prompt the desktop side stashed for this docx (e.g. Writing-Agent
   // Use button or briefing card click). When non-null, the active conversation
   // view auto-sends it on mount so the overlay's chat adapter owns the SSE
@@ -141,13 +164,18 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const effectiveWid = getV4FocusedWid();
   const docPath = pollData?.activeDocumentPath ?? null;
 
-  // When the active document changes (user switched notes in Obsidian, or
-  // switched Word documents), close any open conversation and return to the
-  // session list. The previous chat is scoped to its original document and
-  // shouldn't keep accepting messages in the context of a different file.
+  // When the active document changes from one doc to a DIFFERENT doc, close
+  // any open conversation and return to the session list. The previous chat
+  // is scoped to its original document and shouldn't keep accepting messages
+  // in the context of a different file.
+  //
+  // Critical: do NOT clear when docPath transitions to null. That happens on
+  // every Cmd+Tab away from Word (focus moves to a non-doc app, polling
+  // reports activeDocumentPath=null) and clearing here causes the overlay
+  // to lose its active session every time the user briefly switches apps.
   useEffect(() => {
     const prev = prevDocPathRef.current;
-    if (prev !== null && prev !== docPath) {
+    if (prev !== null && docPath !== null && prev !== docPath) {
       setActiveSession(null);
     }
   }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -161,9 +189,11 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       postBridge('setDockRight', { docked: pref });
     }
     prevDocPathRef.current = docPath;
-    // Reset auto-open tracking when switching documents — fresh sessions for
-    // a different doc shouldn't be considered already-handled.
-    autoOpenedSessionIdsRef.current = new Set();
+    // Hydrate auto-open tracking for the new doc from localStorage. Fresh
+    // sessions for a different doc shouldn't be considered already-handled,
+    // but sessions we already auto-opened for THIS doc on a prior render
+    // (e.g. before a popup hide/show cycle) must stay deduped.
+    autoOpenedSessionIdsRef.current = loadAutoOpenedFromStorage(docPath);
   }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When Word is maximized the overlay falls back to floating (isDockedActive = false).
@@ -206,10 +236,12 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     // Auto-open a brand-new session for this document. Triggered when the
     // desktop side starts a Writing-Agent chat scoped to the active docx:
     // a session shows up that's <10s old and we haven't already auto-opened
-    // it. We override any current activeSession — the user's intent in this
-    // flow is to land in the freshly-kicked-off chat, even if they had a
-    // previous one open. `autoOpenedSessionIdsRef` keeps us from re-yanking
-    // the user if they manually navigate back to the list during the window.
+    // it. Critical: only fires when there's no activeSession — once the
+    // user is in a thread, focus changes (Cmd+Tab away/back, Word
+    // minimize/restore) must not switch them to a different session. The
+    // earlier "override any current activeSession" behavior caused the
+    // overlay to drift onto whichever session the WebSocket poll surfaced
+    // most recently, even mid-conversation.
     const sessions = pollData.workspaceSessions ?? [];
     const NEW_SESSION_MAX_AGE_MS = 10_000;
     const alreadyAutoOpened = autoOpenedSessionIdsRef.current;
@@ -218,10 +250,18 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       const createdMs = Date.parse(s.created_at);
       return Number.isFinite(createdMs) && Date.now() - createdMs < NEW_SESSION_MAX_AGE_MS;
     });
-    if (fresh && fresh.id !== activeSession?.id) {
+    if (fresh && !activeSession) {
       console.log('[AcademiaNotificationsPopupV2] Auto-opening fresh session:', fresh.id);
       setActiveSession({ id: fresh.id, title: fresh.title });
       alreadyAutoOpened.add(fresh.id);
+      persistAutoOpened(docPath, alreadyAutoOpened);
+    } else if (fresh) {
+      // Mark fresh sessions as "seen" even when we don't open them (because
+      // the user already has an active session) — so when they later go
+      // back to the list and a still-fresh session is sitting there,
+      // returning to the list doesn't immediately yank them into it.
+      alreadyAutoOpened.add(fresh.id);
+      persistAutoOpened(docPath, alreadyAutoOpened);
     }
 
     if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback && !pollData.isInWorkspace) {
