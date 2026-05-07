@@ -224,13 +224,33 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     // Kickoff prompt set by the desktop side (Writing-Agent flow). The server
     // sends it on every pollData while it's set; we dedup client-side so we
     // fire a new chat exactly once per unique prompt.
+    //
+    // Reuse the most-recent existing session for this doc when one exists,
+    // and only mint a fresh UUID when no session has ever been created.
+    // Both desktop and overlay then converge on a single canonical session
+    // per docx — they're already pointed at the same local SQLite via
+    // chatAPI / cobuilding sessions repo, so picking the same row is the
+    // entire fix for the "out of sync" symptom. A minted UUID still works
+    // as the cold-start case: the overlay's first send creates the session
+    // in the DB, the next pollData tick surfaces it back to both surfaces.
     const incoming = pollData.pendingKickoffPrompt;
     if (incoming && incoming !== lastFiredKickoffRef.current) {
       lastFiredKickoffRef.current = incoming;
-      const newSessionId = crypto.randomUUID();
-      console.log('[AcademiaNotificationsPopupV2] Kickoff prompt arrived; opening new chat', newSessionId);
+      const sessions = pollData.workspaceSessions ?? [];
+      const mostRecent = sessions.length > 0
+        ? [...sessions].sort(
+            (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+          )[0]
+        : null;
+      const sessionId = mostRecent?.id ?? crypto.randomUUID();
+      const title = mostRecent?.title ?? 'New Conversation';
+      console.log(
+        '[AcademiaNotificationsPopupV2] Kickoff prompt arrived; opening',
+        sessionId,
+        mostRecent ? '(reusing existing session)' : '(no prior session — minting)',
+      );
       setPendingKickoffPrompt(incoming);
-      setActiveSession({ id: newSessionId, title: 'New Conversation' });
+      setActiveSession({ id: sessionId, title });
     }
 
     // Auto-open a brand-new session for this document. Triggered when the
