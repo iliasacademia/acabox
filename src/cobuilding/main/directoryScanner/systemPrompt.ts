@@ -84,7 +84,7 @@ Produce a JSON report following the output schema with five fields:
 
    Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
 
-5. **suggestions**: Based on what you learned about the researcher from their folders, suggest 2-5 things you can do for them that would significantly expedite their research. These can be one-time tasks or building mini-apps.
+5. **suggestions**: Based on what you learned about the researcher from their folders, suggest things you can do for them that would significantly expedite their research. These can be one-time tasks or building mini-apps. Suggest as many as are genuinely useful — don't hold back.
 
    **One-time tasks** (\`type: "one_time_task"\`): Things the researcher would benefit from but might not think to ask for, or tasks that would take them hours but you can do quickly. Examples:
    - Summarizing or synthesizing a body of literature they have collected

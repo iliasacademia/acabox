@@ -53,7 +53,7 @@ export const REPORT_JSON_SCHEMA = {
         },
         required: ['name', 'type', 'why_im_suggesting_this', 'description'],
       },
-      description: 'A list of 2-5 suggestions that would significantly expedite the researcher\'s work. Can be one-time tasks (summarizing, synthesizing, converting, analyzing) or interactive mini-apps (data explorers, dashboards, chart generators).',
+      description: 'Suggestions that would significantly expedite the researcher\'s work. Can be one-time tasks (summarizing, synthesizing, converting, analyzing) or interactive mini-apps (data explorers, dashboards, chart generators). Include as many as are genuinely useful.',
     },
     tagged_files: {
       type: 'array',
