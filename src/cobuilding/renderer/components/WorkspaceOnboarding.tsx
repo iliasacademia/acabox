@@ -4,10 +4,11 @@ import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon } from 'lucide-reac
 
 interface WorkspaceOnboardingProps {
   onComplete: () => void;
+  onSkip: () => void;
   onBack?: () => void;
 }
 
-const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, onBack }) => {
+const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, onSkip, onBack }) => {
   const [directoryPath, setDirectoryPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -28,20 +29,23 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
     }
   };
 
-  const handleContinue = async () => {
+  const createWorkspace = async (callback: () => void) => {
     if (!directoryPath || isCreating) return;
     setError(null);
     setIsCreating(true);
     try {
       const name = directoryPath.split('/').filter(Boolean).pop() || 'My Workspace';
       await window.workspacesAPI.create({ name, directoryPath });
-      onComplete();
+      callback();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to create workspace.';
       setError(message);
       setIsCreating(false);
     }
   };
+
+  const handleContinue = () => createWorkspace(onComplete);
+  const handleSkip = () => createWorkspace(onSkip);
 
   return (
     <div className="wsSetup">
@@ -124,6 +128,17 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
         >
           {isCreating ? 'Setting up...' : <>Continue <span className="wsSetup__arrow">&rarr;</span></>}
         </button>
+
+        {directoryPath && (
+          <button
+            type="button"
+            className="wsSetup__skipBtn"
+            disabled={isCreating}
+            onClick={handleSkip}
+          >
+            Skip for now
+          </button>
+        )}
       </div>
     </div>
   );

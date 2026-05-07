@@ -151,6 +151,7 @@ const packagerConfig = {
       console.warn('[forge.config] Linux claude binary not found — run npm install first');
       return [];
     })(),
+    'src/cobuilding/prebuilt-apps',
     ...(platform === 'darwin' ? [
       'src/applescripts',
       'src/native/build/Release/word_accessibility.node',
@@ -280,7 +281,7 @@ module.exports = {
       config: {
         port: devServerPort,
         loggerPort: loggerPort,
-        devContentSecurityPolicy: "default-src 'self' data:; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://edge.fullstory.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: local-file:; frame-src local-file:; connect-src 'self' ws: http://localhost:* https://*.fullstory.com;",
+        devContentSecurityPolicy: "default-src 'self' data:; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://edge.fullstory.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: local-file:; frame-src local-file: http://localhost:* http://127.0.0.1:*; connect-src 'self' ws: http://localhost:* https://*.fullstory.com;",
         mainConfig: './webpack.main.config.js',
         renderer: {
           config: './webpack.renderer.config.js',

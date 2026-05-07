@@ -58,6 +58,10 @@ export interface AnthropicParams {
   system?: string;
 }
 
+interface BridgeAcademiaAPI {
+  fetch(method: string, endpoint: string, data?: unknown): Promise<unknown>;
+}
+
 interface BridgeAnthropicAPI {
   complete(params: AnthropicParams): Promise<AnthropicMessage>;
   stream(params: AnthropicParams, onChunk: (text: string) => void): Promise<AnthropicMessage>;
@@ -117,6 +121,11 @@ const errorAPI: BridgeErrorAPI = {
   requestFix: (error) => request("requestFix", { error }),
 };
 
+const academiaAPI: BridgeAcademiaAPI = {
+  fetch: (method: string, endpoint: string, data?: unknown) =>
+    request('academia:fetch', { method, endpoint, data }),
+};
+
 const anthropicAPI: BridgeAnthropicAPI = {
   // Delegates to the standard request/response bridge. The main process
   // validates all params and returns the full message once generation finishes.
@@ -158,4 +167,4 @@ window.addEventListener("message", (event) => {
   }
 });
 
-Object.assign(window, { filesAPI, kernel, containerAPI, errorAPI, anthropicAPI, getWorkspacePath: () => _workspacePath });
+Object.assign(window, { filesAPI, kernel, containerAPI, errorAPI, academiaAPI, anthropicAPI, getWorkspacePath: () => _workspacePath });

@@ -18,6 +18,7 @@ module.exports = {
     reviewButton: './src/popup/ReviewButton.tsx',
     reviewButtonV3: './src/popup/ReviewButtonV3.tsx',
     reviewPanelV3: './src/popup/ReviewPanelV3.tsx',
+    grantFinder: './src/cobuilding/renderer/grant-finder-entry.tsx',
   },
   output: {
     path: path.resolve(__dirname, 'dist/popup'),
@@ -85,6 +86,11 @@ module.exports = {
       chunks: ['reviewPanelV3'],
       inject: false,
       scriptLoading: 'blocking',
+    }),
+    new HtmlWebpackPlugin({
+      template: './src/cobuilding/renderer/grant-finder.html',
+      filename: 'grantFinder/index.html',
+      chunks: ['grantFinder'],
     }),
     new HtmlWebpackPlugin({
       template: './src/popup/debugging-red-border-container.html',

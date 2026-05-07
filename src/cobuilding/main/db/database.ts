@@ -302,10 +302,26 @@ const migrations = [
     `,
   },
   {
-    // Existing dev installs already ran v18 with the old CHECK clause that
-    // disallowed 'writing_agent'. SQLite has no ALTER for CHECK constraints,
-    // so we recreate the table preserving rows.
     version: 19,
+    sql: `
+      CREATE TABLE scanned_files (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        report_id TEXT REFERENCES workspace_reports(id) ON DELETE CASCADE,
+        file_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_type TEXT NOT NULL CHECK (file_type IN ('manuscript', 'grant', 'presentation')),
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now'))
+      );
+      CREATE INDEX idx_scanned_files_workspace ON scanned_files(workspace_id);
+      CREATE INDEX idx_scanned_files_type ON scanned_files(workspace_id, file_type);
+    `,
+  },
+  {
+    // Existing dev installs ran v18 before 'writing_agent' was added to the
+    // CHECK clause. SQLite has no ALTER for CHECK constraints, so we recreate
+    // the briefings table preserving rows.
+    version: 20,
     sql: `
       CREATE TABLE briefings_new (
         id                     TEXT PRIMARY KEY,

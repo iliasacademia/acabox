@@ -5,6 +5,7 @@ import log from 'electron-log';
 import { resolveClaudeBinary } from '../sdkBinarySetup';
 import { createReport, updateReportStatus } from '../db/reportRepository';
 import { createBriefing, updateBriefingData } from '../db/briefingsRepository';
+import { upsertScannedFiles } from '../db/scannedFilesRepository';
 import { buildScannerSystemPrompt, buildScannerPrompt } from './systemPrompt';
 import { REPORT_JSON_SCHEMA } from './reportSchema';
 import { analyzeManuscriptForImprovements } from './manuscriptAnalysis';
@@ -270,7 +271,7 @@ const blockHiddenPaths: HookCallback = async (input) => {
 };
 
 export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> {
-  const { workspaceId, directoryPath, apiKey, onMessage } = params;
+  const { workspaceId, directoryPath, apiKey, baseURL, onMessage } = params;
   const reportId = randomUUID();
 
   log.info(`[DirectoryScanner] Starting scan for workspace ${workspaceId} at ${directoryPath}`);
@@ -301,6 +302,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
         env: {
           ...process.env,
           ANTHROPIC_API_KEY: apiKey,
+          ...(baseURL ? { ANTHROPIC_BASE_URL: baseURL } : {}),
         },
         persistSession: false,
         thinking: { type: 'disabled' },
@@ -374,6 +376,14 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
             });
           } catch (err) {
             log.error('[DirectoryScanner] Failed to create briefings from scan:', err);
+          }
+          try {
+            const scanData = JSON.parse(resultText);
+            if (Array.isArray(scanData.tagged_files)) {
+              upsertScannedFiles(workspaceId, reportId, scanData.tagged_files);
+            }
+          } catch (err) {
+            log.error('[DirectoryScanner] Failed to persist tagged files:', err);
           }
           onMessage?.({ type: 'complete', reportId, reportData: resultText });
         } else {

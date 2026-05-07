@@ -25,6 +25,7 @@ import {
   setBriefingStatus,
   type BriefingStatus,
 } from './db/briefingsRepository';
+import { getScannedFilesByType, getScannedFiles } from './db/scannedFilesRepository';
 import { kernelGatewayService } from './kernelGatewayService';
 import { initDatabase, getDatabase, closeDatabase } from './db/database';
 import { initObservationsDatabase, getObservationsDatabase, closeObservationsDatabase } from './db/observationsDatabase';
@@ -46,6 +47,7 @@ import {
   getActiveWorkspace,
   listWorkspaces,
   touchWorkspace,
+  deleteAllWorkspaces,
   type Workspace,
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
@@ -74,7 +76,7 @@ import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } fro
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { BackgroundBuilder } from './backgroundBuilder';
 import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer, installDepsStreaming } from './environmentGenerator';
-import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL } from '../../apiClient';
+import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL, hasSessionCookie } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuildingAuthService';
 import { fetchGatewayCredentials, getAnthropicConfig, setRefreshCallback, destroyTokenManager, type AnthropicConfig } from './cobuildingTokenManager';
@@ -98,6 +100,8 @@ const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
+
+let cobuildingHttpBaseUrl: string | null = null;
 
 const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
   'Complete ALL of the following steps in order:\n' +
@@ -370,7 +374,18 @@ let activeWorkspace: Workspace | null = null;
 
 let cachedApiKey: string | null = null;
 let cachedBaseURL: string | undefined = undefined;
-let activeApiBaseUrl: string = BASE_URL;
+let activeApiBaseUrl: string = (() => {
+  if (app.isPackaged) return BASE_URL;
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    if (data.apiEndpoint === 'production') {
+      const url = 'https://api.academia.edu/';
+      setBaseUrl(url);
+      return url;
+    }
+  } catch { }
+  return BASE_URL;
+})();
 
 async function refreshCredentialsForSession(): Promise<{ apiKey: string; baseURL?: string }> {
   const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
@@ -956,6 +971,7 @@ app.whenReady().then(async () => {
           const port = await httpServer.start();
           const baseUrl = httpServer.getBaseUrl();
           const authToken = httpServer.getAuthToken();
+          cobuildingHttpBaseUrl = baseUrl;
           log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
 
           // Store HTTP port so the HTTPS server can proxy to it when started from debug panel
@@ -1103,6 +1119,11 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle('workspaces:deleteAll', () => {
+  deleteAllWorkspaces();
+  activeWorkspace = null;
+});
+
 ipcMain.handle('workspaces:list', () => {
   return listWorkspaces();
 });
@@ -1205,17 +1226,34 @@ ipcMain.handle(
   },
 );
 
+// ─── Scanned Files IPC ──────────────────────────────────────────
+
+ipcMain.handle('scannedFiles:getByType', (_event, fileType: string) => {
+  if (!activeWorkspace) return [];
+  return getScannedFilesByType(activeWorkspace.id, fileType);
+});
+
+ipcMain.handle('scannedFiles:getAll', () => {
+  if (!activeWorkspace) return [];
+  return getScannedFiles(activeWorkspace.id);
+});
+
 // ─── Directory Scanner IPC ──────────────────────────────────────
 
 let scannerRunning = false;
 
-ipcMain.handle('scanner:start', () => {
+ipcMain.handle('scanner:start', async () => {
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  const apiKey = activeWorkspace.api_key;
+  let apiKey = activeWorkspace.api_key;
   if (!apiKey) {
-    throw new Error('No API key available');
+    const result = await fetchGatewayCredentials(getApiProvider() === 'cloudflare');
+    cachedApiKey = result.apiKey;
+    cachedBaseURL = result.baseURL;
+    apiKey = result.apiKey;
+    updateApiKey(activeWorkspace.id, apiKey);
+    activeWorkspace = { ...activeWorkspace, api_key: apiKey };
   }
   if (scannerRunning) {
     log.warn('[scanner:start] Scan already in progress — ignoring duplicate request');
@@ -1272,6 +1310,7 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
   const { resolveObsidianDocumentPath } = require('./hostApps/obsidianHostApp');
   const { checkLogin } = require('../../apiClient');
   const { findReferencesForFile, findReferencesForText, createCitationReportFromText, getCitationReport, addClaimToReport, searchCitationsForClaim, formatCitations, listCitationReports } = require('./citeright/citeRightClient');
+  const { saveUserContext: grantsSaveUserContext, createProject: grantsCreateProject, getProject: grantsGetProject, listProjects: grantsListProjects, setFavoriteOpportunity, setHiddenOpportunity, setHiddenReason: grantsSetHiddenReason, visitOpportunity, updateProject: grantsUpdateProject } = require('./grants/grantsClient');
   const { summarizeReport } = require('./citeright/reportSummary');
   const { createSession: createDbSession, insertMessage: insertDbMessage, updateSessionTitle } = require('./db/chatRepository');
   const { randomUUID } = require('crypto');
@@ -1419,6 +1458,45 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
           const { addDoiToZotero } = require('../../zoteroLocalClient');
           return ok(JSON.stringify(await addDoiToZotero(args.doi)));
         } catch (e: any) { return fail(`Zotero add_doi failed: ${e.message}`); }
+      },
+    },
+
+    grants: {
+      save_user_context: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsSaveUserContext(args.data)));
+      },
+      create_project: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsCreateProject(args.research_summary, args.name)));
+      },
+      get_project: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsGetProject(args.project_id)));
+      },
+      list_projects: async () => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsListProjects()));
+      },
+      favorite_opportunity: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await setFavoriteOpportunity(args.project_id, args.grant_opportunity_id, args.favorite)));
+      },
+      hide_opportunity: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await setHiddenOpportunity(args.project_id, args.grant_opportunity_id, args.hidden)));
+      },
+      set_hidden_reason: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsSetHiddenReason(args.project_id, args.grant_opportunity_id, args.hidden_reason)));
+      },
+      visit_opportunity: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await visitOpportunity(args.project_id, args.grant_opportunity_id)));
+      },
+      update_project: async (args: any) => {
+        const isLoggedIn = await checkLogin(); if (!isLoggedIn) return fail('Grants Finder requires a logged-in academia.edu account.');
+        return ok(JSON.stringify(await grantsUpdateProject(args.project_id, { name: args.name, research_summary: args.research_summary })));
       },
     },
   };
@@ -1659,6 +1737,11 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'mcp__obsidian__get_active_note', 'mcp__obsidian__get_text',
       'mcp__obsidian__list_notes', 'mcp__obsidian__open_note',
       'mcp__obsidian__find_and_replace',
+      'mcp__grants__save_user_context', 'mcp__grants__create_project',
+      'mcp__grants__get_project', 'mcp__grants__list_projects',
+      'mcp__grants__favorite_opportunity', 'mcp__grants__hide_opportunity',
+      'mcp__grants__set_hidden_reason', 'mcp__grants__visit_opportunity',
+      'mcp__grants__update_project',
     ],
     settingSources: ['project'],
   };
@@ -2471,6 +2554,18 @@ ipcMain.on('anthropic:stream', async (event, { streamKey, params }: { streamKey:
   }
 });
 
+ipcMain.handle('nativeTools:getUrl', async (_event, toolId: string) => {
+  if (toolId === 'grantFinder' && cobuildingHttpBaseUrl) {
+    return `${cobuildingHttpBaseUrl}/ui/popup/grantFinder/index.html`;
+  }
+  return null;
+});
+
+ipcMain.handle('academia:fetch', async (_event, args: { method: string; endpoint: string; data?: unknown }) => {
+  const { callBackendApi } = require('../../apiCall');
+  return callBackendApi({ method: args.method as any, endpoint: args.endpoint, data: args.data });
+});
+
 // Auth IPC handlers
 ipcMain.handle('auth:checkLogin', async () => {
   try {
@@ -2612,6 +2707,7 @@ ipcMain.handle('auth:logout', async () => {
   try {
     activeWorkspace = null;
     cachedApiKey = null;
+    deleteAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {
@@ -2620,6 +2716,8 @@ ipcMain.handle('auth:logout', async () => {
   }
 });
 
+ipcMain.handle('auth:hasSessionCookie', () => hasSessionCookie());
+
 ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
   if (app.isPackaged) {
     return { success: false, error: 'Endpoint switching is not available in packaged builds' };
@@ -2627,6 +2725,15 @@ ipcMain.handle('auth:setEndpoint', (_event, endpoint: string) => {
   const url = endpoint === 'production' ? 'https://api.academia.edu/' : 'https://api.devdemia.com/';
   activeApiBaseUrl = url;
   setBaseUrl(url);
+
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.apiEndpoint = endpoint;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+
   log.info(`[Auth] Switched API endpoint to ${endpoint} (${url})`);
   return { success: true, endpoint };
 });

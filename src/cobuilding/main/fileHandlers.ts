@@ -377,7 +377,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
         .map(async (e) => {
           const dirName = e.name;
           const manifestPath = path.join(appsDir, dirName, 'manifest.json');
-          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown } | null = null;
+          let manifest: { name?: unknown; description?: unknown; icon?: unknown; lastOpened?: unknown; preBuilt?: unknown } | null = null;
           try {
             const raw = await fsPromises.readFile(manifestPath, 'utf-8');
             manifest = JSON.parse(raw);
@@ -391,6 +391,7 @@ export function registerFileHandlers(getWorkspacePath: () => string | null, getM
             description: typeof manifest?.description === 'string' ? manifest.description : null,
             icon: typeof manifest?.icon === 'string' ? manifest.icon : null,
             lastOpened: typeof manifest?.lastOpened === 'string' ? manifest.lastOpened : null,
+            preBuilt: manifest?.preBuilt === true,
             hasManifest: manifest !== null,
           };
         }),

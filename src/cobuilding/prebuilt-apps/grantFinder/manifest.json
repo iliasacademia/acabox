@@ -1,0 +1,7 @@
+{
+  "name": "Grant Finder",
+  "description": "Funding opportunities matched to your research",
+  "icon": "Search",
+  "preBuilt": true,
+  "version": "1.0.0"
+}

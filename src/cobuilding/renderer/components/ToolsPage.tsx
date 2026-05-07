@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as LucideIcons from 'lucide-react';
-import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, BellIcon, PenLineIcon } from 'lucide-react';
+import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 
 type ToolsPageMiniApp = MiniAppEntry;
@@ -59,6 +59,8 @@ interface AvailableStub {
   preBuilt?: boolean;
   lastOpened: string;
   status?: string;
+  filePickerType?: 'manuscript' | 'grant' | 'presentation' | 'all' | 'manuscript_grant';
+  chatPromptTemplate?: (filePath: string) => string;
 }
 
 function hoursAgoIso(hours: number): string {
@@ -66,9 +68,37 @@ function hoursAgoIso(hours: number): string {
 }
 
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
-  { name: 'Writing Agent', description: 'Draft and revise manuscripts in MS Word with tracked changes', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(2) },
+  {
+    name: 'Academic Writing Agent',
+    description: 'Draft, revise, and polish manuscripts and grants',
+    tag: 'ON-DEMAND',
+    preBuilt: true,
+    lastOpened: hoursAgoIso(2),
+    filePickerType: 'manuscript_grant',
+    chatPromptTemplate: (filePath) =>
+      `/academic-writing-agent\n\nPlease help me work on the following file: ${filePath}`,
+  },
   { name: 'Grant Finder', description: 'Funding opportunities matched to your research', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(72) },
-  { name: 'Peer Review Assistant', description: 'Manuscript review with structured feedback', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(240) },
+  {
+    name: 'Grant Writer',
+    description: 'AI-assisted grant writing, specific aims, and narrative drafting',
+    tag: 'ON-DEMAND',
+    preBuilt: true,
+    lastOpened: hoursAgoIso(72),
+    filePickerType: 'grant',
+    chatPromptTemplate: (filePath) =>
+      `/academic-writing-agent\n\nPlease help me write and improve my grant proposal: ${filePath}`,
+  },
+  {
+    name: 'Peer Review Assistant',
+    description: 'Manuscript review with structured feedback',
+    tag: 'ON-DEMAND',
+    preBuilt: true,
+    lastOpened: hoursAgoIso(240),
+    filePickerType: 'manuscript',
+    chatPromptTemplate: (filePath) =>
+      `/academic-writing-agent\n\nPlease review my manuscript and provide structured feedback: ${filePath}`,
+  },
   { name: 'Literature Synthesis', description: 'Build a structured review across many papers', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(48) },
   { name: 'Paper Monitor', description: 'New papers in your topics, weekly digest', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(5), status: 'ran this morning \u00b7 4 items' },
   { name: 'Citation Alerts', description: 'When new work cites your publications', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(6), status: 'ran 6h ago \u00b7 1 new citation' },
@@ -77,12 +107,10 @@ const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
 export function ToolsPage({
   workspacePath,
   onSelectApp,
-  onOpenPaperMonitor,
   onSwitchToChat,
 }: {
   workspacePath: string;
-  onSelectApp: (dirName: string) => void;
-  onOpenPaperMonitor: () => void;
+  onSelectApp: (dirName: string, opts?: { preBuilt?: boolean }) => void;
   onSwitchToChat: () => void;
 }) {
   const [apps, setApps] = useState<ToolsPageMiniApp[]>([]);
@@ -162,77 +190,84 @@ export function ToolsPage({
 
   const handleBuildSuggested = useCallback((tool: SuggestedMiniApp) => {
     assistantRuntime.switchToNewThread();
-    onSwitchToChat();
     setTimeout(() => {
-      composerRuntime.setText(
-        `Please build the following mini-app for me:\n\n${tool.details_on_what_to_build}`
-      );
-      composerRuntime.send();
-    }, 100);
+      composerRuntime.setText(`Build me a tool called "${tool.name}". ${tool.details_on_what_to_build}`);
+      onSwitchToChat();
+      setTimeout(() => {
+        const input = document.querySelector<HTMLTextAreaElement>('.composerInput');
+        if (input) {
+          input.focus();
+          input.setSelectionRange(input.value.length, input.value.length);
+        }
+        const shell = document.querySelector('.composerShell');
+        if (shell) {
+          shell.classList.remove('composerShell--highlight');
+          void (shell as HTMLElement).offsetWidth;
+          shell.classList.add('composerShell--highlight');
+        }
+      }, 0);
+    }, 0);
   }, [assistantRuntime, composerRuntime, onSwitchToChat]);
 
   const handleDismissSuggested = useCallback((tool: SuggestedMiniApp) => {
     setSuggestedApps((prev) => prev.filter((t) => t.name !== tool.name));
   }, []);
 
-  const handleStubAction = useCallback(() => {
-    alert('This is a placeholder for now.');
-  }, []);
-
-  // Writing Agent: pick a DOCX manuscript and open it in MS Word.
-  const [writingAgentChooser, setWritingAgentChooser] = useState<
-    { relPath: string; mtimeMs: number }[] | null
-  >(null);
-  const [writingAgentLoading, setWritingAgentLoading] = useState(false);
-  // Set to the relPath being analyzed while the kickoff prompt is generated;
-  // gates the chooser modal so the user sees progress instead of a no-op click.
-  const [writingAgentAnalyzing, setWritingAgentAnalyzing] = useState<string | null>(null);
-
-  const handleOpenWritingAgent = useCallback(async () => {
-    setWritingAgentLoading(true);
-    try {
-      const docxFiles = await window.filesAPI.findByExtension(['docx']);
-      setWritingAgentChooser(docxFiles);
-    } catch (err) {
-      console.error('[WritingAgent] Failed to list DOCX files:', err);
-      setWritingAgentChooser([]);
-    } finally {
-      setWritingAgentLoading(false);
-    }
-  }, []);
-
-  const handleWritingAgentPick = useCallback(async (relPath: string) => {
-    const absolutePath = `${workspacePath}/${relPath}`;
-    const fileUrl = absolutePath.startsWith('file://')
-      ? absolutePath
-      : `file://${absolutePath}`;
-    setWritingAgentAnalyzing(relPath);
-    // Run the mammoth + Haiku analyzer to produce a manuscript-specific
-    // kickoff that names actual sections / claims / weaknesses, so the agent
-    // can act immediately instead of having to read the whole doc first.
-    let prompt: string;
-    try {
-      prompt = await window.fileMonitorAPI.analyzeManuscriptForKickoff(absolutePath);
-    } catch (err) {
-      console.warn('[WritingAgent] Manuscript analysis failed; using generic prompt:', err);
-      const fileName = relPath.split('/').pop() ?? relPath;
-      prompt = `My manuscript "${fileName}" is open in Word. Please read it with the ms-word tools, identify 3-5 specific things I could improve (clarity, structure, argument, evidence, citations), and start on the highest-leverage one.`;
-    }
-    setWritingAgentAnalyzing(null);
-    setWritingAgentChooser(null);
-    try {
-      await window.fileMonitorAPI.setOverlayKickoffForDocument(absolutePath, prompt);
-    } catch (err) {
-      console.warn('[WritingAgent] Failed to stash kickoff:', err);
-    }
-    window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
-    window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
-  }, [workspacePath]);
-
   const [toolFilter, setToolFilter] = useState<'all' | 'on-demand' | 'scheduled'>('all');
   const [settingsOpen, setSettingsOpen] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<ToolsPageMiniApp | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // File picker modal for pre-built writing tools
+  const [filePicker, setFilePicker] = useState<{
+    stub: AvailableStub;
+    files: ScannedFile[];
+    loading: boolean;
+  } | null>(null);
+
+  const handleOpenFilePicker = useCallback(async (stub: AvailableStub) => {
+    if (!stub.filePickerType) { alert('This is a placeholder for now.'); return; }
+    setFilePicker({ stub, files: [], loading: true });
+    try {
+      const files = (stub.filePickerType === 'all' || stub.filePickerType === 'manuscript_grant')
+        ? await window.scannedFilesAPI.getAll()
+        : await window.scannedFilesAPI.getByType(stub.filePickerType);
+      setFilePicker((prev) => prev ? { ...prev, files, loading: false } : null);
+    } catch {
+      setFilePicker((prev) => prev ? { ...prev, files: [], loading: false } : null);
+    }
+  }, []);
+
+  const handlePickFile = useCallback((stub: AvailableStub, filePath: string) => {
+    setFilePicker(null);
+    if (!stub.chatPromptTemplate) return;
+    assistantRuntime.switchToNewThread();
+    onSwitchToChat();
+    setTimeout(() => {
+      composerRuntime.setText(stub.chatPromptTemplate!(filePath));
+      composerRuntime.send();
+    }, 100);
+  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
+
+  const handleBrowseFile = useCallback(async (stub: AvailableStub) => {
+    setFilePicker(null);
+    const filePath = await window.filesAPI.selectFile();
+    if (!filePath || !stub.chatPromptTemplate) return;
+    assistantRuntime.switchToNewThread();
+    onSwitchToChat();
+    setTimeout(() => {
+      composerRuntime.setText(stub.chatPromptTemplate!(filePath));
+      composerRuntime.send();
+    }, 100);
+  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
+
+  const handleStubAction = useCallback((stub: AvailableStub) => {
+    if (stub.filePickerType) {
+      handleOpenFilePicker(stub);
+    } else {
+      alert('This is a placeholder for now.');
+    }
+  }, [handleOpenFilePicker]);
 
   const handleDelete = useCallback(async (app: ToolsPageMiniApp) => {
     setDeleting(true);
@@ -373,10 +408,11 @@ export function ToolsPage({
                               <div className="toolRow__header">
                                 <button
                                   className="toolRow__name"
-                                  onClick={() => onSelectApp(app.dirName)}
+                                  onClick={() => onSelectApp(app.dirName, { preBuilt: app.preBuilt })}
                                 >
                                   {app.name}
                                 </button>
+                                {app.preBuilt && <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>}
                                 <span className="toolRow__tag toolRow__tag--plain">ON-DEMAND</span>
                               </div>
                               {app.description && <div className="toolRow__description">{app.description}</div>}
@@ -395,7 +431,7 @@ export function ToolsPage({
                               </button>
                               <button
                                 className="toolRow__primaryBtn"
-                                onClick={() => onSelectApp(app.dirName)}
+                                onClick={() => onSelectApp(app.dirName, { preBuilt: app.preBuilt })}
                               >
                                 <PlayIcon style={{ width: 14, height: 14 }} />
                                 Use
@@ -417,32 +453,15 @@ export function ToolsPage({
                       );
                     }
                     const { stub: tool } = item;
-                    const isPaperMonitor = tool.name === 'Paper Monitor';
-                    const isWritingAgent = tool.name === 'Writing Agent';
-                    const stubKey = `stub:${tool.name}`;
-                    const stubSettingsOpen = settingsOpen === stubKey;
-                    const StubIcon = isPaperMonitor
-                      ? BellIcon
-                      : isWritingAgent
-                        ? PenLineIcon
-                        : LayoutGridIcon;
-                    const onPrimary = isPaperMonitor
-                      ? onOpenPaperMonitor
-                      : isWritingAgent
-                        ? handleOpenWritingAgent
-                        : handleStubAction;
-                    const onSettingsClick = isPaperMonitor
-                      ? () => setSettingsOpen(stubSettingsOpen ? null : stubKey)
-                      : handleStubAction;
+                    const stubAction = () => handleStubAction(tool);
                     return (
-                      <div key={item.key}>
-                      <div className={`toolRow${bordered}`}>
+                      <div key={item.key} className={`toolRow${bordered}`}>
                         <div className="toolRow__icon">
-                          <StubIcon style={{ width: 18, height: 18 }} />
+                          <LayoutGridIcon style={{ width: 18, height: 18 }} />
                         </div>
                         <div className="toolRow__info">
                           <div className="toolRow__header">
-                            <button className="toolRow__name" onClick={onPrimary}>
+                            <button className="toolRow__name" onClick={stubAction}>
                               {tool.name}
                             </button>
                             <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>
@@ -455,29 +474,21 @@ export function ToolsPage({
                           })()}
                         </div>
                         <div className="toolRow__actions">
-                          {!isWritingAgent && (
-                            <button className="toolRow__settingsBtn" onClick={onSettingsClick}>
-                              <ChevronRightIcon style={{ width: 14, height: 14, transform: stubSettingsOpen ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
-                              Settings
-                            </button>
-                          )}
+                          <button className="toolRow__settingsBtn" onClick={() => handleStubAction(tool)}>
+                            <ChevronRightIcon style={{ width: 14, height: 14 }} />
+                            Settings
+                          </button>
                           {tool.tag === 'SCHEDULED' ? (
-                            <button className="toolRow__primaryBtn" onClick={onPrimary}>
+                            <button className="toolRow__primaryBtn" onClick={() => handleStubAction(tool)}>
                               View outputs
                             </button>
                           ) : (
-                            <button className="toolRow__primaryBtn" onClick={onPrimary}>
+                            <button className="toolRow__primaryBtn" onClick={stubAction}>
                               <PlayIcon style={{ width: 14, height: 14 }} />
                               Use
                             </button>
                           )}
                         </div>
-                      </div>
-                      {isPaperMonitor && stubSettingsOpen && (
-                        <div className="toolRow__settingsPanel">
-                          <PaperMonitorSettings />
-                        </div>
-                      )}
                       </div>
                     );
                   });
@@ -524,6 +535,72 @@ export function ToolsPage({
         </div>
       )}
 
+      {filePicker && (
+        <div className="toolsConfirmOverlay" onClick={() => setFilePicker(null)}>
+          <div className="filePickerModal" onClick={(e) => e.stopPropagation()}>
+
+            <div className="filePickerModal__header">
+              <div>
+                <h2 className="filePickerModal__title">{filePicker.stub.name}</h2>
+                <p className="filePickerModal__subtitle">Select a file to work on, or browse to choose one.</p>
+              </div>
+              <button className="filePickerModal__close" onClick={() => setFilePicker(null)}>
+                <XIcon style={{ width: 16, height: 16 }} />
+              </button>
+            </div>
+
+            <div className="filePickerModal__body">
+              {filePicker.loading ? (
+                <div className="filePickerModal__empty">Loading files…</div>
+              ) : filePicker.files.length === 0 ? (
+                <div className="filePickerModal__empty">
+                  No tagged files found from your last scan. Use "Browse files" to select manually.
+                </div>
+              ) : (
+                (['manuscript', 'grant', 'presentation'] as const)
+                  .filter((type) => {
+                    if (filePicker.stub.filePickerType === 'all') return filePicker.files.some((f) => f.file_type === type);
+                    if (filePicker.stub.filePickerType === 'manuscript_grant') return type !== 'presentation' && filePicker.files.some((f) => f.file_type === type);
+                    return type === filePicker.stub.filePickerType;
+                  })
+                  .map((type) => {
+                    const group = filePicker.files.filter((f) => f.file_type === type);
+                    if (group.length === 0) return null;
+                    const label = type === 'manuscript' ? 'Manuscripts' : type === 'grant' ? 'Grants' : 'Presentations';
+                    return (
+                      <div key={type} className="filePickerModal__group">
+                        <div className="filePickerModal__groupLabel">{label}</div>
+                        {group.map((file, i) => (
+                          <button
+                            key={file.id}
+                            className={`filePickerModal__row${i > 0 ? ' filePickerModal__row--bordered' : ''}`}
+                            onClick={() => handlePickFile(filePicker.stub, file.file_path)}
+                          >
+                            <FileTextIcon className="filePickerModal__rowIcon" />
+                            <span className="filePickerModal__rowName">{file.file_name}</span>
+                            <span className="filePickerModal__rowPath">{file.file_path}</span>
+                          </button>
+                        ))}
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+
+            <div className="filePickerModal__footer">
+              <button className="createToolModal__cancelBtn" onClick={() => setFilePicker(null)}>
+                Cancel
+              </button>
+              <button className="createToolModal__createBtn" onClick={() => handleBrowseFile(filePicker.stub)}>
+                <FolderOpenIcon style={{ width: 14, height: 14, marginRight: 6 }} />
+                Browse files
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {showCreateModal && (
         <div className="toolsConfirmOverlay" onClick={() => setShowCreateModal(false)}>
           <div className="createToolModal" onClick={(e) => e.stopPropagation()}>
@@ -558,174 +635,6 @@ export function ToolsPage({
           </div>
         </div>
       )}
-
-      {(writingAgentChooser !== null || writingAgentLoading) && (
-        <div
-          className="toolsConfirmOverlay"
-          onClick={() => { if (!writingAgentAnalyzing) setWritingAgentChooser(null); }}
-        >
-          <div className="createToolModal" onClick={(e) => e.stopPropagation()}>
-            <button
-              className="createToolModal__close"
-              onClick={() => { if (!writingAgentAnalyzing) setWritingAgentChooser(null); }}
-              disabled={!!writingAgentAnalyzing}
-            >&times;</button>
-            <h2 className="createToolModal__title">Pick a manuscript</h2>
-            <p className="createToolModal__subtitle">
-              {writingAgentAnalyzing
-                ? 'Analyzing the manuscript to draft a focused first message…'
-                : 'Choose a DOCX file to open in Word with the Writing Agent overlay alongside.'}
-            </p>
-            <div style={{ maxHeight: 340, overflowY: 'auto', marginTop: 8 }}>
-              {writingAgentLoading && (
-                <div style={{ padding: '16px 4px', color: '#888' }}>Searching workspace…</div>
-              )}
-              {!writingAgentLoading && writingAgentChooser && writingAgentChooser.length === 0 && (
-                <div style={{ padding: '16px 4px', color: '#888' }}>
-                  No DOCX files found in this workspace.
-                </div>
-              )}
-              {!writingAgentLoading && writingAgentChooser && writingAgentChooser.map((f) => {
-                const parts = f.relPath.split('/');
-                const name = parts[parts.length - 1];
-                const dir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
-                const isAnalyzingThis = writingAgentAnalyzing === f.relPath;
-                const isAnalyzingOther = !!writingAgentAnalyzing && !isAnalyzingThis;
-                return (
-                  <button
-                    key={f.relPath}
-                    onClick={() => handleWritingAgentPick(f.relPath)}
-                    disabled={!!writingAgentAnalyzing}
-                    style={{
-                      display: 'block',
-                      width: '100%',
-                      textAlign: 'left',
-                      padding: '10px 12px',
-                      border: '1px solid #e6e6e6',
-                      borderRadius: 6,
-                      marginBottom: 6,
-                      background: isAnalyzingThis ? '#f3f4f6' : '#fff',
-                      cursor: writingAgentAnalyzing ? 'default' : 'pointer',
-                      opacity: isAnalyzingOther ? 0.5 : 1,
-                    }}
-                  >
-                    <div style={{ fontWeight: 500 }}>
-                      {name}
-                      {isAnalyzingThis && (
-                        <span style={{ fontWeight: 400, color: '#888', marginLeft: 8 }}>
-                          analyzing…
-                        </span>
-                      )}
-                    </div>
-                    {dir && (
-                      <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{dir}</div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --- Paper Monitor settings (inline editor under the row) ---
-
-const PAPER_MONITOR_SETTINGS_KEY = 'cobuild.paperMonitor.settings';
-
-interface PaperMonitorSettingsValue {
-  topics: string;
-  sources: string;
-  frequency: string;
-  dayOfWeek: string;
-}
-
-const DEFAULT_SETTINGS: PaperMonitorSettingsValue = {
-  topics: 'wound healing, YAP/TAZ, mechanotransduction',
-  sources: 'PubMed, bioRxiv, 5 journals',
-  frequency: 'Weekly',
-  dayOfWeek: 'Monday · 8am',
-};
-
-function loadSettings(): PaperMonitorSettingsValue {
-  try {
-    const raw = localStorage.getItem(PAPER_MONITOR_SETTINGS_KEY);
-    if (!raw) return DEFAULT_SETTINGS;
-    const parsed = JSON.parse(raw);
-    return { ...DEFAULT_SETTINGS, ...parsed };
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
-
-function saveSettings(value: PaperMonitorSettingsValue) {
-  localStorage.setItem(PAPER_MONITOR_SETTINGS_KEY, JSON.stringify(value));
-}
-
-function PaperMonitorSettings() {
-  const [value, setValue] = useState<PaperMonitorSettingsValue>(() => loadSettings());
-  const [editingField, setEditingField] = useState<keyof PaperMonitorSettingsValue | null>(null);
-  const [draft, setDraft] = useState('');
-
-  const startEdit = (field: keyof PaperMonitorSettingsValue) => {
-    setEditingField(field);
-    setDraft(value[field]);
-  };
-
-  const commit = () => {
-    if (!editingField) return;
-    const next = { ...value, [editingField]: draft.trim() || DEFAULT_SETTINGS[editingField] };
-    setValue(next);
-    saveSettings(next);
-    setEditingField(null);
-  };
-
-  const cancel = () => {
-    setEditingField(null);
-  };
-
-  const fields: { key: keyof PaperMonitorSettingsValue; label: string }[] = [
-    { key: 'topics', label: 'TOPICS' },
-    { key: 'sources', label: 'SOURCES' },
-    { key: 'frequency', label: 'FREQUENCY' },
-    { key: 'dayOfWeek', label: 'DAY OF WEEK' },
-  ];
-
-  return (
-    <div className="paperMonitorSettings">
-      <div className="paperMonitorSettings__heading">
-        CONFIGURATION &middot; CLICK TO EDIT
-      </div>
-      {fields.map((f) => {
-        const isEditing = editingField === f.key;
-        return (
-          <div key={f.key} className="paperMonitorSettings__row">
-            <div className="paperMonitorSettings__label">{f.label}</div>
-            {isEditing ? (
-              <input
-                className="paperMonitorSettings__input"
-                value={draft}
-                autoFocus
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={commit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commit();
-                  if (e.key === 'Escape') cancel();
-                }}
-              />
-            ) : (
-              <button
-                className="paperMonitorSettings__value"
-                onClick={() => startEdit(f.key)}
-              >
-                {value[f.key]}
-              </button>
-            )}
-          </div>
-        );
-      })}
     </div>
   );
 }

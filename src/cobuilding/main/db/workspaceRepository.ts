@@ -67,3 +67,9 @@ export function touchWorkspace(id: string): void {
     .prepare("UPDATE workspaces SET last_accessed_at = strftime('%Y-%m-%dT%H:%M:%f', 'now') WHERE id = ?")
     .run(id);
 }
+
+export function deleteAllWorkspaces(): void {
+  getDatabase()
+    .prepare('DELETE FROM workspaces')
+    .run();
+}

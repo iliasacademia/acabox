@@ -11,6 +11,7 @@ export const REPORT_JSON_SCHEMA = {
     },
     what_youre_working_on: {
       type: 'array',
+      maxItems: 3,
       items: {
         type: 'object',
         properties: {
@@ -25,7 +26,7 @@ export const REPORT_JSON_SCHEMA = {
         },
         required: ['file_path', 'description'],
       },
-      description: 'A list of files the researcher is currently working on (based on recent modification times), each with a suggested next action. Focus on the most recently modified and most important files.',
+      description: 'Up to 3 files the researcher is currently working on, each with a suggested next action. Prioritize manuscripts, lab meeting presentations, and grant proposals. Fall back to code scripts or data files only if none of those are found.',
     },
     suggested_mini_apps: {
       type: 'array',
@@ -49,6 +50,29 @@ export const REPORT_JSON_SCHEMA = {
       },
       description: 'A list of 2-5 suggested mini-apps tailored to the researcher\'s files. Prioritize React-only apps (data explorers, chart generators, AI text analyzers, data transformers, statistical dashboards) that build fast and need no backend kernel.',
     },
+    tagged_files: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          file_path: {
+            type: 'string',
+            description: 'Relative path to the file from the workspace root.',
+          },
+          file_name: {
+            type: 'string',
+            description: 'The filename only (basename, including extension).',
+          },
+          file_type: {
+            type: 'string',
+            enum: ['manuscript', 'grant', 'presentation'],
+            description: 'manuscript = academic paper/thesis/chapter (.tex, .docx, .md); grant = grant proposal/funding application; presentation = slides/talk (.pptx, .key).',
+          },
+        },
+        required: ['file_path', 'file_name', 'file_type'],
+      },
+      description: 'All manuscript, grant, and presentation files found in the directory. Include every file that clearly belongs to one of these three categories — this list populates file pickers in writing tools.',
+    },
   },
-  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on', 'suggested_mini_apps'],
+  required: ['about_you_summary', 'what_youre_working_on_summary', 'what_youre_working_on', 'suggested_mini_apps', 'tagged_files'],
 };

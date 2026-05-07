@@ -49,6 +49,7 @@ interface WorkspacesAPI {
   switch(id: string): Promise<Workspace>;
   update(data: { name: string; directoryPath: string }): Promise<Workspace>;
   selectDirectory(): Promise<string | undefined>;
+  deleteAll(): Promise<void>;
 }
 
 interface SessionData {
@@ -127,6 +128,7 @@ interface AuthAPI {
   setApiProvider(provider: string, customKey?: string, customBaseURL?: string): Promise<{ success: boolean; error?: string }>;
   isDev: boolean;
   setEndpoint(endpoint: string): Promise<{ success: boolean; endpoint: string }>;
+  hasSessionCookie(): Promise<boolean>;
   onDeepLinkCallback(
     callback: (data: { verificationCode: string; deviceId: string }) => void
   ): () => void;
@@ -222,6 +224,7 @@ declare global {
     switch(id: string): Promise<Workspace>;
     update(data: { name: string; directoryPath: string }): Promise<Workspace>;
     selectDirectory(): Promise<string | undefined>;
+    deleteAll(): Promise<void>;
   }
 
   interface SessionData {
@@ -420,6 +423,7 @@ declare global {
     description: string | null;
     icon: string | null;
     lastOpened: string | null;
+    preBuilt: boolean;
     hasManifest: boolean;
   }
 
@@ -697,6 +701,21 @@ declare global {
     onChanged(callback: () => void): () => void;
   }
 
+  interface ScannedFile {
+    id: string;
+    workspace_id: string;
+    report_id: string | null;
+    file_path: string;
+    file_name: string;
+    file_type: 'manuscript' | 'grant' | 'presentation';
+    created_at: string;
+  }
+
+  interface ScannedFilesAPI {
+    getByType(fileType: 'manuscript' | 'grant' | 'presentation'): Promise<ScannedFile[]>;
+    getAll(): Promise<ScannedFile[]>;
+  }
+
   interface Window {
     chatAPI: ChatAPI;
     calendarAPI: CalendarAPI;
@@ -725,5 +744,10 @@ declare global {
     scannerAPI: ScannerAPI;
     papersAPI: PapersAPI;
     briefingsAPI: BriefingsAPI;
+    scannedFilesAPI: ScannedFilesAPI;
+    nativeToolsAPI: { getUrl(toolId: string): Promise<string | null> };
+    academiaAPI: {
+      fetch(method: string, endpoint: string, data?: unknown): Promise<unknown>;
+    };
   }
 }

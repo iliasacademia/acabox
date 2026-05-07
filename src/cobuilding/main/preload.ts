@@ -22,6 +22,7 @@ contextBridge.exposeInMainWorld('authAPI', {
   setApiProvider: (provider: string, customKey?: string, customBaseURL?: string) => ipcRenderer.invoke('auth:setApiProvider', provider, customKey, customBaseURL),
   isDev: process.env.NODE_ENV === 'development',
   setEndpoint: (endpoint: string) => ipcRenderer.invoke('auth:setEndpoint', endpoint),
+  hasSessionCookie: () => ipcRenderer.invoke('auth:hasSessionCookie'),
   onDeepLinkCallback: (
     callback: (data: { verificationCode: string; deviceId: string }) => void
   ) => {
@@ -44,6 +45,7 @@ contextBridge.exposeInMainWorld('workspacesAPI', {
   selectDirectory: () => ipcRenderer.invoke('dialog:selectDirectory'),
   update: (data: { name: string; directoryPath: string }) =>
     ipcRenderer.invoke('workspaces:update', data),
+  deleteAll: () => ipcRenderer.invoke('workspaces:deleteAll'),
 });
 
 contextBridge.exposeInMainWorld('filesAPI', {
@@ -308,6 +310,11 @@ contextBridge.exposeInMainWorld('briefingsAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('scannedFilesAPI', {
+  getByType: (fileType: string) => ipcRenderer.invoke('scannedFiles:getByType', fileType),
+  getAll: () => ipcRenderer.invoke('scannedFiles:getAll'),
+});
+
 contextBridge.exposeInMainWorld('scannerAPI', {
   start: () => ipcRenderer.invoke('scanner:start'),
   onEvent: (callback: (event: any) => void) => {
@@ -558,6 +565,15 @@ contextBridge.exposeInMainWorld('officeAddinAPI', {
   trustCert: () => ipcRenderer.invoke('officeAddin:trustCert'),
   removeCert: () => ipcRenderer.invoke('officeAddin:removeCert'),
   deleteCert: () => ipcRenderer.invoke('officeAddin:deleteCert'),
+});
+
+contextBridge.exposeInMainWorld('academiaAPI', {
+  fetch: (method: string, endpoint: string, data?: unknown) =>
+    ipcRenderer.invoke('academia:fetch', { method, endpoint, data }),
+});
+
+contextBridge.exposeInMainWorld('nativeToolsAPI', {
+  getUrl: (toolId: string) => ipcRenderer.invoke('nativeTools:getUrl', toolId),
 });
 
 contextBridge.exposeInMainWorld('anthropicAPI', {
