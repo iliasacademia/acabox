@@ -33,7 +33,7 @@ function rowTitle(row: ParsedRow): string {
     case 'grant':
       return typeof d.title === 'string' ? d.title : 'Grant';
     case 'writing_agent': {
-      if (typeof d.file_path !== 'string') return 'Writing Agent';
+      if (typeof d.file_path !== 'string') return 'Peer Review Assistant';
       const parts = d.file_path.split('/');
       return parts[parts.length - 1] || d.file_path;
     }
@@ -128,6 +128,18 @@ function rangeLabel(rows: ParsedRow[]): string {
   if (days <= 31) return `${count} ${itemWord} in past month`;
   return `${count} ${itemWord} in past ${Math.round(days / 30)} months`;
 }
+
+const NEXT_STATUS: Record<BriefingStatus, BriefingStatus> = {
+  new: 'opened',
+  opened: 'dismissed',
+  dismissed: 'new',
+};
+
+const STATUS_LABEL: Record<BriefingStatus, string> = {
+  new: 'NEW',
+  opened: 'OPENED',
+  dismissed: 'DISMISSED',
+};
 
 export function BriefingHistory({
   onBack,
@@ -235,6 +247,25 @@ export function BriefingHistory({
                       >
                         {rowPrimaryLabel(row.briefing.type)}
                         <ArrowUpRightIcon className="homeBriefingCard__buttonIcon" />
+                      </button>
+                      <button
+                        type="button"
+                        className={`briefingHistoryRow__status briefingHistoryRow__status--${row.briefing.status}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const next = NEXT_STATUS[row.briefing.status];
+                          window.briefingsAPI.setStatus(row.briefing.id, next);
+                          setRows((prev) =>
+                            prev?.map((r) =>
+                              r.briefing.id === row.briefing.id
+                                ? { ...r, briefing: { ...r.briefing, status: next } }
+                                : r,
+                            ) ?? null,
+                          );
+                        }}
+                        title={`Click to change to ${STATUS_LABEL[NEXT_STATUS[row.briefing.status]]}`}
+                      >
+                        {STATUS_LABEL[row.briefing.status]}
                       </button>
                     </div>
                   </div>

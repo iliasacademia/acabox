@@ -25,14 +25,6 @@ function createAsymptoticTimer(
   return { stop: () => clearInterval(interval) };
 }
 
-// Module-scope guard: ensureSetup() must fire at most ONCE per JS session,
-// not once per SetupBanner mount. If SetupBanner ever unmounts/remounts (a
-// useRef reset would let the original component-scoped guard re-fire), the
-// re-entrant ensureSetup → startAgentInfrastructure → startAgentServer path
-// would `pkill -f agent-server.js` and kill any in-progress chat. Hoisting
-// the flag outside the component closes that hole.
-let hasEnsuredSetup = false;
-
 export const SetupBanner: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const timerRef = useRef<{ stop: () => void } | null>(null);
@@ -79,9 +71,6 @@ export const SetupBanner: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (hasEnsuredSetup) return;
-    hasEnsuredSetup = true;
-
     // Don't set 'downloading' here — only progress events should trigger
     // the blocking indicator. If the base image is already cached,
     // ensureSetup resolves immediately with no progress events → no flash.
@@ -108,7 +97,6 @@ export const SetupBanner: React.FC = () => {
     setSetupState('downloading', 'Retrying setup...', 0);
     try {
       await window.containerAPI.deleteBinaries();
-      hasEnsuredSetup = true; // explicit retry — keep the module guard set
       await window.containerAPI.ensureSetup();
       setSetupState('ready');
     } catch (err) {

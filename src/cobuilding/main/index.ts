@@ -1154,7 +1154,13 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle('workspaces:deleteAll', () => {
+ipcMain.handle('workspaces:deleteAll', async () => {
+  backgroundBuilder.dispose();
+  kernelGatewayService.stop();
+  ensuredApps.clear();
+  await stopAgentInfrastructure();
+  containerService.stop();
+  getTaskScheduler().stop();
   deactivateAllWorkspaces();
   activeWorkspace = null;
 });
@@ -1258,6 +1264,9 @@ ipcMain.handle(
   'briefings:setStatus',
   (_event, id: string, status: BriefingStatus) => {
     setBriefingStatus(id, status);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('briefings:changed');
+    }
   },
 );
 
@@ -2105,6 +2114,10 @@ ipcMain.handle('windowMonitor:setOverlayKickoffForDocument', (_event, documentPa
   windowMonitorService.setPendingKickoffForDocument(documentPath, prompt);
 });
 
+ipcMain.handle('windowMonitor:requestNewOverlayChatForDocument', (_event, documentPath: string) => {
+  windowMonitorService.requestNewOverlayChatForDocument(documentPath);
+});
+
 
 // Observations IPC handlers
 ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
@@ -2788,9 +2801,15 @@ ipcMain.handle('auth:refetchApiKey', async () => {
 
 ipcMain.handle('auth:logout', async () => {
   try {
+    backgroundBuilder.dispose();
+    kernelGatewayService.stop();
+    ensuredApps.clear();
+    await stopAgentInfrastructure();
+    containerService.stop();
+    getTaskScheduler().stop();
+    deactivateAllWorkspaces();
     activeWorkspace = null;
     cachedApiKey = null;
-    deactivateAllWorkspaces();
     const result = await logout();
     return result;
   } catch (error: any) {

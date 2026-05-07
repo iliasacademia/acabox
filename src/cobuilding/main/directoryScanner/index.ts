@@ -21,16 +21,24 @@ interface SuggestionParsed {
 
 interface WorkingOnFileParsed {
   file_path?: unknown;
+  path?: unknown;
   description?: unknown;
 }
 
 interface TaggedFileParsed {
   file_path?: unknown;
+  path?: unknown;
   file_name?: unknown;
   file_type?: unknown;
 }
 
-const WRITING_AGENT_KICKOFF_PROMPT = 'Read just the first section of this manuscript (the Introduction, or whatever heading appears first) and propose exactly 3 small wording improvements as tracked changes — clarity or concision only, no content changes.';
+function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undefined {
+  if (typeof f.file_path === 'string') return f.file_path;
+  if (typeof f.path === 'string') return f.path;
+  return undefined;
+}
+
+const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nPlease act as a peer reviewer for this manuscript. Read it end to end and flag concerns a reviewer would raise — about the argument, the evidence, the methodology, the framing, and the structure. Be specific and constructive. Suggest edits based on your feedback.';
 
 function createBriefingsFromScan(
   workspaceId: string,
@@ -73,18 +81,25 @@ function createBriefingsFromScan(
     ? (parsed.tagged_files as TaggedFileParsed[])
     : [];
 
-  // Pick the docx the briefing should point at. Prefer `what_youre_working_on`
-  // because the scanner already curated that to the top three priorities and
-  // wrote a tailored description we can show verbatim. Fall back to
-  // `tagged_files` only if working-on has no docx (e.g. all items are .tex
-  // or the list got filled with non-docx priorities).
-  const docxFromWorkingOn = workingOn.find(
-    (f) => typeof f?.file_path === 'string' && f.file_path.toLowerCase().endsWith('.docx'),
-  );
-  const docxFromTagged = taggedFiles.find(
-    (f) => typeof f?.file_path === 'string' && f.file_path.toLowerCase().endsWith('.docx'),
-  );
-  const writingAgentSource = docxFromWorkingOn ?? docxFromTagged;
+  // Collect manuscript-type docx files that can be peer-reviewed. Use the
+  // scanner's `file_type`/`type` tag to filter to manuscripts only —
+  // grants and presentations aren't peer-review candidates. Enrich with
+  // descriptions from `what_youre_working_on` when available (the scanner
+  // curates those as the user's active priorities).
+  const workingOnByPath = new Map<string, string>();
+  for (const f of workingOn) {
+    const p = getFilePath(f);
+    if (p && typeof f.description === 'string') workingOnByPath.set(p, f.description);
+  }
+
+  const manuscriptDocxFiles = taggedFiles.filter((f) => {
+    const p = getFilePath(f);
+    if (!p || !p.toLowerCase().endsWith('.docx')) return false;
+    const name = p.split('/').pop() ?? '';
+    if (name.startsWith('~$')) return false;
+    const fileType = (typeof f.file_type === 'string' ? f.file_type : typeof (f as any).type === 'string' ? (f as any).type : '').toLowerCase();
+    return fileType === 'manuscript';
+  });
 
   // Create briefings from scanner suggestions (one-time tasks and mini-apps).
   const suggestions = Array.isArray(parsed.suggestions)
@@ -126,23 +141,20 @@ function createBriefingsFromScan(
     }
   }
 
-  // Insert the writing-agent briefing LAST so it lands at the top of the
-  // `created_at DESC` feed and isn't bumped off the visible top-3 by the
-  // suggested_tool inserts above.
-  if (writingAgentSource && typeof writingAgentSource.file_path === 'string') {
-    const description =
-      'description' in writingAgentSource && typeof writingAgentSource.description === 'string'
-        ? writingAgentSource.description
-        : '';
+  // Create a peer-review briefing for each manuscript-type docx. Inserted
+  // LAST so they land at the top of the `created_at DESC` feed.
+  for (const file of manuscriptDocxFiles) {
+    const filePath = getFilePath(file)!;
+    const description = workingOnByPath.get(filePath) ?? '';
     createBriefing({
       workspaceId,
       type: 'writing_agent',
       sourceReportId: reportId,
       whyImSuggestingThis:
         description ||
-        'Pick up where you left off — I can help you draft and revise inline in Word.',
+        'I can peer-review this manuscript and flag concerns about the argument, evidence, and structure.',
       briefingData: {
-        file_path: writingAgentSource.file_path,
+        file_path: filePath,
         description,
         chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
       },
@@ -384,7 +396,16 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           try {
             const scanData = JSON.parse(resultText);
             if (Array.isArray(scanData.tagged_files)) {
-              upsertScannedFiles(workspaceId, reportId, scanData.tagged_files);
+              // Normalise keys: LLM may return {path,filename,type}
+              // instead of the schema's {file_path,file_name,file_type}.
+              const normalised = scanData.tagged_files
+                .map((f: Record<string, unknown>) => ({
+                  file_path: (f.file_path ?? f.path) as string,
+                  file_name: (f.file_name ?? f.filename) as string,
+                  file_type: (f.file_type ?? f.type) as string,
+                }))
+                .filter((f: { file_name: string }) => !f.file_name.startsWith('~$'));
+              upsertScannedFiles(workspaceId, reportId, normalised);
             }
           } catch (err) {
             log.error('[DirectoryScanner] Failed to persist tagged files:', err);
