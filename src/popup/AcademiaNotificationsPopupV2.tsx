@@ -96,6 +96,19 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const sizeAnimRef = useRef<number | null>(null);
   const prevDocPathRef = useRef<string | null>(null);
   const prevIsDockedActiveRef = useRef<boolean | undefined>(undefined);
+  // Session IDs we've already auto-opened for the current docPath. Stops us
+  // re-yanking the user back into a session if they explicitly went back to
+  // the list view while the session is still inside our freshness window.
+  const autoOpenedSessionIdsRef = useRef<Set<string>>(new Set());
+  // Kickoff prompt the desktop side stashed for this docx (e.g. Writing-Agent
+  // Use button or briefing card click). When non-null, the active conversation
+  // view auto-sends it on mount so the overlay's chat adapter owns the SSE
+  // stream and live progress renders without flicker. Cleared after fire.
+  const [pendingKickoffPrompt, setPendingKickoffPrompt] = useState<string | null>(null);
+  // Last kickoff prompt we acted on. The server doesn't consume the prompt
+  // (avoids a race with WS connection ordering); we ignore subsequent polls
+  // that carry the same text.
+  const lastFiredKickoffRef = useRef<string | null>(null);
 
   // Animate popup size (width and/or height) over ~250ms with ease-out
   const animateSize = (fromWidth: number, toWidth: number, fromHeight: number, toHeight: number, onDone?: () => void) => {
@@ -148,6 +161,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       postBridge('setDockRight', { docked: pref });
     }
     prevDocPathRef.current = docPath;
+    // Reset auto-open tracking when switching documents — fresh sessions for
+    // a different doc shouldn't be considered already-handled.
+    autoOpenedSessionIdsRef.current = new Set();
   }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // When Word is maximized the overlay falls back to floating (isDockedActive = false).
@@ -174,6 +190,39 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setIsInWorkspace(pollData.isInWorkspace ?? false);
     setWorkspaceSessions(pollData.workspaceSessions ?? []);
     setActiveDocumentDisplayName(pollData.activeDocumentDisplayName ?? null);
+
+    // Kickoff prompt set by the desktop side (Writing-Agent flow). The server
+    // sends it on every pollData while it's set; we dedup client-side so we
+    // fire a new chat exactly once per unique prompt.
+    const incoming = pollData.pendingKickoffPrompt;
+    if (incoming && incoming !== lastFiredKickoffRef.current) {
+      lastFiredKickoffRef.current = incoming;
+      const newSessionId = crypto.randomUUID();
+      console.log('[AcademiaNotificationsPopupV2] Kickoff prompt arrived; opening new chat', newSessionId);
+      setPendingKickoffPrompt(incoming);
+      setActiveSession({ id: newSessionId, title: 'New Conversation' });
+    }
+
+    // Auto-open a brand-new session for this document. Triggered when the
+    // desktop side starts a Writing-Agent chat scoped to the active docx:
+    // a session shows up that's <10s old and we haven't already auto-opened
+    // it. We override any current activeSession — the user's intent in this
+    // flow is to land in the freshly-kicked-off chat, even if they had a
+    // previous one open. `autoOpenedSessionIdsRef` keeps us from re-yanking
+    // the user if they manually navigate back to the list during the window.
+    const sessions = pollData.workspaceSessions ?? [];
+    const NEW_SESSION_MAX_AGE_MS = 10_000;
+    const alreadyAutoOpened = autoOpenedSessionIdsRef.current;
+    const fresh = sessions.find((s) => {
+      if (alreadyAutoOpened.has(s.id)) return false;
+      const createdMs = Date.parse(s.created_at);
+      return Number.isFinite(createdMs) && Date.now() - createdMs < NEW_SESSION_MAX_AGE_MS;
+    });
+    if (fresh && fresh.id !== activeSession?.id) {
+      console.log('[AcademiaNotificationsPopupV2] Auto-opening fresh session:', fresh.id);
+      setActiveSession({ id: fresh.id, title: fresh.title });
+      alreadyAutoOpened.add(fresh.id);
+    }
 
     if (!pollData.shouldShowPopupV2 && !pollData.isEnableFeedback && !pollData.isInWorkspace) {
       console.log(`[AcademiaNotificationsPopupV2] Hiding popup. Active path: ${pollData.activeDocumentPath || 'none'}`);
@@ -506,6 +555,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 documentDisplayName={activeDocumentDisplayName}
                 selectedText={pollData?.selectedText}
                 onBack={handleBackToSessions}
+                initialPrompt={pendingKickoffPrompt ?? undefined}
+                onInitialPromptSent={() => setPendingKickoffPrompt(null)}
               />
             : isInWorkspace
             ? <WorkspaceSessionsView

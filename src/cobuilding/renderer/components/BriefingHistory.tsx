@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronLeftIcon, BookOpenIcon, AwardIcon, CalendarIcon, SparklesIcon } from 'lucide-react';
+import { ChevronLeftIcon, BookOpenIcon, AwardIcon, CalendarIcon, SparklesIcon, PenLineIcon } from 'lucide-react';
 
 type FilterId = 'all' | 'papers' | 'grants' | 'citations' | 'proactive';
 
@@ -47,6 +47,11 @@ function rowTitle(row: ParsedRow): string {
       return typeof d.paper_title === 'string' ? d.paper_title : 'Citation';
     case 'grant':
       return typeof d.title === 'string' ? d.title : 'Grant';
+    case 'writing_agent': {
+      if (typeof d.file_path !== 'string') return 'Writing Agent';
+      const parts = d.file_path.split('/');
+      return parts[parts.length - 1] || d.file_path;
+    }
   }
 }
 
@@ -63,6 +68,8 @@ function rowSubtitle(row: ParsedRow): string {
       return typeof d.citing_work === 'string' ? `Cited by ${d.citing_work}` : 'Citation';
     case 'grant':
       return typeof d.agency === 'string' ? d.agency : 'Grant';
+    case 'writing_agent':
+      return 'Writing Agent · open in Word';
   }
 }
 
@@ -78,6 +85,8 @@ function rowIcon(type: BriefingType) {
       return <CalendarIcon className={cls} />;
     case 'suggested_tool':
       return <SparklesIcon className={cls} />;
+    case 'writing_agent':
+      return <PenLineIcon className={cls} />;
   }
 }
 

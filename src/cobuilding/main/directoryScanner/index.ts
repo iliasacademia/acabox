@@ -18,10 +18,26 @@ interface SuggestedMiniAppParsed {
   details_on_what_to_build?: unknown;
 }
 
+interface WorkingOnFileParsed {
+  file_path?: unknown;
+  description?: unknown;
+}
+
+interface TaggedFileParsed {
+  file_path?: unknown;
+  file_name?: unknown;
+  file_type?: unknown;
+}
+
+const WRITING_AGENT_KICKOFF_PROMPT = 'Read just the first section of this manuscript (the Introduction, or whatever heading appears first) and propose exactly 3 small wording improvements as tracked changes — clarity or concision only, no content changes.';
+
 function createBriefingsFromScan(
   workspaceId: string,
   reportId: string,
   resultText: string,
+  ctx: {
+    onBriefingsChanged?: () => void;
+  },
 ): void {
   // Always create the directory-organization action briefing.
   createBriefing({
@@ -38,13 +54,60 @@ function createBriefingsFromScan(
     },
   });
 
-  // Create one suggested_tool briefing per mini-app the scanner suggested.
-  let parsed: { suggested_mini_apps?: unknown };
+  let parsed: {
+    suggested_mini_apps?: unknown;
+    what_youre_working_on?: unknown;
+    tagged_files?: unknown;
+  };
   try {
     parsed = JSON.parse(resultText);
   } catch {
     return;
   }
+
+  // Surface the most relevant DOCX manuscript as a Writing Agent briefing.
+  // Source from `tagged_files` (the comprehensive list — any manuscript the
+  // scanner found) rather than `what_youre_working_on` (capped at 3 items
+  // prioritizing variety across categories, so a manuscript can get bumped
+  // out by a presentation or grant). Pull the description from working-on
+  // if the same file also made that list, otherwise fall back to a generic.
+  const workingOn = Array.isArray(parsed.what_youre_working_on)
+    ? (parsed.what_youre_working_on as WorkingOnFileParsed[])
+    : [];
+  const taggedFiles = Array.isArray(parsed.tagged_files)
+    ? (parsed.tagged_files as TaggedFileParsed[])
+    : [];
+  const docxManuscript = taggedFiles.find(
+    (f) =>
+      f?.file_type === 'manuscript' &&
+      typeof f.file_path === 'string' &&
+      f.file_path.toLowerCase().endsWith('.docx'),
+  );
+  if (docxManuscript && typeof docxManuscript.file_path === 'string') {
+    const relPath = docxManuscript.file_path;
+    const matchingWorkingOn = workingOn.find(
+      (f) => typeof f?.file_path === 'string' && f.file_path === relPath,
+    );
+    const description =
+      typeof matchingWorkingOn?.description === 'string'
+        ? matchingWorkingOn.description
+        : '';
+    createBriefing({
+      workspaceId,
+      type: 'writing_agent',
+      sourceReportId: reportId,
+      whyImSuggestingThis:
+        description ||
+        'Pick up where you left off — I can help you draft and revise inline in Word.',
+      briefingData: {
+        file_path: relPath,
+        description,
+        chat_prompt: WRITING_AGENT_KICKOFF_PROMPT,
+      },
+    });
+  }
+
+  // Create one suggested_tool briefing per mini-app the scanner suggested.
   const apps = Array.isArray(parsed.suggested_mini_apps)
     ? (parsed.suggested_mini_apps as SuggestedMiniAppParsed[])
     : [];
@@ -67,6 +130,10 @@ function createBriefingsFromScan(
       },
     });
   }
+
+  // One notify covers every briefing created synchronously above; the async
+  // manuscript-analysis path fires its own when the upgrade lands.
+  ctx.onBriefingsChanged?.();
 }
 
 export type ScannerEvent =
@@ -79,8 +146,15 @@ export interface ScanParams {
   workspaceId: string;
   directoryPath: string;
   apiKey: string;
+  /** Optional Anthropic base URL for the workspace's credentials. */
   baseURL?: string;
   onMessage?: (event: ScannerEvent) => void;
+  /**
+   * Fires whenever a briefing is created or updated by the scan flow — both
+   * the synchronous creates from `createBriefingsFromScan` and the async
+   * manuscript-analysis enrichment.
+   */
+  onBriefingsChanged?: () => void;
 }
 
 /** Strip a workspace-absolute path down to a workspace-relative path. */
@@ -283,7 +357,9 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           log.info(`[DirectoryScanner] Scan completed for workspace ${workspaceId} (has structured_output: ${!!structured}, result length: ${(msg.result as string)?.length ?? 0})`);
           updateReportStatus(reportId, 'completed', resultText);
           try {
-            createBriefingsFromScan(workspaceId, reportId, resultText);
+            createBriefingsFromScan(workspaceId, reportId, resultText, {
+              onBriefingsChanged: params.onBriefingsChanged,
+            });
           } catch (err) {
             log.error('[DirectoryScanner] Failed to create briefings from scan:', err);
           }

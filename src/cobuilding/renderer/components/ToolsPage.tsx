@@ -61,6 +61,13 @@ interface AvailableStub {
   status?: string;
   filePickerType?: 'manuscript' | 'grant' | 'presentation' | 'all' | 'manuscript_grant';
   chatPromptTemplate?: (filePath: string) => string;
+  /**
+   * If set, picking a file opens it in MS Word with the popup-v2 overlay
+   * docked right (~33%) and a manuscript-specific kickoff prompt auto-sent
+   * in the overlay's chat. Picker is filtered to .docx files only — Word's
+   * find_and_replace MCP is the only host we have for live tracked-changes.
+   */
+  useWordOverlay?: boolean;
 }
 
 function hoursAgoIso(hours: number): string {
@@ -69,14 +76,13 @@ function hoursAgoIso(hours: number): string {
 
 const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   {
-    name: 'Academic Writing Agent',
-    description: 'Draft, revise, and polish manuscripts and grants',
+    name: 'Writing Agent',
+    description: 'Draft and revise manuscripts in MS Word with tracked changes',
     tag: 'ON-DEMAND',
     preBuilt: true,
     lastOpened: hoursAgoIso(2),
-    filePickerType: 'manuscript_grant',
-    chatPromptTemplate: (filePath) =>
-      `/academic-writing-agent\n\nPlease help me work on the following file: ${filePath}`,
+    filePickerType: 'manuscript',
+    useWordOverlay: true,
   },
   { name: 'Grant Finder', description: 'Funding opportunities matched to your research', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(72) },
   {
@@ -229,16 +235,58 @@ export function ToolsPage({
     if (!stub.filePickerType) { alert('This is a placeholder for now.'); return; }
     setFilePicker({ stub, files: [], loading: true });
     try {
-      const files = (stub.filePickerType === 'all' || stub.filePickerType === 'manuscript_grant')
+      let files = (stub.filePickerType === 'all' || stub.filePickerType === 'manuscript_grant')
         ? await window.scannedFilesAPI.getAll()
         : await window.scannedFilesAPI.getByType(stub.filePickerType);
+      // The Word-overlay flow needs an editable .docx (ms-word MCP target),
+      // so prune the picker to that subset.
+      if (stub.useWordOverlay) {
+        files = files.filter((f) => f.file_path.toLowerCase().endsWith('.docx'));
+      }
       setFilePicker((prev) => prev ? { ...prev, files, loading: false } : null);
     } catch {
       setFilePicker((prev) => prev ? { ...prev, files: [], loading: false } : null);
     }
   }, []);
 
-  const handlePickFile = useCallback((stub: AvailableStub, filePath: string) => {
+  const handlePickFile = useCallback(async (stub: AvailableStub, filePath: string) => {
+    if (stub.useWordOverlay) {
+      // Word-overlay flow: set kickoff → open in Word → snap dock-right.
+      // The popup-v2 receives the kickoff via pollData, auto-creates a chat,
+      // and the overlay's own httpChatAdapter owns the SSE stream.
+      const absolutePath = filePath.startsWith('/') ? filePath : `${workspacePath}/${filePath}`;
+      const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
+      // If the user already has chats for this doc, skip the auto-kickoff:
+      // open Word + dock and let them pick which past conversation to
+      // continue (or start a fresh one manually) from the overlay session
+      // list. The kickoff is a "first time on this doc" thing.
+      let existingSessions = 0;
+      try {
+        existingSessions = await window.sessionsAPI.countForDocument(absolutePath);
+      } catch (err) {
+        console.warn('[WritingAgent] countForDocument failed; defaulting to kickoff:', err);
+      }
+      if (existingSessions > 0) {
+        setFilePicker(null);
+        window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+        window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
+        return;
+      }
+      // Demo-friendly kickoff: scoped to the first section of the doc and
+      // forces the agent into the proposed-edit (find_and_replace) path
+      // almost immediately, so the suggestion cards with Approve/Deny show
+      // up within seconds instead of after a full-doc review.
+      const prompt = 'Read just the first section of this manuscript (the Introduction, or whatever heading appears first) and propose exactly 3 small wording improvements as tracked changes — clarity or concision only, no content changes.';
+      setFilePicker(null);
+      try {
+        await window.fileMonitorAPI.setOverlayKickoffForDocument(absolutePath, prompt);
+      } catch (err) {
+        console.warn('[WritingAgent] Failed to stash kickoff:', err);
+      }
+      window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+      window.fileMonitorAPI.setDockRightForDocument(absolutePath, true);
+      return;
+    }
     setFilePicker(null);
     if (!stub.chatPromptTemplate) return;
     assistantRuntime.switchToNewThread();
@@ -247,7 +295,7 @@ export function ToolsPage({
       composerRuntime.setText(stub.chatPromptTemplate!(filePath));
       composerRuntime.send();
     }, 100);
-  }, [assistantRuntime, composerRuntime, onSwitchToChat]);
+  }, [assistantRuntime, composerRuntime, onSwitchToChat, workspacePath]);
 
   const handleBrowseFile = useCallback(async (stub: AvailableStub) => {
     setFilePicker(null);
@@ -474,10 +522,12 @@ export function ToolsPage({
                           })()}
                         </div>
                         <div className="toolRow__actions">
-                          <button className="toolRow__settingsBtn" onClick={() => handleStubAction(tool)}>
-                            <ChevronRightIcon style={{ width: 14, height: 14 }} />
-                            Settings
-                          </button>
+                          {!tool.useWordOverlay && (
+                            <button className="toolRow__settingsBtn" onClick={() => handleStubAction(tool)}>
+                              <ChevronRightIcon style={{ width: 14, height: 14 }} />
+                              Settings
+                            </button>
+                          )}
                           {tool.tag === 'SCHEDULED' ? (
                             <button className="toolRow__primaryBtn" onClick={() => handleStubAction(tool)}>
                               View outputs
@@ -536,15 +586,25 @@ export function ToolsPage({
       )}
 
       {filePicker && (
-        <div className="toolsConfirmOverlay" onClick={() => setFilePicker(null)}>
+        <div
+          className="toolsConfirmOverlay"
+          onClick={() => setFilePicker(null)}
+        >
           <div className="filePickerModal" onClick={(e) => e.stopPropagation()}>
 
             <div className="filePickerModal__header">
               <div>
                 <h2 className="filePickerModal__title">{filePicker.stub.name}</h2>
-                <p className="filePickerModal__subtitle">Select a file to work on, or browse to choose one.</p>
+                <p className="filePickerModal__subtitle">
+                  {filePicker.stub.useWordOverlay
+                    ? 'Pick a manuscript to open in Word with the Writing Agent overlay alongside.'
+                    : 'Select a file to work on, or browse to choose one.'}
+                </p>
               </div>
-              <button className="filePickerModal__close" onClick={() => setFilePicker(null)}>
+              <button
+                className="filePickerModal__close"
+                onClick={() => setFilePicker(null)}
+              >
                 <XIcon style={{ width: 16, height: 16 }} />
               </button>
             </div>
@@ -554,7 +614,9 @@ export function ToolsPage({
                 <div className="filePickerModal__empty">Loading files…</div>
               ) : filePicker.files.length === 0 ? (
                 <div className="filePickerModal__empty">
-                  No tagged files found from your last scan. Use "Browse files" to select manually.
+                  {filePicker.stub.useWordOverlay
+                    ? 'No .docx manuscripts found from your last scan. Use "Browse files" to select one manually.'
+                    : 'No tagged files found from your last scan. Use "Browse files" to select manually.'}
                 </div>
               ) : (
                 (['manuscript', 'grant', 'presentation'] as const)
@@ -588,10 +650,16 @@ export function ToolsPage({
             </div>
 
             <div className="filePickerModal__footer">
-              <button className="createToolModal__cancelBtn" onClick={() => setFilePicker(null)}>
+              <button
+                className="createToolModal__cancelBtn"
+                onClick={() => setFilePicker(null)}
+              >
                 Cancel
               </button>
-              <button className="createToolModal__createBtn" onClick={() => handleBrowseFile(filePicker.stub)}>
+              <button
+                className="createToolModal__createBtn"
+                onClick={() => handleBrowseFile(filePicker.stub)}
+              >
                 <FolderOpenIcon style={{ width: 14, height: 14, marginRight: 6 }} />
                 Browse files
               </button>

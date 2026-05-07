@@ -6,7 +6,8 @@ export type BriefingType =
   | 'suggested_tool'
   | 'paper'
   | 'citation'
-  | 'grant';
+  | 'grant'
+  | 'writing_agent';
 
 export type BriefingStatus = 'new' | 'opened' | 'dismissed';
 
@@ -88,3 +89,4 @@ export function setBriefingStatus(id: string, status: BriefingStatus): void {
      WHERE id = ?`,
   ).run(status, id);
 }
+

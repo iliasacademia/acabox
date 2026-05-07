@@ -1195,6 +1195,64 @@ export class WindowMonitorService {
     });
   }
 
+  /**
+   * Single pending "kickoff" prompt. The next in-workspace pollData picks it
+   * up — no document-path matching, no key collisions, no normalization
+   * surprises. Set by desktop surfaces that want the overlay to start a
+   * fresh chat with a prefilled message already sent.
+   */
+  private pendingKickoff: { prompt: string; createdMs: number } | null = null;
+
+  setPendingKickoffForDocument(_documentPath: string, prompt: string): void {
+    this.pendingKickoff = { prompt, createdMs: Date.now() };
+    logger.info(`[WindowMonitor] Stored pending kickoff (${prompt.length} chars)`);
+    // Trigger a broadcast so any already-connected popup picks this up
+    // immediately, instead of waiting for the next focus/doc change.
+    wordPollEventBus.emit('change', 'webview-visibility-changed');
+  }
+
+  consumePendingKickoffForDocument(_documentPath: string): string | null {
+    // Note: NOT actually consumed server-side. The popup connects to the WS
+    // *after* the kickoff is set, so a server-side consume would race the
+    // initial broadcast and be lost. The popup tracks the last prompt it
+    // acted on via a client-side ref and dedups itself. Cleared only by
+    // TTL or by a subsequent setPendingKickoff overwriting it.
+    if (!this.pendingKickoff) return null;
+    const TTL_MS = 30 * 60_000;
+    if (Date.now() - this.pendingKickoff.createdMs > TTL_MS) {
+      this.pendingKickoff = null;
+      return null;
+    }
+    return this.pendingKickoff.prompt;
+  }
+
+  /**
+   * Polls for the window of a freshly-opened document (e.g. just told `open`
+   * to launch a docx in Word) and snaps the overlay to the right once the
+   * window monitor sees it. Used by surfaces that open a document and want
+   * the 66/33 split set up automatically.
+   */
+  setDockRightForDocument(documentPath: string, docked: boolean): void {
+    const POLL_MS = 250;
+    const TIMEOUT_MS = 6_000;
+    const startedAt = Date.now();
+    const tryDock = () => {
+      const wid = this.getWindowIdForDocumentPath(documentPath);
+      if (wid) {
+        this.setDockRight(wid, docked);
+        return;
+      }
+      if (Date.now() - startedAt >= TIMEOUT_MS) {
+        logger.warn(
+          `[WindowMonitor] setDockRightForDocument: timed out waiting for window for ${documentPath}`,
+        );
+        return;
+      }
+      setTimeout(tryDock, POLL_MS);
+    };
+    tryDock();
+  }
+
   toggleDockRight(windowId: string): void {
     if (this.dockedRightWindows.has(windowId)) {
       this.dockedRightWindows.delete(windowId);

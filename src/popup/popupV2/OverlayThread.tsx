@@ -12,7 +12,7 @@
  * `prefix` slot.
  */
 
-import React, { createContext, useContext, memo, useState } from 'react';
+import React, { createContext, useContext, memo, useState, useEffect, useRef } from 'react';
 import type { FC } from 'react';
 import {
   ActionBarPrimitive,
@@ -21,6 +21,7 @@ import {
   MessagePrimitive,
   ThreadPrimitive,
   useAuiState,
+  useComposerRuntime,
 } from '@assistant-ui/react';
 import {
   MarkdownTextPrimitive,
@@ -177,6 +178,37 @@ const OverlayMarkdownText = memo(() => {
     />
   );
 });
+
+/**
+ * Programmatically dispatches a one-shot user message into the thread's
+ * composer when `prompt` becomes non-empty. Exported so it can be mounted
+ * directly under the AssistantRuntimeProvider (avoiding the rendering
+ * subtree of ThreadPrimitive.Viewport, which has its own lifecycle).
+ */
+export const InitialPromptAutoSend: FC<{ prompt?: string; onSent?: () => void }> = ({ prompt, onSent }) => {
+  const composer = useComposerRuntime();
+  const firedRef = useRef(false);
+  useEffect(() => {
+    if (!prompt || firedRef.current) return;
+    firedRef.current = true;
+    console.log('[OverlayThread] InitialPromptAutoSend firing prompt:', prompt.slice(0, 80));
+    // Larger delay so assistant-ui's runtime + history adapter finish their
+    // initial mount work before we try to push a message.
+    const id = setTimeout(() => {
+      try {
+        composer.setText(prompt);
+        composer.send();
+        console.log('[OverlayThread] InitialPromptAutoSend send() called');
+      } catch (err) {
+        console.warn('[OverlayThread] InitialPromptAutoSend failed:', err);
+      } finally {
+        onSent?.();
+      }
+    }, 200);
+    return () => clearTimeout(id);
+  }, [prompt]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+};
 
 interface OverlayContextPills {
   documentPath?: string | null;

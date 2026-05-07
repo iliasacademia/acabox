@@ -41,8 +41,16 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
 
       const model = context?.config?.modelName;
 
+      // One-shot: callers (e.g. Writing-Agent flow) set this on the window
+      // before triggering composer.send so the not-yet-existent session row
+      // gets created with the right document_path. Consumed exactly once.
+      const pendingDocPath = (window as any).__nextSessionDocumentPath as string | undefined;
+      if (pendingDocPath) {
+        delete (window as any).__nextSessionDocumentPath;
+      }
+
       const responseStream = toAsyncIterable(
-        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model),
+        window.chatAPI.sendMessage(threadId, userText, extractAttachments(lastUserMessage), model, pendingDocPath),
       );
 
       const response = responseBuilder();

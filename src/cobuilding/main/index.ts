@@ -17,6 +17,8 @@ import { containerService } from './containerService';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
+import { fetchPapers, type FetchPapersInput } from './papers/papersService';
+import { persistPapersAsBriefings } from './papers/paperBriefings';
 import { getReport, getLatestReport, updateReportData } from './db/reportRepository';
 import {
   listBriefings,
@@ -30,6 +32,7 @@ import { initObservationsDatabase, getObservationsDatabase, closeObservationsDat
 import {
   listSessions,
   listSessionsByDocPathLike,
+  setSessionDocumentPath,
   getSession,
   createSession,
   updateSessionTitle,
@@ -1073,6 +1076,17 @@ ipcMain.handle(
       const scheduler = getTaskScheduler();
       scheduler.stop();
       scheduler.start();
+      // Tell the Word overlay about the freshly-created workspace so it
+      // recognizes docs inside it (otherwise the overlay falls through to
+      // the legacy "Not linked to a project" view on first onboarding).
+      windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+      windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
+        if (!activeWorkspace) return [];
+        const rows = documentPathLike !== undefined
+          ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
+          : listSessions(activeWorkspace.id, undefined, documentPath);
+        return rows.map((s) => ({ id: s.id, title: s.title, created_at: s.created_at }));
+      });
       // Directory scan is triggered separately via scanner:start IPC
     }
     return activeWorkspace ?? null;
@@ -1169,6 +1183,43 @@ ipcMain.handle('reports:update', (_event, reportId: string, reportData: string) 
   updateReportData(reportId, reportData);
 });
 
+// ─── Papers (Paper Monitor) IPC ─────────────────────────────────
+
+ipcMain.handle('papers:fetch', async (_event, input: FetchPapersInput) => {
+  const safeInput: FetchPapersInput = input ?? { topics: [] };
+  log.info('[Papers] fetch start, topics:', safeInput.topics);
+  try {
+    const result = await fetchPapers(safeInput);
+    log.info(
+      `[Papers] fetch ok: ${result.papers.length} papers, ${result.errors.length} source/topic errors`,
+    );
+    if (result.errors.length > 0) {
+      for (const e of result.errors) {
+        log.warn(`[Papers] ${e.source}/"${e.topic}": ${e.message}`);
+      }
+    }
+    if (activeWorkspace && result.papers.length > 0) {
+      try {
+        persistPapersAsBriefings(activeWorkspace.id, result.papers);
+      } catch (err) {
+        log.warn(
+          '[Papers→Briefings] persist failed:',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error('[Papers] fetch failed:', message, err instanceof Error ? err.stack : '');
+    return {
+      papers: [],
+      fetchedAt: new Date().toISOString(),
+      errors: [{ source: 'arxiv' as const, topic: '*', message }],
+    };
+  }
+});
+
 // ─── Briefings IPC ──────────────────────────────────────────────
 
 ipcMain.handle(
@@ -1229,6 +1280,11 @@ ipcMain.handle('scanner:start', async () => {
     onMessage: (event) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('scanner:event', event);
+      }
+    },
+    onBriefingsChanged: () => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('briefings:changed');
       }
     },
   }).catch((err) => {
@@ -1992,6 +2048,15 @@ ipcMain.handle('fileMonitor:openFile', (_event, fileUrl: string, bundleId?: stri
   }
 });
 
+ipcMain.handle('windowMonitor:setDockRightForDocument', (_event, documentPath: string, docked: boolean) => {
+  windowMonitorService.setDockRightForDocument(documentPath, docked);
+});
+
+ipcMain.handle('windowMonitor:setOverlayKickoffForDocument', (_event, documentPath: string, prompt: string) => {
+  windowMonitorService.setPendingKickoffForDocument(documentPath, prompt);
+});
+
+
 // Observations IPC handlers
 ipcMain.handle('observations:getBrowserSessions', () => getAllSessions());
 ipcMain.handle('observations:getFileSessions', () => getAllFileSessions());
@@ -2007,7 +2072,16 @@ function notifySessionsChanged() {
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   return listSessions(undefined, source);
 });
+ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): number => {
+  if (!activeWorkspace) return 0;
+  return listSessions(activeWorkspace.id, undefined, documentPath).length;
+});
 ipcMain.handle('sessions:get', (_event, id: string) => getSession(id));
+ipcMain.handle('sessions:setDocumentPath', (_event, id: string, documentPath: string) => {
+  if (!activeWorkspace) return;
+  setSessionDocumentPath(id, activeWorkspace.id, documentPath);
+  notifySessionsChanged();
+});
 ipcMain.handle('sessions:rename', (_event, id: string, title: string) => {
   updateSessionTitle(id, title);
   notifySessionsChanged();
@@ -2068,7 +2142,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
   }
 }
 
-ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string }) => {
+ipcMain.on('chat:send', (event, { threadId, text, attachments, model, documentPath }: { threadId: string; text: string; attachments?: IPCAttachment[]; model?: string; documentPath?: string }) => {
   if (!activeWorkspace) {
     event.sender.send('chat:error', threadId, 'No active workspace');
     return;
@@ -2127,6 +2201,8 @@ ipcMain.on('chat:send', (event, { threadId, text, attachments, model }: { thread
         undefined,
         handleNotificationNavigation,
         model,
+        undefined,
+        documentPath,
       );
 
       registerSession(threadId, session);

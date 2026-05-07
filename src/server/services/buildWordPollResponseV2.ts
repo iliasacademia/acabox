@@ -171,6 +171,9 @@ export function buildWordPollResponseV2(
       const selectedTextContent = wid
         ? windowMonitorService.getSelectedTextContent(wid)
         : windowMonitorService.getLastSelectedText();
+      // Consume any pending kickoff prompt set by the desktop side; included
+      // exactly once so the popup can start a chat with this text pre-sent.
+      const pendingKickoffPrompt = windowMonitorService.consumePendingKickoffForDocument(documentPath);
       return {
         isInWorkspace: true,
         workspaceSessions: sessions,
@@ -185,6 +188,7 @@ export function buildWordPollResponseV2(
         hasSelectedText: false,
         selectedText: selectedTextContent ?? undefined,
         isDockedActive,
+        ...(pendingKickoffPrompt ? { pendingKickoffPrompt } : {}),
       };
     }
     // Cobuilding mode: document is outside the workspace — hide overlay entirely

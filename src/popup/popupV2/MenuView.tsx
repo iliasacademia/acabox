@@ -4,7 +4,7 @@ import {
   AssistantRuntimeProvider,
   useAuiState,
 } from '@assistant-ui/react';
-import { OverlayThread } from './OverlayThread';
+import { OverlayThread, InitialPromptAutoSend } from './OverlayThread';
 import { useHttpChatAdapter, useHttpHistoryAdapter } from './httpChatAdapter';
 import '../../cobuilding/renderer/App.css';
 import '@assistant-ui/react-markdown/styles/dot.css';
@@ -225,6 +225,14 @@ interface WorkspaceConversationViewProps {
   documentDisplayName?: string | null;
   selectedText?: string | null;
   onBack: () => void;
+  /**
+   * Prompt to programmatically send into the composer once the chat is mounted.
+   * Used by the Writing-Agent flow to start the conversation with a kickoff
+   * message already sent — no manual typing required.
+   */
+  initialPrompt?: string;
+  /** Called once after the initial prompt has been auto-sent (or attempted). */
+  onInitialPromptSent?: () => void;
 }
 
 /**
@@ -258,6 +266,8 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
   selectedText: selectedTextProp,
   onBack,
   onForeignTurnDone,
+  initialPrompt,
+  onInitialPromptSent,
 }) => {
   const displayName = effectiveDocDisplayName(documentDisplayName, documentPath);
   // Local selected text state — syncs from prop, can be dismissed with X
@@ -316,6 +326,7 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
       <div style={{ flex: 1, minHeight: 0 }}>
         <AssistantRuntimeProvider runtime={runtime}>
           <ForeignTurnWatcher sessionId={sessionId} onForeignDone={onForeignTurnDone} />
+          <InitialPromptAutoSend prompt={initialPrompt} onSent={onInitialPromptSent} />
           <OverlayThread
             documentPath={documentPath}
             selectedText={activeSelectedText}
@@ -336,8 +347,12 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
  * true, the in-flight /send SSE response is already streaming the result
  * into our runtime, so a remount would just cause a needless flash.
  *
- * Lives inside `<AssistantRuntimeProvider>` so it can read thread state.
- * Returns null — pure side-effect component.
+ * Note: only fires on `done`. Refreshing on intermediate `event` ticks
+ * makes the conversation flicker (each refresh remounts the message list),
+ * so live in-progress tool-call rendering for foreign turns is sacrificed
+ * for a stable view. The user sees their first message immediately, then
+ * the full agent response when the turn completes. Replace this with a
+ * runtime-push mechanism if live progress without remount is needed.
  */
 const ForeignTurnWatcher: React.FC<{ sessionId: string; onForeignDone: () => void }> = ({ sessionId, onForeignDone }) => {
   const isRunning = useAuiState((s: any) => s.thread.isRunning);

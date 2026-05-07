@@ -194,6 +194,11 @@ export interface OverlayPollResponse {
     title: string;
     created_at: string;
   }>;
+  /**
+   * Pending kickoff prompt for the active document, set by surfaces like the
+   * Writing-Agent flow. Consumed exactly once per pollData arrival.
+   */
+  pendingKickoffPrompt?: string;
   /** FullStory configuration for popup initialization (avoids extra HTTP calls) */
   fullStoryConfig?: {
     userId: number | null;

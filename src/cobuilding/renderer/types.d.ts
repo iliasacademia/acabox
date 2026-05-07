@@ -25,6 +25,7 @@ interface FilesAPI {
   readFile(filePath: string): Promise<FileContent>;
   fileExists(filePath: string): Promise<boolean>;
   findByName(filename: string, hintDirs: string[]): Promise<string | null>;
+  findByExtension(extensions: string[]): Promise<{ relPath: string; mtimeMs: number }[]>;
   downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
   showInFinder(filePath: string): Promise<void>;
   revealInFinder(filePath: string): Promise<void>;
@@ -71,6 +72,7 @@ interface MessageData {
 interface SessionsAPI {
   list(source?: string): Promise<SessionData[]>;
   get(id: string): Promise<SessionData | undefined>;
+  setDocumentPath(id: string, documentPath: string): Promise<void>;
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
   listMessages(sessionId: string): Promise<MessageData[]>;
@@ -195,6 +197,7 @@ declare global {
     readFile(filePath: string): Promise<FileContent>;
     fileExists(filePath: string): Promise<boolean>;
     findByName(filename: string, hintDirs: string[]): Promise<string | null>;
+  findByExtension(extensions: string[]): Promise<{ relPath: string; mtimeMs: number }[]>;
     writeFile(filePath: string, content: string): Promise<void>;
     downloadFile(filename: string, content: string): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
     showInFinder(filePath: string): Promise<void>;
@@ -244,6 +247,8 @@ declare global {
   interface SessionsAPI {
     list(source?: string): Promise<SessionData[]>;
     get(id: string): Promise<SessionData | undefined>;
+    setDocumentPath(id: string, documentPath: string): Promise<void>;
+    countForDocument(documentPath: string): Promise<number>;
     rename(id: string, title: string): Promise<void>;
     delete(id: string): Promise<void>;
     listMessages(sessionId: string): Promise<MessageData[]>;
@@ -381,6 +386,8 @@ declare global {
     stop(): Promise<void>;
     getTodaySessions(): Promise<TodayFileSession[]>;
     openFile(fileUrl: string, bundleId?: string): Promise<string>;
+    setDockRightForDocument(documentPath: string, docked: boolean): Promise<void>;
+    setOverlayKickoffForDocument(documentPath: string, prompt: string): Promise<void>;
   }
 
   interface BrowserMonitorAPI {
@@ -583,12 +590,47 @@ declare global {
     onEvent(callback: (event: ScannerEvent) => void): () => void;
   }
 
+  type PaperSource = 'arxiv' | 'pubmed' | 'openalex' | 'biorxiv';
+
+  interface FetchedPaper {
+    id: string;
+    source: PaperSource;
+    externalId: string;
+    doi: string | null;
+    title: string;
+    abstract: string;
+    authors: string[];
+    authorsLine: string;
+    venue: string;
+    publishedAt: string;
+    url: string;
+    pdfUrl: string | null;
+    matchedTopic: string;
+    sources: PaperSource[];
+  }
+
+  interface PapersFetchResult {
+    papers: FetchedPaper[];
+    fetchedAt: string;
+    errors: { source: PaperSource; topic: string; message: string }[];
+  }
+
+  interface PapersAPI {
+    fetch(input: {
+      topics: string[];
+      maxPerTopic?: number;
+      maxTotal?: number;
+      sources?: PaperSource[];
+    }): Promise<PapersFetchResult>;
+  }
+
   type BriefingType =
     | 'suggested_action'
     | 'suggested_tool'
     | 'paper'
     | 'citation'
-    | 'grant';
+    | 'grant'
+    | 'writing_agent';
 
   type BriefingStatus = 'new' | 'opened' | 'dismissed';
 
@@ -636,12 +678,26 @@ declare global {
     url?: string;
   }
 
+  interface BriefingDataWritingAgent {
+    /** Relative path (within workspace) to the DOCX manuscript. */
+    file_path: string;
+    /** What the user might pick up next on this manuscript. */
+    description: string;
+    /**
+     * Pre-filled user message produced by analyzing the manuscript during
+     * onboarding. Auto-sent to the chat when the user opens the briefing.
+     */
+    chat_prompt: string;
+  }
+
   interface BriefingsAPI {
     list(filter?: {
       status?: BriefingStatus[];
       limit?: number;
     }): Promise<Briefing[]>;
     setStatus(id: string, status: BriefingStatus): Promise<void>;
+    /** Subscribe to create/update/status changes. Returns unsubscribe. */
+    onChanged(callback: () => void): () => void;
   }
 
   interface ScannedFile {
@@ -685,6 +741,7 @@ declare global {
     officeAddinAPI: OfficeAddinAPI;
     reportsAPI: ReportsAPI;
     scannerAPI: ScannerAPI;
+    papersAPI: PapersAPI;
     briefingsAPI: BriefingsAPI;
     scannedFilesAPI: ScannedFilesAPI;
     nativeToolsAPI: { getUrl(toolId: string): Promise<string | null> };
