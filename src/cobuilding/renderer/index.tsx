@@ -30,7 +30,6 @@ import { useSessionSubscription } from './useSessionSubscription';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import ScanningProgress from './components/ScanningProgress';
 import ScanResultsReview from './components/ScanResultsReview';
-import ContainerSetupProgress from './components/ContainerSetupProgress';
 import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
 import WelcomeScreen from './components/WelcomeScreen';
@@ -918,20 +917,12 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
   );
 }
 
-type OnboardingStep = 'loading' | 'welcome' | 'login' | 'workspace' | 'container-setup' | 'scanning' | 'review' | 'ready';
+type OnboardingStep = 'loading' | 'welcome' | 'login' | 'workspace' | 'scanning' | 'review' | 'ready';
 
 function App() {
   const [step, setStep] = useState<OnboardingStep>('loading');
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [scanReportId, setScanReportId] = useState<string | null>(null);
-
-  // Fire container setup in the background on every launch (no credentials needed).
-  // This downloads Podman and pulls the base image in parallel with login/onboarding.
-  useEffect(() => {
-    window.containerAPI.ensureSetupBackground().catch((err) => {
-      console.warn('[App] Background container setup failed:', err);
-    });
-  }, []);
 
   useEffect(() => {
     window.workspacesAPI.getActive().then((ws) => {
@@ -1002,7 +993,7 @@ function App() {
             window.workspacesAPI.getActive().then((ws) => {
               if (ws) {
                 setWorkspace(ws);
-                setStep('container-setup');
+                setStep('scanning');
               }
             });
           }}
@@ -1014,13 +1005,6 @@ function App() {
               }
             });
           }}
-        />
-      );
-
-    case 'container-setup':
-      return (
-        <ContainerSetupProgress
-          onComplete={() => setStep('scanning')}
         />
       );
 

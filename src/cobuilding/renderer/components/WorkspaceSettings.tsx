@@ -516,6 +516,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
             disabled={isRestartingOnboarding || isLoggingOut}
             onClick={async () => {
               setIsRestartingOnboarding(true);
+              await window.workspacesAPI.deleteAll();
               onRestartOnboarding();
             }}
           >
