@@ -101,6 +101,45 @@ export function isActiveSessionStaleForDoc(
 }
 
 /**
+ * Minimal interface a runtime needs to expose for `refreshActiveThread`
+ * to force a reload. Lets the helper be tested without mounting a real
+ * assistant-ui runtime — the production caller adapts the runtime's
+ * concrete `threads` object to this shape.
+ */
+export interface ThreadSwitcher {
+  switchToThread(id: string): void;
+  switchToNewThread(): void;
+  getThreadIds(): ReadonlyArray<string>;
+}
+
+/**
+ * Force the runtime to re-mount the active thread so its history adapter
+ * runs again and the freshly-arrived DB messages appear in the view.
+ *
+ * The original implementation called `runtime.threads.switchToThread(id)`
+ * with the already-active id, which assistant-ui short-circuits as a
+ * no-op — so the thread component never re-mounted and the cached
+ * history stuck. That's why the second consecutive overlay → desktop
+ * replication failed: the first arrival happened to land while the
+ * thread was freshly mounted (history.load already ran), but subsequent
+ * arrivals had no mechanism to force re-load.
+ *
+ * The fix: switch AWAY (to any other thread, or a scratch new one if
+ * none exist), then switch BACK. The thread component unmounts on the
+ * first switch and re-mounts on the second, which is what makes the
+ * runtime call history.load() afresh.
+ */
+export function refreshActiveThread(switcher: ThreadSwitcher, sessionId: string): void {
+  const others = switcher.getThreadIds().filter((id) => id !== sessionId);
+  if (others.length > 0) {
+    switcher.switchToThread(others[0]);
+  } else {
+    switcher.switchToNewThread();
+  }
+  switcher.switchToThread(sessionId);
+}
+
+/**
  * Should an incoming SSE / IPC chat-event trigger a foreign-refresh?
  *
  * The server emits two interesting cross-surface events: `done` (assistant

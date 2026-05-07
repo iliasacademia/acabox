@@ -27,6 +27,7 @@ import { sessionListAdapter } from './sessionListAdapter';
 import { useThreadHistoryAdapter } from './threadHistoryAdapter';
 import { createAttachmentAdapter } from './attachmentAdapter';
 import { useSessionSubscription } from './useSessionSubscription';
+import { refreshActiveThread } from '../../popup/popupV2/sessionLogic';
 import WorkspaceOnboarding from './components/WorkspaceOnboarding';
 import ScanningProgress from './components/ScanningProgress';
 import ScanResultsReview from './components/ScanResultsReview';
@@ -255,9 +256,11 @@ function ForeignTurnWatcherDesktop() {
       if (sessionId !== mainThreadIdRef.current) return;
       if (isRunningRef.current) return;
       try {
-        // Best-effort: nudge the runtime to drop cached per-thread state and
-        // reload via the history adapter. Same pattern as
-        // SessionsListRefresher but targeted at the active thread.
+        // Belt: cache-poke via assistant-ui internals. Best-effort —
+        // the same trick used by SessionsListRefresher for the threads
+        // list. Whether `__internal_loadHistory` actually re-runs the
+        // history adapter is version-dependent, so it's not the only
+        // thing we rely on.
         const threadsCore: any = (runtime as any)?._core?.threads;
         const threadCore: any = threadsCore?.getThreadRuntimeCore?.(sessionId)
           ?? threadsCore?._threads?.get?.(sessionId)
@@ -266,10 +269,24 @@ function ForeignTurnWatcherDesktop() {
           threadCore._loadHistoryPromise = null;
           threadCore.__internal_loadHistory?.();
         }
-        // Toggle through switchToThread to force assistant-ui's public path
-        // to refetch. If switching to the same id is a no-op in this version,
-        // the cache poke above is the safety net.
-        runtime.threads.switchToThread(sessionId);
+        // Suspenders: force a real unmount/remount by switching AWAY
+        // and back. Calling switchToThread(sessionId) alone — which
+        // the previous implementation did — is a no-op when sessionId
+        // is already active, so the thread component never re-mounted
+        // and the runtime's cached history never re-fetched. That's
+        // why consecutive overlay → desktop replications stopped
+        // working after the first one. See `refreshActiveThread` and
+        // its test in popup/popupV2/sessionLogic.ts.
+        const state = (runtime.threads as any).getState?.() ?? {};
+        const threadIds: string[] = Array.isArray(state.threadIds) ? state.threadIds : [];
+        refreshActiveThread(
+          {
+            switchToThread: (id: string) => runtime.threads.switchToThread(id),
+            switchToNewThread: () => runtime.threads.switchToNewThread(),
+            getThreadIds: () => threadIds,
+          },
+          sessionId,
+        );
       } catch (err) {
         console.warn('[ForeignTurnWatcher] reload nudge failed', err);
       }

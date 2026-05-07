@@ -21,7 +21,9 @@ import {
   shouldClearActiveOnDocChange,
   isActiveSessionStaleForDoc,
   shouldRefreshOnForeignEvent,
+  refreshActiveThread,
   WorkspaceSession,
+  ThreadSwitcher,
 } from '../sessionLogic';
 
 const session = (id: string, createdAtIso: string, title = id): WorkspaceSession => ({
@@ -224,5 +226,93 @@ describe('shouldRefreshOnForeignEvent', () => {
     expect(shouldRefreshOnForeignEvent('error', null, false)).toBe(false);
     expect(shouldRefreshOnForeignEvent('keepalive', null, false)).toBe(false);
     expect(shouldRefreshOnForeignEvent('', null, false)).toBe(false);
+  });
+});
+
+/**
+ * Reproduction of the consecutive-foreign-event bug.
+ *
+ * Symptom (from a real session screenshot): first overlay → desktop
+ * user message replicated correctly. Subsequent overlay → desktop
+ * messages stopped appearing in the desktop view, even though the
+ * server was broadcasting `chat:foreign-done` and the desktop's
+ * handler was firing.
+ *
+ * Cause (verified by reading the original handler in
+ * `src/cobuilding/renderer/index.tsx`): the refresh code finished by
+ * calling `runtime.threads.switchToThread(sessionId)` where sessionId
+ * was already the active thread. assistant-ui short-circuits same-id
+ * switches as no-ops, so the thread component never re-mounted and
+ * the runtime's cached history adapter result was never re-fetched.
+ * The first foreign event happened to land while the thread had just
+ * been freshly mounted (history.load had run naturally on activation),
+ * giving the false impression that the refresh worked. Every event
+ * after that hit the cache and silently no-op'd.
+ *
+ * The test below asserts the call SHAPE that's required to actually
+ * force a re-mount (switch away → switch back). The original code
+ * would only produce a single same-id call, which the test pins as
+ * a no-op shape so any regression to the single-call form is loud.
+ */
+describe('refreshActiveThread (foreign-event remount fix)', () => {
+  function recordingSwitcher(threadIds: string[]): ThreadSwitcher & { calls: string[] } {
+    const calls: string[] = [];
+    return {
+      calls,
+      switchToThread: (id: string) => calls.push(`switch:${id}`),
+      switchToNewThread: () => calls.push('new'),
+      getThreadIds: () => threadIds,
+    };
+  }
+
+  it('switches AWAY to another existing thread, then back — forcing the thread to re-mount', () => {
+    const sw = recordingSwitcher(['A', 'B', 'C']);
+    refreshActiveThread(sw, 'B');
+    // Two calls in this order: away (any non-target id) then back to target.
+    // The "away" + "back" pair is what unmounts and remounts the thread
+    // component, which is what causes the runtime to re-call history.load().
+    expect(sw.calls).toEqual(['switch:A', 'switch:B']);
+  });
+
+  it('creates a scratch new thread and switches back when only the target thread exists', () => {
+    // Edge case: a workspace with exactly one thread. There's no other
+    // thread to switch to, so we briefly create a new scratch thread,
+    // which makes the original thread unmount. Then switch back forces
+    // its re-mount. Trade-off documented in the helper docstring.
+    const sw = recordingSwitcher(['ONLY']);
+    refreshActiveThread(sw, 'ONLY');
+    expect(sw.calls).toEqual(['new', 'switch:ONLY']);
+  });
+
+  it('reproduces the original bug: a single same-id switch produces no remount', () => {
+    // The original handler at renderer/index.tsx:272 ran:
+    //   runtime.threads.switchToThread(sessionId)
+    // where sessionId was the currently active thread. Capturing that
+    // exact call sequence here demonstrates that it's a single same-id
+    // switch with no away/back pairing — which assistant-ui short-circuits
+    // and which the new helper explicitly avoids.
+    const sw = recordingSwitcher(['CURRENT']);
+    sw.switchToThread('CURRENT');
+    expect(sw.calls).toEqual(['switch:CURRENT']);
+    expect(sw.calls.length).toBe(1);
+
+    // The fix: same scenario, run through refreshActiveThread instead.
+    sw.calls.length = 0;
+    refreshActiveThread(sw, 'CURRENT');
+    expect(sw.calls).toEqual(['new', 'switch:CURRENT']);
+    expect(sw.calls.length).toBe(2);
+  });
+
+  it('back-switch is always last (so the user lands on the original thread)', () => {
+    // Whatever path we take to force the unmount, the FINAL call must
+    // restore the active thread to the original session — otherwise the
+    // user would be visually yanked into the scratch / sibling thread.
+    const sw1 = recordingSwitcher(['A', 'B']);
+    refreshActiveThread(sw1, 'B');
+    expect(sw1.calls[sw1.calls.length - 1]).toBe('switch:B');
+
+    const sw2 = recordingSwitcher(['ONLY']);
+    refreshActiveThread(sw2, 'ONLY');
+    expect(sw2.calls[sw2.calls.length - 1]).toBe('switch:ONLY');
   });
 });
