@@ -98,6 +98,8 @@ interface ContainerAPI {
   getName(): Promise<string>;
   isImageBuilt(): Promise<boolean>;
   ensureSetup(): Promise<void>;
+  ensureSetupBackground(): Promise<void>;
+  ensureReady(): Promise<void>;
   getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
   appDepsReady(dirName: string): Promise<boolean>;
   ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
@@ -275,6 +277,8 @@ declare global {
     getName(): Promise<string>;
     isImageBuilt(): Promise<boolean>;
     ensureSetup(): Promise<void>;
+    ensureSetupBackground(): Promise<void>;
+    ensureReady(): Promise<void>;
     getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
     appDepsReady(dirName: string): Promise<boolean>;
     ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
