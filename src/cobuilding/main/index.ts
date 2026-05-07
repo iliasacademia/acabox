@@ -1264,6 +1264,9 @@ ipcMain.handle(
   'briefings:setStatus',
   (_event, id: string, status: BriefingStatus) => {
     setBriefingStatus(id, status);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('briefings:changed');
+    }
   },
 );
 
