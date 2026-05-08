@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PencilIcon } from 'lucide-react';
+import { PencilIcon, ArrowRightIcon } from 'lucide-react';
 import './WorkspaceOnboarding.css';
 import './ScanResultsReview.css';
 
@@ -77,7 +77,9 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
         <span className="wsSetup__brandLabel">SETUP</span>
       </div>
 
-      <div className="wsSetup__inner wsSetup__reviewInner">
+      <div className="wsSetup__body wsSetup__body--tight">
+        <div className="wsSetup__inner wsSetup__reviewInner">
+          <p className="wsSetup__stepIndicator">STEP 3 OF 3 &middot; HERE&rsquo;S WHAT I LEARNED</p>
         <h1 className="wsSetup__title">
           Does this match how you&rsquo;d describe your work?
         </h1>
@@ -162,16 +164,17 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
           )}
         </div>
 
-        <button
-          type="button"
-          className="wsSetup__continueBtn"
-          disabled={isSaving}
-          onClick={handleContinue}
-        >
-          {isSaving ? 'Saving...' : (
-            <>This looks right &mdash; continue <span className="wsSetup__arrow">&rarr;</span></>
-          )}
-        </button>
+          <button
+            type="button"
+            className="wsSetup__continueBtn"
+            disabled={isSaving}
+            onClick={handleContinue}
+          >
+            {isSaving ? 'Saving...' : (
+              <>This looks right &mdash; continue <ArrowRightIcon className="wsSetup__arrow" /></>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );

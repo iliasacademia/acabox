@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import './WorkspaceOnboarding.css';
-import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon } from 'lucide-react';
+import { FolderOpenIcon, CloudIcon, LayoutGridIcon, InfoIcon, ArrowRightIcon } from 'lucide-react';
 
 interface WorkspaceOnboardingProps {
   onComplete: () => void;
@@ -59,8 +59,9 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
         <span className="wsSetup__brandLabel">SETUP</span>
       </div>
 
-      <div className="wsSetup__inner">
-        <p className="wsSetup__stepIndicator">STEP 1 OF 5 &middot; POINT ME AT YOUR WORK</p>
+      <div className="wsSetup__body">
+        <div className="wsSetup__inner">
+          <p className="wsSetup__stepIndicator">STEP 1 OF 3 &middot; POINT ME AT YOUR WORK</p>
 
         <h1 className="wsSetup__title">Where does your research live?</h1>
         <p className="wsSetup__subtitle">Connect at least one source so I can read your work.</p>
@@ -126,19 +127,20 @@ const WorkspaceOnboarding: React.FC<WorkspaceOnboardingProps> = ({ onComplete, o
           disabled={!directoryPath || isCreating}
           onClick={handleContinue}
         >
-          {isCreating ? 'Setting up...' : <>Continue <span className="wsSetup__arrow">&rarr;</span></>}
+          {isCreating ? 'Setting up...' : <>Continue <ArrowRightIcon className="wsSetup__arrow" /></>}
         </button>
 
-        {directoryPath && (
-          <button
-            type="button"
-            className="wsSetup__skipBtn"
-            disabled={isCreating}
-            onClick={handleSkip}
-          >
-            Skip for now
-          </button>
-        )}
+          {directoryPath && (
+            <button
+              type="button"
+              className="wsSetup__skipBtn"
+              disabled={isCreating}
+              onClick={handleSkip}
+            >
+              Skip for now
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

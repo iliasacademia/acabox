@@ -106,8 +106,10 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
         <span className="wsSetup__brandLabel">SETUP</span>
       </div>
 
-      <div className="wsSetup__inner scanProgress__layout">
-        <div className="scanProgress__top">
+      <div className="wsSetup__body">
+        <div className="wsSetup__inner scanProgress__layout">
+          <div className="scanProgress__top">
+          <p className="wsSetup__stepIndicator">STEP 2 OF 3 &middot; READING YOUR WORK</p>
           <h1 className="wsSetup__title">Give me a few minutes to read everything</h1>
 
           <div className="wsSetup__progressBar">
@@ -147,17 +149,18 @@ const ScanningProgress: React.FC<ScanningProgressProps> = ({ onComplete, onSkip 
           )}
         </div>
 
-        <div className="scanProgress__bottom">
-          <div
-            className={`wsSetup__fileActivity ${fileActivities.length > 0 ? 'wsSetup__fileActivity--visible' : ''}`}
-            ref={fileListRef}
-          >
-            {fileActivities.map((path, i) => (
-              <div key={i} className="wsSetup__fileActivityItem">
-                <span className="wsSetup__fileActivityDot" />
-                <span className="wsSetup__fileActivityPath">{path}</span>
-              </div>
-            ))}
+          <div className="scanProgress__bottom">
+            <div
+              className={`wsSetup__fileActivity ${fileActivities.length > 0 ? 'wsSetup__fileActivity--visible' : ''}`}
+              ref={fileListRef}
+            >
+              {fileActivities.map((path, i) => (
+                <div key={i} className="wsSetup__fileActivityItem">
+                  <span className="wsSetup__fileActivityDot" />
+                  <span className="wsSetup__fileActivityPath">{path}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </div>
