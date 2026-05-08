@@ -4,12 +4,12 @@
 .gsStep__btn {
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   border: none;
-  border-radius: 7px;
+  border-radius: 2px;
   padding: 7px 14px;
   cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background 0.15s, opacity 0.15s, color 0.15s, border-color 0.15s;
   white-space: nowrap;
 }
 
@@ -19,38 +19,39 @@
 }
 
 .gsStep__btn--primary {
-  background: #141413;
+  background: #171512;
   color: #ffffff;
 }
 
 .gsStep__btn--primary:hover:not(:disabled) {
-  background: #2a2a29;
+  background: #2b2823;
 }
 
 .gsStep__btn--secondary {
-  background: #f3f4f6;
-  color: #374151;
+  background: transparent;
+  color: #3d3933;
+  border: 1px solid #d6d0c5;
 }
 
 .gsStep__btn--secondary:hover:not(:disabled) {
-  background: #e5e7eb;
+  background: #efeae1;
+  border-color: #c9bfa8;
 }
 
 .gsStep__btn--large {
   font-size: 14px;
   padding: 10px 24px;
-  border-radius: 8px;
 }
 
 .gsStep__btn--ghost {
   background: transparent;
-  color: #6b7280;
+  color: #6f685f;
   padding: 0;
   font-size: 12px;
 }
 
 .gsStep__btn--ghost:hover:not(:disabled) {
-  color: #374151;
+  color: #3d3933;
 }
 
 /* Inputs */
@@ -58,29 +59,28 @@
   width: 100%;
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
-  color: #111827;
+  color: #141413;
   background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 7px;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
   padding: 8px 12px;
   outline: none;
-  transition: border-color 0.15s;
+  transition: border-color 0.12s ease;
   box-sizing: border-box;
   margin-top: 4px;
 }
 
 .gsStep__input:focus {
-  border-color: #141413;
-  box-shadow: 0 0 0 3px rgba(20, 20, 19, 0.07);
+  border-color: #a09880;
 }
 
 .gsStep__input::placeholder {
-  color: #9ca3af;
+  color: #b5aea4;
 }
 
 .gsStep__input:disabled {
   opacity: 0.5;
-  background: #f9fafb;
+  background: #faf7ee;
   cursor: not-allowed;
 }
 
@@ -88,7 +88,7 @@
 .gsStep__error {
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
-  color: #dc2626;
+  color: #b91c1c;
   margin: 0 0 12px;
   line-height: 1.5;
 }
