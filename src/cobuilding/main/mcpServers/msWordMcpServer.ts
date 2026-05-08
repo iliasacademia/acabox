@@ -94,7 +94,7 @@ export function createMsWordMcpServer() {
         'find_and_replace',
         `Propose a text edit in the active Word document. The edit is NOT applied immediately — the user sees a suggestion card in the UI and approves or denies each edit. Only approved edits are applied as tracked revisions in Word.
 
-Call this tool once per edit. Do NOT describe the edits in your text — the UI shows them automatically.`,
+Call this tool once per edit. Keep search_text to a single sentence — shorter searches match reliably even when the document has unaccepted tracked changes. Do NOT describe the edits in your text — the UI shows them automatically.`,
         {
           search_text: z.string().describe('The exact text to find in the document'),
           replacement_text: z.string().describe('The text to replace it with'),
