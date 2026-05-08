@@ -155,7 +155,7 @@ body,
 
 .pageShell__inner {
   padding: 36px 40px 120px;
-  max-width: 1280px;
+  max-width: 920px;
   width: 100%;
   margin: 0 auto;
 }
@@ -6700,8 +6700,11 @@ button.briefingHistoryRow__status {
 
 /* --- Home page header --- */
 
+/* Home page reuses .pageShell + .pageShell__inner (same max-width as every
+   other top-level page); this modifier only adds extra scroll runway so the
+   cards keep room to breathe at the bottom. */
 .pageShell__inner.homePageInner {
-  max-width: 860px;
+  padding-bottom: 25vh;
 }
 
 .homeHeader {
@@ -6741,7 +6744,7 @@ button.briefingHistoryRow__status {
   padding: 6px 12px;
   background: transparent;
   border: 1px solid #d6d0c5;
-  border-radius: 999px;
+  border-radius: 2px;
   font-family: 'DM Sans', sans-serif;
   font-size: 0.8125rem;
   color: #7a746a;
@@ -6756,50 +6759,53 @@ button.briefingHistoryRow__status {
 
 /* --- Freeform card --- */
 
+.homeBriefingCard.homeFreeformCard {
+  display: block;
+  background: rgb(244, 241, 235);
+  border: 1px solid rgb(232, 226, 214);
+  border-left: 1px solid rgb(232, 226, 214);
+  padding: 24px;
+}
+
 .homeFreeformCard__heading {
   display: flex;
   align-items: center;
   gap: 8px;
   font-family: 'Gupter', serif;
   font-size: 1.125rem;
-  font-weight: 600;
+  font-weight: 400;
   color: #141413;
-  margin-bottom: 8px;
-}
-
-.homeFreeformCard__subtitle {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 0.9375rem;
-  color: #6f685f;
-  line-height: 1.5;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 
 .homeFreeformCard__inputRow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #d6d0c5;
+  border-radius: 3px;
+  padding: 4px 4px 4px 0;
+  transition: border-color 0.12s ease;
+}
+
+.homeFreeformCard__inputRow:focus-within {
+  border-color: #a09880;
 }
 
 .homeFreeformCard__input {
   flex: 1;
-  padding: 10px 14px;
-  background: #fff;
-  border: 1px solid #d6d0c5;
-  border-radius: 3px;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
   font-family: 'DM Sans', sans-serif;
   font-size: 0.9375rem;
   color: #141413;
   outline: none;
-  transition: border-color 0.12s ease;
 }
 
 .homeFreeformCard__input::placeholder {
   color: #b5aea4;
-}
-
-.homeFreeformCard__input:focus {
-  border-color: #a09880;
 }
 
 .homeFreeformCard__sendButton {
@@ -6807,11 +6813,11 @@ button.briefingHistoryRow__status {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 38px;
-  height: 38px;
+  width: 30px;
+  height: 30px;
   background: #171512;
   border: none;
-  border-radius: 3px;
+  border-radius: 2px;
   color: #fff;
   cursor: pointer;
   transition: background 0.12s ease;
@@ -6832,80 +6838,74 @@ button.briefingHistoryRow__status {
   position: relative;
   background: #fff;
   border: 1px solid #e5e2dd;
+  border-radius: 2px;
   padding: 24px;
   font-family: 'DM Sans', sans-serif;
 }
 
 .homeBriefingCard--action {
-  background: #f4f1e4;
-  border-left: 3px solid #78896f;
-  padding: 24px 28px 24px 24px;
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  background: #fff;
+  border-left: 3px solid rgb(122, 68, 25);
+  padding: 18px 20px;
 }
 
-.homeBriefingCard__close {
-  position: absolute;
-  top: 18px;
-  right: 18px;
-  display: inline-flex;
+.homeBriefingCard__iconBox {
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  color: #9c958b;
-  background: transparent;
-  border: none;
-  cursor: pointer;
+  width: 40px;
+  height: 40px;
+  background: rgb(244, 241, 235);
+  color: #7A4419;
+  flex-shrink: 0;
 }
 
-.homeBriefingCard__close:hover {
-  color: #5c5549;
+.homeBriefingCard__icon {
+  width: 15px;
+  height: 15px;
 }
 
-.homeBriefingCard__closeIcon {
-  width: 14px;
-  height: 14px;
+.homeBriefingCard__body {
+  flex: 1;
+  min-width: 0;
 }
 
 .homeBriefingCard__eyebrow {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
-  padding-right: 28px;
-  color: #78896f;
+  gap: 10px;
+  margin-bottom: 8px;
   font-size: 0.625rem;
-  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
-.homeBriefingCard__eyebrowIcon {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
+.homeBriefingCard__eyebrowLabel {
+  color: #8a8379;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
 }
 
 .homeBriefingCard__title {
-  margin: 0 0 14px;
-  padding-right: 28px;
+  margin: 0 0 8px;
   color: #141413;
   font-family: 'Gupter', serif;
   font-size: 1.25rem;
-  font-weight: 600;
+  font-weight: 400;
   line-height: 1.2;
 }
 
 .homeBriefingCard__subtitle {
-  margin: -10px 0 14px;
-  padding-right: 28px;
+  margin: -4px 0 8px;
   color: #8a8379;
   font-size: 0.8125rem;
   line-height: 1.3;
 }
 
 .homeBriefingCard__description {
-  margin: 0 0 22px;
+  margin: 0 0 14px;
   color: #6f685f;
   font-size: 0.9375rem;
   line-height: 1.5;
@@ -6914,6 +6914,7 @@ button.briefingHistoryRow__status {
 .homeBriefingCard__actions {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -6922,13 +6923,13 @@ button.briefingHistoryRow__status {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 18px;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
   border-radius: 2px;
   font-family: 'DM Sans', sans-serif;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  font-weight: 400;
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
@@ -6943,6 +6944,17 @@ button.briefingHistoryRow__status {
 .homeBriefingCard__button--primary:hover {
   background: #2b2823;
   border-color: #2b2823;
+}
+
+.homeBriefingCard__button--secondary {
+  color: #6f685f;
+  background: transparent;
+  border: 1px solid #d6d0c5;
+}
+
+.homeBriefingCard__button--secondary:hover {
+  background: #efeae1;
+  color: #3d3933;
 }
 
 .homeBriefingCard__buttonIcon {

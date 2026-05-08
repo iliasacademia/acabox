@@ -60,6 +60,7 @@ set revCount to 0
 set origName to ""
 set origInitials to ""
 set origTrack to false
+set origShowRevisions to false
 set restoreNeeded to false
 set tellErrMsg to ""
 
@@ -77,7 +78,12 @@ tell application "Microsoft Word"
     set user initials to "AC"
     set doc to active document
     set origTrack to track revisions of doc
+    set origShowRevisions to show revisions of doc
     set track revisions of doc to true
+    -- Hide revision marks so Word's find object searches the final
+    -- (post-revision) text — matching what get_text returns. This is
+    -- purely a view change; tracked changes remain intact.
+    set show revisions of doc to false
     set restoreNeeded to true
 
     try
@@ -86,6 +92,12 @@ tell application "Microsoft Word"
       set docRange to create range doc start 0 end (end of content of text object of doc)
       set findObj to find object of docRange
       clear formatting findObj
+      -- Reset all find options to prevent stale state from prior
+      -- searches (e.g. match wildcards left on by Cmd+H).
+      set match wildcards of findObj to false
+      set match whole word of findObj to false
+      set match sounds like of findObj to false
+      set match all word forms of findObj to false
       set content of findObj to searchText
       set forward of findObj to true
       set wrap of findObj to find stop
@@ -102,6 +114,10 @@ tell application "Microsoft Word"
         set docRange to create range doc start 0 end (end of content of text object of doc)
         set findObj to find object of docRange
         clear formatting findObj
+        set match wildcards of findObj to false
+        set match whole word of findObj to false
+        set match sounds like of findObj to false
+        set match all word forms of findObj to false
         set content of findObj to originalSearchText
         set forward of findObj to true
         set wrap of findObj to find stop
@@ -116,10 +132,9 @@ tell application "Microsoft Word"
         end if
       end if
     on error tier1Err
-      -- Word's find rejected the inputs. Pass 3 below handles the long-
-      -- search case with verify-before-write semantics; everything else
-      -- falls through to a clean failure.
-      log "[wordActions] Word find errored, falling through to Pass 3 if applicable: " & tier1Err
+      -- Word's find rejected the inputs. Pass 3 below handles this
+      -- with verify-before-write semantics.
+      log "[wordActions] Word find errored, falling through to Pass 3: " & tier1Err
     end try
 
     -- Capture the doc text BEFORE we exit the tell. Pass 3's offset/count
@@ -159,6 +174,9 @@ if tellErrMsg is not "" then
       if restoreNeeded then
         set user name to origName
         set user initials to origInitials
+        try
+          set show revisions of active document to origShowRevisions
+        end try
         try
           set track revisions of active document to origTrack
         end try
@@ -379,6 +397,9 @@ end if
     tell application "Microsoft Word"
       set user name to origName
       set user initials to origInitials
+      try
+        set show revisions of active document to origShowRevisions
+      end try
       try
         set track revisions of active document to origTrack
       end try

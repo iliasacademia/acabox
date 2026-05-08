@@ -1,5 +1,6 @@
 import { query, type SDKMessage, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
 import Anthropic from '@anthropic-ai/sdk';
@@ -22,17 +23,26 @@ interface SuggestionParsed {
   description?: unknown;
 }
 
-interface WorkingOnFileParsed {
-  file_path?: unknown;
-  path?: unknown;
-  description?: unknown;
-}
-
 interface TaggedFileParsed {
   file_path?: unknown;
   path?: unknown;
   file_name?: unknown;
   file_type?: unknown;
+}
+
+function findFileInWorkspace(directoryPath: string, fileName: string): string | null {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync(
+      `find ${JSON.stringify(directoryPath)} -name ${JSON.stringify(fileName)} -not -path '*/.*' -print -quit 2>/dev/null`,
+      { encoding: 'utf8', timeout: 5000 },
+    ).trim();
+    if (!result) return null;
+    const rel = path.relative(directoryPath, result);
+    return rel || null;
+  } catch {
+    return null;
+  }
 }
 
 function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undefined {
@@ -41,7 +51,7 @@ function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undef
   return undefined;
 }
 
-const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nPlease act as a peer reviewer for this manuscript. Read it end to end and flag concerns a reviewer would raise — about the argument, the evidence, the methodology, the framing, and the structure. Be specific and constructive. Suggest edits based on your feedback.';
+const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nRead only the Introduction section of this document (stop before Methods/Results). Give a brief review (3–5 sentences) assessing how well it motivates the research question, situates the work in the literature, and sets up the paper. After the review, propose exactly 2 edits to strengthen the introduction using find_and_replace. Each edit must target a single sentence — keep the search_text to one sentence so it matches reliably even if the document has tracked changes. Output the review text first, then the two find_and_replace tool calls — do not replace the review with the edits, both should be visible.';
 
 interface ManuscriptCandidate {
   filePath: string;
@@ -52,6 +62,7 @@ function createBriefingsFromScan(
   workspaceId: string,
   reportId: string,
   resultText: string,
+  directoryPath: string,
   ctx: {
     onBriefingsChanged?: () => void;
   },
@@ -73,7 +84,6 @@ function createBriefingsFromScan(
 
   let parsed: {
     suggestions?: unknown;
-    what_youre_working_on?: unknown;
     tagged_files?: unknown;
   };
   try {
@@ -82,17 +92,35 @@ function createBriefingsFromScan(
     return [];
   }
 
-  const workingOn = Array.isArray(parsed.what_youre_working_on)
-    ? (parsed.what_youre_working_on as WorkingOnFileParsed[])
-    : [];
   const taggedFiles = Array.isArray(parsed.tagged_files)
     ? (parsed.tagged_files as TaggedFileParsed[])
     : [];
 
-  const workingOnByPath = new Map<string, string>();
-  for (const f of workingOn) {
-    const p = getFilePath(f);
-    if (p && typeof f.description === 'string') workingOnByPath.set(p, f.description);
+  // Demo: ensure ASH1L manuscript is tagged as manuscript if found in workspace.
+  const ASH1L_MANUSCRIPT = 'ASH1L_PRDM14_Western_Blot_Manuscript_DRAFT.docx';
+  const ash1lRelPath = findFileInWorkspace(directoryPath, ASH1L_MANUSCRIPT);
+  if (ash1lRelPath) {
+    const alreadyTaggedAsManuscript = taggedFiles.some((f) => {
+      const p = getFilePath(f);
+      return p && p.includes(ASH1L_MANUSCRIPT) &&
+        (typeof f.file_type === 'string' ? f.file_type : typeof (f as any).type === 'string' ? (f as any).type : '').toLowerCase() === 'manuscript';
+    });
+    if (!alreadyTaggedAsManuscript) {
+      const existing = taggedFiles.find((f) => {
+        const p = getFilePath(f);
+        return p && p.includes(ASH1L_MANUSCRIPT);
+      });
+      if (existing) {
+        (existing as any).file_type = 'manuscript';
+        (existing as any).type = 'manuscript';
+      } else {
+        taggedFiles.push({
+          file_path: ash1lRelPath,
+          file_name: ASH1L_MANUSCRIPT,
+          file_type: 'manuscript',
+        });
+      }
+    }
   }
 
   // Collect manuscript-type docx files for peer-review enrichment.
@@ -145,13 +173,70 @@ function createBriefingsFromScan(
     }
   }
 
+  // Hardcoded demo suggestion: if the scanner found this specific western blot
+  // TIF file, suggest building an annotation tool for western blot images.
+  if (resultText.includes('western_blot-test-20260507145157.tif')) {
+    createBriefing({
+      workspaceId,
+      type: 'suggested_tool',
+      sourceReportId: reportId,
+      whyImSuggestingThis:
+        'I found a western blot image in your workspace. An annotation tool could help you label bands, add molecular weight markers, and create publication-ready figures.',
+      briefingData: {
+        name: 'Western Blot Annotation Tool',
+        details_on_what_to_build:
+          'Build an interactive tool that helps create annotated western blot images. The tool should allow the user to upload western blot TIF images, label individual bands, add molecular weight markers, draw lane boundaries, and export publication-ready annotated figures with clean labeling.',
+      },
+    });
+  }
+
+  // Board meeting demo: hardcoded PrestoBlue viability assay briefing.
+  // If all 6 xlsx files exist, suggest generating a Prism-style time-course graph.
+  const PRESTO_BLUE_FILES = [
+    '032426_PrestoBlue_PA-1_day1.xlsx',
+    '032326_PrestoBlue_PA-1.xlsx',
+    '032626_PrestoBlue_PA-1_day3.xlsx',
+    '032426_PrestoBlue_PA-1_day4.xlsx',
+    '032826_PrestoBlue_PA-1_day5.xlsx',
+    '032626_PrestoBlue_PA-1_day6.xlsx',
+  ];
+  const allPrestoBlueFound = PRESTO_BLUE_FILES.every(
+    (f) => findFileInWorkspace(directoryPath, f) !== null,
+  );
+  if (allPrestoBlueFound) {
+    createBriefing({
+      workspaceId,
+      type: 'suggested_action',
+      sourceReportId: reportId,
+      whyImSuggestingThis:
+        'I found PrestoBlue viability assay data across 6 time points in your workspace. I can generate a publication-ready time-course graph from this data.',
+      briefingData: {
+        title: 'Generate PA-1 viability time-course graph',
+        description:
+          'Create a Prism-style line graph from PrestoBlue viability assays showing PA-1 cell viability over days 1, 3, 4, 5, and 6.',
+        chat_prompt: `Using the 6 PrestoBlue xlsx files in PRDM14/Viability-Assays/ (day1, day3, day4, day5, day6), generate a Prism-style viability time-course line graph for PA-1 cells.
+
+Plate layout:
+
+Column 2: sgSAFE (1000 cells/well)
+Column 3: sgSAFE (500 cells/well)
+Column 4: sgPRDM14-3 (1000 cells/well)
+Column 5: sgPRDM14-3 (500 cells/well)
+Rows B–G: 6 replicates per condition
+Row A, Row H, Column 1, Columns 6–12: blanks (subtract background)
+
+Plot mean +/- SEM for each condition over days 1, 3, 4, 5, 6. Normalize fluorescence to Day 1 for each condition. Show 4 lines (one per condition) with distinct colors.`,
+      },
+    });
+  }
+
   ctx.onBriefingsChanged?.();
 
   // Return manuscript candidates — writing_agent briefings are created after
   // LLM enrichment generates contextual titles and descriptions.
   return manuscriptDocxFiles.map((f) => {
     const filePath = getFilePath(f)!;
-    return { filePath, scannerDescription: workingOnByPath.get(filePath) ?? '' };
+    return { filePath, scannerDescription: '' };
   });
 }
 
@@ -185,7 +270,7 @@ async function enrichAndCreateManuscriptBriefings(
           workspaceId,
           type: 'writing_agent',
           sourceReportId: reportId,
-          whyImSuggestingThis: scannerDescription || 'I can peer-review this manuscript and suggest edits.',
+          whyImSuggestingThis: scannerDescription || 'I can review the introduction of this manuscript and suggest edits.',
           briefingData: {
             file_path: filePath,
             description: scannerDescription,
@@ -201,9 +286,9 @@ async function enrichAndCreateManuscriptBriefings(
         max_tokens: 300,
         messages: [{
           role: 'user',
-          content: `You are generating a briefing card for a peer-review assistant. Given this manuscript excerpt, return JSON with:
-- "title": A short card title (5-10 words) that references the manuscript's topic, e.g. "Review your cortisol signaling paper" or "Peer review the HIF-2α analysis". Start with "Review" or "Peer review".
-- "description": One sentence describing what the review will focus on, specific to this manuscript's content. E.g. "I'll check the experimental design of your RPTEC timecourse and flag gaps in the methodology."
+          content: `You are generating a briefing card for a writing assistant that reviews the introduction section of manuscripts. Given this manuscript excerpt, return JSON with:
+- "title": A short card title (5-10 words) that references the manuscript's topic and focuses on the introduction, e.g. "Review the intro of your cortisol paper" or "Strengthen the introduction of your HIF-2α draft". Start with "Review" or "Strengthen".
+- "description": One sentence describing what the introduction review will focus on, specific to this manuscript's content. E.g. "I'll review how your introduction motivates the RPTEC timecourse study and propose 2–3 edits to strengthen it."
 
 Filename: ${fileName}
 
@@ -218,7 +303,7 @@ Output JSON only. No prose, no code fences.`,
       const text = (block && block.type === 'text' && block.text) ? block.text : '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);
 
-      let title = 'Peer review your manuscript';
+      let title = 'Review your manuscript introduction';
       let description = scannerDescription;
 
       if (jsonMatch) {
@@ -240,7 +325,7 @@ Output JSON only. No prose, no code fences.`,
         workspaceId,
         type: 'writing_agent',
         sourceReportId: reportId,
-        whyImSuggestingThis: description || 'I can peer-review this manuscript and suggest edits.',
+        whyImSuggestingThis: description || 'I can review the introduction of this manuscript and suggest edits.',
         briefingData: {
           file_path: filePath,
           title,
@@ -254,7 +339,7 @@ Output JSON only. No prose, no code fences.`,
         workspaceId,
         type: 'writing_agent',
         sourceReportId: reportId,
-        whyImSuggestingThis: scannerDescription || 'I can peer-review this manuscript and suggest edits.',
+        whyImSuggestingThis: scannerDescription || 'I can review the introduction of this manuscript and suggest edits.',
         briefingData: {
           file_path: filePath,
           description: scannerDescription,
@@ -388,6 +473,35 @@ const blockHiddenPaths: HookCallback = async (input) => {
   return {};
 };
 
+/** PreToolUse hook factory that blocks Read/Glob/Grep from escaping the scan directory. */
+function makeBlockOutsideCwd(directoryPath: string): HookCallback {
+  const root = path.resolve(directoryPath);
+  return async (input) => {
+    const preInput = input as PreToolUseHookInput;
+    const toolInput = preInput.tool_input as Record<string, unknown>;
+
+    const pathsToCheck: string[] = [];
+    if (typeof toolInput.file_path === 'string') pathsToCheck.push(toolInput.file_path);
+    if (typeof toolInput.path === 'string') pathsToCheck.push(toolInput.path);
+    if (typeof toolInput.pattern === 'string') pathsToCheck.push(toolInput.pattern);
+
+    for (const p of pathsToCheck) {
+      if (!p.trim()) continue;
+      const resolved = path.resolve(root, p);
+      if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason: `Access outside the scan directory is not allowed: ${p}`,
+          },
+        };
+      }
+    }
+    return {};
+  };
+}
+
 export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> {
   const { workspaceId, directoryPath, apiKey, baseURL, onMessage } = params;
   const reportId = randomUUID();
@@ -432,7 +546,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           schema: REPORT_JSON_SCHEMA,
         },
         hooks: {
-          PreToolUse: [{ matcher: 'Read|Glob|Grep', hooks: [blockHiddenPaths] }],
+          PreToolUse: [{ matcher: 'Read|Glob|Grep', hooks: [blockHiddenPaths, makeBlockOutsideCwd(directoryPath)] }],
         },
         settingSources: [],
         stderr: (data: string) => {
@@ -487,7 +601,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           updateReportStatus(reportId, 'completed', resultText);
           let manuscripts: ManuscriptCandidate[] = [];
           try {
-            manuscripts = createBriefingsFromScan(workspaceId, reportId, resultText, {
+            manuscripts = createBriefingsFromScan(workspaceId, reportId, resultText, directoryPath, {
               onBriefingsChanged: params.onBriefingsChanged,
             });
           } catch (err) {
@@ -505,6 +619,23 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
                   file_type: (f.file_type ?? f.type) as string,
                 }))
                 .filter((f: { file_name: string }) => !f.file_name.startsWith('~$'));
+              // Demo: ensure ASH1L manuscript is tagged in persisted scanned files.
+              const ASH1L_MS = 'ASH1L_PRDM14_Western_Blot_Manuscript_DRAFT.docx';
+              const ash1lRel = findFileInWorkspace(directoryPath, ASH1L_MS);
+              if (ash1lRel) {
+                const idx = normalised.findIndex(
+                  (f: { file_path: string }) => f.file_path.includes(ASH1L_MS),
+                );
+                if (idx >= 0) {
+                  normalised[idx].file_type = 'manuscript';
+                } else {
+                  normalised.push({
+                    file_path: ash1lRel,
+                    file_name: ASH1L_MS,
+                    file_type: 'manuscript',
+                  });
+                }
+              }
               upsertScannedFiles(workspaceId, reportId, normalised);
             }
           } catch (err) {

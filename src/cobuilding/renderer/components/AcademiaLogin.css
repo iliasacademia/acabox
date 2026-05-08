@@ -7,7 +7,7 @@
   justify-content: center;
   overflow-y: auto;
   z-index: 100;
-  padding: 80px 20px 60px;
+  padding: 140px 20px 60px;
   -webkit-app-region: no-drag;
 }
 
@@ -17,7 +17,7 @@
 }
 
 .academiaLogin__branding {
-  position: absolute;
+  position: fixed;
   top: 0;
   left: 0;
   right: 0;
@@ -25,7 +25,9 @@
   align-items: center;
   gap: 12px;
   padding: 20px 24px;
+  background: #faf8f5;
   border-bottom: 1px solid #e5e2dd;
+  z-index: 200;
 }
 
 .academiaLogin__brandName {
@@ -41,18 +43,18 @@
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #9ca3af;
+  color: #8a8379;
 }
 
 .academiaLogin__backBtn {
   background: none;
   border: none;
   font-size: 18px;
-  color: #6b7280;
+  color: #6f685f;
   cursor: pointer;
   padding: 4px 8px;
   margin: -4px 0;
-  border-radius: 6px;
+  border-radius: 2px;
   line-height: 1;
   transition: color 0.15s, background 0.15s;
 }
@@ -81,8 +83,8 @@
 
 .academiaLogin__subtitle {
   font-family: 'DM Sans', sans-serif;
-  font-size: 15px;
-  color: #6b7280;
+  font-size: 14px;
+  color: rgb(92, 86, 72);
   margin: 0;
 }
 
@@ -92,16 +94,16 @@
   gap: 8px;
   margin-bottom: 12px;
   padding: 8px 12px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
-  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
 }
 
 .academiaLogin__endpointLabel {
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
-  font-weight: 500;
-  color: #92400e;
+  font-weight: 400;
+  color: #6f685f;
   white-space: nowrap;
 }
 
@@ -109,24 +111,23 @@
   flex: 1;
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
-  color: #374151;
+  color: #3d3933;
   background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 6px;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
   padding: 5px 8px;
   outline: none;
   cursor: pointer;
 }
 
 .academiaLogin__endpointSelect:focus {
-  border-color: #f59e0b;
-  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.1);
+  border-color: #a09880;
 }
 
 .academiaLogin__card {
   background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 12px;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
   padding: 28px 24px;
 }
 
@@ -138,7 +139,7 @@
 }
 
 .academiaLogin__spinner {
-  border: 3px solid #e5e7eb;
+  border: 3px solid rgb(232, 226, 214);
   border-top: 3px solid #141413;
   border-radius: 50%;
   width: 32px;
@@ -165,9 +166,9 @@
 }
 
 .academiaLogin__qrImageWrap {
-  background: #f8f9fb;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 8px;
+  background: #f4f1e4;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
   padding: 12px;
   display: flex;
   justify-content: center;
@@ -183,7 +184,7 @@
 .academiaLogin__instructions {
   font-family: 'DM Sans', sans-serif;
   font-size: 12px;
-  color: #6b7280;
+  color: #6f685f;
   line-height: 1.6;
   list-style: none;
   margin: 0;
@@ -203,57 +204,79 @@
 }
 
 .academiaLogin__urlBox {
-  background: #f8f9fb;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 8px;
+  background: #f4f1e4;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
   padding: 12px;
 }
 
 .academiaLogin__urlLabel {
   font-family: 'DM Sans', sans-serif;
   font-size: 12px;
-  color: #6b7280;
+  color: #6f685f;
   margin: 0 0 6px;
 }
 
-.academiaLogin__urlRow {
-  display: flex;
-  gap: 6px;
-}
-
 .academiaLogin__urlInput {
-  flex: 1;
-  font-family: monospace;
+  display: block;
+  width: 100%;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
   font-size: 11px;
-  color: #374151;
+  color: #3d3933;
   background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 6px;
-  padding: 5px 8px;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
+  padding: 6px 8px;
   outline: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  min-width: 0;
+  box-sizing: border-box;
 }
 
-.academiaLogin__copyBtn {
+.academiaLogin__urlActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.academiaLogin__openBtn {
+  flex: 1;
   font-family: 'DM Sans', sans-serif;
   font-size: 12px;
-  font-weight: 600;
-  padding: 5px 10px;
-  background: #141413;
+  font-weight: 400;
+  padding: 6px 10px;
+  background: #171512;
   color: #ffffff;
   border: none;
-  border-radius: 6px;
+  border-radius: 2px;
   cursor: pointer;
   white-space: nowrap;
-  flex-shrink: 0;
   transition: background 0.15s;
 }
 
+.academiaLogin__openBtn:hover {
+  background: #2b2823;
+}
+
+.academiaLogin__copyBtn {
+  flex: 1;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  padding: 6px 10px;
+  background: transparent;
+  color: #6f685f;
+  border: 1px solid #d6d0c5;
+  border-radius: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+}
+
 .academiaLogin__copyBtn:hover {
-  background: #2a2a29;
+  background: #efeae1;
+  color: #3d3933;
 }
 
 .academiaLogin__codeSection {
@@ -266,7 +289,7 @@
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
   font-weight: 500;
-  color: #374151;
+  color: #3d3933;
   margin: 0;
 }
 
@@ -274,13 +297,13 @@
   width: 100%;
   height: 56px;
   font-size: 28px;
-  font-weight: 700;
+  font-weight: 400;
   text-align: center;
-  font-family: 'Courier New', monospace;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
   background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 8px;
-  color: #111827;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
+  color: #141413;
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
   box-sizing: border-box;
@@ -293,32 +316,32 @@
 }
 
 .academiaLogin__codeInput:disabled {
-  background: #f9fafb;
+  background: #f4f1e4;
   opacity: 0.6;
   cursor: not-allowed;
 }
 
 .academiaLogin__codeInput::placeholder {
-  color: #d1d5db;
+  color: #c4bfb6;
   letter-spacing: 2px;
 }
 
 .academiaLogin__verifyBtn {
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   padding: 10px 20px;
-  background: #141413;
+  background: #171512;
   color: #ffffff;
   border: none;
-  border-radius: 8px;
+  border-radius: 2px;
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s;
   width: 100%;
 }
 
 .academiaLogin__verifyBtn:hover:not(:disabled) {
-  background: #2a2a29;
+  background: #2b2823;
 }
 
 .academiaLogin__verifyBtn:disabled {
@@ -339,7 +362,7 @@
   color: #dc2626;
   background: #fef2f2;
   border: 1px solid #fecaca;
-  border-radius: 6px;
+  border-radius: 2px;
   padding: 8px 10px;
   margin: 0;
 }
@@ -347,9 +370,9 @@
 .academiaLogin__status {
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
-  color: #6b7280;
+  color: #6f685f;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: 2px;
   margin-top: 8px;
 }
 
@@ -390,8 +413,8 @@
 .academiaLogin__successText {
   font-family: 'DM Sans', sans-serif;
   font-size: 15px;
-  font-weight: 600;
-  color: #111827;
+  font-weight: 400;
+  color: #141413;
   margin: 0;
 }
 
@@ -405,18 +428,18 @@
 .academiaLogin__retryBtn {
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 400;
   padding: 8px 16px;
-  background: #141413;
+  background: #171512;
   color: #ffffff;
   border: none;
-  border-radius: 7px;
+  border-radius: 2px;
   cursor: pointer;
   transition: background 0.15s;
 }
 
 .academiaLogin__retryBtn:hover {
-  background: #2a2a29;
+  background: #2b2823;
 }
 
 .academiaLogin__errorState {
@@ -431,6 +454,6 @@
 .academiaLogin__errorText {
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
-  color: #6b7280;
+  color: #6f685f;
   margin: 0;
 }

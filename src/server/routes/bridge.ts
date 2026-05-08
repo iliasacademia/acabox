@@ -165,6 +165,9 @@ export async function registerBridgeRoutes(
         windowMonitorService.setDockRight(wid, payload.docked === true);
       } else if (action === 'toggleDockRight' && wid) {
         windowMonitorService.toggleDockRight(wid);
+      } else if (action === 'clearKickoff') {
+        const kickoffId = typeof payload.kickoffId === 'string' ? payload.kickoffId : '';
+        if (kickoffId) windowMonitorService.clearPendingKickoff(kickoffId);
       } else if (action === 'clearReview' && wid) {
         // Clear review state when user dismisses the overlay
         windowMonitorService.clearSelectedTextReviewState(wid);

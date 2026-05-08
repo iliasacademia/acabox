@@ -87,7 +87,13 @@ class KernelGatewayService {
       }
     }
 
-    const podmanBin = this.getPodmanBin();
+    let podmanBin: string;
+    try {
+      podmanBin = this.getPodmanBin();
+    } catch (err) {
+      log.error('[KernelGateway] Failed to resolve podman binary:', err);
+      throw err;
+    }
     const env = this.getExecEnv();
 
     // Remove any stale container
@@ -112,18 +118,27 @@ class KernelGatewayService {
       '--KernelGatewayApp.allow_origin=*',
     ];
 
-    log.debug(`[KernelGateway] Running: podman ${args.join(' ')}`);
-    await execFileAsync(podmanBin, args, { env, timeout: 30000 });
+    log.info(`[KernelGateway] Starting: ${podmanBin} ${args.join(' ')}`);
+    try {
+      await execFileAsync(podmanBin, args, { env, timeout: 30000 });
+    } catch (err) {
+      log.error(`[KernelGateway] podman run failed:`, err);
+      throw err;
+    }
 
     const url = `http://localhost:${hostPort}`;
-    log.debug(`[KernelGateway] Gateway URL: ${url}`);
+    log.info(`[KernelGateway] Container started, waiting for HTTP at ${url}`);
 
-    // Wait for the gateway to be ready
-    await this.waitForHttp(url);
+    try {
+      await this.waitForHttp(url);
+    } catch (err) {
+      log.error(`[KernelGateway] Gateway never became ready at ${url}:`, err);
+      throw err;
+    }
 
     this.cachedUrl = url;
     this.containerRunning = true;
-    log.debug('[KernelGateway] Gateway ready');
+    log.info('[KernelGateway] Gateway ready');
     return { url };
   }
 

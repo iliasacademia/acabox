@@ -43,7 +43,7 @@ The script prints `{ name, dir_name, dir }` to stdout and creates:
 - `<dir>/src/index.tsx` — React mount boilerplate with error boundary
 - `<dir>/dist/`, `<dir>/output/`, `<dir>/input/` directories
 - `<dir>/notebook.ipynb` — canonical notebook with a `parameters` cell + cobuild metadata; default kernel is `python3` (override with `--kernel ir` for R)
-- `<dir>/manifest.json` — `{ name, description, icon, lastOpened }`. The Tools page uses `name` as the title, `description` as the subtitle, `icon` to render the app's Lucide icon, and orders apps by `lastOpened` (most recent first). `lastOpened` starts as `null` and is updated by the host each time the app is opened — do not set it yourself.
+- `<dir>/manifest.json` — `{ name, description, icon, lastOpened }`. The Tools page uses `name` as the title, `description` as the subtitle, `icon` to render the app's Lucide icon, and orders apps by `lastOpened` (most recent first). `lastOpened` is initialized to the current time when the app is created and is updated by the host each time the app is opened — do not set it yourself.
 
 If you later edit an app's purpose, also update `manifest.json` (name/description/icon) so the Tools page stays in sync.
 

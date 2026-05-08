@@ -1,5 +1,6 @@
 import React from 'react';
 import { FullStoryConfig } from '../utils/fullstory';
+import { formatRelativeDate } from '../../shared/utils';
 
 // ─── URL Parameters & Server URL ────────────────────────────────────
 export const serverUrl = window.location.origin;
@@ -157,16 +158,7 @@ export function postBridge(action: string, payload: Record<string, unknown> = {}
 }
 
 export const formatConversationDate = (dateStr: string): string => {
-  const date = new Date(dateStr);
-  const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
-  const month = date.toLocaleDateString('en-US', { month: 'short' });
-  const day = date.getDate();
-  const time = date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true
-  }).toLowerCase();
-  return `${weekday}, ${month} ${day} at ${time}`;
+  return formatRelativeDate(new Date(dateStr));
 };
 
 export const formatNotificationDate = (timestamp: number): string => {

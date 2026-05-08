@@ -875,7 +875,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                 <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
                 <Panel id="debugMain" order={2} defaultSize={82} minSize={30}>
                   <div className="mainPanel">
-                    <DebugContent activeSection={debugSection} />
+                    <DebugContent activeSection={debugSection} onRestartOnboarding={onRestartOnboarding} />
                   </div>
                 </Panel>
               </PanelGroup>

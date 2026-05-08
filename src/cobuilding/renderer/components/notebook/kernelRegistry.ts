@@ -1,6 +1,7 @@
 import { KernelManager, ServerConnection } from '@jupyterlab/services';
 import type { IKernelConnection } from '@jupyterlab/services/lib/kernel/kernel';
 import type { IIOPubMessage } from '@jupyterlab/services/lib/kernel/messages';
+import { Signal } from '@lumino/signaling';
 import type { CellOutput } from './types';
 
 export type KernelStatus = 'disconnected' | 'starting' | 'idle' | 'busy' | 'dead';
@@ -225,7 +226,7 @@ class KernelRegistry {
     onOutput: (output: CellOutput) => void,
   ): Promise<number | null> {
     const entry = this.entries.get(key);
-    if (!entry) return null;
+    if (!entry) throw new Error('No kernel connection — is the kernel gateway running?');
     const future = entry.kernel.requestExecute({ code });
 
     return new Promise((resolve) => {
@@ -261,12 +262,16 @@ class KernelRegistry {
         }
       };
 
-      future.done.then((reply) => {
-        const count = (reply.content as unknown as Record<string, unknown>).execution_count as
-          | number
-          | undefined;
-        resolve(count ?? null);
-      });
+      future.done
+        .then((reply) => {
+          const count = (reply.content as unknown as Record<string, unknown>).execution_count as
+            | number
+            | undefined;
+          resolve(count ?? null);
+        })
+        .catch(() => {
+          resolve(null);
+        });
     });
   }
 
@@ -311,13 +316,25 @@ class KernelRegistry {
   }
 
   private async shutdownEntry(entry: KernelEntry): Promise<void> {
+    entry.listeners.clear();
     try {
       await entry.kernel.shutdown();
     } catch {
+      // Kernel may already be dead
+    }
+    try {
+      if (!entry.kernel.isDisposed) {
+        Signal.clearData(entry.kernel);
+        entry.kernel.dispose();
+      }
+    } catch {
       // ignore
     }
-    if (!entry.kernel.isDisposed) entry.kernel.dispose();
-    if (!entry.manager.isDisposed) entry.manager.dispose();
+    try {
+      if (!entry.manager.isDisposed) entry.manager.dispose();
+    } catch {
+      // ignore
+    }
   }
 
   async clearAll(): Promise<void> {

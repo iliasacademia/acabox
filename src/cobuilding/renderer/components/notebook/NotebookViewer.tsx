@@ -131,6 +131,13 @@ export const NotebookViewer: FC<NotebookViewerProps> = ({ filePath, onDirtyChang
         });
 
         updateCellExecutionCount(index, count);
+      } catch (err) {
+        updateCellOutputs(index, [{
+          output_type: 'error',
+          ename: 'KernelError',
+          evalue: err instanceof Error ? err.message : String(err),
+          traceback: [],
+        }]);
       } finally {
         setExecutingCells((prev) => {
           const next = new Set(prev);
