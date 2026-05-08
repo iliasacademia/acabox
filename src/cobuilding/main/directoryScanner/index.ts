@@ -57,7 +57,7 @@ function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undef
   return undefined;
 }
 
-const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nBriefly review the introduction section of this draft — assess how well it motivates the research question, situates the work in the literature, and sets up the paper. Then rewrite 2–3 passages in the introduction that would benefit most from improvement.';
+const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nRead only the Introduction section of this document (stop before Methods/Results). Briefly review it — assess how well it motivates the research question, situates the work in the literature, and sets up the paper. Then rewrite 2–3 passages in the introduction that would benefit most from improvement.';
 
 interface ManuscriptCandidate {
   filePath: string;
