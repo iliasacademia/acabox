@@ -24,6 +24,7 @@ import {
   findAutoOpenCandidate,
   shouldAutoOpenFreshSession,
   shouldClearActiveOnDocChange,
+  isActiveSessionStaleForDoc,
 } from './popupV2/sessionLogic';
 
 
@@ -225,6 +226,10 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setIsInWorkspace(pollData.isInWorkspace ?? false);
     setWorkspaceSessions(pollData.workspaceSessions ?? []);
     setActiveDocumentDisplayName(pollData.activeDocumentDisplayName ?? null);
+
+    if (isActiveSessionStaleForDoc(activeSession?.id ?? null, pollData.workspaceSessions ?? [])) {
+      setActiveSession(null);
+    }
 
     // Kickoff set by the desktop side (briefing card or Tools-page tile). The
     // server sends it on every pollData while it's set; we dedup client-side
