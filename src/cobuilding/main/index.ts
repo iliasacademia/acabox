@@ -1475,6 +1475,38 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
         if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
         return ok(`Opened mini-application: ${args.dir_name}`);
       },
+      // Builds the bundle with esbuild and reports success/failure to the
+      // agent. The renderer-side handler waits for a successful complete
+      // status before reloading the app's iframe — on failure (esbuild
+      // non-zero, container down, etc.) the user's UI does not change and
+      // the agent receives the build error to fix. Pure
+      // `open_mini_application` is still available for opening already-built
+      // apps without re-bundling.
+      build_and_open_mini_application: async (args: any) => {
+        const appDir = path.join(workspace.directory_path, '.applications', args.dir_name);
+        const exists = await fs.promises.access(appDir).then(() => true, () => false);
+        if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
+
+        const entry = `.applications/${args.dir_name}/src/index.tsx`;
+        const outfile = `.applications/${args.dir_name}/dist/bundle.js`;
+        const build = await containerService.exec([
+          'esbuild',
+          entry,
+          '--bundle',
+          `--outfile=${outfile}`,
+          '--jsx=automatic',
+          '--loader:.tsx=tsx',
+          '--loader:.ts=ts',
+          '--format=iife',
+          '--alias:@reusable=/data/.applications/_reusable',
+        ]);
+        if (build.exitCode !== 0) {
+          const detail = (build.stderr || build.stdout || '').trim() || 'Unknown build error';
+          return fail(`Build failed for ${args.dir_name}:\n${detail}`);
+        }
+
+        return ok(`Built and opened mini-application: ${args.dir_name}`);
+      },
     },
 
     zotero: {
@@ -1760,6 +1792,7 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'EnterPlanMode', 'ExitPlanMode',
       'mcp__activity__query_activity',
       'mcp__mini-apps__open_mini_application',
+      'mcp__mini-apps__build_and_open_mini_application',
       'mcp__notification__show_notification',
       'mcp__reaction__create_reaction_thread',
       'mcp__ms-word__get_file_path', 'mcp__ms-word__get_text',
