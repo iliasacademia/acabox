@@ -199,7 +199,7 @@ const manifest = {
   name: values.name,
   description: values.description,
   icon: values.icon,
-  lastOpened: null,
+  lastOpened: new Date().toISOString(),
 };
 writeFileSync(
   join(miniAppDir, "manifest.json"),

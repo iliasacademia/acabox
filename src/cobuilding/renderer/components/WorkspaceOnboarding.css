@@ -1,33 +1,48 @@
-/* Full-screen layout */
+/* Full-screen layout — flex column so the branding stays at the top while
+   the body below it owns its own scroll. The scrollbar therefore only spans
+   the body, not the entire viewport (so it doesn't run behind the header). */
 .wsSetup {
   position: fixed;
   inset: 0;
   background: #faf8f5;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow-y: auto;
+  flex-direction: column;
   z-index: 100;
-  padding: 80px 20px 60px;
   -webkit-app-region: no-drag;
 }
 
+/* Branding bar — first row of the flex column, in normal flow. */
+.wsSetup__branding {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 20px 24px;
+  background: #faf8f5;
+  border-bottom: 1px solid #e5e2dd;
+}
+
+/* Scroll container — sits below the branding and owns the vertical scroll. */
+.wsSetup__body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  padding: 80px 20px 60px;
+}
+
+.wsSetup__body--tight {
+  padding-top: 40px;
+}
+
+/* Vertical centering via auto margins — avoids the flex `align-items: center`
+   overflow-scroll bug, where tall content spills above the scroll origin and
+   can't be reached by scrolling. */
 .wsSetup__inner {
   width: 100%;
   max-width: 560px;
-}
-
-/* Branding bar */
-.wsSetup__branding {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 20px 24px;
-  border-bottom: 1px solid #e5e2dd;
+  margin-top: auto;
+  margin-bottom: auto;
 }
 
 .wsSetup__brandName {
@@ -38,12 +53,12 @@
 }
 
 .wsSetup__brandLabel {
-  font-family: 'DM Sans', sans-serif;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
   font-size: 12px;
   font-weight: 400;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: #9ca3af;
+  color: rgb(139, 132, 115);
 }
 
 .wsSetup__backBtn {
@@ -66,13 +81,12 @@
 
 /* Step indicator */
 .wsSetup__stepIndicator {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 11px;
-  font-weight: 500;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  font-size: 10px;
+  color: rgb(139, 132, 115);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: #9ca3af;
-  margin: 0 0 16px;
+  letter-spacing: 0.15em;
+  margin: 0 0 10px;
 }
 
 /* Header */
@@ -87,8 +101,8 @@
 
 .wsSetup__subtitle {
   font-family: 'DM Sans', sans-serif;
-  font-size: 15px;
-  color: #6b7280;
+  font-size: 14px;
+  color: rgb(92, 86, 72);
   margin: 0 0 24px;
   line-height: 1.5;
 }
@@ -99,13 +113,13 @@
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  background: #f8f9fb;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: rgb(244, 241, 235);
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
   margin-bottom: 20px;
   font-family: 'DM Sans', sans-serif;
   font-size: 13px;
-  color: #6b7280;
+  color: rgb(92, 86, 72);
   line-height: 1.4;
 }
 
@@ -130,8 +144,8 @@
   gap: 14px;
   align-items: flex-start;
   background: #ffffff;
-  border: 1.5px solid #e5e7eb;
-  border-radius: 12px;
+  border: 1px solid rgb(232, 226, 214);
+  border-radius: 2px;
   padding: 18px 20px;
   cursor: pointer;
   text-align: left;
@@ -140,7 +154,7 @@
 }
 
 .wsSource:hover:not(.wsSource--disabled) {
-  border-color: #d1d5db;
+  border-color: #c9bfa8;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
@@ -167,8 +181,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f3f4f6;
-  border-radius: 8px;
+  background: rgb(244, 241, 235);
+  border-radius: 2px;
   margin-top: 1px;
   color: #6b7280;
 }
@@ -189,7 +203,7 @@
 .wsSource__title {
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   color: #111827;
   margin: 0;
   line-height: 1.3;
@@ -237,7 +251,7 @@
 .wsSource__change {
   font-family: 'DM Sans', sans-serif;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 400;
   color: #6b7280;
   margin-top: 4px;
   display: inline-block;
@@ -260,11 +274,11 @@
 .wsSetup__continueBtn {
   font-family: 'DM Sans', sans-serif;
   font-size: 15px;
-  font-weight: 600;
-  background: #c4b5a0;
+  font-weight: 400;
+  background: #171512;
   color: #ffffff;
   border: none;
-  border-radius: 8px;
+  border-radius: 2px;
   padding: 12px 28px;
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s;
@@ -274,7 +288,7 @@
 }
 
 .wsSetup__continueBtn:hover:not(:disabled) {
-  background: #b5a691;
+  background: #2b2823;
 }
 
 .wsSetup__continueBtn:disabled {
@@ -283,15 +297,16 @@
 }
 
 .wsSetup__arrow {
-  font-size: 16px;
-  line-height: 1;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 /* Skip button */
 .wsSetup__skipBtn {
   font-family: 'DM Sans', sans-serif;
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   background: none;
   color: #6b7280;
   border: none;
@@ -312,7 +327,7 @@
     display: none;
   }
 
-  .wsSetup {
+  .wsSetup__body {
     padding-top: 20px;
   }
 }

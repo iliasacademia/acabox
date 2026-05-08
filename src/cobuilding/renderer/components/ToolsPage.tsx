@@ -393,12 +393,90 @@ export function ToolsPage({
           </section>
         )}
 
-        {/* Available tools (installed + pre-built) */}
+        {/* Tools I've built for you (installed mini-apps) */}
+        <section className="toolsSection">
+          <h2 className="toolsSection__heading">
+            Tools I&rsquo;ve built for you
+            <span className="toolsSection__count">{apps.length}</span>
+          </h2>
+          <div className="toolsCard">
+            {loading && apps.length === 0 ? (
+              <div className="toolsSection__empty">Loading...</div>
+            ) : (() => {
+              if (apps.length === 0) {
+                return (
+                  <div className="toolsSection__empty">
+                    You haven’t built any tools yet — describe one above to get started.
+                  </div>
+                );
+              }
+              return apps.map((app, i) => {
+                const bordered = i > 0 ? ' toolRow--bordered' : '';
+                const Icon = resolveLucideIcon(app.icon);
+                return (
+                  <div key={`app:${app.dirName}`}>
+                    <div className={`toolRow${bordered}`}>
+                      <div className="toolRow__icon">
+                        <Icon style={{ width: 18, height: 18 }} />
+                      </div>
+                      <div className="toolRow__info">
+                        <div className="toolRow__header">
+                          <button
+                            className="toolRow__name"
+                            onClick={() => onSelectApp(app.dirName, { preBuilt: app.preBuilt })}
+                          >
+                            {app.name}
+                          </button>
+                          {app.preBuilt && <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>}
+                          <span className="toolRow__tag toolRow__tag--plain">ON-DEMAND</span>
+                        </div>
+                        {app.description && <div className="toolRow__description">{app.description}</div>}
+                        {(() => {
+                          const status = formatLastUsed(app.lastOpened);
+                          return status ? <div className="toolRow__status">{status}</div> : null;
+                        })()}
+                      </div>
+                      <div className="toolRow__actions">
+                        <button
+                          className="toolRow__settingsBtn"
+                          onClick={() => setSettingsOpen(settingsOpen === app.dirName ? null : app.dirName)}
+                        >
+                          <ChevronRightIcon style={{ width: 14, height: 14, transform: settingsOpen === app.dirName ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
+                          Settings
+                        </button>
+                        <button
+                          className="toolRow__primaryBtn"
+                          onClick={() => onSelectApp(app.dirName, { preBuilt: app.preBuilt })}
+                        >
+                          <PlayIcon style={{ width: 14, height: 14 }} />
+                          Use
+                        </button>
+                      </div>
+                    </div>
+                    {settingsOpen === app.dirName && (
+                      <div className="toolRow__settingsPanel">
+                        <button
+                          className="toolRow__deleteBtn"
+                          onClick={() => setConfirmDelete(app)}
+                        >
+                          <TrashIcon style={{ width: 14, height: 14 }} />
+                          Delete tool
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </section>
+
+        {/* Other available tools (pre-built stubs) */}
         <section className="toolsSection">
           <div className="toolsSection__headingRow">
             <h2 className="toolsSection__heading">
-              Available tools
-              <span className="toolsSection__count">{toolCount}</span>
+              Other available tools
+              <span className="toolsSection__count">{AVAILABLE_TOOLS_STUB.length}</span>
             </h2>
             <div className="toolsPage__filters">
               <button className={`toolsPage__filterPill${toolFilter === 'all' ? ' toolsPage__filterPill--active' : ''}`} onClick={() => setToolFilter('all')}>All</button>
@@ -407,140 +485,63 @@ export function ToolsPage({
             </div>
           </div>
           <div className="toolsCard">
-            {loading && apps.length === 0 ? (
-              <div className="toolsSection__empty">Loading...</div>
-            ) : (
-              <>
-                {(() => {
-                  type Item =
-                    | { kind: 'installed'; key: string; lastTs: number; app: ToolsPageMiniApp }
-                    | { kind: 'stub'; key: string; lastTs: number; stub: AvailableStub };
-                  const items: Item[] = [
-                    ...apps.map<Item>((app) => ({
-                      kind: 'installed',
-                      key: `app:${app.dirName}`,
-                      lastTs: app.lastOpened ? Date.parse(app.lastOpened) : 0,
-                      app,
-                    })),
-                    ...AVAILABLE_TOOLS_STUB.map<Item>((stub) => ({
-                      kind: 'stub',
-                      key: `stub:${stub.name}`,
-                      lastTs: Date.parse(stub.lastOpened),
-                      stub,
-                    })),
-                  ];
-                  const filtered = items.filter((item) => {
-                    if (toolFilter === 'all') return true;
-                    const tag = item.kind === 'installed' ? 'ON-DEMAND' : item.stub.tag;
-                    if (toolFilter === 'on-demand') return tag === 'ON-DEMAND';
-                    if (toolFilter === 'scheduled') return tag === 'SCHEDULED';
-                    return true;
-                  });
-                  filtered.sort((a, b) => b.lastTs - a.lastTs);
-                  return filtered.map((item, i) => {
-                    const bordered = i > 0 ? ' toolRow--bordered' : '';
-                    if (item.kind === 'installed') {
-                      const { app } = item;
-                      const Icon = resolveLucideIcon(app.icon);
-                      return (
-                        <div key={item.key}>
-                          <div className={`toolRow${bordered}`}>
-                            <div className="toolRow__icon">
-                              <Icon style={{ width: 18, height: 18 }} />
-                            </div>
-                            <div className="toolRow__info">
-                              <div className="toolRow__header">
-                                <button
-                                  className="toolRow__name"
-                                  onClick={() => onSelectApp(app.dirName, { preBuilt: app.preBuilt })}
-                                >
-                                  {app.name}
-                                </button>
-                                {app.preBuilt && <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>}
-                                <span className="toolRow__tag toolRow__tag--plain">ON-DEMAND</span>
-                              </div>
-                              {app.description && <div className="toolRow__description">{app.description}</div>}
-                              {(() => {
-                                const status = formatLastUsed(app.lastOpened);
-                                return status ? <div className="toolRow__status">{status}</div> : null;
-                              })()}
-                            </div>
-                            <div className="toolRow__actions">
-                              <button
-                                className="toolRow__settingsBtn"
-                                onClick={() => setSettingsOpen(settingsOpen === app.dirName ? null : app.dirName)}
-                              >
-                                <ChevronRightIcon style={{ width: 14, height: 14, transform: settingsOpen === app.dirName ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
-                                Settings
-                              </button>
-                              <button
-                                className="toolRow__primaryBtn"
-                                onClick={() => onSelectApp(app.dirName, { preBuilt: app.preBuilt })}
-                              >
-                                <PlayIcon style={{ width: 14, height: 14 }} />
-                                Use
-                              </button>
-                            </div>
-                          </div>
-                          {settingsOpen === app.dirName && (
-                            <div className="toolRow__settingsPanel">
-                              <button
-                                className="toolRow__deleteBtn"
-                                onClick={() => setConfirmDelete(app)}
-                              >
-                                <TrashIcon style={{ width: 14, height: 14 }} />
-                                Delete tool
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }
-                    const { stub: tool } = item;
-                    const stubAction = () => handleStubAction(tool);
-                    return (
-                      <div key={item.key} className={`toolRow${bordered}`}>
-                        <div className="toolRow__icon">
-                          <LayoutGridIcon style={{ width: 18, height: 18 }} />
-                        </div>
-                        <div className="toolRow__info">
-                          <div className="toolRow__header">
-                            <button className="toolRow__name" onClick={stubAction}>
-                              {tool.name}
-                            </button>
-                            <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>
-                            <span className="toolRow__tag toolRow__tag--plain">{tool.tag}</span>
-                          </div>
-                          <div className="toolRow__description">{tool.description}</div>
-                          {(() => {
-                            const status = tool.status ?? formatLastUsed(tool.lastOpened);
-                            return status ? <div className="toolRow__status">{status}</div> : null;
-                          })()}
-                        </div>
-                        <div className="toolRow__actions">
-                          {!tool.useWordOverlay && (
-                            <button className="toolRow__settingsBtn" onClick={() => handleStubAction(tool)}>
-                              <ChevronRightIcon style={{ width: 14, height: 14 }} />
-                              Settings
-                            </button>
-                          )}
-                          {tool.tag === 'SCHEDULED' ? (
-                            <button className="toolRow__primaryBtn" onClick={() => handleStubAction(tool)}>
-                              View outputs
-                            </button>
-                          ) : (
-                            <button className="toolRow__primaryBtn" onClick={stubAction}>
-                              <PlayIcon style={{ width: 14, height: 14 }} />
-                              Use
-                            </button>
-                          )}
-                        </div>
+            {(() => {
+              const filteredStubs = AVAILABLE_TOOLS_STUB.filter((stub) => {
+                if (toolFilter === 'all') return true;
+                if (toolFilter === 'on-demand') return stub.tag === 'ON-DEMAND';
+                if (toolFilter === 'scheduled') return stub.tag === 'SCHEDULED';
+                return true;
+              });
+              const sortedStubs = [...filteredStubs].sort(
+                (a, b) => Date.parse(b.lastOpened) - Date.parse(a.lastOpened),
+              );
+              if (sortedStubs.length === 0) {
+                return <div className="toolsSection__empty">No tools match this filter.</div>;
+              }
+              return sortedStubs.map((tool, i) => {
+                const bordered = i > 0 ? ' toolRow--bordered' : '';
+                const stubAction = () => handleStubAction(tool);
+                return (
+                  <div key={`stub:${tool.name}`} className={`toolRow${bordered}`}>
+                    <div className="toolRow__icon">
+                      <LayoutGridIcon style={{ width: 18, height: 18 }} />
+                    </div>
+                    <div className="toolRow__info">
+                      <div className="toolRow__header">
+                        <button className="toolRow__name" onClick={stubAction}>
+                          {tool.name}
+                        </button>
+                        <span className="toolRow__tag toolRow__tag--prebuilt">PRE-BUILT</span>
+                        <span className="toolRow__tag toolRow__tag--plain">{tool.tag}</span>
                       </div>
-                    );
-                  });
-                })()}
-              </>
-            )}
+                      <div className="toolRow__description">{tool.description}</div>
+                      {(() => {
+                        const status = tool.status ?? formatLastUsed(tool.lastOpened);
+                        return status ? <div className="toolRow__status">{status}</div> : null;
+                      })()}
+                    </div>
+                    <div className="toolRow__actions">
+                      {!tool.useWordOverlay && (
+                        <button className="toolRow__settingsBtn" onClick={() => handleStubAction(tool)}>
+                          <ChevronRightIcon style={{ width: 14, height: 14 }} />
+                          Settings
+                        </button>
+                      )}
+                      {tool.tag === 'SCHEDULED' ? (
+                        <button className="toolRow__primaryBtn" onClick={() => handleStubAction(tool)}>
+                          View outputs
+                        </button>
+                      ) : (
+                        <button className="toolRow__primaryBtn" onClick={stubAction}>
+                          <PlayIcon style={{ width: 14, height: 14 }} />
+                          Use
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              });
+            })()}
           </div>
         </section>
 

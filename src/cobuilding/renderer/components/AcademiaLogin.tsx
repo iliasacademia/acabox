@@ -181,15 +181,26 @@ const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess, onBack }) => {
                 {authorizationURL && (
                   <div className="academiaLogin__urlBox">
                     <p className="academiaLogin__urlLabel">Or open this link in your browser:</p>
-                    <div className="academiaLogin__urlRow">
-                      <input
-                        type="text"
-                        value={authorizationURL}
-                        readOnly
-                        className="academiaLogin__urlInput"
-                        onClick={(e) => (e.target as HTMLInputElement).select()}
-                      />
+                    <input
+                      type="text"
+                      value={authorizationURL}
+                      readOnly
+                      className="academiaLogin__urlInput"
+                      onClick={(e) => (e.target as HTMLInputElement).select()}
+                    />
+                    <div className="academiaLogin__urlActions">
                       <button
+                        type="button"
+                        className="academiaLogin__openBtn"
+                        onClick={() => {
+                          (window as { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } })
+                            .electronAPI?.invoke('shell:openExternal', authorizationURL);
+                        }}
+                      >
+                        Open link
+                      </button>
+                      <button
+                        type="button"
                         className="academiaLogin__copyBtn"
                         onClick={() => {
                           navigator.clipboard.writeText(authorizationURL);
@@ -197,7 +208,7 @@ const AcademiaLogin: React.FC<AcademiaLoginProps> = ({ onSuccess, onBack }) => {
                           setTimeout(() => setCopied(false), 2000);
                         }}
                       >
-                        {copied ? '✓' : 'Copy'}
+                        {copied ? 'Copied' : 'Copy link'}
                       </button>
                     </div>
                   </div>

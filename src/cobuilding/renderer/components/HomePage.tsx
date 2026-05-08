@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
-import { ArrowUpRightIcon, HistoryIcon, SparklesIcon, XIcon } from 'lucide-react';
+import {
+  ArrowUpRightIcon,
+  CalendarIcon,
+  FileTextIcon,
+  HistoryIcon,
+  LayoutGridIcon,
+  PencilIcon,
+  QuoteIcon,
+  SparklesIcon,
+} from 'lucide-react';
 import { BriefingHistory } from './BriefingHistory';
 
 /** A briefing with its `briefing_data` JSON parsed into a typed payload. */
@@ -47,6 +56,7 @@ interface BriefingCardDisplay {
   subtitle?: string;
   primaryLabel: string;
   fallbackDescription: string;
+  Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }
 
 function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null {
@@ -57,6 +67,7 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
         title: parsed.data.title,
         primaryLabel: 'Yes, do it',
         fallbackDescription: parsed.data.description,
+        Icon: SparklesIcon,
       };
     case 'suggested_tool':
       return {
@@ -64,6 +75,7 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
         title: parsed.data.name,
         primaryLabel: 'Build it',
         fallbackDescription: parsed.data.details_on_what_to_build,
+        Icon: LayoutGridIcon,
       };
     case 'paper':
       return {
@@ -71,6 +83,7 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
         title: parsed.data.title,
         primaryLabel: 'Read it',
         fallbackDescription: parsed.data.abstract ?? '',
+        Icon: FileTextIcon,
       };
     case 'citation':
       return {
@@ -78,6 +91,7 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
         title: parsed.data.paper_title,
         primaryLabel: 'View',
         fallbackDescription: `Cited by ${parsed.data.citing_work}`,
+        Icon: QuoteIcon,
       };
     case 'grant':
       return {
@@ -85,6 +99,7 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
         title: parsed.data.title,
         primaryLabel: 'View',
         fallbackDescription: parsed.data.agency,
+        Icon: CalendarIcon,
       };
     case 'writing_agent':
       return {
@@ -93,6 +108,7 @@ function renderBriefingCard(parsed: ParsedBriefing): BriefingCardDisplay | null 
         subtitle: basenameNoExt(parsed.data.file_path) || undefined,
         primaryLabel: 'Review in Word',
         fallbackDescription: parsed.data.description || `I'll review the introduction of ${basename(parsed.data.file_path)} and propose 2–3 edits to strengthen it.`,
+        Icon: PencilIcon,
       };
     default:
       return null;
@@ -188,9 +204,9 @@ export function HomePage({
       <div className="pageShell__inner homePageInner">
         <div className="homeHeader">
           <div className="pageShell__stats">{formatDate()}</div>
-          <h1 className="homeHeader__title">From reading your work</h1>
+          <h1 className="homeHeader__title">Things I noticed I could do for you</h1>
           <p className="homeHeader__subtitle">
-            A few things I noticed I could do for you. Pick what would help.
+            Pick what would help.
           </p>
         </div>
 
@@ -206,45 +222,41 @@ export function HomePage({
                   key={parsed.briefing.id}
                   className="homeBriefingCard homeBriefingCard--action"
                 >
-                  <button
-                    type="button"
-                    className="homeBriefingCard__close"
-                    aria-label="Dismiss briefing"
-                    onClick={() => handleDismissBriefing(parsed.briefing.id)}
-                  >
-                    <XIcon className="homeBriefingCard__closeIcon" />
-                  </button>
-                  <div className="homeBriefingCard__eyebrow">
-                    <SparklesIcon className="homeBriefingCard__eyebrowIcon" />
-                    <span>{card.eyebrow}</span>
+                  <div className="homeBriefingCard__iconBox">
+                    <card.Icon className="homeBriefingCard__icon" />
                   </div>
-                  <h3 className="homeBriefingCard__title">{card.title}</h3>
-                  {card.subtitle && (
-                    <p className="homeBriefingCard__subtitle">{card.subtitle}</p>
-                  )}
-                  <p className="homeBriefingCard__description">
-                    {/* writing_agent always uses our peer-review copy; other
-                        types prefer the briefing's own reason text. */}
-                    {parsed.type === 'writing_agent'
-                      ? card.fallbackDescription
-                      : (parsed.briefing.why_im_suggesting_this ?? card.fallbackDescription)}
-                  </p>
-                  <div className="homeBriefingCard__actions">
-                    <button
-                      type="button"
-                      className="homeBriefingCard__button homeBriefingCard__button--primary"
-                      onClick={() => handleOpenBriefing(parsed)}
-                    >
-                      {card.primaryLabel}
-                      <ArrowUpRightIcon className="homeBriefingCard__buttonIcon" />
-                    </button>
-                    <button
-                      type="button"
-                      className="homeBriefingCard__button homeBriefingCard__button--secondary"
-                      onClick={() => handleDismissBriefing(parsed.briefing.id)}
-                    >
-                      Not Now
-                    </button>
+                  <div className="homeBriefingCard__body">
+                    <div className="homeBriefingCard__eyebrow">
+                      <span className="homeBriefingCard__eyebrowLabel">{card.eyebrow}</span>
+                    </div>
+                    <h3 className="homeBriefingCard__title">{card.title}</h3>
+                    {card.subtitle && (
+                      <p className="homeBriefingCard__subtitle">{card.subtitle}</p>
+                    )}
+                    <p className="homeBriefingCard__description">
+                      {/* writing_agent always uses our peer-review copy; other
+                          types prefer the briefing's own reason text. */}
+                      {parsed.type === 'writing_agent'
+                        ? card.fallbackDescription
+                        : (parsed.briefing.why_im_suggesting_this ?? card.fallbackDescription)}
+                    </p>
+                    <div className="homeBriefingCard__actions">
+                      <button
+                        type="button"
+                        className="homeBriefingCard__button homeBriefingCard__button--primary"
+                        onClick={() => handleOpenBriefing(parsed)}
+                      >
+                        {card.primaryLabel}
+                        <ArrowUpRightIcon className="homeBriefingCard__buttonIcon" />
+                      </button>
+                      <button
+                        type="button"
+                        className="homeBriefingCard__button homeBriefingCard__button--secondary"
+                        onClick={() => handleDismissBriefing(parsed.briefing.id)}
+                      >
+                        Not now
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
@@ -253,12 +265,11 @@ export function HomePage({
 
           <div className="homeBriefingCard homeBriefingCard--action homeFreeformCard">
             <div className="homeFreeformCard__heading">
-              <SparklesIcon style={{ width: 16, height: 16, flexShrink: 0 }} />
-              <span>Anything else I can help with?</span>
+              <SparklesIcon
+                style={{ width: 16, height: 16, flexShrink: 0, color: '#6b3c10' }}
+              />
+              <span>What else can I do for you?</span>
             </div>
-            <p className="homeFreeformCard__subtitle">
-              Tell me what you need — I'll do it now, or build a tool if it's worth keeping around.
-            </p>
             <div className="homeFreeformCard__inputRow">
               <input
                 type="text"
