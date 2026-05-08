@@ -51,6 +51,7 @@ set revCount to 0
 set origName to ""
 set origInitials to ""
 set origTrack to false
+set origShowRevisions to false
 set restoreNeeded to false
 set tellErrMsg to ""
 
@@ -68,7 +69,12 @@ tell application "Microsoft Word"
     set user initials to "AC"
     set doc to active document
     set origTrack to track revisions of doc
+    set origShowRevisions to show revisions of doc
     set track revisions of doc to true
+    -- Hide revision marks so Word's find object searches the final
+    -- (post-revision) text — matching what get_text returns. This is
+    -- purely a view change; tracked changes remain intact.
+    set show revisions of doc to false
     set restoreNeeded to true
 
     try
@@ -148,6 +154,9 @@ if tellErrMsg is not "" then
         set user name to origName
         set user initials to origInitials
         try
+          set show revisions of active document to origShowRevisions
+        end try
+        try
           set track revisions of active document to origTrack
         end try
       end if
@@ -214,6 +223,9 @@ if restoreNeeded then
     tell application "Microsoft Word"
       set user name to origName
       set user initials to origInitials
+      try
+        set show revisions of active document to origShowRevisions
+      end try
       try
         set track revisions of active document to origTrack
       end try
