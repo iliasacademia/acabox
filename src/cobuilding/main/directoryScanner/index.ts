@@ -206,6 +206,46 @@ function createBriefingsFromScan(
     });
   }
 
+  // Board meeting demo: hardcoded PrestoBlue viability assay briefing.
+  // If all 6 xlsx files exist, suggest generating a Prism-style time-course graph.
+  const PRESTO_BLUE_FILES = [
+    '032426_PrestoBlue_PA-1_day1.xlsx',
+    '032326_PrestoBlue_PA-1.xlsx',
+    '032626_PrestoBlue_PA-1_day3.xlsx',
+    '032426_PrestoBlue_PA-1_day4.xlsx',
+    '032826_PrestoBlue_PA-1_day5.xlsx',
+    '032626_PrestoBlue_PA-1_day6.xlsx',
+  ];
+  const allPrestoBlueFound = PRESTO_BLUE_FILES.every(
+    (f) => findFileInWorkspace(directoryPath, f) !== null,
+  );
+  if (allPrestoBlueFound) {
+    createBriefing({
+      workspaceId,
+      type: 'suggested_action',
+      sourceReportId: reportId,
+      whyImSuggestingThis:
+        'I found PrestoBlue viability assay data across 6 time points in your workspace. I can generate a publication-ready time-course graph from this data.',
+      briefingData: {
+        title: 'Generate PA-1 viability time-course graph',
+        description:
+          'Create a Prism-style line graph from PrestoBlue viability assays showing PA-1 cell viability over days 1, 3, 4, 5, and 6.',
+        chat_prompt: `Using the 6 PrestoBlue xlsx files in PRDM14/Viability-Assays/ (day1, day3, day4, day5, day6), generate a Prism-style viability time-course line graph for PA-1 cells.
+
+Plate layout:
+
+Column 2: sgSAFE (1000 cells/well)
+Column 3: sgSAFE (500 cells/well)
+Column 4: sgPRDM14-3 (1000 cells/well)
+Column 5: sgPRDM14-3 (500 cells/well)
+Rows B–G: 6 replicates per condition
+Row A, Row H, Column 1, Columns 6–12: blanks (subtract background)
+
+Plot mean +/- SEM for each condition over days 1, 3, 4, 5, 6. Normalize fluorescence to Day 1 for each condition. Show 4 lines (one per condition) with distinct colors.`,
+      },
+    });
+  }
+
   ctx.onBriefingsChanged?.();
 
   // Return manuscript candidates — writing_agent briefings are created after
