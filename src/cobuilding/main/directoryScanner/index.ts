@@ -51,7 +51,7 @@ function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undef
   return undefined;
 }
 
-const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nRead only the Introduction section of this document (stop before Methods/Results). Give a brief review (3–5 sentences) assessing how well it motivates the research question, situates the work in the literature, and sets up the paper. After the review, propose exactly 2 edits to strengthen the introduction using find_and_replace. Output the review text first, then the two find_and_replace tool calls — do not replace the review with the edits, both should be visible.';
+const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nRead only the Introduction section of this document (stop before Methods/Results). Give a brief review (3–5 sentences) assessing how well it motivates the research question, situates the work in the literature, and sets up the paper. After the review, propose exactly 2 edits to strengthen the introduction using find_and_replace. Each edit must target a single sentence — keep the search_text to one sentence so it matches reliably even if the document has tracked changes. Output the review text first, then the two find_and_replace tool calls — do not replace the review with the edits, both should be visible.';
 
 interface ManuscriptCandidate {
   filePath: string;
