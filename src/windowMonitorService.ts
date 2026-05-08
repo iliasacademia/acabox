@@ -1243,6 +1243,13 @@ export class WindowMonitorService {
     return { prompt: this.pendingKickoff.prompt, kickoffId: this.pendingKickoff.kickoffId };
   }
 
+  clearPendingKickoff(kickoffId: string): void {
+    if (this.pendingKickoff && this.pendingKickoff.kickoffId === kickoffId) {
+      this.pendingKickoff = null;
+      logger.info(`[WindowMonitor] Cleared pending kickoff ${kickoffId}`);
+    }
+  }
+
   /**
    * Polls for the window of a freshly-opened document (e.g. just told `open`
    * to launch a docx in Word) and snaps the overlay to the right once the

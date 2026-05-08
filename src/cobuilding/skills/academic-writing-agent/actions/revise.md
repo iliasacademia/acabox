@@ -89,7 +89,6 @@ The entire response is a single HTML fragment — first character `<`, last char
 
 Structure:
 
-- `<div class="skill-trace">` block first, per `format.md`. The `<span class="files">` must list every loaded skill file with its `@YYYY-MM-DDx` version stamp.
 - One-sentence summary inside `<div class="summary">` saying a suggestion card has been placed in the document.
 - One `<section class="concern">` with:
   - `<h2 class="title">` naming the revision (e.g., "Abstract tail tightened").
@@ -107,4 +106,4 @@ For structural reorganization, the chat critique briefly explains the new orderi
 - If the text has problems beyond what the user asked about, focus on what they requested. You may briefly note other issues but do not rewrite for them uninvited
 - Maintain consistency with the rest of the manuscript
 
-<!-- skill-file: actions/revise.md @2026-05-06c -->
+<!-- skill-file: actions/revise.md @2026-05-07a -->
