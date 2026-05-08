@@ -32,6 +32,10 @@ export type ChatStreamMessage =
   | { type: 'heartbeat' }
   // Status — changes the processing indicator label (e.g., "Agent initializing..." vs "Processing")
   | { type: 'status'; status: string }
+  // Turn complete — the agent finished this turn's response. Unlike chat:done
+  // (which kills the stream iterator), this is a regular event that the
+  // chatAdapter uses to break from its loop while keeping the stream alive.
+  | { type: 'turn-complete' }
   // Cross-surface user message — emitted server-side right after a user
   // message is inserted into the DB, so subscribers on OTHER surfaces
   // (the desktop chat when the overlay sent it, or vice versa) can refresh

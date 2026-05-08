@@ -415,6 +415,8 @@ declare global {
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
+    syncOverlay(): Promise<{ durationMs: number }>;
+    isOverlayEnabled(): Promise<boolean>;
     /** Pipes a renderer-side log line into electron-log on the main process. */
     log(msg: string): Promise<void>;
   }

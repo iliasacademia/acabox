@@ -510,10 +510,13 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
         cleanup();
         return;
       }
+      if (msg.type === 'turn-complete') {
+        log.info(`[Forwarding] Sending ${msg.type} event for ${threadId}`);
+      }
       sender.send('chat:event', threadId, msg);
     },
     onDone: () => {
-      log.debug(`[Forwarding] Turn done for ${threadId}`);
+      log.info(`[Forwarding] chat:done for ${threadId}`);
       // Send chat:done but do NOT cleanup — forwarding persists across conversation
       // turns so it doesn't need to be re-established on each message. Cleanup only
       // happens on error or sender destruction.
@@ -1877,6 +1880,19 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
   // 0. One-time migration of session files from bundled podman HOME
   migrateHostSessionsToContainer(workspacePath);
 
+  // When overlay is active, host-side writes went to /data-host (lowerdir) which
+  // isn't reliably visible through the overlay. Sync them into /data.
+  if (containerService.isOverlayEnabled() && containerService.isRunning()) {
+    try {
+      await containerService.exec([
+        'rsync', '-a',
+        '/data-host/.academia/', '/data/.academia/',
+      ]);
+    } catch (err) {
+      log.warn(`[startAgentInfrastructure] Failed to sync host files into overlay: ${(err as Error).message}`);
+    }
+  }
+
   // 0b. Backfill manifest.json for any apps that pre-date the manifest format.
   // Fire-and-forget so AI calls don't gate the rest of startup.
   void migrateMissingManifests(activeWorkspace);
@@ -3095,8 +3111,16 @@ ipcMain.handle('reactionSources:set', (_event, sources: ReactionSource[]) => {
 });
 
 // FOCUS.md IPC handlers
-ipcMain.handle('focusPrompt:get', () => {
+ipcMain.handle('focusPrompt:get', async () => {
   if (!activeWorkspace) return { content: '' };
+  if (containerService.isOverlayEnabled() && containerService.isRunning()) {
+    try {
+      const { stdout } = await containerService.exec(['cat', '/data/.academia/FOCUS.md']);
+      return { content: stdout };
+    } catch {
+      return { content: '' };
+    }
+  }
   const focusPath = path.join(activeWorkspace.directory_path, '.academia', 'FOCUS.md');
   try {
     return { content: fs.readFileSync(focusPath, 'utf-8') };
@@ -3105,16 +3129,28 @@ ipcMain.handle('focusPrompt:get', () => {
   }
 });
 
-ipcMain.handle('focusPrompt:set', (_event, content: string) => {
+ipcMain.handle('focusPrompt:set', async (_event, content: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
-  const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
-  fs.mkdirSync(academiaDir, { recursive: true });
-  fs.writeFileSync(path.join(academiaDir, 'FOCUS.md'), content, 'utf-8');
+  if (containerService.isOverlayEnabled() && containerService.isRunning()) {
+    await containerService.exec(['sh', '-c', `mkdir -p /data/.academia && cat > /data/.academia/FOCUS.md << 'FOCUS_EOF'\n${content}\nFOCUS_EOF`]);
+  } else {
+    const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
+    fs.mkdirSync(academiaDir, { recursive: true });
+    fs.writeFileSync(path.join(academiaDir, 'FOCUS.md'), content, 'utf-8');
+  }
 });
 
 // SOUL.md IPC handlers
-ipcMain.handle('soulPrompt:get', () => {
+ipcMain.handle('soulPrompt:get', async () => {
   if (!activeWorkspace) return { content: '' };
+  if (containerService.isOverlayEnabled() && containerService.isRunning()) {
+    try {
+      const { stdout } = await containerService.exec(['cat', '/data/.academia/SOUL.md']);
+      return { content: stdout };
+    } catch {
+      return { content: '' };
+    }
+  }
   const soulPath = path.join(activeWorkspace.directory_path, '.academia', 'SOUL.md');
   try {
     return { content: fs.readFileSync(soulPath, 'utf-8') };
@@ -3123,11 +3159,15 @@ ipcMain.handle('soulPrompt:get', () => {
   }
 });
 
-ipcMain.handle('soulPrompt:set', (_event, content: string) => {
+ipcMain.handle('soulPrompt:set', async (_event, content: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
-  const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
-  fs.mkdirSync(academiaDir, { recursive: true });
-  fs.writeFileSync(path.join(academiaDir, 'SOUL.md'), content, 'utf-8');
+  if (containerService.isOverlayEnabled() && containerService.isRunning()) {
+    await containerService.exec(['sh', '-c', `mkdir -p /data/.academia && cat > /data/.academia/SOUL.md << 'SOUL_EOF'\n${content}\nSOUL_EOF`]);
+  } else {
+    const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
+    fs.mkdirSync(academiaDir, { recursive: true });
+    fs.writeFileSync(path.join(academiaDir, 'SOUL.md'), content, 'utf-8');
+  }
 });
 
 // Browser Monitor IPC handlers

@@ -815,6 +815,7 @@ function startServer(config: AgentConfig): void {
             'Cache-Control': 'no-cache',
             Connection: 'keep-alive',
           });
+          res.socket?.setNoDelay(true);
           res.write(':ok\n\n');
           state.sseClients.add(res);
 

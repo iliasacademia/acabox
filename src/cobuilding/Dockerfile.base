@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y \
     texlive-luatex \
     texlive-xetex \
     lmodern \
+    rsync \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js and npm packages for document creation
