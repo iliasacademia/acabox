@@ -150,16 +150,14 @@ GelGenie model into `models/unet_dec_21_finetune_epoch_590.pt`). Both
 happen in parallel with the agent's next steps and can take 5–15 minutes
 on a cold container.
 
-**Do not block on the install.** Build the esbuild bundle (it only needs
-Node packages, not Python) and call `open_mini_application` immediately.
-The mini-app's "Installing software…" view will show install progress to
-the user while they wait. The user may see kernel errors if they hit Run
-before deps are ready — they should retry once the install indicator
-clears.
+**Do not block on the install.** Call `build_and_open_mini_application`
+immediately — it builds with esbuild (Node packages only, not Python)
+and opens the app in one step. The mini-app's "Installing software…"
+view will show install progress to the user while they wait. The user may see kernel
+errors if they hit Run before deps are ready — they should retry once
+the install indicator clears.
 
 If the new app's `dirName` is not `westernBlotAnnotator`, update
 `DIR_NAME` in `src/App.tsx` to match — that constant is used to construct
 input/output paths and to wire both `useAppState` and `useKernelAction`
 to the right notebook.
-
-Build with `esbuild` per the standard mini-app instructions in `SKILL.md`.

@@ -113,7 +113,7 @@ function ToolFallbackTrigger({
   const Icon = statusIconMap[statusType];
   const humanLabel = isCancelled
     ? 'Cancelled tool'
-    : getToolLabel(toolName, args, argsText);
+    : getToolLabel(toolName, args, argsText, status);
 
   return (
     <CollapsibleTrigger

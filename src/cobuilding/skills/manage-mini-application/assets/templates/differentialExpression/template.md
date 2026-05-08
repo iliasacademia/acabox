@@ -91,5 +91,6 @@ node \
   --template "differentialExpression"
 ```
 
-`App.tsx` and `notebook.ipynb` are copied into the new app. Build with
-`esbuild` per the standard mini-app instructions in `SKILL.md`.
+`App.tsx` and `notebook.ipynb` are copied into the new app. Call
+`build_and_open_mini_application` to build with esbuild and open the
+app — see `SKILL.md` for details.

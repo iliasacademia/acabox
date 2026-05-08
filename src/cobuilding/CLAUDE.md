@@ -38,6 +38,12 @@ Skill scripts are located in the workspace at `.claude/skills/<skill-name>/scrip
 
 Use relative paths for both the script path and all input/output file arguments.
 
+## Opening mini-applications
+
+When the user asks to open, launch, show, or run a mini-app/tool (e.g. "open my tool randomPlot", "show me the differentialExpression app"), call the `mcp__mini-apps__open_mini_application` tool with the app's `dir_name`. Do not just claim the app is open — the tool call is what actually opens it in the UI.
+
+Use `mcp__mini-apps__build_and_open_mini_application` instead when you've just created or edited the app's source and the bundle needs to be rebuilt before the user sees the change.
+
 ## Progress Tracking
 
 When working on multi-step tasks (3 or more steps), use the `TodoWrite` tool to create and maintain a task list so the user can follow along with your progress. Update task statuses as you work — mark items as `in_progress` when you start them and `completed` when you finish. This is especially important for longer-running tasks like data analysis, file processing, or building mini-applications.

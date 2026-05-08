@@ -33,6 +33,7 @@ import ScanResultsReview from './components/ScanResultsReview';
 import WorkspaceSettings from './components/WorkspaceSettings';
 import AcademiaLogin from './components/AcademiaLogin';
 import WelcomeScreen from './components/WelcomeScreen';
+import { ToolFallback } from './components/assistant-ui/tool-fallback';
 import { SetupBanner } from './components/SetupBanner';
 import { GlobalComposer } from './components/GlobalComposer';
 import { useTabs } from './tabs/useTabs';
@@ -426,10 +427,48 @@ function OpenMiniAppToolUI({
     // Only open for tool calls that are actively running — not completed history
     if (dirName && status.type === 'running' && dirName !== openedRef.current) {
       openedRef.current = dirName;
-      console.debug('[OpenMiniAppToolUI] Opening mini app (running tool call):', dirName);
       onOpen(dirName, { forceReload: true });
-    } else if (dirName && status.type !== 'running') {
-      console.debug('[OpenMiniAppToolUI] Skipping open for completed tool call:', dirName, 'status:', status.type);
+    }
+  }, [args?.dir_name, status.type, onOpen]);
+
+  return null;
+}
+
+/**
+ * Variant for `build_and_open_mini_application`: the host runs esbuild during
+ * the tool call, so we must NOT reload the iframe until the build has succeeded
+ * — otherwise the iframe loads the pre-build (stale) bundle and never picks up
+ * the rebuild. Fires onOpen only on a successful complete transition; on
+ * `incomplete` (build error / cancelled), no UI change happens.
+ */
+function BuildAndOpenMiniAppToolUI({
+  args,
+  status,
+  onOpen,
+}: {
+  args: { dir_name?: string };
+  status: { type: string };
+  onOpen: (dirName: string, opts?: { forceReload?: boolean }) => void;
+}) {
+  const openedRef = useRef<string | null>(null);
+  // Guards against opening when loading historical chat messages that mount
+  // already at status === 'complete' (we never observe a 'running' transition).
+  const sawRunningRef = useRef(false);
+
+  useEffect(() => {
+    if (status.type === 'running') {
+      sawRunningRef.current = true;
+      return;
+    }
+    const dirName = args?.dir_name;
+    if (
+      dirName &&
+      status.type === 'complete' &&
+      sawRunningRef.current &&
+      dirName !== openedRef.current
+    ) {
+      openedRef.current = dirName;
+      onOpen(dirName, { forceReload: true });
     }
   }, [args?.dir_name, status.type, onOpen]);
 
@@ -439,8 +478,20 @@ function OpenMiniAppToolUI({
 function OpenMiniAppHandler({ onOpen }: { onOpen: (dirName: string, opts?: { forceReload?: boolean }) => void }) {
   useAssistantToolUI({
     toolName: 'mcp__mini-apps__open_mini_application',
-    render: (props: { args: { dir_name?: string }; status: { type: string } }) => (
-      <OpenMiniAppToolUI args={props.args} status={props.status} onOpen={onOpen} />
+    render: (props: any) => (
+      <>
+        <OpenMiniAppToolUI args={props.args} status={props.status} onOpen={onOpen} />
+        <ToolFallback {...props} />
+      </>
+    ),
+  });
+  useAssistantToolUI({
+    toolName: 'mcp__mini-apps__build_and_open_mini_application',
+    render: (props: any) => (
+      <>
+        <BuildAndOpenMiniAppToolUI args={props.args} status={props.status} onOpen={onOpen} />
+        <ToolFallback {...props} />
+      </>
     ),
   });
 
