@@ -1,6 +1,6 @@
 import type { HookInput, SyncHookJSONOutput } from '@anthropic-ai/claude-agent-sdk';
 import { createMsWordMcpServer } from '../mcpServers/msWordMcpServer';
-import { findAndReplaceInWord } from '../../../server/wordActions';
+import { findAndReplaceInWord, getTrackChangesStatus, setTrackChanges } from '../../../server/wordActions';
 import type { HostApp, ApplyEditParams, ApplyEditResult, PreToolUseHook } from './types';
 
 const WORD_BUNDLE_ID = 'com.microsoft.Word';
@@ -101,6 +101,11 @@ export const wordHostApp: HostApp = {
   },
 
   async applyEdit(params: ApplyEditParams): Promise<ApplyEditResult> {
+    const status = await getTrackChangesStatus();
+    if (status.success && !status.enabled) {
+      await setTrackChanges(true);
+    }
+
     const result = await findAndReplaceInWord(
       params.search_text,
       params.replacement_text,
