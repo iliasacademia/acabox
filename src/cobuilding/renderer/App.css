@@ -155,7 +155,7 @@ body,
 
 .pageShell__inner {
   padding: 36px 40px 120px;
-  max-width: 1280px;
+  max-width: 920px;
   width: 100%;
   margin: 0 auto;
 }
@@ -6700,8 +6700,10 @@ button.briefingHistoryRow__status {
 
 /* --- Home page header --- */
 
+/* Home page reuses .pageShell + .pageShell__inner (same max-width as every
+   other top-level page); this modifier only adds extra scroll runway so the
+   cards keep room to breathe at the bottom. */
 .pageShell__inner.homePageInner {
-  max-width: 860px;
   padding-bottom: 25vh;
 }
 

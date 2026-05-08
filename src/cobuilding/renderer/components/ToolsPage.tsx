@@ -365,31 +365,34 @@ export function ToolsPage({
               <span className="toolsSection__count">{suggestedCount}</span>
               <span className="toolsSection__meta">&middot; based on patterns I noticed in your work</span>
             </h2>
-            {suggestedApps.map((tool) => (
-              <div key={tool.name} className="toolsCard toolsCard--spaced">
-                <div className="toolRow toolRow--tall">
-                  <div className="toolRow__icon">
-                    <LayoutGridIcon style={{ width: 18, height: 18 }} />
-                  </div>
-                  <div className="toolRow__info">
-                    <div className="toolRow__header">
-                      <button className="toolRow__name" onClick={() => handleBuildSuggested(tool)}>
-                        {tool.name}
+            <div className="toolsCard">
+              {suggestedApps.map((tool, i) => {
+                const bordered = i > 0 ? ' toolRow--bordered' : '';
+                return (
+                  <div key={tool.name} className={`toolRow${bordered}`}>
+                    <div className="toolRow__icon">
+                      <LayoutGridIcon style={{ width: 18, height: 18 }} />
+                    </div>
+                    <div className="toolRow__info">
+                      <div className="toolRow__header">
+                        <button className="toolRow__name" onClick={() => handleBuildSuggested(tool)}>
+                          {tool.name}
+                        </button>
+                      </div>
+                      <div className="toolRow__description">{tool.why_im_suggesting_this}</div>
+                    </div>
+                    <div className="toolRow__actions">
+                      <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(tool)}>
+                        Skip
+                      </button>
+                      <button className="toolRow__primaryBtn" onClick={() => handleBuildSuggested(tool)}>
+                        Build it
                       </button>
                     </div>
-                    <div className="toolRow__description">{tool.why_im_suggesting_this}</div>
                   </div>
-                  <div className="toolRow__actions toolRow__actions--stacked">
-                    <button className="toolRow__primaryBtn" onClick={() => handleBuildSuggested(tool)}>
-                      Build it
-                    </button>
-                    <button className="toolRow__secondaryBtn" onClick={() => handleDismissSuggested(tool)}>
-                      Skip
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+                );
+              })}
+            </div>
           </section>
         )}
 
