@@ -22,6 +22,7 @@ import {
   ThreadPrimitive,
   useAuiState,
   useComposerRuntime,
+  useMessagePartText,
 } from '@assistant-ui/react';
 import {
   MarkdownTextPrimitive,
@@ -156,16 +157,8 @@ function looksLikeHtml(text: string): boolean {
 }
 
 const OverlayMarkdownText = memo(() => {
-  const text = useAuiState((s: any) => {
-    const parts = s.message?.parts;
-    if (!parts) return null;
-    const textParts = parts.filter((p: any) => p.type === 'text');
-    return textParts.length > 0 ? textParts[textParts.length - 1]?.text : null;
-  });
+  const { text } = useMessagePartText();
 
-  // Same fix as markdown-text.tsx: writing-agent HTML responses go through
-  // the shared parseAgentHtml, which sanitizes via DOMPurify and replaces
-  // <a> nodes with AnchorWithDoi so the Zotero "+" button shows up here too.
   if (text && looksLikeHtml(text)) {
     return <div className="writingAgentHtml">{parseAgentHtml(text)}</div>;
   }
