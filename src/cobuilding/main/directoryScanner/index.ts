@@ -23,12 +23,6 @@ interface SuggestionParsed {
   description?: unknown;
 }
 
-interface WorkingOnFileParsed {
-  file_path?: unknown;
-  path?: unknown;
-  description?: unknown;
-}
-
 interface TaggedFileParsed {
   file_path?: unknown;
   path?: unknown;
@@ -90,7 +84,6 @@ function createBriefingsFromScan(
 
   let parsed: {
     suggestions?: unknown;
-    what_youre_working_on?: unknown;
     tagged_files?: unknown;
   };
   try {
@@ -99,18 +92,9 @@ function createBriefingsFromScan(
     return [];
   }
 
-  const workingOn = Array.isArray(parsed.what_youre_working_on)
-    ? (parsed.what_youre_working_on as WorkingOnFileParsed[])
-    : [];
   const taggedFiles = Array.isArray(parsed.tagged_files)
     ? (parsed.tagged_files as TaggedFileParsed[])
     : [];
-
-  const workingOnByPath = new Map<string, string>();
-  for (const f of workingOn) {
-    const p = getFilePath(f);
-    if (p && typeof f.description === 'string') workingOnByPath.set(p, f.description);
-  }
 
   // Demo: ensure ASH1L manuscript is tagged as manuscript if found in workspace.
   const ASH1L_MANUSCRIPT = 'ASH1L_PRDM14_Western_Blot_Manuscript_DRAFT.docx';
@@ -212,7 +196,7 @@ function createBriefingsFromScan(
   // LLM enrichment generates contextual titles and descriptions.
   return manuscriptDocxFiles.map((f) => {
     const filePath = getFilePath(f)!;
-    return { filePath, scannerDescription: workingOnByPath.get(filePath) ?? '' };
+    return { filePath, scannerDescription: '' };
   });
 }
 
@@ -449,6 +433,35 @@ const blockHiddenPaths: HookCallback = async (input) => {
   return {};
 };
 
+/** PreToolUse hook factory that blocks Read/Glob/Grep from escaping the scan directory. */
+function makeBlockOutsideCwd(directoryPath: string): HookCallback {
+  const root = path.resolve(directoryPath);
+  return async (input) => {
+    const preInput = input as PreToolUseHookInput;
+    const toolInput = preInput.tool_input as Record<string, unknown>;
+
+    const pathsToCheck: string[] = [];
+    if (typeof toolInput.file_path === 'string') pathsToCheck.push(toolInput.file_path);
+    if (typeof toolInput.path === 'string') pathsToCheck.push(toolInput.path);
+    if (typeof toolInput.pattern === 'string') pathsToCheck.push(toolInput.pattern);
+
+    for (const p of pathsToCheck) {
+      if (!p.trim()) continue;
+      const resolved = path.resolve(root, p);
+      if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: 'PreToolUse' as const,
+            permissionDecision: 'deny' as const,
+            permissionDecisionReason: `Access outside the scan directory is not allowed: ${p}`,
+          },
+        };
+      }
+    }
+    return {};
+  };
+}
+
 export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> {
   const { workspaceId, directoryPath, apiKey, baseURL, onMessage } = params;
   const reportId = randomUUID();
@@ -493,7 +506,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           schema: REPORT_JSON_SCHEMA,
         },
         hooks: {
-          PreToolUse: [{ matcher: 'Read|Glob|Grep', hooks: [blockHiddenPaths] }],
+          PreToolUse: [{ matcher: 'Read|Glob|Grep', hooks: [blockHiddenPaths, makeBlockOutsideCwd(directoryPath)] }],
         },
         settingSources: [],
         stderr: (data: string) => {
