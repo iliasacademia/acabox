@@ -108,6 +108,8 @@ tell application "Microsoft Word"
       set wasFound to execute find findObj replace ${replaceAll ? 'replace all' : 'replace one'}
       if wasFound then
         set replacementsCount to 1
+        -- Switch to review mode so user sees the tracked change
+        set show revisions of doc to true
       else if ${sanitizeChangedSearch ? 'true' : 'false'} then
         -- Pass 2: un-sanitized original. Catches the inverse case where
         -- both doc and search contain matching fancy chars.
@@ -129,6 +131,7 @@ tell application "Microsoft Word"
         if wasFound then
           set replacementsCount to 1
           set usedOriginal to true
+          set show revisions of doc to true
         end if
       end if
     on error tier1Err
@@ -227,6 +230,7 @@ if needPass3 and txtIndex > 0 and candidateLen > 0 then
       set fullRange to create range doc start rangeStart end rangeEnd
       set actualText to content of fullRange
       if actualText is equal to candidateText then
+        set show revisions of doc to true
         set content of fullRange to replaceText
         set replacementsCount to 1
         set usedAnchor to true
@@ -286,6 +290,7 @@ if replacementsCount is 0 then
               set extendedRange to create range doc start hitStart end (hitEnd + extendBy)
               set extendedText to content of extendedRange
               if extendedText is equal to searchText then
+                set show revisions of doc to true
                 set content of extendedRange to replaceText
                 set replacementsCount to 1
                 set usedAnchor to true
@@ -301,6 +306,7 @@ if replacementsCount is 0 then
                 set extendedRangeOrig to create range doc start hitStart end (hitEnd + extendByOriginal)
                 set extendedTextOrig to content of extendedRangeOrig
                 if extendedTextOrig is equal to originalSearchText then
+                  set show revisions of doc to true
                   set content of extendedRangeOrig to replaceText
                   set replacementsCount to 1
                   set usedAnchor to true
@@ -350,6 +356,7 @@ if replacementsCount is 0 then
                 set extendedRangeOrig to create range doc start hitStart end (hitEnd + extendByOriginal)
                 set extendedTextOrig to content of extendedRangeOrig
                 if extendedTextOrig is equal to originalSearchText then
+                  set show revisions of doc to true
                   set content of extendedRangeOrig to replaceText
                   set replacementsCount to 1
                   set usedAnchor to true
@@ -365,6 +372,7 @@ if replacementsCount is 0 then
                 set extendedRange to create range doc start hitStart end (hitEnd + extendBy)
                 set extendedText to content of extendedRange
                 if extendedText is equal to searchText then
+                  set show revisions of doc to true
                   set content of extendedRange to replaceText
                   set replacementsCount to 1
                   set usedAnchor to true

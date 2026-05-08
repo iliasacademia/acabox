@@ -169,19 +169,23 @@ tell application "Microsoft Word"
     set origName to user name
     set origInitials to user initials
     set origTrack to track revisions of doc
+    set origShowRevisions to show revisions of doc
     set user name to "Academia Coscientist"
     set user initials to "AC"
     set track revisions of doc to true
+    set show revisions of doc to true
     set targetRange to create range doc start ${start} end ${end}
     set content of targetRange to replaceText
     set user name to origName
     set user initials to origInitials
+    set show revisions of doc to origShowRevisions
     set track revisions of doc to origTrack
     return "ok"
   on error errMsg
     try
       set user name to origName
       set user initials to origInitials
+      set show revisions of doc to origShowRevisions
       set track revisions of doc to origTrack
     end try
     return "error||" & errMsg
