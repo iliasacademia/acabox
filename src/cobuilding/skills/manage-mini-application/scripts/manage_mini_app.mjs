@@ -247,6 +247,21 @@ if (values.template) {
     }
   }
 
+  // The notebook's parameters cell may contain hardcoded paths referencing
+  // the template's directory name (e.g. script_path, outdir). Rewrite those
+  // so the notebook is correct out of the box — the host (useKernelAction)
+  // overrides params_json at runtime, but the parameters cell is the fallback
+  // when the notebook is run manually or when the agent's App.tsx omits keys.
+  const notebookPath = join(miniAppDir, "notebook.ipynb");
+  if (existsSync(notebookPath)) {
+    const nbRaw = readFileSync(notebookPath, "utf8");
+    const templateName = values.template;
+    if (dirName !== templateName && nbRaw.includes(templateName)) {
+      const updated = nbRaw.replaceAll(`.applications/${templateName}/`, `.applications/${dirName}/`);
+      if (updated !== nbRaw) writeFileSync(notebookPath, updated);
+    }
+  }
+
   // NOTE: the script intentionally does NOT install template dependencies.
   // The host's BackgroundBuilder watches `.applications/<app>/requirements.txt`,
   // `package.json`, `r-packages.txt`, `apt-packages.txt`, and `setup/*.sh` and

@@ -2031,9 +2031,14 @@ ipcMain.handle('app:quit', () => {
 // Jupyter kernel gateway IPC handlers
 ipcMain.handle('jupyter:startGateway', async () => {
   try {
-    if (!activeWorkspace) return { error: 'No active workspace' };
+    if (!activeWorkspace) {
+      log.warn('[KernelGateway] startGateway called with no active workspace');
+      return { error: 'No active workspace' };
+    }
+    log.info(`[KernelGateway] startGateway requested for workspace: ${activeWorkspace.directory_path}`);
     return await kernelGatewayService.start(activeWorkspace.directory_path);
   } catch (err) {
+    log.error('[KernelGateway] startGateway failed:', (err as Error).message);
     return { error: (err as Error).message };
   }
 });

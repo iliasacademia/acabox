@@ -226,7 +226,7 @@ class KernelRegistry {
     onOutput: (output: CellOutput) => void,
   ): Promise<number | null> {
     const entry = this.entries.get(key);
-    if (!entry) return null;
+    if (!entry) throw new Error('No kernel connection — is the kernel gateway running?');
     const future = entry.kernel.requestExecute({ code });
 
     return new Promise((resolve) => {
