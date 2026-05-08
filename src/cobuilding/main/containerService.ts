@@ -1,6 +1,7 @@
 import { execFile, execFileSync, spawn } from 'child_process';
 import { promisify } from 'util';
 import { app } from 'electron';
+import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
@@ -512,7 +513,7 @@ class CobuildingContainerService {
 
     // Write config to workspace
     if (this.overlayEnabled) {
-      await this.exec(['sh', '-c', `cat > /data/.academia/agent.json << 'AGENT_CONFIG_EOF'\n${configJson}\nAGENT_CONFIG_EOF`]);
+      await this.writeContentToContainer(configJson, '/data/.academia/agent.json');
     } else {
       const configPath = path.join(workspacePath, '.academia', 'agent.json');
       fs.writeFileSync(configPath, configJson, 'utf-8');
@@ -1408,6 +1409,16 @@ class CobuildingContainerService {
     const durationMs = Date.now() - start;
     log.info(`[ContainerService] Overlay synced in ${durationMs}ms`);
     return { durationMs };
+  }
+
+  async writeContentToContainer(content: string, containerPath: string): Promise<void> {
+    const tmpFile = path.join(os.tmpdir(), `_podman_cp_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    try {
+      fs.writeFileSync(tmpFile, content, 'utf-8');
+      await this.podmanCp(tmpFile, containerPath);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch { /* already gone */ }
+    }
   }
 
   private async podmanCp(hostPath: string, containerPath: string): Promise<void> {

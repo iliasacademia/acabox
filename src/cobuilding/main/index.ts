@@ -512,6 +512,11 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
       }
       if (msg.type === 'turn-complete') {
         log.info(`[Forwarding] Sending ${msg.type} event for ${threadId}`);
+        if (containerService.isOverlayEnabled() && containerService.isRunning()) {
+          containerService.syncOverlay().catch(err =>
+            log.warn(`[Forwarding] Post-turn overlay sync failed: ${(err as Error).message}`),
+          );
+        }
       }
       sender.send('chat:event', threadId, msg);
     },
@@ -3132,7 +3137,7 @@ ipcMain.handle('focusPrompt:get', async () => {
 ipcMain.handle('focusPrompt:set', async (_event, content: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
   if (containerService.isOverlayEnabled() && containerService.isRunning()) {
-    await containerService.exec(['sh', '-c', `mkdir -p /data/.academia && cat > /data/.academia/FOCUS.md << 'FOCUS_EOF'\n${content}\nFOCUS_EOF`]);
+    await containerService.writeContentToContainer(content, '/data/.academia/FOCUS.md');
   } else {
     const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
     fs.mkdirSync(academiaDir, { recursive: true });
@@ -3162,7 +3167,7 @@ ipcMain.handle('soulPrompt:get', async () => {
 ipcMain.handle('soulPrompt:set', async (_event, content: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
   if (containerService.isOverlayEnabled() && containerService.isRunning()) {
-    await containerService.exec(['sh', '-c', `mkdir -p /data/.academia && cat > /data/.academia/SOUL.md << 'SOUL_EOF'\n${content}\nSOUL_EOF`]);
+    await containerService.writeContentToContainer(content, '/data/.academia/SOUL.md');
   } else {
     const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
     fs.mkdirSync(academiaDir, { recursive: true });
