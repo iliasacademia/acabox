@@ -169,6 +169,15 @@ type AppliedEvent = {
 type AppliedListener = (e: AppliedEvent) => void;
 
 const appliedListeners = new Set<AppliedListener>();
+const appliedEdits = new Map<string, PendingEntry>();
+
+/** Check if this proposal overlaps with any already-applied edit. */
+function isSuperseded(entry: PendingEntry): boolean {
+  for (const applied of appliedEdits.values()) {
+    if (proposalsOverlap(entry, applied)) return true;
+  }
+  return false;
+}
 /** Per-card auto-retry budget. Capped at 1 so we never loop indefinitely. */
 const overlapRetriesUsed = new Map<string, number>();
 
@@ -309,6 +318,21 @@ const FindAndReplaceSuggestionImpl = ({
 
   const handleApprove = useCallback(async () => {
     if (!parsed) return;
+
+    // Check if an overlapping edit was already applied — if so, this
+    // edit's search text likely no longer exists in the document.
+    const myEntry: PendingEntry = {
+      offset: parsed.doc_offset,
+      searchLen: (parsed.search_text || '').length || undefined,
+    };
+    if (isSuperseded(myEntry)) {
+      setError('Superseded by an earlier edit in the same passage. Use Copy to apply manually if needed.');
+      setCardState('denied');
+      setEditState(toolCallId, 'denied');
+      unregisterPending(toolCallId);
+      return;
+    }
+
     setError(null);
     setCardState('applying');
     unregisterPending(toolCallId);
@@ -321,6 +345,8 @@ const FindAndReplaceSuggestionImpl = ({
       const didApply = res.success && (res.replacementsCount ?? 0) > 0;
       if (didApply) {
         setCardState('applied');
+        // Record this edit so future overlapping edits are superseded.
+        appliedEdits.set(toolCallId, myEntry);
         // Broadcast to sibling cards so any that failed in the same
         // paragraph can auto-retry now that this revision has landed.
         emitApplied({
@@ -331,7 +357,7 @@ const FindAndReplaceSuggestionImpl = ({
       } else {
         setError(res.error || (res.success ? 'No matches were replaced' : 'Unknown error'));
         setCardState('pending');
-        registerPending(toolCallId);
+        registerPending(toolCallId, myEntry);
       }
     } catch (err) {
       setError(String(err));
