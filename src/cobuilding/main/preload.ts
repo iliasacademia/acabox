@@ -199,6 +199,9 @@ contextBridge.exposeInMainWorld('observationsAPI', {
 contextBridge.exposeInMainWorld('debugAPI', {
   getStorageInfo: () => ipcRenderer.invoke('debug:getStorageInfo'),
   clearSelected: (ids: string[]) => ipcRenderer.invoke('debug:clearSelected', ids),
+  exportWorkspace: () => ipcRenderer.invoke('debug:exportWorkspace'),
+  importWorkspace: () => ipcRenderer.invoke('debug:importWorkspace'),
+  hardResetWorkspace: () => ipcRenderer.invoke('debug:hardResetWorkspace'),
   // Renderer → main bridge that pipes a string into electron-log so
   // diagnostic lines from the desktop chat panel land in the same
   // on-disk log file as everything else (the overlay's devtools is

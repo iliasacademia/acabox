@@ -9,9 +9,11 @@ import { StorageDebug } from './StorageDebug';
 import { TerminalDebug } from './TerminalDebug';
 import { AuthDebug } from './AuthDebug';
 import { OfficeAddinDebug } from './OfficeAddinDebug';
+import { ExportDebug } from './ExportDebug';
+import { HardResetDebug } from './HardResetDebug';
 import './DebugPanel.css';
 
-export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal' | 'auth' | 'office-addin';
+export type DebugSection = 'podman' | 'apps' | 'observations' | 'kernels' | 'browser-extension' | 'file-monitor' | 'storage' | 'terminal' | 'auth' | 'office-addin' | 'export' | 'hard-reset';
 
 const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'apps', label: 'Logs' },
@@ -24,6 +26,8 @@ const DEBUG_SECTIONS: { id: DebugSection; label: string }[] = [
   { id: 'storage', label: 'Storage' },
   { id: 'auth', label: 'API Key' },
   { id: 'office-addin', label: 'Office Add-in' },
+  { id: 'export', label: 'Export' },
+  { id: 'hard-reset', label: 'Hard Reset' },
 ];
 
 export const DebugSidebar: React.FC<{
@@ -46,7 +50,7 @@ export const DebugSidebar: React.FC<{
   );
 };
 
-export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ activeSection }) => {
+export const DebugContent: React.FC<{ activeSection: DebugSection; onRestartOnboarding?: () => void }> = ({ activeSection, onRestartOnboarding }) => {
   return (
     <div className="debugContent">
       {activeSection === 'podman' && <PodmanDebug />}
@@ -59,6 +63,8 @@ export const DebugContent: React.FC<{ activeSection: DebugSection }> = ({ active
       {activeSection === 'storage' && <StorageDebug />}
       {activeSection === 'auth' && <AuthDebug />}
       {activeSection === 'office-addin' && <OfficeAddinDebug />}
+      {activeSection === 'export' && <ExportDebug />}
+      {activeSection === 'hard-reset' && <HardResetDebug onRestartOnboarding={onRestartOnboarding} />}
     </div>
   );
 };
