@@ -233,12 +233,15 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     // new chat (Tools-page flow).
     const incomingPrompt = pollData.pendingKickoffPrompt;
     const incomingId = pollData.pendingKickoffId;
+    let kickoffHandled = false;
     if (incomingId && incomingId !== lastFiredKickoffRef.current) {
       lastFiredKickoffRef.current = incomingId;
+      kickoffHandled = true;
       const newSessionId = crypto.randomUUID();
       console.log('[AcademiaNotificationsPopupV2] Kickoff', incomingId, 'arrived; opening new chat', newSessionId, incomingPrompt ? '(with prompt)' : '(empty)');
       if (incomingPrompt) setPendingKickoffPrompt(incomingPrompt);
       setActiveSession({ id: newSessionId, title: 'New Conversation' });
+      postBridge('clearKickoff', { kickoffId: incomingId }).catch(() => {});
     }
 
     // Auto-open a brand-new session for this document. Triggered when the
@@ -250,11 +253,13 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     // earlier "override any current activeSession" behavior caused the
     // overlay to drift onto whichever session the WebSocket poll surfaced
     // most recently, even mid-conversation.
+    // Skip when a kickoff was just handled — the kickoff already created a
+    // fresh session and auto-open would overwrite it with an existing one.
     const sessions = pollData.workspaceSessions ?? [];
     const NEW_SESSION_MAX_AGE_MS = 10_000;
     const alreadyAutoOpened = autoOpenedSessionIdsRef.current;
     const fresh = findAutoOpenCandidate(sessions, alreadyAutoOpened, Date.now(), NEW_SESSION_MAX_AGE_MS);
-    if (shouldAutoOpenFreshSession(activeSession?.id ?? null, fresh)) {
+    if (!kickoffHandled && shouldAutoOpenFreshSession(activeSession?.id ?? null, fresh)) {
       console.log('[AcademiaNotificationsPopupV2] Auto-opening fresh session:', fresh!.id);
       setActiveSession({ id: fresh!.id, title: fresh!.title });
       alreadyAutoOpened.add(fresh!.id);
@@ -541,7 +546,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         >
           {/* Left spacer balances the right-side buttons to keep title visually centered */}
           <div style={{ width: '72px', flexShrink: 0 }} />
-          <span style={styles.titleBarText}>Academia</span>
+          <span style={styles.titleBarText}>Academia Coscientist</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
             <button
               style={styles.titleBarCloseBtn}

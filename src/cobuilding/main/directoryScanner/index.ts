@@ -57,7 +57,7 @@ function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undef
   return undefined;
 }
 
-const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nPlease act as a peer reviewer for this manuscript. Read it end to end and flag concerns a reviewer would raise — about the argument, the evidence, the methodology, the framing, and the structure. Be specific and constructive. Suggest edits based on your feedback.';
+const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nRead only the Introduction section of this document (stop before Methods/Results). Briefly review it — assess how well it motivates the research question, situates the work in the literature, and sets up the paper. Then rewrite 2–3 passages in the introduction that would benefit most from improvement.';
 
 interface ManuscriptCandidate {
   filePath: string;
@@ -246,7 +246,7 @@ async function enrichAndCreateManuscriptBriefings(
           workspaceId,
           type: 'writing_agent',
           sourceReportId: reportId,
-          whyImSuggestingThis: scannerDescription || 'I can peer-review this manuscript and suggest edits.',
+          whyImSuggestingThis: scannerDescription || 'I can review the introduction of this manuscript and suggest edits.',
           briefingData: {
             file_path: filePath,
             description: scannerDescription,
@@ -262,9 +262,9 @@ async function enrichAndCreateManuscriptBriefings(
         max_tokens: 300,
         messages: [{
           role: 'user',
-          content: `You are generating a briefing card for a peer-review assistant. Given this manuscript excerpt, return JSON with:
-- "title": A short card title (5-10 words) that references the manuscript's topic, e.g. "Review your cortisol signaling paper" or "Peer review the HIF-2α analysis". Start with "Review" or "Peer review".
-- "description": One sentence describing what the review will focus on, specific to this manuscript's content. E.g. "I'll check the experimental design of your RPTEC timecourse and flag gaps in the methodology."
+          content: `You are generating a briefing card for a writing assistant that reviews the introduction section of manuscripts. Given this manuscript excerpt, return JSON with:
+- "title": A short card title (5-10 words) that references the manuscript's topic and focuses on the introduction, e.g. "Review the intro of your cortisol paper" or "Strengthen the introduction of your HIF-2α draft". Start with "Review" or "Strengthen".
+- "description": One sentence describing what the introduction review will focus on, specific to this manuscript's content. E.g. "I'll review how your introduction motivates the RPTEC timecourse study and propose 2–3 edits to strengthen it."
 
 Filename: ${fileName}
 
@@ -279,7 +279,7 @@ Output JSON only. No prose, no code fences.`,
       const text = (block && block.type === 'text' && block.text) ? block.text : '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);
 
-      let title = 'Peer review your manuscript';
+      let title = 'Review your manuscript introduction';
       let description = scannerDescription;
 
       if (jsonMatch) {
@@ -301,7 +301,7 @@ Output JSON only. No prose, no code fences.`,
         workspaceId,
         type: 'writing_agent',
         sourceReportId: reportId,
-        whyImSuggestingThis: description || 'I can peer-review this manuscript and suggest edits.',
+        whyImSuggestingThis: description || 'I can review the introduction of this manuscript and suggest edits.',
         briefingData: {
           file_path: filePath,
           title,
@@ -315,7 +315,7 @@ Output JSON only. No prose, no code fences.`,
         workspaceId,
         type: 'writing_agent',
         sourceReportId: reportId,
-        whyImSuggestingThis: scannerDescription || 'I can peer-review this manuscript and suggest edits.',
+        whyImSuggestingThis: scannerDescription || 'I can review the introduction of this manuscript and suggest edits.',
         briefingData: {
           file_path: filePath,
           description: scannerDescription,
