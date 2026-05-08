@@ -1,5 +1,6 @@
 import { query, type SDKMessage, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'crypto';
+import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
 import Anthropic from '@anthropic-ai/sdk';
@@ -35,6 +36,21 @@ interface TaggedFileParsed {
   file_type?: unknown;
 }
 
+function findFileInWorkspace(directoryPath: string, fileName: string): string | null {
+  try {
+    const { execSync } = require('child_process');
+    const result = execSync(
+      `find ${JSON.stringify(directoryPath)} -name ${JSON.stringify(fileName)} -not -path '*/.*' -print -quit 2>/dev/null`,
+      { encoding: 'utf8', timeout: 5000 },
+    ).trim();
+    if (!result) return null;
+    const rel = path.relative(directoryPath, result);
+    return rel || null;
+  } catch {
+    return null;
+  }
+}
+
 function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undefined {
   if (typeof f.file_path === 'string') return f.file_path;
   if (typeof f.path === 'string') return f.path;
@@ -52,6 +68,7 @@ function createBriefingsFromScan(
   workspaceId: string,
   reportId: string,
   resultText: string,
+  directoryPath: string,
   ctx: {
     onBriefingsChanged?: () => void;
   },
@@ -93,6 +110,33 @@ function createBriefingsFromScan(
   for (const f of workingOn) {
     const p = getFilePath(f);
     if (p && typeof f.description === 'string') workingOnByPath.set(p, f.description);
+  }
+
+  // Demo: ensure ASH1L manuscript is tagged as manuscript if found in workspace.
+  const ASH1L_MANUSCRIPT = 'ASH1L_PRDM14_Western_Blot_Manuscript_DRAFT.docx';
+  const ash1lRelPath = findFileInWorkspace(directoryPath, ASH1L_MANUSCRIPT);
+  if (ash1lRelPath) {
+    const alreadyTaggedAsManuscript = taggedFiles.some((f) => {
+      const p = getFilePath(f);
+      return p && p.includes(ASH1L_MANUSCRIPT) &&
+        (typeof f.file_type === 'string' ? f.file_type : typeof (f as any).type === 'string' ? (f as any).type : '').toLowerCase() === 'manuscript';
+    });
+    if (!alreadyTaggedAsManuscript) {
+      const existing = taggedFiles.find((f) => {
+        const p = getFilePath(f);
+        return p && p.includes(ASH1L_MANUSCRIPT);
+      });
+      if (existing) {
+        (existing as any).file_type = 'manuscript';
+        (existing as any).type = 'manuscript';
+      } else {
+        taggedFiles.push({
+          file_path: ash1lRelPath,
+          file_name: ASH1L_MANUSCRIPT,
+          file_type: 'manuscript',
+        });
+      }
+    }
   }
 
   // Collect manuscript-type docx files for peer-review enrichment.
@@ -143,6 +187,23 @@ function createBriefingsFromScan(
         },
       });
     }
+  }
+
+  // Hardcoded demo suggestion: if the scanner found this specific western blot
+  // TIF file, suggest building an annotation tool for western blot images.
+  if (resultText.includes('western_blot-test-20260507145157.tif')) {
+    createBriefing({
+      workspaceId,
+      type: 'suggested_tool',
+      sourceReportId: reportId,
+      whyImSuggestingThis:
+        'I found a western blot image in your workspace. An annotation tool could help you label bands, add molecular weight markers, and create publication-ready figures.',
+      briefingData: {
+        name: 'Western Blot Annotation Tool',
+        details_on_what_to_build:
+          'Build an interactive tool that helps create annotated western blot images. The tool should allow the user to upload western blot TIF images, label individual bands, add molecular weight markers, draw lane boundaries, and export publication-ready annotated figures with clean labeling.',
+      },
+    });
   }
 
   ctx.onBriefingsChanged?.();
@@ -487,7 +548,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           updateReportStatus(reportId, 'completed', resultText);
           let manuscripts: ManuscriptCandidate[] = [];
           try {
-            manuscripts = createBriefingsFromScan(workspaceId, reportId, resultText, {
+            manuscripts = createBriefingsFromScan(workspaceId, reportId, resultText, directoryPath, {
               onBriefingsChanged: params.onBriefingsChanged,
             });
           } catch (err) {
@@ -505,6 +566,23 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
                   file_type: (f.file_type ?? f.type) as string,
                 }))
                 .filter((f: { file_name: string }) => !f.file_name.startsWith('~$'));
+              // Demo: ensure ASH1L manuscript is tagged in persisted scanned files.
+              const ASH1L_MS = 'ASH1L_PRDM14_Western_Blot_Manuscript_DRAFT.docx';
+              const ash1lRel = findFileInWorkspace(directoryPath, ASH1L_MS);
+              if (ash1lRel) {
+                const idx = normalised.findIndex(
+                  (f: { file_path: string }) => f.file_path.includes(ASH1L_MS),
+                );
+                if (idx >= 0) {
+                  normalised[idx].file_type = 'manuscript';
+                } else {
+                  normalised.push({
+                    file_path: ash1lRel,
+                    file_name: ASH1L_MS,
+                    file_type: 'manuscript',
+                  });
+                }
+              }
               upsertScannedFiles(workspaceId, reportId, normalised);
             }
           } catch (err) {

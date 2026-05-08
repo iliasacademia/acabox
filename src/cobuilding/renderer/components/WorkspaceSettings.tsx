@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { Workspace } from '../../shared/types';
+import { kernelRegistry } from './notebook/kernelRegistry';
 import './WorkspaceSettings.css';
 import './shared-forms.css';
 
@@ -517,6 +518,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
             onClick={async () => {
               setIsRestartingOnboarding(true);
               await window.workspacesAPI.deleteAll();
+              kernelRegistry.clearAll().catch(() => {});
               onRestartOnboarding();
             }}
           >
@@ -533,6 +535,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
               setIsLoggingOut(true);
               const result = await window.authAPI.logout();
               if (result.success) {
+                kernelRegistry.clearAll().catch(() => {});
                 onLogout();
               } else {
                 setIsLoggingOut(false);

@@ -2,7 +2,7 @@
 
 import { parseArgs } from "util";
 import { join } from "path";
-import { mkdirSync, writeFileSync, existsSync, cpSync, readdirSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from "fs";
 
 const { values } = parseArgs({
   options: {
@@ -42,10 +42,24 @@ function toLowerCamelCase(name) {
     .join("");
 }
 
-const dirName = toLowerCamelCase(values.name);
-if (!dirName) {
+const baseDirName = toLowerCamelCase(values.name);
+if (!baseDirName) {
   console.error("--name must contain at least one alphanumeric character");
   process.exit(1);
+}
+
+// Ensure the dirName is unique within `.applications/`. If the caller picks a
+// name that already maps to an existing app dir, append a numeric suffix
+// (`foo`, `foo2`, `foo3`, …) until we find a free slot. Without this, the
+// scaffold would silently clobber the existing app — `mkdirSync` is a no-op on
+// an existing dir and the subsequent `writeFileSync` / `cpSync` overwrite
+// files in place. Uniqueness is enforced here so callers (agents, the user)
+// don't have to predict collisions themselves.
+let dirName = baseDirName;
+let collisionSuffix = 2;
+while (existsSync(join(workspaceDir, ".applications", dirName))) {
+  dirName = `${baseDirName}${collisionSuffix}`;
+  collisionSuffix++;
 }
 const miniAppDir = join(workspaceDir, ".applications", dirName);
 
@@ -213,6 +227,39 @@ if (values.template) {
     if (entry === "template.md") continue;
     const srcPath = join(templatesDir, entry);
     cpSync(srcPath, join(miniAppDir, entry), { recursive: true });
+  }
+
+  // Templates hardcode `const DIR_NAME = "<templateName>"` at the top of
+  // src/App.tsx, and the rest of the file derives every input/output/notebook
+  // path from that constant. If the new app's dirName differs (e.g. user picked
+  // a different `--name`), the React side ends up reading and writing the wrong
+  // directory — and the most common symptom is "run_metadata.json missing
+  // after kernel run", because the kernel writes to `<dirName>/output/` but
+  // App.tsx looks under the template's name. Rewrite the constant here so the
+  // scaffolded app is correct without manual follow-up.
+  const appTsxPath = join(miniAppDir, "src", "App.tsx");
+  if (existsSync(appTsxPath)) {
+    const original = readFileSync(appTsxPath, "utf8");
+    const dirNameRe = /const\s+DIR_NAME\s*=\s*["'][^"']*["']/;
+    if (dirNameRe.test(original)) {
+      const updated = original.replace(dirNameRe, `const DIR_NAME = "${dirName}"`);
+      if (updated !== original) writeFileSync(appTsxPath, updated);
+    }
+  }
+
+  // The notebook's parameters cell may contain hardcoded paths referencing
+  // the template's directory name (e.g. script_path, outdir). Rewrite those
+  // so the notebook is correct out of the box — the host (useKernelAction)
+  // overrides params_json at runtime, but the parameters cell is the fallback
+  // when the notebook is run manually or when the agent's App.tsx omits keys.
+  const notebookPath = join(miniAppDir, "notebook.ipynb");
+  if (existsSync(notebookPath)) {
+    const nbRaw = readFileSync(notebookPath, "utf8");
+    const templateName = values.template;
+    if (dirName !== templateName && nbRaw.includes(templateName)) {
+      const updated = nbRaw.replaceAll(`.applications/${templateName}/`, `.applications/${dirName}/`);
+      if (updated !== nbRaw) writeFileSync(notebookPath, updated);
+    }
   }
 
   // NOTE: the script intentionally does NOT install template dependencies.

@@ -32,6 +32,8 @@ LANE_PEAK_MIN_DISTANCE = 30   # px min distance between lane peaks
 
 
 def run(image_path: str, output_dir: str):
+    os.makedirs(output_dir, exist_ok=True)
+
     # Load model
     model = torch.jit.load(MODEL_PATH, map_location="cpu")
     model.eval()
@@ -223,8 +225,6 @@ def run(image_path: str, output_dir: str):
         "membranes": membranes,
     }
 
-    # Write the standard run_metadata.json handoff file the React side reads.
-    os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, "run_metadata.json"), "w") as f:
         json.dump(result, f)
     return result

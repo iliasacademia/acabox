@@ -691,11 +691,11 @@ app.whenReady().then(async () => {
     }
 
     startFileMonitor();
-    startBrowserMonitor().then(() => rebuildTrayMenu());
+    // startBrowserMonitor().then(() => rebuildTrayMenu());
     initSchedulingDatabase(app.getPath('userData'));
-    if (activeWorkspace) {
-      ensureReactionsTask(activeWorkspace.id);
-    }
+    // if (activeWorkspace) {
+    //   ensureReactionsTask(activeWorkspace.id);
+    // }
     startScheduledTasks(handleNotificationNavigation);
 
     // Start HTTP server and window monitor for the Word overlay
@@ -1096,10 +1096,10 @@ ipcMain.handle(
     }
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
-      ensureReactionsTask(activeWorkspace.id);
+      // ensureReactionsTask(activeWorkspace.id);
       const scheduler = getTaskScheduler();
-      scheduler.stop();
-      scheduler.start();
+      scheduler?.stop();
+      scheduler?.start();
       // Tell the Word overlay about the freshly-created workspace so it
       // recognizes docs inside it (otherwise the overlay falls through to
       // the legacy "Not linked to a project" view on first onboarding).
@@ -1160,7 +1160,7 @@ ipcMain.handle('workspaces:deleteAll', async () => {
   ensuredApps.clear();
   await stopAgentInfrastructure();
   containerService.stop();
-  getTaskScheduler().stop();
+  getTaskScheduler()?.stop();
   deactivateAllWorkspaces();
   activeWorkspace = null;
 });
@@ -1182,15 +1182,15 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   activeWorkspace = getActiveWorkspace() ?? null;
 
   if (activeWorkspace) {
-    ensureReactionsTask(activeWorkspace.id);
+    // ensureReactionsTask(activeWorkspace.id);
     // Update workspace directory for the Word overlay
     windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
   }
 
   // Restart scheduler so it picks up the new workspace's tasks
   const scheduler = getTaskScheduler();
-  scheduler.stop();
-  scheduler.start();
+  scheduler?.stop();
+  scheduler?.start();
 
   provisionWorkspace(target.directory_path);
   containerService.writeStartContainerScript(target.directory_path);
@@ -2031,9 +2031,14 @@ ipcMain.handle('app:quit', () => {
 // Jupyter kernel gateway IPC handlers
 ipcMain.handle('jupyter:startGateway', async () => {
   try {
-    if (!activeWorkspace) return { error: 'No active workspace' };
+    if (!activeWorkspace) {
+      log.warn('[KernelGateway] startGateway called with no active workspace');
+      return { error: 'No active workspace' };
+    }
+    log.info(`[KernelGateway] startGateway requested for workspace: ${activeWorkspace.directory_path}`);
     return await kernelGatewayService.start(activeWorkspace.directory_path);
   } catch (err) {
+    log.error('[KernelGateway] startGateway failed:', (err as Error).message);
     return { error: (err as Error).message };
   }
 });
@@ -2806,7 +2811,7 @@ ipcMain.handle('auth:logout', async () => {
     ensuredApps.clear();
     await stopAgentInfrastructure();
     containerService.stop();
-    getTaskScheduler().stop();
+    getTaskScheduler()?.stop();
     deactivateAllWorkspaces();
     activeWorkspace = null;
     cachedApiKey = null;
@@ -2853,7 +2858,7 @@ ipcMain.handle('scheduledTasks:get', (_event, id: string) => {
 ipcMain.handle('scheduledTasks:create', (_event, data: CreateTaskData) => {
   if (!activeWorkspace) throw new Error('No active workspace');
   const task = createTask(activeWorkspace.id, data.name, data.description, data.prompt, data.cron_expression, data.session_source ?? null);
-  getTaskScheduler().scheduleTask(task.id);
+  getTaskScheduler()?.scheduleTask(task.id);
   return task;
 });
 
@@ -2865,9 +2870,9 @@ ipcMain.handle('scheduledTasks:update', (_event, id: string, data: UpdateTaskDat
   const task = updateTask(id, data);
   if (task) {
     if (task.enabled) {
-      getTaskScheduler().scheduleTask(id);
+      getTaskScheduler()?.scheduleTask(id);
     } else {
-      getTaskScheduler().unscheduleTask(id);
+      getTaskScheduler()?.unscheduleTask(id);
     }
   }
   return task ?? null;
@@ -2878,16 +2883,16 @@ ipcMain.handle('scheduledTasks:delete', (_event, id: string) => {
   if (task?.session_source === 'reactions-system') {
     throw new Error('System tasks cannot be deleted');
   }
-  getTaskScheduler().unscheduleTask(id);
+  getTaskScheduler()?.unscheduleTask(id);
   deleteTask(id);
 });
 
 ipcMain.handle('scheduledTasks:setEnabled', (_event, id: string, enabled: boolean) => {
   setTaskEnabled(id, enabled);
   if (enabled) {
-    getTaskScheduler().scheduleTask(id);
+    getTaskScheduler()?.scheduleTask(id);
   } else {
-    getTaskScheduler().unscheduleTask(id);
+    getTaskScheduler()?.unscheduleTask(id);
   }
 });
 
@@ -2927,7 +2932,7 @@ ipcMain.handle('reactionSources:set', (_event, sources: ReactionSource[]) => {
     // Reschedule the task so the next run uses the updated prompt
     const task = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
     if (task) {
-      getTaskScheduler().scheduleTask(task.id);
+      getTaskScheduler()?.scheduleTask(task.id);
     }
   }
 });
