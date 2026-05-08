@@ -128,6 +128,7 @@ export function createAgentSession(
   }, HEARTBEAT_INTERVAL_MS);
 
   function emitDone() {
+    if (!running) return; // idempotent — only fire onDone once per session turn
     running = false;
     for (const listener of [...listeners]) {
       listener.onDone?.();

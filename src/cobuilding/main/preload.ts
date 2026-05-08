@@ -460,14 +460,23 @@ function createStreamIterator(threadId: string) {
   ipcRenderer.on('chat:done', doneHandler);
   ipcRenderer.on('chat:error', errorHandler);
 
+  // Declared with let so cleanup can reference markDone for an ownership check.
+  // Without the check, a stale cleanup (e.g. from useSessionSubscription's
+  // unsubscribe after sendMessage replaced the stream) would delete the newer
+  // stream's activeStreams entry, causing the global buffer listeners to capture
+  // events that the live stream should be handling.
+  let markDone!: () => void;
+
   const cleanup = () => {
     ipcRenderer.removeListener('chat:event', eventHandler);
     ipcRenderer.removeListener('chat:done', doneHandler);
     ipcRenderer.removeListener('chat:error', errorHandler);
-    activeStreams.delete(threadId);
+    if (activeStreams.get(threadId) === markDone) {
+      activeStreams.delete(threadId);
+    }
   };
 
-  const markDone = () => {
+  markDone = () => {
     done = true;
     cleanup();
     notify();
