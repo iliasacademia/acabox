@@ -192,19 +192,26 @@ export const InitialPromptAutoSend: FC<{ prompt?: string; onSent?: () => void }>
     if (!prompt || firedRef.current) return;
     firedRef.current = true;
     console.log('[OverlayThread] InitialPromptAutoSend firing prompt:', prompt.slice(0, 80));
-    // Larger delay so assistant-ui's runtime + history adapter finish their
-    // initial mount work before we try to push a message.
-    const id = setTimeout(() => {
+    let attempt = 0;
+    const maxAttempts = 5;
+    const tryAutoSend = () => {
+      attempt++;
       try {
         composer.setText(prompt);
         composer.send();
-        console.log('[OverlayThread] InitialPromptAutoSend send() called');
-      } catch (err) {
-        console.warn('[OverlayThread] InitialPromptAutoSend failed:', err);
-      } finally {
+        console.log('[OverlayThread] InitialPromptAutoSend send() succeeded on attempt', attempt);
         onSent?.();
+      } catch (err) {
+        console.warn('[OverlayThread] InitialPromptAutoSend attempt', attempt, 'failed:', err);
+        if (attempt < maxAttempts) {
+          setTimeout(tryAutoSend, 500);
+        } else {
+          console.error('[OverlayThread] InitialPromptAutoSend gave up after', maxAttempts, 'attempts');
+          onSent?.();
+        }
       }
-    }, 200);
+    };
+    const id = setTimeout(tryAutoSend, 500);
     return () => clearTimeout(id);
   }, [prompt]); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
