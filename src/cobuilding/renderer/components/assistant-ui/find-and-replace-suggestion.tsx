@@ -18,6 +18,7 @@ interface EditProposal {
   replacement_text?: string;
   replace_scope?: string;
   match_case?: boolean;
+  doc_offset?: number;
 }
 
 function parseResult(result: unknown): EditProposal | null {
@@ -108,22 +109,48 @@ async function fetchEditStates(): Promise<Record<string, string>> {
 // Works across ToolGroups since cards may be separated by text.
 
 type BatchAction = 'approve-all' | 'deny-all';
-type BatchListener = (action: BatchAction) => void;
+type BatchListener = (action: BatchAction, applyOrder?: string[]) => void;
 
-const pendingCards = new Set<string>();
+interface PendingEntry { offset?: number; searchLen?: number; }
+const pendingCards = new Map<string, PendingEntry>();
 const batchListeners = new Set<BatchListener>();
 const countListeners = new Set<() => void>();
 
-function registerPending(id: string) {
-  pendingCards.add(id);
+function registerPending(id: string, entry?: PendingEntry) {
+  pendingCards.set(id, entry ?? {});
   countListeners.forEach(l => l());
 }
 function unregisterPending(id: string) {
   pendingCards.delete(id);
   countListeners.forEach(l => l());
 }
+
+/** Check if two proposals overlap based on their document offsets. */
+function proposalsOverlap(a: PendingEntry, b: PendingEntry): boolean {
+  if (typeof a.offset !== 'number' || typeof b.offset !== 'number') return false;
+  if (typeof a.searchLen !== 'number' || typeof b.searchLen !== 'number') return false;
+  const aEnd = a.offset + a.searchLen;
+  const bEnd = b.offset + b.searchLen;
+  return a.offset < bEnd && b.offset < aEnd;
+}
+
 function emitBatch(action: BatchAction) {
-  batchListeners.forEach(l => l(action));
+  if (action === 'approve-all') {
+    // Sort by offset descending (bottom-to-top) so earlier edits don't
+    // shift positions of later ones. Cards without offsets go first
+    // (they'll be applied without position guarantees).
+    const sorted = [...pendingCards.entries()]
+      .sort(([, a], [, b]) => {
+        if (typeof a.offset !== 'number' && typeof b.offset !== 'number') return 0;
+        if (typeof a.offset !== 'number') return -1;
+        if (typeof b.offset !== 'number') return 1;
+        return b.offset - a.offset;
+      })
+      .map(([id]) => id);
+    batchListeners.forEach(l => l(action, sorted));
+  } else {
+    batchListeners.forEach(l => l(action));
+  }
 }
 
 // ─── Module-level overlap-retry registry ─────────────────────────
@@ -211,15 +238,18 @@ const FindAndReplaceSuggestionImpl = ({
   // Register/unregister with module-level batch registry
   useEffect(() => {
     if (isProposal && cardState === 'pending') {
-      registerPending(toolCallId);
+      registerPending(toolCallId, {
+        offset: parsed?.doc_offset,
+        searchLen: searchText.length || undefined,
+      });
       return () => unregisterPending(toolCallId);
     }
-  }, [isProposal, cardState, toolCallId]);
+  }, [isProposal, cardState, toolCallId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show batch header on the first pending card
   useEffect(() => {
     const update = () => {
-      const firstPending = [...pendingCards][0];
+      const firstPending = [...pendingCards.keys()][0];
       setShowBatchHeader(firstPending === toolCallId && pendingCards.size > 1);
       setBatchCount(pendingCards.size);
     };
@@ -234,13 +264,26 @@ const FindAndReplaceSuggestionImpl = ({
   // Listen for batch actions
   useEffect(() => {
     if (!isProposal || cardState !== 'pending') return;
-    const listener: BatchListener = (action) => {
-      if (action === 'approve-all') handleApproveRef.current();
-      if (action === 'deny-all') handleDenyRef.current();
+    const listener: BatchListener = (action, applyOrder) => {
+      if (action === 'deny-all') { handleDenyRef.current(); return; }
+      if (action === 'approve-all') {
+        if (applyOrder) {
+          // Stagger approvals bottom-to-top so each edit lands before
+          // the next one starts, preventing position drift.
+          const idx = applyOrder.indexOf(toolCallId);
+          if (idx >= 0) {
+            setTimeout(() => handleApproveRef.current(), idx * 500);
+          } else {
+            handleApproveRef.current();
+          }
+        } else {
+          handleApproveRef.current();
+        }
+      }
     };
     batchListeners.add(listener);
     return () => { batchListeners.delete(listener); };
-  }, [isProposal, cardState]);
+  }, [isProposal, cardState, toolCallId]);
 
   // Listen for sibling-apply success. If our search text overlaps with a
   // just-applied sibling and we previously failed, retry once — Word's

@@ -105,12 +105,25 @@ Call this tool once per edit. Keep search_text to a single sentence — shorter 
           // Always return the proposal — never execute directly.
           // The UI renders a suggestion card with approve/deny buttons.
           // Approved edits are executed via the apply-edit endpoint.
+
+          // Find the position of search_text in the document so the UI
+          // can detect overlapping edits and apply bottom-to-top.
+          let doc_offset: number | undefined;
+          try {
+            const docResult = await getWordText(0);
+            if (docResult.success && docResult.content) {
+              const idx = docResult.content.indexOf(args.search_text);
+              if (idx >= 0) doc_offset = idx + (docResult.offset ?? 0);
+            }
+          } catch {}
+
           return { content: [{ type: 'text' as const, text: JSON.stringify({
             proposed: true,
             search_text: args.search_text,
             replacement_text: args.replacement_text,
             replace_scope: args.replace_scope,
             match_case: args.match_case,
+            doc_offset,
           }) }] };
         },
       ),
