@@ -1289,7 +1289,7 @@ class CobuildingContainerService {
     this.agentPort = agentHostPort;
 
     const useImage = imageName || IMAGE_NAME;
-    const useOverlay = process.platform === 'darwin';
+    const useOverlay = process.env.OVERLAYFS_ENABLED === '1' && process.platform === 'darwin';
     this.overlayEnabled = useOverlay;
 
     const args = useOverlay ? [
