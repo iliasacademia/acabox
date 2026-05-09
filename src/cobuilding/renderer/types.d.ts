@@ -265,6 +265,7 @@ declare global {
     stop(): Promise<void>;
     status(): Promise<{ running: boolean }>;
     exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+    syncOverlay(): Promise<{ durationMs: number }>;
     execLogged(command: string[], meta?: { source?: string; appDirName?: string | null }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
     getBinaryMode(): Promise<'system' | 'bundled'>;
     setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;

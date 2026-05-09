@@ -116,6 +116,8 @@ class CobuildingContainerService {
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private agentPort: number | null = null;
   private overlayEnabled = false;
+  private activeSyncPromise: Promise<{ durationMs: number }> | null = null;
+  private overlaySyncInterval: ReturnType<typeof setInterval> | null = null;
 
   // ─── Public API ─────────────────────────────────────────────────
 
@@ -192,6 +194,7 @@ class CobuildingContainerService {
   }
 
   stop(): void {
+    this.stopPeriodicSync();
     this.stopLogTail();
     this.stopHealthWatch();
     log.debug('[ContainerService] Stopping container...');
@@ -208,6 +211,7 @@ class CobuildingContainerService {
           '--exclude', '.academia/agent-server.js',
           '--exclude', '.academia/agent.json',
           '--exclude', 'node_modules/.cache',
+          '--exclude', '.applications/_environment',
           '/data/', '/data-host/',
         ], { env, timeout: 60_000 });
         log.info('[ContainerService] Overlay sync complete');
@@ -1385,6 +1389,7 @@ class CobuildingContainerService {
 
     this.startLogTail(podmanBin);
     this.startHealthWatch(podmanBin);
+    this.startPeriodicSync();
   }
 
   // ─── OverlayFS Sync ──────────────────────────────────────────
@@ -1394,21 +1399,55 @@ class CobuildingContainerService {
   }
 
   async syncOverlay(): Promise<{ durationMs: number }> {
+    if (this.activeSyncPromise) {
+      return this.activeSyncPromise;
+    }
+    this.activeSyncPromise = this.doSyncOverlay();
+    try {
+      return await this.activeSyncPromise;
+    } finally {
+      this.activeSyncPromise = null;
+    }
+  }
+
+  private async doSyncOverlay(): Promise<{ durationMs: number }> {
     if (!this.overlayEnabled || !this.isRunning()) {
       throw new Error('Overlay sync not available — overlay not enabled or container not running');
     }
     const start = Date.now();
-    await this.exec([
+    const { exitCode, stderr } = await this.exec([
       'rsync', '-a', '--delete',
       '--exclude', '.academia/claude',
       '--exclude', '.academia/agent-server.js',
       '--exclude', '.academia/agent.json',
       '--exclude', 'node_modules/.cache',
+      '--exclude', '.applications/_environment',
       '/data/', '/data-host/',
     ]);
+    if (exitCode !== 0) {
+      log.warn(`[ContainerService] rsync exited with code ${exitCode}: ${stderr.slice(0, 200)}`);
+    }
     const durationMs = Date.now() - start;
     log.info(`[ContainerService] Overlay synced in ${durationMs}ms`);
     return { durationMs };
+  }
+
+  startPeriodicSync(): void {
+    this.stopPeriodicSync();
+    if (!this.overlayEnabled) return;
+    this.overlaySyncInterval = setInterval(() => {
+      if (!this.isRunning()) return;
+      this.syncOverlay().catch(err =>
+        log.warn(`[ContainerService] Periodic overlay sync failed: ${(err as Error).message}`),
+      );
+    }, 30_000);
+  }
+
+  stopPeriodicSync(): void {
+    if (this.overlaySyncInterval) {
+      clearInterval(this.overlaySyncInterval);
+      this.overlaySyncInterval = null;
+    }
   }
 
   async writeContentToContainer(content: string, containerPath: string): Promise<void> {

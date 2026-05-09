@@ -504,7 +504,7 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
   log.debug(`[Forwarding] Setting up IPC forwarding for ${threadId}`);
 
   const unsubscribe = session.addListener({
-    onEvent: (msg) => {
+    onEvent: async (msg) => {
       if (sender.isDestroyed()) {
         log.debug(`[Forwarding] Dropping event for ${threadId}: sender destroyed`);
         cleanup();
@@ -513,9 +513,14 @@ function ensureForwarding(threadId: string, sender: Electron.WebContents): void 
       if (msg.type === 'turn-complete') {
         log.info(`[Forwarding] Sending ${msg.type} event for ${threadId}`);
         if (containerService.isOverlayEnabled() && containerService.isRunning()) {
-          containerService.syncOverlay().catch(err =>
-            log.warn(`[Forwarding] Post-turn overlay sync failed: ${(err as Error).message}`),
-          );
+          try {
+            await Promise.race([
+              containerService.syncOverlay(),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 30_000)),
+            ]);
+          } catch (err) {
+            log.warn(`[Forwarding] Post-turn overlay sync failed: ${(err as Error).message}`);
+          }
         }
       }
       sender.send('chat:event', threadId, msg);
@@ -1992,6 +1997,10 @@ ipcMain.handle('container:status', () => {
 
 ipcMain.handle('container:exec', async (_event, command: string[]) => {
   return containerService.exec(command);
+});
+
+ipcMain.handle('container:syncOverlay', async () => {
+  return containerService.syncOverlay();
 });
 
 ipcMain.handle('container:execLogged', async (_event, command: string[], meta?: { source?: string; appDirName?: string | null }) => {

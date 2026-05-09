@@ -101,6 +101,7 @@ contextBridge.exposeInMainWorld('containerAPI', {
   stop: () => ipcRenderer.invoke('container:stop'),
   status: () => ipcRenderer.invoke('container:status'),
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
+  syncOverlay: () => ipcRenderer.invoke('container:syncOverlay'),
   execLogged: (command: string[], meta?: { source?: string; appDirName?: string | null }) =>
     ipcRenderer.invoke('container:execLogged', command, meta),
   getBinaryMode: () => ipcRenderer.invoke('container:getBinaryMode'),
