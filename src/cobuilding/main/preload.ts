@@ -337,6 +337,7 @@ contextBridge.exposeInMainWorld('scannerAPI', {
 
 contextBridge.exposeInMainWorld('sessionsAPI', {
   list: (source?: string) => ipcRenderer.invoke('sessions:list', source),
+  getRunningIds: () => ipcRenderer.invoke('sessions:runningIds') as Promise<string[]>,
   get: (id: string) => ipcRenderer.invoke('sessions:get', id),
   setDocumentPath: (id: string, documentPath: string) =>
     ipcRenderer.invoke('sessions:setDocumentPath', id, documentPath),

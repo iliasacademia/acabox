@@ -2243,6 +2243,17 @@ function notifySessionsChanged() {
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   return listSessions(undefined, source);
 });
+ipcMain.handle('sessions:runningIds', () => {
+  const ids: string[] = [];
+  // sessionRegistry only exposes per-id lookups; iterate known DB sessions
+  // and check which have a running agent session.
+  const allSessions = listSessions();
+  for (const s of allSessions) {
+    const reg = getRegisteredSession(s.id);
+    if (reg?.isRunning) ids.push(s.id);
+  }
+  return ids;
+});
 ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): number => {
   if (!activeWorkspace) return 0;
   return listSessions(activeWorkspace.id, undefined, documentPath).length;

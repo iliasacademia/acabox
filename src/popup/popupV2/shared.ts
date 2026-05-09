@@ -1,6 +1,7 @@
 import React from 'react';
 import { FullStoryConfig } from '../utils/fullstory';
 import { formatRelativeDate } from '../../shared/utils';
+import type { ChatStreamMessage } from '../../cobuilding/shared/types';
 
 // ─── URL Parameters & Server URL ────────────────────────────────────
 export const serverUrl = window.location.origin;
@@ -128,8 +129,6 @@ export interface WordPollResponse {
 
 // ─── Unified WebSocket Protocol ────────────────────────────────────
 // All overlay↔main communication flows through a single WebSocket.
-
-import type { ChatStreamMessage } from '../../cobuilding/shared/types';
 
 // Server → Client messages
 export type ServerWebSocketMessage =
