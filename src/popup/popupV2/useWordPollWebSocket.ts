@@ -1,23 +1,53 @@
-import { useState, useEffect } from 'react';
-import { WordPollResponse, WebSocketMessage, popupInstanceId, setV4FocusedWid } from './shared';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type { ChatStreamMessage } from '../../cobuilding/shared/types';
+import {
+  WordPollResponse,
+  ServerWebSocketMessage,
+  ClientWebSocketMessage,
+  popupInstanceId,
+  setV4FocusedWid,
+} from './shared';
 
 const MAX_RECONNECT_ATTEMPTS = 5;
+const HEARTBEAT_TIMEOUT_MS = 30_000;
+
+type ChatEventCallback = (msg: ChatStreamMessage) => void;
+type ChatDoneCallback = () => void;
+type ChatErrorCallback = (error: string) => void;
+
+interface ChatSessionCallbacks {
+  onEvent: ChatEventCallback;
+  onDone: ChatDoneCallback;
+  onError: ChatErrorCallback;
+}
+
+export interface OverlayWebSocket {
+  pollData: WordPollResponse | null;
+  connected: boolean;
+  sendChatMessage: (sessionId: string, text: string, documentPath?: string, selectedText?: string) => void;
+  subscribeToChatSession: (sessionId: string, callbacks: ChatSessionCallbacks) => () => void;
+  sendBridgeCommand: (action: string, payload?: Record<string, unknown>) => void;
+}
 
 /**
- * Custom hook: connects to /ws/word/v4/focused via WebSocket for real-time updates.
- * Falls back to HTTP polling (3s) if WebSocket fails permanently.
- * Returns the full WordPollResponse (or null before first data arrives).
+ * Unified WebSocket hook for all overlay↔main communication.
+ * Handles polling, chat streaming, and bridge commands over a single connection.
  */
-export function useWordPollWebSocket(
+export function useOverlayWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
-): WordPollResponse | null {
+): OverlayWebSocket {
   const [pollData, setPollData] = useState<WordPollResponse | null>(null);
+  const [connected, setConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+  // Chat session callbacks: sessionId → callbacks
+  const chatCallbacksRef = useRef<Map<string, ChatSessionCallbacks>>(new Map());
 
   useEffect(() => {
     if (!token) {
       setPollData(null);
+      setConnected(false);
       return;
     }
 
@@ -27,6 +57,7 @@ export function useWordPollWebSocket(
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let fallbackInterval: ReturnType<typeof setInterval> | null = null;
     let usingFallback = false;
+    let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
 
     function applyPollData(data: WordPollResponse) {
       if (cleanedUp) return;
@@ -34,10 +65,19 @@ export function useWordPollWebSocket(
       setPollData(data);
     }
 
-    // --- HTTP polling fallback ---
+    function resetHeartbeat() {
+      if (heartbeatTimer) clearTimeout(heartbeatTimer);
+      heartbeatTimer = setTimeout(() => {
+        console.warn('[WS] Heartbeat timeout — closing for reconnect');
+        ws?.close();
+      }, HEARTBEAT_TIMEOUT_MS);
+    }
+
+    // --- HTTP polling fallback (poll-only, no chat/bridge) ---
     function startFallbackPolling() {
       if (fallbackInterval || cleanedUp) return;
       usingFallback = true;
+      setConnected(false);
       console.log('[WS] WebSocket unavailable, falling back to HTTP polling');
 
       const poll = async () => {
@@ -89,14 +129,16 @@ export function useWordPollWebSocket(
         console.log('[WS] WebSocket connected');
         reconnectAttempt = 0;
         stopFallbackPolling();
+        setConnected(true);
+        wsRef.current = ws;
+        resetHeartbeat();
       };
 
       ws.onmessage = (event) => {
         try {
-          const msg: WebSocketMessage = JSON.parse(event.data as string);
-          if (msg.type === 'poll') {
-            applyPollData(msg.data);
-          }
+          const msg: ServerWebSocketMessage = JSON.parse(event.data as string);
+          resetHeartbeat();
+          handleServerMessage(msg, applyPollData, chatCallbacksRef.current);
         } catch {
           // ignore malformed messages
         }
@@ -104,6 +146,9 @@ export function useWordPollWebSocket(
 
       ws.onclose = (event) => {
         ws = null;
+        wsRef.current = null;
+        setConnected(false);
+        if (heartbeatTimer) clearTimeout(heartbeatTimer);
         console.log('[WS] WebSocket closed', event);
         if (cleanedUp || usingFallback) return;
         if (event.code === 4401) {
@@ -144,14 +189,113 @@ export function useWordPollWebSocket(
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
       }
+      if (heartbeatTimer) {
+        clearTimeout(heartbeatTimer);
+        heartbeatTimer = null;
+      }
       if (ws) {
         ws.onclose = null; // prevent onclose from triggering reconnect
         ws.close();
         ws = null;
       }
+      wsRef.current = null;
+      setConnected(false);
       stopFallbackPolling();
+      chatCallbacksRef.current.clear();
     };
   }, [wid, token, apiBaseUrl]);
 
+  const sendChatMessage = useCallback((
+    sessionId: string,
+    text: string,
+    documentPath?: string,
+    selectedText?: string,
+  ) => {
+    const msg: ClientWebSocketMessage = {
+      type: 'chat:send',
+      sessionId,
+      text,
+      ...(documentPath ? { documentPath } : {}),
+      ...(selectedText ? { selectedText } : {}),
+    };
+    sendToServer(wsRef.current, msg);
+  }, []);
+
+  const subscribeToChatSession = useCallback((
+    sessionId: string,
+    callbacks: ChatSessionCallbacks,
+  ): (() => void) => {
+    chatCallbacksRef.current.set(sessionId, callbacks);
+    sendToServer(wsRef.current, { type: 'chat:subscribe', sessionId });
+    return () => {
+      chatCallbacksRef.current.delete(sessionId);
+      sendToServer(wsRef.current, { type: 'chat:unsubscribe', sessionId });
+    };
+  }, []);
+
+  const sendBridgeCommand = useCallback((
+    action: string,
+    payload: Record<string, unknown> = {},
+  ) => {
+    sendToServer(wsRef.current, { type: 'bridge', action, payload });
+  }, []);
+
+  return { pollData, connected, sendChatMessage, subscribeToChatSession, sendBridgeCommand };
+}
+
+function handleServerMessage(
+  msg: ServerWebSocketMessage,
+  applyPollData: (data: WordPollResponse) => void,
+  chatCallbacks: Map<string, ChatSessionCallbacks>,
+): void {
+  switch (msg.type) {
+    case 'poll':
+      applyPollData(msg.data);
+      break;
+
+    case 'chat:event': {
+      const cb = chatCallbacks.get(msg.sessionId);
+      cb?.onEvent(msg.data);
+      break;
+    }
+
+    case 'chat:done': {
+      const cb = chatCallbacks.get(msg.sessionId);
+      cb?.onDone();
+      break;
+    }
+
+    case 'chat:error': {
+      const cb = chatCallbacks.get(msg.sessionId);
+      cb?.onError(msg.error);
+      break;
+    }
+
+    case 'heartbeat':
+      // Heartbeat resets the timeout — handled by the caller before dispatching
+      break;
+
+    case 'bridge:ack':
+      // Bridge acks could be handled via a promise map if needed
+      break;
+  }
+}
+
+function sendToServer(ws: WebSocket | null, msg: ClientWebSocketMessage): void {
+  if (!ws || ws.readyState !== 1) return;
+  try {
+    ws.send(JSON.stringify(msg));
+  } catch {
+    // Connection dead — will be cleaned up on close
+  }
+}
+
+// Legacy export for backwards compatibility during migration
+export function useWordPollWebSocket(
+  wid: string | null,
+  token: string | null,
+  apiBaseUrl: string
+): WordPollResponse | null {
+  const { pollData } = useOverlayWebSocket(wid, token, apiBaseUrl);
   return pollData;
 }
