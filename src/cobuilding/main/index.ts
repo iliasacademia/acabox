@@ -1449,7 +1449,7 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
   // Handler maps for MCP tool calls relayed from the in-container agent.
   // Each handler matches the tool's original implementation on the host side.
   const { queryActivity } = require('./activityQuery');
-  const { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument, getTrackChangesStatus, setTrackChanges } = require('../../server/wordActions');
+  const { getWordFilePath, getWordText, getWordSelection, saveWordDocument, openWordDocument } = require('../../server/wordActions');
   const { googleDocsGetActiveDoc, googleDocsGetText, googleDocsFindAndReplace } = require('./mcpServers/googleDocsMcpServer');
   const {
     appleNotesGetActiveNote,
@@ -1541,8 +1541,6 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
       save_document: async () => { try { return ok(JSON.stringify(await saveWordDocument())); } catch (e: any) { return fail(String(e)); } },
       open_document: async (args: any) => { try { return ok(JSON.stringify(await openWordDocument(args.path))); } catch (e: any) { return fail(String(e)); } },
       find_and_replace: async (args: any) => ok(JSON.stringify({ proposed: true, ...args })),
-      track_changes_status: async () => { try { return ok(JSON.stringify(await getTrackChangesStatus())); } catch (e: any) { return fail(String(e)); } },
-      set_track_changes: async (args: any) => { try { return ok(JSON.stringify(await setTrackChanges(args.enabled))); } catch (e: any) { return fail(String(e)); } },
     },
 
     citeright: {
@@ -1908,7 +1906,6 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'mcp__ms-word__get_file_path', 'mcp__ms-word__get_text',
       'mcp__ms-word__get_selection', 'mcp__ms-word__save_document',
       'mcp__ms-word__open_document', 'mcp__ms-word__find_and_replace',
-      'mcp__ms-word__track_changes_status', 'mcp__ms-word__set_track_changes',
       'mcp__citeright__find_references', 'mcp__citeright__create_citation_report',
       'mcp__citeright__get_citation_report', 'mcp__citeright__add_claim_to_report',
       'mcp__citeright__search_citations_for_claim', 'mcp__citeright__format_citations',

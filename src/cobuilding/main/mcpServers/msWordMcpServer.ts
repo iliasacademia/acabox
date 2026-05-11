@@ -6,8 +6,6 @@ import {
   getWordSelection,
   saveWordDocument,
   openWordDocument,
-  getTrackChangesStatus,
-  setTrackChanges,
 } from '../../../server/wordActions';
 
 
@@ -125,36 +123,6 @@ Call this tool once per edit. Keep search_text to a single sentence — shorter 
             match_case: args.match_case,
             doc_offset,
           }) }] };
-        },
-      ),
-
-      tool(
-        'track_changes_status',
-        'Check whether Track Changes is enabled on the active Word document. Always call this before making edits. If Track Changes is off, ask the user to enable it (Review tab → Track Changes) so edits appear as tracked revisions they can accept/reject.',
-        {},
-        async () => {
-          try {
-            const result = await getTrackChangesStatus();
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
-        },
-      ),
-
-      tool(
-        'set_track_changes',
-        'Enable or disable Track Changes on the active Word document.',
-        {
-          enabled: z.boolean().describe('true to enable Track Changes, false to disable'),
-        },
-        async (args) => {
-          try {
-            const result = await setTrackChanges(args.enabled);
-            return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
-          } catch (err) {
-            return { isError: true, content: [{ type: 'text' as const, text: String(err) }] };
-          }
         },
       ),
 
