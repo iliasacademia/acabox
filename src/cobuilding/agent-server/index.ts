@@ -242,10 +242,6 @@ function createMcpRelayServers(state: SessionState) {
           replace_scope: z.enum(['first', 'all']).default('first').describe('"first" or "all"'),
           match_case: z.boolean().default(true).describe('Case-sensitive search'),
         }, relay('ms-word', 'find_and_replace')),
-        tool('track_changes_status', 'Check whether Track Changes is enabled on the active Word document.', {}, relay('ms-word', 'track_changes_status')),
-        tool('set_track_changes', 'Enable or disable Track Changes on the active Word document.', {
-          enabled: z.boolean().describe('true to enable, false to disable'),
-        }, relay('ms-word', 'set_track_changes')),
       ],
     }),
 
