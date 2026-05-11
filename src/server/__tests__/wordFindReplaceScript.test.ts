@@ -49,6 +49,7 @@ const baseOpts: BuildScriptOpts = {
   searchPath: '/tmp/search.txt',
   replacePath: '/tmp/replace.txt',
   originalSearchPath: '/tmp/search-original.txt',
+  docTextPath: '/tmp/doc-text.txt',
   replaceAll: false,
   matchCase: true,
   sanitizeChangedSearch: false,
@@ -73,6 +74,25 @@ function allPermutations(): BuildScriptOpts[] {
 }
 
 describe('buildFindReplaceScript', () => {
+  it('emits Pass 4 (progressive anchor + extend) only when isLongSearch is true', () => {
+    // Word's find object caps at ~255 chars; the long-search path is the
+    // only one allowed to fall through to anchor+extend. Short-search
+    // scripts must NOT include the Pass 4 block, otherwise they'd run a
+    // useless extra tell-block on every short find.
+    const longScript = buildFindReplaceScript({ ...baseOpts, isLongSearch: true });
+    const shortScript = buildFindReplaceScript({ ...baseOpts, isLongSearch: false });
+    expect(longScript).toContain('Pass 4 progressive anchor');
+    expect(longScript).toContain('anchorSizesList to {200, 120, 60}');
+    expect(longScript).toContain('execute find anchorFind');
+    // Pass 4 lives behind a runtime `if ... isLongSearch` guard that
+    // collapses to `false` in short-search builds, so the inner text
+    // ("execute find anchorFind") never reaches Word — but the literal
+    // sentinel string MUST also disappear from the rendered script when
+    // isLongSearch=false, since its presence would mean we're emitting
+    // dead AppleScript on every short call.
+    expect(shortScript).not.toContain('Pass 4 progressive anchor');
+  });
+
   it('does not use AppleScript keywords that collide with the Word dictionary', () => {
     // Static guard: catch the common offenders without invoking the
     // compiler so this fails on any OS. Word exports `case`, `length`, and

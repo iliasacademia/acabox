@@ -14,6 +14,7 @@ import { defaultLogger as logger } from '../utils/logger';
 import { logToWindowMonitorDb } from '../windowMonitorDb';
 import { windowMonitorService } from '../windowMonitorService';
 import { buildFindReplaceScript } from './wordFindReplaceScript';
+import { normalizeWithMap } from './wordTextNormalize';
 
 function getWordActionsBinPath(): string {
   if (app.isPackaged) {
@@ -103,6 +104,101 @@ function describeSuspiciousChars(input: string): string[] {
   if (/ /.test(input)) labels.push('non-breaking space');
   if (/­/.test(input)) labels.push('soft hyphen');
   return labels;
+}
+
+/**
+ * Pass 5 fallback. After the AppleScript script returned `count===0`,
+ * read the doc text it captured and run an indexOf in JS-side normalized
+ * space. If that finds the search text, fire a focused replace-by-offset
+ * AppleScript so Word writes the change at the right range.
+ *
+ * Returns null when no match landed; the caller should fall through to
+ * the existing not-found error.
+ */
+async function jsNormalizedIndexFallback(opts: {
+  docText: string;
+  cleanSearch: string;
+  originalSearch: string;
+  replaceText: string;
+  matchCase: boolean;
+}): Promise<{ replacementsCount: number } | null> {
+  const { docText, cleanSearch, originalSearch, replaceText, matchCase } = opts;
+  if (!docText) return null;
+
+  const docNorm = normalizeWithMap(docText);
+  const candidates: { needle: string }[] = [{ needle: cleanSearch }];
+  if (originalSearch && originalSearch !== cleanSearch) {
+    candidates.push({ needle: originalSearch });
+  }
+
+  const docHay = matchCase ? docNorm.out : docNorm.out.toLowerCase();
+  for (const { needle } of candidates) {
+    const needleNorm = normalizeWithMap(needle).out;
+    if (!needleNorm.length) continue;
+    const haystackNeedle = matchCase ? needleNorm : needleNorm.toLowerCase();
+    const found = docHay.indexOf(haystackNeedle);
+    if (found < 0) continue;
+    const startOrig = docNorm.map[found];
+    const endOrig = docNorm.map[found + needleNorm.length];
+    if (typeof startOrig !== 'number' || typeof endOrig !== 'number' || endOrig <= startOrig) continue;
+    logger.info(`[WordActions] findAndReplaceInWord: Pass 5 (JS normalized) located match at doc chars ${startOrig}..${endOrig}`);
+    const ok = await replaceWordRangeByOffset(startOrig, endOrig, replaceText);
+    if (ok) return { replacementsCount: 1 };
+  }
+  return null;
+}
+
+/**
+ * Replace the content of a Word range identified by character offsets
+ * (zero-based, end-exclusive) with the given replacement text. Used as
+ * the write step for Pass 5 — by the time we call this, JS has already
+ * verified the source text matches.
+ */
+async function replaceWordRangeByOffset(start: number, end: number, replaceText: string): Promise<boolean> {
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'word-fr-replace-'));
+  const replPath = path.join(tmpDir, 'replace.txt');
+  try {
+    await fs.writeFile(replPath, replaceText.replace(/\r\n|\r|\n/g, '\r'), 'utf8');
+    const script = `
+set replPath to POSIX file "${replPath}"
+set replaceText to (read replPath as «class utf8»)
+tell application "Microsoft Word"
+  if (count of documents) is 0 then return "error||No document open"
+  try
+    set doc to active document
+    set origName to user name
+    set origInitials to user initials
+    set origTrack to track revisions of doc
+    set origShowRevisions to show revisions of doc
+    set user name to "Academia Coscientist"
+    set user initials to "AC"
+    set track revisions of doc to true
+    set show revisions of doc to true
+    set targetRange to create range doc start ${start} end ${end}
+    set content of targetRange to replaceText
+    set user name to origName
+    set user initials to origInitials
+    set show revisions of doc to origShowRevisions
+    set track revisions of doc to origTrack
+    return "ok"
+  on error errMsg
+    try
+      set user name to origName
+      set user initials to origInitials
+      set show revisions of doc to origShowRevisions
+      set track revisions of doc to origTrack
+    end try
+    return "error||" & errMsg
+  end try
+end tell
+`;
+    const result = await runAppleScriptStdin(script);
+    return result.trim().startsWith('ok');
+  } catch {
+    return false;
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 }
 
 const WORD_EXTENSIONS = new Set(['.doc', '.docx', '.docm', '.dotx', '.dotm', '.rtf']);
@@ -997,6 +1093,7 @@ async function runFindAndReplace(
   const searchPath = path.join(tmpDir, 'search.txt');
   const replacePath = path.join(tmpDir, 'replace.txt');
   const originalSearchPath = path.join(tmpDir, 'search-original.txt');
+  const docTextPath = path.join(tmpDir, 'doc-text.txt');
   // Word treats CR as the paragraph separator. Normalize line endings so
   // the file content matches what the find object expects.
   const toCR = (s: string) => s.replace(/\r\n|\r|\n/g, '\r');
@@ -1017,6 +1114,7 @@ async function runFindAndReplace(
       searchPath,
       replacePath,
       originalSearchPath,
+      docTextPath,
       replaceAll,
       matchCase,
       sanitizeChangedSearch,
@@ -1036,28 +1134,50 @@ async function runFindAndReplace(
     if (mode === 'original') {
       logger.info('[WordActions] findAndReplaceInWord: matched on un-sanitized fallback (doc has fancy chars matching original search)');
     } else if (mode === 'anchor' || mode === 'anchor-original') {
-      logger.info(`[WordActions] findAndReplaceInWord: matched via anchor+range fallback (mode=${mode}, search length=${searchText.length})`);
+      logger.info(`[WordActions] findAndReplaceInWord: matched via anchor+extend fallback (mode=${mode}, search length=${searchText.length})`);
     }
     if (count === 0) {
-      logger.info(`[WordActions] findAndReplaceInWord: no match found (search length=${searchText.length}, revisions=${revCount})`);
+      // Pass 5: JS-side normalized indexOf. AppleScript's literal find
+      // can't reconcile invisible Word inserts (comment refs, PUA glyphs,
+      // soft hyphens) against the agent's clean search text — but a
+      // normalized comparison can. The AppleScript script wrote the
+      // captured doc text to docTextPath; read it, normalize both sides
+      // with offset tracking, and on match fire a focused replace.
+      try {
+        const docText = await fs.readFile(docTextPath, 'utf8');
+        const fallback = await jsNormalizedIndexFallback({
+          docText,
+          cleanSearch,
+          originalSearch: searchText,
+          replaceText: cleanReplace,
+          matchCase,
+        });
+        if (fallback) {
+          logger.info(`[WordActions] findAndReplaceInWord: matched via Pass 5 JS-normalized indexOf (search length=${searchText.length})`);
+          return { success: true, replacementsCount: fallback.replacementsCount };
+        }
+      } catch {
+        // Either the script didn't capture docText (already had a match
+        // or Word state went sideways) or the file write failed; the
+        // standard not-found error below covers it.
+      }
+      logger.info(`[WordActions] findAndReplaceInWord: no match found (search length=${searchText.length}, revisions=${revCount}, longSearch=${isLongSearch})`);
+      // Lead with the most likely cause based on the search-text shape; only
+      // mention track changes when there are some AND the search is short
+      // enough that the cap/normalization paths don't dominate. For long
+      // searches (Pass 4 progressive anchor already exhausted) the most
+      // useful next step is Copy → paste, not "accept all and retry".
       const suspicious = describeSuspiciousChars(searchText);
-      // Track-change diagnosis takes priority over length/char hints. If
-      // the doc has unaccepted revisions, "content of text object of doc"
-      // returns the post-revision text, which strips deleted ranges. So
-      // any search that targets text already deleted by a prior tracked
-      // change CANNOT be located by either Word's find or our offset
-      // fallback. The fix is workflow-level: accept (or reject) the prior
-      // changes first, then retry — or the user can copy/paste manually
-      // since the doc may already reflect the desired final state.
       let reason: string;
-      if (revCount > 0) {
-        reason = ` The document has ${revCount} unaccepted track change${revCount === 1 ? '' : 's'}. If a prior revision deleted the text this edit was matching against, Word can no longer find it. Open Review → Accept All to apply prior changes and click Retry, or click Copy to apply manually. (If the doc already shows your desired text, just Dismiss this edit.)`;
-      } else if (isLongSearch) {
-        reason = ` The search text is ${searchText.length} characters and Word's matcher couldn't locate it. Click Copy below to grab the proposed text, then paste it into the document manually.`;
+      if (isLongSearch) {
+        reason = ` The text is ${searchText.length} characters and Word's matcher couldn't locate it even with progressive anchoring. Click Copy to grab the proposed text and paste it in manually.`;
       } else if (suspicious.length) {
-        reason = ` The search text contains ${suspicious.join(', ')} which Word's find can't always match against the doc's representation of the same character. Click Copy to grab the proposed text and paste it in manually.`;
+        reason = ` The text contains ${suspicious.join(', ')} which Word can't always match against the doc's representation. Click Copy to grab the proposed text and paste it in manually.`;
       } else {
-        reason = ' The exact passage may have been edited since the agent proposed this change. Click Retry, or click Copy to grab the proposed text and paste it in manually.';
+        reason = ' The exact passage may have been edited since the agent proposed this change. Click Retry, or Copy to apply manually.';
+      }
+      if (revCount > 0) {
+        reason += ` (Doc has ${revCount} unaccepted track change${revCount === 1 ? '' : 's'}; if a prior change deleted the matching text, accepting them first may help.)`;
       }
       return {
         success: false,
