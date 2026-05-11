@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useThreadRuntime, useAuiState } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream } from '../shared/types';
 import type { ThreadAssistantMessagePart, ToolCallMessagePart } from '@assistant-ui/react';
@@ -12,10 +12,24 @@ const IDLE_TIMEOUT_MS = 60_000;
  * feeds them into the assistant-ui thread runtime via resumeRun().
  * Auto-unsubscribes after 60s of no new events (heartbeat events from
  * the agent session prevent this from firing during active processing).
+ *
+ * Re-subscribes when sessions:changed fires, so overlay-initiated turns
+ * that arrive after the idle timeout still show live processing state.
  */
 export function useSessionSubscription() {
   const threadRuntime = useThreadRuntime();
   const remoteId = useAuiState((s: any) => s.threadListItem?.remoteId) as string | undefined;
+  // Bumped on sessions:changed to re-trigger the subscription effect,
+  // so a stale idle-timeout doesn't prevent picking up new overlay turns.
+  const [subscriptionEpoch, setSubscriptionEpoch] = useState(0);
+
+  useEffect(() => {
+    if (!remoteId) return;
+    const unsubscribe = window.sessionsAPI.onSessionsChanged(() => {
+      setSubscriptionEpoch((e) => e + 1);
+    });
+    return unsubscribe;
+  }, [remoteId]);
 
   useEffect(() => {
     if (!remoteId) return;
@@ -86,7 +100,7 @@ export function useSessionSubscription() {
       unsubscribe();
       resetProgress();
     };
-  }, [remoteId, threadRuntime]);
+  }, [remoteId, threadRuntime, subscriptionEpoch]);
 }
 
 function toAsyncIterable(stream: ChatMessageStream): AsyncIterable<ChatStreamMessage> {
