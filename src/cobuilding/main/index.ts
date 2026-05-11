@@ -2384,6 +2384,8 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
       updateSessionTitle(sessionId, title);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
       notifySessionsChanged();
+      const { wordPollEventBus } = require('../../server/events/wordPollEventBus');
+      wordPollEventBus.emit('change', 'session-title-updated');
     }
   } catch (err) {
     log.warn('[TitleGen] Failed to generate session title:', err);
