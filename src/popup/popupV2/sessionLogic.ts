@@ -101,6 +101,27 @@ export function isActiveSessionStaleForDoc(
 }
 
 /**
+ * Returns an updated title for the active session if it changed in the
+ * latest workspaceSessions poll data. Returns null if no update needed.
+ *
+ * Used after title generation: the server updates the DB title and emits
+ * a poll refresh. The overlay's active session stores the title from when
+ * it was opened (often "New Chat"). This helper detects the mismatch and
+ * returns the new title so the component can update reactively.
+ */
+export function getUpdatedActiveSessionTitle(
+  activeSession: { id: string; title: string } | null,
+  workspaceSessions: ReadonlyArray<WorkspaceSession>,
+): string | null {
+  if (!activeSession) return null;
+  const updated = workspaceSessions.find(s => s.id === activeSession.id);
+  if (updated && updated.title && updated.title !== activeSession.title) {
+    return updated.title;
+  }
+  return null;
+}
+
+/**
  * Minimal interface a runtime needs to expose for `refreshActiveThread`
  * to force a reload. Lets the helper be tested without mounting a real
  * assistant-ui runtime — the production caller adapts the runtime's
