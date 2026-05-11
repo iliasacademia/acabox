@@ -954,6 +954,9 @@ app.whenReady().then(async () => {
                 }
 
                 if (isNewSession) notifySessionsChanged();
+                if (isNewSession && activeWorkspace.api_key) {
+                  generateSessionTitle(sessionId, text, activeWorkspace.api_key, cachedBaseURL);
+                }
 
                 const session = getRegisteredSession(sessionId)!;
 
@@ -1040,6 +1043,9 @@ app.whenReady().then(async () => {
               registerSession(sessionId, session);
             }
             if (isNewSession) notifySessionsChanged();
+            if (isNewSession && activeWorkspace!.api_key) {
+              generateSessionTitle(sessionId, text, activeWorkspace!.api_key, cachedBaseURL);
+            }
 
             const session = getRegisteredSession(sessionId)!;
             if (mainWindow && !mainWindow.isDestroyed()) {
