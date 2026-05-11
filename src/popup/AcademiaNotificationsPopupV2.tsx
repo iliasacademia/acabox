@@ -227,6 +227,14 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setWorkspaceSessions(pollData.workspaceSessions ?? []);
     setActiveDocumentDisplayName(pollData.activeDocumentDisplayName ?? null);
 
+    // Update active session title if it changed (e.g. after title generation)
+    if (activeSession) {
+      const updated = (pollData.workspaceSessions ?? []).find(s => s.id === activeSession.id);
+      if (updated && updated.title && updated.title !== activeSession.title) {
+        setActiveSession({ id: activeSession.id, title: updated.title });
+      }
+    }
+
     if (isActiveSessionStaleForDoc(activeSession?.id ?? null, pollData.workspaceSessions ?? [])) {
       setActiveSession(null);
     }

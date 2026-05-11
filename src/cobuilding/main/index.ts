@@ -2383,6 +2383,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
     if (title) {
       updateSessionTitle(sessionId, title);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
+      notifySessionsChanged();
     }
   } catch (err) {
     log.warn('[TitleGen] Failed to generate session title:', err);
