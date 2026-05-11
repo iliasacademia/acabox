@@ -954,6 +954,9 @@ app.whenReady().then(async () => {
                 }
 
                 if (isNewSession) notifySessionsChanged();
+                if (isNewSession && activeWorkspace.api_key) {
+                  generateSessionTitle(sessionId, text, activeWorkspace.api_key, cachedBaseURL);
+                }
 
                 const session = getRegisteredSession(sessionId)!;
 
@@ -1040,6 +1043,9 @@ app.whenReady().then(async () => {
               registerSession(sessionId, session);
             }
             if (isNewSession) notifySessionsChanged();
+            if (isNewSession && activeWorkspace!.api_key) {
+              generateSessionTitle(sessionId, text, activeWorkspace!.api_key, cachedBaseURL);
+            }
 
             const session = getRegisteredSession(sessionId)!;
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2377,6 +2383,9 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
     if (title) {
       updateSessionTitle(sessionId, title);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
+      notifySessionsChanged();
+      const { wordPollEventBus } = require('../../server/events/wordPollEventBus');
+      wordPollEventBus.emit('change', 'session-title-updated');
     }
   } catch (err) {
     log.warn('[TitleGen] Failed to generate session title:', err);
