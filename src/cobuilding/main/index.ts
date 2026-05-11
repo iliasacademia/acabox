@@ -418,6 +418,10 @@ const forwardingListeners = new Map<string, () => void>();
 
 // ─── Cross-surface chat-event fanout (desktop ↔ overlay) ──────────────
 //
+// DEPRECATED: The overlay now uses a unified WebSocket for chat events
+// (see websocket.ts + overlayHandlers.ts). The SSE fanout below is kept
+// as a fallback during migration and will be removed in a future release.
+//
 // The desktop chat panel receives streaming events via Electron IPC
 // (`webContents.send('chat:event', …)`). The Word overlay is a WKWebView
 // served over the local HTTP server — it has no `webContents`, so the IPC
@@ -984,6 +988,106 @@ app.whenReady().then(async () => {
                 session.sendMessage(displayMessage);
               },
             );
+
+            // Register overlay chat-send handler for the unified WebSocket
+            const { setOverlayChatSendHandler, setOverlayBridgeHandler } = require('./overlayHandlers');
+          setOverlayChatSendHandler((params: { sessionId: string; text: string; documentPath?: string; selectedText?: string; onEvent: (msg: any) => void; onDone: () => void; onError: (err: string) => void; onCleanup?: () => void }) => {
+            const { sessionId, text, documentPath: ctxDocPath, selectedText: ctxSelectedText, onEvent, onDone, onError } = params;
+            if (!activeWorkspace) {
+              onError('No active workspace');
+              return;
+            }
+            const displayMessage = ctxSelectedText ? `"${ctxSelectedText}"\n\n${text}` : text;
+            if (ctxDocPath || ctxSelectedText) {
+              pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
+            }
+
+            const existingRunning = getRegisteredSession(sessionId);
+            if (existingRunning?.isRunning) {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                ensureForwarding(sessionId, mainWindow.webContents);
+              }
+              ensureSseFanout(sessionId);
+              const unsubscribe = existingRunning.addListener({
+                onEvent: (msg: any) => onEvent(msg),
+                onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
+                onError: (err: any) => { onError(String(err)); unsubscribe(); },
+              });
+              existingRunning.sendMessage(displayMessage);
+              return;
+            }
+
+            const isNewSession = !hasSession(sessionId) && !getSession(sessionId);
+            if (!hasSession(sessionId)) {
+              const existingDbSession = getSession(sessionId);
+              const session = createAgentSession(
+                sessionId,
+                { onEvent: () => { }, onDone: () => { }, onError: () => { unregisterSession(sessionId); } },
+                activeWorkspace,
+                existingDbSession?.sdk_session_id ?? undefined,
+                undefined, undefined, undefined,
+                (userText: string) => {
+                  const ctx = pendingContext.get(sessionId);
+                  pendingContext.delete(sessionId);
+                  if (!ctx) return userText;
+                  const { resolveSessionHostApp } = require('./agentSession');
+                  const host = resolveSessionHostApp(ctx.documentPath);
+                  const prefix = host.messagePrefix({ documentPath: ctx.documentPath, selectedText: ctx.selectedText });
+                  return prefix ? `${prefix}\n${userText}` : userText;
+                },
+                ctxDocPath,
+              );
+              registerSession(sessionId, session);
+            }
+            if (isNewSession) notifySessionsChanged();
+
+            const session = getRegisteredSession(sessionId)!;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              ensureForwarding(sessionId, mainWindow.webContents);
+            }
+            ensureSseFanout(sessionId);
+
+            const unsubscribe = session.addListener({
+              onEvent: (msg: any) => onEvent(msg),
+              onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
+              onError: (err: any) => { onError(String(err)); unsubscribe(); },
+            });
+            if (params.onCleanup) {
+              // Allow caller to register a cleanup callback (e.g., on WebSocket close)
+              const origCleanup = params.onCleanup;
+              params.onCleanup = () => { unsubscribe(); origCleanup(); };
+            }
+
+            session.sendMessage(displayMessage);
+          });
+
+          setOverlayBridgeHandler(async (params: { action: string; payload: Record<string, unknown>; wid: string | null }) => {
+            const { windowMonitorService } = require('../../windowMonitorService');
+            const { action, payload, wid } = params;
+            if (action === 'buttonClicked' && wid) {
+              windowMonitorService.togglePopupForWindow(wid);
+            } else if (action === 'closeWindow' && wid) {
+              windowMonitorService.closePopupForWindow(wid, payload.clearReviewState !== false);
+            } else if (action === 'setPopupSize' && wid) {
+              const { width, height } = payload;
+              if (typeof width === 'number' && typeof height === 'number') {
+                windowMonitorService.setPopupSize(wid, width, height);
+              }
+            } else if (action === 'setDockRight' && wid) {
+              windowMonitorService.setDockRight(wid, payload.docked === true);
+            } else if (action === 'setDragOffset' && wid) {
+              const { dx, dy } = payload;
+              if (typeof dx === 'number' && typeof dy === 'number') {
+                windowMonitorService.setButtonDragOffset(wid, dx, dy);
+              }
+            } else if (action === 'openPopup' && wid) {
+              windowMonitorService.openPopupForWindow(wid);
+            } else if (action === 'clearKickoff') {
+              const kickoffId = typeof payload.kickoffId === 'string' ? payload.kickoffId : '';
+              if (kickoffId) windowMonitorService.clearPendingKickoff(kickoffId);
+            }
+            return { success: true };
+          });
           });
 
           const port = await httpServer.start();
@@ -2171,6 +2275,17 @@ function notifySessionsChanged() {
 // Session IPC handlers
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   return listSessions(undefined, source);
+});
+ipcMain.handle('sessions:runningIds', () => {
+  const ids: string[] = [];
+  // sessionRegistry only exposes per-id lookups; iterate known DB sessions
+  // and check which have a running agent session.
+  const allSessions = listSessions();
+  for (const s of allSessions) {
+    const reg = getRegisteredSession(s.id);
+    if (reg?.isRunning) ids.push(s.id);
+  }
+  return ids;
 });
 ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): number => {
   if (!activeWorkspace) return 0;

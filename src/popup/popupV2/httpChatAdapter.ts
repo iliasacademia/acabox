@@ -1,8 +1,8 @@
 /**
- * HTTP/SSE-based chat adapter for the Word overlay popup.
+ * Chat adapter for the Word overlay popup.
  *
- * Mirrors the IPC-based chatAdapter.ts from the desktop app but uses
- * HTTP fetch + SSE streaming instead of Electron IPC.
+ * Primary path: WebSocket (unified protocol via useOverlayWebSocket).
+ * Fallback: HTTP fetch + SSE streaming when WebSocket is unavailable.
  */
 
 import { useMemo, useRef } from 'react';
@@ -15,11 +15,10 @@ import { ExportedMessageRepository } from '@assistant-ui/react';
 import type { ThreadHistoryAdapter } from '@assistant-ui/react';
 import type { ChatStreamMessage } from '../../cobuilding/shared/types';
 import { convertHistoryMessages, type HistoryDbMessage } from '../../cobuilding/renderer/historyMessageConverter';
+import type { OverlayWebSocket } from './useWordPollWebSocket';
 
 /**
  * Builds response content from a stream of ChatStreamMessage events.
- * This is the same logic as responseBuilder() in the desktop chatAdapter.ts
- * but without the progress store side effects (which depend on Electron IPC).
  */
 function responseBuilder() {
   const messages: ThreadAssistantMessagePart[] = [];
@@ -87,16 +86,14 @@ function responseBuilder() {
         }
         return;
       }
-      // Ignore heartbeat, tool-progress, subagent events in the popup
     }
   };
 
   return { onMessage, getContent };
 }
 
-/**
- * Parse SSE stream from the /api/cobuilding/sessions/:id/send endpoint.
- */
+// ─── SSE fallback (HTTP POST) ────────────────────────────────────────
+
 async function* parseSSEStream(
   response: Response,
   abortSignal: AbortSignal,
@@ -134,11 +131,92 @@ async function* parseSSEStream(
   }
 }
 
+// ─── WebSocket-based chat adapter ────────────────────────────────────
+
+interface WsChatAdapterOptions {
+  overlayWs: OverlayWebSocket;
+  sessionId: string;
+  getContext: () => { documentPath?: string | null; selectedText?: string | null };
+}
+
+function createWsChatAdapter(opts: WsChatAdapterOptions): ChatModelAdapter {
+  return {
+    async *run({ messages, abortSignal }) {
+      const lastUserMessage = messages.filter(m => m.role === 'user').pop();
+      if (!lastUserMessage) return;
+
+      const userText = lastUserMessage.content
+        .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
+        .map(part => part.text)
+        .join('');
+
+      const ctx = opts.getContext();
+      const response = responseBuilder();
+
+      // Create a promise that resolves when done/error arrives
+      let resolveStream: (() => void) | null = null;
+      const pendingEvents: ChatStreamMessage[] = [];
+      let streamDone = false;
+      let streamError: string | null = null;
+
+      const unsubscribe = opts.overlayWs.subscribeToChatSession(opts.sessionId, {
+        onEvent: (msg) => {
+          pendingEvents.push(msg);
+          resolveStream?.();
+        },
+        onDone: () => {
+          streamDone = true;
+          resolveStream?.();
+        },
+        onError: (err) => {
+          streamError = err;
+          streamDone = true;
+          resolveStream?.();
+        },
+      });
+
+      // Send the message
+      opts.overlayWs.sendChatMessage(
+        opts.sessionId,
+        userText,
+        ctx.documentPath ?? undefined,
+        ctx.selectedText ?? undefined,
+      );
+
+      try {
+        while (!streamDone && !abortSignal.aborted) {
+          if (pendingEvents.length === 0) {
+            await new Promise<void>((resolve) => {
+              resolveStream = resolve;
+              // Check abort
+              if (abortSignal.aborted) resolve();
+            });
+            resolveStream = null;
+          }
+
+          while (pendingEvents.length > 0) {
+            const msg = pendingEvents.shift()!;
+            response.onMessage(msg);
+            yield { content: response.getContent() };
+          }
+        }
+
+        if (streamError) {
+          throw new Error(streamError);
+        }
+      } finally {
+        unsubscribe();
+      }
+    },
+  };
+}
+
+// ─── HTTP/SSE fallback adapter ───────────────────────────────────────
+
 interface HttpChatAdapterOptions {
   serverUrl: string;
   token: string | null;
   sessionId: string;
-  /** Called to get context (document path, selected text) at send time */
   getContext: () => { documentPath?: string | null; selectedText?: string | null };
 }
 
@@ -179,9 +257,43 @@ function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
   };
 }
 
+// ─── Exported hooks ──────────────────────────────────────────────────
+
+/**
+ * Chat adapter that uses WebSocket when connected, falls back to HTTP/SSE.
+ */
+export function useOverlayChatAdapter(opts: {
+  overlayWs: OverlayWebSocket;
+  serverUrl: string;
+  token: string | null;
+  sessionId: string;
+  getContext: () => { documentPath?: string | null; selectedText?: string | null };
+}): ChatModelAdapter {
+  const getContextRef = useRef(opts.getContext);
+  getContextRef.current = opts.getContext;
+
+  return useMemo(() => {
+    if (opts.overlayWs.connected) {
+      return createWsChatAdapter({
+        overlayWs: opts.overlayWs,
+        sessionId: opts.sessionId,
+        getContext: () => getContextRef.current(),
+      });
+    }
+    return createHttpChatAdapter({
+      serverUrl: opts.serverUrl,
+      token: opts.token,
+      sessionId: opts.sessionId,
+      getContext: () => getContextRef.current(),
+    });
+  }, [opts.overlayWs.connected, opts.serverUrl, opts.token, opts.sessionId]);
+}
+
+/**
+ * Legacy hook — delegates to WebSocket or HTTP adapter based on connection status.
+ * @deprecated Use useOverlayChatAdapter instead.
+ */
 export function useHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
-  // Keep a ref to getContext so the adapter always reads the latest
-  // selection/context without being recreated (which would lose thread state)
   const getContextRef = useRef(opts.getContext);
   getContextRef.current = opts.getContext;
 
@@ -195,10 +307,7 @@ export function useHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapt
 }
 
 // ─── HTTP-based Thread History Adapter ─────────────────────────────────
-//
-// HTTP route's /api/cobuilding/sessions/:id/messages already JSON.parses
-// each message's content server-side, so we hand the rows straight to
-// the shared `convertHistoryMessages` (no string-decode pass needed).
+// History always fetches via HTTP (no streaming needed).
 
 export function useHttpHistoryAdapter(
   serverUrl: string,

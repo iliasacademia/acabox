@@ -72,6 +72,7 @@ interface MessageData {
 interface SessionsAPI {
   list(source?: string): Promise<SessionData[]>;
   get(id: string): Promise<SessionData | undefined>;
+  getRunningIds(): Promise<string[]>;
   setDocumentPath(id: string, documentPath: string): Promise<void>;
   rename(id: string, title: string): Promise<void>;
   delete(id: string): Promise<void>;
@@ -247,6 +248,7 @@ declare global {
   interface SessionsAPI {
     list(source?: string): Promise<SessionData[]>;
     get(id: string): Promise<SessionData | undefined>;
+    getRunningIds(): Promise<string[]>;
     setDocumentPath(id: string, documentPath: string): Promise<void>;
     countForDocument(documentPath: string): Promise<number>;
     rename(id: string, title: string): Promise<void>;

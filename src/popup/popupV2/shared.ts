@@ -1,6 +1,7 @@
 import React from 'react';
 import { FullStoryConfig } from '../utils/fullstory';
 import { formatRelativeDate } from '../../shared/utils';
+import type { ChatStreamMessage } from '../../cobuilding/shared/types';
 
 // ─── URL Parameters & Server URL ────────────────────────────────────
 export const serverUrl = window.location.origin;
@@ -126,10 +127,28 @@ export interface WordPollResponse {
   pendingKickoffId?: string;
 }
 
-export interface WebSocketMessage {
-  type: 'poll';
-  data: WordPollResponse;
-}
+// ─── Unified WebSocket Protocol ────────────────────────────────────
+// All overlay↔main communication flows through a single WebSocket.
+
+// Server → Client messages
+export type ServerWebSocketMessage =
+  | { type: 'poll'; data: WordPollResponse }
+  | { type: 'chat:event'; sessionId: string; data: ChatStreamMessage }
+  | { type: 'chat:done'; sessionId: string }
+  | { type: 'chat:error'; sessionId: string; error: string }
+  | { type: 'bridge:ack'; requestId: string; data: unknown }
+  | { type: 'heartbeat' };
+
+// Client → Server messages
+export type ClientWebSocketMessage =
+  | { type: 'refresh' }
+  | { type: 'chat:send'; sessionId: string; text: string; documentPath?: string; selectedText?: string }
+  | { type: 'chat:subscribe'; sessionId: string }
+  | { type: 'chat:unsubscribe'; sessionId: string }
+  | { type: 'bridge'; action: string; payload: Record<string, unknown>; requestId?: string };
+
+// Backwards-compat alias
+export type WebSocketMessage = ServerWebSocketMessage;
 
 export type ReviewState = 'idle' | 'reviewing' | 'completed' | 'failed';
 
@@ -144,8 +163,20 @@ export interface NavigateRequest {
   url?: string;
 }
 
+// ─── WebSocket bridge sender ──────────────────────────────────────
+// When a WebSocket is connected, bridge commands go over it.
+// Falls back to HTTP POST if not connected.
+let _bridgeWsSender: ((action: string, payload: Record<string, unknown>) => void) | null = null;
+export function setBridgeWsSender(sender: ((action: string, payload: Record<string, unknown>) => void) | null) {
+  _bridgeWsSender = sender;
+}
+
 // ─── Utility Functions ──────────────────────────────────────────────
 export function postBridge(action: string, payload: Record<string, unknown> = {}, widOverride?: string | null) {
+  if (_bridgeWsSender) {
+    _bridgeWsSender(action, payload);
+    return Promise.resolve(new Response(JSON.stringify({ success: true })));
+  }
   const effectiveWid = widOverride ?? _v4FocusedWid;
   return fetch(`${serverUrl}/bridge`, {
     method: 'POST',

@@ -520,6 +520,23 @@ body.cobuild-resizing webview {
   width: 20px;
   height: 24px;
   color: #b5aea4;
+  position: relative;
+}
+
+.chatListItemRunningDot {
+  position: absolute;
+  top: 0;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+  animation: chatListPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes chatListPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .chatListItem:last-child {
