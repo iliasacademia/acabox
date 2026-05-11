@@ -1,6 +1,7 @@
 import { execFile, execFileSync, spawn } from 'child_process';
 import { promisify } from 'util';
 import { app } from 'electron';
+import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
@@ -114,6 +115,9 @@ class CobuildingContainerService {
   private lastLogTime: string = new Date().toISOString();
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private agentPort: number | null = null;
+  private overlayEnabled = false;
+  private activeSyncPromise: Promise<{ durationMs: number }> | null = null;
+  private overlaySyncInterval: ReturnType<typeof setInterval> | null = null;
 
   // ─── Public API ─────────────────────────────────────────────────
 
@@ -190,11 +194,31 @@ class CobuildingContainerService {
   }
 
   stop(): void {
+    this.stopPeriodicSync();
     this.stopLogTail();
     this.stopHealthWatch();
     log.debug('[ContainerService] Stopping container...');
     const podmanBin = this.getPodmanBin();
     const env = this.getExecEnv();
+
+    if (this.overlayEnabled) {
+      try {
+        log.info('[ContainerService] Syncing overlay before stop...');
+        execFileSync(podmanBin, [
+          'exec', CONTAINER_NAME,
+          'rsync', '-a', '--delete',
+          '--exclude', '.academia/claude',
+          '--exclude', '.academia/agent-server.js',
+          '--exclude', '.academia/agent.json',
+          '--exclude', 'node_modules/.cache',
+          '--exclude', '.applications/_environment',
+          '/data/', '/data-host/',
+        ], { env, timeout: 60_000 });
+        log.info('[ContainerService] Overlay sync complete');
+      } catch (err) {
+        log.warn(`[ContainerService] Overlay sync failed: ${(err as Error).message}`);
+      }
+    }
 
     try {
       execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], { env, timeout: 10000 });
@@ -212,6 +236,7 @@ class CobuildingContainerService {
 
     this.containerStarted = false;
     this.currentWorkspacePath = null;
+    this.overlayEnabled = false;
   }
 
   isRunning(): boolean {
@@ -428,7 +453,11 @@ class CobuildingContainerService {
       ? path.join(process.resourcesPath, 'agent-server.js')
       : path.join(app.getAppPath(), 'dist', 'agent-server.js');
     if (fs.existsSync(bundleSrc)) {
-      fs.copyFileSync(bundleSrc, path.join(agentDir, 'agent-server.js'));
+      if (this.overlayEnabled) {
+        await this.podmanCp(bundleSrc, '/data/.academia/agent-server.js');
+      } else {
+        fs.copyFileSync(bundleSrc, path.join(agentDir, 'agent-server.js'));
+      }
       log.debug('[ContainerService] Copied agent-server.js to workspace');
     } else {
       log.warn(`[ContainerService] Agent server bundle not found at ${bundleSrc}`);
@@ -441,12 +470,22 @@ class CobuildingContainerService {
     if (binarySrc) {
       const binaryDest = path.join(agentDir, 'claude');
       const srcStat = fs.statSync(binarySrc);
-      let destStat: fs.Stats | null = null;
-      try { destStat = fs.statSync(binaryDest); } catch { /* does not exist */ }
+      let needsCopy = true;
 
-      if (!destStat || destStat.size !== srcStat.size) {
-        fs.copyFileSync(binarySrc, binaryDest);
-        fs.chmodSync(binaryDest, 0o755);
+      if (!this.overlayEnabled) {
+        let destStat: fs.Stats | null = null;
+        try { destStat = fs.statSync(binaryDest); } catch { /* does not exist */ }
+        needsCopy = !destStat || destStat.size !== srcStat.size;
+      }
+
+      if (needsCopy) {
+        if (this.overlayEnabled) {
+          await this.podmanCp(binarySrc, '/data/.academia/claude');
+          await this.exec(['chmod', '+x', '/data/.academia/claude']);
+        } else {
+          fs.copyFileSync(binarySrc, binaryDest);
+          fs.chmodSync(binaryDest, 0o755);
+        }
         log.info(`[ContainerService] Copied claude binary (${Math.round(srcStat.size / 1e6)}MB)`);
       } else {
         log.debug('[ContainerService] Claude binary already up to date, skipping copy');
@@ -477,8 +516,12 @@ class CobuildingContainerService {
     await this.stopAgentServer();
 
     // Write config to workspace
-    const configPath = path.join(workspacePath, '.academia', 'agent.json');
-    fs.writeFileSync(configPath, configJson, 'utf-8');
+    if (this.overlayEnabled) {
+      await this.writeContentToContainer(configJson, '/data/.academia/agent.json');
+    } else {
+      const configPath = path.join(workspacePath, '.academia', 'agent.json');
+      fs.writeFileSync(configPath, configJson, 'utf-8');
+    }
 
     // Start the server inside the container (non-detached so we can capture output)
     const podmanBin = this.getPodmanBin();
@@ -619,12 +662,22 @@ class CobuildingContainerService {
       'fi',
       '',
       'echo "Starting $CONTAINER_NAME..."',
-      '"$PODMAN_BIN" run -d \\',
-      '  --replace \\',
-      '  --name "$CONTAINER_NAME" \\',
-      '  -v "$WORKSPACE_PATH:/data" \\',
-      '  "$IMAGE_NAME" \\',
-      '  sleep infinity',
+      ...(process.platform === 'darwin' ? [
+        '"$PODMAN_BIN" run -d \\',
+        '  --replace \\',
+        '  --privileged \\',
+        '  --name "$CONTAINER_NAME" \\',
+        '  -v "$WORKSPACE_PATH:/data-host" \\',
+        '  "$IMAGE_NAME" \\',
+        '  sh -c "mount -t tmpfs tmpfs /tmp -o size=4G && mkdir -p /tmp/overlay-upper /tmp/overlay-work && mount -t overlay overlay -o lowerdir=/data-host,upperdir=/tmp/overlay-upper,workdir=/tmp/overlay-work /data && sleep infinity"',
+      ] : [
+        '"$PODMAN_BIN" run -d \\',
+        '  --replace \\',
+        '  --name "$CONTAINER_NAME" \\',
+        '  -v "$WORKSPACE_PATH:/data" \\',
+        '  "$IMAGE_NAME" \\',
+        '  sleep infinity',
+      ]),
       '',
       '# Wait up to 30 seconds for the container to become running.',
       'for i in $(seq 1 30); do',
@@ -1236,7 +1289,26 @@ class CobuildingContainerService {
     this.agentPort = agentHostPort;
 
     const useImage = imageName || IMAGE_NAME;
-    const args = [
+    const useOverlay = process.env.OVERLAYFS_ENABLED === '1' && process.platform === 'darwin';
+    this.overlayEnabled = useOverlay;
+
+    const args = useOverlay ? [
+      'run', '-d',
+      '--replace',
+      '--privileged',
+      '--name', CONTAINER_NAME,
+      '-v', `${mountPath}:/data-host`,
+      '-p', `${agentHostPort}:8080`,
+      useImage,
+      'sh', '-c',
+      // The container rootfs is itself overlay (podman storage driver), so
+      // upper/work dirs can't live on it. Mount a tmpfs first.
+      'mount -t tmpfs tmpfs /tmp -o size=4G && ' +
+      'mkdir -p /tmp/overlay-upper /tmp/overlay-work && ' +
+      'mount -t overlay overlay -o lowerdir=/data-host,upperdir=/tmp/overlay-upper,workdir=/tmp/overlay-work /data && ' +
+      '(command -v rsync >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq rsync >/dev/null 2>&1)) && ' +
+      'sleep infinity',
+    ] : [
       'run', '-d',
       '--replace',
       '--name', CONTAINER_NAME,
@@ -1254,10 +1326,14 @@ class CobuildingContainerService {
 
     // Verify the mount is correct
     try {
+      const mountDest = useOverlay ? '/data-host' : '/data';
       const { stdout: mountSource } = await this.execAsync(podmanBin, [
-        'inspect', '--format', '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Source}}{{end}}{{end}}', CONTAINER_NAME,
+        'inspect', '--format', `{{range .Mounts}}{{if eq .Destination "${mountDest}"}}{{.Source}}{{end}}{{end}}`, CONTAINER_NAME,
       ], env);
-      log.debug(`[ContainerService] Container /data mount source: ${mountSource.trim()}`);
+      log.debug(`[ContainerService] Container ${mountDest} mount source: ${mountSource.trim()}`);
+      if (useOverlay) {
+        log.info('[ContainerService] OverlayFS enabled — writes go to container-local storage');
+      }
     } catch (err) {
       log.warn(`[ContainerService] Could not verify mount: ${(err as Error).message}`);
     }
@@ -1290,8 +1366,109 @@ class CobuildingContainerService {
 
     this.containerStarted = true;
     this.currentWorkspacePath = workspacePath;
+
+    // Wait for the overlay mount to be ready before returning — podman run -d
+    // returns immediately but the inline sh -c (mkdir, mount, rsync install)
+    // hasn't finished yet.
+    if (useOverlay) {
+      const startWait = Date.now();
+      const timeoutMs = 30_000;
+      while (Date.now() - startWait < timeoutMs) {
+        try {
+          const { stdout } = await this.execAsync(podmanBin, [
+            'exec', CONTAINER_NAME, 'sh', '-c', 'mount | grep "on /data type overlay"',
+          ], env);
+          if (stdout.trim()) {
+            log.info(`[ContainerService] Overlay mount ready (${Date.now() - startWait}ms)`);
+            break;
+          }
+        } catch { /* not ready yet */ }
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
     this.startLogTail(podmanBin);
     this.startHealthWatch(podmanBin);
+    this.startPeriodicSync();
+  }
+
+  // ─── OverlayFS Sync ──────────────────────────────────────────
+
+  isOverlayEnabled(): boolean {
+    return this.overlayEnabled;
+  }
+
+  async syncOverlay(): Promise<{ durationMs: number }> {
+    if (this.activeSyncPromise) {
+      return this.activeSyncPromise;
+    }
+    this.activeSyncPromise = this.doSyncOverlay();
+    try {
+      return await this.activeSyncPromise;
+    } finally {
+      this.activeSyncPromise = null;
+    }
+  }
+
+  private async doSyncOverlay(): Promise<{ durationMs: number }> {
+    if (!this.overlayEnabled || !this.isRunning()) {
+      throw new Error('Overlay sync not available — overlay not enabled or container not running');
+    }
+    const start = Date.now();
+    const { exitCode, stderr } = await this.exec([
+      'rsync', '-a', '--delete',
+      '--exclude', '.academia/claude',
+      '--exclude', '.academia/agent-server.js',
+      '--exclude', '.academia/agent.json',
+      '--exclude', 'node_modules/.cache',
+      '--exclude', '.applications/_environment',
+      '/data/', '/data-host/',
+    ]);
+    if (exitCode !== 0) {
+      log.warn(`[ContainerService] rsync exited with code ${exitCode}: ${stderr.slice(0, 200)}`);
+    }
+    const durationMs = Date.now() - start;
+    log.info(`[ContainerService] Overlay synced in ${durationMs}ms`);
+    return { durationMs };
+  }
+
+  startPeriodicSync(): void {
+    this.stopPeriodicSync();
+    if (!this.overlayEnabled) return;
+    this.overlaySyncInterval = setInterval(() => {
+      if (!this.isRunning()) return;
+      this.syncOverlay().catch(err =>
+        log.warn(`[ContainerService] Periodic overlay sync failed: ${(err as Error).message}`),
+      );
+    }, 30_000);
+  }
+
+  stopPeriodicSync(): void {
+    if (this.overlaySyncInterval) {
+      clearInterval(this.overlaySyncInterval);
+      this.overlaySyncInterval = null;
+    }
+  }
+
+  async writeContentToContainer(content: string, containerPath: string): Promise<void> {
+    const tmpFile = path.join(os.tmpdir(), `_podman_cp_${Date.now()}_${Math.random().toString(36).slice(2)}`);
+    try {
+      fs.writeFileSync(tmpFile, content, 'utf-8');
+      await this.podmanCp(tmpFile, containerPath);
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch { /* already gone */ }
+    }
+  }
+
+  private async podmanCp(hostPath: string, containerPath: string): Promise<void> {
+    const podmanBin = this.getPodmanBin();
+    const env = this.getExecEnv();
+    const tmpPath = `/tmp/_podman_cp_${Date.now()}`;
+    await this.execAsync(podmanBin, [
+      'cp', hostPath, `${CONTAINER_NAME}:${tmpPath}`,
+    ], env);
+    const dir = containerPath.substring(0, containerPath.lastIndexOf('/'));
+    await this.exec(['sh', '-c', `mkdir -p ${dir} && mv ${tmpPath} ${containerPath}`]);
   }
 
   // ─── Container Log Tailing ───────────────────────────────────

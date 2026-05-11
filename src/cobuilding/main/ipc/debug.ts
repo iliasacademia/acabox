@@ -51,6 +51,14 @@ export function registerDebugHandlers() {
     log.info(typeof msg === 'string' ? msg : String(msg));
   });
 
+  ipcMain.handle('debug:syncOverlay', async () => {
+    return containerService.syncOverlay();
+  });
+
+  ipcMain.handle('debug:isOverlayEnabled', () => {
+    return containerService.isOverlayEnabled();
+  });
+
   ipcMain.handle('debug:clearSelected', async (_event: unknown, ids: string[]) => {
     const set = new Set(ids);
     const results: string[] = [];

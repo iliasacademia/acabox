@@ -265,6 +265,7 @@ declare global {
     stop(): Promise<void>;
     status(): Promise<{ running: boolean }>;
     exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+    syncOverlay(): Promise<{ durationMs: number }>;
     execLogged(command: string[], meta?: { source?: string; appDirName?: string | null }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
     getBinaryMode(): Promise<'system' | 'bundled'>;
     setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
@@ -415,6 +416,8 @@ declare global {
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
+    syncOverlay(): Promise<{ durationMs: number }>;
+    isOverlayEnabled(): Promise<boolean>;
     /** Pipes a renderer-side log line into electron-log on the main process. */
     log(msg: string): Promise<void>;
   }

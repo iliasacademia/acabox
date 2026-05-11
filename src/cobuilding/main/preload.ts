@@ -101,6 +101,7 @@ contextBridge.exposeInMainWorld('containerAPI', {
   stop: () => ipcRenderer.invoke('container:stop'),
   status: () => ipcRenderer.invoke('container:status'),
   exec: (command: string[]) => ipcRenderer.invoke('container:exec', command),
+  syncOverlay: () => ipcRenderer.invoke('container:syncOverlay'),
   execLogged: (command: string[], meta?: { source?: string; appDirName?: string | null }) =>
     ipcRenderer.invoke('container:execLogged', command, meta),
   getBinaryMode: () => ipcRenderer.invoke('container:getBinaryMode'),
@@ -202,11 +203,8 @@ contextBridge.exposeInMainWorld('debugAPI', {
   exportWorkspace: () => ipcRenderer.invoke('debug:exportWorkspace'),
   importWorkspace: () => ipcRenderer.invoke('debug:importWorkspace'),
   hardResetWorkspace: () => ipcRenderer.invoke('debug:hardResetWorkspace'),
-  // Renderer → main bridge that pipes a string into electron-log so
-  // diagnostic lines from the desktop chat panel land in the same
-  // on-disk log file as everything else (the overlay's devtools is
-  // not accessible, but the electron-log file is tailable from a
-  // shell). Reuses the existing debugAPI namespace; no new framework.
+  syncOverlay: () => ipcRenderer.invoke('debug:syncOverlay'),
+  isOverlayEnabled: () => ipcRenderer.invoke('debug:isOverlayEnabled'),
   log: (msg: string) => ipcRenderer.invoke('debug:log', msg),
 });
 
@@ -381,13 +379,19 @@ const activeStreams = new Map<string, () => void>();
 const eventBuffers = new Map<string, { events: any[]; done: boolean; error?: string }>();
 
 ipcRenderer.on('chat:event', (_event: any, threadId: string, token: any) => {
+  if (token?.type === 'turn-complete') {
+    console.log(`[Preload:buffer] turn-complete arrived, activeStream=${activeStreams.has(threadId)}`);
+  }
   if (activeStreams.has(threadId)) return; // Active stream handles these
+  console.warn(`[Preload:buffer] Buffering event type=${token?.type} for ${threadId} (no active stream)`);
   const buf = eventBuffers.get(threadId) || { events: [], done: false };
   buf.events.push(token);
   eventBuffers.set(threadId, buf);
 });
 ipcRenderer.on('chat:done', (_event: any, threadId: string) => {
+  console.log(`[Preload:buffer] chat:done arrived, activeStream=${activeStreams.has(threadId)}`);
   if (activeStreams.has(threadId)) return;
+  console.warn(`[Preload:buffer] Buffering chat:done for ${threadId} (no active stream)`);
   const buf = eventBuffers.get(threadId) || { events: [], done: false };
   buf.done = true;
   eventBuffers.set(threadId, buf);
@@ -416,7 +420,8 @@ function createStreamIterator(threadId: string) {
   let done = false;
 
   if (buffered) {
-    console.debug(`[StreamIterator] Draining ${buffered.events.length} buffered events for ${threadId}`);
+    const types = buffered.events.map((e: any) => e?.type).join(',');
+    console.warn(`[StreamIterator] Draining ${buffered.events.length} buffered events for ${threadId}: [${types}] done=${buffered.done}`);
     for (const token of buffered.events) {
       pending.push({ value: token, done: false });
     }
@@ -438,13 +443,16 @@ function createStreamIterator(threadId: string) {
 
   const eventHandler = (_event: any, eventThreadId: string, token: any) => {
     if (eventThreadId !== threadId) return;
+    if (token?.type === 'turn-complete') {
+      console.log(`[StreamIterator] turn-complete received, pending=${pending.length}, done=${done}`);
+    }
     pending.push({ value: token, done: false });
     notify();
   };
 
   const doneHandler = (_event: any, eventThreadId: string) => {
     if (eventThreadId !== threadId) return;
-    console.debug(`[StreamIterator] Stream done for ${threadId}`);
+    console.warn(`[StreamIterator] chat:done received for ${threadId}, pending=${pending.length}`);
     done = true;
     notify();
   };
