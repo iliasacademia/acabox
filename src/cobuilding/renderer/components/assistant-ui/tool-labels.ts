@@ -11,6 +11,7 @@ export function getToolLabel(
   toolName: string,
   args: Record<string, unknown> | undefined,
   argsText?: string,
+  status?: { type: string },
 ): string {
   let resolved = args && Object.keys(args).length > 0 ? args : undefined;
   if (!resolved && argsText) {
@@ -139,8 +140,14 @@ export function getToolLabel(
     case 'mcp__google-docs__find_and_replace':
       return 'Proposing edit';
     case 'mcp__mini-apps__open_mini_application': {
-      const dirName = resolved?.dir_name as string | undefined;
-      return dirName ? `Opening app: ${dirName}` : 'Opening app';
+      if (status?.type === 'running') return 'Opening tool';
+      if (status?.type === 'incomplete') return 'Failed to open tool';
+      return 'Opened tool';
+    }
+    case 'mcp__mini-apps__build_and_open_mini_application': {
+      if (status?.type === 'running') return 'Building tool';
+      if (status?.type === 'incomplete') return 'Build failed';
+      return 'Tool built';
     }
     default:
       return toolName;

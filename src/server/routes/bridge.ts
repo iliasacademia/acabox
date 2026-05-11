@@ -91,6 +91,12 @@ export async function registerBridgeRoutes(
 
       logger.info(`[Bridge API] Received action: ${action}, pid: ${pid}, wid: ${wid}, payload: ${JSON.stringify(payload)}`);
 
+      // When the overlay is clicked and the host app isn't focused,
+      // bring the host app to front so overlay + host move together.
+      if (wid && !windowMonitorService.getFocusedWindowId()) {
+        windowMonitorService.activateHostAppForWindow(wid);
+      }
+
       if (action === 'buttonClicked' && wid) {
         windowMonitorService.togglePopupForWindow(wid);
       } else if (action === 'closeWindow' && wid) {

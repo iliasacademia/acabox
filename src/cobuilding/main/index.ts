@@ -418,6 +418,10 @@ const forwardingListeners = new Map<string, () => void>();
 
 // ─── Cross-surface chat-event fanout (desktop ↔ overlay) ──────────────
 //
+// DEPRECATED: The overlay now uses a unified WebSocket for chat events
+// (see websocket.ts + overlayHandlers.ts). The SSE fanout below is kept
+// as a fallback during migration and will be removed in a future release.
+//
 // The desktop chat panel receives streaming events via Electron IPC
 // (`webContents.send('chat:event', …)`). The Word overlay is a WKWebView
 // served over the local HTTP server — it has no `webContents`, so the IPC
@@ -950,6 +954,9 @@ app.whenReady().then(async () => {
                 }
 
                 if (isNewSession) notifySessionsChanged();
+                if (isNewSession && activeWorkspace.api_key) {
+                  generateSessionTitle(sessionId, text, activeWorkspace.api_key, cachedBaseURL);
+                }
 
                 const session = getRegisteredSession(sessionId)!;
 
@@ -984,6 +991,109 @@ app.whenReady().then(async () => {
                 session.sendMessage(displayMessage);
               },
             );
+
+            // Register overlay chat-send handler for the unified WebSocket
+            const { setOverlayChatSendHandler, setOverlayBridgeHandler } = require('./overlayHandlers');
+          setOverlayChatSendHandler((params: { sessionId: string; text: string; documentPath?: string; selectedText?: string; onEvent: (msg: any) => void; onDone: () => void; onError: (err: string) => void; onCleanup?: () => void }) => {
+            const { sessionId, text, documentPath: ctxDocPath, selectedText: ctxSelectedText, onEvent, onDone, onError } = params;
+            if (!activeWorkspace) {
+              onError('No active workspace');
+              return;
+            }
+            const displayMessage = ctxSelectedText ? `"${ctxSelectedText}"\n\n${text}` : text;
+            if (ctxDocPath || ctxSelectedText) {
+              pendingContext.set(sessionId, { documentPath: ctxDocPath, selectedText: ctxSelectedText });
+            }
+
+            const existingRunning = getRegisteredSession(sessionId);
+            if (existingRunning?.isRunning) {
+              if (mainWindow && !mainWindow.isDestroyed()) {
+                ensureForwarding(sessionId, mainWindow.webContents);
+              }
+              ensureSseFanout(sessionId);
+              const unsubscribe = existingRunning.addListener({
+                onEvent: (msg: any) => onEvent(msg),
+                onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
+                onError: (err: any) => { onError(String(err)); unsubscribe(); },
+              });
+              existingRunning.sendMessage(displayMessage);
+              return;
+            }
+
+            const isNewSession = !hasSession(sessionId) && !getSession(sessionId);
+            if (!hasSession(sessionId)) {
+              const existingDbSession = getSession(sessionId);
+              const session = createAgentSession(
+                sessionId,
+                { onEvent: () => { }, onDone: () => { }, onError: () => { unregisterSession(sessionId); } },
+                activeWorkspace,
+                existingDbSession?.sdk_session_id ?? undefined,
+                undefined, undefined, undefined,
+                (userText: string) => {
+                  const ctx = pendingContext.get(sessionId);
+                  pendingContext.delete(sessionId);
+                  if (!ctx) return userText;
+                  const { resolveSessionHostApp } = require('./agentSession');
+                  const host = resolveSessionHostApp(ctx.documentPath);
+                  const prefix = host.messagePrefix({ documentPath: ctx.documentPath, selectedText: ctx.selectedText });
+                  return prefix ? `${prefix}\n${userText}` : userText;
+                },
+                ctxDocPath,
+              );
+              registerSession(sessionId, session);
+            }
+            if (isNewSession) notifySessionsChanged();
+            if (isNewSession && activeWorkspace!.api_key) {
+              generateSessionTitle(sessionId, text, activeWorkspace!.api_key, cachedBaseURL);
+            }
+
+            const session = getRegisteredSession(sessionId)!;
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              ensureForwarding(sessionId, mainWindow.webContents);
+            }
+            ensureSseFanout(sessionId);
+
+            const unsubscribe = session.addListener({
+              onEvent: (msg: any) => onEvent(msg),
+              onDone: () => { onDone(); unsubscribe(); notifySessionsChanged(); },
+              onError: (err: any) => { onError(String(err)); unsubscribe(); },
+            });
+            if (params.onCleanup) {
+              // Allow caller to register a cleanup callback (e.g., on WebSocket close)
+              const origCleanup = params.onCleanup;
+              params.onCleanup = () => { unsubscribe(); origCleanup(); };
+            }
+
+            session.sendMessage(displayMessage);
+          });
+
+          setOverlayBridgeHandler(async (params: { action: string; payload: Record<string, unknown>; wid: string | null }) => {
+            const { windowMonitorService } = require('../../windowMonitorService');
+            const { action, payload, wid } = params;
+            if (action === 'buttonClicked' && wid) {
+              windowMonitorService.togglePopupForWindow(wid);
+            } else if (action === 'closeWindow' && wid) {
+              windowMonitorService.closePopupForWindow(wid, payload.clearReviewState !== false);
+            } else if (action === 'setPopupSize' && wid) {
+              const { width, height } = payload;
+              if (typeof width === 'number' && typeof height === 'number') {
+                windowMonitorService.setPopupSize(wid, width, height);
+              }
+            } else if (action === 'setDockRight' && wid) {
+              windowMonitorService.setDockRight(wid, payload.docked === true);
+            } else if (action === 'setDragOffset' && wid) {
+              const { dx, dy } = payload;
+              if (typeof dx === 'number' && typeof dy === 'number') {
+                windowMonitorService.setButtonDragOffset(wid, dx, dy);
+              }
+            } else if (action === 'openPopup' && wid) {
+              windowMonitorService.openPopupForWindow(wid);
+            } else if (action === 'clearKickoff') {
+              const kickoffId = typeof payload.kickoffId === 'string' ? payload.kickoffId : '';
+              if (kickoffId) windowMonitorService.clearPendingKickoff(kickoffId);
+            }
+            return { success: true };
+          });
           });
 
           const port = await httpServer.start();
@@ -1475,6 +1585,38 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
         if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
         return ok(`Opened mini-application: ${args.dir_name}`);
       },
+      // Builds the bundle with esbuild and reports success/failure to the
+      // agent. The renderer-side handler waits for a successful complete
+      // status before reloading the app's iframe — on failure (esbuild
+      // non-zero, container down, etc.) the user's UI does not change and
+      // the agent receives the build error to fix. Pure
+      // `open_mini_application` is still available for opening already-built
+      // apps without re-bundling.
+      build_and_open_mini_application: async (args: any) => {
+        const appDir = path.join(workspace.directory_path, '.applications', args.dir_name);
+        const exists = await fs.promises.access(appDir).then(() => true, () => false);
+        if (!exists) return fail(`Mini-application directory not found: .applications/${args.dir_name}`);
+
+        const entry = `.applications/${args.dir_name}/src/index.tsx`;
+        const outfile = `.applications/${args.dir_name}/dist/bundle.js`;
+        const build = await containerService.exec([
+          'esbuild',
+          entry,
+          '--bundle',
+          `--outfile=${outfile}`,
+          '--jsx=automatic',
+          '--loader:.tsx=tsx',
+          '--loader:.ts=ts',
+          '--format=iife',
+          '--alias:@reusable=/data/.applications/_reusable',
+        ]);
+        if (build.exitCode !== 0) {
+          const detail = (build.stderr || build.stdout || '').trim() || 'Unknown build error';
+          return fail(`Build failed for ${args.dir_name}:\n${detail}`);
+        }
+
+        return ok(`Built and opened mini-application: ${args.dir_name}`);
+      },
     },
 
     zotero: {
@@ -1760,6 +1902,7 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
       'EnterPlanMode', 'ExitPlanMode',
       'mcp__activity__query_activity',
       'mcp__mini-apps__open_mini_application',
+      'mcp__mini-apps__build_and_open_mini_application',
       'mcp__notification__show_notification',
       'mcp__reaction__create_reaction_thread',
       'mcp__ms-word__get_file_path', 'mcp__ms-word__get_text',
@@ -2139,6 +2282,17 @@ function notifySessionsChanged() {
 ipcMain.handle('sessions:list', (_event, source?: string) => {
   return listSessions(undefined, source);
 });
+ipcMain.handle('sessions:runningIds', () => {
+  const ids: string[] = [];
+  // sessionRegistry only exposes per-id lookups; iterate known DB sessions
+  // and check which have a running agent session.
+  const allSessions = listSessions();
+  for (const s of allSessions) {
+    const reg = getRegisteredSession(s.id);
+    if (reg?.isRunning) ids.push(s.id);
+  }
+  return ids;
+});
 ipcMain.handle('sessions:countForDocument', (_event, documentPath: string): number => {
   if (!activeWorkspace) return 0;
   return listSessions(activeWorkspace.id, undefined, documentPath).length;
@@ -2229,6 +2383,9 @@ async function generateSessionTitle(sessionId: string, firstMessage: string, api
     if (title) {
       updateSessionTitle(sessionId, title);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
+      notifySessionsChanged();
+      const { wordPollEventBus } = require('../../server/events/wordPollEventBus');
+      wordPollEventBus.emit('change', 'session-title-updated');
     }
   } catch (err) {
     log.warn('[TitleGen] Failed to generate session title:', err);

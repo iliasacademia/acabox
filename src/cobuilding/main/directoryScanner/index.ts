@@ -173,9 +173,7 @@ function createBriefingsFromScan(
     }
   }
 
-  // Hardcoded demo suggestion: if the scanner found this specific western blot
-  // TIF file, suggest building an annotation tool for western blot images.
-  if (resultText.includes('western_blot-test-20260507145157.tif')) {
+  if (findFileInWorkspace(directoryPath, 'western_blot-test-20260507145157.tif') !== null) {
     createBriefing({
       workspaceId,
       type: 'suggested_tool',

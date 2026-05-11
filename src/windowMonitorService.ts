@@ -260,6 +260,26 @@ export class WindowMonitorService {
   // when allAppsEnabled mode is active. One window-monitor process per entry.
   private windowMonitorProcesses: Map<string, ChildProcess> = new Map();
   private webviewManagerProcess: ChildProcess | null = null;
+
+  // ── Process supervision state ──────────────────────────────────────
+  private stopped = true;
+  private readonly MAX_RAPID_CRASHES = 5;
+  private readonly BACKOFF_RESET_MS = 30_000;
+  private readonly MAX_BACKOFF_MS = 10_000;
+  private readonly WATCHDOG_TIMEOUT_MS = 30_000;
+  // Respawn backoff state per process key (includes 'webview-manager')
+  private respawnAttempts = new Map<string, number>();
+  private respawnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private processStartTimes = new Map<string, number>();
+  // Watchdog timers per window-monitor process key
+  private watchdogTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Tracks which process key produced each readline interface so
+  // handleWindowMonitorLine can reset the correct watchdog.
+  private windowMonitorProcessKeys = new Map<ChildProcess, string>();
+  // Stores spawn args so we can respawn window-monitor processes.
+  private windowMonitorSpawnArgs = new Map<string, { wmBin: string; wmArgs: string[] }>();
+  // Exit promise resolvers for waitForProcessExit()
+  private processExitResolvers: Array<() => void> = [];
   private state: SystemState = createInitialState();
   private popupToggledOpen: Set<string> = new Set();
   private reviewInputOpen: Set<string> = new Set();
@@ -322,6 +342,7 @@ export class WindowMonitorService {
       logger.info('[WindowMonitorService] Not available on this platform, skipping');
       return;
     }
+    this.stopped = false;
     this.baseUrl = baseUrl;
     this.authToken = authToken;
     this.allAppsEnabled = allAppsEnabled;
@@ -334,6 +355,7 @@ export class WindowMonitorService {
     this.webviewManagerProcess = spawn(wvBin, [], {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+    this.processStartTimes.set('webview-manager', Date.now());
 
     // Spawn one window-monitor per registered host app (or a single all-apps
     // monitor when in review-button-v3 mode). When only Word is registered,
@@ -350,17 +372,27 @@ export class WindowMonitorService {
       }
     }
 
-    // Handle webview-manager stdout (responses)
+    // Handle webview-manager stdout — act on error responses
     if (this.webviewManagerProcess.stdout) {
       const wvRl = readline.createInterface({ input: this.webviewManagerProcess.stdout });
       wvRl.on('line', (line) => {
-        logger.debug('[WindowMonitorService] webview-manager response:', line);
+        try {
+          const resp = JSON.parse(line);
+          if (resp.status === 'ERROR') {
+            logger.warn('[WindowMonitorService] webview-manager error response:', resp);
+            this.pushWebviewState();
+          } else {
+            logger.info('[WindowMonitorService] webview-manager response:', line);
+          }
+        } catch {
+          logger.info('[WindowMonitorService] webview-manager non-JSON:', line);
+        }
       });
     }
 
     // Handle webview-manager stderr
     this.webviewManagerProcess.stderr?.on('data', (data: Buffer) => {
-      logger.error('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
+      logger.warn('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
     });
 
     this.webviewManagerProcess.on('error', (err) => {
@@ -370,25 +402,86 @@ export class WindowMonitorService {
     this.webviewManagerProcess.on('exit', (code, signal) => {
       logger.info('[WindowMonitorService] webview-manager exited', { code, signal });
       this.webviewManagerProcess = null;
+      this.notifyProcessExit();
+      if (!this.stopped) {
+        this.scheduleRespawn('webview-manager', () => {
+          const bin = getWebviewManagerBinPath();
+          this.webviewManagerProcess = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+          this.processStartTimes.set('webview-manager', Date.now());
+          this.setupWebviewManagerHandlers();
+          // Re-send last known state so overlay is restored
+          this.pushWebviewState();
+          logger.info('[WindowMonitorService] webview-manager respawned successfully');
+        });
+      }
+    });
+  }
+
+  private setupWebviewManagerHandlers(): void {
+    if (!this.webviewManagerProcess) return;
+
+    if (this.webviewManagerProcess.stdout) {
+      const wvRl = readline.createInterface({ input: this.webviewManagerProcess.stdout });
+      wvRl.on('line', (line) => {
+        try {
+          const resp = JSON.parse(line);
+          if (resp.status === 'ERROR') {
+            logger.warn('[WindowMonitorService] webview-manager error response:', resp);
+            this.pushWebviewState();
+          } else {
+            logger.info('[WindowMonitorService] webview-manager response:', line);
+          }
+        } catch {
+          logger.info('[WindowMonitorService] webview-manager non-JSON:', line);
+        }
+      });
+    }
+
+    this.webviewManagerProcess.stderr?.on('data', (data: Buffer) => {
+      logger.warn('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
+    });
+
+    this.webviewManagerProcess.on('error', (err) => {
+      logger.error('[WindowMonitorService] webview-manager error:', err.message);
+    });
+
+    this.webviewManagerProcess.on('exit', (code, signal) => {
+      logger.info('[WindowMonitorService] webview-manager exited', { code, signal });
+      this.webviewManagerProcess = null;
+      this.notifyProcessExit();
+      if (!this.stopped) {
+        this.scheduleRespawn('webview-manager', () => {
+          const bin = getWebviewManagerBinPath();
+          this.webviewManagerProcess = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
+          this.processStartTimes.set('webview-manager', Date.now());
+          this.setupWebviewManagerHandlers();
+          this.pushWebviewState();
+          logger.info('[WindowMonitorService] webview-manager respawned successfully');
+        });
+      }
     });
   }
 
   private spawnWindowMonitor(processKey: string, wmBin: string, wmArgs: string[]): void {
     logger.info(`[WindowMonitorService] Starting window-monitor for ${processKey}:`, wmBin);
     logger.info(`[WindowMonitorService] Spawn args (${processKey}):`, wmArgs);
+    this.windowMonitorSpawnArgs.set(processKey, { wmBin, wmArgs });
     const proc = spawn(wmBin, wmArgs, {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     this.windowMonitorProcesses.set(processKey, proc);
+    this.windowMonitorProcessKeys.set(proc, processKey);
+    this.processStartTimes.set(`wm:${processKey}`, Date.now());
 
     // Handle window-monitor stdout: line-delimited JSON events
     const rl = readline.createInterface({ input: proc.stdout! });
     rl.on('line', (line) => {
+      this.resetWatchdog(processKey);
       this.handleWindowMonitorLine(line);
     });
 
     proc.stderr?.on('data', (data: Buffer) => {
-      logger.error(`[WindowMonitorService] window-monitor (${processKey}) stderr:`, data.toString().trimEnd());
+      logger.warn(`[WindowMonitorService] window-monitor (${processKey}) stderr:`, data.toString().trimEnd());
     });
 
     proc.on('error', (err) => {
@@ -398,7 +491,22 @@ export class WindowMonitorService {
     proc.on('exit', (code, signal) => {
       logger.info(`[WindowMonitorService] window-monitor (${processKey}) exited`, { code, signal });
       this.windowMonitorProcesses.delete(processKey);
+      this.windowMonitorProcessKeys.delete(proc);
+      this.clearWatchdog(processKey);
+      this.notifyProcessExit();
+      if (!this.stopped) {
+        this.scheduleRespawn(`wm:${processKey}`, () => {
+          const args = this.windowMonitorSpawnArgs.get(processKey);
+          if (args) {
+            this.spawnWindowMonitor(processKey, args.wmBin, args.wmArgs);
+            logger.info(`[WindowMonitorService] window-monitor (${processKey}) respawned successfully`);
+          }
+        });
+      }
     });
+
+    // Start watchdog for this process
+    this.resetWatchdog(processKey);
   }
 
   private handleWindowMonitorLine(line: string): void {
@@ -749,10 +857,19 @@ export class WindowMonitorService {
       wordPollEventBus.emit('change', 'webview-visibility-changed');
     }
 
+    if (visibilityChanged) {
+      const visibleKeys = V4_VISIBILITY_KEYS.filter(k => desiredState[k]?.visible);
+      if (visibleKeys.length > 0) {
+        logger.info(`[WindowMonitorService] Overlay showing: ${visibleKeys.join(', ')} (wid=${windowId})`);
+      } else {
+        logger.info(`[WindowMonitorService] Overlay hidden (wid=${windowId})`);
+      }
+    }
+
     if (this.webviewManagerProcess?.stdin?.writable) {
       this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
     } else {
-      logger.info('[WindowMonitorService] Cannot send state to webview-manager: stdin not writable');
+      logger.error('[WindowMonitorService] Cannot send state to webview-manager: stdin not writable');
     }
   }
 
@@ -1041,6 +1158,21 @@ export class WindowMonitorService {
       }
     }
     return null;
+  }
+
+  /** Activate the host app that owns the given window, bringing it to front. */
+  activateHostAppForWindow(windowId: string): void {
+    for (const a of this.state.apps) {
+      for (const w of a.windows) {
+        if (w.id === windowId) {
+          const bundleId = a.identifier;
+          execFile('osascript', ['-e', `tell application id "${bundleId}" to activate`], (err) => {
+            if (err) logger.warn(`[WindowMonitorService] Failed to activate ${bundleId}:`, err.message);
+          });
+          return;
+        }
+      }
+    }
   }
 
   getSelectedTextForWindow(windowId: string): TextSelectionInfo | null {
@@ -1368,12 +1500,92 @@ export class WindowMonitorService {
     this.selectionEventsSuppressed = suppress;
   }
 
+  // ── Process supervision methods ──────────────────────────────────────
+
+  private scheduleRespawn(processKey: string, respawnFn: () => void): void {
+    const startTime = this.processStartTimes.get(processKey) ?? 0;
+    const uptime = Date.now() - startTime;
+    // Reset backoff if the process ran long enough (not a rapid crash)
+    if (uptime > this.BACKOFF_RESET_MS) {
+      this.respawnAttempts.set(processKey, 0);
+    }
+    const attempts = (this.respawnAttempts.get(processKey) ?? 0) + 1;
+    this.respawnAttempts.set(processKey, attempts);
+
+    if (attempts > this.MAX_RAPID_CRASHES) {
+      logger.error(`[WindowMonitorService] ${processKey} crashed ${attempts} times rapidly — giving up respawn`);
+      return;
+    }
+
+    const delay = Math.min(500 * Math.pow(2, attempts - 1), this.MAX_BACKOFF_MS);
+    logger.info(`[WindowMonitorService] Scheduling ${processKey} respawn in ${delay}ms (attempt ${attempts}/${this.MAX_RAPID_CRASHES})`);
+
+    const timer = setTimeout(() => {
+      this.respawnTimers.delete(processKey);
+      if (!this.stopped) {
+        respawnFn();
+      }
+    }, delay);
+    this.respawnTimers.set(processKey, timer);
+  }
+
+  private resetWatchdog(processKey: string): void {
+    this.clearWatchdog(processKey);
+    if (this.stopped) return;
+    const timer = setTimeout(() => {
+      this.watchdogTimers.delete(processKey);
+      const proc = this.windowMonitorProcesses.get(processKey);
+      if (proc && !this.stopped) {
+        logger.warn(`[WindowMonitorService] window-monitor (${processKey}) watchdog timeout — killing for respawn`);
+        proc.kill();
+      }
+    }, this.WATCHDOG_TIMEOUT_MS);
+    this.watchdogTimers.set(processKey, timer);
+  }
+
+  private clearWatchdog(processKey: string): void {
+    const existing = this.watchdogTimers.get(processKey);
+    if (existing) {
+      clearTimeout(existing);
+      this.watchdogTimers.delete(processKey);
+    }
+  }
+
+  private notifyProcessExit(): void {
+    for (const resolve of this.processExitResolvers) {
+      resolve();
+    }
+    this.processExitResolvers = [];
+  }
+
+  private waitForProcessExit(timeoutMs: number): Promise<void> {
+    const hasRunning =
+      this.webviewManagerProcess !== null ||
+      this.windowMonitorProcesses.size > 0;
+    if (!hasRunning) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+      this.processExitResolvers.push(resolve);
+      setTimeout(resolve, timeoutMs);
+    });
+  }
+
   stop(): void {
+    this.stopped = true;
+    // Cancel pending respawn timers
+    for (const timer of this.respawnTimers.values()) clearTimeout(timer);
+    this.respawnTimers.clear();
+    this.respawnAttempts.clear();
+    // Cancel watchdog timers
+    for (const timer of this.watchdogTimers.values()) clearTimeout(timer);
+    this.watchdogTimers.clear();
+
     for (const [key, proc] of this.windowMonitorProcesses) {
       logger.info(`[WindowMonitorService] Stopping window-monitor (${key})`);
       proc.kill();
     }
     this.windowMonitorProcesses.clear();
+    this.windowMonitorProcessKeys.clear();
     if (this.webviewManagerProcess) {
       logger.info('[WindowMonitorService] Stopping webview-manager');
       this.webviewManagerProcess.kill();
@@ -1414,7 +1626,7 @@ export class WindowMonitorService {
     }
   }
 
-  restart(): void {
+  async restart(): Promise<void> {
     logger.info('[WindowMonitorService] Restarting...');
     if (!this.baseUrl || !this.authToken) {
       logger.warn('[WindowMonitorService] Cannot restart: service was never started');
@@ -1424,10 +1636,9 @@ export class WindowMonitorService {
     const authToken = this.authToken;
     const allAppsEnabled = this.allAppsEnabled;
     this.stop();
-    setTimeout(() => {
-      this.start(baseUrl, authToken, allAppsEnabled);
-      logger.info('[WindowMonitorService] Restart complete');
-    }, 3000);
+    await this.waitForProcessExit(2000);
+    this.start(baseUrl, authToken, allAppsEnabled);
+    logger.info('[WindowMonitorService] Restart complete');
   }
 }
 

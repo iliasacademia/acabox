@@ -25,6 +25,7 @@ import {
   shouldAutoOpenFreshSession,
   shouldClearActiveOnDocChange,
   isActiveSessionStaleForDoc,
+  getUpdatedActiveSessionTitle,
 } from './popupV2/sessionLogic';
 
 
@@ -226,6 +227,12 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setIsInWorkspace(pollData.isInWorkspace ?? false);
     setWorkspaceSessions(pollData.workspaceSessions ?? []);
     setActiveDocumentDisplayName(pollData.activeDocumentDisplayName ?? null);
+
+    // Update active session title if it changed (e.g. after title generation)
+    const newTitle = getUpdatedActiveSessionTitle(activeSession, pollData.workspaceSessions ?? []);
+    if (newTitle) {
+      setActiveSession({ id: activeSession!.id, title: newTitle });
+    }
 
     if (isActiveSessionStaleForDoc(activeSession?.id ?? null, pollData.workspaceSessions ?? [])) {
       setActiveSession(null);

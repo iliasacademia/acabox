@@ -4,6 +4,7 @@ import { CsvView } from './fileViewers/CsvView';
 import { PdfView } from './fileViewers/PdfView';
 import { LatexView } from './fileViewers/LatexView';
 import { XlsxView } from './fileViewers/XlsxView';
+import { CodeView } from './CodeView';
 
 type FileContent = Awaited<ReturnType<typeof window.filesAPI.readFile>>;
 
@@ -42,13 +43,13 @@ export const FileViewer: FC<FileViewerProps> = ({ filePath }) => {
     <div className="fileViewer">
       <div className={flush ? 'fileViewerBody fileViewerBodyFlush' : 'fileViewerBody'}>
         {loading && <p className="fileViewerMessage">Loading...</p>}
-        {fileContent && <FileContentView content={fileContent} />}
+        {fileContent && <FileContentView content={fileContent} filePath={filePath} />}
       </div>
     </div>
   );
 };
 
-const FileContentView: FC<{ content: FileContent }> = ({ content }) => {
+const FileContentView: FC<{ content: FileContent; filePath: string }> = ({ content, filePath }) => {
   if ('error' in content) {
     const sizeMB = (content.size / 1_000_000).toFixed(1);
     return <p className="fileViewerMessage">File is too large to view ({sizeMB} MB)</p>;
@@ -78,5 +79,5 @@ const FileContentView: FC<{ content: FileContent }> = ({ content }) => {
     return <XlsxView base64={content.base64} />;
   }
 
-  return <pre className="fileViewerPre">{content.content}</pre>;
+  return <CodeView content={content.content} path={filePath} fallbackClassName="fileViewerPre" />;
 };

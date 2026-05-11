@@ -1,9 +1,27 @@
 import type { RemoteThreadListAdapter } from '@assistant-ui/react';
 import { replaceSessionTimestampsFromList, setSessionCreatedAt, setSessionDocumentPath } from './sessionTimestamps';
 
+// Tracks which session IDs are currently running (processing).
+// Updated on every list() call and on sessions:changed events.
+let _runningSessionIds = new Set<string>();
+export function isSessionRunning(sessionId: string): boolean {
+  return _runningSessionIds.has(sessionId);
+}
+export async function refreshRunningIds(): Promise<void> {
+  try {
+    const ids = await window.sessionsAPI.getRunningIds();
+    _runningSessionIds = new Set(ids);
+  } catch {
+    // Ignore — API might not be available yet
+  }
+}
+
 export const sessionListAdapter: RemoteThreadListAdapter = {
   async list() {
-    const sessions = await window.sessionsAPI.list();
+    const [sessions] = await Promise.all([
+      window.sessionsAPI.list(),
+      refreshRunningIds(),
+    ]);
     replaceSessionTimestampsFromList(sessions);
     return {
       threads: sessions.map((s) => ({

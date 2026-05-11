@@ -55,7 +55,7 @@ If `--template` is specified, the template tree at `.applications/_templates/<na
 
 - Do NOT run `.applications/install` yourself — BackgroundBuilder is already running it. A second concurrent install races for bandwidth and slows everything down.
 - Do NOT use `Monitor`, `ScheduleWakeup`, or polling loops to wait for installs to finish. The install can take 5–15 minutes on cold containers; blocking the chat turn on it produces a bad UX (silent agent, opaque "thinking" state).
-- After running the manage script, immediately build the bundle with `esbuild` (it doesn't need Python deps) and call the `open_mini_application` MCP tool. Then **stop and return control to the user**.
+- After running the manage script, immediately call `build_and_open_mini_application` — it runs esbuild and opens the app in one atomic tool call.
 - The mini-app's own "Installing software…" view surfaces live install progress to the user when they open the app — they will see it there, not in the chat. Tell the user once that you've opened the app and that deps are still installing in the background, and let the in-app UI take over from there.
 
 Each template also ships with a colocated `template.md` describing its parameters, output contract, and design rationale; read that before editing the template's code. The `template.md` itself is excluded from the per-app copy. Available templates:
@@ -246,7 +246,42 @@ The React app injects a fresh `params_json` (built from the persistent `params` 
 
 If your app does no kernel computation (everything happens in the React side), do not add an action cell — the parameters cell alone is enough to make the directory a self-describing record of the user's configuration.
 
-### Step 4: Build the bundle
+### Step 4: Build and open
+
+Call `build_and_open_mini_application` with the `dir_name` from Step 1. The tool runs esbuild and opens the app in one atomic step. If the build fails, the tool returns the esbuild error in its output — fix the issue in `App.tsx` and call the tool again.
+
+See **Build and open tools** below for when to use the build-only and open-only variants instead.
+
+### Step 5: Work summary
+
+If the the app you've created is complex, requires instructions on how to use, or if the user would benefit from understanding a little about how it works under the hood, give the use a brief summary of the app and how it works.
+
+If the app is simple and self explanatory, Just say, "Your [tool description] tool is ready to use."
+
+## Editing a mini-app
+
+1. Locate the mini-app at `.applications/<dir_name>/` within the workspace.
+2. Edit `App.tsx` and/or `notebook.ipynb` to change the UI, the backing analysis, or the params.
+3. If the change alters what the app does, also update `manifest.json` (`name`, `description`, `icon`) so the Tools page stays in sync. Leave `lastOpened` alone — the host owns that field.
+4. Call `build_and_open_mini_application` with the app's `dir_name` to bundle the new source and reload the user's view. If the build fails, the tool returns the esbuild error so you can fix and call again.
+
+
+## Opening an existing mini-app on demand
+
+When the user asks to open an app whose source hasn't changed since its last build (e.g. *"open the differential expression app"*), call `open_mini_application` with its `dir_name`. This tool just signals the UI to open the already-built bundle and is faster than `build_and_open_mini_application` because it skips esbuild. Use `build_and_open_mini_application` whenever you've just edited the source.
+
+
+## Build and open tools
+
+Three ways to build and/or open. Pick by intent:
+
+| Intent | Tool / command | What it does |
+|---|---|---|
+| Just created or edited the source — show it to the user | `build_and_open_mini_application` (MCP) | Runs esbuild, then opens. Build failure returned as tool error. |
+| User asked to open an app (source unchanged since last build) | `open_mini_application` (MCP) | Opens the already-built bundle without rebundling. |
+| Iteratively editing — want to type-check the build without disrupting the user's focus | bare `esbuild` via Bash | Compiles only. No tab open, no UI remount. |
+
+The bare esbuild command for build-only verification:
 
 ```bash
 esbuild \
@@ -259,23 +294,6 @@ esbuild \
   --format=iife \
   --alias:@reusable=/data/.applications/_reusable
 ```
-
-If the build fails, read the error output, fix the issue in `App.tsx`, and rebuild.
-
-### Step 5: Open the mini-app
-
-Call `open_mini_application` with the `dir_name` from Step 1.
-
-
-## Editing a min-app
-
-To edit an existing min-app, follow these steps:
-
-1. Locate the min-app directory at `.applications/<dir_name>/` within the workspace.
-2. Edit the `App.tsx` or `notebook.ipynb` file in the min-app directory to make changes to the UI of backing analysis and params.
-3. If the change alters what the app does, also update `manifest.json` (`name`, `description`, `icon`) so the Tools page stays in sync. Leave `lastOpened` alone — the host owns that field.
-4. Rebuild the bundle with same command as in Step 4 of "Creating a min-app". If the build fails, read the error output, fix the issue in `App.tsx`, and rebuild.
-5. After a successful build, alsways call `open_mini_application` with the `dir_name` from Step 1 to make the changes visible to the user.
 
 ## Installing software
 

@@ -22,6 +22,7 @@ import {
   isActiveSessionStaleForDoc,
   shouldRefreshOnForeignEvent,
   refreshActiveThread,
+  getUpdatedActiveSessionTitle,
   WorkspaceSession,
   ThreadSwitcher,
 } from '../sessionLogic';
@@ -314,5 +315,62 @@ describe('refreshActiveThread (foreign-event remount fix)', () => {
     const sw2 = recordingSwitcher(['ONLY']);
     refreshActiveThread(sw2, 'ONLY');
     expect(sw2.calls[sw2.calls.length - 1]).toBe('switch:ONLY');
+  });
+});
+
+/**
+ * Title update detection for overlay-initiated sessions.
+ *
+ * When a chat is started from the overlay, the session title is initially
+ * "New Chat" (or "New Conversation" in the UI). After the first message,
+ * generateSessionTitle() calls Claude Haiku to produce a short title,
+ * saves it to the DB, and emits a poll refresh. The overlay receives the
+ * updated workspaceSessions with the new title. getUpdatedActiveSessionTitle
+ * detects the mismatch and returns the new title so the header updates
+ * without navigating away from the conversation.
+ */
+describe('getUpdatedActiveSessionTitle', () => {
+  it('returns new title when active session title changed in poll data', () => {
+    const active = { id: 'S1', title: 'New Conversation' };
+    const sessions = [session('S1', '2026-05-07T12:00:00Z', 'Abstract Review Requested')];
+    expect(getUpdatedActiveSessionTitle(active, sessions)).toBe('Abstract Review Requested');
+  });
+
+  it('returns null when title has not changed', () => {
+    const active = { id: 'S1', title: 'My Chat' };
+    const sessions = [session('S1', '2026-05-07T12:00:00Z', 'My Chat')];
+    expect(getUpdatedActiveSessionTitle(active, sessions)).toBeNull();
+  });
+
+  it('returns null when no active session', () => {
+    const sessions = [session('S1', '2026-05-07T12:00:00Z', 'Some Title')];
+    expect(getUpdatedActiveSessionTitle(null, sessions)).toBeNull();
+  });
+
+  it('returns null when active session is not in workspace sessions', () => {
+    const active = { id: 'S1', title: 'New Conversation' };
+    const sessions = [session('S2', '2026-05-07T12:00:00Z', 'Different Session')];
+    expect(getUpdatedActiveSessionTitle(active, sessions)).toBeNull();
+  });
+
+  it('returns null when workspace sessions is empty', () => {
+    const active = { id: 'S1', title: 'New Conversation' };
+    expect(getUpdatedActiveSessionTitle(active, [])).toBeNull();
+  });
+
+  it('returns null when updated title is empty string', () => {
+    const active = { id: 'S1', title: 'New Conversation' };
+    const sessions = [session('S1', '2026-05-07T12:00:00Z', '')];
+    expect(getUpdatedActiveSessionTitle(active, sessions)).toBeNull();
+  });
+
+  it('handles title changing from default to generated', () => {
+    const active = { id: 'S1', title: 'New Chat' };
+    const sessions = [
+      session('S0', '2026-05-07T11:00:00Z', 'Older Chat'),
+      session('S1', '2026-05-07T12:00:00Z', 'Writing Agent Introduction Review'),
+      session('S2', '2026-05-07T13:00:00Z', 'Another Chat'),
+    ];
+    expect(getUpdatedActiveSessionTitle(active, sessions)).toBe('Writing Agent Introduction Review');
   });
 });

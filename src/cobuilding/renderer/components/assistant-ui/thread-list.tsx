@@ -12,6 +12,7 @@ import {
   dateFromSessionStoredAt,
   getSessionCreatedAt,
 } from '../../sessionTimestamps';
+import { isSessionRunning } from '../../sessionListAdapter';
 import { formatRelativeDate as formatRelativeDateFromDate } from '../../../../shared/utils';
 
 interface ThreadListProps {
@@ -225,6 +226,7 @@ const ThreadListItem: FC = () => {
   const title = runtime.getState().title ?? 'New Chat';
   const createdAt = getSessionCreatedAt(remoteId);
   const preview = useMessagePreview(remoteId);
+  const running = remoteId ? isSessionRunning(remoteId) : false;
 
   // --- Rename modal state (must be before any early return) ---
   const [renameOpen, setRenameOpen] = useState(false);
@@ -269,9 +271,10 @@ const ThreadListItem: FC = () => {
   }
 
   return (
-    <ThreadListItemPrimitive.Root className="chatListItem">
+    <ThreadListItemPrimitive.Root className={`chatListItem${running ? ' chatListItem--running' : ''}`}>
       <div className="chatListItemIcon">
         <MessageSquareIcon style={{ width: 18, height: 18 }} />
+        {running && <span className="chatListItemRunningDot" />}
       </div>
       <ThreadListItemPrimitive.Trigger
         className="chatListItemTrigger"
