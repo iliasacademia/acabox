@@ -290,12 +290,130 @@ function sendToServer(ws: WebSocket | null, msg: ClientWebSocketMessage): void {
   }
 }
 
-// Legacy export for backwards compatibility during migration
+/**
+ * Original poll-only WebSocket hook used by existing overlay consumers.
+ * Kept as an independent implementation (not wrapping useOverlayWebSocket)
+ * to avoid introducing extra React hooks into existing component trees.
+ */
 export function useWordPollWebSocket(
   wid: string | null,
   token: string | null,
   apiBaseUrl: string
 ): WordPollResponse | null {
-  const { pollData } = useOverlayWebSocket(wid, token, apiBaseUrl);
+  const [pollData, setPollData] = useState<WordPollResponse | null>(null);
+
+  useEffect(() => {
+    if (!token) {
+      setPollData(null);
+      return;
+    }
+
+    let cleanedUp = false;
+    let ws: WebSocket | null = null;
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let fallbackInterval: ReturnType<typeof setInterval> | null = null;
+    let usingFallback = false;
+
+    function applyPollData(data: WordPollResponse) {
+      if (cleanedUp) return;
+      if (data.wid) setV4FocusedWid(data.wid);
+      setPollData(data);
+    }
+
+    function startFallbackPolling() {
+      if (fallbackInterval || cleanedUp) return;
+      usingFallback = true;
+      console.log('[WS] WebSocket unavailable, falling back to HTTP polling');
+      const poll = async () => {
+        if (cleanedUp) return;
+        try {
+          const headers: Record<string, string> = {
+            'Accept': 'application/json',
+            'X-Instance-Id': popupInstanceId,
+            'Authorization': `Bearer ${token}`,
+          };
+          const res = await fetch(`${apiBaseUrl}/word/v4/focused/poll`, { headers });
+          if (!res.ok) {
+            setPollData(prev => prev ? { ...prev, shouldShowPopupV2: false } : null);
+            return;
+          }
+          const data: WordPollResponse = await res.json();
+          applyPollData(data);
+        } catch { /* ignore */ }
+      };
+      poll();
+      fallbackInterval = setInterval(poll, 3000);
+    }
+
+    function stopFallbackPolling() {
+      if (fallbackInterval) {
+        clearInterval(fallbackInterval);
+        fallbackInterval = null;
+      }
+    }
+
+    function connect() {
+      if (cleanedUp || usingFallback) return;
+      const wsUrl = `${apiBaseUrl.replace(/^http/, 'ws')}/ws/word/v4/focused?token=${encodeURIComponent(token!)}`;
+      try {
+        ws = new WebSocket(wsUrl);
+      } catch {
+        scheduleReconnect();
+        return;
+      }
+
+      ws.onopen = () => {
+        console.log('[WS] WebSocket connected');
+        reconnectAttempt = 0;
+        stopFallbackPolling();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data as string);
+          if (msg.type === 'poll') {
+            applyPollData(msg.data);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onclose = (event) => {
+        ws = null;
+        if (cleanedUp || usingFallback) return;
+        if (event.code === 4401) {
+          startFallbackPolling();
+          return;
+        }
+        scheduleReconnect();
+      };
+
+      ws.onerror = () => {};
+    }
+
+    function scheduleReconnect() {
+      if (cleanedUp || usingFallback) return;
+      reconnectAttempt += 1;
+      if (reconnectAttempt > MAX_RECONNECT_ATTEMPTS) {
+        startFallbackPolling();
+        return;
+      }
+      const delay = Math.pow(2, reconnectAttempt - 1) * 1000;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, delay);
+    }
+
+    connect();
+
+    return () => {
+      cleanedUp = true;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (ws) { ws.onclose = null; ws.close(); ws = null; }
+      stopFallbackPolling();
+    };
+  }, [wid, token, apiBaseUrl]);
+
   return pollData;
 }
