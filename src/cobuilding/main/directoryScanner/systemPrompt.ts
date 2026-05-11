@@ -74,7 +74,12 @@ Produce a JSON report following the output schema with four fields:
 
 2. **what_youre_working_on_summary**: A 2-4 paragraph summary of what the researcher is currently working on. Describe their active projects, recent focus areas, and what they seem to be in the middle of. Written in second person ("You have been...") so it reads naturally when shown to the researcher.
 
-3. **tagged_files**: A list of manuscript files (.tex, .docx, .md academic papers, theses, chapters, dissertations) you encountered during the scan. For each, record the relative path, filename, and \`file_type: "manuscript"\`. **Be conservative** — only include files you are confident are academic manuscripts (papers, theses, dissertations, book chapters). A .docx file is NOT automatically a manuscript; many are notes, letters, reports, CVs, syllabi, or general documents. You must verify the content looks like an academic manuscript (e.g. has an abstract, sections like Introduction/Methods/Results, or is clearly a thesis/dissertation chapter) before tagging it. When in doubt, leave the file untagged — it is better to miss a manuscript than to incorrectly tag a non-manuscript. Do NOT include grants, presentations, code, data, or general documents.
+3. **tagged_files**: A comprehensive list of ALL manuscript, grant, and presentation files you encountered during the scan. For each file, record the relative path, the filename, and its type:
+   - \`manuscript\`: .tex, .docx, .md files that are academic papers, theses, chapters, or dissertations
+   - \`grant\`: files or directories whose names or contents indicate grant proposals, funding applications, or NIH/NSF/R01 submissions
+   - \`presentation\`: .pptx or .key files, or directories with names like "talks", "slides", "lab-meeting"
+
+   Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
 
 4. **suggestions**: Based on what you learned about the researcher from their folders, suggest things you can do for them that would significantly expedite their research. These can be one-time tasks or building mini-apps. Suggest as many as are genuinely useful — don't hold back.
 
