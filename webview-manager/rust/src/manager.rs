@@ -103,6 +103,7 @@ impl Manager {
                     }
                 }
                 if state.background {
+                    panel.setFloatingPanel(false);
                     panel.setLevel(NSNormalWindowLevel);
                 }
                 self.entries.insert(
@@ -150,12 +151,14 @@ impl Manager {
             id, frame_changed, visibility_changed, existing.visible, desired.visible, desired.make_key, desired.background
         );
 
-        // Adjust window level when background mode changes
+        // Adjust window level and floating-panel mode when background changes
         if background_changed {
             if desired.background {
+                existing.panel.setFloatingPanel(false);
                 existing.panel.setLevel(NSNormalWindowLevel);
                 debug_log!("update: lowered to normal level id={}", id);
             } else {
+                existing.panel.setFloatingPanel(true);
                 existing.panel.setLevel(NSFloatingWindowLevel + 1);
                 debug_log!("update: raised to floating level id={}", id);
             }
