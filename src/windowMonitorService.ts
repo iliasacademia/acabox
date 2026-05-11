@@ -379,20 +379,20 @@ export class WindowMonitorService {
         try {
           const resp = JSON.parse(line);
           if (resp.status === 'ERROR') {
-            logger.error('[WindowMonitorService] webview-manager error response:', resp);
+            logger.warn('[WindowMonitorService] webview-manager error response:', resp);
             this.pushWebviewState();
           } else {
-            logger.debug('[WindowMonitorService] webview-manager response:', line);
+            logger.info('[WindowMonitorService] webview-manager response:', line);
           }
         } catch {
-          logger.debug('[WindowMonitorService] webview-manager non-JSON:', line);
+          logger.info('[WindowMonitorService] webview-manager non-JSON:', line);
         }
       });
     }
 
     // Handle webview-manager stderr
     this.webviewManagerProcess.stderr?.on('data', (data: Buffer) => {
-      logger.error('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
+      logger.warn('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
     });
 
     this.webviewManagerProcess.on('error', (err) => {
@@ -426,19 +426,19 @@ export class WindowMonitorService {
         try {
           const resp = JSON.parse(line);
           if (resp.status === 'ERROR') {
-            logger.error('[WindowMonitorService] webview-manager error response:', resp);
+            logger.warn('[WindowMonitorService] webview-manager error response:', resp);
             this.pushWebviewState();
           } else {
-            logger.debug('[WindowMonitorService] webview-manager response:', line);
+            logger.info('[WindowMonitorService] webview-manager response:', line);
           }
         } catch {
-          logger.debug('[WindowMonitorService] webview-manager non-JSON:', line);
+          logger.info('[WindowMonitorService] webview-manager non-JSON:', line);
         }
       });
     }
 
     this.webviewManagerProcess.stderr?.on('data', (data: Buffer) => {
-      logger.error('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
+      logger.warn('[WindowMonitorService] webview-manager stderr:', data.toString().trimEnd());
     });
 
     this.webviewManagerProcess.on('error', (err) => {
@@ -481,7 +481,7 @@ export class WindowMonitorService {
     });
 
     proc.stderr?.on('data', (data: Buffer) => {
-      logger.error(`[WindowMonitorService] window-monitor (${processKey}) stderr:`, data.toString().trimEnd());
+      logger.warn(`[WindowMonitorService] window-monitor (${processKey}) stderr:`, data.toString().trimEnd());
     });
 
     proc.on('error', (err) => {
@@ -857,10 +857,19 @@ export class WindowMonitorService {
       wordPollEventBus.emit('change', 'webview-visibility-changed');
     }
 
+    if (visibilityChanged) {
+      const visibleKeys = V4_VISIBILITY_KEYS.filter(k => desiredState[k]?.visible);
+      if (visibleKeys.length > 0) {
+        logger.info(`[WindowMonitorService] Overlay showing: ${visibleKeys.join(', ')} (wid=${windowId})`);
+      } else {
+        logger.info(`[WindowMonitorService] Overlay hidden (wid=${windowId})`);
+      }
+    }
+
     if (this.webviewManagerProcess?.stdin?.writable) {
       this.webviewManagerProcess.stdin.write(JSON.stringify(desiredState) + '\n');
     } else {
-      logger.info('[WindowMonitorService] Cannot send state to webview-manager: stdin not writable');
+      logger.error('[WindowMonitorService] Cannot send state to webview-manager: stdin not writable');
     }
   }
 

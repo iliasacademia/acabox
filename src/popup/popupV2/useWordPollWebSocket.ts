@@ -68,7 +68,7 @@ export function useOverlayWebSocket(
     function resetHeartbeat() {
       if (heartbeatTimer) clearTimeout(heartbeatTimer);
       heartbeatTimer = setTimeout(() => {
-        console.warn('[WS] Heartbeat timeout — closing for reconnect');
+        console.log('[WS] Heartbeat timeout — closing for reconnect');
         ws?.close();
       }, HEARTBEAT_TIMEOUT_MS);
     }
@@ -152,7 +152,7 @@ export function useOverlayWebSocket(
         console.log('[WS] WebSocket closed', event);
         if (cleanedUp || usingFallback) return;
         if (event.code === 4401) {
-          console.warn('[WS] WebSocket auth failed, falling back to HTTP polling');
+          console.log('[WS] WebSocket auth failed, falling back to HTTP polling');
           startFallbackPolling();
           return;
         }

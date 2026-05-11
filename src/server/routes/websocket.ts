@@ -109,7 +109,7 @@ export async function registerWebSocketRoutes(
 
       v4FocusedClients.add(socket);
       clientSubscriptions.set(socket, new Map());
-      logger.debug(`[WS-V4] Focused client connected (total: ${v4FocusedClients.size})`);
+      logger.info(`[WS-V4] Focused client connected (total: ${v4FocusedClients.size})`);
 
       // Send initial poll response for the currently focused window
       sendPollToV4Client(socket, notificationManager, currentUserId, fullStoryStaticConfig);
@@ -126,7 +126,7 @@ export async function registerWebSocketRoutes(
       socket.on('close', () => {
         cleanupClient(socket);
         v4FocusedClients.delete(socket);
-        logger.debug(`[WS-V4] Focused client disconnected (total: ${v4FocusedClients.size})`);
+        logger.info(`[WS-V4] Focused client disconnected (total: ${v4FocusedClients.size})`);
       });
 
       socket.on('error', (err) => {
