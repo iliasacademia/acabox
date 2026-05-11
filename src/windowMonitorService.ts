@@ -1160,6 +1160,21 @@ export class WindowMonitorService {
     return null;
   }
 
+  /** Activate the host app that owns the given window, bringing it to front. */
+  activateHostAppForWindow(windowId: string): void {
+    for (const a of this.state.apps) {
+      for (const w of a.windows) {
+        if (w.id === windowId) {
+          const bundleId = a.identifier;
+          execFile('osascript', ['-e', `tell application id "${bundleId}" to activate`], (err) => {
+            if (err) logger.warn(`[WindowMonitorService] Failed to activate ${bundleId}:`, err.message);
+          });
+          return;
+        }
+      }
+    }
+  }
+
   getSelectedTextForWindow(windowId: string): TextSelectionInfo | null {
     for (const app of this.state.apps) {
       for (const window of app.windows) {
