@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { ArrowLeftIcon, CodeIcon, DownloadIcon, FolderIcon, MonitorIcon, RefreshCwIcon } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
+import { ArrowLeftIcon, ChevronDownIcon, ChevronRightIcon, CodeIcon, DownloadIcon, FileIcon, FolderIcon, FolderOpenIcon, MonitorIcon, RefreshCwIcon } from 'lucide-react';
 import { useComposerRuntime } from '@assistant-ui/react';
+import { CodeView, languageForPath } from './CodeView';
 import { useKernel } from './notebook/useKernel';
 import { NotebookViewer } from './notebook/NotebookViewer';
 import type { CellOutput } from './notebook/types';
@@ -567,105 +568,241 @@ const MiniAppContent = React.forwardRef<HTMLIFrameElement, { dirName: string; wo
   );
 });
 
-interface SourceFile {
-  label: string;
+interface TreeNode {
+  name: string;
   path: string;
+  isDirectory: boolean;
+  children?: TreeNode[];
+}
+
+const SOURCE_TREE_SKIP_DIRS = new Set(['node_modules', '__pycache__', '.git']);
+
+async function loadAppTree(dirPath: string): Promise<TreeNode[]> {
+  const entries = await window.filesAPI.readDirectory(dirPath);
+  const nodes: TreeNode[] = [];
+  for (const e of entries) {
+    if (e.isDirectory) {
+      if (SOURCE_TREE_SKIP_DIRS.has(e.name)) continue;
+      const children = await loadAppTree(e.path).catch(() => []);
+      nodes.push({ name: e.name, path: e.path, isDirectory: true, children });
+    } else {
+      nodes.push({ name: e.name, path: e.path, isDirectory: false });
+    }
+  }
+  return nodes;
+}
+
+function collectAllDirPaths(nodes: TreeNode[], out: Set<string> = new Set()): Set<string> {
+  for (const n of nodes) {
+    if (n.isDirectory) {
+      out.add(n.path);
+      if (n.children) collectAllDirPaths(n.children, out);
+    }
+  }
+  return out;
 }
 
 const SourceViewer: FC<{
   appDir: string;
   dirName: string;
   rebuildState: RebuildState;
-}> = ({ appDir, dirName, rebuildState }) => {
-  const [files, setFiles] = useState<SourceFile[]>([]);
-  const [activeIndex, setActiveIndex] = useState(0);
+}> = ({ appDir, rebuildState }) => {
+  const [tree, setTree] = useState<TreeNode[]>([]);
+  const [treeLoaded, setTreeLoaded] = useState(false);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [activePath, setActivePath] = useState<string | null>(null);
   const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // Discover which source files exist
+  // Load the full app directory tree once
   useEffect(() => {
     let stale = false;
-    const candidates: SourceFile[] = [
-      { label: 'App.tsx', path: `${appDir}/src/App.tsx` },
-      { label: 'index.html', path: `${appDir}/src/index.html` },
-      { label: 'notebook.ipynb', path: `${appDir}/notebook.ipynb` },
-    ];
-
-    Promise.all(
-      candidates.map((f) =>
-        window.filesAPI.readFile(f.path).then(
-          (res) => ('error' in res ? null : f),
-          () => null,
-        ),
-      ),
-    ).then((results) => {
+    setTreeLoaded(false);
+    loadAppTree(appDir).then((nodes) => {
       if (stale) return;
-      const found = results.filter((f): f is SourceFile => f !== null);
-      setFiles(found);
-      setActiveIndex(0);
+      setTree(nodes);
+      setExpanded(collectAllDirPaths(nodes));
+      setTreeLoaded(true);
+      setActivePath((current) => current ?? `${appDir}/src/App.tsx`);
+    }).catch(() => {
+      if (stale) return;
+      setTree([]);
+      setTreeLoaded(true);
     });
-
     return () => { stale = true; };
   }, [appDir]);
 
-  const activeFile = files[activeIndex] ?? null;
-  const isNotebook = activeFile?.path.endsWith('.ipynb') ?? false;
+  const isNotebook = activePath?.endsWith('.ipynb') ?? false;
 
-  // Load content for active tab (skip for notebooks — they use NotebookViewer)
+  // Load content for the active file (skip for notebooks — NotebookViewer handles them)
   useEffect(() => {
-    if (files.length === 0 || isNotebook) return;
+    if (!activePath || isNotebook) {
+      setContent(null);
+      return;
+    }
     let stale = false;
     setLoading(true);
     setContent(null);
 
-    const file = files[activeIndex];
-    if (!file) return;
-
-    window.filesAPI.readFile(file.path).then((res) => {
+    window.filesAPI.readFile(activePath).then((res) => {
       if (stale) return;
-      setContent('error' in res ? 'File too large to display.' : res.type === 'text' ? res.content : '(binary file)');
+      if ('error' in res) {
+        setContent('File too large to display.');
+      } else if ('content' in res) {
+        setContent(res.content);
+      } else {
+        setContent('(binary file)');
+      }
+      setLoading(false);
+    }).catch(() => {
+      if (stale) return;
+      setContent('Could not read file.');
       setLoading(false);
     });
 
     return () => { stale = true; };
-  }, [files, activeIndex, isNotebook]);
+  }, [activePath, isNotebook]);
 
-  if (files.length === 0 && !loading) {
-    return <div className="sourceViewerEmpty">No source files found.</div>;
-  }
+  const toggleDir = useCallback((path: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+  }, []);
+
+  const activeFileName = useMemo(() => activePath?.split('/').pop() ?? null, [activePath]);
+  const activeLanguage = useMemo(() => (activePath ? languageForPath(activePath) : null), [activePath]);
 
   return (
     <div className="sourceViewer">
-      <div className="sourceViewerTabs">
-        {files.map((f, i) => (
-          <button
-            key={f.path}
-            className={`sourceViewerTab${i === activeIndex ? ' sourceViewerTab--active' : ''}`}
-            onClick={() => setActiveIndex(i)}
-          >
-            {f.label}
-          </button>
-        ))}
-      </div>
       {rebuildState.kind === 'error' && (
         <div className="sourceViewerRebuildError">
           <div className="sourceViewerRebuildErrorTitle">Build failed</div>
           <pre className="sourceViewerRebuildErrorMessage">{rebuildState.message}</pre>
         </div>
       )}
-      {isNotebook && activeFile ? (
-        <NotebookViewer
-          filePath={activeFile.path}
-        />
-      ) : (
-        <div className="sourceViewerContent">
-          {loading ? (
-            <p className="sourceViewerMessage">Loading...</p>
+      <div className="sourceViewerSplit">
+        <div className="sourceViewerTree">
+          {!treeLoaded ? (
+            <div className="sourceViewerTreeMessage">Loading…</div>
+          ) : tree.length === 0 ? (
+            <div className="sourceViewerTreeMessage">Empty directory.</div>
           ) : (
-            <pre className="sourceViewerPre">{content}</pre>
+            <SourceTree
+              nodes={tree}
+              depth={0}
+              expanded={expanded}
+              activePath={activePath}
+              onToggle={toggleDir}
+              onSelect={setActivePath}
+            />
           )}
         </div>
-      )}
+        <div className="sourceViewerPane">
+          {!activePath ? (
+            <div className="sourceViewerMessage">Select a file to view its contents.</div>
+          ) : isNotebook ? (
+            <NotebookViewer filePath={activePath} />
+          ) : (
+            <>
+              <div className="sourceViewerPaneHeader">{activeFileName}</div>
+              <div className="sourceViewerContent">
+                {loading ? (
+                  <p className="sourceViewerMessage">Loading...</p>
+                ) : (
+                  <CodeView
+                    content={content ?? ''}
+                    language={activeLanguage}
+                    fallbackClassName="sourceViewerPre"
+                  />
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
+  );
+};
+
+const SourceTree: FC<{
+  nodes: TreeNode[];
+  depth: number;
+  expanded: Set<string>;
+  activePath: string | null;
+  onToggle: (path: string) => void;
+  onSelect: (path: string) => void;
+}> = ({ nodes, depth, expanded, activePath, onToggle, onSelect }) => (
+  <>
+    {nodes.map((node) => (
+      <SourceTreeNode
+        key={node.path}
+        node={node}
+        depth={depth}
+        expanded={expanded}
+        activePath={activePath}
+        onToggle={onToggle}
+        onSelect={onSelect}
+      />
+    ))}
+  </>
+);
+
+const SourceTreeNode: FC<{
+  node: TreeNode;
+  depth: number;
+  expanded: Set<string>;
+  activePath: string | null;
+  onToggle: (path: string) => void;
+  onSelect: (path: string) => void;
+}> = ({ node, depth, expanded, activePath, onToggle, onSelect }) => {
+  const paddingLeft = 8 + depth * 12;
+  if (node.isDirectory) {
+    const isOpen = expanded.has(node.path);
+    return (
+      <>
+        <button
+          className="sourceViewerTreeRow sourceViewerTreeRow--dir"
+          style={{ paddingLeft }}
+          onClick={() => onToggle(node.path)}
+        >
+          {isOpen ? (
+            <ChevronDownIcon className="sourceViewerTreeChevron" />
+          ) : (
+            <ChevronRightIcon className="sourceViewerTreeChevron" />
+          )}
+          {isOpen ? (
+            <FolderOpenIcon className="sourceViewerTreeIcon" />
+          ) : (
+            <FolderIcon className="sourceViewerTreeIcon" />
+          )}
+          <span className="sourceViewerTreeLabel">{node.name}</span>
+        </button>
+        {isOpen && node.children && (
+          <SourceTree
+            nodes={node.children}
+            depth={depth + 1}
+            expanded={expanded}
+            activePath={activePath}
+            onToggle={onToggle}
+            onSelect={onSelect}
+          />
+        )}
+      </>
+    );
+  }
+  const isActive = activePath === node.path;
+  return (
+    <button
+      className={`sourceViewerTreeRow${isActive ? ' sourceViewerTreeRow--active' : ''}`}
+      style={{ paddingLeft }}
+      onClick={() => onSelect(node.path)}
+    >
+      <span className="sourceViewerTreeChevron" />
+      <FileIcon className="sourceViewerTreeIcon" />
+      <span className="sourceViewerTreeLabel">{node.name}</span>
+    </button>
   );
 };
