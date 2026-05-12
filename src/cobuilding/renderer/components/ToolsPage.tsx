@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import * as LucideIcons from 'lucide-react';
 import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
+import { useAccessibilityGate } from '../utils/ensureAccessibilityPermission';
 
 type ToolsPageMiniApp = MiniAppEntry;
 
@@ -121,6 +122,7 @@ export function ToolsPage({
   const [suggestedApps, setSuggestedApps] = useState<SuggestedMiniApp[]>([]);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
+  const { check: checkAccessibility, modal: accessibilityModal } = useAccessibilityGate();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -276,11 +278,7 @@ export function ToolsPage({
 
   const handlePickFile = useCallback(async (stub: AvailableStub, filePath: string) => {
     if (stub.useWordOverlay) {
-      // Tools-page Word-overlay flow: open the file in Word, dock the overlay
-      // to the right, and start a fresh empty chat in the overlay. We do NOT
-      // pre-send a prompt here — the user picked the tool, not a specific
-      // task, so let them drive the conversation. Briefing-card flow is the
-      // surface that auto-sends a review prompt.
+      if (!(await checkAccessibility())) return;
       const absolutePath = filePath.startsWith('/') ? filePath : `${workspacePath}/${filePath}`;
       const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
       setFilePicker(null);
@@ -719,6 +717,7 @@ export function ToolsPage({
           </div>
         </div>
       )}
+      {accessibilityModal}
     </div>
   );
 }

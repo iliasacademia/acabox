@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAccessibilityGate } from '../utils/ensureAccessibilityPermission';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import {
   ArrowUpRightIcon,
@@ -129,6 +130,7 @@ export function HomePage({
   const [freeformInput, setFreeformInput] = useState('');
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
+  const { check: checkAccessibility, modal: accessibilityModal } = useAccessibilityGate();
 
   useEffect(() => {
     const refresh = () => {
@@ -169,6 +171,7 @@ export function HomePage({
         `Please build the following mini-app for me:\n\n${parsed.data.details_on_what_to_build}`,
       );
     } else if (parsed.type === 'writing_agent') {
+      if (!(await checkAccessibility())) return;
       const absolutePath = `${workspacePath}/${parsed.data.file_path}`;
       const fileUrl = absolutePath.startsWith('file://')
         ? absolutePath
@@ -310,6 +313,7 @@ export function HomePage({
           </button>
         </div>
       </div>
+      {accessibilityModal}
     </div>
   );
 }

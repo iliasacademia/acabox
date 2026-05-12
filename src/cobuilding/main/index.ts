@@ -104,6 +104,7 @@ declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
 declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 let cobuildingHttpBaseUrl: string | null = null;
+let cobuildingHttpAuthToken: string | null = null;
 
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
@@ -1020,6 +1021,7 @@ app.whenReady().then(async () => {
           const baseUrl = httpServer.getBaseUrl();
           const authToken = httpServer.getAuthToken();
           cobuildingHttpBaseUrl = baseUrl;
+          cobuildingHttpAuthToken = authToken;
           log.info(`[HTTP Server] Started on port ${port}, base URL: ${baseUrl}`);
 
           // Store HTTP port so the HTTPS server can proxy to it when started from debug panel
@@ -3235,6 +3237,39 @@ ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
   } catch (error: any) {
     return { success: false, resetSuccess: false, error: error.message };
   }
+});
+
+// Ensure accessibility permission is granted and the window monitor is running.
+// Called on-demand from the renderer right before opening the Word overlay.
+ipcMain.handle(IPC_CHANNELS.OVERLAY_ENSURE_READY, async () => {
+  if (process.platform !== 'darwin') {
+    return { hasPermission: true, started: true };
+  }
+  const hasPermission = wordAccessibility.checkPermission();
+  if (!hasPermission) {
+    wordAccessibility.openAccessibilitySettings();
+    return { hasPermission: false, started: false };
+  }
+  if (cobuildingHttpBaseUrl && cobuildingHttpAuthToken && !windowMonitorService.isRunning()) {
+    windowMonitorService.start(cobuildingHttpBaseUrl, cobuildingHttpAuthToken, false);
+    if (activeWorkspace) {
+      windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
+      windowMonitorService.setSessionsProvider(({ documentPath, documentPathLike }) => {
+        if (!activeWorkspace) return [];
+        const rows = documentPathLike !== undefined
+          ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
+          : listSessions(activeWorkspace.id, undefined, documentPath);
+        return rows.map(s => ({
+          id: s.id,
+          title: s.title,
+          created_at: s.created_at,
+          is_running: getRegisteredSession(s.id)?.isRunning ?? false,
+        }));
+      });
+    }
+    log.info('[overlay:ensureReady] Window monitor started on demand');
+  }
+  return { hasPermission: true, started: true };
 });
 
 // ---- Google Docs IPC handlers ----

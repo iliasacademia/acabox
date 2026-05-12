@@ -148,6 +148,7 @@ export const IPC_CHANNELS = {
   REQUEST_ACCESSIBILITY_PERMISSION: "request-accessibility-permission",
   RESET_ACCESSIBILITY_PERMISSION: "reset-accessibility-permission",
   ACCESSIBILITY_PERMISSION_STATUS: "accessibility-permission-status",
+  OVERLAY_ENSURE_READY: "overlay:ensureReady",
 
   // App lifecycle
   RESTART_APP: "restart-app",
