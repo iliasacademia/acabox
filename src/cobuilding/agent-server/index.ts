@@ -33,6 +33,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
+import { AGENT_MEMORY_SUBDIR } from '../shared/paths';
 
 
 // ---------------------------------------------------------------------------
@@ -655,6 +656,10 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           CLAUDE_CONFIG_DIR: '/data/.academia/claude-config',
         },
         settingSources: config.settingSources as any[],
+        settings: {
+          autoMemoryEnabled: true,
+          autoMemoryDirectory: `/data/${AGENT_MEMORY_SUBDIR}`,
+        },
         mcpServers: mcpRelayServers as any,
         allowedTools: config.allowedTools,
         hooks: {

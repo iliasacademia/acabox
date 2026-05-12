@@ -9,6 +9,7 @@ import { createBriefing } from '../db/briefingsRepository';
 import { upsertScannedFiles } from '../db/scannedFilesRepository';
 import { extractText } from '../fileMonitor/textExtractor';
 import { buildScannerSystemPrompt, buildScannerPrompt } from './systemPrompt';
+import { AGENT_MEMORY_SUBDIR } from '../../shared/paths';
 import { REPORT_JSON_SCHEMA } from './reportSchema';
 
 const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research directory. First, inspect the workspace and understand the current file structure, research projects, documents, data, scripts, outputs, and any existing naming conventions. Then recommend an effective organization plan for the directory.
@@ -372,6 +373,28 @@ const blockHiddenPaths: HookCallback = async (input) => {
   return {};
 };
 
+/** PreToolUse hook factory that restricts Write to a specific directory. */
+function makeRestrictWrites(allowedDir: string): HookCallback {
+  const resolved = path.resolve(allowedDir);
+  return async (input) => {
+    const preInput = input as PreToolUseHookInput;
+    const toolInput = preInput.tool_input as Record<string, unknown>;
+    const filePath = typeof toolInput.file_path === 'string' ? toolInput.file_path : '';
+    if (!filePath.trim()) return {};
+    const resolvedPath = path.resolve(resolved, '..', filePath);
+    if (resolvedPath !== resolved && !resolvedPath.startsWith(resolved + path.sep)) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          permissionDecision: 'deny' as const,
+          permissionDecisionReason: `Writes are only allowed to the memory directory (${allowedDir}): ${filePath}`,
+        },
+      };
+    }
+    return {};
+  };
+}
+
 /** PreToolUse hook factory that blocks Read/Glob/Grep from escaping the scan directory. */
 function makeBlockOutsideCwd(directoryPath: string): HookCallback {
   const root = path.resolve(directoryPath);
@@ -418,6 +441,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
   updateReportStatus(reportId, 'running');
 
   const abortController = new AbortController();
+  const memoryDir = path.join(directoryPath, AGENT_MEMORY_SUBDIR);
 
   try {
     const scanQuery = query({
@@ -426,9 +450,9 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
         abortController,
         pathToClaudeCodeExecutable: claudeBinaryPath,
         model: 'claude-sonnet-4-6',
-        systemPrompt: buildScannerSystemPrompt(),
-        tools: ['Read', 'Glob', 'Grep', 'Agent'],
-        allowedTools: ['Read', 'Glob', 'Grep', 'Agent'],
+        systemPrompt: buildScannerSystemPrompt(memoryDir),
+        tools: ['Read', 'Write', 'Glob', 'Grep', 'Agent'],
+        allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'Agent'],
         cwd: directoryPath,
         env: {
           ...process.env,
@@ -445,9 +469,16 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           schema: REPORT_JSON_SCHEMA,
         },
         hooks: {
-          PreToolUse: [{ matcher: 'Read|Glob|Grep', hooks: [blockHiddenPaths, makeBlockOutsideCwd(directoryPath)] }],
+          PreToolUse: [
+            { matcher: 'Read|Glob|Grep', hooks: [blockHiddenPaths, makeBlockOutsideCwd(directoryPath)] },
+            { matcher: 'Write', hooks: [makeRestrictWrites(memoryDir)] },
+          ],
         },
         settingSources: [],
+        settings: {
+          autoMemoryEnabled: true,
+          autoMemoryDirectory: memoryDir,
+        },
         stderr: (data: string) => {
           for (const line of data.split('\n').filter(Boolean)) {
             log.debug(`[DirectoryScanner:stderr] ${line}`);

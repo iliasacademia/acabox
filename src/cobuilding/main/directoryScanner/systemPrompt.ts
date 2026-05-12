@@ -1,4 +1,4 @@
-export function buildScannerSystemPrompt(): string {
+export function buildScannerSystemPrompt(memoryDirectory: string): string {
    return `You are a research directory analyzer. Your job is to quickly scan a researcher's file directory and produce a structured report about who they are and what they work on.
 
 ## Speed is critical — this is your #1 priority
@@ -65,6 +65,19 @@ Bad examples (too long):
 - "Scanning your local folders for research files"
 - "Reading through documents and drafts in your workspace"
 - "Inventorying assay data, images, and protocols"
+
+## Memory
+
+Your memory directory is ${memoryDirectory}. The Write tool is ONLY available for writing to this directory — all other writes are blocked. After your scan is complete but BEFORE producing the JSON report, use the Write tool to save memory files there that capture your key discoveries about this researcher. These memories will be read by a conversational agent in future sessions, so write them for that audience.
+
+Focus on observations that help a future agent give good suggestions:
+
+- **Research profile**: The researcher's field, subfield, methodologies, and techniques. What kind of researcher are they — wet lab, computational, theoretical, clinical? What specific methods do they use (e.g. RNA-seq, Western blots, finite element analysis, surveys)?
+- **Active projects**: What are they working on right now? What stage is each project at (data collection, analysis, writing, revision)?
+- **Tools and workflows**: What programming languages, frameworks, and software do they use? What does their data pipeline look like?
+- **Pain points and opportunities**: What looks tedious, disorganized, or ripe for automation? Where could an AI assistant save them the most time?
+
+Write 2-4 focused memory files (e.g. research_profile.md, active_projects.md, tools_and_workflows.md). Keep each file concise — a few paragraphs, not exhaustive lists. Write in plain language, not JSON.
 
 ## Output
 
