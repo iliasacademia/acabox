@@ -2,25 +2,27 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAssistantRuntime } from '@assistant-ui/react';
 import {
   ChevronLeftIcon,
-  ChevronRightIcon,
+  MessageSquareIcon,
+  MoreVerticalIcon,
   TrashIcon,
   ZapIcon,
   CheckCircleIcon,
   CircleIcon,
   SettingsIcon,
+  PlayIcon,
   PowerOffIcon,
 } from 'lucide-react';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from './ui/collapsible';
+import { DropdownMenu, AlertDialog } from 'radix-ui';
 import { dateFromSessionStoredAt } from '../sessionTimestamps';
+import { formatRelativeDate as formatRelativeDateFromDate } from '../../../shared/utils';
 
-type FilterMode = 'all' | 'reactions' | 'system';
+type FilterMode = 'reactions' | 'system';
 
 const SCHEDULE_OPTIONS = [
-  { label: 'Every 5 minutes', cron: '*/5 * * * *' },
-  { label: 'Every 10 minutes', cron: '*/10 * * * *' },
   { label: 'Every 15 minutes', cron: '*/15 * * * *' },
   { label: 'Every 30 minutes', cron: '*/30 * * * *' },
   { label: 'Every hour', cron: '0 * * * *' },
+  { label: 'Every 2 hours', cron: '0 */2 * * *' },
 ];
 
 function cronToLabel(cron: string): string {
@@ -30,12 +32,43 @@ function cronToLabel(cron: string): string {
 function formatDate(iso: string): string {
   const date = dateFromSessionStoredAt(iso);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return formatRelativeDateFromDate(date);
+}
+
+function useMessagePreview(sessionId: string): string {
+  const [preview, setPreview] = useState('');
+  useEffect(() => {
+    window.sessionsAPI.listMessages(sessionId).then((messages) => {
+      const firstUser = messages.find((m: any) => m.type === 'user');
+      let userText = '';
+      if (firstUser) {
+        try {
+          const parsed = JSON.parse(firstUser.content);
+          userText = (typeof parsed.text === 'string' ? parsed.text : firstUser.content)
+            .split('\n')[0].slice(0, 120);
+        } catch {
+          userText = firstUser.content.split('\n')[0].slice(0, 120);
+        }
+      }
+      const firstAssistant = messages.find((m: any) => m.type === 'assistant');
+      let assistantText = '';
+      if (firstAssistant) {
+        try {
+          const blocks = JSON.parse(firstAssistant.content);
+          const textBlock = Array.isArray(blocks) ? blocks.find((b: any) => b.type === 'text') : null;
+          if (textBlock?.text) assistantText = textBlock.text.split('\n')[0].slice(0, 120);
+        } catch {
+          assistantText = firstAssistant.content.split('\n')[0].slice(0, 120);
+        }
+      }
+      const parts = [
+        userText ? `You: ${userText}` : '',
+        assistantText ? `CS: ${assistantText}` : '',
+      ].filter(Boolean);
+      setPreview(parts.join(' · '));
+    }).catch(() => {});
+  }, [sessionId]);
+  return preview;
 }
 
 export function ReactionsToolView({ onBack }: { onBack: () => void }) {
@@ -186,7 +219,7 @@ export function ReactionsToolView({ onBack }: { onBack: () => void }) {
 function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisable: () => void }) {
   const [userReactions, setUserReactions] = useState<SessionData[]>([]);
   const [systemReactions, setSystemReactions] = useState<SessionData[]>([]);
-  const [filter, setFilter] = useState<FilterMode>('all');
+  const [filter, setFilter] = useState<FilterMode>('reactions');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const runtime = useAssistantRuntime();
 
@@ -206,35 +239,28 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
     load();
   }, [load]);
 
-  const showReactions = filter === 'all' || filter === 'reactions';
-  const showSystem = filter === 'all' || filter === 'system';
+  const visibleItems: SessionData[] = (filter === 'reactions' ? userReactions : systemReactions)
+    .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
 
-  const renderThreadList = (items: SessionData[]) => (
-    <div className="threadListItems">
-      {items.length === 0 && (
-        <div className="reactionsView__empty">No threads yet</div>
-      )}
-      {items.map((r) => (
-        <div key={r.id} className="threadListItem">
-          <button
-            className="threadListItemTrigger"
-            onClick={() => runtime.threads.switchToThread(r.id)}
-          >
-            <span className="threadListItemTitle">
-              <span className="threadListItemTitleText">{r.title}</span>
-              <span className="threadListItemDate">{formatDate(r.created_at)}</span>
-            </span>
-          </button>
-          <button
-            className="threadListItemAction threadListItemDelete"
-            onClick={() => handleDelete(r.id)}
-          >
-            <TrashIcon style={{ width: 14, height: 14 }} />
-          </button>
-        </div>
-      ))}
-    </div>
-  );
+  const count = visibleItems.length;
+  const latestId = visibleItems[0]?.id;
+  const prevFilterRef = useRef(filter);
+
+  useEffect(() => {
+    if (!latestId) return;
+    const filterChanged = prevFilterRef.current !== filter;
+    prevFilterRef.current = filter;
+    if (filterChanged) {
+      runtime.threads.switchToThread(latestId);
+    }
+  }, [filter, latestId, runtime]);
+
+  const initialLoadRef = useRef(false);
+  useEffect(() => {
+    if (initialLoadRef.current || !latestId) return;
+    initialLoadRef.current = true;
+    runtime.threads.switchToThread(latestId);
+  }, [latestId, runtime]);
 
   return (
     <div className="reactionsView">
@@ -244,27 +270,25 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
           Back to Tools
         </button>
 
-        <div className="paperMonitor__crumbs">
-          <ZapIcon style={{ width: 13, height: 13 }} />
-          <span>TOOLS</span>
-          <span>&middot;</span>
-          <span>REACTIONS</span>
+        <div className="pageShell__headerBlock">
+          <div className="pageShell__stats">
+            {count} REACTION{count !== 1 ? 'S' : ''}
+          </div>
+          <h1 className="pageShell__title">Reactions</h1>
+          <p className="pageShell__subtitle">
+            AI-powered insights based on your browser and file activity.
+          </p>
         </div>
-
-        <h1 className="paperMonitor__title">Reactions</h1>
-        <p className="paperMonitor__subtitle">
-          AI-powered insights based on your browser and file activity.
-        </p>
 
         <div className="paperMonitor__filtersRow">
           <div className="paperMonitor__filters">
-            {(['all', 'reactions', 'system'] as FilterMode[]).map((f) => (
+            {(['reactions', 'system'] as FilterMode[]).map((f) => (
               <button
                 key={f}
                 className={`paperMonitor__filterPill${filter === f ? ' paperMonitor__filterPill--active' : ''}`}
                 onClick={() => setFilter(f)}
               >
-                {f === 'all' ? 'All' : f.charAt(0).toUpperCase() + f.slice(1)}
+                {f.charAt(0).toUpperCase() + f.slice(1)}
               </button>
             ))}
           </div>
@@ -279,31 +303,89 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
 
         {settingsOpen && <ReactionsSettings onDisable={onDisable} />}
 
-        <div className="reactionsView__threads">
-          {showReactions && (
-            <Collapsible defaultOpen>
-              <CollapsibleTrigger className="reactionsSectionHeader">
-                <ChevronRightIcon className="reactionsSectionChevron" />
-                Reactions
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                {renderThreadList(userReactions)}
-              </CollapsibleContent>
-            </Collapsible>
+        <div className="chatListItems">
+          {visibleItems.length === 0 && (
+            <div className="reactionsView__empty">No reactions yet</div>
           )}
-          {showSystem && (
-            <Collapsible defaultOpen>
-              <CollapsibleTrigger className="reactionsSectionHeader">
-                <ChevronRightIcon className="reactionsSectionChevron" />
-                System
-              </CollapsibleTrigger>
-              <CollapsibleContent>
-                {renderThreadList(systemReactions)}
-              </CollapsibleContent>
-            </Collapsible>
-          )}
+          {visibleItems.map((r) => (
+            <ReactionThreadItem
+              key={r.id}
+              session={r}
+              onSelect={() => runtime.threads.switchToThread(r.id)}
+              onDelete={() => handleDelete(r.id)}
+            />
+          ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReactionThreadItem({
+  session,
+  onSelect,
+  onDelete,
+}: {
+  session: SessionData;
+  onSelect: () => void;
+  onDelete: () => void;
+}) {
+  const preview = useMessagePreview(session.id);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const sourceLabel = session.source === 'reactions-system' ? 'System' : 'Reaction';
+
+  return (
+    <div className="chatListItem">
+      <div className="chatListItemIcon">
+        <MessageSquareIcon style={{ width: 18, height: 18 }} />
+      </div>
+      <button className="chatListItemTrigger" onClick={onSelect}>
+        <span className="chatListItemTitle">{session.title || 'Untitled'}</span>
+        {preview && <span className="chatListItemPreview">{preview}</span>}
+      </button>
+      <div className="chatListItemMeta">
+        <span className="chatListItemDate">{formatDate(session.created_at)}</span>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button className="chatListItemMenuBtn" onClick={(e) => e.stopPropagation()}>
+              <MoreVerticalIcon style={{ width: 16, height: 16 }} />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="chatListDropdown" sideOffset={4} align="end">
+              <DropdownMenu.Item
+                className="chatListDropdownItem chatListDropdownItem--danger"
+                onSelect={() => setDeleteOpen(true)}
+              >
+                <TrashIcon style={{ width: 14, height: 14 }} />
+                Delete
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
+
+      <AlertDialog.Root open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="chatListModalOverlay" />
+          <AlertDialog.Content className="chatListModal">
+            <AlertDialog.Title className="chatListModalTitle">Delete {sourceLabel.toLowerCase()}</AlertDialog.Title>
+            <AlertDialog.Description className="chatListModalDesc">
+              Are you sure you want to delete &ldquo;{session.title}&rdquo;? This action cannot be undone.
+            </AlertDialog.Description>
+            <div className="chatListModalActions">
+              <AlertDialog.Cancel asChild>
+                <button className="chatListModalBtn chatListModalBtn--secondary">Cancel</button>
+              </AlertDialog.Cancel>
+              <AlertDialog.Action asChild>
+                <button className="chatListModalBtn chatListModalBtn--danger" onClick={onDelete}>
+                  Delete
+                </button>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </div>
   );
 }
@@ -315,6 +397,7 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
   const [savedPrompt, setSavedPrompt] = useState('');
   const [sources, setSources] = useState<string[]>(['browser', 'file']);
   const [disabling, setDisabling] = useState(false);
+  const [runningNow, setRunningNow] = useState(false);
 
   useEffect(() => {
     window.scheduledTasksAPI.list().then((tasks) => {
@@ -357,6 +440,16 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
     await window.reactionSourcesAPI.set(next);
   }, [sources]);
 
+  const handleRunNow = useCallback(async () => {
+    if (!taskId) return;
+    setRunningNow(true);
+    try {
+      await window.scheduledTasksAPI.runNow(taskId);
+    } finally {
+      setRunningNow(false);
+    }
+  }, [taskId]);
+
   const handleDisable = useCallback(async () => {
     setDisabling(true);
     try {
@@ -373,15 +466,25 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
     <div className="reactionsSettings">
       <div className="reactionsSettings__section">
         <label className="reactionsSettings__label">Schedule</label>
-        <select
-          className="reactionsSettings__select"
-          value={schedule}
-          onChange={(e) => handleScheduleChange(e.target.value)}
-        >
-          {SCHEDULE_OPTIONS.map((opt) => (
-            <option key={opt.cron} value={opt.cron}>{opt.label}</option>
-          ))}
-        </select>
+        <div className="reactionsSettings__scheduleRow">
+          <select
+            className="reactionsSettings__select"
+            value={schedule}
+            onChange={(e) => handleScheduleChange(e.target.value)}
+          >
+            {SCHEDULE_OPTIONS.map((opt) => (
+              <option key={opt.cron} value={opt.cron}>{opt.label}</option>
+            ))}
+          </select>
+          <button
+            className="reactionsSettings__runNowBtn"
+            onClick={handleRunNow}
+            disabled={!taskId || runningNow}
+          >
+            <PlayIcon style={{ width: 12, height: 12 }} />
+            {runningNow ? 'Running...' : 'Run now'}
+          </button>
+        </div>
       </div>
 
       <div className="reactionsSettings__section">

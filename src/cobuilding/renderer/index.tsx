@@ -848,7 +848,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                 <div className="toolDetailContent">
                   {toolChatOpen ? (
                     <PanelGroup direction="horizontal" autoSaveId="cobuild.reactionsLayout" className="appPanelGroup">
-                      <Panel id="reactionsMain" order={1} defaultSize={65} minSize={30}>
+                      <Panel id="reactionsMain" order={1} defaultSize={50} minSize={30}>
                         <div className="mainPanel">
                           <ReactionsToolView onBack={() => setToolsViewMode('listing')} />
                         </div>
@@ -861,7 +861,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                           title="Close chat panel"
                         />
                       </div>
-                      <Panel id="reactionsChat" order={2} defaultSize={35} minSize={18} maxSize={50}>
+                      <Panel id="reactionsChat" order={2} defaultSize={50} minSize={18} maxSize={70}>
                         <div className="chatSidePanel">
                           <Thread />
                         </div>

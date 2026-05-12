@@ -7314,6 +7314,39 @@ button.briefingHistoryRow__status {
   margin-bottom: 8px;
 }
 
+.reactionsSettings__scheduleRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reactionsSettings__runNowBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #5c5549;
+  background: #fff;
+  border: 1px solid #d5d0ca;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.reactionsSettings__runNowBtn:hover:not(:disabled) {
+  background: #faf8f5;
+  border-color: #b5aea4;
+}
+
+.reactionsSettings__runNowBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 .reactionsSettings__select {
   font-family: 'DM Sans', sans-serif;
   font-size: 0.875rem;
