@@ -93,26 +93,34 @@ type SidebarTab = 'home' | 'tools' | 'files' | 'chats' | 'debug' | 'settings';
 function NotificationNavigator({
   setSidebarTab,
   setChatViewMode,
+  setToolsViewMode,
   deactivateAllTabs,
 }: {
   setSidebarTab: (tab: SidebarTab) => void;
   setChatViewMode: (mode: 'list' | 'detail') => void;
+  setToolsViewMode: (mode: 'listing' | 'detail' | 'paper-monitor' | 'reactions') => void;
   deactivateAllTabs: () => void;
 }) {
   const runtime = useAssistantRuntime();
 
   useEffect(() => {
-    const handler = (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
+    const handler = async (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
       console.log('[NotificationNav] Renderer received notification:navigate IPC:', JSON.stringify(navigation));
       if (navigation.type === 'thread' && navigation.threadId) {
-        console.log('[NotificationNav] Thread navigation — threadId:', navigation.threadId, 'sidebarTab:', navigation.sidebarTab ?? 'chats (default)');
-        setSidebarTab(navigation.sidebarTab ?? 'chats');
-        setChatViewMode('detail');
+        const session = await window.sessionsAPI.get(navigation.threadId);
+        const isReactions = session?.source === 'reactions' || session?.source === 'reactions-system';
+        if (isReactions) {
+          console.log('[NotificationNav] Reactions thread — navigating to tools/reactions view');
+          setSidebarTab('tools');
+          setToolsViewMode('reactions');
+        } else {
+          console.log('[NotificationNav] Thread navigation — threadId:', navigation.threadId, 'sidebarTab:', navigation.sidebarTab ?? 'chats (default)');
+          setSidebarTab(navigation.sidebarTab ?? 'chats');
+          setChatViewMode('detail');
+        }
         deactivateAllTabs();
         try {
-          console.log('[NotificationNav] Calling runtime.threads.switchToThread("' + navigation.threadId + '")');
           runtime.threads.switchToThread(navigation.threadId);
-          console.log('[NotificationNav] switchToThread returned successfully');
         } catch (err) {
           console.error('[NotificationNav] switchToThread threw an error:', err);
         }
@@ -125,7 +133,7 @@ function NotificationNavigator({
     };
     window.electronAPI.on('notification:navigate', handler);
     return () => window.electronAPI.removeListener('notification:navigate', handler);
-  }, [runtime, setSidebarTab, setChatViewMode, deactivateAllTabs]);
+  }, [runtime, setSidebarTab, setChatViewMode, setToolsViewMode, deactivateAllTabs]);
 
   return null;
 }
@@ -667,7 +675,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
       <ResetThreadOnLeavingDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
-      <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
+      <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} setToolsViewMode={setToolsViewMode} deactivateAllTabs={deactivateAllTabs} />
       <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
         <div className="appRoot">
