@@ -98,8 +98,8 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
 
   useEffect(() => {
     if (preBuilt) return;
-    window.filesAPI.readFile(`${appDir}/dist/bundle.js`).then((res: any) => {
-      if (res?.error) handleRebuild();
+    window.filesAPI.fileExists(`${appDir}/dist/bundle.js`).then((exists) => {
+      if (!exists) handleRebuild();
     }).catch(() => handleRebuild());
   }, [appDir, handleRebuild, preBuilt]);
 
@@ -236,40 +236,98 @@ const MiniAppHeader: FC<{
   );
 };
 
-interface InstallStatus {
-  registry: string;
-  packages: string[];
-  lastLine: string;
+interface AppPackage {
+  registry: PackageRegistry;
+  package: string;
+  state: PackageState | 'unknown';
+  line: string;
 }
 
-const InstallingView: FC<{ message: string; installStatus?: InstallStatus | null }> = ({ message, installStatus }) => (
+const Spinner: FC = () => (
+  <div style={{
+    width: 24, height: 24, border: '3px solid #e0e0e0', borderTopColor: '#666',
+    borderRadius: '50%', animation: 'spin 0.8s linear infinite',
+  }} />
+);
+
+const SimpleInstallingView: FC<{ message: string }> = ({ message }) => (
   <div style={{
     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
     height: '100%', paddingBottom: '12vh', gap: 12, color: '#666', fontSize: 14,
   }}>
-    <div style={{
-      width: 24, height: 24, border: '3px solid #e0e0e0', borderTopColor: '#666',
-      borderRadius: '50%', animation: 'spin 0.8s linear infinite',
-    }} />
+    <Spinner />
     <span>{message}</span>
-    {installStatus && (
-      <div style={{ fontSize: 12, color: '#888', textAlign: 'center', maxWidth: 400 }}>
-        <div style={{ marginBottom: 4 }}>
-          <strong>{installStatus.registry}</strong>: {installStatus.packages.join(', ')}
-        </div>
-        {installStatus.lastLine && (
-          <div style={{
-            fontFamily: 'SF Mono, Menlo, Monaco, monospace', fontSize: 10,
-            color: '#aaa', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          }}>
-            {installStatus.lastLine}
-          </div>
-        )}
-      </div>
-    )}
     <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
   </div>
 );
+
+function displayPackageName(pkg: AppPackage): string {
+  switch (pkg.registry) {
+    case 'npm': return pkg.package.split('@')[0];
+    case 'manual': return pkg.package.split('/').pop() ?? pkg.package;
+    default: return pkg.package;
+  }
+}
+
+const PackageRow: FC<{ pkg: AppPackage }> = ({ pkg }) => {
+  const icon =
+    pkg.state === 'installed' ? '✓'
+      : pkg.state === 'installing' ? '⟳'
+      : pkg.state === 'failed' ? '✗'
+      : '⊘';
+  const colors = {
+    installed: '#1a7f37',
+    installing: '#bf8700',
+    failed: '#cf222e',
+    queued: '#888',
+    unknown: '#888',
+  } as const;
+  const label = pkg.state === 'installed' ? 'installed'
+    : pkg.state === 'installing' ? (pkg.line || 'installing…')
+    : pkg.state === 'failed' ? 'failed'
+    : 'queued';
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12, marginBottom: 3 }}>
+      <span style={{ color: colors[pkg.state], width: 12, textAlign: 'center' }}>{icon}</span>
+      <span style={{
+        color: '#666', background: '#eee', borderRadius: 3, padding: '1px 5px',
+        fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.3,
+        flexShrink: 0,
+      }}>
+        {pkg.registry}
+      </span>
+      <code style={{ color: '#333' }}>{displayPackageName(pkg)}</code>
+      <span
+        style={{
+          color: '#888', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap', fontFamily: pkg.state === 'installing' ? 'SF Mono, Menlo, Monaco, monospace' : undefined,
+          fontSize: pkg.state === 'installing' ? 10 : 12,
+        }}
+        title={label}
+      >
+        {label}
+      </span>
+    </div>
+  );
+};
+
+const PackageChecklistView: FC<{ packages: AppPackage[] }> = ({ packages }) => {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      height: '100%', paddingBottom: '12vh', gap: 16, color: '#666', fontSize: 14,
+    }}>
+      <Spinner />
+      <span>Installing software...</span>
+      <div style={{ width: '100%', maxWidth: 440 }}>
+        {packages.map((p) => (
+          <PackageRow key={`${p.registry}:${p.package}`} pkg={p} />
+        ))}
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  );
+};
 
 const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dirName, children }) => {
   const [containerReady, setContainerReady] = useState<boolean | null>(null);
@@ -278,7 +336,10 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
   const statusMessage = (setup.state === 'downloading' || setup.state === 'pending')
     ? (setup.message || 'Setting up environment...')
     : 'Waiting for container...';
-  const [installStatus, setInstallStatus] = useState<InstallStatus | null>(null);
+
+  // The tool's package list + each one's current state/line, used for the
+  // per-package checklist while deps are installing.
+  const [packages, setPackages] = useState<AppPackage[] | null>(null);
 
   // Check container status
   useEffect(() => {
@@ -317,27 +378,73 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
     };
   }, [containerReady]);
 
-  // Listen for streaming install progress for this app
+  // Fetch this app's install requests so we know which packages to track.
+  // Subscribe to per-package state/line events filtered to those packages.
+  // Seed initial state from the installer's snapshot so mid-wave opens don't
+  // show stale `queued` for packages that already transitioned.
   useEffect(() => {
-    const cleanup = window.containerAPI.onInstallProgress((progress) => {
-      if (progress.dirName !== dirName) return;
-      if (progress.type === 'step' && progress.registry && progress.packages) {
-        setInstallStatus({ registry: progress.registry, packages: progress.packages, lastLine: '' });
-      } else if (progress.type === 'line' && progress.line) {
-        // If a line arrives before any step (e.g. we subscribed mid-install
-        // and the replay path didn't fire), seed a minimal placeholder so the
-        // line is still surfaced rather than silently dropped.
-        setInstallStatus((prev) =>
-          prev
-            ? { ...prev, lastLine: progress.line! }
-            : { registry: 'install', packages: [], lastLine: progress.line! },
-        );
-      } else if (progress.type === 'done') {
-        setInstallStatus(null);
+    if (!containerReady) return;
+    let cancelled = false;
+
+    Promise.all([
+      window.containerAPI.getAppInstallRequests(dirName),
+      window.containerAPI.getEnvironmentInfo(),
+    ]).then(([requests, envInfo]) => {
+      if (cancelled) return;
+      const stateSnapshot = envInfo?.packageStates;
+      const lineSnapshot = envInfo?.packageLines;
+      const initial: AppPackage[] = [];
+      for (const r of requests) {
+        for (const p of r.packages) {
+          const state = (stateSnapshot?.[r.registry]?.[p] as PackageState | undefined) ?? 'unknown';
+          const line = lineSnapshot?.[r.registry]?.[p] ?? '';
+          initial.push({ registry: r.registry, package: p, state, line });
+        }
       }
+      setPackages(initial);
     });
-    return cleanup;
-  }, [dirName]);
+
+    return () => { cancelled = true; };
+  }, [containerReady, dirName]);
+
+  // Live updates: when a package this app cares about changes state or
+  // streams a line, update the matching row. The subscriptions only need to
+  // attach once per (containerReady, dirName); per-package filtering reads
+  // from the latest `packages` via setState's updater.
+  useEffect(() => {
+    if (!containerReady) return;
+    const cleanups = [
+      window.containerAPI.onPackageState((e) => {
+        setPackages((prev) => {
+          if (!prev) return prev;
+          let changed = false;
+          const next = prev.map((p) => {
+            if (p.registry === e.registry && p.package === e.package) {
+              changed = true;
+              return { ...p, state: e.state };
+            }
+            return p;
+          });
+          return changed ? next : prev;
+        });
+      }),
+      window.containerAPI.onPackageLine((e) => {
+        setPackages((prev) => {
+          if (!prev) return prev;
+          let changed = false;
+          const next = prev.map((p) => {
+            if (p.registry === e.registry && p.package === e.package) {
+              changed = true;
+              return { ...p, line: e.line };
+            }
+            return p;
+          });
+          return changed ? next : prev;
+        });
+      }),
+    ];
+    return () => cleanups.forEach((fn) => fn());
+  }, [containerReady]);
 
   // Once container is ready, ensure app deps are installed
   useEffect(() => {
@@ -350,11 +457,14 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
         setDepsReady(true);
         return;
       }
+      // Flip from `null` to `false` so the gate renders the install checklist
+      // instead of a blank screen during the install wait.
+      setDepsReady(false);
       window.containerAPI.ensureAppDeps(dirName)
         .then(() => { if (!cancelled) setDepsReady(true); })
         .catch((err) => {
           console.error(`[MiniAppViewer] Failed to install deps for ${dirName}:`, err);
-          // Don't set depsReady on failure — keep showing the installing indicator.
+          // Leave depsReady=false so the install indicator stays visible.
           // The user can retry by closing and reopening the app.
         });
     });
@@ -363,9 +473,13 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
   }, [containerReady, dirName]);
 
   if (containerReady === null) return null;
-  if (!containerReady) return <InstallingView message={statusMessage} />;
+  if (!containerReady) return <SimpleInstallingView message={statusMessage} />;
   if (depsReady === null) return null;
-  if (!depsReady) return <InstallingView message="Installing software..." installStatus={installStatus} />;
+  if (!depsReady) {
+    if (packages === null) return null;  // still fetching the install plan
+    if (packages.length === 0) return <SimpleInstallingView message="Installing software..." />;
+    return <PackageChecklistView packages={packages} />;
+  }
 
   return <>{children}</>;
 };

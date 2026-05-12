@@ -116,10 +116,15 @@ class CobuildingContainerService {
   private agentPort: number | null = null;
   private kernelPort: number | null = null;
   private kernelStartPromise: Promise<void> | null = null;
+  private backgroundBuildPromise: Promise<void> | null = null;
 
   // ─── Public API ─────────────────────────────────────────────────
 
-  async start(workspacePath: string, onProgress?: ProgressCallback): Promise<void> {
+  async start(
+    workspacePath: string,
+    onProgress?: ProgressCallback,
+    onBackgroundProgress?: ProgressCallback,
+  ): Promise<void> {
     if (this.isRunning() && this.currentWorkspacePath === workspacePath) {
       return;
     }
@@ -158,6 +163,27 @@ class CobuildingContainerService {
       const imageUpToDate = hasFullImage && await this.isImageUpToDate(podmanBin, workspacePath);
       log.info(`[ContainerService] Image state: upToDate=${imageUpToDate}, hasFullImage=${hasFullImage}`);
 
+      // Guarantee a terminal `ready`/`error` event so renderer indicators clear.
+      // Single-flight: if a build is already running, reuse its promise instead
+      // of racing a second `podman build` against the same image tag.
+      const backgroundBuildAndFinalize = (): Promise<void> => {
+        if (this.backgroundBuildPromise) return this.backgroundBuildPromise;
+        const p = this.ensureImageBuilt(podmanBin, onBackgroundProgress, workspacePath)
+          .then(() => {
+            onBackgroundProgress?.('ready', 'Image build complete');
+          })
+          .catch((err) => {
+            const message = (err as Error).message;
+            log.warn(`[ContainerService] Background image build failed: ${message}`);
+            onBackgroundProgress?.('error', `Image build failed: ${message}`);
+          })
+          .finally(() => {
+            this.backgroundBuildPromise = null;
+          });
+        this.backgroundBuildPromise = p;
+        return p;
+      };
+
       if (imageUpToDate) {
         // Full image is current — start directly
         await this.runContainer(podmanBin, workspacePath);
@@ -165,20 +191,15 @@ class CobuildingContainerService {
         // Full image exists but is stale — start from it now, rebuild in background
         log.info('[ContainerService] Starting from existing image, rebuilding in background');
         await this.runContainer(podmanBin, workspacePath);
-        this.ensureImageBuilt(podmanBin, undefined, workspacePath).catch((err) => {
-          log.warn(`[ContainerService] Background image build failed: ${(err as Error).message}`);
-        });
+        backgroundBuildAndFinalize();
       } else {
         // No full image — start from the base image immediately so the agent
         // is available. Build the full image (with workspace deps) in the
         // background for next restart. App deps install live via backgroundBuilder.
-        const imageSource = readImageSource();
-        const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+        const baseImage = this.getBaseImageRef();
         log.info(`[ContainerService] Starting from base image (${baseImage}), building full image in background`);
         await this.runContainer(podmanBin, workspacePath, baseImage);
-        this.ensureImageBuilt(podmanBin, undefined, workspacePath).catch((err) => {
-          log.warn(`[ContainerService] Background image build failed: ${(err as Error).message}`);
-        });
+        backgroundBuildAndFinalize();
       }
 
       log.debug('[ContainerService] Container started successfully');
@@ -280,8 +301,16 @@ class CobuildingContainerService {
       proc.stdout?.on('data', handleData);
       proc.stderr?.on('data', handleData);
 
-      proc.on('close', (code) => {
-        resolve({ exitCode: code ?? 0 });
+      proc.on('close', (code, signal) => {
+        // If the process was killed by a signal (e.g., container stop killed
+        // the in-flight pip exec), report a non-zero exit so callers can't
+        // mistake it for success and mark packages as installed.
+        if (code === null) {
+          log.warn(`[ContainerService] execStreaming killed by signal ${signal} during: ${command.join(' ')}`);
+          resolve({ exitCode: 1 });
+          return;
+        }
+        resolve({ exitCode: code });
       });
 
       proc.on('error', (error) => {
@@ -824,8 +853,24 @@ class CobuildingContainerService {
     }
   }
 
+  /** Whether the base image is present locally (distinct from the full workspace image). */
+  async isBaseImageDownloaded(): Promise<boolean> {
+    try {
+      const { stdout } = await this.execAsync(this.getPodmanBin(), [
+        'image', 'inspect', '--format', '{{.Id}}', this.getBaseImageRef(),
+      ], this.getExecEnv());
+      return stdout.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   private useBundled(): boolean {
     return readBinaryMode() === 'bundled';
+  }
+
+  private getBaseImageRef(): string {
+    return readImageSource() === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
   }
 
   // ─── Podman Binary Resolution ──────────────────────────────────
@@ -1161,8 +1206,7 @@ class CobuildingContainerService {
 
   /** Check if the container image is up to date without building. */
   private async isImageUpToDate(podmanBin: string, workspacePath?: string): Promise<boolean> {
-    const imageSource = readImageSource();
-    const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+    const baseImage = this.getBaseImageRef();
     let currentHash: string;
     if (workspacePath) {
       const result = generateEnvironment(workspacePath, baseImage);
@@ -1206,7 +1250,7 @@ class CobuildingContainerService {
 
   private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback, workspacePath?: string): Promise<void> {
     const imageSource = readImageSource();
-    const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+    const baseImage = this.getBaseImageRef();
 
     let currentHash: string;
     let buildContext: string;
@@ -1388,8 +1432,39 @@ class CobuildingContainerService {
 
     log.debug(`[ContainerService] Running: podman ${args.join(' ')}`);
 
-    const { stdout } = await this.execAsync(podmanBin, args, env);
-    const containerId = stdout.trim().substring(0, 12);
+    // No timeout: when the base image is absent, `podman run` implicitly pulls
+    // it, which can take 5+ minutes on slow connections.
+    const containerId = await new Promise<string>((resolve, reject) => {
+      const proc = spawn(podmanBin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdoutBuf = '';
+      const stderrLines: string[] = [];
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        stdoutBuf += data.toString();
+      });
+      proc.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          log.debug(`[ContainerService] [run] ${trimmed}`);
+          stderrLines.push(trimmed);
+          if (stderrLines.length > 20) stderrLines.shift();
+        }
+      });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdoutBuf.trim().substring(0, 12));
+        } else {
+          const tail = stderrLines.slice(-5).join('\n');
+          reject(new Error(`podman run exited with code ${code}${tail ? ': ' + tail : ''}`));
+        }
+      });
+      proc.on('error', (err) => {
+        reject(new Error(`Failed to spawn podman run: ${err.message}`));
+      });
+    });
     log.debug(`[ContainerService] Container started with ID: ${containerId}`);
 
     // Verify the mount is correct

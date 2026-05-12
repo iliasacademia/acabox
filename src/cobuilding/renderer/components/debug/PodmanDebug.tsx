@@ -12,9 +12,9 @@ export const PodmanDebug: React.FC = () => {
   const [bundledDownloaded, setBundledDownloaded] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [containerName, setContainerName] = useState('');
-  const [imageBuilt, setImageBuilt] = useState(false);
+  const [baseImageDownloaded, setBaseImageDownloaded] = useState(false);
   const [imageSource, setImageSource] = useState<ImageSource>('registry');
-  const [imageInProgress, setImageInProgress] = useState(false);
+  const [baseImageInProgress, setBaseImageInProgress] = useState(false);
   const [deletingImage, setDeletingImage] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -23,15 +23,21 @@ export const PodmanDebug: React.FC = () => {
   const [rebuilding, setRebuilding] = useState(false);
   const [expandedApps, setExpandedApps] = useState<Set<string>>(new Set());
   const [bgBuildMessage, setBgBuildMessage] = useState<string | null>(null);
+  type PackageStates = Record<PackageRegistry, Record<string, PackageState>>;
+  const emptyPackageStates: PackageStates = { pip: {}, npm: {}, R: {}, apt: {}, manual: {} };
+  const [packageStates, setPackageStates] = useState<PackageStates>(emptyPackageStates);
+  // Latest streamed line per (registry, package), shown next to the active row.
+  const [packageLines, setPackageLines] = useState<Record<string, string>>({});
+  const [liveContainerExpanded, setLiveContainerExpanded] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
-      const [{ running: isRunning }, mode, bundled, name, imgBuilt, imgSource, env] = await Promise.all([
+      const [{ running: isRunning }, mode, bundled, name, baseDownloaded, imgSource, env] = await Promise.all([
         window.containerAPI.status(),
         window.containerAPI.getBinaryMode(),
         window.containerAPI.getBundledStatus(),
         window.containerAPI.getName(),
-        window.containerAPI.isImageBuilt(),
+        window.containerAPI.isBaseImageDownloaded(),
         window.containerAPI.getImageSource(),
         window.containerAPI.getEnvironmentInfo(),
       ]);
@@ -39,7 +45,7 @@ export const PodmanDebug: React.FC = () => {
       setBinaryMode(mode);
       setBundledDownloaded(bundled.downloaded);
       setContainerName(name);
-      setImageBuilt(imgBuilt);
+      setBaseImageDownloaded(baseDownloaded);
       setImageSource(imgSource);
       setEnvInfo(env);
       // Clear transient states when underlying state settles
@@ -58,18 +64,41 @@ export const PodmanDebug: React.FC = () => {
     return () => clearInterval(interval);
   }, [refreshStatus]);
 
-  // Track image build/download progress to show inline status
+  // Track base image download progress only. Build stages (workspace deps
+  // layering on top of the base) are surfaced via the Environment section's
+  // Background build row, not here.
   useEffect(() => {
     const cleanup = window.containerAPI.onProgress((progress) => {
-      const imageStages = ['pull', 'build', 'build-image'];
-      const imageDoneStages = ['build-image-done', 'run', 'ready', 'setup-done'];
-      if (imageStages.includes(progress.stage)) {
-        setImageInProgress(true);
-      } else if (imageDoneStages.includes(progress.stage)) {
-        setImageInProgress(false);
+      if (progress.stage === 'pull') {
+        setBaseImageInProgress(true);
+      } else if (progress.stage === 'ready' || progress.stage === 'setup-done' || progress.stage === 'run') {
+        setBaseImageInProgress(false);
       }
     });
     return cleanup;
+  }, []);
+
+  // Seed package states from each envInfo poll. Reconciles every 3s in case
+  // a realtime event was missed.
+  useEffect(() => {
+    if (!envInfo) return;
+    setPackageStates(envInfo.packageStates);
+  }, [envInfo]);
+
+  // Apply realtime per-package state and line events.
+  useEffect(() => {
+    const cleanups = [
+      window.containerAPI.onPackageState((e) => {
+        setPackageStates((prev) => ({
+          ...prev,
+          [e.registry]: { ...prev[e.registry], [e.package]: e.state },
+        }));
+      }),
+      window.containerAPI.onPackageLine((e) => {
+        setPackageLines((prev) => ({ ...prev, [`${e.registry}:${e.package}`]: e.line }));
+      }),
+    ];
+    return () => cleanups.forEach((fn) => fn());
   }, []);
 
   // Track background build progress
@@ -157,7 +186,6 @@ export const PodmanDebug: React.FC = () => {
     try {
       await window.containerAPI.start();
       setRunning(true);
-      setImageBuilt(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -193,12 +221,29 @@ export const PodmanDebug: React.FC = () => {
     setDeletingImage(true);
     try {
       await window.containerAPI.deleteImage();
-      setImageBuilt(false);
+      setBaseImageDownloaded(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setDeletingImage(false);
     }
+  };
+
+  // Registry-mode equivalent of "build image": pull the base then auto-start
+  // so the user lands in a working state in one click.
+  const handleDownloadImage = async () => {
+    setError(null);
+    setBaseImageInProgress(true);
+    try {
+      await window.containerAPI.downloadImage();
+      setBaseImageDownloaded(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      return;
+    } finally {
+      setBaseImageInProgress(false);
+    }
+    await handleStart();
   };
 
   if (initializing) {
@@ -268,7 +313,7 @@ export const PodmanDebug: React.FC = () => {
       )}
 
       <div className="debugSection__modeToggle">
-        <span className="debugSection__modeLabel">Image Source:</span>
+        <span className="debugSection__modeLabel">Base Image Source:</span>
         <button
           className={`debugSection__modeBtn ${imageSource === 'registry' ? 'debugSection__modeBtn--active' : ''}`}
           onClick={() => handleImageSourceChange('registry')}
@@ -289,36 +334,30 @@ export const PodmanDebug: React.FC = () => {
       </div>
 
       <div className="debugSection__infoRow">
-        <span className="debugSection__infoLabel">Image:</span>
+        <span className="debugSection__infoLabel">Base Image:</span>
         {deletingImage ? (
           <span className="debugSection__imageInProgress">Deleting...</span>
-        ) : imageInProgress ? (
-          <span className="debugSection__imageInProgress">
-            {imageSource === 'registry' ? 'Downloading...' : 'Building...'}
-          </span>
-        ) : imageBuilt ? (
+        ) : baseImageInProgress ? (
+          <span className="debugSection__imageInProgress">Downloading...</span>
+        ) : baseImageDownloaded ? (
           <>
-            <span className="debugSection__bundledOk">
-              {imageSource === 'registry' ? 'Image downloaded' : 'Ready'}
-            </span>
+            <span className="debugSection__bundledOk">Downloaded</span>
             <button
               className="debugSection__btnInline debugSection__btnInline--danger"
               onClick={handleDeleteImage}
               disabled={running}
-              title="Remove the container image"
+              title="Remove the base image"
             >
               <Trash2 size={14} />
             </button>
           </>
         ) : (
           <>
-            <span className="debugSection__imageNotBuilt">
-              {imageSource === 'registry' ? 'Not downloaded' : 'Not built'}
-            </span>
+            <span className="debugSection__imageNotBuilt">Not downloaded</span>
             <button
               className="debugSection__btnInline"
-              onClick={handleStart}
-              disabled={starting || running || needsDownload}
+              onClick={imageSource === 'registry' ? handleDownloadImage : handleStart}
+              disabled={starting || running || needsDownload || baseImageInProgress}
             >
               {imageSource === 'local' ? 'Build image' : 'Download image'}
             </button>
@@ -333,6 +372,10 @@ export const PodmanDebug: React.FC = () => {
         bgBuildMessage={bgBuildMessage}
         running={running}
         expandedApps={expandedApps}
+        packageStates={packageStates}
+        packageLines={packageLines}
+        liveContainerExpanded={liveContainerExpanded}
+        onToggleLiveContainer={() => setLiveContainerExpanded((v) => !v)}
         onRebuildEnvironment={handleRebuildEnvironment}
         onToggleApp={toggleApp}
       />}
@@ -383,13 +426,26 @@ interface EnvironmentSectionProps {
   bgBuildMessage: string | null;
   running: boolean;
   expandedApps: Set<string>;
+  packageStates: Record<PackageRegistry, Record<string, PackageState>>;
+  packageLines: Record<string, string>;
+  liveContainerExpanded: boolean;
+  onToggleLiveContainer: () => void;
   onRebuildEnvironment: () => void;
   onToggleApp: (name: string) => void;
 }
 
+const subBlockStyle: React.CSSProperties = {
+  margin: '8px 0', padding: '10px', background: '#fff', borderRadius: 4, border: '1px solid #e8e8e8',
+};
+
+const subHeadingStyle: React.CSSProperties = {
+  margin: '0 0 6px', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.4, color: '#666', fontWeight: 600,
+};
+
 const EnvironmentSection: React.FC<EnvironmentSectionProps> = ({
   envInfo, rebuilding, bgBuildMessage, running,
-  expandedApps, onRebuildEnvironment, onToggleApp,
+  expandedApps, packageStates, packageLines, liveContainerExpanded,
+  onToggleLiveContainer, onRebuildEnvironment, onToggleApp,
 }) => {
   const totalPkgs = envInfo.totalPip.length + envInfo.totalNpm.length +
     envInfo.totalR.length + envInfo.totalApt.length + envInfo.totalSetup.length;
@@ -407,58 +463,129 @@ const EnvironmentSection: React.FC<EnvironmentSectionProps> = ({
       a.r.length > 0 || a.apt.length > 0 || a.setup.length > 0,
   );
 
+  // Bucket packages by registry × state for the live container view.
+  const registryOrder: PackageRegistry[] = ['pip', 'apt', 'R', 'npm', 'manual'];
+  const isActive = (s: PackageState) => s === 'queued' || s === 'installing' || s === 'failed';
+  const activePackages = registryOrder.flatMap((r) =>
+    Object.entries(packageStates[r] ?? {})
+      .filter(([, s]) => isActive(s))
+      .map(([pkg, state]) => ({ registry: r, package: pkg, state })),
+  );
+  const totalActive = activePackages.length;
+
   return (
     <div style={{ margin: '16px 0', padding: '12px', background: '#f8f9fa', borderRadius: 6, border: '1px solid #e0e0e0' }}>
       <h4 className="debugSection__subtitle" style={{ marginTop: 0 }}>Environment</h4>
 
-      {/* Image type */}
-      <div className="debugSection__infoRow">
-        <span className="debugSection__infoLabel">Image type:</span>
-        {envInfo.imageType === 'user' ? (
-          <span className="debugSection__bundledOk">User image ({totalPkgs} extra package{totalPkgs !== 1 ? 's' : ''})</span>
-        ) : (
-          <span style={{ color: '#666' }}>Base image only</span>
+      {/* ─── Live container ─── */}
+      <div style={subBlockStyle}>
+        <div style={subHeadingStyle}>Live container</div>
+        <div className="debugSection__infoRow">
+          <span
+            className={`debugSection__indicator ${
+              !running ? 'debugSection__indicator--stopped'
+                : totalActive > 0 ? 'debugSection__indicator--starting'
+                : 'debugSection__indicator--running'
+            }`}
+            style={{ display: 'inline-block', marginRight: 6 }}
+          />
+          {!running ? (
+            <span style={{ color: '#666' }}>No container running</span>
+          ) : totalActive === 0 ? (
+            <span style={{ color: '#1a7f37' }}>All packages installed</span>
+          ) : (
+            <button
+              onClick={onToggleLiveContainer}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                display: 'inline-flex', alignItems: 'center', gap: 4, color: '#bf8700', fontSize: 13,
+              }}
+              title={liveContainerExpanded ? 'Hide active packages' : 'Show active packages'}
+            >
+              {liveContainerExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              Installing {totalActive} package{totalActive !== 1 ? 's' : ''}
+            </button>
+          )}
+        </div>
+        {running && totalActive > 0 && liveContainerExpanded && (
+          <div style={{ marginTop: 6, paddingLeft: 18 }}>
+            {activePackages.map(({ registry, package: pkg, state }) => {
+              const line = packageLines[`${registry}:${pkg}`];
+              const name = registry === 'npm' ? pkg.split('@')[0] : pkg;
+              const stateColor = state === 'installing' ? '#bf8700'
+                : state === 'failed' ? '#cf222e' : '#888';
+              const icon = state === 'installing' ? '⟳' : state === 'failed' ? '✗' : '⊘';
+              return (
+                <div key={`${registry}:${pkg}`} style={{ fontSize: 12, marginBottom: 4 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                    <span style={{ color: stateColor, width: 12, textAlign: 'center' }}>{icon}</span>
+                    <span style={{ color: '#888', fontSize: 10, fontWeight: 600, minWidth: 38 }}>{registry}</span>
+                    <code style={{ color: '#333' }}>{name}</code>
+                    <span style={{ color: '#888', fontSize: 11 }}>{state}</span>
+                  </div>
+                  {state === 'installing' && line && (
+                    <div style={{
+                      fontFamily: 'SF Mono, Menlo, Monaco, monospace', fontSize: 10, color: '#aaa',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      marginLeft: 60,
+                    }}>
+                      {line}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 
-      {/* Hash / sync status */}
-      <div className="debugSection__infoRow">
-        <span className="debugSection__infoLabel">Sync:</span>
-        {envInfo.inSync ? (
-          <span className="debugSection__bundledOk">In sync</span>
-        ) : envInfo.environmentHash ? (
-          <span style={{ color: '#bf8700' }}>Rebuild needed</span>
-        ) : (
-          <span style={{ color: '#666' }}>Not yet built</span>
-        )}
-        {envInfo.imageHash && (
-          <code className="debugSection__mono" style={{ marginLeft: 8 }} title="Image hash">
-            {envInfo.imageHash}
-          </code>
-        )}
+      {/* ─── Next-session image ─── */}
+      <div style={subBlockStyle}>
+        <div style={subHeadingStyle}>Next-session image</div>
+        <div className="debugSection__infoRow">
+          <span className="debugSection__infoLabel">Type:</span>
+          {envInfo.imageType === 'user' ? (
+            <span className="debugSection__bundledOk">User image ({totalPkgs} extra package{totalPkgs !== 1 ? 's' : ''})</span>
+          ) : (
+            <span style={{ color: '#666' }}>Base image only</span>
+          )}
+        </div>
+        <div className="debugSection__infoRow">
+          <span className="debugSection__infoLabel">Sync:</span>
+          {envInfo.inSync ? (
+            <span className="debugSection__bundledOk">In sync</span>
+          ) : envInfo.environmentHash ? (
+            <span style={{ color: '#bf8700' }}>Rebuild needed</span>
+          ) : (
+            <span style={{ color: '#666' }}>Not yet built</span>
+          )}
+          {envInfo.imageHash && (
+            <code className="debugSection__mono" style={{ marginLeft: 8 }} title="Image hash">
+              {envInfo.imageHash}
+            </code>
+          )}
+        </div>
+        <div className="debugSection__infoRow">
+          <span className="debugSection__infoLabel">Build:</span>
+          <span
+            className={`debugSection__indicator ${envInfo.backgroundBuildState !== 'idle' ? 'debugSection__indicator--starting' : ''}`}
+            style={{ display: 'inline-block', marginRight: 4 }}
+          />
+          <span>{bgBuildMessage || buildStateLabel(envInfo.backgroundBuildState)}</span>
+        </div>
+        <div className="debugSection__actions" style={{ marginTop: 8 }}>
+          <button
+            className="debugSection__btn debugSection__btn--start"
+            onClick={onRebuildEnvironment}
+            disabled={rebuilding || !running}
+            title="Regenerate environment from dep files and rebuild image"
+          >
+            {rebuilding ? 'Rebuilding...' : 'Rebuild image'}
+          </button>
+        </div>
       </div>
 
-      {/* Background build status */}
-      <div className="debugSection__infoRow">
-        <span className="debugSection__infoLabel">Background build:</span>
-        <span className={`debugSection__indicator ${envInfo.backgroundBuildState !== 'idle' ? 'debugSection__indicator--starting' : ''}`}
-          style={{ display: 'inline-block', marginRight: 4 }} />
-        <span>{bgBuildMessage || buildStateLabel(envInfo.backgroundBuildState)}</span>
-      </div>
-
-      {/* Actions */}
-      <div className="debugSection__actions" style={{ marginTop: 8 }}>
-        <button
-          className="debugSection__btn debugSection__btn--start"
-          onClick={onRebuildEnvironment}
-          disabled={rebuilding || !running}
-          title="Regenerate environment from dep files and rebuild image"
-        >
-          {rebuilding ? 'Rebuilding...' : 'Rebuild Environment'}
-        </button>
-      </div>
-
-      {/* Package totals */}
+      {/* ─── Installed packages ─── */}
       {totalPkgs > 0 && (
         <>
           <h4 className="debugSection__subtitle">Installed packages (total)</h4>
