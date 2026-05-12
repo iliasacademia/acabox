@@ -100,16 +100,19 @@ const AVAILABLE_TOOLS_STUB: AvailableStub[] = [
   { name: 'Literature Synthesis', description: 'Build a structured review across many papers', tag: 'ON-DEMAND', preBuilt: true, lastOpened: hoursAgoIso(48) },
   { name: 'Paper Monitor', description: 'New papers in your topics, weekly digest', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(5), status: 'ran this morning \u00b7 4 items' },
   { name: 'Citation Alerts', description: 'When new work cites your publications', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(6), status: 'ran 6h ago \u00b7 1 new citation' },
+  { name: 'Reactions', description: 'AI reactions to your browser and file activity, delivered periodically', tag: 'SCHEDULED', preBuilt: true, lastOpened: hoursAgoIso(24) },
 ];
 
 export function ToolsPage({
   workspacePath,
   onSelectApp,
   onSwitchToChat,
+  onOpenReactions,
 }: {
   workspacePath: string;
   onSelectApp: (dirName: string, opts?: { preBuilt?: boolean }) => void;
   onSwitchToChat: () => void;
+  onOpenReactions: () => void;
 }) {
   const [apps, setApps] = useState<ToolsPageMiniApp[]>([]);
   const [loading, setLoading] = useState(true);
@@ -306,12 +309,16 @@ export function ToolsPage({
   }, [assistantRuntime, composerRuntime, onSwitchToChat]);
 
   const handleStubAction = useCallback((stub: AvailableStub) => {
+    if (stub.name === 'Reactions') {
+      onOpenReactions();
+      return;
+    }
     if (stub.filePickerType) {
       handleOpenFilePicker(stub);
     } else {
       alert('This is a placeholder for now.');
     }
-  }, [handleOpenFilePicker]);
+  }, [handleOpenFilePicker, onOpenReactions]);
 
   const handleDelete = useCallback(async (app: ToolsPageMiniApp) => {
     setDeleting(true);

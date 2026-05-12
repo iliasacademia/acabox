@@ -116,6 +116,25 @@ function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
 }
 
+function getReactionsEnabled(): boolean {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    return data.reactionsEnabled === true;
+  } catch {
+    return false;
+  }
+}
+
+function setReactionsEnabledSetting(enabled: boolean): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { }
+  data.reactionsEnabled = enabled;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
 function ensureReactionsTask(workspaceId: string): void {
   const existing = getTaskBySessionSource(workspaceId, 'reactions-system');
   if (existing) return;
@@ -692,11 +711,15 @@ app.whenReady().then(async () => {
       log.info('[APP] Global shortcut Option+Shift+Space registered');
     }
 
-    // startBrowserMonitor().then(() => rebuildTrayMenu());
     initSchedulingDatabase(app.getPath('userData'));
-    // if (activeWorkspace) {
-    //   ensureReactionsTask(activeWorkspace.id);
-    // }
+    if (getReactionsEnabled()) {
+      startBrowserMonitor().then(() => rebuildTrayMenu());
+      if (activeWorkspace) {
+        ensureReactionsTask(activeWorkspace.id);
+        const rTask = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
+        if (rTask && !rTask.enabled) setTaskEnabled(rTask.id, true);
+      }
+    }
     startScheduledTasks(handleNotificationNavigation);
 
     // Start HTTP server and window monitor for the Word overlay
@@ -1202,7 +1225,9 @@ ipcMain.handle(
     }
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
-      // ensureReactionsTask(activeWorkspace.id);
+      if (getReactionsEnabled()) {
+        ensureReactionsTask(activeWorkspace.id);
+      }
       const scheduler = getTaskScheduler();
       scheduler?.stop();
       scheduler?.start();
@@ -1288,7 +1313,9 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   activeWorkspace = getActiveWorkspace() ?? null;
 
   if (activeWorkspace) {
-    // ensureReactionsTask(activeWorkspace.id);
+    if (getReactionsEnabled()) {
+      ensureReactionsTask(activeWorkspace.id);
+    }
     // Update workspace directory for the Word overlay
     windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
   }
@@ -3100,6 +3127,37 @@ ipcMain.handle('reactionSources:set', (_event, sources: ReactionSource[]) => {
     const task = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
     if (task) {
       getTaskScheduler()?.scheduleTask(task.id);
+    }
+  }
+});
+
+// Reactions enabled IPC handlers
+ipcMain.handle('settings:getReactionsEnabled', () => {
+  return getReactionsEnabled();
+});
+
+ipcMain.handle('settings:setReactionsEnabled', async (_event, enabled: boolean) => {
+  setReactionsEnabledSetting(enabled);
+  if (enabled) {
+    await startBrowserMonitor();
+    rebuildTrayMenu();
+    if (activeWorkspace) {
+      ensureReactionsTask(activeWorkspace.id);
+      const task = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
+      if (task) {
+        setTaskEnabled(task.id, true);
+        getTaskScheduler()?.scheduleTask(task.id);
+      }
+    }
+  } else {
+    await stopBrowserMonitor();
+    rebuildTrayMenu();
+    if (activeWorkspace) {
+      const task = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
+      if (task) {
+        setTaskEnabled(task.id, false);
+        getTaskScheduler()?.unscheduleTask(task.id);
+      }
     }
   }
 });

@@ -420,6 +420,8 @@ declare global {
   interface SettingsAPI {
     getMaxAttachmentSizeMB(): Promise<number>;
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
+    getReactionsEnabled(): Promise<boolean>;
+    setReactionsEnabled(enabled: boolean): Promise<void>;
   }
 
   interface MiniAppEntry {

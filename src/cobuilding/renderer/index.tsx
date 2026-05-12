@@ -20,6 +20,7 @@ import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
 import { PaperMonitorView } from './components/PaperMonitorView';
+import { ReactionsToolView } from './components/ReactionsToolView';
 import { HomePage } from './components/HomePage';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -509,7 +510,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('home');
   const [chatViewMode, setChatViewMode] = useState<'list' | 'detail'>('list');
-  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail' | 'paper-monitor'>('listing');
+  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail' | 'paper-monitor' | 'reactions'>('listing');
   const [toolChatOpen, setToolChatOpen] = useState(true);
   const [filesViewMode, setFilesViewMode] = useState<'listing' | 'detail'>('listing');
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
@@ -835,11 +836,48 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                     </div>
                   )}
                 </div>
+              ) : toolsViewMode === 'reactions' ? (
+                <div className="toolDetailContent">
+                  {toolChatOpen ? (
+                    <PanelGroup direction="horizontal" autoSaveId="cobuild.reactionsLayout" className="appPanelGroup">
+                      <Panel id="reactionsMain" order={1} defaultSize={65} minSize={30}>
+                        <div className="mainPanel">
+                          <ReactionsToolView onBack={() => setToolsViewMode('listing')} />
+                        </div>
+                      </Panel>
+                      <div className="panelBorder">
+                        <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                        <button
+                          className="panelCollapseBtn"
+                          onClick={() => setToolChatOpen(false)}
+                          title="Close chat panel"
+                        />
+                      </div>
+                      <Panel id="reactionsChat" order={2} defaultSize={35} minSize={18} maxSize={50}>
+                        <div className="chatSidePanel">
+                          <Thread />
+                        </div>
+                      </Panel>
+                    </PanelGroup>
+                  ) : (
+                    <div style={{ flex: 1, display: 'flex', position: 'relative' }}>
+                      <div className="mainPanel" style={{ flex: 1 }}>
+                        <ReactionsToolView onBack={() => setToolsViewMode('listing')} />
+                      </div>
+                      <button
+                        className="panelExpandBtn"
+                        onClick={() => setToolChatOpen(true)}
+                        title="Open chat panel"
+                      />
+                    </div>
+                  )}
+                </div>
               ) : (
                 <ToolsPage
                   workspacePath={workspace.directory_path}
                   onSelectApp={handleSelectApp}
                   onSwitchToChat={() => setSidebarTab('chats')}
+                  onOpenReactions={() => setToolsViewMode('reactions')}
                 />
               )}
             </div>
@@ -951,7 +989,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
           {sidebarTab !== 'settings' &&
            sidebarTab !== 'debug' &&
            !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') && (
+           !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
+           !(sidebarTab === 'tools' && toolsViewMode === 'reactions') && (
             <GlobalComposer
               isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
               onNavigateToChat={() => {
