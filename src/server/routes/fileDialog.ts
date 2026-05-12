@@ -127,10 +127,14 @@ export async function registerFileDialogRoutes(fastify: FastifyInstance): Promis
     }
 
     try {
+      const attachmentsDir = path.join(workspacePath, 'attachments');
+      if (!fs.existsSync(attachmentsDir)) {
+        fs.mkdirSync(attachmentsDir, { recursive: true });
+      }
       const fileName = path.basename(resolvedSource);
-      const destPath = path.join(workspacePath, fileName);
+      const destPath = path.join(attachmentsDir, fileName);
       fs.copyFileSync(resolvedSource, destPath);
-      reply.send({ relativePath: fileName });
+      reply.send({ relativePath: `attachments/${fileName}` });
     } catch {
       reply.code(400).send({ error: 'Cannot copy file' });
     }
