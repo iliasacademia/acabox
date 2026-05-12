@@ -1,4 +1,4 @@
-import { execFile, execFileSync, spawn } from 'child_process';
+import { execFile, execFileSync, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { app } from 'electron';
 import * as path from 'path';
@@ -118,6 +118,33 @@ class CobuildingContainerService {
   private kernelStartPromise: Promise<void> | null = null;
   private backgroundBuildPromise: Promise<void> | null = null;
 
+  // Host-side handles to the `podman exec` wrappers for the in-container
+  // processes. Tracking them lets us kill the wrapper when we retry or stop,
+  // so failed starts don't leak processes on the main host.
+  private kernelGatewayProc: ChildProcess | null = null;
+  private agentServerProc: ChildProcess | null = null;
+
+  // Health-watch restart accounting. Reset whenever the container itself is
+  // (re)started, so a freshly-recovered container gets a fresh budget.
+  // The cap exists to avoid spinning forever on a genuinely-broken service
+  // (missing binary, persistent port conflict, OOM loop) and silently
+  // leaking podman-exec wrappers on each retry.
+  private kernelGatewayRestartAttempts = 0;
+  private agentServerConsecutiveFailures = 0;
+  private agentServerRestartAttempts = 0;
+
+  // Cached agent-server start params so the watchdog can revive a dead
+  // agent server without the renderer having to re-fire setup IPC. Cleared
+  // by explicit stops (workspace switch, logout, quit) so we never restart
+  // an agent the user has intentionally torn down.
+  private lastAgentServerConfig: string | null = null;
+  private lastAgentServerWorkspacePath: string | null = null;
+
+  // Surface the latest kernel-gateway failure so the renderer can show a
+  // meaningful error after an eager-start failure (the renderer otherwise
+  // only learns of it by trying to open a mini-app).
+  private lastKernelGatewayError: string | null = null;
+
   // ─── Public API ─────────────────────────────────────────────────
 
   async start(
@@ -216,6 +243,12 @@ class CobuildingContainerService {
     this.stopLogTail();
     this.stopHealthWatch();
     log.debug('[ContainerService] Stopping container...');
+
+    // Kill host-side podman-exec wrappers up front so they don't outlive
+    // the container they're attached to and become orphans.
+    this.killProc('kernelGatewayProc');
+    this.killProc('agentServerProc');
+
     const podmanBin = this.getPodmanBin();
     const env = this.getExecEnv();
 
@@ -238,6 +271,26 @@ class CobuildingContainerService {
     this.agentPort = null;
     this.kernelPort = null;
     this.kernelStartPromise = null;
+    this.lastAgentServerConfig = null;
+    this.lastAgentServerWorkspacePath = null;
+    this.lastKernelGatewayError = null;
+    this.kernelGatewayRestartAttempts = 0;
+    this.agentServerConsecutiveFailures = 0;
+    this.agentServerRestartAttempts = 0;
+  }
+
+  /** Best-effort SIGTERM on a tracked child process, clearing the handle. */
+  private killProc(field: 'kernelGatewayProc' | 'agentServerProc'): void {
+    const proc = this[field];
+    if (!proc) return;
+    this[field] = null;
+    try {
+      if (proc.exitCode === null && proc.signalCode === null) {
+        proc.kill('SIGTERM');
+      }
+    } catch (err) {
+      log.debug(`[ContainerService] killProc(${field}) ignored:`, (err as Error).message);
+    }
   }
 
   isRunning(): boolean {
@@ -457,6 +510,10 @@ class CobuildingContainerService {
     return this.kernelPort ? `http://localhost:${this.kernelPort}` : null;
   }
 
+  getLastKernelGatewayError(): string | null {
+    return this.lastKernelGatewayError;
+  }
+
   /**
    * Copy the agent server bundle and Linux claude binary to the workspace mount.
    * The binary is only re-copied when its size changes (new SDK version).
@@ -510,13 +567,21 @@ class CobuildingContainerService {
    * able to drop an active conversation underneath the user.
    */
   async startAgentServer(configJson: string, workspacePath: string): Promise<void> {
+    // Cache params so the health-watch watchdog can revive the server if it
+    // dies later. Cached params are cleared by stopAgentServer and stop(), so
+    // an intentional teardown never auto-restarts.
+    this.lastAgentServerConfig = configJson;
+    this.lastAgentServerWorkspacePath = workspacePath;
+
     if (await this.isAgentServerHealthy()) {
       log.debug('[ContainerService] Agent server already healthy — skipping restart');
       return;
     }
 
-    // Kill any existing (unhealthy / orphaned) agent server first
-    await this.stopAgentServer();
+    // Kill any existing (unhealthy / orphaned) agent server first. Pass
+    // `preserveCache: true` so this call doesn't blow away the params we
+    // just cached for the watchdog.
+    await this.stopAgentServer({ preserveCache: true });
 
     // Write config to workspace
     const configPath = path.join(workspacePath, '.academia', 'agent.json');
@@ -531,6 +596,7 @@ class CobuildingContainerService {
       CONTAINER_NAME,
       'node', '/data/.academia/agent-server.js',
     ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    this.agentServerProc = proc;
 
     // Log stdout/stderr from the agent server
     proc.stdout?.on('data', (data: Buffer) => {
@@ -545,13 +611,17 @@ class CobuildingContainerService {
     });
     proc.on('exit', (code, signal) => {
       log.warn(`[AgentServer] Process exited (code=${code}, signal=${signal})`);
+      // Only clear the handle if it's still pointing at this process —
+      // a later start may have already replaced it.
+      if (this.agentServerProc === proc) this.agentServerProc = null;
     });
 
     // Wait for the health endpoint to respond (up to 10 seconds)
     const agentPort = this.agentPort;
     if (!agentPort) {
       log.error('[ContainerService] No agent port assigned');
-      return;
+      this.killProc('agentServerProc');
+      throw new Error('Agent server has no port assigned');
     }
 
     const startTime = Date.now();
@@ -565,6 +635,8 @@ class CobuildingContainerService {
     }
 
     log.error('[ContainerService] Agent server failed to become healthy within 10s');
+    this.killProc('agentServerProc');
+    throw new Error('Agent server failed to become healthy within 10s');
   }
 
   /**
@@ -602,13 +674,27 @@ class CobuildingContainerService {
    * signal=null), we can see exactly which caller fired pkill — most likely
    * a re-entrant startAgentServer() (re-init) or a stray container:stop.
    */
-  async stopAgentServer(): Promise<void> {
+  async stopAgentServer(options?: { preserveCache?: boolean }): Promise<void> {
     const trace = new Error('stopAgentServer call site').stack;
     log.warn(`[ContainerService] stopAgentServer invoked\n${trace}`);
+    // Kill the host-side wrapper first; otherwise it lingers until the
+    // container goes away (and the wrapper would be the prime suspect for
+    // the "exited code=0 signal=null" crashes the trace log was added to
+    // diagnose).
+    this.killProc('agentServerProc');
     try {
       await this.exec(['pkill', '-f', 'agent-server.js']);
     } catch {
       // Process may not be running
+    }
+    // Default: any explicit stop disables the watchdog so we don't fight
+    // the user's teardown. startAgentServer passes preserveCache: true to
+    // keep the cache during its own restart sequence.
+    if (!options?.preserveCache) {
+      this.lastAgentServerConfig = null;
+      this.lastAgentServerWorkspacePath = null;
+      this.agentServerConsecutiveFailures = 0;
+      this.agentServerRestartAttempts = 0;
     }
     log.debug('[ContainerService] Agent server stopped');
   }
@@ -629,19 +715,26 @@ class CobuildingContainerService {
     }
     if (await this.isKernelGatewayHealthy()) {
       log.debug('[ContainerService] Kernel gateway already healthy — skipping start');
+      this.lastKernelGatewayError = null;
       return;
     }
 
     this.kernelStartPromise = this._startKernelGateway();
     try {
       await this.kernelStartPromise;
+      this.lastKernelGatewayError = null;
+    } catch (err) {
+      this.lastKernelGatewayError = (err as Error).message;
+      throw err;
     } finally {
       this.kernelStartPromise = null;
     }
   }
 
   private async _startKernelGateway(): Promise<void> {
-    // Kill any unhealthy / orphaned gateway first
+    // Kill any unhealthy / orphaned gateway first — both the in-container
+    // process (via pkill) and the host-side wrapper we may have spawned
+    // ourselves on a previous attempt.
     await this.stopKernelGateway();
 
     const podmanBin = this.getPodmanBin();
@@ -664,6 +757,7 @@ class CobuildingContainerService {
       '--ServerApp.password=',
       '--ServerApp.disable_check_xsrf=True',
     ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    this.kernelGatewayProc = proc;
 
     proc.stdout?.on('data', (data: Buffer) => {
       for (const line of data.toString().split('\n').filter(Boolean)) {
@@ -677,12 +771,13 @@ class CobuildingContainerService {
     });
     proc.on('exit', (code, signal) => {
       log.warn(`[KernelGateway] Process exited (code=${code}, signal=${signal})`);
+      if (this.kernelGatewayProc === proc) this.kernelGatewayProc = null;
     });
 
     const kernelPort = this.kernelPort;
     if (!kernelPort) {
-      log.error('[ContainerService] No kernel port assigned');
-      return;
+      this.killProc('kernelGatewayProc');
+      throw new Error('Kernel gateway has no port assigned');
     }
 
     const startTime = Date.now();
@@ -692,10 +787,18 @@ class CobuildingContainerService {
         log.info(`[ContainerService] Kernel gateway healthy at http://localhost:${kernelPort}`);
         return;
       }
+      // If the wrapper has already died, no amount of polling will help —
+      // surface that immediately rather than waiting out the full timeout.
+      if (proc.exitCode !== null || proc.signalCode !== null) {
+        throw new Error(
+          `Kernel gateway process exited before becoming healthy (code=${proc.exitCode}, signal=${proc.signalCode})`,
+        );
+      }
       await new Promise(r => setTimeout(r, 250));
     }
 
-    log.error('[ContainerService] Kernel gateway failed to become healthy within 15s');
+    this.killProc('kernelGatewayProc');
+    throw new Error('Kernel gateway failed to become healthy within 15s');
   }
 
   /** One-shot probe of /api/kernelspecs. Returns true iff the gateway responds 200. */
@@ -726,10 +829,14 @@ class CobuildingContainerService {
    * server stays up.
    */
   async stopKernelGateway(): Promise<void> {
+    // Host-side wrapper first — otherwise it lingers (and on a retry, the
+    // health-watch path would spawn another one, leaking under repeated
+    // failures).
+    this.killProc('kernelGatewayProc');
     try {
       await this.exec(['pkill', '-f', 'kernelgateway']);
     } catch {
-      // Process may not be running
+      // Process may not be running, or container is down
     }
     log.debug('[ContainerService] Kernel gateway stopped');
   }
@@ -1301,15 +1408,44 @@ class CobuildingContainerService {
     ], onProgress);
   }
 
+  private getDockerfileBaseHash(): string {
+    const contextDir = this.getDockerfileDir();
+    const hash = crypto.createHash('sha256');
+    hash.update(fs.readFileSync(path.join(contextDir, 'Dockerfile.base')));
+    return hash.digest('hex').substring(0, 16);
+  }
+
+  private async getLocalBaseImageHash(podmanBin: string): Promise<string | null> {
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'image', 'inspect', '--format', '{{index .Config.Labels "dockerfile.base.hash"}}', LOCAL_BASE_IMAGE,
+      ], this.getExecEnv());
+      const hash = stdout.trim();
+      return hash && hash !== '<no value>' ? hash : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async buildBaseImageLocally(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
-    // Check if local base image already exists
+    const currentHash = this.getDockerfileBaseHash();
+
+    // Rebuild only if the image is missing OR its labelled hash doesn't
+    // match the current Dockerfile.base. Without this, edits to
+    // Dockerfile.base (e.g. adding tini, switching the entrypoint) wouldn't
+    // trigger a local rebuild and the dev would silently keep running a
+    // stale image.
     try {
       const { stdout } = await this.execAsync(podmanBin, [
         'image', 'inspect', '--format', '{{.Id}}', LOCAL_BASE_IMAGE,
       ], this.getExecEnv());
       if (stdout.trim().length > 0) {
-        log.debug('[ContainerService] Local base image already built');
-        return;
+        const imageHash = await this.getLocalBaseImageHash(podmanBin);
+        if (imageHash === currentHash) {
+          log.debug('[ContainerService] Local base image already built and up to date');
+          return;
+        }
+        log.info(`[ContainerService] Local base image stale (${imageHash ?? 'unlabeled'} → ${currentHash}), rebuilding...`);
       }
     } catch {
       // Image not present — build it
@@ -1323,6 +1459,7 @@ class CobuildingContainerService {
 
     await this.spawnBuild(podmanBin, [
       'build',
+      '--label', `dockerfile.base.hash=${currentHash}`,
       '-t', LOCAL_BASE_IMAGE,
       '-f', dockerfileBasePath,
       contextDir,
@@ -1505,12 +1642,19 @@ class CobuildingContainerService {
 
     this.containerStarted = true;
     this.currentWorkspacePath = workspacePath;
+    // Fresh container → fresh restart budget.
+    this.kernelGatewayRestartAttempts = 0;
+    this.agentServerConsecutiveFailures = 0;
+    this.agentServerRestartAttempts = 0;
+    this.lastKernelGatewayError = null;
     this.startLogTail(podmanBin);
 
     // Eagerly start the kernel gateway so mini-apps don't pay a cold-start
     // spinner on first open. Cost is ~1.4s + ~88 MB RSS — paid during the
     // container startup the user is already waiting through. Don't block the
-    // overall start path on it: if it fails, the health watch will retry.
+    // overall start path on it: if it fails, the health watch will retry
+    // (up to the cap) and the error is recorded on lastKernelGatewayError
+    // so the renderer can surface it via gatewayStatus.
     this.startKernelGateway().catch((err) => {
       log.error('[ContainerService] Eager kernel start failed:', (err as Error).message);
     });
@@ -1579,22 +1723,122 @@ class CobuildingContainerService {
         return;
       }
 
-      // Container is alive — check the kernel gateway independently. If it's
-      // down, restart only the gateway process. The agent server has its own
-      // recovery path (started on demand by setup IPC) so we don't probe it
-      // here.
-      if (this.kernelPort && !this.kernelStartPromise) {
-        const kernelHealthy = await this.isKernelGatewayHealthy(2000);
-        if (!kernelHealthy) {
-          log.warn('[ContainerService] Kernel gateway not responding, restarting...');
-          try {
-            await this.startKernelGateway();
-          } catch (err) {
-            log.error('[ContainerService] Kernel restart failed:', (err as Error).message);
-          }
-        }
-      }
+      // Container is alive — check the long-running in-container processes
+      // independently. Both have a restart cap so a genuinely broken
+      // service (missing binary, port conflict, OOM loop) doesn't spin
+      // forever and leak podman-exec wrappers on each retry.
+      await this.watchKernelGateway();
+      await this.watchAgentServer();
     }, 10_000);
+  }
+
+  private static readonly KERNEL_GATEWAY_RESTART_CAP = 5;
+  private static readonly AGENT_SERVER_FAILURE_THRESHOLD = 2; // ~20s of unresponsive /health before action
+  private static readonly AGENT_SERVER_RESTART_CAP = 3;
+
+  /**
+   * Probe the kernel gateway and restart it if it's down, up to the
+   * restart cap. The cap exists because a persistently-broken gateway
+   * (missing dep, port collision) would otherwise burn a podman-exec
+   * wrapper every 10s indefinitely. When the cap is hit, the renderer's
+   * next user-initiated startGateway() call still gets a fresh attempt —
+   * the cap only governs autonomous retries.
+   */
+  private async watchKernelGateway(): Promise<void> {
+    if (!this.kernelPort || this.kernelStartPromise) return;
+    const healthy = await this.isKernelGatewayHealthy(2000);
+    if (healthy) {
+      if (this.kernelGatewayRestartAttempts > 0) {
+        log.info('[ContainerService] Kernel gateway recovered');
+        this.kernelGatewayRestartAttempts = 0;
+        this.lastKernelGatewayError = null;
+      }
+      return;
+    }
+
+    const cap = CobuildingContainerService.KERNEL_GATEWAY_RESTART_CAP;
+    if (this.kernelGatewayRestartAttempts >= cap) {
+      // Already gave up — log once on first crossing only to avoid spam.
+      return;
+    }
+    this.kernelGatewayRestartAttempts++;
+    log.warn(
+      `[ContainerService] Kernel gateway not responding (auto-restart ${this.kernelGatewayRestartAttempts}/${cap})`,
+    );
+    try {
+      await this.startKernelGateway();
+    } catch (err) {
+      log.error('[ContainerService] Kernel restart failed:', (err as Error).message);
+      if (this.kernelGatewayRestartAttempts >= cap) {
+        log.error(
+          `[ContainerService] Kernel gateway gave up after ${cap} auto-restart attempts. ` +
+          'Open a mini-app to retry manually.',
+        );
+      }
+    }
+  }
+
+  /**
+   * Probe the agent server's /health endpoint and restart it if it's been
+   * unresponsive for long enough. Conservative thresholds to avoid killing
+   * a live session whose /health is briefly delayed:
+   *   - Requires AGENT_SERVER_FAILURE_THRESHOLD consecutive failures
+   *     (~20s) before attempting a restart.
+   *   - Caps total restarts at AGENT_SERVER_RESTART_CAP so a genuinely
+   *     broken agent doesn't pkill itself in a loop.
+   *   - Only fires if startAgentServer has been called at least once for
+   *     the current container (cached config + workspacePath are non-null);
+   *     stopAgentServer clears the cache, so an intentional teardown is
+   *     never re-revived.
+   */
+  private async watchAgentServer(): Promise<void> {
+    if (!this.agentPort) return;
+    // Capture cached params at probe time so an intervening stopAgentServer
+    // (which nulls the cache) doesn't strand us mid-flight calling
+    // startAgentServer with stale half-state.
+    const cachedConfig = this.lastAgentServerConfig;
+    const cachedWorkspacePath = this.lastAgentServerWorkspacePath;
+    if (!cachedConfig || !cachedWorkspacePath) return;
+
+    const healthy = await this.isAgentServerHealthy(2000);
+    if (healthy) {
+      if (this.agentServerRestartAttempts > 0 && this.agentServerConsecutiveFailures === 0) {
+        log.info('[ContainerService] Agent server recovered');
+        this.agentServerRestartAttempts = 0;
+      }
+      this.agentServerConsecutiveFailures = 0;
+      return;
+    }
+
+    this.agentServerConsecutiveFailures++;
+    const failureThreshold = CobuildingContainerService.AGENT_SERVER_FAILURE_THRESHOLD;
+    const restartCap = CobuildingContainerService.AGENT_SERVER_RESTART_CAP;
+
+    if (this.agentServerConsecutiveFailures < failureThreshold) return;
+    if (this.agentServerRestartAttempts >= restartCap) return;
+
+    // The cache could have been cleared while we were probing — if so,
+    // bail and let the next tick handle it (or stay quiet if the user
+    // tore the agent down intentionally).
+    if (this.lastAgentServerConfig !== cachedConfig) return;
+
+    this.agentServerRestartAttempts++;
+    this.agentServerConsecutiveFailures = 0;
+    log.warn(
+      `[ContainerService] Agent server unresponsive for ~${failureThreshold * 10}s ` +
+      `(auto-restart ${this.agentServerRestartAttempts}/${restartCap})`,
+    );
+    try {
+      await this.startAgentServer(cachedConfig, cachedWorkspacePath);
+    } catch (err) {
+      log.error('[ContainerService] Agent restart failed:', (err as Error).message);
+      if (this.agentServerRestartAttempts >= restartCap) {
+        log.error(
+          `[ContainerService] Agent server gave up after ${restartCap} auto-restart attempts. ` +
+          'The chat will need to be re-initialized from the renderer.',
+        );
+      }
+    }
   }
 
   private stopHealthWatch(): void {

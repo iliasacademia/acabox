@@ -9,7 +9,19 @@ import { containerService } from './containerService';
  * — this file is just the HTTP / IPC surface the renderer talks to.
  */
 class KernelGatewayService {
-  /** Start (or no-op confirm) the kernel gateway. Returns the host URL. */
+  /**
+   * Start (or no-op confirm) the kernel gateway. Returns the host URL.
+   *
+   * Verifies health after the start completes before returning success —
+   * otherwise a silent failure in containerService.startKernelGateway()
+   * would let the renderer proceed to KernelManager.startNew, which would
+   * then hang or fail with a confusing websocket error and strand the
+   * user with no actionable message.
+   *
+   * `_workspacePath` is accepted for backwards compatibility with the
+   * pre-merge API but is ignored — the kernel gateway lives in the main
+   * container, which already knows its workspace.
+   */
   async start(_workspacePath?: string): Promise<{ url: string } | { error: string }> {
     try {
       await containerService.startKernelGateway();
@@ -21,6 +33,13 @@ class KernelGatewayService {
     const url = containerService.getKernelGatewayUrl();
     if (!url) {
       return { error: 'Kernel gateway has no port assigned' };
+    }
+    // Final readiness probe — cheap defence-in-depth so the renderer
+    // downstream of `{ url }` can assume liveness.
+    const healthy = await this.probe(url);
+    if (!healthy) {
+      const cached = containerService.getLastKernelGatewayError();
+      return { error: cached ?? 'Kernel gateway started but is not responding' };
     }
     return { url };
   }
