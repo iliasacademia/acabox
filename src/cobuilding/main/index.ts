@@ -1368,6 +1368,8 @@ ipcMain.handle('scanner:start', async () => {
 
 // ─── Agent Server & MCP Management ──────────────────────────────
 
+const activeNotificationsSet = new Set<any>();
+
 function registerHostMcpServers(workspace: { id: string; directory_path: string }, onNotificationClick?: (action: any) => void) {
   // Handler maps for MCP tool calls relayed from the in-container agent.
   // Each handler matches the tool's original implementation on the host side.
@@ -1412,8 +1414,38 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
     notification: {
       show_notification: async (args: any) => {
         try {
-          const { Notification } = require('electron');
-          const notification = new Notification({ title: args.title, body: args.body });
+          const { Notification: ElectronNotification } = require('electron');
+          log.info('[NotificationNav] show_notification relay called:', { title: args.title, navigation: args.navigation ?? null });
+          const notification = new ElectronNotification({ title: args.title, body: args.body });
+          activeNotificationsSet.add(notification);
+
+          const release = () => {
+            activeNotificationsSet.delete(notification);
+            log.info('[NotificationNav] Notification released. Remaining:', activeNotificationsSet.size);
+          };
+
+          if (onNotificationClick) {
+            notification.on('click', () => {
+              log.info('[NotificationNav] Notification clicked. navigation:', args.navigation ?? 'none');
+              release();
+              if (args.navigation) {
+                const nav = args.navigation;
+                if (nav.type === 'thread' && nav.threadId) {
+                  onNotificationClick({ type: 'thread', threadId: nav.threadId, sidebarTab: nav.sidebarTab });
+                } else if (nav.type === 'sidebar' && nav.sidebarTab) {
+                  onNotificationClick({ type: 'sidebar', tab: nav.sidebarTab });
+                } else {
+                  onNotificationClick(null);
+                }
+              } else {
+                onNotificationClick(null);
+              }
+            });
+            notification.on('close', () => release());
+          } else {
+            release();
+          }
+
           notification.show();
           return ok('Notification shown successfully.');
         } catch (err: any) {
@@ -1819,7 +1851,7 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
   await containerService.ensureAgentFilesInWorkspace(workspacePath);
 
   // 2. Register host MCP server handlers for the SSE relay
-  registerHostMcpServers(activeWorkspace);
+  registerHostMcpServers(activeWorkspace, handleNotificationNavigation);
 
   // 3. Write agent config and start the agent server inside the container
   const agentConfig = {

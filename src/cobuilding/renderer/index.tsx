@@ -107,20 +107,25 @@ function NotificationNavigator({
     const handler = async (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
       console.log('[NotificationNav] Renderer received notification:navigate IPC:', JSON.stringify(navigation));
       if (navigation.type === 'thread' && navigation.threadId) {
+        console.log('[NotificationNav] Looking up session for threadId:', navigation.threadId);
         const session = await window.sessionsAPI.get(navigation.threadId);
+        console.log('[NotificationNav] Session lookup result:', session ? { id: session.id, source: session.source, title: session.title } : 'NOT FOUND');
         const isReactions = session?.source === 'reactions' || session?.source === 'reactions-system';
+        console.log('[NotificationNav] isReactions:', isReactions);
         if (isReactions) {
           console.log('[NotificationNav] Reactions thread — navigating to tools/reactions view');
           setSidebarTab('tools');
           setToolsViewMode('reactions');
         } else {
-          console.log('[NotificationNav] Thread navigation — threadId:', navigation.threadId, 'sidebarTab:', navigation.sidebarTab ?? 'chats (default)');
+          console.log('[NotificationNav] Regular thread — navigating to chats, sidebarTab:', navigation.sidebarTab ?? 'chats (default)');
           setSidebarTab(navigation.sidebarTab ?? 'chats');
           setChatViewMode('detail');
         }
         deactivateAllTabs();
+        console.log('[NotificationNav] Calling switchToThread:', navigation.threadId);
         try {
           runtime.threads.switchToThread(navigation.threadId);
+          console.log('[NotificationNav] switchToThread succeeded');
         } catch (err) {
           console.error('[NotificationNav] switchToThread threw an error:', err);
         }
