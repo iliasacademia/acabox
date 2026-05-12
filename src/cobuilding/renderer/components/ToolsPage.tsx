@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import * as LucideIcons from 'lucide-react';
 import { LayoutGridIcon, UploadIcon, ChevronRightIcon, PlayIcon, TrashIcon, SparklesIcon, ArrowRightIcon, FileTextIcon, FolderOpenIcon, XIcon } from 'lucide-react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
-import { useAccessibilityGate } from '../utils/ensureAccessibilityPermission';
+import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 
 type ToolsPageMiniApp = MiniAppEntry;
 
@@ -122,7 +122,6 @@ export function ToolsPage({
   const [suggestedApps, setSuggestedApps] = useState<SuggestedMiniApp[]>([]);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
-  const { check: checkAccessibility, modal: accessibilityModal } = useAccessibilityGate();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -278,7 +277,7 @@ export function ToolsPage({
 
   const handlePickFile = useCallback(async (stub: AvailableStub, filePath: string) => {
     if (stub.useWordOverlay) {
-      if (!(await checkAccessibility())) return;
+      if (!(await ensureAccessibilityPermission())) return;
       const absolutePath = filePath.startsWith('/') ? filePath : `${workspacePath}/${filePath}`;
       const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
       setFilePicker(null);
@@ -717,7 +716,6 @@ export function ToolsPage({
           </div>
         </div>
       )}
-      {accessibilityModal}
     </div>
   );
 }

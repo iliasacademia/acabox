@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { ChevronLeftIcon, SparklesIcon, ArrowUpRightIcon } from 'lucide-react';
-import { useAccessibilityGate } from '../utils/ensureAccessibilityPermission';
+import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 
 interface ParsedRow {
   briefing: Briefing;
@@ -155,7 +155,6 @@ export function BriefingHistory({
   const [rows, setRows] = useState<ParsedRow[] | null>(null);
   const assistantRuntime = useAssistantRuntime();
   const composerRuntime = useComposerRuntime();
-  const { check: checkAccessibility, modal: accessibilityModal } = useAccessibilityGate();
 
   useEffect(() => {
     window.briefingsAPI.list().then((data) => {
@@ -186,7 +185,7 @@ export function BriefingHistory({
       }
     } else if (row.briefing.type === 'writing_agent') {
       if (typeof d.file_path !== 'string') return;
-      if (!(await checkAccessibility())) return;
+      if (!(await ensureAccessibilityPermission())) return;
       const absolutePath = `${workspacePath}/${d.file_path}`;
       const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
       let existingSessions = 0;
@@ -279,7 +278,6 @@ export function BriefingHistory({
           ))
         )}
       </div>
-      {accessibilityModal}
     </div>
   );
 }
