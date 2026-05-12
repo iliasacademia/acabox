@@ -266,7 +266,7 @@ export class WindowMonitorService {
   private readonly MAX_RAPID_CRASHES = 5;
   private readonly BACKOFF_RESET_MS = 30_000;
   private readonly MAX_BACKOFF_MS = 10_000;
-  private readonly WATCHDOG_TIMEOUT_MS = 30_000;
+  private readonly WATCHDOG_TIMEOUT_MS = 300_000;
   // Respawn backoff state per process key (includes 'webview-manager')
   private respawnAttempts = new Map<string, number>();
   private respawnTimers = new Map<string, ReturnType<typeof setTimeout>>();
