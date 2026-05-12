@@ -157,12 +157,12 @@ export function createAgentSession(
 
   // Wait for the agent server to be ready before connecting.
   // Emits status updates so the spinner shows the right label:
-  //   "Installing software..." — container image is being built/pulled
-  //   "Agent initializing..."  — container is running, agent server starting up
+  //   "Waiting for agent container..." — container isn't running yet
+  //   "Waiting for agent..."           — container is up, agent server isn't responding
   async function waitForAgent(): Promise<string> {
     const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
     const startTime = Date.now();
-    let lastStatus = '';
+    let anyStatusEmitted = false;
     while (!sessionState.stopped) {
       if (Date.now() - startTime > TIMEOUT_MS) {
         throw new Error('Agent failed to start. Please check that the container is running in the Debug panel.');
@@ -170,20 +170,18 @@ export function createAgentSession(
       const isRunning = containerService.isRunning();
       const port = containerService.getAgentPort();
 
-      // Determine the right status label
       let status = '';
       if (!isRunning) {
-        status = 'Installing software...';
+        status = 'Waiting for agent container...';
       } else if (!port) {
-        status = 'Agent initializing...';
+        status = 'Waiting for agent...';
       }
 
       if (port && isRunning) {
-        // Container is up and port assigned — check if agent server is healthy
         try {
           const res = await httpGet(`http://localhost:${port}/health`);
           if (res.includes('"ok"')) {
-            if (lastStatus) {
+            if (anyStatusEmitted) {
               emitEvent({ type: 'status', status: '' } as ChatStreamMessage);
             }
             return `http://localhost:${port}`;
@@ -191,7 +189,7 @@ export function createAgentSession(
         } catch {
           // Agent server not responding yet
         }
-        status = 'Agent initializing...';
+        status = 'Waiting for agent...';
       }
 
       // Emit status on every iteration — the forwarding listener may not be
@@ -199,6 +197,7 @@ export function createAgentSession(
       // IPC forwarding setup), so we keep re-emitting until the agent is ready.
       if (status) {
         emitEvent({ type: 'status', status } as ChatStreamMessage);
+        anyStatusEmitted = true;
       }
 
       await new Promise(r => setTimeout(r, 1000));

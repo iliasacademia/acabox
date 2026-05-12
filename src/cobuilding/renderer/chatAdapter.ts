@@ -6,7 +6,7 @@ import type {
 } from '@assistant-ui/react';
 import { useAui } from '@assistant-ui/react';
 import type { ChatStreamMessage, ChatMessageStream, IPCAttachment } from '../shared/types';
-import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone } from './progressStore';
+import { setToolProgress, clearToolProgress, resetProgress, setSubagentStarted, updateSubagentProgress, setSubagentDone, setProcessingLabel } from './progressStore';
 
 export function toAsyncIterable(
   stream: ChatMessageStream,
@@ -167,6 +167,9 @@ export function responseBuilder() {
       case 'tool-call-end':
         clearToolProgress(msg.toolCallId);
         streamingToolCall = null;
+        return;
+      case 'status':
+        setProcessingLabel((msg as { status?: string }).status || null);
         return;
 
       case 'text':

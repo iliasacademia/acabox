@@ -75,7 +75,8 @@ import { runScheduledTask } from './scheduledTasks/runner';
 import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { BackgroundBuilder } from './backgroundBuilder';
-import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer, installDepsStreaming } from './environmentGenerator';
+import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer } from './environmentGenerator';
+import { packageInstaller, installStepsToRequests, type Registry, type PackageState } from './packageInstaller';
 import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL, hasSessionCookie } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuildingAuthService';
@@ -274,6 +275,38 @@ app.on('open-url', (event, url) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+
+function sendProgressTo(channel: string) {
+  return (stage: string, message: string, percent?: number) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, { stage, message, percent });
+    }
+  };
+}
+
+function makeBackgroundProgress() {
+  const toProgress = sendProgressTo('container:progress');
+  const toBackgroundBuild = sendProgressTo('container:backgroundBuild');
+  return (stage: string, message: string, percent?: number) => {
+    toProgress(stage, message, percent);
+    const bgStage =
+      stage === 'ready' ? 'background-build-done'
+        : stage === 'error' ? 'background-build-error'
+        : stage;
+    toBackgroundBuild(bgStage, message, percent);
+  };
+}
+
+// Setup events (pull, install-podman, setup-done) drive both the SetupBanner
+// and PodmanDebug's Base Image spinner.
+function makeSetupProgress() {
+  const toSetup = sendProgressTo('setup:progress');
+  const toProgress = sendProgressTo('container:progress');
+  return (stage: string, message: string, percent?: number) => {
+    toSetup(stage, message, percent);
+    toProgress(stage, message, percent);
+  };
+}
 
 function handleNotificationNavigation(action: NotificationNavigationAction | null): void {
   log.info('[NotificationNav] handleNotificationNavigation called with action:', JSON.stringify(action));
@@ -1168,8 +1201,9 @@ ipcMain.handle(
     const directoryPath = validateDirectoryPath(data.directoryPath);
 
     if (directoryPath !== activeWorkspace.directory_path) {
-      // Stop containers so they restart with the new volume mount
-      kernelGatewayService.stop();
+      // Stop the container so it restarts with the new volume mount.
+      // The kernel gateway is inside the container, so it stops with it.
+      packageInstaller.reset();
       containerService.stop();
 
       if (!fs.existsSync(directoryPath)) {
@@ -1187,8 +1221,8 @@ ipcMain.handle(
 
 ipcMain.handle('workspaces:deleteAll', async () => {
   backgroundBuilder.dispose();
-  kernelGatewayService.stop();
   ensuredApps.clear();
+  packageInstaller.reset();
   await stopAgentInfrastructure();
   containerService.stop();
   getTaskScheduler()?.stop();
@@ -1206,7 +1240,7 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   if (!target) throw new Error('Workspace not found.');
 
   backgroundBuilder.dispose();
-  kernelGatewayService.stop();
+  packageInstaller.reset();
   containerService.stop();
 
   touchWorkspace(id);
@@ -1908,10 +1942,15 @@ ipcMain.handle('container:start', async () => {
   if (!activeWorkspace) {
     throw new Error('No active workspace');
   }
-  // Don't pass progress callback to start() — the SetupBanner is driven by
-  // ensureSetup's setup:progress events only. start() may do a background
-  // image rebuild which shouldn't re-show the banner.
-  await containerService.start(activeWorkspace.directory_path);
+  // Foreground stays silent — SetupBanner is owned by ensureSetup. Background
+  // build fans out to both `container:progress` (Base Image spinner) and
+  // `container:backgroundBuild` (Environment section), with terminal stages
+  // renamed for the latter so its existing handler recognizes them.
+  await containerService.start(
+    activeWorkspace.directory_path,
+    undefined,
+    makeBackgroundProgress(),
+  );
   await startAgentInfrastructure(activeWorkspace.directory_path);
   // Start watching and ensure deps for all existing apps in the background.
   // Apps are marked ready as their deps are verified/installed.
@@ -1923,6 +1962,7 @@ ipcMain.handle('container:start', async () => {
 ipcMain.handle('container:stop', async () => {
   backgroundBuilder.stopWatching();
   ensuredApps.clear();
+  packageInstaller.reset();
   await stopAgentInfrastructure();
   containerService.stop();
 });
@@ -1972,9 +2012,7 @@ ipcMain.handle('container:getBundledStatus', () => {
 });
 
 ipcMain.handle('container:downloadBinaries', async () => {
-  await containerService.downloadBundledBinaries((stage, message, percent) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('container:progress', { stage, message, percent });
-  });
+  await containerService.downloadBundledBinaries(sendProgressTo('container:progress'));
 });
 
 ipcMain.handle('container:getName', () => {
@@ -1985,6 +2023,10 @@ ipcMain.handle('container:isImageBuilt', async () => {
   return containerService.isImageBuilt();
 });
 
+ipcMain.handle('container:isBaseImageDownloaded', async () => {
+  return containerService.isBaseImageDownloaded();
+});
+
 ipcMain.handle('container:deleteBinaries', () => {
   containerService.deleteBundledBinaries();
 });
@@ -1993,13 +2035,18 @@ ipcMain.handle('container:deleteImage', async () => {
   await containerService.deleteImage();
 });
 
+ipcMain.handle('container:downloadImage', async () => {
+  await containerService.updateBaseImage(sendProgressTo('container:progress'));
+});
+
 ipcMain.handle('container:ensureSetup', async () => {
-  const progressCallback = (stage: string, message: string, percent?: number) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('setup:progress', { stage, message, percent });
-  };
-  await containerService.ensureSetup(progressCallback, activeWorkspace?.directory_path);
+  await containerService.ensureSetup(makeSetupProgress(), activeWorkspace?.directory_path);
   if (activeWorkspace) {
-    await containerService.start(activeWorkspace.directory_path);
+    await containerService.start(
+      activeWorkspace.directory_path,
+      undefined,
+      makeBackgroundProgress(),
+    );
     await startAgentInfrastructure(activeWorkspace.directory_path);
     backgroundBuilder.startWatching(activeWorkspace.directory_path, (appName) => {
       ensuredApps.add(appName);
@@ -2020,6 +2067,8 @@ ipcMain.handle('container:getEnvironmentInfo', async () => {
     environmentHash: info.environmentHash,
     inSync: info.environmentHash != null && imageHash === info.environmentHash,
     backgroundBuildState: backgroundBuilder.getState(),
+    packageStates: packageInstaller.getPackageStates(),
+    packageLines: packageInstaller.getPackageLines(),
     totalPip: info.merged.pipRequirements,
     totalNpm: info.merged.npmPackages,
     totalR: info.merged.rPackages,
@@ -2051,86 +2100,52 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
     return { installed: [] };
   }
 
-  // If a background install is already in progress for this app, wait for it
-  // instead of starting a conflicting parallel install (avoids dpkg lock issues).
-  const pending = backgroundBuilder.getPendingInstall(dirName);
-  if (pending) {
-    log.info(`[ensureAppDeps] Waiting for background install of ${dirName} to finish`);
-
-    // Re-emit the install's current state to the renderer. The mini-app's
-    // ContainerGate subscribes to `container:installProgress` on mount, but the
-    // initial `step` event from BackgroundBuilder typically fired several
-    // seconds earlier when the agent ran the manage script. Without this
-    // replay, the line handler in MiniAppViewer drops every subsequent line
-    // (since installStatus is null) and the InstallingView shows a blank
-    // spinner with no detail until the install completes.
-    const activeState = backgroundBuilder.getActiveInstallState(dirName);
-    if (activeState && mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('container:installProgress', {
-        dirName,
-        type: 'step',
-        registry: activeState.registry,
-        packages: activeState.packages,
-      });
-      if (activeState.lastLine) {
-        mainWindow.webContents.send('container:installProgress', {
-          dirName,
-          type: 'line',
-          line: activeState.lastLine,
-        });
-      }
-    }
-
-    await pending;
-    ensuredApps.add(dirName);
-    return { installed: ['(completed by background installer)'] };
-  }
-
+  // PackageInstaller dedups against any package currently installing (started
+  // by BackgroundBuilder at workspace open, or the agent's install wrapper).
+  // Concurrent ensureDeps calls for the same packages share state — no
+  // duplicate downloads, no races on /opt/venv.
   const appsDir = path.join(activeWorkspace.directory_path, '.applications');
-
-  const sendProgress = (payload: Record<string, unknown>) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('container:installProgress', { dirName, ...payload });
-    }
-  };
-
-  const results = await installDepsStreaming(
-    appsDir,
-    dirName,
-    (cmd, onLine) => containerService.execStreaming(cmd, onLine),
-    (registry, packages) => sendProgress({ type: 'step', registry, packages }),
-    (line) => sendProgress({ type: 'line', line }),
-  );
-
-  // Mirror installs to Jupyter container if it's running
   const steps = getInstallSteps(appsDir, dirName);
-  if (steps.length > 0) {
-    const jupyterStatus = await kernelGatewayService.getStatus();
-    if (jupyterStatus.running) {
-      sendProgress({ type: 'step', registry: 'jupyter', packages: ['syncing to kernel...'] });
-      for (const step of steps) {
-        await kernelGatewayService.exec(step.command);
-      }
-    }
+  if (steps.length === 0) {
+    ensuredApps.add(dirName);
+    return { installed: [] };
   }
 
-  sendProgress({ type: 'done' });
+  await packageInstaller.ensureDeps(installStepsToRequests(steps, dirName));
   ensuredApps.add(dirName);
-  return { installed: results };
+  return { installed: steps.map((s) => `${s.registry}: ${s.packages.length} packages`) };
+});
+
+// Renderer queries this on mount to know which packages to track in its
+// "Installing software..." view. Each package's state and streamed lines
+// arrive on installer:packageState and installer:packageLine.
+ipcMain.handle('container:getAppInstallRequests', (_event, dirName: string) => {
+  if (!activeWorkspace) return [];
+  const appsDir = path.join(activeWorkspace.directory_path, '.applications');
+  const steps = getInstallSteps(appsDir, dirName);
+  return installStepsToRequests(steps, dirName);
+});
+
+// Forward installer events to the renderer.
+packageInstaller.on('package:state', (e: { registry: Registry; package: string; state: PackageState }) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('installer:packageState', e);
+  }
+});
+packageInstaller.on('package:line', (e: { registry: Registry; package: string; line: string }) => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('installer:packageLine', e);
+  }
 });
 
 ipcMain.handle('container:rebuildEnvironment', async () => {
   if (!activeWorkspace) throw new Error('No active workspace');
   const envDir = path.join(activeWorkspace.directory_path, '.applications', '_environment');
   fs.rmSync(envDir, { recursive: true, force: true });
-
-  const progressCallback = (stage: string, message: string, percent?: number) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('container:backgroundBuild', { stage, message, percent });
-    }
-  };
-  await containerService.rebuildImage(activeWorkspace.directory_path, progressCallback);
-
+  await containerService.rebuildImage(
+    activeWorkspace.directory_path,
+    sendProgressTo('container:backgroundBuild'),
+  );
 });
 
 ipcMain.handle('app:quit', () => {
@@ -2152,8 +2167,18 @@ ipcMain.handle('jupyter:startGateway', async () => {
   }
 });
 
-ipcMain.handle('jupyter:stopGateway', () => {
-  kernelGatewayService.stop();
+ipcMain.handle('jupyter:stopGateway', async () => {
+  await kernelGatewayService.stop();
+});
+
+ipcMain.handle('jupyter:restartGateway', async () => {
+  try {
+    log.info('[KernelGateway] restartGateway requested');
+    return await kernelGatewayService.restart();
+  } catch (err) {
+    log.error('[KernelGateway] restartGateway failed:', (err as Error).message);
+    return { error: (err as Error).message };
+  }
 });
 
 ipcMain.handle('jupyter:gatewayStatus', () => {
@@ -2930,8 +2955,8 @@ ipcMain.handle('auth:refetchApiKey', async () => {
 ipcMain.handle('auth:logout', async () => {
   try {
     backgroundBuilder.dispose();
-    kernelGatewayService.stop();
     ensuredApps.clear();
+    packageInstaller.reset();
     await stopAgentInfrastructure();
     containerService.stop();
     getTaskScheduler()?.stop();
@@ -3276,7 +3301,6 @@ app.on('before-quit', () => {
     ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
     ['destroyTokenManager', destroyTokenManager],
     ['destroyAllSessions', destroyAllSessions],
-    ['kernelGatewayService.stop', () => kernelGatewayService.stop()],
     ['containerService.stop', () => containerService.stop()],
     ['windowMonitorService.stop', () => windowMonitorService.stop()],
     ['closeSchedulingDatabase', closeSchedulingDatabase],

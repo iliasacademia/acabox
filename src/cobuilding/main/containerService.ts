@@ -1,4 +1,4 @@
-import { execFile, execFileSync, spawn } from 'child_process';
+import { execFile, execFileSync, spawn, type ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import { app } from 'electron';
 import * as os from 'os';
@@ -116,13 +116,48 @@ class CobuildingContainerService {
   private lastLogTime: string = new Date().toISOString();
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private agentPort: number | null = null;
+  private kernelPort: number | null = null;
+  private kernelStartPromise: Promise<void> | null = null;
+  private backgroundBuildPromise: Promise<void> | null = null;
+
+  // Host-side handles to the `podman exec` wrappers for the in-container
+  // processes. Tracking them lets us kill the wrapper when we retry or stop,
+  // so failed starts don't leak processes on the main host.
+  private kernelGatewayProc: ChildProcess | null = null;
+  private agentServerProc: ChildProcess | null = null;
+
+  // Health-watch restart accounting. Reset whenever the container itself is
+  // (re)started, so a freshly-recovered container gets a fresh budget.
+  // The cap exists to avoid spinning forever on a genuinely-broken service
+  // (missing binary, persistent port conflict, OOM loop) and silently
+  // leaking podman-exec wrappers on each retry.
+  private kernelGatewayRestartAttempts = 0;
+  private agentServerConsecutiveFailures = 0;
+  private agentServerRestartAttempts = 0;
+
+  // Cached agent-server start params so the watchdog can revive a dead
+  // agent server without the renderer having to re-fire setup IPC. Cleared
+  // by explicit stops (workspace switch, logout, quit) so we never restart
+  // an agent the user has intentionally torn down.
+  private lastAgentServerConfig: string | null = null;
+  private lastAgentServerWorkspacePath: string | null = null;
+
+  // Surface the latest kernel-gateway failure so the renderer can show a
+  // meaningful error after an eager-start failure (the renderer otherwise
+  // only learns of it by trying to open a mini-app).
+  private lastKernelGatewayError: string | null = null;
+
   private overlayEnabled = false;
   private activeSyncPromise: Promise<{ durationMs: number }> | null = null;
   private overlaySyncInterval: ReturnType<typeof setInterval> | null = null;
 
   // ─── Public API ─────────────────────────────────────────────────
 
-  async start(workspacePath: string, onProgress?: ProgressCallback): Promise<void> {
+  async start(
+    workspacePath: string,
+    onProgress?: ProgressCallback,
+    onBackgroundProgress?: ProgressCallback,
+  ): Promise<void> {
     if (this.isRunning() && this.currentWorkspacePath === workspacePath) {
       return;
     }
@@ -161,6 +196,27 @@ class CobuildingContainerService {
       const imageUpToDate = hasFullImage && await this.isImageUpToDate(podmanBin, workspacePath);
       log.info(`[ContainerService] Image state: upToDate=${imageUpToDate}, hasFullImage=${hasFullImage}`);
 
+      // Guarantee a terminal `ready`/`error` event so renderer indicators clear.
+      // Single-flight: if a build is already running, reuse its promise instead
+      // of racing a second `podman build` against the same image tag.
+      const backgroundBuildAndFinalize = (): Promise<void> => {
+        if (this.backgroundBuildPromise) return this.backgroundBuildPromise;
+        const p = this.ensureImageBuilt(podmanBin, onBackgroundProgress, workspacePath)
+          .then(() => {
+            onBackgroundProgress?.('ready', 'Image build complete');
+          })
+          .catch((err) => {
+            const message = (err as Error).message;
+            log.warn(`[ContainerService] Background image build failed: ${message}`);
+            onBackgroundProgress?.('error', `Image build failed: ${message}`);
+          })
+          .finally(() => {
+            this.backgroundBuildPromise = null;
+          });
+        this.backgroundBuildPromise = p;
+        return p;
+      };
+
       if (imageUpToDate) {
         // Full image is current — start directly
         await this.runContainer(podmanBin, workspacePath);
@@ -168,20 +224,15 @@ class CobuildingContainerService {
         // Full image exists but is stale — start from it now, rebuild in background
         log.info('[ContainerService] Starting from existing image, rebuilding in background');
         await this.runContainer(podmanBin, workspacePath);
-        this.ensureImageBuilt(podmanBin, undefined, workspacePath).catch((err) => {
-          log.warn(`[ContainerService] Background image build failed: ${(err as Error).message}`);
-        });
+        backgroundBuildAndFinalize();
       } else {
         // No full image — start from the base image immediately so the agent
         // is available. Build the full image (with workspace deps) in the
         // background for next restart. App deps install live via backgroundBuilder.
-        const imageSource = readImageSource();
-        const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+        const baseImage = this.getBaseImageRef();
         log.info(`[ContainerService] Starting from base image (${baseImage}), building full image in background`);
         await this.runContainer(podmanBin, workspacePath, baseImage);
-        this.ensureImageBuilt(podmanBin, undefined, workspacePath).catch((err) => {
-          log.warn(`[ContainerService] Background image build failed: ${(err as Error).message}`);
-        });
+        backgroundBuildAndFinalize();
       }
 
       log.debug('[ContainerService] Container started successfully');
@@ -210,6 +261,12 @@ class CobuildingContainerService {
     }
 
     log.debug('[ContainerService] Stopping container...');
+
+    // Kill host-side podman-exec wrappers up front so they don't outlive
+    // the container they're attached to and become orphans.
+    this.killProc('kernelGatewayProc');
+    this.killProc('agentServerProc');
+
     const env = this.getExecEnv();
 
     if (this.overlayEnabled) {
@@ -247,7 +304,30 @@ class CobuildingContainerService {
 
     this.containerStarted = false;
     this.currentWorkspacePath = null;
+    this.agentPort = null;
+    this.kernelPort = null;
+    this.kernelStartPromise = null;
+    this.lastAgentServerConfig = null;
+    this.lastAgentServerWorkspacePath = null;
+    this.lastKernelGatewayError = null;
+    this.kernelGatewayRestartAttempts = 0;
+    this.agentServerConsecutiveFailures = 0;
+    this.agentServerRestartAttempts = 0;
     this.overlayEnabled = false;
+  }
+
+  /** Best-effort SIGTERM on a tracked child process, clearing the handle. */
+  private killProc(field: 'kernelGatewayProc' | 'agentServerProc'): void {
+    const proc = this[field];
+    if (!proc) return;
+    this[field] = null;
+    try {
+      if (proc.exitCode === null && proc.signalCode === null) {
+        proc.kill('SIGTERM');
+      }
+    } catch (err) {
+      log.debug(`[ContainerService] killProc(${field}) ignored:`, (err as Error).message);
+    }
   }
 
   isRunning(): boolean {
@@ -311,8 +391,16 @@ class CobuildingContainerService {
       proc.stdout?.on('data', handleData);
       proc.stderr?.on('data', handleData);
 
-      proc.on('close', (code) => {
-        resolve({ exitCode: code ?? 0 });
+      proc.on('close', (code, signal) => {
+        // If the process was killed by a signal (e.g., container stop killed
+        // the in-flight pip exec), report a non-zero exit so callers can't
+        // mistake it for success and mark packages as installed.
+        if (code === null) {
+          log.warn(`[ContainerService] execStreaming killed by signal ${signal} during: ${command.join(' ')}`);
+          resolve({ exitCode: 1 });
+          return;
+        }
+        resolve({ exitCode: code });
       });
 
       proc.on('error', (error) => {
@@ -451,6 +539,18 @@ class CobuildingContainerService {
     return this.agentPort;
   }
 
+  getKernelPort(): number | null {
+    return this.kernelPort;
+  }
+
+  getKernelGatewayUrl(): string | null {
+    return this.kernelPort ? `http://localhost:${this.kernelPort}` : null;
+  }
+
+  getLastKernelGatewayError(): string | null {
+    return this.lastKernelGatewayError;
+  }
+
   /**
    * Copy the agent server bundle and Linux claude binary to the workspace mount.
    * The binary is only re-copied when its size changes (new SDK version).
@@ -518,13 +618,21 @@ class CobuildingContainerService {
    * able to drop an active conversation underneath the user.
    */
   async startAgentServer(configJson: string, workspacePath: string): Promise<void> {
+    // Cache params so the health-watch watchdog can revive the server if it
+    // dies later. Cached params are cleared by stopAgentServer and stop(), so
+    // an intentional teardown never auto-restarts.
+    this.lastAgentServerConfig = configJson;
+    this.lastAgentServerWorkspacePath = workspacePath;
+
     if (await this.isAgentServerHealthy()) {
       log.debug('[ContainerService] Agent server already healthy — skipping restart');
       return;
     }
 
-    // Kill any existing (unhealthy / orphaned) agent server first
-    await this.stopAgentServer();
+    // Kill any existing (unhealthy / orphaned) agent server first. Pass
+    // `preserveCache: true` so this call doesn't blow away the params we
+    // just cached for the watchdog.
+    await this.stopAgentServer({ preserveCache: true });
 
     // Write config to workspace
     if (this.overlayEnabled) {
@@ -543,6 +651,7 @@ class CobuildingContainerService {
       CONTAINER_NAME,
       'node', '/data/.academia/agent-server.js',
     ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    this.agentServerProc = proc;
 
     // Log stdout/stderr from the agent server
     proc.stdout?.on('data', (data: Buffer) => {
@@ -557,13 +666,17 @@ class CobuildingContainerService {
     });
     proc.on('exit', (code, signal) => {
       log.warn(`[AgentServer] Process exited (code=${code}, signal=${signal})`);
+      // Only clear the handle if it's still pointing at this process —
+      // a later start may have already replaced it.
+      if (this.agentServerProc === proc) this.agentServerProc = null;
     });
 
     // Wait for the health endpoint to respond (up to 10 seconds)
     const agentPort = this.agentPort;
     if (!agentPort) {
       log.error('[ContainerService] No agent port assigned');
-      return;
+      this.killProc('agentServerProc');
+      throw new Error('Agent server has no port assigned');
     }
 
     const startTime = Date.now();
@@ -577,6 +690,8 @@ class CobuildingContainerService {
     }
 
     log.error('[ContainerService] Agent server failed to become healthy within 10s');
+    this.killProc('agentServerProc');
+    throw new Error('Agent server failed to become healthy within 10s');
   }
 
   /**
@@ -614,15 +729,171 @@ class CobuildingContainerService {
    * signal=null), we can see exactly which caller fired pkill — most likely
    * a re-entrant startAgentServer() (re-init) or a stray container:stop.
    */
-  async stopAgentServer(): Promise<void> {
+  async stopAgentServer(options?: { preserveCache?: boolean }): Promise<void> {
     const trace = new Error('stopAgentServer call site').stack;
     log.warn(`[ContainerService] stopAgentServer invoked\n${trace}`);
+    // Kill the host-side wrapper first; otherwise it lingers until the
+    // container goes away (and the wrapper would be the prime suspect for
+    // the "exited code=0 signal=null" crashes the trace log was added to
+    // diagnose).
+    this.killProc('agentServerProc');
     try {
       await this.exec(['pkill', '-f', 'agent-server.js']);
     } catch {
       // Process may not be running
     }
+    // Default: any explicit stop disables the watchdog so we don't fight
+    // the user's teardown. startAgentServer passes preserveCache: true to
+    // keep the cache during its own restart sequence.
+    if (!options?.preserveCache) {
+      this.lastAgentServerConfig = null;
+      this.lastAgentServerWorkspacePath = null;
+      this.agentServerConsecutiveFailures = 0;
+      this.agentServerRestartAttempts = 0;
+    }
     log.debug('[ContainerService] Agent server stopped');
+  }
+
+  /**
+   * Start the Jupyter kernel gateway inside the container. Idempotent: if
+   * the gateway already responds on the assigned port, returns without doing
+   * anything. Concurrent callers share the in-flight start promise.
+   *
+   * Output is piped through electron-log at info/warn levels — kernel
+   * activity ends up in the debug panel's Logs tab (via the systemLogger
+   * transport) and the main.log file. Source-side noise is reduced with
+   * --KernelGatewayApp.log_level=WARN.
+   */
+  async startKernelGateway(): Promise<void> {
+    if (this.kernelStartPromise) {
+      return this.kernelStartPromise;
+    }
+    if (await this.isKernelGatewayHealthy()) {
+      log.debug('[ContainerService] Kernel gateway already healthy — skipping start');
+      this.lastKernelGatewayError = null;
+      return;
+    }
+
+    this.kernelStartPromise = this._startKernelGateway();
+    try {
+      await this.kernelStartPromise;
+      this.lastKernelGatewayError = null;
+    } catch (err) {
+      this.lastKernelGatewayError = (err as Error).message;
+      throw err;
+    } finally {
+      this.kernelStartPromise = null;
+    }
+  }
+
+  private async _startKernelGateway(): Promise<void> {
+    // Kill any unhealthy / orphaned gateway first — both the in-container
+    // process (via pkill) and the host-side wrapper we may have spawned
+    // ourselves on a previous attempt.
+    await this.stopKernelGateway();
+
+    const podmanBin = this.getPodmanBin();
+    const env = this.getExecEnv();
+    const proc = spawn(podmanBin, [
+      'exec',
+      CONTAINER_NAME,
+      'jupyter', 'kernelgateway',
+      '--KernelGatewayApp.api=kernel_gateway.jupyter_websocket',
+      '--KernelGatewayApp.ip=0.0.0.0',
+      '--KernelGatewayApp.port=8888',
+      '--KernelGatewayApp.allow_origin=*',
+      '--KernelGatewayApp.log_level=WARN',
+      // Gateway listens on 8888 inside the container, reachable only via the
+      // host-bound port-forward. Both ends are local, so disable cookie/token
+      // auth — otherwise the renderer's stale cookies (signed by a previous
+      // gateway process) get 403'd on every restart.
+      '--KernelGatewayApp.auth_token=',
+      '--ServerApp.token=',
+      '--ServerApp.password=',
+      '--ServerApp.disable_check_xsrf=True',
+    ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    this.kernelGatewayProc = proc;
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      for (const line of data.toString().split('\n').filter(Boolean)) {
+        log.info(`[KernelGateway] ${line}`);
+      }
+    });
+    proc.stderr?.on('data', (data: Buffer) => {
+      for (const line of data.toString().split('\n').filter(Boolean)) {
+        log.warn(`[KernelGateway] ${line}`);
+      }
+    });
+    proc.on('exit', (code, signal) => {
+      log.warn(`[KernelGateway] Process exited (code=${code}, signal=${signal})`);
+      if (this.kernelGatewayProc === proc) this.kernelGatewayProc = null;
+    });
+
+    const kernelPort = this.kernelPort;
+    if (!kernelPort) {
+      this.killProc('kernelGatewayProc');
+      throw new Error('Kernel gateway has no port assigned');
+    }
+
+    const startTime = Date.now();
+    const timeoutMs = 15_000;
+    while (Date.now() - startTime < timeoutMs) {
+      if (await this.isKernelGatewayHealthy(2000)) {
+        log.info(`[ContainerService] Kernel gateway healthy at http://localhost:${kernelPort}`);
+        return;
+      }
+      // If the wrapper has already died, no amount of polling will help —
+      // surface that immediately rather than waiting out the full timeout.
+      if (proc.exitCode !== null || proc.signalCode !== null) {
+        throw new Error(
+          `Kernel gateway process exited before becoming healthy (code=${proc.exitCode}, signal=${proc.signalCode})`,
+        );
+      }
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    this.killProc('kernelGatewayProc');
+    throw new Error('Kernel gateway failed to become healthy within 15s');
+  }
+
+  /** One-shot probe of /api/kernelspecs. Returns true iff the gateway responds 200. */
+  private async isKernelGatewayHealthy(timeoutMs = 1500): Promise<boolean> {
+    const port = this.kernelPort;
+    if (!port) return false;
+    return new Promise<boolean>((resolve) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port,
+        path: '/api/kernelspecs',
+        method: 'GET',
+        timeout: timeoutMs,
+      }, (res) => {
+        const ok = res.statusCode === 200;
+        res.resume();
+        resolve(ok);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.end();
+    });
+  }
+
+  /**
+   * Stop the Jupyter kernel gateway process inside the container.
+   * Does NOT touch the container itself — leaves it running so the agent
+   * server stays up.
+   */
+  async stopKernelGateway(): Promise<void> {
+    // Host-side wrapper first — otherwise it lingers (and on a retry, the
+    // health-watch path would spawn another one, leaking under repeated
+    // failures).
+    this.killProc('kernelGatewayProc');
+    try {
+      await this.exec(['pkill', '-f', 'kernelgateway']);
+    } catch {
+      // Process may not be running, or container is down
+    }
+    log.debug('[ContainerService] Kernel gateway stopped');
   }
 
   writeStartContainerScript(workspaceDir: string): void {
@@ -673,22 +944,14 @@ class CobuildingContainerService {
       'fi',
       '',
       'echo "Starting $CONTAINER_NAME..."',
-      ...(process.platform === 'darwin' ? [
-        '"$PODMAN_BIN" run -d \\',
-        '  --replace \\',
-        '  --privileged \\',
-        '  --name "$CONTAINER_NAME" \\',
-        '  -v "$WORKSPACE_PATH:/data-host" \\',
-        '  "$IMAGE_NAME" \\',
-        '  sh -c "mount -t tmpfs tmpfs /tmp -o size=4G && mkdir -p /tmp/overlay-upper /tmp/overlay-work && mount -t overlay overlay -o lowerdir=/data-host,upperdir=/tmp/overlay-upper,workdir=/tmp/overlay-work /data && sleep infinity"',
-      ] : [
-        '"$PODMAN_BIN" run -d \\',
-        '  --replace \\',
-        '  --name "$CONTAINER_NAME" \\',
-        '  -v "$WORKSPACE_PATH:/data" \\',
-        '  "$IMAGE_NAME" \\',
-        '  sleep infinity',
-      ]),
+      '"$PODMAN_BIN" run -d \\',
+      '  --replace \\',
+      '  --name "$CONTAINER_NAME" \\',
+      '  -v "$WORKSPACE_PATH:/data" \\',
+      '  -p 23300:8080 \\',
+      '  -p 23330:8888 \\',
+      '  "$IMAGE_NAME" \\',
+      '  sleep infinity',
       '',
       '# Wait up to 30 seconds for the container to become running.',
       'for i in $(seq 1 30); do',
@@ -752,8 +1015,24 @@ class CobuildingContainerService {
     }
   }
 
+  /** Whether the base image is present locally (distinct from the full workspace image). */
+  async isBaseImageDownloaded(): Promise<boolean> {
+    try {
+      const { stdout } = await this.execAsync(this.getPodmanBin(), [
+        'image', 'inspect', '--format', '{{.Id}}', this.getBaseImageRef(),
+      ], this.getExecEnv());
+      return stdout.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
   private useBundled(): boolean {
     return readBinaryMode() === 'bundled';
+  }
+
+  private getBaseImageRef(): string {
+    return readImageSource() === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
   }
 
   // ─── Podman Binary Resolution ──────────────────────────────────
@@ -1096,8 +1375,7 @@ class CobuildingContainerService {
 
   /** Check if the container image is up to date without building. */
   private async isImageUpToDate(podmanBin: string, workspacePath?: string): Promise<boolean> {
-    const imageSource = readImageSource();
-    const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+    const baseImage = this.getBaseImageRef();
     let currentHash: string;
     if (workspacePath) {
       const result = generateEnvironment(workspacePath, baseImage);
@@ -1141,7 +1419,7 @@ class CobuildingContainerService {
 
   private async ensureImageBuilt(podmanBin: string, onProgress?: ProgressCallback, workspacePath?: string): Promise<void> {
     const imageSource = readImageSource();
-    const baseImage = imageSource === 'registry' ? GHCR_BASE_IMAGE : LOCAL_BASE_IMAGE;
+    const baseImage = this.getBaseImageRef();
 
     let currentHash: string;
     let buildContext: string;
@@ -1192,15 +1470,44 @@ class CobuildingContainerService {
     ], onProgress);
   }
 
+  private getDockerfileBaseHash(): string {
+    const contextDir = this.getDockerfileDir();
+    const hash = crypto.createHash('sha256');
+    hash.update(fs.readFileSync(path.join(contextDir, 'Dockerfile.base')));
+    return hash.digest('hex').substring(0, 16);
+  }
+
+  private async getLocalBaseImageHash(podmanBin: string): Promise<string | null> {
+    try {
+      const { stdout } = await this.execAsync(podmanBin, [
+        'image', 'inspect', '--format', '{{index .Config.Labels "dockerfile.base.hash"}}', LOCAL_BASE_IMAGE,
+      ], this.getExecEnv());
+      const hash = stdout.trim();
+      return hash && hash !== '<no value>' ? hash : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async buildBaseImageLocally(podmanBin: string, onProgress?: ProgressCallback): Promise<void> {
-    // Check if local base image already exists
+    const currentHash = this.getDockerfileBaseHash();
+
+    // Rebuild only if the image is missing OR its labelled hash doesn't
+    // match the current Dockerfile.base. Without this, edits to
+    // Dockerfile.base (e.g. adding tini, switching the entrypoint) wouldn't
+    // trigger a local rebuild and the dev would silently keep running a
+    // stale image.
     try {
       const { stdout } = await this.execAsync(podmanBin, [
         'image', 'inspect', '--format', '{{.Id}}', LOCAL_BASE_IMAGE,
       ], this.getExecEnv());
       if (stdout.trim().length > 0) {
-        log.debug('[ContainerService] Local base image already built');
-        return;
+        const imageHash = await this.getLocalBaseImageHash(podmanBin);
+        if (imageHash === currentHash) {
+          log.debug('[ContainerService] Local base image already built and up to date');
+          return;
+        }
+        log.info(`[ContainerService] Local base image stale (${imageHash ?? 'unlabeled'} → ${currentHash}), rebuilding...`);
       }
     } catch {
       // Image not present — build it
@@ -1214,6 +1521,7 @@ class CobuildingContainerService {
 
     await this.spawnBuild(podmanBin, [
       'build',
+      '--label', `dockerfile.base.hash=${currentHash}`,
       '-t', LOCAL_BASE_IMAGE,
       '-f', dockerfileBasePath,
       contextDir,
@@ -1302,9 +1610,12 @@ class CobuildingContainerService {
     const env = this.getExecEnv();
     const mountPath = toMountPath(workspacePath);
 
-    // Find a free host port for the agent server (container exposes 8080)
+    // Find free host ports for the agent server (8080) and Jupyter kernel
+    // gateway (8888) — both are eagerly started inside the same container.
     const agentHostPort = await findFreePort(23300, 23320);
     this.agentPort = agentHostPort;
+    const kernelHostPort = await findFreePort(23330, 23350);
+    this.kernelPort = kernelHostPort;
 
     const useImage = imageName || IMAGE_NAME;
     const useOverlay = process.env.OVERLAYFS_ENABLED === '1' && process.platform === 'darwin';
@@ -1332,14 +1643,46 @@ class CobuildingContainerService {
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data`,
       '-p', `${agentHostPort}:8080`,
+      '-p', `${kernelHostPort}:8888`,
       useImage,
       'sleep', 'infinity',
     ];
 
     log.debug(`[ContainerService] Running: podman ${args.join(' ')}`);
 
-    const { stdout } = await this.execAsync(podmanBin, args, env);
-    const containerId = stdout.trim().substring(0, 12);
+    // No timeout: when the base image is absent, `podman run` implicitly pulls
+    // it, which can take 5+ minutes on slow connections.
+    const containerId = await new Promise<string>((resolve, reject) => {
+      const proc = spawn(podmanBin, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+      let stdoutBuf = '';
+      const stderrLines: string[] = [];
+
+      proc.stdout?.on('data', (data: Buffer) => {
+        stdoutBuf += data.toString();
+      });
+      proc.stderr?.on('data', (data: Buffer) => {
+        const text = data.toString();
+        for (const line of text.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          log.debug(`[ContainerService] [run] ${trimmed}`);
+          stderrLines.push(trimmed);
+          if (stderrLines.length > 20) stderrLines.shift();
+        }
+      });
+
+      proc.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdoutBuf.trim().substring(0, 12));
+        } else {
+          const tail = stderrLines.slice(-5).join('\n');
+          reject(new Error(`podman run exited with code ${code}${tail ? ': ' + tail : ''}`));
+        }
+      });
+      proc.on('error', (err) => {
+        reject(new Error(`Failed to spawn podman run: ${err.message}`));
+      });
+    });
     log.debug(`[ContainerService] Container started with ID: ${containerId}`);
 
     // Verify the mount is correct
@@ -1384,6 +1727,11 @@ class CobuildingContainerService {
 
     this.containerStarted = true;
     this.currentWorkspacePath = workspacePath;
+    // Fresh container → fresh restart budget.
+    this.kernelGatewayRestartAttempts = 0;
+    this.agentServerConsecutiveFailures = 0;
+    this.agentServerRestartAttempts = 0;
+    this.lastKernelGatewayError = null;
 
     // Wait for the overlay mount to be ready before returning — podman run -d
     // returns immediately but the inline sh -c (mkdir, mount, rsync install)
@@ -1406,6 +1754,17 @@ class CobuildingContainerService {
     }
 
     this.startLogTail(podmanBin);
+
+    // Eagerly start the kernel gateway so mini-apps don't pay a cold-start
+    // spinner on first open. Cost is ~1.4s + ~88 MB RSS — paid during the
+    // container startup the user is already waiting through. Don't block the
+    // overall start path on it: if it fails, the health watch will retry
+    // (up to the cap) and the error is recorded on lastKernelGatewayError
+    // so the renderer can surface it via gatewayStatus.
+    this.startKernelGateway().catch((err) => {
+      log.error('[ContainerService] Eager kernel start failed:', (err as Error).message);
+    });
+
     this.startHealthWatch(podmanBin);
     this.startPeriodicSync();
   }
@@ -1547,8 +1906,125 @@ class CobuildingContainerService {
         } finally {
           this.isStarting = false;
         }
+        return;
       }
+
+      // Container is alive — check the long-running in-container processes
+      // independently. Both have a restart cap so a genuinely broken
+      // service (missing binary, port conflict, OOM loop) doesn't spin
+      // forever and leak podman-exec wrappers on each retry.
+      await this.watchKernelGateway();
+      await this.watchAgentServer();
     }, 10_000);
+  }
+
+  private static readonly KERNEL_GATEWAY_RESTART_CAP = 5;
+  private static readonly AGENT_SERVER_FAILURE_THRESHOLD = 2; // ~20s of unresponsive /health before action
+  private static readonly AGENT_SERVER_RESTART_CAP = 3;
+
+  /**
+   * Probe the kernel gateway and restart it if it's down, up to the
+   * restart cap. The cap exists because a persistently-broken gateway
+   * (missing dep, port collision) would otherwise burn a podman-exec
+   * wrapper every 10s indefinitely. When the cap is hit, the renderer's
+   * next user-initiated startGateway() call still gets a fresh attempt —
+   * the cap only governs autonomous retries.
+   */
+  private async watchKernelGateway(): Promise<void> {
+    if (!this.kernelPort || this.kernelStartPromise) return;
+    const healthy = await this.isKernelGatewayHealthy(2000);
+    if (healthy) {
+      if (this.kernelGatewayRestartAttempts > 0) {
+        log.info('[ContainerService] Kernel gateway recovered');
+        this.kernelGatewayRestartAttempts = 0;
+        this.lastKernelGatewayError = null;
+      }
+      return;
+    }
+
+    const cap = CobuildingContainerService.KERNEL_GATEWAY_RESTART_CAP;
+    if (this.kernelGatewayRestartAttempts >= cap) {
+      // Already gave up — log once on first crossing only to avoid spam.
+      return;
+    }
+    this.kernelGatewayRestartAttempts++;
+    log.warn(
+      `[ContainerService] Kernel gateway not responding (auto-restart ${this.kernelGatewayRestartAttempts}/${cap})`,
+    );
+    try {
+      await this.startKernelGateway();
+    } catch (err) {
+      log.error('[ContainerService] Kernel restart failed:', (err as Error).message);
+      if (this.kernelGatewayRestartAttempts >= cap) {
+        log.error(
+          `[ContainerService] Kernel gateway gave up after ${cap} auto-restart attempts. ` +
+          'Open a mini-app to retry manually.',
+        );
+      }
+    }
+  }
+
+  /**
+   * Probe the agent server's /health endpoint and restart it if it's been
+   * unresponsive for long enough. Conservative thresholds to avoid killing
+   * a live session whose /health is briefly delayed:
+   *   - Requires AGENT_SERVER_FAILURE_THRESHOLD consecutive failures
+   *     (~20s) before attempting a restart.
+   *   - Caps total restarts at AGENT_SERVER_RESTART_CAP so a genuinely
+   *     broken agent doesn't pkill itself in a loop.
+   *   - Only fires if startAgentServer has been called at least once for
+   *     the current container (cached config + workspacePath are non-null);
+   *     stopAgentServer clears the cache, so an intentional teardown is
+   *     never re-revived.
+   */
+  private async watchAgentServer(): Promise<void> {
+    if (!this.agentPort) return;
+    // Capture cached params at probe time so an intervening stopAgentServer
+    // (which nulls the cache) doesn't strand us mid-flight calling
+    // startAgentServer with stale half-state.
+    const cachedConfig = this.lastAgentServerConfig;
+    const cachedWorkspacePath = this.lastAgentServerWorkspacePath;
+    if (!cachedConfig || !cachedWorkspacePath) return;
+
+    const healthy = await this.isAgentServerHealthy(2000);
+    if (healthy) {
+      if (this.agentServerRestartAttempts > 0 && this.agentServerConsecutiveFailures === 0) {
+        log.info('[ContainerService] Agent server recovered');
+        this.agentServerRestartAttempts = 0;
+      }
+      this.agentServerConsecutiveFailures = 0;
+      return;
+    }
+
+    this.agentServerConsecutiveFailures++;
+    const failureThreshold = CobuildingContainerService.AGENT_SERVER_FAILURE_THRESHOLD;
+    const restartCap = CobuildingContainerService.AGENT_SERVER_RESTART_CAP;
+
+    if (this.agentServerConsecutiveFailures < failureThreshold) return;
+    if (this.agentServerRestartAttempts >= restartCap) return;
+
+    // The cache could have been cleared while we were probing — if so,
+    // bail and let the next tick handle it (or stay quiet if the user
+    // tore the agent down intentionally).
+    if (this.lastAgentServerConfig !== cachedConfig) return;
+
+    this.agentServerRestartAttempts++;
+    this.agentServerConsecutiveFailures = 0;
+    log.warn(
+      `[ContainerService] Agent server unresponsive for ~${failureThreshold * 10}s ` +
+      `(auto-restart ${this.agentServerRestartAttempts}/${restartCap})`,
+    );
+    try {
+      await this.startAgentServer(cachedConfig, cachedWorkspacePath);
+    } catch (err) {
+      log.error('[ContainerService] Agent restart failed:', (err as Error).message);
+      if (this.agentServerRestartAttempts >= restartCap) {
+        log.error(
+          `[ContainerService] Agent server gave up after ${restartCap} auto-restart attempts. ` +
+          'The chat will need to be re-initialized from the renderer.',
+        );
+      }
+    }
   }
 
   private stopHealthWatch(): void {

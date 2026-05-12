@@ -77,7 +77,7 @@ export const KernelsDebug: React.FC = () => {
         <span
           className={`debugSection__indicator ${gatewayRunning ? 'debugSection__indicator--running' : 'debugSection__indicator--stopped'}`}
         />
-        <span>Gateway {gatewayRunning ? 'Running' : 'Stopped'}</span>
+        <span>Gateway {gatewayRunning ? 'online' : 'offline'}</span>
         <button
           className="debugSection__btnInline"
           onClick={refresh}
@@ -89,11 +89,11 @@ export const KernelsDebug: React.FC = () => {
 
       {!gatewayRunning ? (
         <div style={{ fontSize: 13, color: '#666' }}>
-          No kernel gateway is running. Start a notebook to launch the gateway.
+          Kernel gateway is offline. Open a mini-app to retry.
         </div>
       ) : kernels.length === 0 ? (
         <div style={{ fontSize: 13, color: '#666' }}>
-          No kernels are currently running.
+          No active kernels. Open a notebook to start one.
         </div>
       ) : (
         <div className="debugSection__tableWrap">

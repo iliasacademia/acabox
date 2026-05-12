@@ -96,16 +96,20 @@ interface ContainerAPI {
   downloadBinaries(): Promise<void>;
   deleteBinaries(): Promise<void>;
   deleteImage(): Promise<void>;
+  downloadImage(): Promise<void>;
   getName(): Promise<string>;
   isImageBuilt(): Promise<boolean>;
+  isBaseImageDownloaded(): Promise<boolean>;
   ensureSetup(): Promise<void>;
   getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
   appDepsReady(dirName: string): Promise<boolean>;
   ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
+  getAppInstallRequests(dirName: string): Promise<Array<{ registry: PackageRegistry; packages: string[] }>>;
   rebuildEnvironment(): Promise<void>;
   onSetupProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
   onProgress(callback: (progress: { stage: string; message: string }) => void): () => void;
-  onInstallProgress(callback: (progress: InstallProgress) => void): () => void;
+  onPackageState(callback: (e: { registry: PackageRegistry; package: string; state: PackageState }) => void): () => void;
+  onPackageLine(callback: (e: { registry: PackageRegistry; package: string; line: string }) => void): () => void;
   onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
 }
 
@@ -142,13 +146,8 @@ interface ElectronAPI {
 }
 
 declare global {
-  interface InstallProgress {
-    dirName: string;
-    type: 'step' | 'line' | 'done';
-    registry?: string;
-    packages?: string[];
-    line?: string;
-  }
+  type PackageRegistry = 'pip' | 'npm' | 'R' | 'apt' | 'manual';
+  type PackageState = 'queued' | 'installing' | 'installed' | 'failed';
 
   interface EnvironmentInfoPayload {
     imageType: 'base' | 'user';
@@ -156,6 +155,8 @@ declare global {
     environmentHash: string | null;
     inSync: boolean;
     backgroundBuildState: 'idle' | 'building' | 'building-pending';
+    packageStates: Record<PackageRegistry, Record<string, PackageState>>;
+    packageLines: Record<PackageRegistry, Record<string, string>>;
     totalPip: string[];
     totalNpm: string[];
     totalR: string[];
@@ -275,17 +276,21 @@ declare global {
     downloadBinaries(): Promise<void>;
     deleteBinaries(): Promise<void>;
     deleteImage(): Promise<void>;
+    downloadImage(): Promise<void>;
     getName(): Promise<string>;
     isImageBuilt(): Promise<boolean>;
+    isBaseImageDownloaded(): Promise<boolean>;
     ensureSetup(): Promise<void>;
     getEnvironmentInfo(): Promise<EnvironmentInfoPayload | null>;
     appDepsReady(dirName: string): Promise<boolean>;
     ensureAppDeps(dirName: string): Promise<{ installed: string[] }>;
+    getAppInstallRequests(dirName: string): Promise<Array<{ registry: PackageRegistry; packages: string[] }>>;
     rebuildEnvironment(): Promise<void>;
     onSetupProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
     onProgress(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
-    onInstallProgress(callback: (progress: InstallProgress) => void): () => void;
-  onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
+    onPackageState(callback: (e: { registry: PackageRegistry; package: string; state: PackageState }) => void): () => void;
+    onPackageLine(callback: (e: { registry: PackageRegistry; package: string; line: string }) => void): () => void;
+    onBackgroundBuild(callback: (progress: { stage: string; message: string; percent?: number }) => void): () => void;
   }
 
   interface CommandLogEntry {
@@ -329,6 +334,7 @@ declare global {
   interface JupyterAPI {
     startGateway(): Promise<{ url: string } | { error: string }>;
     stopGateway(): Promise<void>;
+    restartGateway(): Promise<{ url: string } | { error: string }>;
     gatewayStatus(): Promise<{ running: boolean; url: string | null }>;
     listKernels(): Promise<JupyterKernelInfo[]>;
     shutdownKernel(kernelId: string): Promise<boolean>;
