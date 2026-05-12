@@ -337,6 +337,10 @@ export class WindowMonitorService {
   // programmatic selections from MCP tools like find_and_replace/select_text).
   private selectionEventsSuppressed = false;
 
+  isRunning(): boolean {
+    return !this.stopped;
+  }
+
   start(baseUrl: string, authToken: string, allAppsEnabled: boolean = false): void {
     if (process.platform !== 'darwin') {
       logger.info('[WindowMonitorService] Not available on this platform, skipping');

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import { ChevronLeftIcon, SparklesIcon, ArrowUpRightIcon } from 'lucide-react';
+import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 
 interface ParsedRow {
   briefing: Briefing;
@@ -184,6 +185,7 @@ export function BriefingHistory({
       }
     } else if (row.briefing.type === 'writing_agent') {
       if (typeof d.file_path !== 'string') return;
+      if (!(await ensureAccessibilityPermission())) return;
       const absolutePath = `${workspacePath}/${d.file_path}`;
       const fileUrl = absolutePath.startsWith('file://') ? absolutePath : `file://${absolutePath}`;
       let existingSessions = 0;

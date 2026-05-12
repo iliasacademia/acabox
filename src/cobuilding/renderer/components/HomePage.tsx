@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { ensureAccessibilityPermission } from '../utils/ensureAccessibilityPermission';
 import { useAssistantRuntime, useComposerRuntime } from '@assistant-ui/react';
 import {
   ArrowUpRightIcon,
@@ -169,6 +170,7 @@ export function HomePage({
         `Please build the following mini-app for me:\n\n${parsed.data.details_on_what_to_build}`,
       );
     } else if (parsed.type === 'writing_agent') {
+      if (!(await ensureAccessibilityPermission())) return;
       const absolutePath = `${workspacePath}/${parsed.data.file_path}`;
       const fileUrl = absolutePath.startsWith('file://')
         ? absolutePath
