@@ -46,7 +46,7 @@ Tiebreakers for ambiguous cases:
 
 Run these checks in order. Stop at the first match.
 
-**Override (run first): single-section manuscripts.** If the document has prose in exactly one section — for example, only an Introduction is drafted, or only a Methods section is drafted — route to that section regardless of how the user phrased the request. Even when the user says "review the paper", "end-to-end peer review", or "review the whole manuscript", the relevant conventions are still that one section's, because that is the only prose there is to review. Route to that section, load its file, and **skip the table below**. This override is the most common reason a section-specific file is loaded for a "full paper" request — apply it before considering anything else.
+**Override (run first): single-section manuscripts.** If the document has prose in exactly one section — for example, only an Introduction is drafted, or only a Methods section is drafted — route to that section regardless of how the user phrased the request. Even when the user says "review the paper", "end-to-end peer review", or "review the whole manuscript", the relevant conventions are still that one section's, because that is the only prose there is to review. Load that section's file, set the `<span class="section">` in the skill-trace to that section (not General), and **skip the table below**. This override is the most common reason a section-specific file is loaded for a "full paper" request — apply it before considering anything else.
 
 **Otherwise, use the table.** Infer from document context: headers, cursor position, selected text, or explicit mention.
 
@@ -67,6 +67,7 @@ After detecting the action and section:
 2. Read the section file indicated in the Step 2 table. Skip if the section is General.
 3. Read the action file indicated in the Step 1 table.
 4. Apply the base-layer conventions below, the section conventions, and the action process together.
+5. Begin the response with a `<div class="skill-trace">` block (see `format.md`) recording the detected action, section, document maturity, your reasoning, and the list of all skill files loaded (collected from `<!-- skill-file: ... -->` markers at the bottom of each file).
 
 ## Persona
 
@@ -138,4 +139,4 @@ If a domain profile is available, use it for subdomain conventions, terminology 
 3. If something is unclear, quote the exact passage before discussing it
 4. If content is too minimal for meaningful feedback, say so directly
 
-<!-- skill-file: SKILL.md @2026-05-07c -->
+<!-- skill-file: SKILL.md @2026-05-12a -->
