@@ -470,10 +470,9 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
         setSavedSchedule(reactionsTask.cron_expression);
       }
     });
-    window.reactionPromptAPI.get().then((result) => {
-      const val = result.instructions ?? '';
-      setPrompt(val);
-      setSavedPrompt(val);
+    window.academiaFileAPI.read('FOCUS.md').then((result) => {
+      setPrompt(result.content);
+      setSavedPrompt(result.content);
     });
     window.reactionSourcesAPI.get().then((s) => {
       setSources(s);
@@ -523,11 +522,7 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
         setSavedSchedule(schedule);
       }
       if (prompt !== savedPrompt) {
-        if (prompt.trim()) {
-          await window.reactionPromptAPI.set(prompt.trim());
-        } else {
-          await window.reactionPromptAPI.reset();
-        }
+        await window.academiaFileAPI.write('FOCUS.md', prompt);
         setSavedPrompt(prompt);
       }
       if (JSON.stringify(sources) !== JSON.stringify(savedSources)) {
