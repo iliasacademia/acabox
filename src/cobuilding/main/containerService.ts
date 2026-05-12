@@ -114,6 +114,8 @@ class CobuildingContainerService {
   private lastLogTime: string = new Date().toISOString();
   private healthCheckInterval: ReturnType<typeof setInterval> | null = null;
   private agentPort: number | null = null;
+  private kernelPort: number | null = null;
+  private kernelStartPromise: Promise<void> | null = null;
 
   // ─── Public API ─────────────────────────────────────────────────
 
@@ -212,6 +214,9 @@ class CobuildingContainerService {
 
     this.containerStarted = false;
     this.currentWorkspacePath = null;
+    this.agentPort = null;
+    this.kernelPort = null;
+    this.kernelStartPromise = null;
   }
 
   isRunning(): boolean {
@@ -415,6 +420,14 @@ class CobuildingContainerService {
     return this.agentPort;
   }
 
+  getKernelPort(): number | null {
+    return this.kernelPort;
+  }
+
+  getKernelGatewayUrl(): string | null {
+    return this.kernelPort ? `http://localhost:${this.kernelPort}` : null;
+  }
+
   /**
    * Copy the agent server bundle and Linux claude binary to the workspace mount.
    * The binary is only re-copied when its size changes (new SDK version).
@@ -571,6 +584,127 @@ class CobuildingContainerService {
     log.debug('[ContainerService] Agent server stopped');
   }
 
+  /**
+   * Start the Jupyter kernel gateway inside the container. Idempotent: if
+   * the gateway already responds on the assigned port, returns without doing
+   * anything. Concurrent callers share the in-flight start promise.
+   *
+   * Output is piped through electron-log at info/warn levels — kernel
+   * activity ends up in the debug panel's Logs tab (via the systemLogger
+   * transport) and the main.log file. Source-side noise is reduced with
+   * --KernelGatewayApp.log_level=WARN.
+   */
+  async startKernelGateway(): Promise<void> {
+    if (this.kernelStartPromise) {
+      return this.kernelStartPromise;
+    }
+    if (await this.isKernelGatewayHealthy()) {
+      log.debug('[ContainerService] Kernel gateway already healthy — skipping start');
+      return;
+    }
+
+    this.kernelStartPromise = this._startKernelGateway();
+    try {
+      await this.kernelStartPromise;
+    } finally {
+      this.kernelStartPromise = null;
+    }
+  }
+
+  private async _startKernelGateway(): Promise<void> {
+    // Kill any unhealthy / orphaned gateway first
+    await this.stopKernelGateway();
+
+    const podmanBin = this.getPodmanBin();
+    const env = this.getExecEnv();
+    const proc = spawn(podmanBin, [
+      'exec',
+      CONTAINER_NAME,
+      'jupyter', 'kernelgateway',
+      '--KernelGatewayApp.api=kernel_gateway.jupyter_websocket',
+      '--KernelGatewayApp.ip=0.0.0.0',
+      '--KernelGatewayApp.port=8888',
+      '--KernelGatewayApp.allow_origin=*',
+      '--KernelGatewayApp.log_level=WARN',
+      // Gateway listens on 8888 inside the container, reachable only via the
+      // host-bound port-forward. Both ends are local, so disable cookie/token
+      // auth — otherwise the renderer's stale cookies (signed by a previous
+      // gateway process) get 403'd on every restart.
+      '--KernelGatewayApp.auth_token=',
+      '--ServerApp.token=',
+      '--ServerApp.password=',
+      '--ServerApp.disable_check_xsrf=True',
+    ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+
+    proc.stdout?.on('data', (data: Buffer) => {
+      for (const line of data.toString().split('\n').filter(Boolean)) {
+        log.info(`[KernelGateway] ${line}`);
+      }
+    });
+    proc.stderr?.on('data', (data: Buffer) => {
+      for (const line of data.toString().split('\n').filter(Boolean)) {
+        log.warn(`[KernelGateway] ${line}`);
+      }
+    });
+    proc.on('exit', (code, signal) => {
+      log.warn(`[KernelGateway] Process exited (code=${code}, signal=${signal})`);
+    });
+
+    const kernelPort = this.kernelPort;
+    if (!kernelPort) {
+      log.error('[ContainerService] No kernel port assigned');
+      return;
+    }
+
+    const startTime = Date.now();
+    const timeoutMs = 15_000;
+    while (Date.now() - startTime < timeoutMs) {
+      if (await this.isKernelGatewayHealthy(2000)) {
+        log.info(`[ContainerService] Kernel gateway healthy at http://localhost:${kernelPort}`);
+        return;
+      }
+      await new Promise(r => setTimeout(r, 250));
+    }
+
+    log.error('[ContainerService] Kernel gateway failed to become healthy within 15s');
+  }
+
+  /** One-shot probe of /api/kernelspecs. Returns true iff the gateway responds 200. */
+  private async isKernelGatewayHealthy(timeoutMs = 1500): Promise<boolean> {
+    const port = this.kernelPort;
+    if (!port) return false;
+    return new Promise<boolean>((resolve) => {
+      const req = http.request({
+        hostname: 'localhost',
+        port,
+        path: '/api/kernelspecs',
+        method: 'GET',
+        timeout: timeoutMs,
+      }, (res) => {
+        const ok = res.statusCode === 200;
+        res.resume();
+        resolve(ok);
+      });
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+      req.end();
+    });
+  }
+
+  /**
+   * Stop the Jupyter kernel gateway process inside the container.
+   * Does NOT touch the container itself — leaves it running so the agent
+   * server stays up.
+   */
+  async stopKernelGateway(): Promise<void> {
+    try {
+      await this.exec(['pkill', '-f', 'kernelgateway']);
+    } catch {
+      // Process may not be running
+    }
+    log.debug('[ContainerService] Kernel gateway stopped');
+  }
+
   writeStartContainerScript(workspaceDir: string): void {
     const academiaDir = path.join(workspaceDir, '.academia');
     fs.mkdirSync(academiaDir, { recursive: true });
@@ -623,6 +757,8 @@ class CobuildingContainerService {
       '  --replace \\',
       '  --name "$CONTAINER_NAME" \\',
       '  -v "$WORKSPACE_PATH:/data" \\',
+      '  -p 23300:8080 \\',
+      '  -p 23330:8888 \\',
       '  "$IMAGE_NAME" \\',
       '  sleep infinity',
       '',
@@ -1231,9 +1367,12 @@ class CobuildingContainerService {
     const env = this.getExecEnv();
     const mountPath = toMountPath(workspacePath);
 
-    // Find a free host port for the agent server (container exposes 8080)
+    // Find free host ports for the agent server (8080) and Jupyter kernel
+    // gateway (8888) — both are eagerly started inside the same container.
     const agentHostPort = await findFreePort(23300, 23320);
     this.agentPort = agentHostPort;
+    const kernelHostPort = await findFreePort(23330, 23350);
+    this.kernelPort = kernelHostPort;
 
     const useImage = imageName || IMAGE_NAME;
     const args = [
@@ -1242,6 +1381,7 @@ class CobuildingContainerService {
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data`,
       '-p', `${agentHostPort}:8080`,
+      '-p', `${kernelHostPort}:8888`,
       useImage,
       'sleep', 'infinity',
     ];
@@ -1291,6 +1431,15 @@ class CobuildingContainerService {
     this.containerStarted = true;
     this.currentWorkspacePath = workspacePath;
     this.startLogTail(podmanBin);
+
+    // Eagerly start the kernel gateway so mini-apps don't pay a cold-start
+    // spinner on first open. Cost is ~1.4s + ~88 MB RSS — paid during the
+    // container startup the user is already waiting through. Don't block the
+    // overall start path on it: if it fails, the health watch will retry.
+    this.startKernelGateway().catch((err) => {
+      log.error('[ContainerService] Eager kernel start failed:', (err as Error).message);
+    });
+
     this.startHealthWatch(podmanBin);
   }
 
@@ -1351,6 +1500,23 @@ class CobuildingContainerService {
           log.error('[ContainerService] Auto-restart failed:', (err as Error).message);
         } finally {
           this.isStarting = false;
+        }
+        return;
+      }
+
+      // Container is alive — check the kernel gateway independently. If it's
+      // down, restart only the gateway process. The agent server has its own
+      // recovery path (started on demand by setup IPC) so we don't probe it
+      // here.
+      if (this.kernelPort && !this.kernelStartPromise) {
+        const kernelHealthy = await this.isKernelGatewayHealthy(2000);
+        if (!kernelHealthy) {
+          log.warn('[ContainerService] Kernel gateway not responding, restarting...');
+          try {
+            await this.startKernelGateway();
+          } catch (err) {
+            log.error('[ContainerService] Kernel restart failed:', (err as Error).message);
+          }
         }
       }
     }, 10_000);

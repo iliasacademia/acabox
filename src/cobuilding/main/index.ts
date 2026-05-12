@@ -76,7 +76,7 @@ import { runScheduledTask } from './scheduledTasks/runner';
 import type { CreateTaskData, UpdateTaskData, NotificationNavigationAction } from '../shared/types';
 import { migrateWorkspaceFiles } from './migrateWorkspaceFiles';
 import { BackgroundBuilder } from './backgroundBuilder';
-import { discoverApps, getEnvironmentInfo, getInstallSteps, installDepsInContainer, installDepsStreaming } from './environmentGenerator';
+import { discoverApps, getEnvironmentInfo, installDepsInContainer, installDepsStreaming } from './environmentGenerator';
 import { checkLogin, getCurrentUser, logout, setBaseUrl, BASE_URL, hasSessionCookie } from '../../apiClient';
 import { getDeviceId } from '../../utils/deviceId';
 import { createCobuildingAuthSession, verifyCobuildingAuthCode } from './cobuildingAuthService';
@@ -1247,8 +1247,8 @@ ipcMain.handle(
     const directoryPath = validateDirectoryPath(data.directoryPath);
 
     if (directoryPath !== activeWorkspace.directory_path) {
-      // Stop containers so they restart with the new volume mount
-      kernelGatewayService.stop();
+      // Stop the container so it restarts with the new volume mount.
+      // The kernel gateway is inside the container, so it stops with it.
       containerService.stop();
 
       if (!fs.existsSync(directoryPath)) {
@@ -1266,7 +1266,6 @@ ipcMain.handle(
 
 ipcMain.handle('workspaces:deleteAll', async () => {
   backgroundBuilder.dispose();
-  kernelGatewayService.stop();
   ensuredApps.clear();
   await stopAgentInfrastructure();
   containerService.stop();
@@ -1285,7 +1284,6 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   if (!target) throw new Error('Workspace not found.');
 
   backgroundBuilder.dispose();
-  kernelGatewayService.stop();
   containerService.stop();
 
   touchWorkspace(id);
@@ -2133,18 +2131,6 @@ ipcMain.handle('container:ensureAppDeps', async (_event, dirName: string) => {
     (line) => sendProgress({ type: 'line', line }),
   );
 
-  // Mirror installs to Jupyter container if it's running
-  const steps = getInstallSteps(appsDir, dirName);
-  if (steps.length > 0) {
-    const jupyterStatus = await kernelGatewayService.getStatus();
-    if (jupyterStatus.running) {
-      sendProgress({ type: 'step', registry: 'jupyter', packages: ['syncing to kernel...'] });
-      for (const step of steps) {
-        await kernelGatewayService.exec(step.command);
-      }
-    }
-  }
-
   sendProgress({ type: 'done' });
   ensuredApps.add(dirName);
   return { installed: results };
@@ -2183,8 +2169,18 @@ ipcMain.handle('jupyter:startGateway', async () => {
   }
 });
 
-ipcMain.handle('jupyter:stopGateway', () => {
-  kernelGatewayService.stop();
+ipcMain.handle('jupyter:stopGateway', async () => {
+  await kernelGatewayService.stop();
+});
+
+ipcMain.handle('jupyter:restartGateway', async () => {
+  try {
+    log.info('[KernelGateway] restartGateway requested');
+    return await kernelGatewayService.restart();
+  } catch (err) {
+    log.error('[KernelGateway] restartGateway failed:', (err as Error).message);
+    return { error: (err as Error).message };
+  }
 });
 
 ipcMain.handle('jupyter:gatewayStatus', () => {
@@ -2961,7 +2957,6 @@ ipcMain.handle('auth:refetchApiKey', async () => {
 ipcMain.handle('auth:logout', async () => {
   try {
     backgroundBuilder.dispose();
-    kernelGatewayService.stop();
     ensuredApps.clear();
     await stopAgentInfrastructure();
     containerService.stop();
@@ -3369,7 +3364,6 @@ app.on('before-quit', () => {
     ['backgroundBuilder.dispose', () => backgroundBuilder.dispose()],
     ['destroyTokenManager', destroyTokenManager],
     ['destroyAllSessions', destroyAllSessions],
-    ['kernelGatewayService.stop', () => kernelGatewayService.stop()],
     ['containerService.stop', () => containerService.stop()],
     ['closeSchedulingDatabase', closeSchedulingDatabase],
     ['closeObservationsDatabase', closeObservationsDatabase],

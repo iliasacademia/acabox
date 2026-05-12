@@ -364,6 +364,7 @@ const ContainerGate: FC<{ dirName: string; children: React.ReactNode }> = ({ dir
 
   if (containerReady === null) return null;
   if (!containerReady) return <InstallingView message={statusMessage} />;
+  if (depsReady === null) return null;
   if (!depsReady) return <InstallingView message="Installing software..." installStatus={installStatus} />;
 
   return <>{children}</>;

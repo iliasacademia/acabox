@@ -11,8 +11,12 @@
 
 FROM bioconductor/bioconductor_docker:3.21
 
-# System dependencies for office/PDF skills and LaTeX posters
+# System dependencies for office/PDF skills and LaTeX posters.
+# tini reaps zombies under our `sleep infinity` PID 1 — required because
+# the kernel gateway and other podman-exec'd processes spawn children
+# whose orphans would otherwise pile up as <defunct> entries.
 RUN apt-get update && apt-get install -y \
+    tini \
     python3-venv \
     pandoc \
     poppler-utils \
@@ -27,6 +31,11 @@ RUN apt-get update && apt-get install -y \
     texlive-xetex \
     lmodern \
     && rm -rf /var/lib/apt/lists/*
+
+# Use tini as PID 1 so it can reap orphaned descendants of podman-exec'd
+# processes (kernel gateway, agent server). The image's command (set by
+# `podman run`) is `sleep infinity`, which tini wraps transparently.
+ENTRYPOINT ["/usr/bin/tini", "--"]
 
 # Install Node.js and npm packages for document creation
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \

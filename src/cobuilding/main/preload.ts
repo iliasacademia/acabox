@@ -143,6 +143,7 @@ contextBridge.exposeInMainWorld('containerAPI', {
 contextBridge.exposeInMainWorld('jupyterAPI', {
   startGateway: () => ipcRenderer.invoke('jupyter:startGateway'),
   stopGateway: () => ipcRenderer.invoke('jupyter:stopGateway'),
+  restartGateway: () => ipcRenderer.invoke('jupyter:restartGateway'),
   gatewayStatus: () => ipcRenderer.invoke('jupyter:gatewayStatus'),
   listKernels: () => ipcRenderer.invoke('jupyter:listKernels'),
   shutdownKernel: (kernelId: string) => ipcRenderer.invoke('jupyter:shutdownKernel', kernelId),

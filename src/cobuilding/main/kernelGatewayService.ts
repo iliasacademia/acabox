@@ -1,190 +1,50 @@
-import { execFile, execFileSync } from 'child_process';
-import { promisify } from 'util';
-import * as path from 'path';
-import * as fs from 'fs';
-import * as net from 'net';
-import { app } from 'electron';
 import http from 'http';
 import log from 'electron-log';
-import { getBundledPodmanBin, getBundledPodmanEnv } from './podmanBinaries';
+import { containerService } from './containerService';
 
-const execFileAsync = promisify(execFile);
-
-const CONTAINER_NAME = 'cobuilding-jupyter';
-const IMAGE_NAME = 'cobuilding-container';
-const CONTAINER_PORT = 8888;
-
-type BinaryMode = 'system' | 'bundled';
-
-function getSettingsPath(): string {
-  return path.join(app.getPath('userData'), 'cobuilding-settings.json');
-}
-
-function readBinaryMode(): BinaryMode {
-  try {
-    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.binaryMode === 'system' ? 'system' : 'bundled';
-  } catch {
-    return 'bundled';
-  }
-}
-
-/** Convert a Windows path to a WSL mount path for Podman volume mounts. */
-function toMountPath(hostPath: string): string {
-  if (process.platform !== 'win32') return hostPath;
-  const match = hostPath.match(/^([A-Za-z]):[/\\](.*)/);
-  if (!match) return hostPath;
-  const drive = match[1].toLowerCase();
-  const rest = match[2].replace(/\\/g, '/');
-  return `/mnt/${drive}/${rest}`;
-}
-
-/** Find a free port by binding to port 0 and reading the assigned port. */
-function findFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.listen(0, '127.0.0.1', () => {
-      const addr = server.address();
-      if (addr && typeof addr === 'object') {
-        const port = addr.port;
-        server.close(() => resolve(port));
-      } else {
-        server.close(() => reject(new Error('Could not determine free port')));
-      }
-    });
-    server.on('error', reject);
-  });
-}
-
+/**
+ * Thin HTTP client over the Jupyter kernel gateway that runs inside the
+ * cobuilding container. Container lifecycle (run, stop, port mapping) and
+ * process supervision (start, stop, health watch) live on `containerService`
+ * — this file is just the HTTP / IPC surface the renderer talks to.
+ */
 class KernelGatewayService {
-  private cachedUrl: string | null = null;
-  private containerRunning = false;
-
-  private getPodmanBin(): string {
-    if (readBinaryMode() === 'bundled') {
-      return getBundledPodmanBin();
-    }
-    return 'podman';
-  }
-
-  private getExecEnv(): NodeJS.ProcessEnv {
-    if (readBinaryMode() === 'bundled') {
-      return getBundledPodmanEnv();
-    }
-    return process.env;
-  }
-
-  async start(workspacePath: string): Promise<{ url: string }> {
-    // If already running, verify it's healthy
-    const existing = await this.getRunningUrl();
-    if (existing) {
-      try {
-        await this.waitForHttp(existing, 3000);
-        return { url: existing };
-      } catch {
-        // Container exists but not responding; restart
-        this.stop();
-      }
-    }
-
-    let podmanBin: string;
+  /** Start (or no-op confirm) the kernel gateway. Returns the host URL. */
+  async start(_workspacePath?: string): Promise<{ url: string } | { error: string }> {
     try {
-      podmanBin = this.getPodmanBin();
+      await containerService.startKernelGateway();
     } catch (err) {
-      log.error('[KernelGateway] Failed to resolve podman binary:', err);
-      throw err;
+      const message = (err as Error).message;
+      log.error('[KernelGateway] start failed:', message);
+      return { error: message };
     }
-    const env = this.getExecEnv();
-
-    // Remove any stale container
-    try {
-      await execFileAsync(podmanBin, ['rm', '-f', CONTAINER_NAME], { env, timeout: 10000 });
-    } catch {
-      // Container didn't exist
+    const url = containerService.getKernelGatewayUrl();
+    if (!url) {
+      return { error: 'Kernel gateway has no port assigned' };
     }
-
-    const hostPort = await findFreePort();
-    const mountPath = toMountPath(workspacePath);
-    const args = [
-      'run', '-d',
-      '--name', CONTAINER_NAME,
-      '-p', `${hostPort}:${CONTAINER_PORT}`,
-      '-v', `${mountPath}:/data`,
-      IMAGE_NAME,
-      'jupyter', 'kernelgateway',
-      '--KernelGatewayApp.api=kernel_gateway.jupyter_websocket',
-      '--KernelGatewayApp.ip=0.0.0.0',
-      `--KernelGatewayApp.port=${CONTAINER_PORT}`,
-      '--KernelGatewayApp.allow_origin=*',
-    ];
-
-    log.info(`[KernelGateway] Starting: ${podmanBin} ${args.join(' ')}`);
-    try {
-      await execFileAsync(podmanBin, args, { env, timeout: 30000 });
-    } catch (err) {
-      log.error(`[KernelGateway] podman run failed:`, err);
-      throw err;
-    }
-
-    const url = `http://localhost:${hostPort}`;
-    log.info(`[KernelGateway] Container started, waiting for HTTP at ${url}`);
-
-    try {
-      await this.waitForHttp(url);
-    } catch (err) {
-      log.error(`[KernelGateway] Gateway never became ready at ${url}:`, err);
-      throw err;
-    }
-
-    this.cachedUrl = url;
-    this.containerRunning = true;
-    log.info('[KernelGateway] Gateway ready');
     return { url };
   }
 
-  stop(): void {
-    log.debug('[KernelGateway] Stopping...');
-    const podmanBin = this.getPodmanBin();
-    const env = this.getExecEnv();
+  /** Stop only the kernel gateway process; container keeps running. */
+  async stop(): Promise<void> {
+    await containerService.stopKernelGateway();
+  }
 
-    try {
-      execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], { env, timeout: 10000 });
-    } catch {
-      // Already stopped
-    }
-
-    try {
-      execFileSync(podmanBin, ['rm', '-f', CONTAINER_NAME], { env, timeout: 5000 });
-    } catch {
-      // Already removed
-    }
-
-    this.cachedUrl = null;
-    this.containerRunning = false;
+  /** Restart only the kernel gateway process; preserves the agent session. */
+  async restart(): Promise<{ url: string } | { error: string }> {
+    await containerService.stopKernelGateway();
+    return this.start();
   }
 
   async getStatus(): Promise<{ running: boolean; url: string | null }> {
-    const url = await this.getRunningUrl();
-    return { running: this.containerRunning, url };
-  }
-
-  /** Run a command inside the Jupyter container. Best-effort — returns false if not running. */
-  async exec(command: string[]): Promise<boolean> {
-    const url = await this.getRunningUrl();
-    if (!url) return false;
-    try {
-      await execFileAsync(this.getPodmanBin(), ['exec', CONTAINER_NAME, ...command], {
-        env: this.getExecEnv(),
-        timeout: 600_000,
-      });
-      return true;
-    } catch {
-      return false;
-    }
+    const url = containerService.getKernelGatewayUrl();
+    if (!url) return { running: false, url: null };
+    const healthy = await this.probe(url);
+    return { running: healthy, url: healthy ? url : null };
   }
 
   async listKernels(): Promise<{ id: string; name: string; execution_state: string; last_activity: string; connections: number }[]> {
-    const url = await this.getRunningUrl();
+    const url = containerService.getKernelGatewayUrl();
     if (!url) return [];
     return new Promise((resolve) => {
       const req = http.get(`${url}/api/kernels`, (res) => {
@@ -201,11 +61,16 @@ class KernelGatewayService {
   }
 
   async shutdownKernel(kernelId: string): Promise<boolean> {
-    const url = await this.getRunningUrl();
+    const url = containerService.getKernelGatewayUrl();
     if (!url) return false;
     return new Promise((resolve) => {
       const parsed = new URL(`${url}/api/kernels/${kernelId}`);
-      const req = http.request({ hostname: parsed.hostname, port: parsed.port, path: parsed.pathname, method: 'DELETE' }, (res) => {
+      const req = http.request({
+        hostname: parsed.hostname,
+        port: parsed.port,
+        path: parsed.pathname,
+        method: 'DELETE',
+      }, (res) => {
         res.resume();
         resolve(res.statusCode === 204 || res.statusCode === 200);
       });
@@ -215,63 +80,15 @@ class KernelGatewayService {
     });
   }
 
-  private async getRunningUrl(): Promise<string | null> {
-    try {
-      const podmanBin = this.getPodmanBin();
-      const env = this.getExecEnv();
-      const { stdout } = await execFileAsync(podmanBin, [
-        'inspect', '--format', '{{.State.Running}}', CONTAINER_NAME,
-      ], { env, timeout: 5000 });
-
-      if (stdout.trim() !== 'true') {
-        this.cachedUrl = null;
-        this.containerRunning = false;
-        return null;
-      }
-
-      if (this.cachedUrl) return this.cachedUrl;
-
-      const portResult = await execFileAsync(podmanBin, [
-        'port', CONTAINER_NAME, String(CONTAINER_PORT),
-      ], { env, timeout: 5000 });
-
-      const portMatch = portResult.stdout.trim().match(/:(\d+)$/m);
-      if (!portMatch) return null;
-
-      this.cachedUrl = `http://localhost:${portMatch[1]}`;
-      this.containerRunning = true;
-      return this.cachedUrl;
-    } catch {
-      this.cachedUrl = null;
-      this.containerRunning = false;
-      return null;
-    }
-  }
-
-  private waitForHttp(url: string, timeoutMs = 30000): Promise<void> {
-    const start = Date.now();
-    return new Promise((resolve, reject) => {
-      const attempt = () => {
-        const req = http.get(`${url}/api/kernelspecs`, (res) => {
-          res.resume();
-          if (res.statusCode && res.statusCode < 500) {
-            resolve();
-          } else if (Date.now() - start > timeoutMs) {
-            reject(new Error('Kernel gateway did not become ready in time'));
-          } else {
-            setTimeout(attempt, 500);
-          }
-        });
-        req.on('error', () => {
-          if (Date.now() - start > timeoutMs) {
-            reject(new Error('Kernel gateway did not become ready in time'));
-          } else {
-            setTimeout(attempt, 500);
-          }
-        });
-        req.end();
-      };
-      attempt();
+  private probe(url: string, timeoutMs = 2000): Promise<boolean> {
+    return new Promise((resolve) => {
+      const req = http.get(`${url}/api/kernelspecs`, (res) => {
+        res.resume();
+        resolve((res.statusCode ?? 0) < 500);
+      });
+      req.on('error', () => resolve(false));
+      req.setTimeout(timeoutMs, () => { req.destroy(); resolve(false); });
+      req.end();
     });
   }
 }

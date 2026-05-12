@@ -328,6 +328,7 @@ declare global {
   interface JupyterAPI {
     startGateway(): Promise<{ url: string } | { error: string }>;
     stopGateway(): Promise<void>;
+    restartGateway(): Promise<{ url: string } | { error: string }>;
     gatewayStatus(): Promise<{ running: boolean; url: string | null }>;
     listKernels(): Promise<JupyterKernelInfo[]>;
     shutdownKernel(kernelId: string): Promise<boolean>;
