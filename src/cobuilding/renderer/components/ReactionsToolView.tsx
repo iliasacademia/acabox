@@ -25,8 +25,15 @@ const SCHEDULE_OPTIONS = [
   { label: 'Every 2 hours', cron: '0 */2 * * *' },
 ];
 
-function cronToLabel(cron: string): string {
-  return SCHEDULE_OPTIONS.find((o) => o.cron === cron)?.label ?? cron;
+function nextRunLabel(cron: string): string {
+  try {
+    const { CronExpressionParser } = require('cron-parser');
+    const interval = CronExpressionParser.parse(cron);
+    const next = new Date(interval.next().toISOString());
+    return next.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
 }
 
 function formatDate(iso: string): string {
@@ -92,7 +99,7 @@ export function ReactionsToolView({ onBack }: { onBack: () => void }) {
       const status = await window.browserMonitorAPI.status();
       setServerRunning(status.serverRunning);
       setExtensionConnected(status.extensionConnected);
-      if (status.extensionConnected && !activatingRef.current) {
+      if (status.serverRunning && status.extensionConnected && !activatingRef.current) {
         activatingRef.current = true;
         await window.settingsAPI.setReactionsEnabled(true);
         setPhase('main');
@@ -148,6 +155,45 @@ export function ReactionsToolView({ onBack }: { onBack: () => void }) {
           <div className="reactionsOnboarding__steps">
             <div className="reactionsOnboarding__step">
               <div className="reactionsOnboarding__stepNumber">
+                {extensionConnected
+                  ? <CheckCircleIcon style={{ width: 20, height: 20, color: '#4a9' }} />
+                  : <CircleIcon style={{ width: 20, height: 20, color: '#b5aea4' }} />}
+              </div>
+              <div className="reactionsOnboarding__stepContent">
+                <div className="reactionsOnboarding__stepTitle">Install the Chrome extension</div>
+                <p className="reactionsOnboarding__stepDesc">
+                  Install the Reactions extension from the Chrome Web Store.
+                </p>
+                <div className="reactionsOnboarding__btnRow">
+                  <a
+                    className="reactionsOnboarding__btn"
+                    href="https://chromewebstore.google.com/detail/reactions/mallkjfjbpiopblplmpcnfppmpcmnkhd"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      (window as { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } })
+                        .electronAPI?.invoke('shell:openExternal', 'https://chromewebstore.google.com/detail/reactions/mallkjfjbpiopblplmpcnfppmpcmnkhd');
+                    }}
+                  >
+                    Open Chrome Web Store
+                  </a>
+                  {!extensionConnected && serverRunning && (
+                    <button
+                      className="reactionsOnboarding__btnSecondary"
+                      onClick={() => {}}
+                      style={{ visibility: 'hidden' }}
+                    />
+                  )}
+                </div>
+                {extensionConnected && (
+                  <span className="reactionsOnboarding__done">Extension connected</span>
+                )}
+              </div>
+            </div>
+
+            <div className="reactionsOnboarding__step">
+              <div className="reactionsOnboarding__stepNumber">
                 {serverRunning
                   ? <CheckCircleIcon style={{ width: 20, height: 20, color: '#4a9' }} />
                   : <CircleIcon style={{ width: 20, height: 20, color: '#b5aea4' }} />}
@@ -171,41 +217,24 @@ export function ReactionsToolView({ onBack }: { onBack: () => void }) {
                 )}
               </div>
             </div>
-
-            <div className="reactionsOnboarding__step">
-              <div className="reactionsOnboarding__stepNumber">
-                {extensionConnected
-                  ? <CheckCircleIcon style={{ width: 20, height: 20, color: '#4a9' }} />
-                  : <CircleIcon style={{ width: 20, height: 20, color: '#b5aea4' }} />}
-              </div>
-              <div className="reactionsOnboarding__stepContent">
-                <div className="reactionsOnboarding__stepTitle">Install the Chrome extension</div>
-                <p className="reactionsOnboarding__stepDesc">
-                  Install the Reactions extension from the Chrome Web Store, then open it in your browser.
-                </p>
-                <a
-                  className="reactionsOnboarding__btn"
-                  href="https://chromewebstore.google.com/detail/reactions/mallkjfjbpiopblplmpcnfppmpcmnkhd"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    (window as { electronAPI?: { invoke: (channel: string, ...args: unknown[]) => Promise<unknown> } })
-                      .electronAPI?.invoke('shell:openExternal', 'https://chromewebstore.google.com/detail/reactions/mallkjfjbpiopblplmpcnfppmpcmnkhd');
-                  }}
-                >
-                  Open Chrome Web Store
-                </a>
-                {extensionConnected && (
-                  <span className="reactionsOnboarding__done" style={{ marginLeft: 12 }}>Connected</span>
-                )}
-              </div>
-            </div>
           </div>
 
           {serverRunning && !extensionConnected && (
             <p className="reactionsOnboarding__waiting">
-              Waiting for the Chrome extension to connect...
+              Waiting for the Chrome extension to connect&hellip;
+              <br />
+              <button
+                className="reactionsOnboarding__alreadyInstalled"
+                onClick={() => {}}
+                style={{ visibility: 'hidden' }}
+              />
+              If you&rsquo;ve already installed the extension, make sure it&rsquo;s enabled and refresh the page.
+            </p>
+          )}
+
+          {!serverRunning && !extensionConnected && (
+            <p className="reactionsOnboarding__hint">
+              Already have the extension? Start the server above and it will connect automatically.
             </p>
           )}
         </div>
@@ -221,6 +250,8 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
   const [systemReactions, setSystemReactions] = useState<SessionData[]>([]);
   const [filter, setFilter] = useState<FilterMode>('reactions');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState('*/15 * * * *');
   const runtime = useAssistantRuntime();
 
   const load = useCallback(() => {
@@ -234,10 +265,24 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
     return () => clearInterval(interval);
   }, [load]);
 
+  // Load schedule for empty state message
+  useEffect(() => {
+    window.scheduledTasksAPI.list().then((tasks) => {
+      const reactionsTask = tasks.find((t) => t.session_source === 'reactions-system');
+      if (reactionsTask) setSchedule(reactionsTask.cron_expression);
+    });
+  }, []);
+
   const handleDelete = useCallback(async (id: string) => {
     await window.sessionsAPI.delete(id);
+    if (selectedId === id) setSelectedId(null);
     load();
-  }, [load]);
+  }, [load, selectedId]);
+
+  const handleSelect = useCallback((id: string) => {
+    setSelectedId(id);
+    runtime.threads.switchToThread(id);
+  }, [runtime]);
 
   const visibleItems: SessionData[] = (filter === 'reactions' ? userReactions : systemReactions)
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
@@ -251,6 +296,7 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
     const filterChanged = prevFilterRef.current !== filter;
     prevFilterRef.current = filter;
     if (filterChanged) {
+      setSelectedId(latestId);
       runtime.threads.switchToThread(latestId);
     }
   }, [filter, latestId, runtime]);
@@ -259,8 +305,11 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
   useEffect(() => {
     if (initialLoadRef.current || !latestId) return;
     initialLoadRef.current = true;
+    setSelectedId(latestId);
     runtime.threads.switchToThread(latestId);
   }, [latestId, runtime]);
+
+  const nextTime = nextRunLabel(schedule);
 
   return (
     <div className="reactionsView">
@@ -305,13 +354,20 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
 
         <div className="chatListItems">
           {visibleItems.length === 0 && (
-            <div className="reactionsView__empty">No reactions yet</div>
+            <div className="reactionsView__empty">
+              <p>No reactions yet.</p>
+              <p className="reactionsView__emptyHint">
+                Use your browser normally and reactions will appear here.
+                {nextTime && <> Next reaction at <strong>{nextTime}</strong>.</>}
+              </p>
+            </div>
           )}
           {visibleItems.map((r) => (
             <ReactionThreadItem
               key={r.id}
               session={r}
-              onSelect={() => runtime.threads.switchToThread(r.id)}
+              selected={r.id === selectedId}
+              onSelect={() => handleSelect(r.id)}
               onDelete={() => handleDelete(r.id)}
             />
           ))}
@@ -323,10 +379,12 @@ function ReactionsMainView({ onBack, onDisable }: { onBack: () => void; onDisabl
 
 function ReactionThreadItem({
   session,
+  selected,
   onSelect,
   onDelete,
 }: {
   session: SessionData;
+  selected: boolean;
   onSelect: () => void;
   onDelete: () => void;
 }) {
@@ -335,7 +393,7 @@ function ReactionThreadItem({
   const sourceLabel = session.source === 'reactions-system' ? 'System' : 'Reaction';
 
   return (
-    <div className="chatListItem">
+    <div className={`chatListItem${selected ? ' chatListItem--selected' : ''}`}>
       <div className="chatListItemIcon">
         <MessageSquareIcon style={{ width: 18, height: 18 }} />
       </div>
@@ -392,12 +450,16 @@ function ReactionThreadItem({
 
 function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
   const [schedule, setSchedule] = useState('*/15 * * * *');
+  const [savedSchedule, setSavedSchedule] = useState('*/15 * * * *');
   const [taskId, setTaskId] = useState<string | null>(null);
   const [prompt, setPrompt] = useState('');
   const [savedPrompt, setSavedPrompt] = useState('');
   const [sources, setSources] = useState<string[]>(['browser', 'file']);
+  const [savedSources, setSavedSources] = useState<string[]>(['browser', 'file']);
   const [disabling, setDisabling] = useState(false);
+  const [disableConfirmOpen, setDisableConfirmOpen] = useState(false);
   const [runningNow, setRunningNow] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     window.scheduledTasksAPI.list().then((tasks) => {
@@ -405,6 +467,7 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
       if (reactionsTask) {
         setTaskId(reactionsTask.id);
         setSchedule(reactionsTask.cron_expression);
+        setSavedSchedule(reactionsTask.cron_expression);
       }
     });
     window.reactionPromptAPI.get().then((result) => {
@@ -412,33 +475,20 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
       setPrompt(val);
       setSavedPrompt(val);
     });
-    window.reactionSourcesAPI.get().then(setSources);
+    window.reactionSourcesAPI.get().then((s) => {
+      setSources(s);
+      setSavedSources(s);
+    });
   }, []);
 
-  const handleScheduleChange = useCallback(async (cron: string) => {
-    setSchedule(cron);
-    if (taskId) {
-      await window.scheduledTasksAPI.update(taskId, { cron_expression: cron });
-    }
-  }, [taskId]);
-
-  const handleSavePrompt = useCallback(async () => {
-    if (prompt.trim()) {
-      await window.reactionPromptAPI.set(prompt.trim());
-    } else {
-      await window.reactionPromptAPI.reset();
-    }
-    setSavedPrompt(prompt);
-  }, [prompt]);
-
-  const handleSourceToggle = useCallback(async (source: string) => {
-    const next = sources.includes(source)
-      ? sources.filter((s) => s !== source)
-      : [...sources, source];
-    if (next.length === 0) return;
-    setSources(next);
-    await window.reactionSourcesAPI.set(next);
-  }, [sources]);
+  const handleSourceToggle = useCallback((source: string) => {
+    setSources((prev) => {
+      const next = prev.includes(source)
+        ? prev.filter((s) => s !== source)
+        : [...prev, source];
+      return next.length === 0 ? prev : next;
+    });
+  }, []);
 
   const handleRunNow = useCallback(async () => {
     if (!taskId) return;
@@ -457,10 +507,43 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
       onDisable();
     } finally {
       setDisabling(false);
+      setDisableConfirmOpen(false);
     }
   }, [onDisable]);
 
-  const promptDirty = prompt !== savedPrompt;
+  const dirty = schedule !== savedSchedule
+    || prompt !== savedPrompt
+    || JSON.stringify(sources) !== JSON.stringify(savedSources);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    try {
+      if (schedule !== savedSchedule && taskId) {
+        await window.scheduledTasksAPI.update(taskId, { cron_expression: schedule });
+        setSavedSchedule(schedule);
+      }
+      if (prompt !== savedPrompt) {
+        if (prompt.trim()) {
+          await window.reactionPromptAPI.set(prompt.trim());
+        } else {
+          await window.reactionPromptAPI.reset();
+        }
+        setSavedPrompt(prompt);
+      }
+      if (JSON.stringify(sources) !== JSON.stringify(savedSources)) {
+        await window.reactionSourcesAPI.set(sources);
+        setSavedSources([...sources]);
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [schedule, savedSchedule, prompt, savedPrompt, sources, savedSources, taskId]);
+
+  const handleCancel = useCallback(() => {
+    setSchedule(savedSchedule);
+    setPrompt(savedPrompt);
+    setSources([...savedSources]);
+  }, [savedSchedule, savedPrompt, savedSources]);
 
   return (
     <div className="reactionsSettings">
@@ -470,7 +553,7 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
           <select
             className="reactionsSettings__select"
             value={schedule}
-            onChange={(e) => handleScheduleChange(e.target.value)}
+            onChange={(e) => setSchedule(e.target.value)}
           >
             {SCHEDULE_OPTIONS.map((opt) => (
               <option key={opt.cron} value={opt.cron}>{opt.label}</option>
@@ -518,34 +601,59 @@ function ReactionsSettings({ onDisable }: { onDisable: () => void }) {
           onChange={(e) => setPrompt(e.target.value)}
           rows={3}
         />
-        {promptDirty && (
-          <div className="reactionsSettings__actions">
-            <button
-              className="reactionsSettings__cancelBtn"
-              onClick={() => setPrompt(savedPrompt)}
-            >
-              Cancel
-            </button>
-            <button
-              className="reactionsSettings__saveBtn"
-              onClick={handleSavePrompt}
-            >
-              Save
-            </button>
-          </div>
-        )}
       </div>
+
+      {dirty && (
+        <div className="reactionsSettings__saveRow">
+          <button
+            className="reactionsSettings__cancelBtn"
+            onClick={handleCancel}
+            disabled={saving}
+          >
+            Cancel
+          </button>
+          <button
+            className="reactionsSettings__saveBtn"
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      )}
 
       <div className="reactionsSettings__section reactionsSettings__section--danger">
         <button
           className="reactionsSettings__disableBtn"
-          onClick={handleDisable}
+          onClick={() => setDisableConfirmOpen(true)}
           disabled={disabling}
         >
           <PowerOffIcon style={{ width: 14, height: 14 }} />
-          {disabling ? 'Disabling...' : 'Disable Reactions'}
+          Disable Reactions
         </button>
       </div>
+
+      <AlertDialog.Root open={disableConfirmOpen} onOpenChange={setDisableConfirmOpen}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="chatListModalOverlay" />
+          <AlertDialog.Content className="chatListModal">
+            <AlertDialog.Title className="chatListModalTitle">Disable Reactions</AlertDialog.Title>
+            <AlertDialog.Description className="chatListModalDesc">
+              This will stop the browser extension server and disable the scheduled reaction task. Your existing reactions will be kept. You can re-enable reactions at any time.
+            </AlertDialog.Description>
+            <div className="chatListModalActions">
+              <AlertDialog.Cancel asChild>
+                <button className="chatListModalBtn chatListModalBtn--secondary">Cancel</button>
+              </AlertDialog.Cancel>
+              <AlertDialog.Action asChild>
+                <button className="chatListModalBtn chatListModalBtn--danger" onClick={handleDisable}>
+                  {disabling ? 'Disabling...' : 'Disable'}
+                </button>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </div>
   );
 }

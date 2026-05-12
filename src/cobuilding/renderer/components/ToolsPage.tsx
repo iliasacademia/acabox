@@ -114,6 +114,7 @@ export function ToolsPage({
   onSwitchToChat: () => void;
   onOpenReactions: () => void;
 }) {
+  const [reactionsStatus, setReactionsStatus] = useState<string | null>(null);
   const [apps, setApps] = useState<ToolsPageMiniApp[]>([]);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
@@ -144,6 +145,12 @@ export function ToolsPage({
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    window.settingsAPI.getReactionsEnabled().then((enabled) => {
+      setReactionsStatus(enabled ? 'enabled' : 'not set up');
+    });
+  }, []);
 
   useEffect(() => {
     window.reportsAPI.getLatest('directory_scan').then((report) => {
@@ -526,7 +533,7 @@ export function ToolsPage({
                       </div>
                       <div className="toolRow__description">{tool.description}</div>
                       {(() => {
-                        const status = tool.status ?? formatLastUsed(tool.lastOpened);
+                        const status = tool.name === 'Reactions' ? reactionsStatus : (tool.status ?? formatLastUsed(tool.lastOpened));
                         return status ? <div className="toolRow__status">{status}</div> : null;
                       })()}
                     </div>

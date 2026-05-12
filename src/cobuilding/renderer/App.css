@@ -7148,10 +7148,24 @@ button.briefingHistoryRow__status {
 }
 
 .reactionsView__empty {
-  padding: 12px 16px;
+  padding: 20px 24px;
   font-family: 'DM Sans', sans-serif;
+  font-size: 0.875rem;
+  color: #7a746a;
+}
+
+.reactionsView__empty p {
+  margin: 0 0 6px;
+}
+
+.reactionsView__emptyHint {
   font-size: 0.8125rem;
-  color: #b5aea4;
+  color: #9c958b;
+}
+
+.chatListItem--selected {
+  background: #f5f3f0;
+  border-color: #c4bfb6;
 }
 
 .reactionsView__settingsToggle {
@@ -7273,7 +7287,38 @@ button.briefingHistoryRow__status {
   color: #4a9;
 }
 
+.reactionsOnboarding__btnRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.reactionsOnboarding__btnSecondary {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #5c5549;
+  background: none;
+  border: 1px solid #d5d0ca;
+  border-radius: 6px;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.reactionsOnboarding__btnSecondary:hover {
+  background: #faf8f5;
+}
+
 .reactionsOnboarding__waiting {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8125rem;
+  color: #9c958b;
+  margin-top: 24px;
+  line-height: 1.6;
+}
+
+.reactionsOnboarding__hint {
   font-family: 'DM Sans', sans-serif;
   font-size: 0.8125rem;
   color: #9c958b;
@@ -7393,13 +7438,6 @@ button.briefingHistoryRow__status {
   border-color: #b5aea4;
 }
 
-.reactionsSettings__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 8px;
-}
-
 .reactionsSettings__cancelBtn {
   font-family: 'DM Sans', sans-serif;
   font-size: 0.8125rem;
@@ -7421,6 +7459,15 @@ button.briefingHistoryRow__status {
   border-radius: 6px;
   padding: 6px 14px;
   cursor: pointer;
+}
+
+.reactionsSettings__saveRow {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  margin-bottom: 20px;
+  border-top: 1px solid #e5e0d8;
 }
 
 .reactionsSettings__disableBtn {
