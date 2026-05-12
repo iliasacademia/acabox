@@ -3139,8 +3139,10 @@ ipcMain.handle('settings:getReactionsEnabled', () => {
 ipcMain.handle('settings:setReactionsEnabled', async (_event, enabled: boolean) => {
   setReactionsEnabledSetting(enabled);
   if (enabled) {
-    await startBrowserMonitor();
-    rebuildTrayMenu();
+    if (!isBrowserMonitorRunning()) {
+      await startBrowserMonitor();
+      rebuildTrayMenu();
+    }
     if (activeWorkspace) {
       ensureReactionsTask(activeWorkspace.id);
       const task = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
@@ -3209,8 +3211,10 @@ ipcMain.handle('browserMonitor:status', () => {
 });
 
 ipcMain.handle('browserMonitor:start', async () => {
-  await startBrowserMonitor();
-  rebuildTrayMenu();
+  if (!isBrowserMonitorRunning()) {
+    await startBrowserMonitor();
+    rebuildTrayMenu();
+  }
 });
 
 ipcMain.handle('browserMonitor:stop', async () => {

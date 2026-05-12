@@ -54,6 +54,7 @@ export function ReactionsToolView({ onBack }: { onBack: () => void }) {
   // Poll for extension connection during onboarding
   useEffect(() => {
     if (phase !== 'onboarding') return;
+    activatingRef.current = false;
     const poll = async () => {
       const status = await window.browserMonitorAPI.status();
       setServerRunning(status.serverRunning);
