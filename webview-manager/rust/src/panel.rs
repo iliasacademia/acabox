@@ -89,9 +89,11 @@ pub fn create_panel(mtm: MainThreadMarker, frame: NSRect, ignores_mouse_events: 
     panel.setLevel(NSFloatingWindowLevel + 1);
     panel.setHasShadow(false);
 
-    // Collection behavior — visible on all spaces, stationary
+    // Collection behavior — visible on all spaces, hidden from Mission Control/Exposé
+    // Transient = "floats in spaces, hidden by Exposé" (vs Stationary which stays visible)
     panel.setCollectionBehavior(
-        NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::Stationary,
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::Transient,
     );
 
     // CRITICAL: Make non-activating so it never steals focus

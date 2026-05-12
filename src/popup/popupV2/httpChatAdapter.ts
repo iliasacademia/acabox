@@ -220,6 +220,30 @@ interface HttpChatAdapterOptions {
   getContext: () => { documentPath?: string | null; selectedText?: string | null };
 }
 
+function extractOverlayAttachments(message: { attachments?: readonly any[] }): any[] | undefined {
+  if (!message.attachments?.length) return undefined;
+  const attachments: any[] = [];
+  for (const attachment of message.attachments) {
+    for (const part of attachment.content ?? []) {
+      if (part.type === 'image') {
+        const match = (part.image as string).match(/^data:(image\/[^;]+);base64,(.+)$/s);
+        if (match) {
+          attachments.push({ type: 'image', data: match[2], mediaType: match[1], name: attachment.name });
+        }
+      } else if (part.type === 'file') {
+        attachments.push({
+          type: 'document',
+          data: part.data as string,
+          mediaType: part.mimeType as string,
+          title: part.filename as string | undefined,
+          name: attachment.name,
+        });
+      }
+    }
+  }
+  return attachments.length > 0 ? attachments : undefined;
+}
+
 function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
   return {
     async *run({ messages, abortSignal }) {
@@ -230,6 +254,8 @@ function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
         .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
         .map(part => part.text)
         .join('');
+
+      const attachments = extractOverlayAttachments(lastUserMessage);
 
       const ctx = opts.getContext();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -242,6 +268,7 @@ function createHttpChatAdapter(opts: HttpChatAdapterOptions): ChatModelAdapter {
           text: userText,
           ...(ctx.documentPath ? { documentPath: ctx.documentPath } : {}),
           ...(ctx.selectedText ? { selectedText: ctx.selectedText } : {}),
+          ...(attachments ? { attachments } : {}),
         }),
         signal: abortSignal,
       });
