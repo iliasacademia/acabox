@@ -1415,18 +1415,15 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
       show_notification: async (args: any) => {
         try {
           const { Notification: ElectronNotification } = require('electron');
-          log.info('[NotificationNav] show_notification relay called:', { title: args.title, navigation: args.navigation ?? null });
           const notification = new ElectronNotification({ title: args.title, body: args.body });
           activeNotificationsSet.add(notification);
 
           const release = () => {
             activeNotificationsSet.delete(notification);
-            log.info('[NotificationNav] Notification released. Remaining:', activeNotificationsSet.size);
           };
 
           if (onNotificationClick) {
             notification.on('click', () => {
-              log.info('[NotificationNav] Notification clicked. navigation:', args.navigation ?? 'none');
               release();
               if (args.navigation) {
                 const nav = args.navigation;
