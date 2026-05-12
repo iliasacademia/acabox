@@ -53,8 +53,7 @@ import {
 } from './db/workspaceRepository';
 import { setupUpdater, setupUpdaterIpcHandlers } from './updater';
 import { createTray, createDockIcon, rebuildTrayMenu, setShowWindowCallback } from './tray';
-import { startBrowserMonitor, stopBrowserMonitor, isBrowserMonitorRunning } from './browserMonitor';
-import { browserExtensionServer } from '../../server/browserExtensionServer';
+import { startBrowserMonitor, stopBrowserMonitor } from './browserMonitor';
 import { getAllSessions } from './browserMonitor/repository';
 import { initFileMonitor, startFileMonitor, stopFileMonitor, isFileMonitorRunning } from './fileMonitor';
 import { getAllFileSessions, getTodayFileSessions } from './fileMonitor/repository';
@@ -85,6 +84,7 @@ import { updateApiKey } from './db/workspaceRepository';
 import { createQuickChatWindow, showQuickChat, updateMainWindowRef } from './quickChat';
 import { registerCalendarHandlers } from './ipc/calendar';
 import { registerDebugHandlers } from './ipc/debug';
+import { registerReactionsHandlers, getReactionsEnabled, ensureReactionsTask } from './ipc/reactions';
 import { AcademiaHttpServer } from '../../server/httpServer';
 import { setHttpProxyPort, stopHttpsServer, registerOfficeAddinIpcHandlers } from './officeAddin';
 import {
@@ -105,90 +105,8 @@ declare const COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 let cobuildingHttpBaseUrl: string | null = null;
 
-const DEFAULT_ACTIVITY_SUMMARY_PROMPT =
-  'Complete ALL of the following steps in order:\n' +
-  '\n' +
-  '1. Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update.\n' +
-  '2. Use the reaction skill to react to the latest update only with suggestions and relevant resources. ' +
-  'The reaction skill will handle creating the user-visible reaction thread and sending the notification.';
-
 function getSettingsPath(): string {
   return path.join(app.getPath('userData'), 'cobuilding-settings.json');
-}
-
-function ensureReactionsTask(workspaceId: string): void {
-  const existing = getTaskBySessionSource(workspaceId, 'reactions-system');
-  if (existing) return;
-  createTask(workspaceId, 'Reactions', 'Summarizes your recent activity every 15 minutes',
-    DEFAULT_ACTIVITY_SUMMARY_PROMPT, '*/15 * * * *', 'reactions-system');
-  log.info('[ScheduledTasks] Reactions task created for workspace:', workspaceId);
-}
-
-function getReactionUserInstructions(): string | null {
-  try {
-    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.reactionUserInstructions ?? null;
-  } catch {
-    return null;
-  }
-}
-
-function setReactionUserInstructions(instructions: string): void {
-  const settingsPath = getSettingsPath();
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch { }
-  data.reactionUserInstructions = instructions;
-  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-function clearReactionUserInstructions(): void {
-  const settingsPath = getSettingsPath();
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch { }
-  delete data.reactionUserInstructions;
-  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-type ReactionSource = 'browser' | 'file';
-const DEFAULT_REACTION_SOURCES: ReactionSource[] = ['browser', 'file'];
-
-function getReactionSources(): ReactionSource[] {
-  try {
-    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
-    return data.reactionSources ?? DEFAULT_REACTION_SOURCES;
-  } catch {
-    return DEFAULT_REACTION_SOURCES;
-  }
-}
-
-function setReactionSources(sources: ReactionSource[]): void {
-  const settingsPath = getSettingsPath();
-  let data: Record<string, unknown> = {};
-  try {
-    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-  } catch { }
-  data.reactionSources = sources;
-  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-function buildReactionsPrompt(sources: ReactionSource[]): string {
-  const sourceFilter = sources.length === 2 ? 'all' : sources.join(',');
-  return 'Complete ALL of the following steps in order:\n' +
-    '\n' +
-    '1. Use the activity-summary skill to add an update to today\'s daily summary with activity since the last update. ' +
-    `When querying activity, set source to "${sourceFilter}".\n` +
-    '2. Use the reaction skill to react to the latest update only with suggestions and relevant resources. ' +
-    'The reaction skill will handle creating the user-visible reaction thread and sending the notification.';
-}
-
-function updateReactionsTaskPrompt(workspaceId: string, sources: ReactionSource[]): void {
-  const task = getTaskBySessionSource(workspaceId, 'reactions-system');
-  if (!task) return;
-  updateTask(task.id, { prompt: buildReactionsPrompt(sources) });
 }
 
 const DEFAULT_MAX_ATTACHMENT_SIZE_MB = 30;
@@ -664,6 +582,7 @@ app.whenReady().then(async () => {
     initSessionFiles(() => activeWorkspace?.directory_path ?? null);
     registerCalendarHandlers(() => mainWindow);
     registerDebugHandlers();
+    registerReactionsHandlers(() => activeWorkspace, rebuildTrayMenu);
     setupUpdaterIpcHandlers();
     setupUpdater(rebuildTrayMenu);
     createTray();
@@ -692,11 +611,15 @@ app.whenReady().then(async () => {
       log.info('[APP] Global shortcut Option+Shift+Space registered');
     }
 
-    // startBrowserMonitor().then(() => rebuildTrayMenu());
     initSchedulingDatabase(app.getPath('userData'));
-    // if (activeWorkspace) {
-    //   ensureReactionsTask(activeWorkspace.id);
-    // }
+    if (getReactionsEnabled()) {
+      startBrowserMonitor().then(() => rebuildTrayMenu());
+      if (activeWorkspace) {
+        ensureReactionsTask(activeWorkspace.id);
+        const rTask = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
+        if (rTask && !rTask.enabled) setTaskEnabled(rTask.id, true);
+      }
+    }
     startScheduledTasks(handleNotificationNavigation);
 
     // Start HTTP server and window monitor for the Word overlay
@@ -1202,7 +1125,9 @@ ipcMain.handle(
     }
     activeWorkspace = getActiveWorkspace() ?? null;
     if (activeWorkspace) {
-      // ensureReactionsTask(activeWorkspace.id);
+      if (getReactionsEnabled()) {
+        ensureReactionsTask(activeWorkspace.id);
+      }
       const scheduler = getTaskScheduler();
       scheduler?.stop();
       scheduler?.start();
@@ -1288,7 +1213,9 @@ ipcMain.handle('workspaces:switch', (_event, id: string) => {
   activeWorkspace = getActiveWorkspace() ?? null;
 
   if (activeWorkspace) {
-    // ensureReactionsTask(activeWorkspace.id);
+    if (getReactionsEnabled()) {
+      ensureReactionsTask(activeWorkspace.id);
+    }
     // Update workspace directory for the Word overlay
     windowMonitorService.setActiveWorkspaceDirectory(activeWorkspace.directory_path);
   }
@@ -1441,6 +1368,8 @@ ipcMain.handle('scanner:start', async () => {
 
 // ─── Agent Server & MCP Management ──────────────────────────────
 
+const activeNotificationsSet = new Set<any>();
+
 function registerHostMcpServers(workspace: { id: string; directory_path: string }, onNotificationClick?: (action: any) => void) {
   // Handler maps for MCP tool calls relayed from the in-container agent.
   // Each handler matches the tool's original implementation on the host side.
@@ -1485,8 +1414,35 @@ function registerHostMcpServers(workspace: { id: string; directory_path: string 
     notification: {
       show_notification: async (args: any) => {
         try {
-          const { Notification } = require('electron');
-          const notification = new Notification({ title: args.title, body: args.body });
+          const { Notification: ElectronNotification } = require('electron');
+          const notification = new ElectronNotification({ title: args.title, body: args.body });
+          activeNotificationsSet.add(notification);
+
+          const release = () => {
+            activeNotificationsSet.delete(notification);
+          };
+
+          if (onNotificationClick) {
+            notification.on('click', () => {
+              release();
+              if (args.navigation) {
+                const nav = args.navigation;
+                if (nav.type === 'thread' && nav.threadId) {
+                  onNotificationClick({ type: 'thread', threadId: nav.threadId, sidebarTab: nav.sidebarTab });
+                } else if (nav.type === 'sidebar' && nav.sidebarTab) {
+                  onNotificationClick({ type: 'sidebar', tab: nav.sidebarTab });
+                } else {
+                  onNotificationClick(null);
+                }
+              } else {
+                onNotificationClick(null);
+              }
+            });
+            notification.on('close', () => release());
+          } else {
+            release();
+          }
+
           notification.show();
           return ok('Notification shown successfully.');
         } catch (err: any) {
@@ -1892,7 +1848,7 @@ async function startAgentInfrastructure(workspacePath: string): Promise<void> {
   await containerService.ensureAgentFilesInWorkspace(workspacePath);
 
   // 2. Register host MCP server handlers for the SSE relay
-  registerHostMcpServers(activeWorkspace);
+  registerHostMcpServers(activeWorkspace, handleNotificationNavigation);
 
   // 3. Write agent config and start the agent server inside the container
   const agentConfig = {
@@ -3074,36 +3030,6 @@ ipcMain.handle('scheduledTasks:listRuns', (_event, taskId: string) => {
   return listTaskRuns(taskId);
 });
 
-// Reaction prompt IPC handlers
-ipcMain.handle('reactionPrompt:get', () => {
-  return { instructions: getReactionUserInstructions() };
-});
-
-ipcMain.handle('reactionPrompt:set', (_event, instructions: string) => {
-  setReactionUserInstructions(instructions);
-});
-
-ipcMain.handle('reactionPrompt:reset', () => {
-  clearReactionUserInstructions();
-});
-
-// Reaction sources IPC handlers
-ipcMain.handle('reactionSources:get', () => {
-  return getReactionSources();
-});
-
-ipcMain.handle('reactionSources:set', (_event, sources: ReactionSource[]) => {
-  setReactionSources(sources);
-  if (activeWorkspace) {
-    updateReactionsTaskPrompt(activeWorkspace.id, sources);
-    // Reschedule the task so the next run uses the updated prompt
-    const task = getTaskBySessionSource(activeWorkspace.id, 'reactions-system');
-    if (task) {
-      getTaskScheduler()?.scheduleTask(task.id);
-    }
-  }
-});
-
 // .academia/ file IPC handlers
 ipcMain.handle('academiaFile:read', async (_event, relativePath: string) => {
   if (!activeWorkspace) return { content: '' };
@@ -3140,40 +3066,6 @@ ipcMain.handle('academiaFile:write', async (_event, relativePath: string, conten
     await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
     await fsPromises.writeFile(filePath, content, 'utf-8');
   }
-});
-
-// Browser Monitor IPC handlers
-ipcMain.handle('browserMonitor:status', () => {
-  return {
-    serverRunning: isBrowserMonitorRunning(),
-    extensionConnected: browserExtensionServer.isConnected(),
-  };
-});
-
-ipcMain.handle('browserMonitor:start', async () => {
-  await startBrowserMonitor();
-  rebuildTrayMenu();
-});
-
-ipcMain.handle('browserMonitor:stop', async () => {
-  await stopBrowserMonitor();
-  rebuildTrayMenu();
-});
-
-ipcMain.handle('browserMonitor:downloadExtension', async () => {
-  const zipPath = app.isPackaged
-    ? path.join(process.resourcesPath, 'extension.zip')
-    : path.join(app.getAppPath(), 'browser-extension', 'extension.zip');
-
-  if (!fs.existsSync(zipPath)) {
-    return { success: false, error: 'Browser extension zip not found' };
-  }
-
-  const destDir = app.getPath('downloads');
-  const destPath = path.join(destDir, 'academia-browser-extension.zip');
-  fs.copyFileSync(zipPath, destPath);
-  shell.showItemInFolder(destPath);
-  return { success: true, path: destPath };
 });
 
 // Shell IPC handlers

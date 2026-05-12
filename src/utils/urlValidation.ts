@@ -1,42 +1,8 @@
 /**
  * URL validation utility for secure external URL opening
- * Ensures only whitelisted domains can be opened to prevent security vulnerabilities
  */
 
 import { app } from 'electron';
-
-/**
- * Get the list of allowed domains based on environment
- * @param isDevMode Optional override for development mode detection (useful for testing)
- */
-function getAllowedDomainsForEnvironment(isDevMode?: boolean): string[] {
-  // Determine if we're in development mode
-  const isDev = isDevMode !== undefined ? isDevMode : !app.isPackaged;
-
-  // Whitelist of allowed domains for external URL opening
-  // Production: academia.edu and its subdomains
-  // Development: devdemia.com and its subdomains
-  return isDev
-    ? [
-        'academia.edu',
-        'www.academia.edu',
-        'api.academia.edu',
-        'devdemia.com',
-        'www.devdemia.com',
-        'api.devdemia.com',
-        'docs.google.com',
-        'doi.org',
-        'dx.doi.org',
-      ]
-    : [
-        'academia.edu',
-        'www.academia.edu',
-        'api.academia.edu',
-        'docs.google.com',
-        'doi.org',
-        'dx.doi.org',
-      ];
-}
 
 /**
  * Validates if a URL is safe to open externally
@@ -49,8 +15,7 @@ export function validateExternalUrl(
   isDevMode?: boolean
 ): { isValid: boolean; error?: string } {
   const isDev = isDevMode !== undefined ? isDevMode : !app.isPackaged;
-  const ALLOWED_DOMAINS = getAllowedDomainsForEnvironment(isDev);
-  // Check if URL is empty or null
+
   if (!urlString || typeof urlString !== 'string') {
     return {
       isValid: false,
@@ -60,7 +25,6 @@ export function validateExternalUrl(
 
   let url: URL;
   try {
-    // Parse the URL to validate its structure
     url = new URL(urlString);
   } catch {
     return {
@@ -82,25 +46,7 @@ export function validateExternalUrl(
     };
   }
 
-  // Extract hostname and check against whitelist
-  const hostname = url.hostname.toLowerCase();
-
-  // Check if hostname matches any allowed domain or is a subdomain of an allowed domain
-  const isAllowed = ALLOWED_DOMAINS.some((domain) => {
-    return hostname === domain || hostname.endsWith(`.${domain}`);
-  });
-
-  if (!isAllowed) {
-    return {
-      isValid: false,
-      error: `Domain not allowed: ${hostname}. Only ${ALLOWED_DOMAINS.join(', ')} and their subdomains are permitted`,
-    };
-  }
-
-  // All checks passed
-  return {
-    isValid: true,
-  };
+  return { isValid: true };
 }
 
 /**
@@ -108,5 +54,25 @@ export function validateExternalUrl(
  * @param isDevMode Optional override for development mode detection (useful for testing)
  */
 export function getAllowedDomains(isDevMode?: boolean): string[] {
-  return [...getAllowedDomainsForEnvironment(isDevMode)];
+  const isDev = isDevMode !== undefined ? isDevMode : !app.isPackaged;
+  return isDev
+    ? [
+        'academia.edu',
+        'www.academia.edu',
+        'api.academia.edu',
+        'devdemia.com',
+        'www.devdemia.com',
+        'api.devdemia.com',
+        'docs.google.com',
+        'doi.org',
+        'dx.doi.org',
+      ]
+    : [
+        'academia.edu',
+        'www.academia.edu',
+        'api.academia.edu',
+        'docs.google.com',
+        'doi.org',
+        'dx.doi.org',
+      ];
 }

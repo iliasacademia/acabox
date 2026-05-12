@@ -94,6 +94,8 @@ contextBridge.exposeInMainWorld('miniAppsAPI', {
 contextBridge.exposeInMainWorld('settingsAPI', {
   getMaxAttachmentSizeMB: () => ipcRenderer.invoke('settings:getMaxAttachmentSizeMB'),
   setMaxAttachmentSizeMB: (sizeMB: number) => ipcRenderer.invoke('settings:setMaxAttachmentSizeMB', sizeMB),
+  getReactionsEnabled: () => ipcRenderer.invoke('settings:getReactionsEnabled'),
+  setReactionsEnabled: (enabled: boolean) => ipcRenderer.invoke('settings:setReactionsEnabled', enabled),
 });
 
 contextBridge.exposeInMainWorld('containerAPI', {
