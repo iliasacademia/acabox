@@ -6,8 +6,6 @@ export interface WorkspaceReport {
   report_type: string;
   report_data: string;
   in_depth_report: string | null;
-  about_you_summary: string | null;
-  what_youre_working_on_summary: string | null;
   what_youre_working_on: string | null;
   suggested_mini_apps: string | null;
   status: 'pending' | 'running' | 'completed' | 'failed';
@@ -34,10 +32,7 @@ export function updateReportStatus(
     ? new Date().toISOString()
     : null;
 
-  // Parse the JSON data to extract individual columns
   let inDepthReport: string | null = null;
-  let aboutYouSummary: string | null = null;
-  let workingOnSummary: string | null = null;
   let workingOn: string | null = null;
   let suggestedMiniApps: string | null = null;
 
@@ -45,8 +40,6 @@ export function updateReportStatus(
     try {
       const parsed = JSON.parse(data);
       inDepthReport = parsed.in_depth_report ?? null;
-      aboutYouSummary = parsed.about_you_summary ?? null;
-      workingOnSummary = parsed.what_youre_working_on_summary ?? null;
       workingOn = Array.isArray(parsed.what_youre_working_on)
         ? JSON.stringify(parsed.what_youre_working_on)
         : null;
@@ -65,8 +58,6 @@ export function updateReportStatus(
      SET status = ?,
          report_data = COALESCE(?, report_data),
          in_depth_report = COALESCE(?, in_depth_report),
-         about_you_summary = COALESCE(?, about_you_summary),
-         what_youre_working_on_summary = COALESCE(?, what_youre_working_on_summary),
          what_youre_working_on = COALESCE(?, what_youre_working_on),
          suggested_mini_apps = COALESCE(?, suggested_mini_apps),
          error = ?,
@@ -76,8 +67,6 @@ export function updateReportStatus(
     status,
     data ?? null,
     inDepthReport,
-    aboutYouSummary,
-    workingOnSummary,
     workingOn,
     suggestedMiniApps,
     error ?? null,
@@ -97,16 +86,12 @@ export function updateReportData(id: string, data: string): void {
   const db = getDatabase();
 
   let inDepthReport: string | null = null;
-  let aboutYouSummary: string | null = null;
-  let workingOnSummary: string | null = null;
   let workingOn: string | null = null;
   let suggestedMiniApps: string | null = null;
 
   try {
     const parsed = JSON.parse(data);
     inDepthReport = parsed.in_depth_report ?? null;
-    aboutYouSummary = parsed.about_you_summary ?? null;
-    workingOnSummary = parsed.what_youre_working_on_summary ?? null;
     workingOn = Array.isArray(parsed.what_youre_working_on)
       ? JSON.stringify(parsed.what_youre_working_on)
       : null;
@@ -121,12 +106,10 @@ export function updateReportData(id: string, data: string): void {
     `UPDATE workspace_reports
      SET report_data = ?,
          in_depth_report = ?,
-         about_you_summary = ?,
-         what_youre_working_on_summary = ?,
          what_youre_working_on = ?,
          suggested_mini_apps = ?
      WHERE id = ?`,
-  ).run(data, inDepthReport, aboutYouSummary, workingOnSummary, workingOn, suggestedMiniApps, id);
+  ).run(data, inDepthReport, workingOn, suggestedMiniApps, id);
 }
 
 export function getLatestReport(

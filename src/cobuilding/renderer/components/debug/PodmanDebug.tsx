@@ -29,6 +29,9 @@ export const PodmanDebug: React.FC = () => {
   // Latest streamed line per (registry, package), shown next to the active row.
   const [packageLines, setPackageLines] = useState<Record<string, string>>({});
   const [liveContainerExpanded, setLiveContainerExpanded] = useState(false);
+  const [overlayEnabled, setOverlayEnabled] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -48,6 +51,8 @@ export const PodmanDebug: React.FC = () => {
       setBaseImageDownloaded(baseDownloaded);
       setImageSource(imgSource);
       setEnvInfo(env);
+      const overlay = await window.debugAPI.isOverlayEnabled();
+      setOverlayEnabled(overlay);
       // Clear transient states when underlying state settles
       if (isRunning) setStarting(false);
       if (!isRunning && !starting) setStopping(false);
@@ -213,6 +218,20 @@ export const PodmanDebug: React.FC = () => {
       setBundledDownloaded(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleSyncOverlay = async () => {
+    setSyncing(true);
+    setSyncResult(null);
+    setError(null);
+    try {
+      const { durationMs } = await window.debugAPI.syncOverlay();
+      setSyncResult(`Synced in ${durationMs}ms`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -408,6 +427,30 @@ export const PodmanDebug: React.FC = () => {
           {stopping ? 'Stopping...' : 'Stop'}
         </button>
       </div>
+
+      {running && overlayEnabled && (
+        <div style={{ margin: '12px 0', padding: '12px', background: '#f0f7ff', borderRadius: 6, border: '1px solid #b3d4fc' }}>
+          <div className="debugSection__infoRow">
+            <span className="debugSection__infoLabel">OverlayFS:</span>
+            <span className="debugSection__bundledOk">Active</span>
+          </div>
+          <p style={{ fontSize: 12, color: '#555', margin: '4px 0 8px' }}>
+            Writes go to container-local storage. Sync to push changes back to host.
+          </p>
+          <div className="debugSection__actions">
+            <button
+              className="debugSection__btn debugSection__btn--start"
+              onClick={handleSyncOverlay}
+              disabled={syncing}
+            >
+              {syncing ? 'Syncing...' : 'Sync Files'}
+            </button>
+          </div>
+          {syncResult && (
+            <span style={{ fontSize: 12, color: '#28a745', marginTop: 4, display: 'block' }}>{syncResult}</span>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="debugSection__error">{error}</div>

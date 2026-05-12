@@ -51,6 +51,14 @@ export function registerDebugHandlers() {
     log.info(typeof msg === 'string' ? msg : String(msg));
   });
 
+  ipcMain.handle('debug:syncOverlay', async () => {
+    return containerService.syncOverlay();
+  });
+
+  ipcMain.handle('debug:isOverlayEnabled', () => {
+    return containerService.isOverlayEnabled();
+  });
+
   ipcMain.handle('debug:clearSelected', async (_event: unknown, ids: string[]) => {
     const set = new Set(ids);
     const results: string[] = [];
@@ -429,10 +437,10 @@ export function registerDebugHandlers() {
 
         // Workspace reports (must precede scanned_files and briefings that reference them)
         const insertReport = db.prepare(
-          'INSERT OR IGNORE INTO workspace_reports (id, workspace_id, report_type, report_data, in_depth_report, about_you_summary, what_youre_working_on_summary, what_youre_working_on, suggested_mini_apps, status, error, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT OR IGNORE INTO workspace_reports (id, workspace_id, report_type, report_data, in_depth_report, what_youre_working_on, suggested_mini_apps, status, error, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         );
         for (const r of (exportData.workspaceReports ?? []) as Record<string, unknown>[]) {
-          insertReport.run(r.id, newWorkspaceId, r.report_type ?? 'directory_scan', r.report_data ?? '{}', r.in_depth_report ?? null, r.about_you_summary ?? null, r.what_youre_working_on_summary ?? null, r.what_youre_working_on ?? null, r.suggested_mini_apps ?? null, r.status ?? 'completed', r.error ?? null, r.created_at, r.completed_at ?? null);
+          insertReport.run(r.id, newWorkspaceId, r.report_type ?? 'directory_scan', r.report_data ?? '{}', r.in_depth_report ?? null, r.what_youre_working_on ?? null, r.suggested_mini_apps ?? null, r.status ?? 'completed', r.error ?? null, r.created_at, r.completed_at ?? null);
         }
 
         const insertScannedFile = db.prepare(

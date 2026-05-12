@@ -89,9 +89,14 @@ pub fn create_panel(mtm: MainThreadMarker, frame: NSRect, ignores_mouse_events: 
     panel.setLevel(NSFloatingWindowLevel + 1);
     panel.setHasShadow(false);
 
-    // Collection behavior — visible on all spaces, stationary
+    // Collection behavior — visible on all spaces, stationary (never auto-hidden).
+    // Note: Stationary panels appear in Mission Control — hiding them requires
+    // programmatic detection of Mission Control activation (future improvement).
+    // Transient hides from Mission Control but macOS can auto-hide the panel
+    // when the owning app (Electron) isn't active, which breaks the overlay.
     panel.setCollectionBehavior(
-        NSWindowCollectionBehavior::CanJoinAllSpaces | NSWindowCollectionBehavior::Stationary,
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+            | NSWindowCollectionBehavior::Stationary,
     );
 
     // CRITICAL: Make non-activating so it never steals focus

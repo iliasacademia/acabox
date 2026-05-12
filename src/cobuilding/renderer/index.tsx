@@ -20,6 +20,7 @@ import { MiniAppViewer } from './components/MiniAppViewer';
 import { MiniAppsTab } from './components/MiniAppsTab';
 import { ToolsPage } from './components/ToolsPage';
 import { PaperMonitorView } from './components/PaperMonitorView';
+import { ReactionsToolView } from './components/ReactionsToolView';
 import { HomePage } from './components/HomePage';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useElectronChatAdapter } from './chatAdapter';
@@ -92,39 +93,41 @@ type SidebarTab = 'home' | 'tools' | 'files' | 'chats' | 'debug' | 'settings';
 function NotificationNavigator({
   setSidebarTab,
   setChatViewMode,
+  setToolsViewMode,
   deactivateAllTabs,
 }: {
   setSidebarTab: (tab: SidebarTab) => void;
   setChatViewMode: (mode: 'list' | 'detail') => void;
+  setToolsViewMode: (mode: 'listing' | 'detail' | 'paper-monitor' | 'reactions') => void;
   deactivateAllTabs: () => void;
 }) {
   const runtime = useAssistantRuntime();
 
   useEffect(() => {
-    const handler = (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
-      console.log('[NotificationNav] Renderer received notification:navigate IPC:', JSON.stringify(navigation));
+    const handler = async (_event: unknown, navigation: { type: string; threadId?: string; tab?: SidebarTab; sidebarTab?: SidebarTab }) => {
       if (navigation.type === 'thread' && navigation.threadId) {
-        console.log('[NotificationNav] Thread navigation — threadId:', navigation.threadId, 'sidebarTab:', navigation.sidebarTab ?? 'chats (default)');
-        setSidebarTab(navigation.sidebarTab ?? 'chats');
-        setChatViewMode('detail');
+        const session = await window.sessionsAPI.get(navigation.threadId);
+        const isReactions = session?.source === 'reactions' || session?.source === 'reactions-system';
+        if (isReactions) {
+          setSidebarTab('tools');
+          setToolsViewMode('reactions');
+        } else {
+          setSidebarTab(navigation.sidebarTab ?? 'chats');
+          setChatViewMode('detail');
+        }
         deactivateAllTabs();
         try {
-          console.log('[NotificationNav] Calling runtime.threads.switchToThread("' + navigation.threadId + '")');
           runtime.threads.switchToThread(navigation.threadId);
-          console.log('[NotificationNav] switchToThread returned successfully');
         } catch (err) {
-          console.error('[NotificationNav] switchToThread threw an error:', err);
+          console.error('[NotificationNav] switchToThread error:', err);
         }
       } else if (navigation.type === 'sidebar' && navigation.tab) {
-        console.log('[NotificationNav] Sidebar navigation — tab:', navigation.tab);
         setSidebarTab(navigation.tab);
-      } else {
-        console.warn('[NotificationNav] Unhandled navigation type or missing fields:', JSON.stringify(navigation));
       }
     };
     window.electronAPI.on('notification:navigate', handler);
     return () => window.electronAPI.removeListener('notification:navigate', handler);
-  }, [runtime, setSidebarTab, setChatViewMode, deactivateAllTabs]);
+  }, [runtime, setSidebarTab, setChatViewMode, setToolsViewMode, deactivateAllTabs]);
 
   return null;
 }
@@ -509,7 +512,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
 
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>('home');
   const [chatViewMode, setChatViewMode] = useState<'list' | 'detail'>('list');
-  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail' | 'paper-monitor'>('listing');
+  const [toolsViewMode, setToolsViewMode] = useState<'listing' | 'detail' | 'paper-monitor' | 'reactions'>('listing');
   const [toolChatOpen, setToolChatOpen] = useState(true);
   const [filesViewMode, setFilesViewMode] = useState<'listing' | 'detail'>('listing');
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null);
@@ -666,7 +669,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
       <OpenMiniAppHandler onOpen={handleSelectApp} />
       <QuickChatInjector onSwitchToChat={() => { setSidebarTab('chats'); setChatViewMode('detail'); deactivateAllTabs(); }} />
       <ResetThreadOnLeavingDetail isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'} suppressRef={suppressThreadDeactivateRef} suppressResetRef={suppressThreadResetRef} />
-      <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
+      <NotificationNavigator setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} setToolsViewMode={setToolsViewMode} deactivateAllTabs={deactivateAllTabs} />
       <OverlayNavigationHandler setSidebarTab={setSidebarTab} setChatViewMode={setChatViewMode} deactivateAllTabs={deactivateAllTabs} />
       <TooltipProvider>
         <div className="appRoot">
@@ -835,11 +838,48 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                     </div>
                   )}
                 </div>
+              ) : toolsViewMode === 'reactions' ? (
+                <div className="toolDetailContent">
+                  {toolChatOpen ? (
+                    <PanelGroup direction="horizontal" autoSaveId="cobuild.reactionsLayout" className="appPanelGroup">
+                      <Panel id="reactionsMain" order={1} defaultSize={50} minSize={30}>
+                        <div className="mainPanel">
+                          <ReactionsToolView onBack={() => setToolsViewMode('listing')} />
+                        </div>
+                      </Panel>
+                      <div className="panelBorder">
+                        <PanelResizeHandle className="panelHandle" onDragging={handleDragging} />
+                        <button
+                          className="panelCollapseBtn"
+                          onClick={() => setToolChatOpen(false)}
+                          title="Close chat panel"
+                        />
+                      </div>
+                      <Panel id="reactionsChat" order={2} defaultSize={50} minSize={18} maxSize={70}>
+                        <div className="chatSidePanel">
+                          <Thread scrollToBottomOnThreadSwitch={false} scrollToBottomOnInitialize={false} />
+                        </div>
+                      </Panel>
+                    </PanelGroup>
+                  ) : (
+                    <div style={{ flex: 1, display: 'flex', position: 'relative' }}>
+                      <div className="mainPanel" style={{ flex: 1 }}>
+                        <ReactionsToolView onBack={() => setToolsViewMode('listing')} />
+                      </div>
+                      <button
+                        className="panelExpandBtn"
+                        onClick={() => setToolChatOpen(true)}
+                        title="Open chat panel"
+                      />
+                    </div>
+                  )}
+                </div>
               ) : (
                 <ToolsPage
                   workspacePath={workspace.directory_path}
                   onSelectApp={handleSelectApp}
                   onSwitchToChat={() => setSidebarTab('chats')}
+                  onOpenReactions={() => setToolsViewMode('reactions')}
                 />
               )}
             </div>
@@ -951,7 +991,8 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
           {sidebarTab !== 'settings' &&
            sidebarTab !== 'debug' &&
            !(sidebarTab === 'tools' && toolsViewMode === 'detail' && activeTab?.kind === 'miniapp') &&
-           !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') && (
+           !(sidebarTab === 'tools' && toolsViewMode === 'paper-monitor') &&
+           !(sidebarTab === 'tools' && toolsViewMode === 'reactions') && (
             <GlobalComposer
               isInChatDetail={sidebarTab === 'chats' && chatViewMode === 'detail'}
               onNavigateToChat={() => {
@@ -977,30 +1018,23 @@ function App() {
 
   useEffect(() => {
     window.workspacesAPI.getActive().then((ws) => {
-      if (ws) {
-        setWorkspace(ws);
-        setStep('ready');
-        window.authAPI.checkLogin().then((result: any) => {
-          const { user, appInfo } = result;
-          initFullStory(appInfo?.isPackaged);
-          if (user?.id) {
-            identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
-          }
-        }).catch(() => {});
-        return;
-      }
-
       window.authAPI.checkLogin().then((result: any) => {
         const { loggedIn, user, appInfo } = result;
         initFullStory(appInfo?.isPackaged);
-        if (!loggedIn) {
-          setStep('welcome');
-          return;
-        }
         if (user?.id) {
           identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
         }
-        setStep('workspace');
+
+        if (ws && loggedIn) {
+          setWorkspace(ws);
+          setStep('ready');
+        } else if (loggedIn) {
+          setStep('workspace');
+        } else {
+          setStep('welcome');
+        }
+      }).catch(() => {
+        setStep('welcome');
       });
     });
   }, []);
@@ -1012,11 +1046,7 @@ function App() {
     case 'welcome':
       return (
         <WelcomeScreen
-          onGetStarted={async () => {
-            const hasCookie = await window.authAPI.hasSessionCookie();
-            setStep(hasCookie ? 'workspace' : 'login');
-          }}
-          onSkipSetup={workspace ? () => setStep('ready') : undefined}
+          onGetStarted={() => setStep('login')}
         />
       );
 
@@ -1073,7 +1103,6 @@ function App() {
     case 'review':
       return (
         <ScanResultsReview
-          reportId={scanReportId!}
           onComplete={() => setStep('ready')}
         />
       );

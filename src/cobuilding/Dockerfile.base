@@ -30,6 +30,7 @@ RUN apt-get update && apt-get install -y \
     texlive-luatex \
     texlive-xetex \
     lmodern \
+    rsync \
     && rm -rf /var/lib/apt/lists/*
 
 # Use tini as PID 1 so it can reap orphaned descendants of podman-exec'd

@@ -13,7 +13,7 @@ export function createReactionMcpServer(workspaceId: string) {
         'Use this after the reaction skill produces a reaction to save it as a separate, ' +
         'user-facing thread with only the final reaction message.',
         {
-          title: z.string().describe('Title for the reaction thread (e.g., "Reaction — 2026-04-08 14:30").'),
+          title: z.string().describe('A short, descriptive title summarizing the reaction content (e.g., "New CRISPR delivery method in Nature" or "Grant deadline approaching for NIH R01"). Do NOT use generic timestamps like "Reaction — date".'),
           message: z.string().describe('The full reaction message content (markdown text).'),
         },
         async (args) => {

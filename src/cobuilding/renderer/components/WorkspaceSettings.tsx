@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { Workspace } from '../../shared/types';
+import { SOUL_MD, MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON } from '../../shared/paths';
 import { kernelRegistry } from './notebook/kernelRegistry';
 import './WorkspaceSettings.css';
 import './shared-forms.css';
@@ -22,6 +23,15 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [savedDirectoryPath, setSavedDirectoryPath] = useState(workspace.directory_path);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [isSavingWorkspace, setIsSavingWorkspace] = useState(false);
+
+  // --- Researcher Profile card state ---
+  const [aboutContent, setAboutContent] = useState('');
+  const [savedAboutContent, setSavedAboutContent] = useState('');
+  const [workingOnContent, setWorkingOnContent] = useState('');
+  const [savedWorkingOnContent, setSavedWorkingOnContent] = useState('');
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
 
   // --- System Prompt card state ---
   const [soulContent, setSoulContent] = useState('');
@@ -61,10 +71,20 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
-    window.soulPromptAPI.get().then(({ content }) => {
+    window.academiaFileAPI.read(SOUL_MD).then(({ content }) => {
       setSoulContent(content);
       setSavedSoulContent(content);
       setSoulLoaded(true);
+    });
+    Promise.all([
+      window.academiaFileAPI.read(MEMORY_PATH_ABOUT_YOU),
+      window.academiaFileAPI.read(MEMORY_PATH_WORKING_ON),
+    ]).then(([about, workingOn]) => {
+      setAboutContent(about.content);
+      setSavedAboutContent(about.content);
+      setWorkingOnContent(workingOn.content);
+      setSavedWorkingOnContent(workingOn.content);
+      setProfileLoaded(true);
     });
     window.workspacesAPI.list().then(setAllWorkspaces);
     window.electronAPI.invoke('check-accessibility-permission').then((result: any) => {
@@ -161,7 +181,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     setSoulError(null);
     setIsSavingSoul(true);
     try {
-      await window.soulPromptAPI.set(soulContent);
+      await window.academiaFileAPI.write(SOUL_MD, soulContent);
       setSavedSoulContent(soulContent);
     } catch (err) {
       setSoulError(err instanceof Error ? err.message : 'Failed to save system prompt.');
@@ -173,6 +193,34 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const handleCancelSoul = () => {
     setSoulContent(savedSoulContent);
     setSoulError(null);
+  };
+
+  // --- Researcher Profile card save/cancel ---
+  const profileDirty = aboutContent !== savedAboutContent || workingOnContent !== savedWorkingOnContent;
+  const canSaveProfile = profileLoaded && profileDirty && !isSavingProfile;
+
+  const handleSaveProfile = async () => {
+    if (!canSaveProfile) return;
+    setProfileError(null);
+    setIsSavingProfile(true);
+    try {
+      await Promise.all([
+        window.academiaFileAPI.write(MEMORY_PATH_ABOUT_YOU, aboutContent),
+        window.academiaFileAPI.write(MEMORY_PATH_WORKING_ON, workingOnContent),
+      ]);
+      setSavedAboutContent(aboutContent);
+      setSavedWorkingOnContent(workingOnContent);
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Failed to save researcher profile.');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleCancelProfile = () => {
+    setAboutContent(savedAboutContent);
+    setWorkingOnContent(savedWorkingOnContent);
+    setProfileError(null);
   };
 
   const handleSwitch = async (id: string) => {
@@ -403,6 +451,61 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
                 onClick={handleSaveSoul}
               >
                 {isSavingSoul ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* ───────── Researcher Profile ───────── */}
+        <section className="wsSettings__section">
+          <p className="wsSettings__sectionLabel">Researcher profile</p>
+          <div className="wsSettings__sectionCard">
+            <p className="wsSettings__hint">
+              How the AI understands you and your current work. Saved to .academia/agent-memory/.
+            </p>
+
+            <div className="wsSettings__field">
+              <label className="wsSettings__label">About You</label>
+              <textarea
+                className="wsSettings__textarea"
+                value={aboutContent}
+                onChange={(e) => setAboutContent(e.target.value)}
+                placeholder="A summary of who you are and your research..."
+                rows={6}
+                disabled={!profileLoaded}
+              />
+            </div>
+
+            <div className="wsSettings__field">
+              <label className="wsSettings__label">What You&rsquo;re Working On</label>
+              <textarea
+                className="wsSettings__textarea"
+                value={workingOnContent}
+                onChange={(e) => setWorkingOnContent(e.target.value)}
+                placeholder="What you're currently focused on..."
+                rows={6}
+                disabled={!profileLoaded}
+              />
+            </div>
+
+            {profileError && <p className="gsStep__error">{profileError}</p>}
+
+            <div className="wsSettings__cardActions wsSettings__cardActions--flush">
+              <button
+                type="button"
+                className="gsStep__btn gsStep__btn--secondary"
+                disabled={!profileDirty || isSavingProfile}
+                onClick={handleCancelProfile}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="gsStep__btn gsStep__btn--primary"
+                disabled={!canSaveProfile}
+                onClick={handleSaveProfile}
+              >
+                {isSavingProfile ? 'Saving...' : 'Save'}
               </button>
             </div>
           </div>

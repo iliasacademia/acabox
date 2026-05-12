@@ -266,6 +266,7 @@ declare global {
     stop(): Promise<void>;
     status(): Promise<{ running: boolean }>;
     exec(command: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
+    syncOverlay(): Promise<{ durationMs: number }>;
     execLogged(command: string[], meta?: { source?: string; appDirName?: string | null }): Promise<{ stdout: string; stderr: string; exitCode: number }>;
     getBinaryMode(): Promise<'system' | 'bundled'>;
     setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
@@ -350,14 +351,9 @@ declare global {
     set(sources: string[]): Promise<void>;
   }
 
-  interface SoulPromptAPI {
-    get(): Promise<{ content: string }>;
-    set(content: string): Promise<void>;
-  }
-
-  interface FocusPromptAPI {
-    get(): Promise<{ content: string }>;
-    set(content: string): Promise<void>;
+  interface AcademiaFileAPI {
+    read(relativePath: string): Promise<{ content: string }>;
+    write(relativePath: string, content: string): Promise<void>;
   }
 
   interface ScheduledTasksAPI {
@@ -421,6 +417,8 @@ declare global {
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
+    syncOverlay(): Promise<{ durationMs: number }>;
+    isOverlayEnabled(): Promise<boolean>;
     /** Pipes a renderer-side log line into electron-log on the main process. */
     log(msg: string): Promise<void>;
   }
@@ -428,6 +426,8 @@ declare global {
   interface SettingsAPI {
     getMaxAttachmentSizeMB(): Promise<number>;
     setMaxAttachmentSizeMB(sizeMB: number): Promise<void>;
+    getReactionsEnabled(): Promise<boolean>;
+    setReactionsEnabled(enabled: boolean): Promise<void>;
   }
 
   interface MiniAppEntry {
@@ -577,8 +577,6 @@ declare global {
     report_type: string;
     report_data: string;
     in_depth_report: string | null;
-    about_you_summary: string | null;
-    what_youre_working_on_summary: string | null;
     what_youre_working_on: string | null;
     suggested_mini_apps: string | null;
     status: 'pending' | 'running' | 'completed' | 'failed';
@@ -746,8 +744,7 @@ declare global {
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
     reactionSourcesAPI: ReactionSourcesAPI;
-    soulPromptAPI: SoulPromptAPI;
-    focusPromptAPI: FocusPromptAPI;
+    academiaFileAPI: AcademiaFileAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
     fileMonitorAPI: FileMonitorAPI;
     browserMonitorAPI: BrowserMonitorAPI;

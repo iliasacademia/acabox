@@ -1,14 +1,6 @@
 export const REPORT_JSON_SCHEMA = {
   type: 'object' as const,
   properties: {
-    about_you_summary: {
-      type: 'string',
-      description: 'A concise summary of the researcher (2-4 paragraphs). Covers who they are, what field(s) they work in, their key research interests, and what characterizes their work. Written in second person ("You are...") so it reads naturally when shown to the researcher.',
-    },
-    what_youre_working_on_summary: {
-      type: 'string',
-      description: 'A summary of what the researcher is currently working on (2-4 paragraphs). Describes their active projects, recent focus areas, and what they seem to be in the middle of. Written in second person ("You have been...") so it reads naturally when shown to the researcher.',
-    },
     suggestions: {
       type: 'array',
       items: {
@@ -51,14 +43,14 @@ export const REPORT_JSON_SCHEMA = {
           },
           file_type: {
             type: 'string',
-            enum: ['manuscript'],
-            description: 'manuscript = academic paper, thesis, chapter, or dissertation (.tex, .docx, .md).',
+            enum: ['manuscript', 'grant', 'presentation'],
+            description: 'manuscript = academic paper, thesis, chapter, or dissertation (.tex, .docx, .md). grant = grant proposal, funding application, NIH/NSF/R01 submission. presentation = .pptx, .key, talks, slides, lab-meeting files.',
           },
         },
         required: ['file_path', 'file_name', 'file_type'],
       },
-      description: 'All manuscript files found in the directory (.tex, .docx, .md academic papers, theses, chapters). This list populates file pickers in writing tools.',
+      description: 'All manuscript, grant, and presentation files found in the directory. This list populates file pickers in writing tools.',
     },
   },
-  required: ['about_you_summary', 'what_youre_working_on_summary', 'suggestions', 'tagged_files'],
+  required: ['suggestions', 'tagged_files'],
 };

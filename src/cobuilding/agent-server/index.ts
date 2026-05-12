@@ -33,6 +33,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'http';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
+import { AGENT_MEMORY_SUBDIR } from '../shared/paths';
 
 
 // ---------------------------------------------------------------------------
@@ -215,7 +216,7 @@ function createMcpRelayServers(state: SessionState) {
         tool('create_reaction_thread',
           'Create a new reaction thread visible to the user in the Reactions tab.',
           {
-            title: z.string().describe('Title for the reaction thread.'),
+            title: z.string().describe('A short, descriptive title summarizing the reaction content (e.g., "New CRISPR delivery method in Nature" or "Grant deadline approaching for NIH R01"). Do NOT use generic timestamps like "Reaction — date".'),
             message: z.string().describe('The full reaction message content (markdown text).'),
           },
           relay('reaction', 'create_reaction_thread'),
@@ -655,6 +656,10 @@ function createSession(sessionId: string, config: AgentConfig, resumeSessionId?:
           CLAUDE_CONFIG_DIR: '/data/.academia/claude-config',
         },
         settingSources: config.settingSources as any[],
+        settings: {
+          autoMemoryEnabled: true,
+          autoMemoryDirectory: `/data/${AGENT_MEMORY_SUBDIR}`,
+        },
         mcpServers: mcpRelayServers as any,
         allowedTools: config.allowedTools,
         hooks: {
@@ -811,6 +816,7 @@ function startServer(config: AgentConfig): void {
             'Cache-Control': 'no-cache',
             Connection: 'keep-alive',
           });
+          res.socket?.setNoDelay(true);
           res.write(':ok\n\n');
           state.sseClients.add(res);
 

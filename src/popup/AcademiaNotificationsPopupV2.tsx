@@ -46,7 +46,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const [isUnsavedDocument, setIsUnsavedDocument] = useState(false);
   // Cobuilding workspace state
   const [isInWorkspace, setIsInWorkspace] = useState(false);
-  const [workspaceSessions, setWorkspaceSessions] = useState<Array<{ id: string; title: string; created_at: string }>>([]);
+  const [workspaceSessions, setWorkspaceSessions] = useState<Array<{ id: string; title: string; created_at: string; is_running?: boolean }>>([]);
   // Display name for the active document, server-supplied for synthetic-scheme
   // hosts (`gdocs://`, `applenotes://`) where the path itself is opaque.
   const [activeDocumentDisplayName, setActiveDocumentDisplayName] = useState<string | null>(null);
@@ -184,6 +184,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   useEffect(() => {
     if (shouldClearActiveOnDocChange(prevDocPathRef.current, docPath)) {
       setActiveSession(null);
+      setShowingList(true);
     }
   }, [docPath]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -236,6 +237,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
 
     if (isActiveSessionStaleForDoc(activeSession?.id ?? null, pollData.workspaceSessions ?? [])) {
       setActiveSession(null);
+      setShowingList(true);
     }
 
     // Kickoff set by the desktop side (briefing card or Tools-page tile). The
@@ -253,6 +255,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       console.log('[AcademiaNotificationsPopupV2] Kickoff', incomingId, 'arrived; opening new chat', newSessionId, incomingPrompt ? '(with prompt)' : '(empty)');
       if (incomingPrompt) setPendingKickoffPrompt(incomingPrompt);
       setActiveSession({ id: newSessionId, title: 'New Conversation' });
+      setShowingList(false);
       postBridge('clearKickoff', { kickoffId: incomingId }).catch(() => {});
     }
 
@@ -274,6 +277,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (!kickoffHandled && shouldAutoOpenFreshSession(activeSession?.id ?? null, fresh)) {
       console.log('[AcademiaNotificationsPopupV2] Auto-opening fresh session:', fresh!.id);
       setActiveSession({ id: fresh!.id, title: fresh!.title });
+      setShowingList(false);
       alreadyAutoOpened.add(fresh!.id);
       persistAutoOpened(docPath, alreadyAutoOpened);
     } else if (fresh) {
@@ -382,16 +386,20 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   const handleOpenSession = (session: { id: string; title: string; created_at: string }) => {
     console.log('[AcademiaNotificationsPopupV2] Open workspace session:', session.id);
     setActiveSession({ id: session.id, title: session.title });
+    setShowingList(false);
   };
 
+  const [showingList, setShowingList] = useState(!activeSession);
+
   const handleBackToSessions = () => {
-    setActiveSession(null);
+    setShowingList(true);
   };
 
   const handleNewConversation = () => {
     const id = crypto.randomUUID();
     console.log('[AcademiaNotificationsPopupV2] New conversation:', id);
     setActiveSession({ id, title: 'New Conversation' });
+    setShowingList(false);
   };
 
   // Handle toggling popup width
@@ -599,16 +607,9 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
           onPointerUp={handleResizePointerUp}
         />
         <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-          {activeSession
-            ? <WorkspaceConversationView
-                // `key` forces a fresh mount when the user switches
-                // conversations. assistant-ui's `useLocalRuntime` calls
-                // `history.load()` only on initial thread mount; updating
-                // the history adapter reference (via useMemo on sessionId)
-                // doesn't re-fire the load. Without this `key`, the runtime
-                // keeps showing the previously-opened conversation while
-                // the prop quietly changes — that's the "previous conversation
-                // is loaded instead of the conversation I was in" symptom.
+          {activeSession && (
+            <div style={{ display: showingList ? 'none' : 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+              <WorkspaceConversationView
                 key={activeSession.id}
                 sessionId={activeSession.id}
                 sessionTitle={activeSession.title}
@@ -619,7 +620,10 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 initialPrompt={pendingKickoffPrompt ?? undefined}
                 onInitialPromptSent={() => setPendingKickoffPrompt(null)}
               />
-            : isInWorkspace
+            </div>
+          )}
+          {(!activeSession || showingList) && (
+            isInWorkspace
             ? <WorkspaceSessionsView
                 sessions={workspaceSessions}
                 documentPath={docPath}
@@ -633,7 +637,8 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 conversations={conversations}
                 isLoading={isLoading}
                 onContinueConversation={handleContinueConversation}
-              />}
+              />
+          )}
         </div>
       </div>
     </div>

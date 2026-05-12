@@ -60,15 +60,24 @@ function createElectronChatAdapter(aui: any): ChatModelAdapter {
       abortSignal.addEventListener('abort', onAbort, { once: true });
 
       try {
+        let eventCount = 0;
         for await (const msg of responseStream) {
+          eventCount++;
+          if (msg.type !== 'text-delta' && msg.type !== 'thinking-delta' && msg.type !== 'tool-call-args-delta' && msg.type !== 'heartbeat') {
+            console.log(`[ChatAdapter] event #${eventCount} type=${msg.type} for ${threadId}`);
+          }
           if (abortSignal.aborted) {
-            console.debug(`[ChatAdapter] Stream loop aborted for ${threadId}`);
+            console.log(`[ChatAdapter] Stream loop aborted for ${threadId} after ${eventCount} events`);
+            break;
+          }
+          if (msg.type === 'turn-complete') {
+            console.log(`[ChatAdapter] Turn complete for ${threadId} after ${eventCount} events`);
             break;
           }
           response.onMessage(msg);
           yield { content: response.getContent() };
         }
-        console.debug(`[ChatAdapter] Stream loop completed normally for ${threadId}`);
+        console.log(`[ChatAdapter] Stream loop ended for ${threadId}, total events=${eventCount}`);
       } finally {
         abortSignal.removeEventListener('abort', onAbort);
         resetProgress();

@@ -11,6 +11,7 @@ import http from 'http';
 import { findHostAppForDocument, getRegisteredHostApps, type HostApp } from './hostApps';
 import { wordHostApp } from './hostApps/wordHostApp';
 import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
+import { ACADEMIA_DIR, SOUL_MD } from '../shared/paths';
 import { windowMonitorService } from '../../windowMonitorService';
 
 /**
@@ -209,7 +210,7 @@ export function createAgentSession(
   // Read SOUL.md
   let soulMdContent: string | undefined;
   try {
-    const soulPath = path.join(workspace.directory_path, '.academia', 'SOUL.md');
+    const soulPath = path.join(workspace.directory_path, ACADEMIA_DIR, SOUL_MD);
     const content = fs.readFileSync(soulPath, 'utf-8').trim();
     if (content) soulMdContent = content;
   } catch { /* doesn't exist */ }
@@ -425,6 +426,7 @@ async function connectSSE(
           if (eventType === 'message') {
             try {
               const message = JSON.parse(data) as SDKMessage;
+              log.debug(`[AgentSession:SSE] message type=${message.type}`);
               processQueryMessage(message, state, emitEvent);
 
               if (message.type === 'system') {
@@ -443,12 +445,13 @@ async function connectSSE(
                 }
               }
               if (message.type === 'result') {
+                log.info(`[AgentSession:SSE] RESULT received, emitting turn-complete`);
                 insertMessage(sessionId, 'result', JSON.stringify({
                   subtype: (message as any).subtype,
                   result: (message as any).subtype === 'success' ? (message as any).result : undefined,
                   is_error: (message as any).is_error,
                 }));
-                emitDone();
+                emitEvent({ type: 'turn-complete' } as ChatStreamMessage);
               }
             } catch (err) {
               log.error('[AgentSession] Failed to parse SSE message:', err);
@@ -476,6 +479,7 @@ async function connectSSE(
               log.error('[AgentSession] Failed to parse mcp-call event:', err);
             }
           } else if (eventType === 'done') {
+            log.info(`[AgentSession:SSE] DONE event received`);
             emitDone();
             resolve();
           } else if (eventType === 'error') {

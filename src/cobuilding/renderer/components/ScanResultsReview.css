@@ -30,38 +30,7 @@
   color: rgb(139, 132, 115);
 }
 
-.wsReview__editBtn {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 12px;
-  font-weight: 400;
-  color: #6f685f;
-  background: transparent;
-  border: 1px solid #d6d0c5;
-  border-radius: 2px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.wsReview__editBtn:hover {
-  background: #efeae1;
-  color: #3d3933;
-}
-
-/* Section text content */
-.wsReview__text {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 14px;
-  color: #374151;
-  line-height: 1.65;
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-/* Textarea for editing */
+/* Textarea */
 .wsReview__textarea {
   width: 100%;
   min-height: 120px;
@@ -81,49 +50,6 @@
 
 .wsReview__textarea:focus {
   border-color: #8b7355;
-}
-
-/* Edit actions */
-.wsReview__editActions {
-  display: flex;
-  gap: 8px;
-  margin-top: 10px;
-  justify-content: flex-end;
-}
-
-.wsReview__saveBtn {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
-  font-weight: 400;
-  background: #171512;
-  color: #ffffff;
-  border: none;
-  border-radius: 2px;
-  padding: 6px 16px;
-  cursor: pointer;
-  transition: background 0.15s;
-}
-
-.wsReview__saveBtn:hover {
-  background: #2b2823;
-}
-
-.wsReview__cancelBtn {
-  font-family: 'DM Sans', sans-serif;
-  font-size: 13px;
-  font-weight: 400;
-  background: none;
-  color: #6b7280;
-  border: 1px solid #e5e7eb;
-  border-radius: 2px;
-  padding: 6px 16px;
-  cursor: pointer;
-  transition: color 0.15s, border-color 0.15s;
-}
-
-.wsReview__cancelBtn:hover {
-  color: #374151;
-  border-color: #d1d5db;
 }
 
 /* Taller textarea for working-on list editing */

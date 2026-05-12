@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { FOCUS_MD } from '../../shared/paths';
 
 export const FocusEditor: React.FC = () => {
   const [content, setContent] = useState('');
@@ -8,7 +9,7 @@ export const FocusEditor: React.FC = () => {
   const savedTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
-    window.focusPromptAPI.get().then(({ content: c }) => {
+    window.academiaFileAPI.read(FOCUS_MD).then(({ content: c }) => {
       setContent(c);
       setSavedContent(c);
     });
@@ -17,7 +18,7 @@ export const FocusEditor: React.FC = () => {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      await window.focusPromptAPI.set(content);
+      await window.academiaFileAPI.write(FOCUS_MD, content);
       setSavedContent(content);
       setSaved(true);
       clearTimeout(savedTimer.current);
@@ -28,7 +29,7 @@ export const FocusEditor: React.FC = () => {
   }, [content]);
 
   const handleReset = useCallback(async () => {
-    await window.focusPromptAPI.set('');
+    await window.academiaFileAPI.write(FOCUS_MD, '');
     setContent('');
     setSavedContent('');
   }, []);

@@ -1,6 +1,5 @@
 import { query, type SDKMessage, type HookCallback, type PreToolUseHookInput } from '@anthropic-ai/claude-agent-sdk';
 import { randomUUID } from 'crypto';
-import * as fs from 'fs';
 import * as path from 'path';
 import log from 'electron-log';
 import Anthropic from '@anthropic-ai/sdk';
@@ -10,6 +9,7 @@ import { createBriefing } from '../db/briefingsRepository';
 import { upsertScannedFiles } from '../db/scannedFilesRepository';
 import { extractText } from '../fileMonitor/textExtractor';
 import { buildScannerSystemPrompt, buildScannerPrompt } from './systemPrompt';
+import { AGENT_MEMORY_SUBDIR } from '../../shared/paths';
 import { REPORT_JSON_SCHEMA } from './reportSchema';
 
 const DIRECTORY_ORGANIZATION_PROMPT = `Please help me organize my research directory. First, inspect the workspace and understand the current file structure, research projects, documents, data, scripts, outputs, and any existing naming conventions. Then recommend an effective organization plan for the directory.
@@ -30,28 +30,13 @@ interface TaggedFileParsed {
   file_type?: unknown;
 }
 
-function findFileInWorkspace(directoryPath: string, fileName: string): string | null {
-  try {
-    const { execSync } = require('child_process');
-    const result = execSync(
-      `find ${JSON.stringify(directoryPath)} -name ${JSON.stringify(fileName)} -not -path '*/.*' -print -quit 2>/dev/null`,
-      { encoding: 'utf8', timeout: 5000 },
-    ).trim();
-    if (!result) return null;
-    const rel = path.relative(directoryPath, result);
-    return rel || null;
-  } catch {
-    return null;
-  }
-}
-
 function getFilePath(f: { file_path?: unknown; path?: unknown }): string | undefined {
   if (typeof f.file_path === 'string') return f.file_path;
   if (typeof f.path === 'string') return f.path;
   return undefined;
 }
 
-const WRITING_AGENT_KICKOFF_PROMPT = '/academic-writing-agent\n\nRead only the Introduction section of this document (stop before Methods/Results). Give a brief review (3–5 sentences) assessing how well it motivates the research question, situates the work in the literature, and sets up the paper. After the review, propose exactly 2 edits to strengthen the introduction using find_and_replace. Each edit must target a single sentence — keep the search_text to one sentence so it matches reliably even if the document has tracked changes. Output the review text first, then the two find_and_replace tool calls — do not replace the review with the edits, both should be visible.';
+const WRITING_AGENT_KICKOFF_PROMPT = 'Review this manuscript. Read the document, assess its current state, and provide a structured peer review.';
 
 interface ManuscriptCandidate {
   filePath: string;
@@ -62,7 +47,6 @@ function createBriefingsFromScan(
   workspaceId: string,
   reportId: string,
   resultText: string,
-  directoryPath: string,
   ctx: {
     onBriefingsChanged?: () => void;
   },
@@ -95,33 +79,6 @@ function createBriefingsFromScan(
   const taggedFiles = Array.isArray(parsed.tagged_files)
     ? (parsed.tagged_files as TaggedFileParsed[])
     : [];
-
-  // Demo: ensure ASH1L manuscript is tagged as manuscript if found in workspace.
-  const ASH1L_MANUSCRIPT = 'ASH1L_PRDM14_Western_Blot_Manuscript_DRAFT.docx';
-  const ash1lRelPath = findFileInWorkspace(directoryPath, ASH1L_MANUSCRIPT);
-  if (ash1lRelPath) {
-    const alreadyTaggedAsManuscript = taggedFiles.some((f) => {
-      const p = getFilePath(f);
-      return p && p.includes(ASH1L_MANUSCRIPT) &&
-        (typeof f.file_type === 'string' ? f.file_type : typeof (f as any).type === 'string' ? (f as any).type : '').toLowerCase() === 'manuscript';
-    });
-    if (!alreadyTaggedAsManuscript) {
-      const existing = taggedFiles.find((f) => {
-        const p = getFilePath(f);
-        return p && p.includes(ASH1L_MANUSCRIPT);
-      });
-      if (existing) {
-        (existing as any).file_type = 'manuscript';
-        (existing as any).type = 'manuscript';
-      } else {
-        taggedFiles.push({
-          file_path: ash1lRelPath,
-          file_name: ASH1L_MANUSCRIPT,
-          file_type: 'manuscript',
-        });
-      }
-    }
-  }
 
   // Collect manuscript-type docx files for peer-review enrichment.
   const manuscriptDocxFiles = taggedFiles.filter((f) => {
@@ -171,61 +128,6 @@ function createBriefingsFromScan(
         },
       });
     }
-  }
-
-  if (findFileInWorkspace(directoryPath, 'western_blot-test-20260507145157.tif') !== null) {
-    createBriefing({
-      workspaceId,
-      type: 'suggested_tool',
-      sourceReportId: reportId,
-      whyImSuggestingThis:
-        'I found a western blot image in your workspace. An annotation tool could help you label bands, add molecular weight markers, and create publication-ready figures.',
-      briefingData: {
-        name: 'Western Blot Annotation Tool',
-        details_on_what_to_build:
-          'Build an interactive tool that helps create annotated western blot images. The tool should allow the user to upload western blot TIF images, label individual bands, add molecular weight markers, draw lane boundaries, and export publication-ready annotated figures with clean labeling.',
-      },
-    });
-  }
-
-  // Board meeting demo: hardcoded PrestoBlue viability assay briefing.
-  // If all 6 xlsx files exist, suggest generating a Prism-style time-course graph.
-  const PRESTO_BLUE_FILES = [
-    '032426_PrestoBlue_PA-1_day1.xlsx',
-    '032326_PrestoBlue_PA-1.xlsx',
-    '032626_PrestoBlue_PA-1_day3.xlsx',
-    '032426_PrestoBlue_PA-1_day4.xlsx',
-    '032826_PrestoBlue_PA-1_day5.xlsx',
-    '032626_PrestoBlue_PA-1_day6.xlsx',
-  ];
-  const allPrestoBlueFound = PRESTO_BLUE_FILES.every(
-    (f) => findFileInWorkspace(directoryPath, f) !== null,
-  );
-  if (allPrestoBlueFound) {
-    createBriefing({
-      workspaceId,
-      type: 'suggested_action',
-      sourceReportId: reportId,
-      whyImSuggestingThis:
-        'I found PrestoBlue viability assay data across 6 time points in your workspace. I can generate a publication-ready time-course graph from this data.',
-      briefingData: {
-        title: 'Generate PA-1 viability time-course graph',
-        description:
-          'Create a Prism-style line graph from PrestoBlue viability assays showing PA-1 cell viability over days 1, 3, 4, 5, and 6.',
-        chat_prompt: `Using the 6 PrestoBlue xlsx files in PRDM14/Viability-Assays/ (day1, day3, day4, day5, day6), generate a Prism-style viability time-course line graph for PA-1 cells.
-
-Plate layout:
-
-Column 2: sgSAFE (1000 cells/well)
-Column 3: sgSAFE (500 cells/well)
-Column 4: sgPRDM14-3 (1000 cells/well)
-Column 5: sgPRDM14-3 (500 cells/well)
-Rows B–G: 6 replicates per condition
-Row A, Row H, Column 1, Columns 6–12: blanks (subtract background)
-
-Plot mean +/- SEM for each condition over days 1, 3, 4, 5, 6. Normalize fluorescence to Day 1 for each condition. Show 4 lines (one per condition) with distinct colors.`,
-      },
-    });
   }
 
   ctx.onBriefingsChanged?.();
@@ -471,6 +373,28 @@ const blockHiddenPaths: HookCallback = async (input) => {
   return {};
 };
 
+/** PreToolUse hook factory that restricts Write to a specific directory. */
+function makeRestrictWrites(allowedDir: string): HookCallback {
+  const resolved = path.resolve(allowedDir);
+  return async (input) => {
+    const preInput = input as PreToolUseHookInput;
+    const toolInput = preInput.tool_input as Record<string, unknown>;
+    const filePath = typeof toolInput.file_path === 'string' ? toolInput.file_path : '';
+    if (!filePath.trim()) return {};
+    const resolvedPath = path.resolve(resolved, '..', filePath);
+    if (resolvedPath !== resolved && !resolvedPath.startsWith(resolved + path.sep)) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse' as const,
+          permissionDecision: 'deny' as const,
+          permissionDecisionReason: `Writes are only allowed to the memory directory (${allowedDir}): ${filePath}`,
+        },
+      };
+    }
+    return {};
+  };
+}
+
 /** PreToolUse hook factory that blocks Read/Glob/Grep from escaping the scan directory. */
 function makeBlockOutsideCwd(directoryPath: string): HookCallback {
   const root = path.resolve(directoryPath);
@@ -517,6 +441,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
   updateReportStatus(reportId, 'running');
 
   const abortController = new AbortController();
+  const memoryDir = path.join(directoryPath, AGENT_MEMORY_SUBDIR);
 
   try {
     const scanQuery = query({
@@ -525,9 +450,9 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
         abortController,
         pathToClaudeCodeExecutable: claudeBinaryPath,
         model: 'claude-sonnet-4-6',
-        systemPrompt: buildScannerSystemPrompt(),
-        tools: ['Read', 'Glob', 'Grep', 'Agent'],
-        allowedTools: ['Read', 'Glob', 'Grep', 'Agent'],
+        systemPrompt: buildScannerSystemPrompt(memoryDir),
+        tools: ['Read', 'Write', 'Glob', 'Grep', 'Agent'],
+        allowedTools: ['Read', 'Write', 'Glob', 'Grep', 'Agent'],
         cwd: directoryPath,
         env: {
           ...process.env,
@@ -544,9 +469,16 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           schema: REPORT_JSON_SCHEMA,
         },
         hooks: {
-          PreToolUse: [{ matcher: 'Read|Glob|Grep', hooks: [blockHiddenPaths, makeBlockOutsideCwd(directoryPath)] }],
+          PreToolUse: [
+            { matcher: 'Read|Glob|Grep', hooks: [blockHiddenPaths, makeBlockOutsideCwd(directoryPath)] },
+            { matcher: 'Write', hooks: [makeRestrictWrites(memoryDir)] },
+          ],
         },
         settingSources: [],
+        settings: {
+          autoMemoryEnabled: true,
+          autoMemoryDirectory: memoryDir,
+        },
         stderr: (data: string) => {
           for (const line of data.split('\n').filter(Boolean)) {
             log.debug(`[DirectoryScanner:stderr] ${line}`);
@@ -599,7 +531,7 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
           updateReportStatus(reportId, 'completed', resultText);
           let manuscripts: ManuscriptCandidate[] = [];
           try {
-            manuscripts = createBriefingsFromScan(workspaceId, reportId, resultText, directoryPath, {
+            manuscripts = createBriefingsFromScan(workspaceId, reportId, resultText, {
               onBriefingsChanged: params.onBriefingsChanged,
             });
           } catch (err) {
@@ -617,23 +549,6 @@ export async function scanWorkspaceDirectory(params: ScanParams): Promise<void> 
                   file_type: (f.file_type ?? f.type) as string,
                 }))
                 .filter((f: { file_name: string }) => !f.file_name.startsWith('~$'));
-              // Demo: ensure ASH1L manuscript is tagged in persisted scanned files.
-              const ASH1L_MS = 'ASH1L_PRDM14_Western_Blot_Manuscript_DRAFT.docx';
-              const ash1lRel = findFileInWorkspace(directoryPath, ASH1L_MS);
-              if (ash1lRel) {
-                const idx = normalised.findIndex(
-                  (f: { file_path: string }) => f.file_path.includes(ASH1L_MS),
-                );
-                if (idx >= 0) {
-                  normalised[idx].file_type = 'manuscript';
-                } else {
-                  normalised.push({
-                    file_path: ash1lRel,
-                    file_name: ASH1L_MS,
-                    file_type: 'manuscript',
-                  });
-                }
-              }
               upsertScannedFiles(workspaceId, reportId, normalised);
             }
           } catch (err) {

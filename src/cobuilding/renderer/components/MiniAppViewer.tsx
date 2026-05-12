@@ -85,6 +85,7 @@ export const MiniAppViewer: FC<MiniAppViewerProps> = ({ dirName, workspacePath, 
         });
         return;
       }
+      await window.containerAPI.syncOverlay().catch(() => {});
       setRebuildState({ kind: 'idle' });
       setRebuildKey((k) => k + 1);
       setViewingSource(false);
