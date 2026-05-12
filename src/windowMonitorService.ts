@@ -332,7 +332,7 @@ export class WindowMonitorService {
   private lastGoogleDocsTitle: string | null = null;
   private lastGoogleDocsSelectedText: string | null = null;
   private googleDocsRefreshInflight = false;
-  private sessionsProvider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null = null;
+  private sessionsProvider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string; is_running?: boolean }>) | null = null;
   // When true, WINDOW_TEXT_SELECTED events are ignored (used to suppress
   // programmatic selections from MCP tools like find_and_replace/select_text).
   private selectionEventsSuppressed = false;
@@ -1479,15 +1479,15 @@ export class WindowMonitorService {
     return this.workspaceDirectory;
   }
 
-  setSessionsProvider(provider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string }>) | null): void {
+  setSessionsProvider(provider: ((opts: { documentPath?: string; documentPathLike?: string }) => Array<{ id: string; title: string; created_at: string; is_running?: boolean }>) | null): void {
     this.sessionsProvider = provider;
   }
 
-  getWorkspaceSessions(documentPath?: string): Array<{ id: string; title: string; created_at: string }> {
+  getWorkspaceSessions(documentPath?: string): Array<{ id: string; title: string; created_at: string; is_running?: boolean }> {
     return this.sessionsProvider?.({ documentPath }) ?? [];
   }
 
-  getWorkspaceSessionsByDocPathLike(documentPathLike: string): Array<{ id: string; title: string; created_at: string }> {
+  getWorkspaceSessionsByDocPathLike(documentPathLike: string): Array<{ id: string; title: string; created_at: string; is_running?: boolean }> {
     return this.sessionsProvider?.({ documentPathLike }) ?? [];
   }
 

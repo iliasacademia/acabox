@@ -866,11 +866,11 @@ app.whenReady().then(async () => {
             const pendingContext = new Map<string, { documentPath?: string; selectedText?: string }>();
 
             // POST /api/cobuilding/sessions/:sessionId/send — streams response via SSE
-            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string } }>(
+            fastify.post<{ Params: { sessionId: string }; Body: { text: string; documentPath?: string; selectedText?: string; attachments?: IPCAttachment[] } }>(
               '/api/cobuilding/sessions/:sessionId/send',
               async (request, reply) => {
                 const { sessionId } = request.params;
-                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText } = request.body;
+                const { text, documentPath: ctxDocPath, selectedText: ctxSelectedText, attachments } = request.body;
                 if (!text || typeof text !== 'string') {
                   reply.code(400).send({ error: 'text is required' });
                   return;
@@ -927,7 +927,7 @@ app.whenReady().then(async () => {
                     onDone: () => { sendSSE('done', {}); reply.raw.end(); unsubscribe(); notifySessionsChanged(); },
                     onError: (err) => { sendSSE('error', { error: err }); reply.raw.end(); unsubscribe(); },
                   });
-                  existingRunning.sendMessage(displayMessage);
+                  existingRunning.sendMessage(displayMessage, attachments);
                   return;
                 }
 
@@ -1001,7 +1001,7 @@ app.whenReady().then(async () => {
                   unsubscribe();
                 });
 
-                session.sendMessage(displayMessage);
+                session.sendMessage(displayMessage, attachments);
               },
             );
 
@@ -1137,6 +1137,7 @@ app.whenReady().then(async () => {
                   id: s.id,
                   title: s.title,
                   created_at: s.created_at,
+                  is_running: getRegisteredSession(s.id)?.isRunning ?? false,
                 }));
               });
             }
@@ -1232,7 +1233,7 @@ ipcMain.handle(
         const rows = documentPathLike !== undefined
           ? listSessionsByDocPathLike(activeWorkspace.id, undefined, documentPathLike)
           : listSessions(activeWorkspace.id, undefined, documentPath);
-        return rows.map((s) => ({ id: s.id, title: s.title, created_at: s.created_at }));
+        return rows.map((s) => ({ id: s.id, title: s.title, created_at: s.created_at, is_running: getRegisteredSession(s.id)?.isRunning ?? false }));
       });
       // Directory scan is triggered separately via scanner:start IPC
     }
@@ -3425,6 +3426,7 @@ app.on('before-quit', () => {
     ['destroyAllSessions', destroyAllSessions],
     ['kernelGatewayService.stop', () => kernelGatewayService.stop()],
     ['containerService.stop', () => containerService.stop()],
+    ['windowMonitorService.stop', () => windowMonitorService.stop()],
     ['closeSchedulingDatabase', closeSchedulingDatabase],
     ['closeObservationsDatabase', closeObservationsDatabase],
     ['closeDatabase', closeDatabase],

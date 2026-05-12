@@ -193,6 +193,7 @@ export interface OverlayPollResponse {
     id: string;
     title: string;
     created_at: string;
+    is_running?: boolean;
   }>;
   /**
    * Pending kickoff prompt for the active document, set by surfaces like the

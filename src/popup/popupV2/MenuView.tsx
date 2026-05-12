@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   useLocalRuntime,
   AssistantRuntimeProvider,
@@ -7,6 +7,7 @@ import {
 import { OverlayThread, InitialPromptAutoSend } from './OverlayThread';
 import { shouldRefreshOnForeignEvent } from './sessionLogic';
 import { useHttpChatAdapter, useHttpHistoryAdapter } from './httpChatAdapter';
+import { createOverlayAttachmentAdapter } from './overlayAttachmentAdapter';
 import '../../cobuilding/renderer/App.css';
 import '@assistant-ui/react-markdown/styles/dot.css';
 import {
@@ -91,12 +92,12 @@ export const ConversationListView: React.FC<ConversationListViewProps> = ({
 // ─── Workspace Sessions View ─────────────────────────────────────────
 
 interface WorkspaceSessionsViewProps {
-  sessions: Array<{ id: string; title: string; created_at: string }>;
+  sessions: Array<{ id: string; title: string; created_at: string; is_running?: boolean }>;
   /** Active document path. Used as a fallback when the server didn't supply a display name (file-based hosts derive basename client-side). */
   documentPath?: string | null;
   /** Server-supplied display name — preferred when set (synthetic-scheme hosts where the path is opaque). */
   documentDisplayName?: string | null;
-  onOpenSession: (session: { id: string; title: string; created_at: string }) => void;
+  onOpenSession: (session: { id: string; title: string; created_at: string; is_running?: boolean }) => void;
   onNewConversation: () => void;
 }
 
@@ -196,7 +197,19 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
               onClick={() => onOpenSession(session)}
               aria-label="Open conversation"
             >
-              <div style={styles.notificationContent as React.CSSProperties}>
+              <div style={{ ...styles.notificationContent as React.CSSProperties, position: 'relative' }}>
+                {session.is_running && (
+                  <span style={{
+                    position: 'absolute',
+                    top: 4,
+                    left: -12,
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: '#3b82f6',
+                    animation: 'chatListPulse 1.5s ease-in-out infinite',
+                  }} />
+                )}
                 <span style={styles.notificationDate}>
                   {formatConversationDate(session.created_at)}
                 </span>
@@ -299,7 +312,8 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
   });
 
   const history = useHttpHistoryAdapter(serverUrl, tokenParam, sessionId);
-  const runtime = useLocalRuntime(chatAdapter, { adapters: { history } });
+  const attachments = useMemo(() => createOverlayAttachmentAdapter(), []);
+  const runtime = useLocalRuntime(chatAdapter, { adapters: { history, attachments } });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>

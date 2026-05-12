@@ -85,6 +85,23 @@ export const OverlayFilePickerButton: FC = () => {
     setLoading(true);
     setError(null);
     try {
+      // Copy the file to the workspace and get the relative path
+      const copyRes = await fetch(`${window.location.origin}/api/copy-to-workspace`, {
+        method: 'POST',
+        headers: authHeaders(),
+        body: JSON.stringify({ sourcePath: entry.path }),
+      });
+      if (copyRes.ok) {
+        const { relativePath } = (await copyRes.json()) as { relativePath: string };
+        // Create a small File with the relative path as content — the attachment
+        // adapter will send it as a file_reference (path only, no inline data).
+        const file = new File([relativePath], entry.name, { type: 'application/octet-stream' });
+        (file as any).__overlayFilePath = relativePath;
+        await composer.addAttachment(file);
+        setOpen(false);
+        return;
+      }
+      // Fallback: read file content directly (for cases where workspace copy fails)
       const r = await fetch(`${window.location.origin}/api/read-file`, {
         method: 'POST',
         headers: authHeaders(),
