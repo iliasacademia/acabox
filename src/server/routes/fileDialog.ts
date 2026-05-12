@@ -101,5 +101,40 @@ export async function registerFileDialogRoutes(fastify: FastifyInstance): Promis
     }
   });
 
+  /**
+   * POST /api/copy-to-workspace { sourcePath: string }
+   *
+   * Copies a file into the active workspace directory and returns the
+   * workspace-relative path. Used by the overlay file picker so attachments
+   * can be sent as lightweight file_reference instead of inline base64.
+   */
+  fastify.post('/api/copy-to-workspace', async (request, reply) => {
+    const { sourcePath } = request.body as { sourcePath: string };
+    if (!sourcePath) {
+      return reply.code(400).send({ error: 'sourcePath is required' });
+    }
+
+    const resolvedSource = path.resolve(sourcePath);
+    if (!isAllowedPath(resolvedSource)) {
+      return reply.code(403).send({ error: 'Access denied' });
+    }
+
+    // Get workspace path from the app's window monitor service
+    const { windowMonitorService } = require('../../windowMonitorService');
+    const workspacePath = windowMonitorService.getActiveWorkspaceDirectory();
+    if (!workspacePath) {
+      return reply.code(400).send({ error: 'No active workspace' });
+    }
+
+    try {
+      const fileName = path.basename(resolvedSource);
+      const destPath = path.join(workspacePath, fileName);
+      fs.copyFileSync(resolvedSource, destPath);
+      reply.send({ relativePath: fileName });
+    } catch {
+      reply.code(400).send({ error: 'Cannot copy file' });
+    }
+  });
+
   logger.debug('[FileDialog] Registered file browse routes');
 }

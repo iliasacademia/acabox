@@ -11,10 +11,6 @@ function readFileAsDataURL(file: File): Promise<string> {
   });
 }
 
-function readFileAsBase64(file: File): Promise<string> {
-  return readFileAsDataURL(file).then((dataUrl) => dataUrl.split(',')[1]!);
-}
-
 class OverlayImageAttachmentAdapter implements AttachmentAdapter {
   accept = 'image/*';
 
@@ -42,40 +38,7 @@ class OverlayImageAttachmentAdapter implements AttachmentAdapter {
   async remove(): Promise<void> {}
 }
 
-class OverlayDocumentAttachmentAdapter implements AttachmentAdapter {
-  accept = 'application/pdf,text/plain,text/html,text/markdown,text/csv';
-
-  async add(state: { file: File }): Promise<PendingAttachment> {
-    return {
-      id: state.file.name,
-      type: 'document',
-      name: state.file.name,
-      contentType: state.file.type || 'application/octet-stream',
-      file: state.file,
-      status: { type: 'requires-action', reason: 'composer-send' },
-    };
-  }
-
-  async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    const base64 = await readFileAsBase64(attachment.file);
-    return {
-      ...attachment,
-      status: { type: 'complete' },
-      content: [
-        {
-          type: 'file',
-          data: base64,
-          mimeType: attachment.file.type || 'application/octet-stream',
-          filename: attachment.name,
-        },
-      ],
-    };
-  }
-
-  async remove(): Promise<void> {}
-}
-
-class OverlayFileAttachmentAdapter implements AttachmentAdapter {
+class OverlayFileReferenceAdapter implements AttachmentAdapter {
   accept = '*';
 
   async add(state: { file: File }): Promise<PendingAttachment> {
@@ -85,7 +48,7 @@ class OverlayFileAttachmentAdapter implements AttachmentAdapter {
     }
     return {
       id: state.file.name,
-      type: 'document',
+      type: 'file_reference',
       name: state.file.name,
       contentType: state.file.type || 'application/octet-stream',
       file: state.file,
@@ -94,18 +57,11 @@ class OverlayFileAttachmentAdapter implements AttachmentAdapter {
   }
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
-    const base64 = await readFileAsBase64(attachment.file);
+    const relativePath = (attachment.file as any).__overlayFilePath as string | undefined;
     return {
       ...attachment,
       status: { type: 'complete' },
-      content: [
-        {
-          type: 'file',
-          data: base64,
-          mimeType: attachment.file.type || 'application/octet-stream',
-          filename: attachment.name,
-        },
-      ],
+      content: [{ type: 'text', text: relativePath ?? attachment.name }],
     };
   }
 
@@ -115,7 +71,6 @@ class OverlayFileAttachmentAdapter implements AttachmentAdapter {
 export function createOverlayAttachmentAdapter() {
   return new CompositeAttachmentAdapter([
     new OverlayImageAttachmentAdapter(),
-    new OverlayDocumentAttachmentAdapter(),
-    new OverlayFileAttachmentAdapter(),
+    new OverlayFileReferenceAdapter(),
   ]);
 }

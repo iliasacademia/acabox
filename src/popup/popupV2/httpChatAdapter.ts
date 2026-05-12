@@ -224,6 +224,13 @@ function extractOverlayAttachments(message: { attachments?: readonly any[] }): a
   if (!message.attachments?.length) return undefined;
   const attachments: any[] = [];
   for (const attachment of message.attachments) {
+    if (attachment.type === 'file_reference') {
+      const textPart = (attachment.content ?? []).find((p: any) => p.type === 'text');
+      if (textPart) {
+        attachments.push({ type: 'file_reference', filePath: textPart.text, name: attachment.name });
+      }
+      continue;
+    }
     for (const part of attachment.content ?? []) {
       if (part.type === 'image') {
         const match = (part.image as string).match(/^data:(image\/[^;]+);base64,(.+)$/s);
