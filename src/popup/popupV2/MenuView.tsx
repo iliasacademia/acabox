@@ -151,6 +151,11 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
 
   const visibleSessions = sessions.slice(0, effectiveCount);
 
+  // Empty workspaces are handled upstream by auto-opening a blank chat, so
+  // this view is only mounted with at least one session. Returning null avoids
+  // a one-frame flash of an empty header before the auto-open effect commits.
+  if (sessions.length === 0) return null;
+
   return (
     <>
       {displayName && (
@@ -177,18 +182,7 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
           <span style={styles.buttonText}>New</span>
         </button>
       </div>
-      {sessions.length === 0 ? (
-        <div style={{
-          fontFamily: "'DM Sans', sans-serif",
-          fontSize: '15px',
-          color: '#6d6d7d',
-          lineHeight: '1.5',
-          padding: '8px 0',
-        }}>
-          No conversations yet. Start a new one!
-        </div>
-      ) : (
-        <div style={styles.feedbackContent}>
+      <div style={styles.feedbackContent}>
           {visibleSessions.map((session) => (
             <button
               key={session.id}
@@ -211,7 +205,6 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
           ))}
           {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
         </div>
-      )}
     </>
   );
 };
@@ -226,6 +219,12 @@ interface WorkspaceConversationViewProps {
   documentDisplayName?: string | null;
   selectedText?: string | null;
   onBack: () => void;
+  /**
+   * Hide the back button when there's no sessions list to return to (i.e. the
+   * empty-workspace auto-opened chat). Without this, pressing back just loops
+   * back into a fresh blank chat.
+   */
+  canGoBack?: boolean;
   /**
    * Prompt to programmatically send into the composer once the chat is mounted.
    * Used by the Writing-Agent flow to start the conversation with a kickoff
@@ -266,6 +265,7 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
   documentDisplayName,
   selectedText: selectedTextProp,
   onBack,
+  canGoBack = true,
   onForeignTurnDone,
   initialPrompt,
   onInitialPromptSent,
@@ -306,16 +306,20 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
       {/* Header with back button + optional doc-context line */}
       <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: '8px', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <button onClick={onBack} style={styles.backButton} aria-label="Back">
-            <ArrowBackIcon />
-          </button>
-          <span style={{ ...styles.sectionHeaderText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }} title={sessionTitle || 'Conversation'}>
-            {sessionTitle || 'Conversation'}
-          </span>
+          {canGoBack && (
+            <>
+              <button onClick={onBack} style={styles.backButton} aria-label="Back">
+                <ArrowBackIcon />
+              </button>
+              <span style={{ ...styles.sectionHeaderText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }} title={sessionTitle || 'Conversation'}>
+                {sessionTitle || 'Conversation'}
+              </span>
+            </>
+          )}
         </div>
         {displayName && (
           <div
-            style={{ ...styles.notificationDate, paddingLeft: '32px', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            style={{ ...styles.notificationDate, paddingLeft: canGoBack ? '32px' : '0', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
             title={displayName}
           >
             {displayName}

@@ -178,6 +178,28 @@ const OverlayMarkdownText = memo(() => {
  * directly under the AssistantRuntimeProvider (avoiding the rendering
  * subtree of ThreadPrimitive.Viewport, which has its own lifecycle).
  */
+const SUGGESTION_PROMPTS = ['Review my work', 'Help me write', 'Find citations'] as const;
+
+const SuggestionPills: FC = () => {
+  const composer = useComposerRuntime();
+  return (
+    <div className="overlaySuggestionPills">
+      {SUGGESTION_PROMPTS.map((prompt) => (
+        <button
+          key={prompt}
+          type="button"
+          className="overlaySuggestionPill"
+          onClick={() => {
+            composer.setText(prompt);
+          }}
+        >
+          {prompt}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 export const InitialPromptAutoSend: FC<{ prompt?: string; onSent?: () => void }> = ({ prompt, onSent }) => {
   const composer = useComposerRuntime();
   const firedRef = useRef(false);
@@ -232,8 +254,10 @@ export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedT
           <AuiIf condition={(s: any) => s.thread.isEmpty}>
             <div className="threadWelcome">
               <div className="threadWelcomeCenter">
-                <div className="threadWelcomeMessage">
-                  <p className="threadWelcomeSubtitle">Ask about your document</p>
+                <div className="threadWelcomeMessage overlayWelcomeMessage">
+                  <h1 className="threadWelcomeTitle">What can I help with?</h1>
+                  <p className="threadWelcomeSubtitle">Ask about this paper or pick a prompt below to get started.</p>
+                  <SuggestionPills />
                 </div>
               </div>
             </div>

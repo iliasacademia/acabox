@@ -387,6 +387,18 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setActiveSession({ id, title: 'New Conversation' });
   };
 
+  // When the user is in a workspace with no conversations, default the overlay
+  // to a blank chat (composer + "Ask about your document" welcome) rather than
+  // an empty list. Effectively auto-clicks "+ New" so there's no separate
+  // empty-list state for users to land in.
+  useEffect(() => {
+    if (isInWorkspace && workspaceSessions.length === 0 && !activeSession) {
+      const id = crypto.randomUUID();
+      console.log('[AcademiaNotificationsPopupV2] Empty workspace — auto-opening blank chat:', id);
+      setActiveSession({ id, title: 'New Conversation' });
+    }
+  }, [isInWorkspace, workspaceSessions.length, activeSession]);
+
   // Handle toggling popup width
   const handleToggleWidth = () => {
     const newIsWide = !isWide;
@@ -609,6 +621,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 documentDisplayName={activeDocumentDisplayName}
                 selectedText={pollData?.selectedText}
                 onBack={handleBackToSessions}
+                canGoBack={workspaceSessions.length > 0}
                 initialPrompt={pendingKickoffPrompt ?? undefined}
                 onInitialPromptSent={() => setPendingKickoffPrompt(null)}
               />

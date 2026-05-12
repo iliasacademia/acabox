@@ -1213,6 +1213,50 @@ body.cobuild-resizing webview {
   font-size: 1.25rem;
 }
 
+.overlayWelcomeMessage {
+  align-items: center;
+  text-align: center;
+}
+
+.overlayWelcomeMessage .threadWelcomeTitle {
+  font-family: 'Gupter', serif;
+  font-weight: 500;
+  font-size: 1.75rem;
+  letter-spacing: -0.3px;
+}
+
+.overlayWelcomeMessage .threadWelcomeSubtitle {
+  font-size: 1rem;
+  color: #777164;
+  margin-top: 8px;
+}
+
+.overlaySuggestionPills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.overlaySuggestionPill {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  line-height: 1.2;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid #e0ddd4;
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.overlaySuggestionPill:hover {
+  background: #f5f4f0;
+  border-color: #c9c4b8;
+}
+
 /* --- Scroll-to-bottom --- */
 
 .scrollToBottom {
