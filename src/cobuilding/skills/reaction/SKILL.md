@@ -35,7 +35,7 @@ For each activity in the last update, work through steps 1–5 independently. It
 
 6. **Compose the reaction** using the response format below. Do NOT write to any file.
 
-7. **Save the reaction.** Call the `create_reaction_thread` tool to save the reaction as a user-visible thread. Pass the full reaction markdown as the `message` and use a title like "Reaction — YYYY-MM-DD HH:MM". Save the thread id from the response.
+7. **Save the reaction.** Call the `create_reaction_thread` tool to save the reaction as a user-visible thread. Pass the full reaction markdown as the `message` and use a short, descriptive title summarizing the reaction content (e.g., "New CRISPR delivery method in Nature" or "YAP/TAZ mechanotransduction pathway analysis"). Do NOT use generic timestamps like "Reaction — date". Save the thread id from the response.
 
 8. **Notify the user.** Call the `show_notification` tool to alert the user. Use title "Activity Reaction" and a one-sentence summary as the body. Pass `navigation: { type: "thread", threadId: "<id from step 7>", sidebarTab: "reactions" }`.
 
@@ -44,7 +44,8 @@ For each activity in the last update, work through steps 1–5 independently. It
 Structure the reaction as one section per activity you are reacting to.
 
 ```
-## Reaction — HH:MM
+## [Descriptive title summarizing the reaction]
+*YYYY-MM-DD HH:MM*
 
 ### [Brief description of the activity]
 

@@ -863,7 +863,7 @@ function ChatView({ workspace, onWorkspaceUpdated, onLogout, onRestartOnboarding
                       </div>
                       <Panel id="reactionsChat" order={2} defaultSize={50} minSize={18} maxSize={70}>
                         <div className="chatSidePanel">
-                          <Thread />
+                          <Thread scrollToBottomOnThreadSwitch={false} scrollToBottomOnInitialize={false} />
                         </div>
                       </Panel>
                     </PanelGroup>
