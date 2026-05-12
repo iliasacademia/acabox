@@ -74,7 +74,12 @@ Produce a JSON report following the output schema with four fields:
 
 2. **what_youre_working_on_summary**: A 2-4 paragraph summary of what the researcher is currently working on. Describe their active projects, recent focus areas, and what they seem to be in the middle of. Written in second person ("You have been...") so it reads naturally when shown to the researcher.
 
-3. **tagged_files**: Always return an empty array \`[]\`. Do not tag any files.
+3. **tagged_files**: A comprehensive list of ALL manuscript, grant, and presentation files you encountered during the scan. For each file, record the relative path, the filename, and its type:
+   - \`manuscript\`: .tex, .docx, .md files that are academic papers, theses, chapters, or dissertations
+   - \`grant\`: files or directories whose names or contents indicate grant proposals, funding applications, or NIH/NSF/R01 submissions
+   - \`presentation\`: .pptx or .key files, or directories with names like "talks", "slides", "lab-meeting"
+
+   Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
 
 4. **suggestions**: Based on what you learned about the researcher from their folders, suggest things you can do for them that would significantly expedite their research. These can be one-time tasks or building mini-apps. Suggest as many as are genuinely useful — don't hold back.
 
