@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { PencilIcon, ArrowRightIcon } from 'lucide-react';
+import { ArrowRightIcon } from 'lucide-react';
 import { MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON } from '../../shared/paths';
 import './WorkspaceOnboarding.css';
 import './ScanResultsReview.css';
@@ -16,8 +14,6 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
   const [loading, setLoading] = useState(true);
   const [aboutText, setAboutText] = useState('');
   const [workingOnText, setWorkingOnText] = useState('');
-  const [editingSection, setEditingSection] = useState<'about' | 'working_on' | null>(null);
-  const [editBuffer, setEditBuffer] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
@@ -30,25 +26,6 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
       setLoading(false);
     });
   }, []);
-
-  const handleEdit = (section: 'about' | 'working_on') => {
-    setEditingSection(section);
-    setEditBuffer(section === 'about' ? aboutText : workingOnText);
-  };
-
-  const handleSave = () => {
-    if (editingSection === 'about') {
-      setAboutText(editBuffer);
-    } else if (editingSection === 'working_on') {
-      setWorkingOnText(editBuffer);
-    }
-    setEditingSection(null);
-  };
-
-  const handleCancel = () => {
-    setEditingSection(null);
-    setEditBuffer('');
-  };
 
   const handleContinue = async () => {
     setIsSaving(true);
@@ -79,7 +56,7 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
           Does this match how you&rsquo;d describe your work?
         </h1>
         <p className="wsSetup__subtitle">
-          Click Edit on either section if anything&rsquo;s wrong or missing &mdash; this shapes
+          Edit either section if anything&rsquo;s wrong or missing &mdash; this shapes
           everything I do for you.
         </p>
 
@@ -87,76 +64,24 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
         <div className="wsReview__section">
           <div className="wsReview__sectionHeader">
             <span className="wsReview__sectionLabel">ABOUT YOU</span>
-            {editingSection !== 'about' && (
-              <button
-                type="button"
-                className="wsReview__editBtn"
-                onClick={() => handleEdit('about')}
-              >
-                <PencilIcon size={12} /> Edit
-              </button>
-            )}
           </div>
-          {editingSection === 'about' ? (
-            <>
-              <textarea
-                className="wsReview__textarea"
-                value={editBuffer}
-                onChange={(e) => setEditBuffer(e.target.value)}
-                autoFocus
-              />
-              <div className="wsReview__editActions">
-                <button type="button" className="wsReview__cancelBtn" onClick={handleCancel}>
-                  Cancel
-                </button>
-                <button type="button" className="wsReview__saveBtn" onClick={handleSave}>
-                  Save
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="wsReview__text">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{aboutText || 'No summary available.'}</ReactMarkdown>
-            </div>
-          )}
+          <textarea
+            className="wsReview__textarea"
+            value={aboutText}
+            onChange={(e) => setAboutText(e.target.value)}
+          />
         </div>
 
         {/* What You're Working On section */}
         <div className="wsReview__section">
           <div className="wsReview__sectionHeader">
             <span className="wsReview__sectionLabel">WHAT YOU&rsquo;RE WORKING ON</span>
-            {editingSection !== 'working_on' && (
-              <button
-                type="button"
-                className="wsReview__editBtn"
-                onClick={() => handleEdit('working_on')}
-              >
-                <PencilIcon size={12} /> Edit
-              </button>
-            )}
           </div>
-          {editingSection === 'working_on' ? (
-            <>
-              <textarea
-                className="wsReview__textarea wsReview__textarea--tall"
-                value={editBuffer}
-                onChange={(e) => setEditBuffer(e.target.value)}
-                autoFocus
-              />
-              <div className="wsReview__editActions">
-                <button type="button" className="wsReview__cancelBtn" onClick={handleCancel}>
-                  Cancel
-                </button>
-                <button type="button" className="wsReview__saveBtn" onClick={handleSave}>
-                  Save
-                </button>
-              </div>
-            </>
-          ) : (
-            <div className="wsReview__text">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{workingOnText || 'No recent activity summary available.'}</ReactMarkdown>
-            </div>
-          )}
+          <textarea
+            className="wsReview__textarea wsReview__textarea--tall"
+            value={workingOnText}
+            onChange={(e) => setWorkingOnText(e.target.value)}
+          />
         </div>
 
           <button
