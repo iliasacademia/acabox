@@ -8,6 +8,7 @@ import * as crypto from 'crypto';
 import log from 'electron-log';
 import {
   getBundledPodmanBin,
+  getBundledPodmanBinIfExists,
   getBundledPodmanBinDir,
   getBundledPodmanEnv,
   ensureBinariesDownloaded,
@@ -197,8 +198,18 @@ class CobuildingContainerService {
     this.stopPeriodicSync();
     this.stopLogTail();
     this.stopHealthWatch();
+
+    const podmanBin = this.getPodmanBinIfExists();
+
+    if (!podmanBin) {
+      log.debug('[ContainerService] Podman binary not available, skipping container stop commands');
+      this.containerStarted = false;
+      this.currentWorkspacePath = null;
+      this.overlayEnabled = false;
+      return;
+    }
+
     log.debug('[ContainerService] Stopping container...');
-    const podmanBin = this.getPodmanBin();
     const env = this.getExecEnv();
 
     if (this.overlayEnabled) {
@@ -750,6 +761,13 @@ class CobuildingContainerService {
   private getPodmanBin(): string {
     if (this.useBundled()) {
       return getBundledPodmanBin();
+    }
+    return 'podman';
+  }
+
+  private getPodmanBinIfExists(): string | null {
+    if (this.useBundled()) {
+      return getBundledPodmanBinIfExists();
     }
     return 'podman';
   }

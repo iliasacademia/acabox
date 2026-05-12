@@ -6,7 +6,7 @@ import * as net from 'net';
 import { app } from 'electron';
 import http from 'http';
 import log from 'electron-log';
-import { getBundledPodmanBin, getBundledPodmanEnv } from './podmanBinaries';
+import { getBundledPodmanBin, getBundledPodmanBinIfExists, getBundledPodmanEnv } from './podmanBinaries';
 
 const execFileAsync = promisify(execFile);
 
@@ -63,6 +63,13 @@ class KernelGatewayService {
   private getPodmanBin(): string {
     if (readBinaryMode() === 'bundled') {
       return getBundledPodmanBin();
+    }
+    return 'podman';
+  }
+
+  private getPodmanBinIfExists(): string | null {
+    if (readBinaryMode() === 'bundled') {
+      return getBundledPodmanBinIfExists();
     }
     return 'podman';
   }
@@ -144,7 +151,15 @@ class KernelGatewayService {
 
   stop(): void {
     log.debug('[KernelGateway] Stopping...');
-    const podmanBin = this.getPodmanBin();
+    const podmanBin = this.getPodmanBinIfExists();
+
+    if (!podmanBin) {
+      log.debug('[KernelGateway] Podman binary not available, skipping container stop commands');
+      this.cachedUrl = null;
+      this.containerRunning = false;
+      return;
+    }
+
     const env = this.getExecEnv();
 
     try {

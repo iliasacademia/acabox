@@ -1006,7 +1006,6 @@ function App() {
       return (
         <WelcomeScreen
           onGetStarted={() => setStep('login')}
-          onSkipSetup={workspace ? () => setStep('ready') : undefined}
         />
       );
 

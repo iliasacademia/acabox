@@ -43,6 +43,15 @@ export function getBundledPodmanBin(): string {
   return bundledBin;
 }
 
+export function getBundledPodmanBinIfExists(): string | null {
+  const binDir = getBundledPodmanBinDir();
+  const bundledBin = path.join(binDir, IS_WINDOWS ? 'podman.exe' : 'podman');
+  if (!fs.existsSync(bundledBin)) {
+    return null;
+  }
+  return bundledBin;
+}
+
 export function getBundledPodmanEnv(): NodeJS.ProcessEnv {
   const podmanDataDir = path.join(app.getPath('userData'), 'cobuilding-podman-data');
   const podmanBinDir = getBundledPodmanBinDir();
