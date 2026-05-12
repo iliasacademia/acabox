@@ -3241,6 +3241,8 @@ ipcMain.handle(IPC_CHANNELS.RESET_ACCESSIBILITY_PERMISSION, async () => {
 
 // Ensure accessibility permission is granted and the window monitor is running.
 // Called on-demand from the renderer right before opening the Word overlay.
+let accessibilityPollTimer: ReturnType<typeof setInterval> | null = null;
+
 ipcMain.handle(IPC_CHANNELS.OVERLAY_ENSURE_READY, async () => {
   if (process.platform !== 'darwin') {
     return { hasPermission: true, started: true };
@@ -3248,6 +3250,19 @@ ipcMain.handle(IPC_CHANNELS.OVERLAY_ENSURE_READY, async () => {
   const hasPermission = wordAccessibility.checkPermission();
   if (!hasPermission) {
     wordAccessibility.openAccessibilitySettings();
+    // Poll until the user grants permission, then restart so the
+    // window monitor picks up the new AX trust state cleanly.
+    if (!accessibilityPollTimer) {
+      accessibilityPollTimer = setInterval(() => {
+        if (wordAccessibility.checkPermission()) {
+          clearInterval(accessibilityPollTimer!);
+          accessibilityPollTimer = null;
+          log.info('[overlay:ensureReady] Accessibility permission granted — restarting app');
+          if (app.isPackaged) app.relaunch();
+          app.quit();
+        }
+      }, 2000);
+    }
     return { hasPermission: false, started: false };
   }
   if (cobuildingHttpBaseUrl && cobuildingHttpAuthToken && !windowMonitorService.isRunning()) {
