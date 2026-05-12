@@ -977,30 +977,23 @@ function App() {
 
   useEffect(() => {
     window.workspacesAPI.getActive().then((ws) => {
-      if (ws) {
-        setWorkspace(ws);
-        setStep('ready');
-        window.authAPI.checkLogin().then((result: any) => {
-          const { user, appInfo } = result;
-          initFullStory(appInfo?.isPackaged);
-          if (user?.id) {
-            identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
-          }
-        }).catch(() => {});
-        return;
-      }
-
       window.authAPI.checkLogin().then((result: any) => {
         const { loggedIn, user, appInfo } = result;
         initFullStory(appInfo?.isPackaged);
-        if (!loggedIn) {
-          setStep('welcome');
-          return;
-        }
         if (user?.id) {
           identifyUser(user.id, user.email, user.first_name || user.name, appInfo?.deviceId, appInfo?.appVersion);
         }
-        setStep('workspace');
+
+        if (ws && loggedIn) {
+          setWorkspace(ws);
+          setStep('ready');
+        } else if (loggedIn) {
+          setStep('workspace');
+        } else {
+          setStep('welcome');
+        }
+      }).catch(() => {
+        setStep('welcome');
       });
     });
   }, []);
@@ -1012,10 +1005,7 @@ function App() {
     case 'welcome':
       return (
         <WelcomeScreen
-          onGetStarted={async () => {
-            const hasCookie = await window.authAPI.hasSessionCookie();
-            setStep(hasCookie ? 'workspace' : 'login');
-          }}
+          onGetStarted={() => setStep('login')}
           onSkipSetup={workspace ? () => setStep('ready') : undefined}
         />
       );

@@ -599,22 +599,6 @@ function createMainWindow(): void {
 
   mainWindow.webContents.on('did-finish-load', () => {
     log.info('[APP] Window did-finish-load.');
-
-    // Check accessibility permission on startup (macOS only)
-    if (process.platform === 'darwin') {
-      try {
-        const hasPermission = wordAccessibility.checkPermission();
-        const appInfo = wordAccessibility.getAppInfo();
-        log.info('[Permissions] Accessibility permission status:', {
-          granted: hasPermission,
-          bundleId: appInfo.bundleId,
-          teamId: appInfo.teamId,
-        });
-        mainWindow?.webContents.send(IPC_CHANNELS.ACCESSIBILITY_PERMISSION_STATUS, { hasPermission });
-      } catch (error) {
-        log.error('[Permissions] Error checking permission on startup:', error);
-      }
-    }
   });
 }
 
@@ -707,7 +691,6 @@ app.whenReady().then(async () => {
       log.info('[APP] Global shortcut Option+Shift+Space registered');
     }
 
-    startFileMonitor();
     // startBrowserMonitor().then(() => rebuildTrayMenu());
     initSchedulingDatabase(app.getPath('userData'));
     // if (activeWorkspace) {
@@ -1141,8 +1124,6 @@ app.whenReady().then(async () => {
                 }));
               });
             }
-            windowMonitorService.start(baseUrl, authToken, false);
-            log.info('[WindowMonitor] Started for Word overlay');
           }
 
         } catch (error) {
