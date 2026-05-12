@@ -9,14 +9,11 @@ export function startScheduledTasks(
 ): void {
   if (scheduler) return;
 
-  // scheduler = createTaskScheduler(onNotificationClick);
-  // scheduler.start();
-  log.info('[ScheduledTasks] Scheduler disabled for development');
-  return;
+  scheduler = createTaskScheduler(onNotificationClick);
+  scheduler.start();
 }
 
 export function getTaskScheduler(): TaskScheduler | null {
-  // if (!scheduler) throw new Error('Scheduled tasks service not started');
   return scheduler;
 }
 
