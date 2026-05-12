@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import type { Workspace } from '../../shared/types';
+import { SOUL_MD } from '../../shared/paths';
 import { kernelRegistry } from './notebook/kernelRegistry';
 import './WorkspaceSettings.css';
 import './shared-forms.css';
@@ -61,7 +62,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
   const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
-    window.soulPromptAPI.get().then(({ content }) => {
+    window.academiaFileAPI.read(SOUL_MD).then(({ content }) => {
       setSoulContent(content);
       setSavedSoulContent(content);
       setSoulLoaded(true);
@@ -161,7 +162,7 @@ const WorkspaceSettings: React.FC<WorkspaceSettingsProps> = ({ workspace, onClos
     setSoulError(null);
     setIsSavingSoul(true);
     try {
-      await window.soulPromptAPI.set(soulContent);
+      await window.academiaFileAPI.write(SOUL_MD, soulContent);
       setSavedSoulContent(soulContent);
     } catch (err) {
       setSoulError(err instanceof Error ? err.message : 'Failed to save system prompt.');

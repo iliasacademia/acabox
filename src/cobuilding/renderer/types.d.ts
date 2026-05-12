@@ -345,14 +345,9 @@ declare global {
     set(sources: string[]): Promise<void>;
   }
 
-  interface SoulPromptAPI {
-    get(): Promise<{ content: string }>;
-    set(content: string): Promise<void>;
-  }
-
-  interface FocusPromptAPI {
-    get(): Promise<{ content: string }>;
-    set(content: string): Promise<void>;
+  interface AcademiaFileAPI {
+    read(relativePath: string): Promise<{ content: string }>;
+    write(relativePath: string, content: string): Promise<void>;
   }
 
   interface ScheduledTasksAPI {
@@ -574,8 +569,6 @@ declare global {
     report_type: string;
     report_data: string;
     in_depth_report: string | null;
-    about_you_summary: string | null;
-    what_youre_working_on_summary: string | null;
     what_youre_working_on: string | null;
     suggested_mini_apps: string | null;
     status: 'pending' | 'running' | 'completed' | 'failed';
@@ -743,8 +736,7 @@ declare global {
     electronAPI: ElectronAPI;
     reactionPromptAPI: ReactionPromptAPI;
     reactionSourcesAPI: ReactionSourcesAPI;
-    soulPromptAPI: SoulPromptAPI;
-    focusPromptAPI: FocusPromptAPI;
+    academiaFileAPI: AcademiaFileAPI;
     scheduledTasksAPI: ScheduledTasksAPI;
     fileMonitorAPI: FileMonitorAPI;
     browserMonitorAPI: BrowserMonitorAPI;

@@ -282,14 +282,9 @@ contextBridge.exposeInMainWorld('reactionSourcesAPI', {
   set: (sources: string[]) => ipcRenderer.invoke('reactionSources:set', sources),
 });
 
-contextBridge.exposeInMainWorld('soulPromptAPI', {
-  get: () => ipcRenderer.invoke('soulPrompt:get'),
-  set: (content: string) => ipcRenderer.invoke('soulPrompt:set', content),
-});
-
-contextBridge.exposeInMainWorld('focusPromptAPI', {
-  get: () => ipcRenderer.invoke('focusPrompt:get'),
-  set: (content: string) => ipcRenderer.invoke('focusPrompt:set', content),
+contextBridge.exposeInMainWorld('academiaFileAPI', {
+  read: (relativePath: string) => ipcRenderer.invoke('academiaFile:read', relativePath),
+  write: (relativePath: string, content: string) => ipcRenderer.invoke('academiaFile:write', relativePath, content),
 });
 
 contextBridge.exposeInMainWorld('reportsAPI', {

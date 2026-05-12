@@ -97,6 +97,7 @@ import { windowMonitorService } from '../../windowMonitorService';
 import { wordAccessibility } from '../../native/wordAccessibility';
 import { FEATURES, IPC_CHANNELS, NavigateToPagePayload } from '../../shared/types';
 import { validateExternalUrl } from '../../utils/urlValidation';
+import { ACADEMIA_DIR } from '../shared/paths';
 const isSmokeTest = process.argv.includes('--smoke-test');
 
 declare const COBUILDING_WINDOW_WEBPACK_ENTRY: string;
@@ -3103,63 +3104,41 @@ ipcMain.handle('reactionSources:set', (_event, sources: ReactionSource[]) => {
   }
 });
 
-// FOCUS.md IPC handlers
-ipcMain.handle('focusPrompt:get', async () => {
+// .academia/ file IPC handlers
+ipcMain.handle('academiaFile:read', async (_event, relativePath: string) => {
   if (!activeWorkspace) return { content: '' };
+  const normalized = path.normalize(relativePath);
+  if (normalized.startsWith('..') || path.isAbsolute(normalized)) {
+    return { content: '' };
+  }
   if (containerService.isOverlayEnabled() && containerService.isRunning()) {
     try {
-      const { stdout } = await containerService.exec(['cat', '/data/.academia/FOCUS.md']);
+      const { stdout } = await containerService.exec(['cat', `/data/${ACADEMIA_DIR}/${normalized}`]);
       return { content: stdout };
     } catch {
       return { content: '' };
     }
   }
-  const focusPath = path.join(activeWorkspace.directory_path, '.academia', 'FOCUS.md');
+  const filePath = path.join(activeWorkspace.directory_path, ACADEMIA_DIR, normalized);
   try {
-    return { content: fs.readFileSync(focusPath, 'utf-8') };
+    return { content: await fsPromises.readFile(filePath, 'utf-8') };
   } catch {
     return { content: '' };
   }
 });
 
-ipcMain.handle('focusPrompt:set', async (_event, content: string) => {
+ipcMain.handle('academiaFile:write', async (_event, relativePath: string, content: string) => {
   if (!activeWorkspace) throw new Error('No active workspace');
+  const normalized = path.normalize(relativePath);
+  if (normalized.startsWith('..') || path.isAbsolute(normalized)) {
+    throw new Error('Invalid path');
+  }
   if (containerService.isOverlayEnabled() && containerService.isRunning()) {
-    await containerService.writeContentToContainer(content, '/data/.academia/FOCUS.md');
+    await containerService.writeContentToContainer(content, `/data/${ACADEMIA_DIR}/${normalized}`);
   } else {
-    const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
-    fs.mkdirSync(academiaDir, { recursive: true });
-    fs.writeFileSync(path.join(academiaDir, 'FOCUS.md'), content, 'utf-8');
-  }
-});
-
-// SOUL.md IPC handlers
-ipcMain.handle('soulPrompt:get', async () => {
-  if (!activeWorkspace) return { content: '' };
-  if (containerService.isOverlayEnabled() && containerService.isRunning()) {
-    try {
-      const { stdout } = await containerService.exec(['cat', '/data/.academia/SOUL.md']);
-      return { content: stdout };
-    } catch {
-      return { content: '' };
-    }
-  }
-  const soulPath = path.join(activeWorkspace.directory_path, '.academia', 'SOUL.md');
-  try {
-    return { content: fs.readFileSync(soulPath, 'utf-8') };
-  } catch {
-    return { content: '' };
-  }
-});
-
-ipcMain.handle('soulPrompt:set', async (_event, content: string) => {
-  if (!activeWorkspace) throw new Error('No active workspace');
-  if (containerService.isOverlayEnabled() && containerService.isRunning()) {
-    await containerService.writeContentToContainer(content, '/data/.academia/SOUL.md');
-  } else {
-    const academiaDir = path.join(activeWorkspace.directory_path, '.academia');
-    fs.mkdirSync(academiaDir, { recursive: true });
-    fs.writeFileSync(path.join(academiaDir, 'SOUL.md'), content, 'utf-8');
+    const filePath = path.join(activeWorkspace.directory_path, ACADEMIA_DIR, normalized);
+    await fsPromises.mkdir(path.dirname(filePath), { recursive: true });
+    await fsPromises.writeFile(filePath, content, 'utf-8');
   }
 });
 

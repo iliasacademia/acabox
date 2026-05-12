@@ -1062,7 +1062,6 @@ function App() {
     case 'review':
       return (
         <ScanResultsReview
-          reportId={scanReportId!}
           onComplete={() => setStep('ready')}
         />
       );

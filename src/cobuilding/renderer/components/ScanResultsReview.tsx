@@ -1,39 +1,35 @@
 import React, { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { PencilIcon, ArrowRightIcon } from 'lucide-react';
+import { MEMORY_PATH_ABOUT_YOU, MEMORY_PATH_WORKING_ON } from '../../shared/paths';
 import './WorkspaceOnboarding.css';
 import './ScanResultsReview.css';
 
 interface ScanResultsReviewProps {
-  reportId: string;
   onComplete: () => void;
 }
 
 const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
-  reportId,
   onComplete,
 }) => {
   const [loading, setLoading] = useState(true);
   const [aboutText, setAboutText] = useState('');
   const [workingOnText, setWorkingOnText] = useState('');
-  const [existingReportData, setExistingReportData] = useState<Record<string, unknown>>({});
   const [editingSection, setEditingSection] = useState<'about' | 'working_on' | null>(null);
   const [editBuffer, setEditBuffer] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    window.reportsAPI.get(reportId).then((report) => {
-      if (report) {
-        setAboutText(report.about_you_summary ?? '');
-        setWorkingOnText(report.what_youre_working_on_summary ?? '');
-        try {
-          setExistingReportData(JSON.parse(report.report_data));
-        } catch {
-          // ignore
-        }
-      }
+    Promise.all([
+      window.academiaFileAPI.read(MEMORY_PATH_ABOUT_YOU),
+      window.academiaFileAPI.read(MEMORY_PATH_WORKING_ON),
+    ]).then(([about, workingOn]) => {
+      setAboutText(about.content);
+      setWorkingOnText(workingOn.content);
       setLoading(false);
     });
-  }, [reportId]);
+  }, []);
 
   const handleEdit = (section: 'about' | 'working_on') => {
     setEditingSection(section);
@@ -57,11 +53,10 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
   const handleContinue = async () => {
     setIsSaving(true);
     try {
-      await window.reportsAPI.update(reportId, JSON.stringify({
-        ...existingReportData,
-        about_you_summary: aboutText,
-        what_youre_working_on_summary: workingOnText,
-      }));
+      await Promise.all([
+        window.academiaFileAPI.write(MEMORY_PATH_ABOUT_YOU, aboutText),
+        window.academiaFileAPI.write(MEMORY_PATH_WORKING_ON, workingOnText),
+      ]);
     } catch {
       // Non-critical — continue even if save fails
     }
@@ -120,9 +115,9 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
               </div>
             </>
           ) : (
-            <p className="wsReview__text">
-              {aboutText || 'No summary available.'}
-            </p>
+            <div className="wsReview__text">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{aboutText || 'No summary available.'}</ReactMarkdown>
+            </div>
           )}
         </div>
 
@@ -158,9 +153,9 @@ const ScanResultsReview: React.FC<ScanResultsReviewProps> = ({
               </div>
             </>
           ) : (
-            <p className="wsReview__text">
-              {workingOnText || 'No recent activity summary available.'}
-            </p>
+            <div className="wsReview__text">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{workingOnText || 'No recent activity summary available.'}</ReactMarkdown>
+            </div>
           )}
         </div>
 

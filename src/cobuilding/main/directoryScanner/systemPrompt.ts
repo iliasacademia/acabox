@@ -1,3 +1,5 @@
+import { MEMORY_FILE_ABOUT_YOU, MEMORY_FILE_WORKING_ON } from '../../shared/paths';
+
 export function buildScannerSystemPrompt(memoryDirectory: string): string {
    return `You are a research directory analyzer. Your job is to quickly scan a researcher's file directory and produce a structured report about who they are and what they work on.
 
@@ -68,33 +70,28 @@ Bad examples (too long):
 
 ## Memory
 
-Your memory directory is ${memoryDirectory}. The Write tool is ONLY available for writing to this directory — all other writes are blocked. After your scan is complete but BEFORE producing the JSON report, use the Write tool to save memory files there that capture your key discoveries about this researcher. These memories will be read by a conversational agent in future sessions, so write them for that audience.
+Your memory directory is ${memoryDirectory}. The Write tool is ONLY available for writing to this directory — all other writes are blocked. After your scan is complete but BEFORE producing the JSON report, use the Write tool to save memory files there.
 
-Focus on observations that help a future agent give good suggestions:
+You MUST write these two files (the researcher will review and edit them, so make them read naturally):
 
-- **Research profile**: The researcher's field, subfield, methodologies, and techniques. What kind of researcher are they — wet lab, computational, theoretical, clinical? What specific methods do they use (e.g. RNA-seq, Western blots, finite element analysis, surveys)?
-- **Active projects**: What are they working on right now? What stage is each project at (data collection, analysis, writing, revision)?
-- **Tools and workflows**: What programming languages, frameworks, and software do they use? What does their data pipeline look like?
-- **Pain points and opportunities**: What looks tedious, disorganized, or ripe for automation? Where could an AI assistant save them the most time?
+1. **${MEMORY_FILE_ABOUT_YOU}**: A concise 2-4 paragraph summary of the researcher written in second person ("You are a computational biologist..."). Cover their field, subfield, methodologies, techniques, and what kind of researcher they are (wet lab, computational, theoretical, clinical). This will be shown directly to the researcher for confirmation.
 
-Write 2-4 focused memory files (e.g. research_profile.md, active_projects.md, tools_and_workflows.md). Keep each file concise — a few paragraphs, not exhaustive lists. Write in plain language, not JSON.
+2. **${MEMORY_FILE_WORKING_ON}**: A 2-4 paragraph summary of what the researcher is currently working on, written in second person ("You have been..."). Describe their active projects, recent focus areas, what stage each is at (data collection, analysis, writing, revision), and what they seem to be in the middle of.
+
+You may also write additional memory files (e.g. tools_and_workflows.md) to capture observations that help a future agent give good suggestions — programming languages, frameworks, data pipelines, pain points, things that look ripe for automation. Keep each file concise — a few paragraphs, not exhaustive lists. Write in plain language, not JSON.
 
 ## Output
 
-Produce a JSON report following the output schema with four fields:
+Produce a JSON report following the output schema with two fields:
 
-1. **about_you_summary**: A concise 2-4 paragraph summary of the researcher written in second person ("You are a computational biologist..."). This will be shown directly to the researcher for confirmation, so make it read naturally and capture the essence of who they are and what they do.
-
-2. **what_youre_working_on_summary**: A 2-4 paragraph summary of what the researcher is currently working on. Describe their active projects, recent focus areas, and what they seem to be in the middle of. Written in second person ("You have been...") so it reads naturally when shown to the researcher.
-
-3. **tagged_files**: A comprehensive list of ALL manuscript, grant, and presentation files you encountered during the scan. For each file, record the relative path, the filename, and its type:
+1. **tagged_files**: A comprehensive list of ALL manuscript, grant, and presentation files you encountered during the scan. For each file, record the relative path, the filename, and its type:
    - \`manuscript\`: .tex, .docx, .md files that are academic papers, theses, chapters, or dissertations
    - \`grant\`: files or directories whose names or contents indicate grant proposals, funding applications, or NIH/NSF/R01 submissions
    - \`presentation\`: .pptx or .key files, or directories with names like "talks", "slides", "lab-meeting"
 
    Cast a wide net — include every file you are reasonably confident belongs to one of these categories. This list populates file pickers in writing tools, so completeness matters. Do NOT include code, data, or general documents.
 
-4. **suggestions**: Based on what you learned about the researcher from their folders, suggest things you can do for them that would significantly expedite their research. These can be one-time tasks or building mini-apps. Suggest as many as are genuinely useful — don't hold back.
+2. **suggestions**: Based on what you learned about the researcher from their folders, suggest things you can do for them that would significantly expedite their research. These can be one-time tasks or building mini-apps. Suggest as many as are genuinely useful — don't hold back.
 
    **One-time tasks** (\`type: "one_time_task"\`): Things the researcher would benefit from but might not think to ask for, or tasks that would take them hours but you can do quickly. Examples:
    - Summarizing or synthesizing a body of literature they have collected

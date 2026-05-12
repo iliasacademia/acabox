@@ -11,6 +11,7 @@ import http from 'http';
 import { findHostAppForDocument, getRegisteredHostApps, type HostApp } from './hostApps';
 import { wordHostApp } from './hostApps/wordHostApp';
 import { IDENTITY_PREAMBLE } from './hostApps/identityPreamble';
+import { ACADEMIA_DIR, SOUL_MD } from '../shared/paths';
 import { windowMonitorService } from '../../windowMonitorService';
 
 /**
@@ -210,7 +211,7 @@ export function createAgentSession(
   // Read SOUL.md
   let soulMdContent: string | undefined;
   try {
-    const soulPath = path.join(workspace.directory_path, '.academia', 'SOUL.md');
+    const soulPath = path.join(workspace.directory_path, ACADEMIA_DIR, SOUL_MD);
     const content = fs.readFileSync(soulPath, 'utf-8').trim();
     if (content) soulMdContent = content;
   } catch { /* doesn't exist */ }
