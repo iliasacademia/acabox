@@ -2340,6 +2340,7 @@ ipcMain.handle('sessions:findForApp', async (_event, dirName: string) => {
 async function generateSessionTitle(sessionId: string, firstMessage: string): Promise<void> {
   try {
     const { apiKey, baseURL } = getCredentials();
+    log.info(`[TitleGen] sessionId=${sessionId} hasApiKey=${!!apiKey} baseURL=${baseURL ?? '(default)'}`);
     if (!apiKey) return;
     const client = new Anthropic({ apiKey, baseURL });
     const response = await client.messages.create({
@@ -2353,6 +2354,7 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
       ],
     });
     const title = (response.content[0].type === 'text' ? response.content[0].text : '').trim();
+    log.info(`[TitleGen] sessionId=${sessionId} title="${title}"`);
     if (title) {
       updateSessionTitle(sessionId, title);
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('sessions:titleUpdated', sessionId, title);
@@ -2360,8 +2362,10 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
       const { wordPollEventBus } = require('../../server/events/wordPollEventBus');
       wordPollEventBus.emit('change', 'session-title-updated');
     }
-  } catch (err) {
-    log.warn('[TitleGen] Failed to generate session title:', err);
+  } catch (err: any) {
+    const { apiKey, baseURL } = getCredentials();
+    log.warn(`[TitleGen] Failed sessionId=${sessionId} hasApiKey=${!!apiKey} baseURL=${baseURL ?? '(default)'} error=${err?.message ?? err}`);
+    if (err?.cause) log.warn(`[TitleGen] cause:`, err.cause);
   }
 }
 
