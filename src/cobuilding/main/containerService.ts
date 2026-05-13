@@ -108,6 +108,12 @@ function writeImageSource(source: ImageSource): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+const VM_MEMORY_MB = 2048;
+const VM_CPUS = 2;
+const NODE_HEAP_MB = 1536;
+const OOM_WARNING_MB = 1638;
+const TMPFS_SIZE_GB = 1;
+
 class CobuildingContainerService {
   private containerStarted = false;
   private isStarting = false;
@@ -150,6 +156,8 @@ class CobuildingContainerService {
   private overlayEnabled = false;
   private activeSyncPromise: Promise<{ durationMs: number }> | null = null;
   private overlaySyncInterval: ReturnType<typeof setInterval> | null = null;
+  private memoryPollTimer: ReturnType<typeof setInterval> | null = null;
+  private stoppingContainer = false;
 
   // ─── Public API ─────────────────────────────────────────────────
 
@@ -260,6 +268,7 @@ class CobuildingContainerService {
       return;
     }
 
+    this.stoppingContainer = true;
     log.debug('[ContainerService] Stopping container...');
 
     // Kill host-side podman-exec wrappers up front so they don't outlive
@@ -288,15 +297,26 @@ class CobuildingContainerService {
       }
     }
 
+    // Send VM poweroff BEFORE stopping the container — stopping the container
+    // first disrupts the VM's init system, causing systemctl poweroff to silently
+    // fail even though SSH returns exit 0.
     try {
-      execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], { env, timeout: 10000 });
+      execFileSync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], { env, timeout: 10000, stdio: 'ignore' });
+      log.debug('[ContainerService] VM poweroff sent');
+    } catch (err) {
+      // Exit code 255 is expected (SSH connection closes when VM shuts down)
+      log.debug(`[ContainerService] VM poweroff result: ${(err as Error).message}`);
+    }
+
+    try {
+      execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], { env, timeout: 10000, stdio: 'ignore' });
       log.debug('[ContainerService] Container stopped');
     } catch {
       log.debug('[ContainerService] Container was not running or already stopped');
     }
 
     try {
-      execFileSync(podmanBin, ['rm', '-f', CONTAINER_NAME], { env, timeout: 5000 });
+      execFileSync(podmanBin, ['rm', '-f', CONTAINER_NAME], { env, timeout: 5000, stdio: 'ignore' });
       log.debug('[ContainerService] Container removed');
     } catch {
       // Already removed
@@ -649,7 +669,7 @@ class CobuildingContainerService {
       'exec',
       '-e', 'COBUILDING_INSIDE_CONTAINER=1',
       CONTAINER_NAME,
-      'node', '/data/.academia/agent-server.js',
+      'node', `--max-old-space-size=${NODE_HEAP_MB}`, '/data/.academia/agent-server.js',
     ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     this.agentServerProc = proc;
 
@@ -669,6 +689,13 @@ class CobuildingContainerService {
       // Only clear the handle if it's still pointing at this process —
       // a later start may have already replaced it.
       if (this.agentServerProc === proc) this.agentServerProc = null;
+      if ((signal === 'SIGKILL' || code === 137) && !this.stoppingContainer) {
+        log.error('[AgentServer] Process was OOM-killed (code=137/SIGKILL). Consider increasing --memory or --max-old-space-size.');
+      }
+      if (this.memoryPollTimer) {
+        clearInterval(this.memoryPollTimer);
+        this.memoryPollTimer = null;
+      }
     });
 
     // Wait for the health endpoint to respond (up to 10 seconds)
@@ -684,6 +711,7 @@ class CobuildingContainerService {
     while (Date.now() - startTime < timeoutMs) {
       if (await this.isAgentServerHealthy(2000)) {
         log.info('[ContainerService] Agent server healthy');
+        this.startMemoryPolling();
         return;
       }
       await new Promise(r => setTimeout(r, 500));
@@ -692,6 +720,40 @@ class CobuildingContainerService {
     log.error('[ContainerService] Agent server failed to become healthy within 10s');
     this.killProc('agentServerProc');
     throw new Error('Agent server failed to become healthy within 10s');
+  }
+
+  private startMemoryPolling(): void {
+    if (this.memoryPollTimer) clearInterval(this.memoryPollTimer);
+    const podmanBin = this.getPodmanBin();
+    const env = this.getExecEnv();
+    this.memoryPollTimer = setInterval(async () => {
+      try {
+        const { stdout } = await this.execAsync(podmanBin, [
+          'exec', CONTAINER_NAME,
+          'ps', '-eo', 'pid,rss,args', '--sort=-rss', '--no-headers',
+        ], env);
+        const lines = stdout.trim().split('\n').filter(Boolean);
+        let totalMB = 0;
+        const procs: string[] = [];
+        for (const line of lines) {
+          const parts = line.trim().split(/\s+/);
+          if (parts.length < 3) continue;
+          const rssKB = parseInt(parts[1], 10);
+          if (isNaN(rssKB) || rssKB < 1024) continue;
+          const rssMB = Math.round(rssKB / 1024);
+          const args = parts.slice(2).join(' ');
+          const label = args.length > 60 ? args.slice(0, 60) + '…' : args;
+          totalMB += rssMB;
+          procs.push(`${label}=${rssMB}MB`);
+        }
+        if (procs.length > 0) {
+          log.info(`[Container:Memory] total=${totalMB}MB | ${procs.join(', ')}`);
+          if (totalMB > OOM_WARNING_MB) {
+            log.warn(`[Container:Memory] Usage above ${OOM_WARNING_MB}MB (${totalMB}MB) — OOM risk`);
+          }
+        }
+      } catch { /* container not running */ }
+    }, 60_000);
   }
 
   /**
@@ -737,6 +799,10 @@ class CobuildingContainerService {
     // the "exited code=0 signal=null" crashes the trace log was added to
     // diagnose).
     this.killProc('agentServerProc');
+    if (this.memoryPollTimer) {
+      clearInterval(this.memoryPollTimer);
+      this.memoryPollTimer = null;
+    }
     try {
       await this.exec(['pkill', '-f', 'agent-server.js']);
     } catch {
@@ -1081,8 +1147,10 @@ class CobuildingContainerService {
     const initialized = await this.isMachineInitialized(podmanBin, env);
     if (!initialized) {
       onProgress?.('init', 'Initializing Podman VM (first-time setup)...');
-      log.debug('[ContainerService] Machine not initialized, running podman machine init...');
-      await this.spawnAndWait(podmanBin, ['machine', 'init', '--user-mode-networking'], env, 'machine init');
+      log.debug(`[ContainerService] Machine not initialized, running podman machine init (memory=${VM_MEMORY_MB}MB, cpus=${VM_CPUS})...`);
+      await this.spawnAndWait(podmanBin, [
+        'machine', 'init', '--user-mode-networking', '--memory', String(VM_MEMORY_MB), '--cpus', String(VM_CPUS),
+      ], env, 'machine init');
     }
 
     const running = await this.isMachineRunning(podmanBin, env);
@@ -1620,11 +1688,11 @@ class CobuildingContainerService {
     const useImage = imageName || IMAGE_NAME;
     const useOverlay = process.env.OVERLAYFS_ENABLED === '1' && process.platform === 'darwin';
     this.overlayEnabled = useOverlay;
-
     const args = useOverlay ? [
       'run', '-d',
       '--replace',
       '--privileged',
+      '--memory=2g',
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data-host`,
       '-p', `${agentHostPort}:8080`,
@@ -1632,7 +1700,7 @@ class CobuildingContainerService {
       'sh', '-c',
       // The container rootfs is itself overlay (podman storage driver), so
       // upper/work dirs can't live on it. Mount a tmpfs first.
-      'mount -t tmpfs tmpfs /tmp -o size=4G && ' +
+      `mount -t tmpfs tmpfs /tmp -o size=${TMPFS_SIZE_GB}G && ` +
       'mkdir -p /tmp/overlay-upper /tmp/overlay-work && ' +
       'mount -t overlay overlay -o lowerdir=/data-host,upperdir=/tmp/overlay-upper,workdir=/tmp/overlay-work /data && ' +
       '(command -v rsync >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq rsync >/dev/null 2>&1)) && ' +
@@ -1640,6 +1708,7 @@ class CobuildingContainerService {
     ] : [
       'run', '-d',
       '--replace',
+      '--memory=2g',
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data`,
       '-p', `${agentHostPort}:8080`,

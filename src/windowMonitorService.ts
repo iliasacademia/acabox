@@ -5,6 +5,7 @@ import { readFileSync, existsSync, watch, FSWatcher } from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
 import { defaultLogger as logger } from './utils/logger';
+import { processCpuMonitor } from './utils/processCpuMonitor';
 import { SystemState, WindowMonitorEvent, WindowBounds, TextSelectionInfo, DocumentTextInfo } from './windowMonitor/types';
 import { wordPollEventBus } from './server/events/wordPollEventBus';
 import { createInitialState } from './windowMonitor/initialState';
@@ -362,6 +363,7 @@ export class WindowMonitorService {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     this.processStartTimes.set('webview-manager', Date.now());
+    if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
 
     // Spawn one window-monitor per registered host app (or a single all-apps
     // monitor when in review-button-v3 mode). When only Word is registered,
@@ -414,6 +416,7 @@ export class WindowMonitorService {
           const bin = getWebviewManagerBinPath();
           this.webviewManagerProcess = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
           this.processStartTimes.set('webview-manager', Date.now());
+          if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
           this.setupWebviewManagerHandlers();
           // Re-send last known state so overlay is restored
           this.pushWebviewState();
@@ -460,6 +463,7 @@ export class WindowMonitorService {
           const bin = getWebviewManagerBinPath();
           this.webviewManagerProcess = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
           this.processStartTimes.set('webview-manager', Date.now());
+          if (this.webviewManagerProcess.pid) processCpuMonitor.register('windowMonitor:webviewManager', this.webviewManagerProcess.pid);
           this.setupWebviewManagerHandlers();
           this.pushWebviewState();
           logger.info('[WindowMonitorService] webview-manager respawned successfully');
@@ -477,6 +481,7 @@ export class WindowMonitorService {
     });
     this.windowMonitorProcesses.set(processKey, proc);
     this.windowMonitorProcessKeys.set(proc, processKey);
+    if (proc.pid) processCpuMonitor.register(`windowMonitor:${processKey}`, proc.pid);
     this.processStartTimes.set(`wm:${processKey}`, Date.now());
 
     // Handle window-monitor stdout: line-delimited JSON events
@@ -1621,12 +1626,14 @@ export class WindowMonitorService {
 
     for (const [key, proc] of this.windowMonitorProcesses) {
       logger.info(`[WindowMonitorService] Stopping window-monitor (${key})`);
+      processCpuMonitor.unregister(`windowMonitor:${key}`);
       proc.kill();
     }
     this.windowMonitorProcesses.clear();
     this.windowMonitorProcessKeys.clear();
     if (this.webviewManagerProcess) {
       logger.info('[WindowMonitorService] Stopping webview-manager');
+      processCpuMonitor.unregister('windowMonitor:webviewManager');
       this.webviewManagerProcess.kill();
       this.webviewManagerProcess = null;
     }

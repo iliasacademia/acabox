@@ -11,6 +11,7 @@ export const AppsDebug: React.FC = () => {
   const [selectedApp, setSelectedApp] = useState(
     () => localStorage.getItem('logViewer:appFilter') || 'all'
   );
+  const [exporting, setExporting] = useState(false);
 
   const handleTabChange = (tab: LogTab) => {
     setActiveTab(tab);
@@ -66,6 +67,20 @@ export const AppsDebug: React.FC = () => {
             </SelectContent>
           </Select>
         )}
+        <button
+          className="logViewer__export"
+          disabled={exporting}
+          onClick={async () => {
+            setExporting(true);
+            try {
+              await window.debugAPI.exportLogs();
+            } finally {
+              setExporting(false);
+            }
+          }}
+        >
+          {exporting ? 'Exporting…' : 'Export Logs'}
+        </button>
       </div>
       {activeTab === 'system' ? <SystemLogs /> : <CommandLogs selectedApp={selectedApp} />}
     </div>

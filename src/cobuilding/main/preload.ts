@@ -216,6 +216,7 @@ contextBridge.exposeInMainWorld('debugAPI', {
   exportWorkspace: () => ipcRenderer.invoke('debug:exportWorkspace'),
   importWorkspace: () => ipcRenderer.invoke('debug:importWorkspace'),
   hardResetWorkspace: () => ipcRenderer.invoke('debug:hardResetWorkspace'),
+  exportLogs: () => ipcRenderer.invoke('debug:exportLogs'),
   syncOverlay: () => ipcRenderer.invoke('debug:syncOverlay'),
   isOverlayEnabled: () => ipcRenderer.invoke('debug:isOverlayEnabled'),
   log: (msg: string) => ipcRenderer.invoke('debug:log', msg),

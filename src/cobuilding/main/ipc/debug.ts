@@ -531,6 +531,39 @@ export function registerDebugHandlers() {
     }
   });
 
+  ipcMain.handle('debug:exportLogs', async () => {
+    const systemEntries = systemLogger.getAll();
+    const commandEntries = commandLogger.getAll();
+
+    const lines: string[] = [];
+    lines.push('=== System Logs ===');
+    for (const e of systemEntries) {
+      lines.push(`[${e.timestamp}] [${e.level.toUpperCase()}] ${e.text}`);
+    }
+    lines.push('');
+    lines.push('=== Command Logs ===');
+    for (const e of commandEntries) {
+      lines.push(`[${e.timestamp}] [${e.source}] ${e.appDirName ? `[${e.appDirName}] ` : ''}$ ${e.command.join(' ')} (exit ${e.exitCode})`);
+      if (e.stdout) lines.push(e.stdout);
+      if (e.stderr) lines.push(`[stderr] ${e.stderr}`);
+    }
+
+    const dateStr = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const defaultPath = path.join(app.getPath('downloads'), `debug-logs-${dateStr}.txt`);
+
+    const { filePath, canceled } = await dialog.showSaveDialog({
+      title: 'Export Debug Logs',
+      defaultPath,
+      filters: [{ name: 'Text Files', extensions: ['txt'] }],
+    });
+
+    if (canceled || !filePath) return { ok: true, canceled: true };
+
+    await fsPromises.writeFile(filePath, lines.join('\n'), 'utf-8');
+    log.info('[Debug] Exported logs to', filePath);
+    return { ok: true, savedPath: filePath };
+  });
+
   ipcMain.handle('debug:hardResetWorkspace', async () => {
     const workspace = getActiveWorkspace();
     if (!workspace) return { ok: false, error: 'No active workspace' };

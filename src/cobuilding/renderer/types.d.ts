@@ -272,6 +272,8 @@ declare global {
     setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
     getImageSource(): Promise<'registry' | 'local'>;
     setImageSource(source: 'registry' | 'local'): Promise<void>;
+    getMemoryLimit(): Promise<'2g' | '4g' | '6g' | '8g'>;
+    setMemoryLimit(limit: '2g' | '4g' | '6g' | '8g'): Promise<void>;
     getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
     downloadBinaries(): Promise<void>;
     deleteBinaries(): Promise<void>;
@@ -415,6 +417,7 @@ declare global {
       podmanPaths: DataPathInfo[];
     }>;
     clearSelected(ids: string[]): Promise<{ cleared: string[]; errors: string[] }>;
+    exportLogs(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
