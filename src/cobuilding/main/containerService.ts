@@ -109,6 +109,7 @@ function writeImageSource(source: ImageSource): void {
 }
 
 const VM_MEMORY_MB = 2048;
+const VM_CPUS = 2;
 const NODE_HEAP_MB = 1536;
 const OOM_WARNING_MB = 1638;
 const TMPFS_SIZE_GB = 1;
@@ -1146,9 +1147,9 @@ class CobuildingContainerService {
     const initialized = await this.isMachineInitialized(podmanBin, env);
     if (!initialized) {
       onProgress?.('init', 'Initializing Podman VM (first-time setup)...');
-      log.debug(`[ContainerService] Machine not initialized, running podman machine init (memory=${VM_MEMORY_MB}MB)...`);
+      log.debug(`[ContainerService] Machine not initialized, running podman machine init (memory=${VM_MEMORY_MB}MB, cpus=${VM_CPUS})...`);
       await this.spawnAndWait(podmanBin, [
-        'machine', 'init', '--user-mode-networking', '--memory', String(VM_MEMORY_MB),
+        'machine', 'init', '--user-mode-networking', '--memory', String(VM_MEMORY_MB), '--cpus', String(VM_CPUS),
       ], env, 'machine init');
     }
 
