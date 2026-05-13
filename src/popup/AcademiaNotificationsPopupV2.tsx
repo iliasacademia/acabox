@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import { FileTextIcon } from 'lucide-react';
 import { onVisibilityChanged, cacheFullStoryConfig } from './utils/fullstory';
 import {
   ConversationItem,
@@ -19,7 +20,7 @@ import {
   POPUP_HEIGHT_PER_CONVERSATION,
 } from './popupV2/shared';
 import { useWordPollWebSocket } from './popupV2/useWordPollWebSocket';
-import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceConversationView } from './popupV2/MenuView';
+import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceConversationView, effectiveDocDisplayName } from './popupV2/MenuView';
 import {
   findAutoOpenCandidate,
   shouldAutoOpenFreshSession,
@@ -323,7 +324,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (activeSession || isInWorkspace) {
       // Cobuilding overlay: always use a fixed height regardless of content.
       // The list / conversation scrolls internally; the launcher stays visible below.
-      height = 600;
+      height = 480;
     } else if (isEnableFeedback && isUnsavedDocument) {
       height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
     } else if (isEnableFeedback) {
@@ -563,7 +564,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         >
           {/* Left spacer balances the right-side buttons to keep title visually centered */}
           <div style={{ width: '72px', flexShrink: 0 }} />
-          <span style={styles.titleBarText}>Academia Coscientist</span>
+          <span style={styles.titleBarText}>Academia Co-Scientist</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
             <button
               style={styles.titleBarCloseBtn}
@@ -593,6 +594,17 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
             </button>
           </div>
         </div>
+        {/* Full-width document title bar — sibling of the title bar so its
+            negative margins escape the modal's 24px padding edge-to-edge. */}
+        {isInWorkspace && (() => {
+          const docDisplay = effectiveDocDisplayName(activeDocumentDisplayName, docPath);
+          return docDisplay ? (
+            <div className="overlayDocumentBar" title={docDisplay}>
+              <FileTextIcon className="overlayDocumentBarIcon" />
+              <span className="overlayDocumentBarName">{docDisplay}</span>
+            </div>
+          ) : null;
+        })()}
         {/* Resize handle at top-right corner */}
         <div
           style={{

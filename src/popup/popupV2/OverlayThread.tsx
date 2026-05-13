@@ -39,6 +39,7 @@ import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thi
 import { ApprovalParagraph, ApprovalList, APPROVAL_CHOICES } from '../../cobuilding/renderer/components/assistant-ui/approval-buttons';
 import { AnchorWithDoi, parseAgentHtml } from '../../cobuilding/renderer/components/assistant-ui/doi-link';
 import { ChatComposer } from '../../cobuilding/renderer/components/assistant-ui/chat-composer';
+import { TooltipIconButton } from '../../cobuilding/renderer/components/assistant-ui/tooltip-icon-button';
 import {
   ArrowDownIcon,
   CheckIcon,
@@ -249,7 +250,7 @@ export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedT
           turnAnchor="top"
           scrollToBottomOnThreadSwitch
           scrollToBottomOnInitialize
-          className="threadViewport"
+          className="threadViewport overlayThreadViewport"
         >
           <AuiIf condition={(s: any) => s.thread.isEmpty}>
             <div className="threadWelcome">
@@ -324,15 +325,15 @@ const OverlayAssistantMessage: FC = () => {
       <div className="assistantMessageFooter">
         <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="assistantActionBar">
           <ActionBarPrimitive.Copy asChild>
-            <button className="iconBtn" aria-label="Copy">
+            <TooltipIconButton tooltip="Copy" side="bottom">
               <AuiIf condition={(s: any) => s.message.isCopied}><CheckIcon size={14} /></AuiIf>
               <AuiIf condition={(s: any) => !s.message.isCopied}><CopyIcon size={14} /></AuiIf>
-            </button>
+            </TooltipIconButton>
           </ActionBarPrimitive.Copy>
           <ActionBarPrimitive.Reload asChild>
-            <button className="iconBtn" aria-label="Regenerate">
+            <TooltipIconButton tooltip="Regenerate" side="bottom">
               <RefreshCwIcon size={14} />
-            </button>
+            </TooltipIconButton>
           </ActionBarPrimitive.Reload>
         </ActionBarPrimitive.Root>
       </div>
@@ -440,6 +441,7 @@ const OverlayComposer: FC = () => {
     <ChatComposer
       prefix={prefix}
       placeholder={selectedText ? 'Reply' : 'Send a message...'}
+      sendTooltip={null}
     />
   );
 };

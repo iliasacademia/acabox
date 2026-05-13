@@ -1213,6 +1213,105 @@ body.cobuild-resizing webview {
   font-size: 1.25rem;
 }
 
+.overlayDocumentBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Escape the modal's 24px padding so the bar spans full overlay width.
+     Top -16px cancels the title bar's 16px bottom margin so the doc bar
+     sits flush against it. */
+  margin: -16px -24px 16px -24px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e0ddd4;
+  background: #fafafa;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
+  color: #333;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.overlayDocumentBarIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: #6d6d7d;
+}
+
+.overlayDocumentBarName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Tighten the viewport's horizontal padding in the overlay so the composer
+   (and messages) get more width on the narrow panel. Desktop keeps its 16px. */
+.overlayThreadViewport {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* Pull the composer closer to the bottom of the overlay so its distance from
+   the bottom matches its distance from the left/right (~32px total with the
+   modal's 24px padding-bottom + this 8px). Desktop's footer is unaffected. */
+.overlayThreadViewport .threadViewportFooter {
+  padding-bottom: 8px;
+}
+
+/* Compensate for the 16px the composer just moved down: grow the input's
+   min-height by 16px so the cursor / top edge stays at the same Y. */
+.overlayThreadViewport .composerInput {
+  min-height: 48px;
+}
+
+/* Slightly darker default border on the overlay composer for better presence
+   on the narrow panel. Focus state (`:focus-within` darker still) is inherited
+   from the desktop rule. */
+.overlayThreadViewport .composerShell {
+  border-color: #c9c4b8;
+}
+
+/* Shrink the shared 20x20 back-arrow SVG to 16px so it visually matches the
+   smaller 14px / weight-500 title above the chat. */
+.overlayChatHeader button svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* Strip the browser-default border/background on the assistant message
+   action-bar buttons (copy, regenerate) in the overlay. Transparent by
+   default; subtle beige hover matches the title bar + pill hover state.
+   Scoped to .assistantActionBar so the composer's send button (which also
+   carries .iconBtn via TooltipIconButton) keeps its black background. */
+.overlayThreadViewport .assistantActionBar .iconBtn {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: inherit;
+  transition: background-color 120ms ease;
+}
+
+.overlayThreadViewport .assistantActionBar .iconBtn:hover {
+  background: #f5f4f0;
+}
+
+/* Tighter spacing between action-bar buttons (copy / regenerate) in the
+   overlay — the buttons' internal 4px padding already provides separation. */
+.overlayThreadViewport .assistantActionBar {
+  gap: 0;
+}
+
+/* A touch more breathing room between the assistant message and its action
+   bar in the overlay. */
+.overlayThreadViewport .assistantMessageFooter {
+  margin-top: 6px;
+}
+
 .overlayWelcomeMessage {
   align-items: center;
   text-align: center;

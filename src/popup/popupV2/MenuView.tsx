@@ -107,7 +107,7 @@ interface WorkspaceSessionsViewProps {
  * null when there's nothing meaningful to show (synthetic path with no title,
  * empty path, etc.).
  */
-function effectiveDocDisplayName(documentDisplayName?: string | null, documentPath?: string | null): string | null {
+export function effectiveDocDisplayName(documentDisplayName?: string | null, documentPath?: string | null): string | null {
   if (documentDisplayName && documentDisplayName.trim()) return documentDisplayName.trim();
   if (!documentPath) return null;
   // Synthetic schemes (gdocs://, applenotes://) are opaque without the server hint — nothing to derive.
@@ -126,7 +126,6 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
   onOpenSession,
   onNewConversation,
 }) => {
-  const displayName = effectiveDocDisplayName(documentDisplayName, documentPath);
   const [visibleCount, setVisibleCount] = useState(SESSIONS_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -158,14 +157,6 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
 
   return (
     <>
-      {displayName && (
-        <div
-          style={{ ...styles.notificationDate, paddingBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          title={displayName}
-        >
-          {displayName}
-        </div>
-      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px' }}>
         <span style={styles.sectionHeaderText}>Conversations</span>
         <button
@@ -270,7 +261,6 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
   initialPrompt,
   onInitialPromptSent,
 }) => {
-  const displayName = effectiveDocDisplayName(documentDisplayName, documentPath);
   // Local selected text state — syncs from prop, can be dismissed with X
   const [localSelectedText, setLocalSelectedText] = useState<string | null>(selectedTextProp ?? null);
   const [selectionDismissed, setSelectionDismissed] = useState(false);
@@ -303,29 +293,22 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Header with back button + optional doc-context line */}
-      <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: '8px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {canGoBack && (
-            <>
-              <button onClick={onBack} style={styles.backButton} aria-label="Back">
-                <ArrowBackIcon />
-              </button>
-              <span style={{ ...styles.sectionHeaderText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }} title={sessionTitle || 'Conversation'}>
-                {sessionTitle || 'Conversation'}
-              </span>
-            </>
-          )}
-        </div>
-        {displayName && (
-          <div
-            style={{ ...styles.notificationDate, paddingLeft: canGoBack ? '32px' : '0', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            title={displayName}
+      {/* Document title bar is rendered at the modal level (sibling of the
+          title bar) so it can span full overlay width — see AcademiaNotificationsPopupV2. */}
+      {/* Header with back button + conversation title (hidden when canGoBack is false) */}
+      {canGoBack && (
+        <div className="overlayChatHeader" style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingBottom: '8px', flexShrink: 0 }}>
+          <button onClick={onBack} style={styles.backButton} aria-label="Back">
+            <ArrowBackIcon />
+          </button>
+          <span
+            style={{ ...styles.sectionHeaderText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
+            title={sessionTitle || 'Conversation'}
           >
-            {displayName}
-          </div>
-        )}
-      </div>
+            {sessionTitle || 'Conversation'}
+          </span>
+        </div>
+      )}
 
       {/* Chat — uses the same Thread component as the desktop app */}
       <div style={{ flex: 1, minHeight: 0 }}>
