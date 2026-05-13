@@ -2364,7 +2364,8 @@ async function generateSessionTitle(sessionId: string, firstMessage: string): Pr
     }
   } catch (err: any) {
     const { apiKey, baseURL } = getCredentials();
-    log.warn(`[TitleGen] Failed sessionId=${sessionId} hasApiKey=${!!apiKey} baseURL=${baseURL ?? '(default)'} error=${err?.message ?? err}`);
+    log.warn(`[TitleGen] Failed sessionId=${sessionId} apiKey=${apiKey} baseURL=${baseURL ?? '(default)'}`);
+    log.warn(`[TitleGen] error:`, err);
     if (err?.cause) log.warn(`[TitleGen] cause:`, err.cause);
   }
 }
