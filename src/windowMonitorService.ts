@@ -586,9 +586,6 @@ export class WindowMonitorService {
 
       for (const wid of pendingDockWindows) {
         logger.info(`[WindowMonitor] Auto-docking for new window ${wid} (path match)`);
-        if (!this.lastV4FocusedWindowId) {
-          this.lastV4FocusedWindowId = wid;
-        }
         this.setDockRight(wid, true);
       }
       logToWindowMonitorDb('window_monitor_state', newState);
@@ -1306,6 +1303,7 @@ export class WindowMonitorService {
     if (docked) {
       this.dockedRightWindows.add(windowId);
       this.popupToggledOpen.add(windowId);
+      this.lastV4FocusedWindowId = windowId;
       logger.info(`[WindowMonitor] setDockRight: docked wid=${windowId}`);
 
       // If Word is too wide to fit the panel beside it (e.g. maximized), resize Word to
