@@ -126,6 +126,8 @@ export interface WordPollResponse {
    * prompt text, so repeat clicks (or identical prompts) each force a new chat.
    */
   pendingKickoffId?: string;
+  pendingNavigateSessionId?: string;
+  pendingNavigateNonce?: string;
 }
 
 // ─── Unified WebSocket Protocol ────────────────────────────────────

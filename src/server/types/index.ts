@@ -206,6 +206,8 @@ export interface OverlayPollResponse {
    * surfaces) each force a fresh chat.
    */
   pendingKickoffId?: string;
+  pendingNavigateSessionId?: string;
+  pendingNavigateNonce?: string;
   /** FullStory configuration for popup initialization (avoids extra HTTP calls) */
   fullStoryConfig?: {
     userId: number | null;

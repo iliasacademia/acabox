@@ -393,6 +393,7 @@ declare global {
     setDockRightForDocument(documentPath: string, docked: boolean): Promise<void>;
     setOverlayKickoffForDocument(documentPath: string, prompt: string): Promise<void>;
     requestNewOverlayChatForDocument(documentPath: string): Promise<void>;
+    navigateOverlayToSession(sessionId: string): Promise<void>;
   }
 
   interface BrowserMonitorAPI {
