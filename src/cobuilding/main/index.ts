@@ -14,6 +14,7 @@ import { registerSession, unregisterSession, getRegisteredSession, hasSession, d
 import type { IPCAttachment } from '../shared/types';
 import { provisionWorkspace } from './skills';
 import { containerService } from './containerService';
+import { processCpuMonitor } from '../../utils/processCpuMonitor';
 import { getAllPodmanDataPaths } from './podmanBinaries';
 import { ensureClaudeBinaryReady } from './sdkBinarySetup';
 import { scanWorkspaceDirectory } from './directoryScanner';
@@ -538,6 +539,8 @@ function createMainWindow(): void {
 }
 
 app.whenReady().then(async () => {
+  processCpuMonitor.start();
+
   if (process.platform === 'darwin') {
     systemPreferences.setUserDefault('NSNavPanelExpandedStateForSaveMode2', 'boolean', true as any);
   }

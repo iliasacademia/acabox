@@ -45,6 +45,7 @@ class ProcessCpuMonitor {
   }
 
   private poll(): void {
+    try {
     execFile('ps', ['-eo', 'pid=,%cpu=,rss=,comm='], { timeout: 5000 }, (error, stdout) => {
       if (error) {
         log.warn(`[ProcessCPU] ps error: ${(error as Error).message}`);
@@ -102,6 +103,9 @@ class ProcessCpuMonitor {
         }
       }
     });
+    } catch (err) {
+      log.warn(`[ProcessCPU] spawn failed: ${(err as Error).message}`);
+    }
   }
 }
 
