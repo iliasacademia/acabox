@@ -169,6 +169,7 @@
     "tesseract.js-core": "^6.0.0",
     "tough-cookie": "^5.1.2",
     "tough-cookie-file-store": "^3.2.1",
+    "tree-node-cli": "^3.0.0",
     "ulid": "^3.0.2"
   }
 }
