@@ -2001,7 +2001,7 @@ app.on('before-quit', async (event) => {
   const forceQuitTimeout = setTimeout(() => {
     logger.warn('[APP] Cleanup timeout - forcing quit');
     app.exit(0);
-  }, 5000); // 5 second timeout
+  }, 20000); // 20 second timeout (VM shutdown can take ~15s)
 
   try {
     // Close all activity sessions and stop periodic flush

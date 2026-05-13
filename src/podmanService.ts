@@ -158,6 +158,17 @@ class PodmanService {
     this.containerProcess = null;
     this.shellPort = null;
     this.previewPort = null;
+
+    try {
+      execFileSync(podmanBin, ['machine', 'stop'], {
+        env: this.getPodmanEnv(),
+        timeout: 15000,
+      });
+      this.log('Podman VM stopped');
+    } catch (error) {
+      this.log(`Warning during podman machine stop: ${(error as Error).message}`);
+    }
+
     this.log('Cleanup complete');
     this.closeLogStream();
   }

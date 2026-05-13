@@ -304,6 +304,13 @@ class CobuildingContainerService {
       // Already removed
     }
 
+    try {
+      execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 15000 });
+      log.debug('[ContainerService] Podman VM stopped');
+    } catch {
+      log.debug('[ContainerService] Podman VM was not running or already stopped');
+    }
+
     this.containerStarted = false;
     this.currentWorkspacePath = null;
     this.agentPort = null;
