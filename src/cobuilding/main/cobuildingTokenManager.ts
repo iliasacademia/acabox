@@ -16,7 +16,6 @@ let currentApiKey: string | null = null;
 let currentBaseURL: string | undefined = undefined;
 let cachedToken: GatewayToken | null = null;
 let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-let onRefresh: ((config: AnthropicConfig) => void) | null = null;
 
 const REFRESH_BEFORE_EXPIRY_MS = 30 * 60 * 1000;
 const RETRY_DELAY_MS = 5 * 60 * 1000;
@@ -79,7 +78,6 @@ function scheduleRefresh() {
     try {
       const config = await fetchGatewayCredentials();
       log.info('[TokenManager] Token refreshed successfully');
-      onRefresh?.(config);
     } catch (err) {
       log.warn('[TokenManager] Token refresh failed, retrying in 5 minutes:', err);
       refreshTimer = setTimeout(() => scheduleRefresh(), RETRY_DELAY_MS);
@@ -94,14 +92,9 @@ function cancelRefresh() {
   }
 }
 
-export function setRefreshCallback(cb: (config: AnthropicConfig) => void) {
-  onRefresh = cb;
-}
-
 export function destroyTokenManager() {
   cancelRefresh();
   cachedToken = null;
   currentApiKey = null;
   currentBaseURL = undefined;
-  onRefresh = null;
 }
