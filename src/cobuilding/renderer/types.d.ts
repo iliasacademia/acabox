@@ -421,8 +421,6 @@ declare global {
     isOverlayEnabled(): Promise<boolean>;
     /** Pipes a renderer-side log line into electron-log on the main process. */
     log(msg: string): Promise<void>;
-    listVMs(): Promise<{ source: string; name: string; running: boolean }[]>;
-    stopVM(source: string): Promise<{ ok: boolean; error?: string }>;
   }
 
   interface SettingsAPI {

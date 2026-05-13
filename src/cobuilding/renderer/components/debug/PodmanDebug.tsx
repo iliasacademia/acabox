@@ -32,8 +32,6 @@ export const PodmanDebug: React.FC = () => {
   const [overlayEnabled, setOverlayEnabled] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
-  const [vms, setVMs] = useState<{ source: string; name: string; running: boolean }[]>([]);
-  const [stoppingVMs, setStoppingVMs] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -55,7 +53,6 @@ export const PodmanDebug: React.FC = () => {
       setEnvInfo(env);
       const overlay = await window.debugAPI.isOverlayEnabled();
       setOverlayEnabled(overlay);
-      try { setVMs(await window.debugAPI.listVMs()); } catch { /* binary not available */ }
       // Clear transient states when underlying state settles
       if (isRunning) setStarting(false);
       if (!isRunning && !starting) setStopping(false);
@@ -280,63 +277,9 @@ export const PodmanDebug: React.FC = () => {
   const needsDownload = binaryMode === 'bundled' && !bundledDownloaded;
   const canStart = !starting && !running && !needsDownload;
 
-  const handleStopAllVMs = async () => {
-    setStoppingVMs(true);
-    setError(null);
-    const runningVMs = vms.filter((v) => v.running);
-    for (const vm of runningVMs) {
-      try {
-        const result = await window.debugAPI.stopVM(vm.source);
-        if (!result.ok) setError(result.error ?? 'Failed to stop VM');
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    }
-    setStoppingVMs(false);
-    refreshStatus();
-  };
-
-  const runningVMs = vms.filter((v) => v.running);
-
   return (
     <div className="debugSection">
       <h3 className="debugSection__title">Podman Container</h3>
-
-      {vms.length > 0 && (
-        <div style={{ margin: '0 0 16px', padding: '12px', background: runningVMs.length > 0 ? '#fff8f0' : '#f8f9fa', borderRadius: 6, border: `1px solid ${runningVMs.length > 0 ? '#f0c060' : '#e0e0e0'}` }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h4 className="debugSection__subtitle" style={{ marginTop: 0, marginBottom: 0 }}>Podman VMs ({runningVMs.length} running)</h4>
-            <button
-              className="debugSection__btnInline"
-              onClick={refreshStatus}
-              style={{ fontSize: 12 }}
-            >
-              Refresh
-            </button>
-          </div>
-          {vms.map((vm) => (
-            <div key={vm.source} className="debugSection__infoRow">
-              <span
-                className={`debugSection__indicator ${vm.running ? 'debugSection__indicator--running' : 'debugSection__indicator--stopped'}`}
-              />
-              <span className="debugSection__infoLabel">{vm.source}</span>
-              <span style={{ color: '#888', fontSize: 12 }}>{vm.name}</span>
-              {vm.running && <span style={{ color: '#bf8700', fontSize: 12, marginLeft: 8 }}>~2 GB RAM</span>}
-            </div>
-          ))}
-          {runningVMs.length > 0 && (
-            <div className="debugSection__actions" style={{ marginTop: 8 }}>
-              <button
-                className="debugSection__btn debugSection__btn--stop"
-                onClick={handleStopAllVMs}
-                disabled={stoppingVMs}
-              >
-                {stoppingVMs ? 'Stopping...' : `Stop All VMs (${runningVMs.length})`}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
 
       <div className="debugSection__modeToggle">
         <span className="debugSection__modeLabel">Binary:</span>
