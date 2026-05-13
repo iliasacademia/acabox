@@ -2808,7 +2808,7 @@ ipcMain.handle('auth:checkLogin', async () => {
   try {
     const loggedIn = await checkLogin();
     if (loggedIn && getApiProvider() !== 'custom') {
-      fetchGatewayCredentials(getApiProvider() === 'cloudflare')
+      await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
         .catch((err) => log.warn('[Auth] fetchGatewayCredentials error:', err));
     } else if (loggedIn && getApiProvider() === 'custom') {
       const customKey = getCustomAnthropicKey();
@@ -2855,7 +2855,7 @@ ipcMain.handle('auth:verifyQRCode', async (_event, deviceId: string, code: strin
       return { success: false, error: result.error };
     }
     if (result.authorized) {
-      fetchGatewayCredentials(getApiProvider() === 'cloudflare')
+      await fetchGatewayCredentials(getApiProvider() === 'cloudflare')
         .catch((err) => log.warn('[Auth] fetchGatewayCredentials after verify error:', err));
     }
     return { success: true, authorized: result.authorized, userId: result.user_id };
