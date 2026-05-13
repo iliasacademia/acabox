@@ -51,9 +51,15 @@ export interface ChatComposerProps {
    * overlay swaps this to "Reply" when the user has Word text selected.
    */
   placeholder?: string;
+  /**
+   * Tooltip text for the send button. Pass `null` to omit the tooltip
+   * entirely (the overlay does this since the send icon is self-explanatory
+   * on the narrow panel). Defaults to "Send message".
+   */
+  sendTooltip?: string | null;
 }
 
-export const ChatComposer: FC<ChatComposerProps> = ({ prefix, placeholder = 'Send a message...' }) => {
+export const ChatComposer: FC<ChatComposerProps> = ({ prefix, placeholder = 'Send a message...', sendTooltip = 'Send message' }) => {
   const setup = useSetupState();
   const isEmpty = useAuiState((s: any) => s.thread.isEmpty);
 
@@ -110,29 +116,41 @@ export const ChatComposer: FC<ChatComposerProps> = ({ prefix, placeholder = 'Sen
             <OverlayFilePickerButton />
           )}
           <ModelSelector />
-          <ChatComposerAction />
+          <ChatComposerAction sendTooltip={sendTooltip} />
         </div>
       </div>
     </ComposerPrimitive.Root>
   );
 };
 
-const ChatComposerAction: FC = () => {
+const ChatComposerAction: FC<{ sendTooltip: string | null }> = ({ sendTooltip }) => {
   return (
     <div className="composerActions">
       <AuiIf condition={(s: any) => !s.thread.isRunning}>
         <ComposerPrimitive.Send asChild>
-          <TooltipIconButton
-            tooltip="Send message"
-            side="bottom"
-            type="button"
-            variant="default"
-            size="icon"
-            className="composerSend"
-            aria-label="Send message"
-          >
-            <SendIcon className="composerSendIcon" />
-          </TooltipIconButton>
+          {sendTooltip ? (
+            <TooltipIconButton
+              tooltip={sendTooltip}
+              side="bottom"
+              type="button"
+              variant="default"
+              size="icon"
+              className="composerSend"
+              aria-label="Send message"
+            >
+              <SendIcon className="composerSendIcon" />
+            </TooltipIconButton>
+          ) : (
+            <Button
+              type="button"
+              variant="default"
+              size="icon"
+              className="composerSend"
+              aria-label="Send message"
+            >
+              <SendIcon className="composerSendIcon" />
+            </Button>
+          )}
         </ComposerPrimitive.Send>
       </AuiIf>
       <AuiIf condition={(s: any) => s.thread.isRunning}>

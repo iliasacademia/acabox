@@ -108,7 +108,7 @@ interface WorkspaceSessionsViewProps {
  * null when there's nothing meaningful to show (synthetic path with no title,
  * empty path, etc.).
  */
-function effectiveDocDisplayName(documentDisplayName?: string | null, documentPath?: string | null): string | null {
+export function effectiveDocDisplayName(documentDisplayName?: string | null, documentPath?: string | null): string | null {
   if (documentDisplayName && documentDisplayName.trim()) return documentDisplayName.trim();
   if (!documentPath) return null;
   // Synthetic schemes (gdocs://, applenotes://) are opaque without the server hint — nothing to derive.
@@ -127,7 +127,6 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
   onOpenSession,
   onNewConversation,
 }) => {
-  const displayName = effectiveDocDisplayName(documentDisplayName, documentPath);
   const [visibleCount, setVisibleCount] = useState(SESSIONS_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
@@ -152,16 +151,13 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
 
   const visibleSessions = sessions.slice(0, effectiveCount);
 
+  // Empty workspaces are handled upstream by auto-opening a blank chat, so
+  // this view is only mounted with at least one session. Returning null avoids
+  // a one-frame flash of an empty header before the auto-open effect commits.
+  if (sessions.length === 0) return null;
+
   return (
     <>
-      {displayName && (
-        <div
-          style={{ ...styles.notificationDate, paddingBottom: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-          title={displayName}
-        >
-          {displayName}
-        </div>
-      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '12px' }}>
         <span style={styles.sectionHeaderText}>Conversations</span>
         <button
@@ -178,18 +174,7 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
           <span style={styles.buttonText}>New</span>
         </button>
       </div>
-      {sessions.length === 0 ? (
-        <div style={{
-          fontFamily: "'DM Sans', sans-serif",
-          fontSize: '15px',
-          color: '#6d6d7d',
-          lineHeight: '1.5',
-          padding: '8px 0',
-        }}>
-          No conversations yet. Start a new one!
-        </div>
-      ) : (
-        <div style={styles.feedbackContent}>
+      <div style={styles.feedbackContent}>
           {visibleSessions.map((session) => (
             <button
               key={session.id}
@@ -224,7 +209,6 @@ export const WorkspaceSessionsView: React.FC<WorkspaceSessionsViewProps> = ({
           ))}
           {hasMore && <div ref={sentinelRef} style={{ height: 1 }} />}
         </div>
-      )}
     </>
   );
 };
@@ -239,6 +223,12 @@ interface WorkspaceConversationViewProps {
   documentDisplayName?: string | null;
   selectedText?: string | null;
   onBack: () => void;
+  /**
+   * Hide the back button when there's no sessions list to return to (i.e. the
+   * empty-workspace auto-opened chat). Without this, pressing back just loops
+   * back into a fresh blank chat.
+   */
+  canGoBack?: boolean;
   /**
    * Prompt to programmatically send into the composer once the chat is mounted.
    * Used by the Writing-Agent flow to start the conversation with a kickoff
@@ -279,11 +269,11 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
   documentDisplayName,
   selectedText: selectedTextProp,
   onBack,
+  canGoBack = true,
   onForeignTurnDone,
   initialPrompt,
   onInitialPromptSent,
 }) => {
-  const displayName = effectiveDocDisplayName(documentDisplayName, documentPath);
   // Local selected text state — syncs from prop, can be dismissed with X
   const [localSelectedText, setLocalSelectedText] = useState<string | null>(selectedTextProp ?? null);
   const [selectionDismissed, setSelectionDismissed] = useState(false);
@@ -317,25 +307,22 @@ const WorkspaceConversationViewInner: React.FC<WorkspaceConversationViewProps & 
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
-      {/* Header with back button + optional doc-context line */}
-      <div style={{ display: 'flex', flexDirection: 'column', paddingBottom: '8px', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      {/* Document title bar is rendered at the modal level (sibling of the
+          title bar) so it can span full overlay width — see AcademiaNotificationsPopupV2. */}
+      {/* Header with back button + conversation title (hidden when canGoBack is false) */}
+      {canGoBack && (
+        <div className="overlayChatHeader" style={{ display: 'flex', alignItems: 'center', gap: '6px', paddingBottom: '8px', flexShrink: 0 }}>
           <button onClick={onBack} style={styles.backButton} aria-label="Back">
             <ArrowBackIcon />
           </button>
-          <span style={{ ...styles.sectionHeaderText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }} title={sessionTitle || 'Conversation'}>
+          <span
+            style={{ ...styles.sectionHeaderText, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
+            title={sessionTitle || 'Conversation'}
+          >
             {sessionTitle || 'Conversation'}
           </span>
         </div>
-        {displayName && (
-          <div
-            style={{ ...styles.notificationDate, paddingLeft: '32px', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-            title={displayName}
-          >
-            {displayName}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Chat — uses the same Thread component as the desktop app */}
       <div style={{ flex: 1, minHeight: 0 }}>

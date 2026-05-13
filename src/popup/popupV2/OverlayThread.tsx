@@ -39,6 +39,7 @@ import { Reasoning } from '../../cobuilding/renderer/components/assistant-ui/thi
 import { ApprovalParagraph, ApprovalList, APPROVAL_CHOICES } from '../../cobuilding/renderer/components/assistant-ui/approval-buttons';
 import { AnchorWithDoi, parseAgentHtml } from '../../cobuilding/renderer/components/assistant-ui/doi-link';
 import { ChatComposer } from '../../cobuilding/renderer/components/assistant-ui/chat-composer';
+import { TooltipIconButton } from '../../cobuilding/renderer/components/assistant-ui/tooltip-icon-button';
 import {
   ArrowDownIcon,
   CheckIcon,
@@ -178,6 +179,28 @@ const OverlayMarkdownText = memo(() => {
  * directly under the AssistantRuntimeProvider (avoiding the rendering
  * subtree of ThreadPrimitive.Viewport, which has its own lifecycle).
  */
+const SUGGESTION_PROMPTS = ['Review my work', 'Help me write', 'Find citations'] as const;
+
+const SuggestionPills: FC = () => {
+  const composer = useComposerRuntime();
+  return (
+    <div className="overlaySuggestionPills">
+      {SUGGESTION_PROMPTS.map((prompt) => (
+        <button
+          key={prompt}
+          type="button"
+          className="overlaySuggestionPill"
+          onClick={() => {
+            composer.setText(prompt);
+          }}
+        >
+          {prompt}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 export const InitialPromptAutoSend: FC<{ prompt?: string; onSent?: () => void }> = ({ prompt, onSent }) => {
   const composer = useComposerRuntime();
   const firedRef = useRef(false);
@@ -227,13 +250,15 @@ export const OverlayThread: FC<OverlayContextPills> = ({ documentPath, selectedT
           turnAnchor="top"
           scrollToBottomOnThreadSwitch
           scrollToBottomOnInitialize
-          className="threadViewport"
+          className="threadViewport overlayThreadViewport"
         >
           <AuiIf condition={(s: any) => s.thread.isEmpty}>
             <div className="threadWelcome">
               <div className="threadWelcomeCenter">
-                <div className="threadWelcomeMessage">
-                  <p className="threadWelcomeSubtitle">Ask about your document</p>
+                <div className="threadWelcomeMessage overlayWelcomeMessage">
+                  <h1 className="threadWelcomeTitle">What can I help with?</h1>
+                  <p className="threadWelcomeSubtitle">Ask about this paper or pick a prompt below to get started.</p>
+                  <SuggestionPills />
                 </div>
               </div>
             </div>
@@ -300,15 +325,15 @@ const OverlayAssistantMessage: FC = () => {
       <div className="assistantMessageFooter">
         <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="assistantActionBar">
           <ActionBarPrimitive.Copy asChild>
-            <button className="iconBtn" aria-label="Copy">
+            <TooltipIconButton tooltip="Copy" side="bottom">
               <AuiIf condition={(s: any) => s.message.isCopied}><CheckIcon size={14} /></AuiIf>
               <AuiIf condition={(s: any) => !s.message.isCopied}><CopyIcon size={14} /></AuiIf>
-            </button>
+            </TooltipIconButton>
           </ActionBarPrimitive.Copy>
           <ActionBarPrimitive.Reload asChild>
-            <button className="iconBtn" aria-label="Regenerate">
+            <TooltipIconButton tooltip="Regenerate" side="bottom">
               <RefreshCwIcon size={14} />
-            </button>
+            </TooltipIconButton>
           </ActionBarPrimitive.Reload>
         </ActionBarPrimitive.Root>
       </div>
@@ -416,6 +441,7 @@ const OverlayComposer: FC = () => {
     <ChatComposer
       prefix={prefix}
       placeholder={selectedText ? 'Reply' : 'Send a message...'}
+      sendTooltip={null}
     />
   );
 };

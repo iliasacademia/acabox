@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import { FileTextIcon } from 'lucide-react';
 import { onVisibilityChanged, cacheFullStoryConfig } from './utils/fullstory';
 import {
   ConversationItem,
@@ -19,7 +20,7 @@ import {
   POPUP_HEIGHT_PER_CONVERSATION,
 } from './popupV2/shared';
 import { useWordPollWebSocket } from './popupV2/useWordPollWebSocket';
-import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceConversationView } from './popupV2/MenuView';
+import { ConversationListView, NotLinkedView, WorkspaceSessionsView, WorkspaceConversationView, effectiveDocDisplayName } from './popupV2/MenuView';
 import {
   findAutoOpenCandidate,
   shouldAutoOpenFreshSession,
@@ -348,7 +349,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (activeSession || isInWorkspace) {
       // Cobuilding overlay: always use a fixed height regardless of content.
       // The list / conversation scrolls internally; the launcher stays visible below.
-      height = 600;
+      height = 460;
     } else if (isEnableFeedback && isUnsavedDocument) {
       height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
     } else if (isEnableFeedback) {
@@ -415,6 +416,18 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     setActiveSession({ id, title: 'New Conversation' });
     setShowingList(false);
   };
+
+  // When the user is in a workspace with no conversations, default the overlay
+  // to a blank chat (composer + "Ask about your document" welcome) rather than
+  // an empty list. Effectively auto-clicks "+ New" so there's no separate
+  // empty-list state for users to land in.
+  useEffect(() => {
+    if (isInWorkspace && workspaceSessions.length === 0 && !activeSession) {
+      const id = crypto.randomUUID();
+      console.log('[AcademiaNotificationsPopupV2] Empty workspace — auto-opening blank chat:', id);
+      setActiveSession({ id, title: 'New Conversation' });
+    }
+  }, [isInWorkspace, workspaceSessions.length, activeSession]);
 
   // Handle toggling popup width
   const handleToggleWidth = () => {
@@ -580,7 +593,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         >
           {/* Left spacer balances the right-side buttons to keep title visually centered */}
           <div style={{ width: '72px', flexShrink: 0 }} />
-          <span style={styles.titleBarText}>Academia Coscientist</span>
+          <span style={styles.titleBarText}>Academia Co-scientist</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
             <button
               style={styles.titleBarCloseBtn}
@@ -610,6 +623,17 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
             </button>
           </div>
         </div>
+        {/* Full-width document title bar — sibling of the title bar so its
+            negative margins escape the modal's 24px padding edge-to-edge. */}
+        {isInWorkspace && (() => {
+          const docDisplay = effectiveDocDisplayName(activeDocumentDisplayName, docPath);
+          return docDisplay ? (
+            <div className="overlayDocumentBar" title={docDisplay}>
+              <FileTextIcon className="overlayDocumentBarIcon" />
+              <span className="overlayDocumentBarName">{docDisplay}</span>
+            </div>
+          ) : null;
+        })()}
         {/* Resize handle at top-right corner */}
         <div
           style={{
@@ -631,6 +655,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
                 documentDisplayName={activeDocumentDisplayName}
                 selectedText={pollData?.selectedText}
                 onBack={handleBackToSessions}
+                canGoBack={workspaceSessions.length > 0}
                 initialPrompt={pendingKickoffPrompt ?? undefined}
                 onInitialPromptSent={() => setPendingKickoffPrompt(null)}
               />
