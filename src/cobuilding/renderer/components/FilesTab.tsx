@@ -9,6 +9,7 @@ import {
   PencilIcon,
   RefreshCwIcon,
   TrashIcon,
+  FileTextIcon,
 } from 'lucide-react';
 
 const INTERNAL_DRAG_TYPE = 'application/x-filetree-path';
@@ -544,6 +545,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
     ? node.path.slice(workspacePath.length + 1)
     : null;
   const fileTag = !node.isDirectory && relPath ? fileTagMap.get(relPath) : undefined;
+  const isDocxManuscript = fileTag === 'manuscript' && /\.docx$/i.test(node.name);
   if (!node.isDirectory && fileTagMap.size > 0 && depth === 1) {
     console.log('[FilesTab] node relPath:', relPath, '→ tag:', fileTag, '| map keys sample:', [...fileTagMap.keys()].slice(0, 3));
   }
@@ -596,7 +598,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
   return (
     <>
       <div
-        className={`fileTreeRow fileTreeRow--node ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
+        className={`fileTreeRow fileTreeRow--node ${isDocxManuscript ? 'fileTreeRow--hasWordAction' : ''} ${isDropTarget ? 'fileTreeRow--dropTarget' : ''}`}
         style={{ paddingLeft: fileTreeRowPaddingLeft(depth) }}
         onContextMenu={(e) => onContextMenu(e, node)}
         {...(node.isDirectory
@@ -649,6 +651,20 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
         </div>
         {!isRenaming && (
           <div className="fileTreeRowActions">
+            {isDocxManuscript && (
+              <button
+                type="button"
+                className="fileTreeRowAction fileTreeRowAction--word"
+                title="Open in Word"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const fileUrl = `file://${node.path}`;
+                  window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+                }}
+              >
+                <FileTextIcon style={{ width: 14, height: 14 }} />
+              </button>
+            )}
             <button
               type="button"
               className="fileTreeRowAction"
