@@ -4,7 +4,6 @@ import { ContainerTests } from '../ContainerTests';
 
 type BinaryMode = 'system' | 'bundled';
 type ImageSource = 'registry' | 'local';
-type MemoryLimit = '2g' | '4g' | '6g' | '8g';
 
 export const PodmanDebug: React.FC = () => {
   const [running, setRunning] = useState(false);
@@ -33,12 +32,10 @@ export const PodmanDebug: React.FC = () => {
   const [overlayEnabled, setOverlayEnabled] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
-  const [memoryLimit, setMemoryLimit] = useState<MemoryLimit>('2g');
-  const [applyingMemory, setApplyingMemory] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
-      const [{ running: isRunning }, mode, bundled, name, baseDownloaded, imgSource, env, memLimit] = await Promise.all([
+      const [{ running: isRunning }, mode, bundled, name, baseDownloaded, imgSource, env] = await Promise.all([
         window.containerAPI.status(),
         window.containerAPI.getBinaryMode(),
         window.containerAPI.getBundledStatus(),
@@ -46,7 +43,6 @@ export const PodmanDebug: React.FC = () => {
         window.containerAPI.isBaseImageDownloaded(),
         window.containerAPI.getImageSource(),
         window.containerAPI.getEnvironmentInfo(),
-        window.containerAPI.getMemoryLimit(),
       ]);
       setRunning(isRunning);
       setBinaryMode(mode);
@@ -55,7 +51,6 @@ export const PodmanDebug: React.FC = () => {
       setBaseImageDownloaded(baseDownloaded);
       setImageSource(imgSource);
       setEnvInfo(env);
-      setMemoryLimit(memLimit);
       const overlay = await window.debugAPI.isOverlayEnabled();
       setOverlayEnabled(overlay);
       // Clear transient states when underlying state settles
@@ -151,21 +146,6 @@ export const PodmanDebug: React.FC = () => {
       else next.add(name);
       return next;
     });
-  };
-
-  const handleMemoryLimitChange = async (limit: MemoryLimit) => {
-    if (limit === memoryLimit) return;
-    setApplyingMemory(true);
-    setError(null);
-    try {
-      await window.containerAPI.setMemoryLimit(limit);
-      setMemoryLimit(limit);
-      await refreshStatus();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setApplyingMemory(false);
-    }
   };
 
   const handleImageSourceChange = async (source: ImageSource) => {
@@ -370,22 +350,6 @@ export const PodmanDebug: React.FC = () => {
           Build Locally
         </button>
         {running && <span className="debugSection__modeLock">locked while running</span>}
-      </div>
-
-      <div className="debugSection__modeToggle">
-        <span className="debugSection__modeLabel">VM Memory:</span>
-        {(['2g', '4g', '6g', '8g'] as MemoryLimit[]).map((limit) => (
-          <button
-            key={limit}
-            className={`debugSection__modeBtn ${memoryLimit === limit ? 'debugSection__modeBtn--active' : ''}`}
-            onClick={() => handleMemoryLimitChange(limit)}
-            disabled={applyingMemory}
-            title={`Set VM and container memory to ${limit.toUpperCase()}`}
-          >
-            {limit.toUpperCase()}
-          </button>
-        ))}
-        {applyingMemory && <span className="debugSection__modeLock">restarting VM...</span>}
       </div>
 
       <div className="debugSection__infoRow">
