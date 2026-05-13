@@ -324,7 +324,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
     if (activeSession || isInWorkspace) {
       // Cobuilding overlay: always use a fixed height regardless of content.
       // The list / conversation scrolls internally; the launcher stays visible below.
-      height = 480;
+      height = 460;
     } else if (isEnableFeedback && isUnsavedDocument) {
       height = POPUP_HEIGHT_UNSAVED_DOCUMENT;
     } else if (isEnableFeedback) {
@@ -564,7 +564,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
         >
           {/* Left spacer balances the right-side buttons to keep title visually centered */}
           <div style={{ width: '72px', flexShrink: 0 }} />
-          <span style={styles.titleBarText}>Academia Co-Scientist</span>
+          <span style={styles.titleBarText}>Academia Co-scientist</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexShrink: 0 }}>
             <button
               style={styles.titleBarCloseBtn}

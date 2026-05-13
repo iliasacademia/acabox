@@ -1315,6 +1315,12 @@ body.cobuild-resizing webview {
 .overlayWelcomeMessage {
   align-items: center;
   text-align: center;
+  /* Visually center the welcome between the "New Conversation" header and the
+     composer. The flex-centering naturally splits free space evenly above/below
+     within (viewport - composer), which sits lower than the visual midpoint of
+     the area above the composer. Adding padding-bottom shifts the centered
+     content upward by half its value. */
+  padding-bottom: 40px;
 }
 
 .overlayWelcomeMessage .threadWelcomeTitle {

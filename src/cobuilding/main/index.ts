@@ -546,7 +546,7 @@ function createMainWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
-    title: 'Academia Coscientist',
+    title: 'Academia Co-scientist',
     show: false,
     webPreferences: {
       preload: COBUILDING_WINDOW_PRELOAD_WEBPACK_ENTRY,
