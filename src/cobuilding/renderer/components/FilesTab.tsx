@@ -660,6 +660,7 @@ const FileTreeNode: FC<FileTreeNodeProps> = ({
                   e.stopPropagation();
                   const fileUrl = `file://${node.path}`;
                   window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+                  window.fileMonitorAPI.setDockRightForDocument(node.path, true);
                 }}
               >
                 <FileTextIcon style={{ width: 14, height: 14 }} />

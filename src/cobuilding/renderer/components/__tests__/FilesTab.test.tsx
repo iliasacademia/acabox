@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { FilesTab } from '../FilesTab';
 
 const mockOpenFile = jest.fn();
+const mockSetDockRight = jest.fn();
 const mockReadDirectory = jest.fn().mockResolvedValue([]);
 const mockGetAll = jest.fn().mockResolvedValue([]);
 
@@ -26,6 +27,7 @@ beforeAll(() => {
   };
   (window as any).fileMonitorAPI = {
     openFile: mockOpenFile,
+    setDockRightForDocument: mockSetDockRight,
   };
   (window as any).scannedFilesAPI = {
     getAll: mockGetAll,
@@ -76,6 +78,10 @@ describe('FilesTab – Open in Word button', () => {
     expect(mockOpenFile).toHaveBeenCalledWith(
       'file:///workspace/Paper.docx',
       'com.microsoft.Word',
+    );
+    expect(mockSetDockRight).toHaveBeenCalledWith(
+      '/workspace/Paper.docx',
+      true,
     );
   });
 
