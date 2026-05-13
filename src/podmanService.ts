@@ -145,6 +145,7 @@ class PodmanService {
       execFileSync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], {
         env: podmanEnv,
         timeout: 10000,
+        stdio: 'ignore',
       });
       this.log('VM poweroff sent');
     } catch (error) {

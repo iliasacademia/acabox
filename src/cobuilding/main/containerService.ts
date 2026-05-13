@@ -295,7 +295,7 @@ class CobuildingContainerService {
     // first disrupts the VM's init system, causing systemctl poweroff to silently
     // fail even though SSH returns exit 0.
     try {
-      execFileSync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], { env, timeout: 10000 });
+      execFileSync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], { env, timeout: 10000, stdio: 'ignore' });
       log.debug('[ContainerService] VM poweroff sent');
     } catch (err) {
       // Exit code 255 is expected (SSH connection closes when VM shuts down)
