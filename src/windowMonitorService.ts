@@ -586,13 +586,15 @@ export class WindowMonitorService {
 
       for (const wid of pendingDockWindows) {
         logger.info(`[WindowMonitor] Auto-docking for new window ${wid} (path match)`);
-        // On cold start no focus event has arrived yet, so pushWebviewState
-        // can't resolve a windowId and skips the popup visibility override.
-        // Prime lastV4FocusedWindowId so the overlay renders immediately.
         if (!this.lastV4FocusedWindowId) {
           this.lastV4FocusedWindowId = wid;
         }
         this.setDockRight(wid, true);
+        // On cold start the webview-manager or Word's focus event may not be
+        // ready yet. Re-push after short delays so the overlay appears as
+        // soon as either becomes available.
+        setTimeout(() => this.pushWebviewState(), 500);
+        setTimeout(() => this.pushWebviewState(), 1500);
       }
       logToWindowMonitorDb('window_monitor_state', newState);
 
