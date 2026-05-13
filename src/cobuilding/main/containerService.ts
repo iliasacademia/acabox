@@ -108,6 +108,47 @@ function writeImageSource(source: ImageSource): void {
   fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
+type MemoryLimit = '2g' | '4g' | '6g' | '8g';
+const VALID_MEMORY_LIMITS: MemoryLimit[] = ['2g', '4g', '6g', '8g'];
+const DEFAULT_MEMORY_LIMIT: MemoryLimit = '2g';
+
+function readMemoryLimit(): MemoryLimit {
+  try {
+    const data = JSON.parse(fs.readFileSync(getSettingsPath(), 'utf-8'));
+    if (VALID_MEMORY_LIMITS.includes(data.memoryLimit)) return data.memoryLimit;
+  } catch { /* default */ }
+  return DEFAULT_MEMORY_LIMIT;
+}
+
+function writeMemoryLimit(limit: MemoryLimit): void {
+  const settingsPath = getSettingsPath();
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+  } catch { /* File doesn't exist yet */ }
+  data.memoryLimit = limit;
+  fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2), 'utf-8');
+}
+
+function memoryLimitMB(limit: MemoryLimit): number {
+  return parseInt(limit) * 1024;
+}
+
+function nodeHeapMB(limit: MemoryLimit): number {
+  const totalMB = memoryLimitMB(limit);
+  return Math.round(totalMB * 0.75);
+}
+
+function oomWarningMB(limit: MemoryLimit): number {
+  const totalMB = memoryLimitMB(limit);
+  return Math.round(totalMB * 0.8);
+}
+
+function tmpfsSizeGB(limit: MemoryLimit): number {
+  const gb = parseInt(limit);
+  return Math.max(1, Math.floor(gb / 2));
+}
+
 class CobuildingContainerService {
   private containerStarted = false;
   private isStarting = false;
@@ -467,6 +508,46 @@ class CobuildingContainerService {
     log.debug(`[ContainerService] Image source set to: ${source}`);
   }
 
+  // ─── Memory Limit ─────────────────────────────────────────────
+
+  getMemoryLimit(): MemoryLimit {
+    return readMemoryLimit();
+  }
+
+  async setMemoryLimit(limit: MemoryLimit): Promise<void> {
+    if (!VALID_MEMORY_LIMITS.includes(limit)) {
+      throw new Error(`Invalid memory limit: ${limit}. Must be one of: ${VALID_MEMORY_LIMITS.join(', ')}`);
+    }
+    const previous = readMemoryLimit();
+    writeMemoryLimit(limit);
+    log.info(`[ContainerService] Memory limit changed: ${previous} → ${limit}`);
+
+    const podmanBin = this.getPodmanBinIfExists();
+    if (!podmanBin) return;
+    const env = this.getExecEnv();
+
+    const wasRunning = this.isRunning();
+    if (wasRunning) {
+      log.info('[ContainerService] Stopping container for memory change...');
+      this.stop();
+    }
+
+    const machineUp = await this.isMachineRunning(podmanBin, env);
+    if (machineUp) {
+      log.info('[ContainerService] Stopping VM to apply new memory limit...');
+      await this.spawnAndWait(podmanBin, ['machine', 'stop'], env, 'machine stop');
+    }
+
+    log.info(`[ContainerService] Setting VM memory to ${memoryLimitMB(limit)}MB...`);
+    await this.spawnAndWait(podmanBin, [
+      'machine', 'set', '--memory', String(memoryLimitMB(limit)),
+    ], env, 'machine set memory');
+
+    log.info('[ContainerService] Starting VM with new memory limit...');
+    await this.spawnAndWait(podmanBin, ['machine', 'start'], env, 'machine start');
+    await this.waitForSocket(podmanBin, env, 10, 2000);
+  }
+
   getBundledBinaryStatus(): { downloaded: boolean; binDir: string } {
     const binDir = getBundledPodmanBinDir();
     const binaries = process.platform === 'win32'
@@ -663,7 +744,7 @@ class CobuildingContainerService {
       'exec',
       '-e', 'COBUILDING_INSIDE_CONTAINER=1',
       CONTAINER_NAME,
-      'node', '--max-old-space-size=1536', '/data/.academia/agent-server.js',
+      'node', `--max-old-space-size=${nodeHeapMB(readMemoryLimit())}`, '/data/.academia/agent-server.js',
     ], { env, stdio: ['ignore', 'pipe', 'pipe'] });
     this.agentServerProc = proc;
 
@@ -742,8 +823,9 @@ class CobuildingContainerService {
         }
         if (procs.length > 0) {
           log.info(`[Container:Memory] total=${totalMB}MB | ${procs.join(', ')}`);
-          if (totalMB > 1600) {
-            log.warn(`[Container:Memory] Usage above 1.6GB (${totalMB}MB) — OOM risk`);
+          const warnThreshold = oomWarningMB(readMemoryLimit());
+          if (totalMB > warnThreshold) {
+            log.warn(`[Container:Memory] Usage above ${warnThreshold}MB (${totalMB}MB) — OOM risk`);
           }
         }
       } catch { /* container not running */ }
@@ -1140,9 +1222,12 @@ class CobuildingContainerService {
 
     const initialized = await this.isMachineInitialized(podmanBin, env);
     if (!initialized) {
+      const memLimit = readMemoryLimit();
       onProgress?.('init', 'Initializing Podman VM (first-time setup)...');
-      log.debug('[ContainerService] Machine not initialized, running podman machine init...');
-      await this.spawnAndWait(podmanBin, ['machine', 'init', '--user-mode-networking'], env, 'machine init');
+      log.debug(`[ContainerService] Machine not initialized, running podman machine init (memory=${memLimit})...`);
+      await this.spawnAndWait(podmanBin, [
+        'machine', 'init', '--user-mode-networking', '--memory', String(memoryLimitMB(memLimit)),
+      ], env, 'machine init');
     }
 
     const running = await this.isMachineRunning(podmanBin, env);
@@ -1680,12 +1765,13 @@ class CobuildingContainerService {
     const useImage = imageName || IMAGE_NAME;
     const useOverlay = process.env.OVERLAYFS_ENABLED === '1' && process.platform === 'darwin';
     this.overlayEnabled = useOverlay;
+    const memLimit = readMemoryLimit();
 
     const args = useOverlay ? [
       'run', '-d',
       '--replace',
       '--privileged',
-      '--memory=2g',
+      `--memory=${memLimit}`,
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data-host`,
       '-p', `${agentHostPort}:8080`,
@@ -1693,7 +1779,7 @@ class CobuildingContainerService {
       'sh', '-c',
       // The container rootfs is itself overlay (podman storage driver), so
       // upper/work dirs can't live on it. Mount a tmpfs first.
-      'mount -t tmpfs tmpfs /tmp -o size=1G && ' +
+      `mount -t tmpfs tmpfs /tmp -o size=${tmpfsSizeGB(memLimit)}G && ` +
       'mkdir -p /tmp/overlay-upper /tmp/overlay-work && ' +
       'mount -t overlay overlay -o lowerdir=/data-host,upperdir=/tmp/overlay-upper,workdir=/tmp/overlay-work /data && ' +
       '(command -v rsync >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq rsync >/dev/null 2>&1)) && ' +
@@ -1701,7 +1787,7 @@ class CobuildingContainerService {
     ] : [
       'run', '-d',
       '--replace',
-      '--memory=2g',
+      `--memory=${memLimit}`,
       '--name', CONTAINER_NAME,
       '-v', `${mountPath}:/data`,
       '-p', `${agentHostPort}:8080`,

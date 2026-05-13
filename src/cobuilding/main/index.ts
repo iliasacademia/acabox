@@ -1979,6 +1979,14 @@ ipcMain.handle('container:setImageSource', (_event, source: string) => {
   containerService.setImageSource(source as 'registry' | 'local');
 });
 
+ipcMain.handle('container:getMemoryLimit', () => {
+  return containerService.getMemoryLimit();
+});
+
+ipcMain.handle('container:setMemoryLimit', async (_event, limit: string) => {
+  await containerService.setMemoryLimit(limit as '2g' | '4g' | '6g' | '8g');
+});
+
 ipcMain.handle('settings:getMaxAttachmentSizeMB', () => {
   return getMaxAttachmentSizeMB();
 });
