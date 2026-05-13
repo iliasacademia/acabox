@@ -217,6 +217,8 @@ contextBridge.exposeInMainWorld('debugAPI', {
   syncOverlay: () => ipcRenderer.invoke('debug:syncOverlay'),
   isOverlayEnabled: () => ipcRenderer.invoke('debug:isOverlayEnabled'),
   log: (msg: string) => ipcRenderer.invoke('debug:log', msg),
+  listVMs: () => ipcRenderer.invoke('debug:listVMs'),
+  stopVM: (source: string) => ipcRenderer.invoke('debug:stopVM', source),
 });
 
 contextBridge.exposeInMainWorld('calendarAPI', {

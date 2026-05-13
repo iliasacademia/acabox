@@ -5,7 +5,8 @@ import * as os from 'os';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
 import log from 'electron-log';
-import { getAllPodmanDataPaths } from '../podmanBinaries';
+import { execFile } from 'child_process';
+import { getAllPodmanDataPaths, getBundledPodmanBinIfExists, getBundledPodmanEnv } from '../podmanBinaries';
 import { getDatabase } from '../db/database';
 import { getObservationsDatabase } from '../db/observationsDatabase';
 import { getSchedulingDatabase } from '../db/schedulingDatabase';
@@ -550,5 +551,132 @@ export function registerDebugHandlers() {
 
     log.warn('[Debug] Hard reset workspace:', workspace.id, workspace.name);
     return { ok: true };
+  });
+
+  // ─── Podman VM Management ────────────────────────────────────────
+
+  function getVMEnvironments(): { source: string; env: NodeJS.ProcessEnv }[] {
+    const cobuildEnv = getBundledPodmanEnv();
+    const userData = app.getPath('userData');
+    const podmanBinDir = path.join(userData, 'cobuilding-podman-bin');
+
+    const envs: { source: string; env: NodeJS.ProcessEnv }[] = [];
+
+    // Cobuilding (current build — dev or prod depending on app.isPackaged)
+    envs.push({ source: app.isPackaged ? 'Cobuilding' : 'Cobuilding (dev)', env: cobuildEnv });
+
+    // Cobuilding (the other variant — prod if we're dev, dev if we're prod)
+    const otherHome = path.join(os.homedir(), app.isPackaged ? '.cobuild-podman-dev' : '.cobuild-podman');
+    const otherRun = path.join(os.tmpdir(), app.isPackaged ? 'cobuild-podman-run-dev' : 'cobuild-podman-run');
+    if (fs.existsSync(otherHome)) {
+      envs.push({
+        source: app.isPackaged ? 'Cobuilding (dev)' : 'Cobuilding',
+        env: { ...cobuildEnv, HOME: otherHome, XDG_RUNTIME_DIR: otherRun },
+      });
+    }
+
+    // Writing agent
+    const waDataDir = path.join(userData, 'podman-data');
+    if (fs.existsSync(waDataDir)) {
+      envs.push({
+        source: 'Writing Agent',
+        env: {
+          ...process.env,
+          PATH: `${podmanBinDir}${path.delimiter}${process.env.PATH}`,
+          CONTAINERS_MACHINE_PROVIDER: 'applehv',
+          XDG_CONFIG_HOME: path.join(waDataDir, 'config'),
+          XDG_DATA_HOME: path.join(waDataDir, 'data'),
+          XDG_RUNTIME_DIR: path.join(waDataDir, 'run'),
+        },
+      });
+    }
+
+    return envs;
+  }
+
+  function execPodman(args: string[], env: NodeJS.ProcessEnv): Promise<string> {
+    const bin = getBundledPodmanBinIfExists();
+    if (!bin) return Promise.reject(new Error('No podman binary'));
+    return new Promise((resolve, reject) => {
+      execFile(bin, args, { env, timeout: 15000 }, (err, stdout) => {
+        if (err) reject(err);
+        else resolve(stdout);
+      });
+    });
+  }
+
+  ipcMain.handle('debug:listVMs', async () => {
+    // Get PIDs of actually running vfkit processes to cross-check against
+    // podman's state files, which can be stale after force-kills.
+    let vfkitPids: Set<number> = new Set();
+    try {
+      const { stdout: psOut } = await new Promise<{ stdout: string }>((resolve, reject) => {
+        execFile('pgrep', ['-f', 'vfkit'], (err, stdout) => {
+          if (err) resolve({ stdout: '' });
+          else resolve({ stdout });
+        });
+      });
+      for (const line of psOut.trim().split('\n').filter(Boolean)) {
+        const pid = parseInt(line, 10);
+        if (!isNaN(pid)) vfkitPids.add(pid);
+      }
+    } catch { /* pgrep not available */ }
+
+    const results: { source: string; name: string; running: boolean }[] = [];
+    for (const { source, env } of getVMEnvironments()) {
+      try {
+        const stdout = await execPodman(['machine', 'list', '--format', 'json'], env);
+        const machines = JSON.parse(stdout);
+        if (Array.isArray(machines)) {
+          for (const m of machines) {
+            let actuallyRunning = false;
+            if (m.Running === true) {
+              const pid = typeof m.VMPid === 'number' ? m.VMPid : null;
+              if (pid) {
+                actuallyRunning = vfkitPids.has(pid);
+              } else {
+                // No VMPid in state — probe via SSH to check if VM is alive
+                try {
+                  await execPodman(['machine', 'ssh', '--', 'true'], env);
+                  actuallyRunning = true;
+                } catch {
+                  actuallyRunning = false;
+                }
+              }
+            }
+            results.push({
+              source,
+              name: m.Name ?? 'default',
+              running: actuallyRunning,
+            });
+          }
+        }
+      } catch { /* env not initialized or binary missing */ }
+    }
+    return results;
+  });
+
+  ipcMain.handle('debug:stopVM', async (_event: unknown, source: string) => {
+    const match = getVMEnvironments().find((e) => e.source === source);
+    if (!match) return { ok: false, error: `Unknown VM source: ${source}` };
+    try {
+      // Use `machine ssh -- sudo poweroff` instead of `machine stop`.
+      // `machine stop` causes an 18GB+ memory spike in the podman client
+      // due to post-shutdown state processing (applehv provider issue).
+      // SSH poweroff triggers a clean guest shutdown (filesystem sync,
+      // services stopped) and vfkit exits on its own once the guest halts.
+      await execPodman(['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], match.env);
+      log.info(`[Debug] Sent poweroff to VM for ${source}`);
+      return { ok: true };
+    } catch (err) {
+      const msg = (err as Error).message;
+      // Exit code 255 is expected — SSH connection closes when the VM shuts down
+      if (msg.includes('exit code 255') || msg.includes('closed by remote host')) {
+        log.info(`[Debug] VM for ${source} is shutting down`);
+        return { ok: true };
+      }
+      log.error(`[Debug] Failed to stop VM for ${source}:`, msg);
+      return { ok: false, error: msg };
+    }
   });
 }

@@ -262,6 +262,7 @@ class CobuildingContainerService {
       return;
     }
 
+    this.stoppingContainer = true;
     log.debug('[ContainerService] Stopping container...');
 
     // Kill host-side podman-exec wrappers up front so they don't outlive
@@ -290,25 +291,29 @@ class CobuildingContainerService {
       }
     }
 
+    // Send VM poweroff BEFORE stopping the container — stopping the container
+    // first disrupts the VM's init system, causing systemctl poweroff to silently
+    // fail even though SSH returns exit 0.
     try {
-      execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], { env, timeout: 10000 });
+      execFileSync(podmanBin, ['machine', 'ssh', '--', 'sudo', 'systemctl', 'poweroff'], { env, timeout: 10000 });
+      log.debug('[ContainerService] VM poweroff sent');
+    } catch (err) {
+      // Exit code 255 is expected (SSH connection closes when VM shuts down)
+      log.debug(`[ContainerService] VM poweroff result: ${(err as Error).message}`);
+    }
+
+    try {
+      execFileSync(podmanBin, ['stop', '-t', '3', CONTAINER_NAME], { env, timeout: 10000, stdio: 'ignore' });
       log.debug('[ContainerService] Container stopped');
     } catch {
       log.debug('[ContainerService] Container was not running or already stopped');
     }
 
     try {
-      execFileSync(podmanBin, ['rm', '-f', CONTAINER_NAME], { env, timeout: 5000 });
+      execFileSync(podmanBin, ['rm', '-f', CONTAINER_NAME], { env, timeout: 5000, stdio: 'ignore' });
       log.debug('[ContainerService] Container removed');
     } catch {
       // Already removed
-    }
-
-    try {
-      execFileSync(podmanBin, ['machine', 'stop'], { env, timeout: 15000 });
-      log.debug('[ContainerService] Podman VM stopped');
-    } catch {
-      log.debug('[ContainerService] Podman VM was not running or already stopped');
     }
 
     this.containerStarted = false;
