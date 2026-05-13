@@ -310,6 +310,8 @@ export class WindowMonitorService {
   private authToken: string | null = null;
   // File paths for which the popup should auto-open when the window is first detected
   private pendingAutoOpenPaths: Set<string> = new Set();
+  // File paths that should auto-dock (66/33 split) when the window is first detected
+  private pendingDockPaths: Set<string> = new Set();
   // Cobuilding workspace directory — when set, documents within this directory
   // are treated as workspace files and the overlay shows workspace sessions.
   private workspaceDirectory: string | null = null;
@@ -559,23 +561,33 @@ export class WindowMonitorService {
       const oldMap = getWindowDocumentPathMap(this.state);
       const newMap = getWindowDocumentPathMap(newState);
       let documentPathMappingChanged = false;
+      const pendingDockWindows: string[] = [];
       for (const [wid, docPath] of newMap) {
         if (oldMap.get(wid) !== docPath) {
           documentPathMappingChanged = true;
-          // Auto-open popup if this window's document was scheduled for auto-open
-          if (docPath && this.pendingAutoOpenPaths.size > 0) {
+          if (docPath) {
             const normalizedDocPath = docPath.startsWith('file://')
               ? decodeURIComponent(docPath.slice(7))
               : docPath;
+            // Auto-open popup if this window's document was scheduled for auto-open
             if (this.pendingAutoOpenPaths.has(normalizedDocPath)) {
               this.pendingAutoOpenPaths.delete(normalizedDocPath);
               logger.info(`[WindowMonitor] Auto-opening popup for new window ${wid} (path match)`);
               this.popupToggledOpen.add(wid);
             }
+            if (this.pendingDockPaths.has(normalizedDocPath)) {
+              this.pendingDockPaths.delete(normalizedDocPath);
+              pendingDockWindows.push(wid);
+            }
           }
         }
       }
       this.state = newState;
+
+      for (const wid of pendingDockWindows) {
+        logger.info(`[WindowMonitor] Auto-docking for new window ${wid} (path match)`);
+        this.setDockRight(wid, true);
+      }
       logToWindowMonitorDb('window_monitor_state', newState);
 
       // Track activity sessions
@@ -1412,30 +1424,21 @@ export class WindowMonitorService {
   }
 
   /**
-   * Polls for the window of a freshly-opened document (e.g. just told `open`
-   * to launch a docx in Word) and snaps the overlay to the right once the
-   * window monitor sees it. Used by surfaces that open a document and want
-   * the 66/33 split set up automatically.
+   * Docks the overlay to the right of the window showing the given document.
+   * If the window is already tracked, docks immediately. Otherwise registers
+   * the path so docking happens the instant the window monitor detects it —
+   * no polling delay.
    */
   setDockRightForDocument(documentPath: string, docked: boolean): void {
-    const POLL_MS = 250;
-    const TIMEOUT_MS = 15_000;
-    const startedAt = Date.now();
-    const tryDock = () => {
-      const wid = this.getWindowIdForDocumentPath(documentPath);
-      if (wid) {
-        this.setDockRight(wid, docked);
-        return;
-      }
-      if (Date.now() - startedAt >= TIMEOUT_MS) {
-        logger.warn(
-          `[WindowMonitor] setDockRightForDocument: timed out waiting for window for ${documentPath}`,
-        );
-        return;
-      }
-      setTimeout(tryDock, POLL_MS);
-    };
-    tryDock();
+    const wid = this.getWindowIdForDocumentPath(documentPath);
+    if (wid) {
+      this.setDockRight(wid, docked);
+      return;
+    }
+    if (docked) {
+      this.pendingDockPaths.add(documentPath);
+      logger.info(`[WindowMonitor] Scheduling auto-dock for path: ${documentPath}`);
+    }
   }
 
   toggleDockRight(windowId: string): void {
@@ -1641,6 +1644,7 @@ export class WindowMonitorService {
     this.reviewInputOpen.clear();
     this.reviewErrorMessages.clear();
     this.pendingAutoOpenPaths.clear();
+    this.pendingDockPaths.clear();
     this.lastAppleNotesPath = null;
     this.lastGoogleDocsPath = null;
     this.lastGoogleDocsTitle = null;
