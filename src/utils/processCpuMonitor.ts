@@ -106,5 +106,3 @@ class ProcessCpuMonitor {
 }
 
 export const processCpuMonitor = new ProcessCpuMonitor();
-log.info('[ProcessCPU] Calling start() from module init');
-processCpuMonitor.start();

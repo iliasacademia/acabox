@@ -416,6 +416,7 @@ declare global {
       podmanPaths: DataPathInfo[];
     }>;
     clearSelected(ids: string[]): Promise<{ cleared: string[]; errors: string[] }>;
+    exportLogs(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean }>;
     exportWorkspace(): Promise<{ ok: boolean; savedPath?: string; canceled?: boolean; error?: string }>;
     importWorkspace(): Promise<{ ok: boolean; workspaceName?: string; workspaceDir?: string; workspaceId?: string; canceled?: boolean; error?: string }>;
     hardResetWorkspace(): Promise<{ ok: boolean; error?: string }>;
