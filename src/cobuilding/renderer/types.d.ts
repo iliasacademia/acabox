@@ -92,8 +92,6 @@ interface ContainerAPI {
   setBinaryMode(mode: 'system' | 'bundled'): Promise<void>;
   getImageSource(): Promise<'registry' | 'local'>;
   setImageSource(source: 'registry' | 'local'): Promise<void>;
-  getMemoryLimit(): Promise<'2g' | '4g' | '6g' | '8g'>;
-  setMemoryLimit(limit: '2g' | '4g' | '6g' | '8g'): Promise<void>;
   getBundledStatus(): Promise<{ downloaded: boolean; binDir: string }>;
   downloadBinaries(): Promise<void>;
   deleteBinaries(): Promise<void>;

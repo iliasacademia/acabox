@@ -110,8 +110,6 @@ contextBridge.exposeInMainWorld('containerAPI', {
   setBinaryMode: (mode: string) => ipcRenderer.invoke('container:setBinaryMode', mode),
   getImageSource: () => ipcRenderer.invoke('container:getImageSource'),
   setImageSource: (source: string) => ipcRenderer.invoke('container:setImageSource', source),
-  getMemoryLimit: () => ipcRenderer.invoke('container:getMemoryLimit'),
-  setMemoryLimit: (limit: string) => ipcRenderer.invoke('container:setMemoryLimit', limit),
   getBundledStatus: () => ipcRenderer.invoke('container:getBundledStatus'),
   downloadBinaries: () => ipcRenderer.invoke('container:downloadBinaries'),
   deleteBinaries: () => ipcRenderer.invoke('container:deleteBinaries'),
