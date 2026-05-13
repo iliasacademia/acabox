@@ -527,6 +527,7 @@ class CobuildingContainerService {
     const env = this.getExecEnv();
 
     const wasRunning = this.isRunning();
+    const previousWorkspacePath = this.currentWorkspacePath;
     if (wasRunning) {
       log.info('[ContainerService] Stopping container for memory change...');
       this.stop();
@@ -546,6 +547,11 @@ class CobuildingContainerService {
     log.info('[ContainerService] Starting VM with new memory limit...');
     await this.spawnAndWait(podmanBin, ['machine', 'start'], env, 'machine start');
     await this.waitForSocket(podmanBin, env, 10, 2000);
+
+    if (wasRunning && previousWorkspacePath) {
+      log.info('[ContainerService] Restarting container after memory change...');
+      await this.start(previousWorkspacePath);
+    }
   }
 
   getBundledBinaryStatus(): { downloaded: boolean; binDir: string } {
