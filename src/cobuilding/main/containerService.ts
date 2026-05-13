@@ -548,6 +548,9 @@ class CobuildingContainerService {
     await this.spawnAndWait(podmanBin, ['machine', 'start'], env, 'machine start');
     await this.waitForSocket(podmanBin, env, 10, 2000);
 
+    log.info('[ContainerService] Migrating storage after VM reconfiguration...');
+    await this.spawnAndWait(podmanBin, ['system', 'migrate'], env, 'system migrate');
+
     if (wasRunning && previousWorkspacePath) {
       log.info('[ContainerService] Restarting container after memory change...');
       await this.start(previousWorkspacePath);
