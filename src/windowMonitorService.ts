@@ -1386,6 +1386,31 @@ export class WindowMonitorService {
     }
   }
 
+  private pendingNavigateSession: { sessionId: string; nonce: string; createdMs: number } | null = null;
+
+  setPendingNavigateSession(sessionId: string): void {
+    const nonce = randomUUID();
+    this.pendingNavigateSession = { sessionId, nonce, createdMs: Date.now() };
+    logger.info(`[WindowMonitor] Stored pending navigate to session ${sessionId} (nonce=${nonce})`);
+    wordPollEventBus.emit('change', 'webview-visibility-changed');
+  }
+
+  consumePendingNavigateSession(): { sessionId: string; nonce: string } | null {
+    if (!this.pendingNavigateSession) return null;
+    const TTL_MS = 30_000;
+    if (Date.now() - this.pendingNavigateSession.createdMs > TTL_MS) {
+      this.pendingNavigateSession = null;
+      return null;
+    }
+    return { sessionId: this.pendingNavigateSession.sessionId, nonce: this.pendingNavigateSession.nonce };
+  }
+
+  clearPendingNavigateSession(nonce: string): void {
+    if (this.pendingNavigateSession && this.pendingNavigateSession.nonce === nonce) {
+      this.pendingNavigateSession = null;
+    }
+  }
+
   /**
    * Polls for the window of a freshly-opened document (e.g. just told `open`
    * to launch a docx in Word) and snaps the overlay to the right once the

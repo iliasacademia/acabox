@@ -174,6 +174,7 @@ export function buildWordPollResponseV2(
       // Consume any pending kickoff prompt set by the desktop side; included
       // exactly once so the popup can start a chat with this text pre-sent.
       const pendingKickoff = windowMonitorService.consumePendingKickoffForDocument(documentPath);
+      const pendingNavigate = windowMonitorService.consumePendingNavigateSession();
       return {
         isInWorkspace: true,
         workspaceSessions: sessions,
@@ -194,6 +195,12 @@ export function buildWordPollResponseV2(
               ...(pendingKickoff.prompt !== null
                 ? { pendingKickoffPrompt: pendingKickoff.prompt }
                 : {}),
+            }
+          : {}),
+        ...(pendingNavigate
+          ? {
+              pendingNavigateSessionId: pendingNavigate.sessionId,
+              pendingNavigateNonce: pendingNavigate.nonce,
             }
           : {}),
       };

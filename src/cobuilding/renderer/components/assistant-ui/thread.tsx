@@ -115,6 +115,9 @@ const ThreadDocumentHeader: FC = () => {
     if (!(await ensureAccessibilityPermission())) return;
     const fileUrl = documentPath.startsWith('file://') ? documentPath : `file://${documentPath}`;
     window.fileMonitorAPI.openFile(fileUrl, 'com.microsoft.Word');
+    if (remoteId) {
+      window.fileMonitorAPI.navigateOverlayToSession(remoteId);
+    }
     window.fileMonitorAPI.setDockRightForDocument(documentPath, true);
   };
 

@@ -1045,6 +1045,9 @@ app.whenReady().then(async () => {
             } else if (action === 'clearKickoff') {
               const kickoffId = typeof payload.kickoffId === 'string' ? payload.kickoffId : '';
               if (kickoffId) windowMonitorService.clearPendingKickoff(kickoffId);
+            } else if (action === 'clearNavigateSession') {
+              const nonce = typeof payload.nonce === 'string' ? payload.nonce : '';
+              if (nonce) windowMonitorService.clearPendingNavigateSession(nonce);
             }
             return { success: true };
           });
@@ -2253,6 +2256,10 @@ ipcMain.handle('windowMonitor:setDockRightForDocument', (_event, documentPath: s
 
 ipcMain.handle('windowMonitor:setOverlayKickoffForDocument', (_event, documentPath: string, prompt: string) => {
   windowMonitorService.setPendingKickoffForDocument(documentPath, prompt);
+});
+
+ipcMain.handle('windowMonitor:navigateOverlayToSession', (_event, sessionId: string) => {
+  windowMonitorService.setPendingNavigateSession(sessionId);
 });
 
 ipcMain.handle('windowMonitor:requestNewOverlayChatForDocument', (_event, documentPath: string) => {

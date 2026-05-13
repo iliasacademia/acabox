@@ -200,6 +200,8 @@ contextBridge.exposeInMainWorld('fileMonitorAPI', {
     ipcRenderer.invoke('windowMonitor:setOverlayKickoffForDocument', documentPath, prompt),
   requestNewOverlayChatForDocument: (documentPath: string) =>
     ipcRenderer.invoke('windowMonitor:requestNewOverlayChatForDocument', documentPath),
+  navigateOverlayToSession: (sessionId: string) =>
+    ipcRenderer.invoke('windowMonitor:navigateOverlayToSession', sessionId),
 });
 
 contextBridge.exposeInMainWorld('observationsAPI', {

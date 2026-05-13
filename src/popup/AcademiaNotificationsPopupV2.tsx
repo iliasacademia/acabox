@@ -140,6 +140,7 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
   // that carry the same id. Dedup by id (not prompt text) so a repeat click
   // with identical prompt text still forces a new chat.
   const lastFiredKickoffRef = useRef<string | null>(null);
+  const lastNavigateNonceRef = useRef<string | null>(null);
 
   // Animate popup size (width and/or height) over ~250ms with ease-out
   const animateSize = (fromWidth: number, toWidth: number, fromHeight: number, toHeight: number, onDone?: () => void) => {
@@ -257,6 +258,19 @@ const AcademiaNotificationsPopupV2: React.FC = () => {
       setActiveSession({ id: newSessionId, title: 'New Conversation' });
       setShowingList(false);
       postBridge('clearKickoff', { kickoffId: incomingId }).catch(() => {});
+    }
+
+    // Navigate to an existing session (e.g. user clicked "Open in Word" on a
+    // desktop chat that has a document_path). Takes priority over auto-open
+    // but not over a fresh kickoff.
+    const navSessionId = pollData.pendingNavigateSessionId;
+    const navNonce = pollData.pendingNavigateNonce;
+    if (!kickoffHandled && navNonce && navNonce !== lastNavigateNonceRef.current) {
+      lastNavigateNonceRef.current = navNonce;
+      console.log('[AcademiaNotificationsPopupV2] Navigate to session', navSessionId);
+      setActiveSession({ id: navSessionId!, title: '' });
+      setShowingList(false);
+      postBridge('clearNavigateSession', { nonce: navNonce }).catch(() => {});
     }
 
     // Auto-open a brand-new session for this document. Triggered when the
