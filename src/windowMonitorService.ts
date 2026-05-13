@@ -590,11 +590,6 @@ export class WindowMonitorService {
           this.lastV4FocusedWindowId = wid;
         }
         this.setDockRight(wid, true);
-        // On cold start the webview-manager or Word's focus event may not be
-        // ready yet. Re-push after short delays so the overlay appears as
-        // soon as either becomes available.
-        setTimeout(() => this.pushWebviewState(), 500);
-        setTimeout(() => this.pushWebviewState(), 1500);
       }
       logToWindowMonitorDb('window_monitor_state', newState);
 
@@ -714,6 +709,12 @@ export class WindowMonitorService {
 
     const focused = getFocusedWindowInfo(this.state);
     let windowId = focused?.window.id ?? null;
+
+    // If no focused window but we explicitly docked one, use it — handles
+    // cold start where the focus event hasn't arrived yet.
+    if (!windowId && this.dockedRightWindows.size > 0) {
+      windowId = [...this.dockedRightWindows][0];
+    }
 
     // In cobuilding mode, keep the open chat panel visible when Word loses focus
     // by reusing its last desired state. Drops to normal window level
